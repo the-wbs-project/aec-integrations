@@ -27,7 +27,6 @@ export const VendorListItemSchema = z.object({
   slug: z.string().min(1),
   company_name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
   product_count: z.number().int().min(0),
@@ -60,23 +59,22 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   instagram_url: z.string().url().nullable(),
   youtube_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
-  // The maintenance marker's inputs (AECI-616) — see `MaintenanceSchema`. Distinct
-  // from `verified` (inherited from `VendorListItem`): that is an AECi-verified vendor
-  // ACCOUNT, this is who maintains the catalog record.
+  // The maintenance marker's inputs (AECI-616) — see `MaintenanceSchema`. Who
+  // maintains the catalog record, not whether the vendor holds a plan: the plan
+  // mirror is never public (AECI-1266, see `VendorLinkSchema`).
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
 });
 
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 /**
- * Query for `GET /api/vendors`. `verified` uses `z.coerce.boolean()` so
- * `?verified=true` (a string) parses correctly when the API Worker hands the
- * raw `URLSearchParams` to Zod.
+ * Query for `GET /api/vendors`. There is no `verified` filter (AECI-1266): it
+ * let anyone list the vendors on a paid plan. A stale `?verified=` param is not
+ * rejected. Zod strips it and the caller gets the unfiltered list.
  */
 export const VendorsListQuerySchema = PageQuerySchema.extend({
   sort: VendorSortSchema,
   search: z.string().optional(),
-  verified: z.coerce.boolean().optional(),
 });
 
 export type VendorsListQuery = z.infer<typeof VendorsListQuerySchema>;

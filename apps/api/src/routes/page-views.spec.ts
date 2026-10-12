@@ -10,11 +10,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import {
   pageViews,
   products,
+  productVendors,
   profiles,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
   taxonomyTrades,
+  vendors,
 } from '../db/schema';
 import { makeTestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -582,6 +584,130 @@ describe('pair-page attribution (AECI-929 / §13 D25)', () => {
     select.mockRestore();
     const row = await onlyRow();
     expect([row.pairProductAId, row.pairProductBId]).toEqual([null, null]);
+  });
+});
+
+describe('is_owner_visit (AECI-934 / §13 D26)', () => {
+  const SUPABASE_URL = 'https://test-project.supabase.co';
+  const VENDOR_ADMIN_ID = '00000000-0000-4000-8000-0000000000a1';
+  const ADMIN_ID = '00000000-0000-4000-8000-00000000ad11';
+  const OURS = u(101);
+  const THEIRS = u(102);
+  const PAIR_ROUTE = '/products/:contextSlug/integrations/:otherSlug';
+
+  let jwks: Awaited<ReturnType<typeof makeTestJwks>>;
+  beforeAll(async () => {
+    jwks = await makeTestJwks();
+  });
+
+  beforeEach(async () => {
+    await t.db.insert(vendors).values([
+      { id: OURS, slug: 'ours', companyName: 'Ours' },
+      { id: THEIRS, slug: 'theirs', companyName: 'Theirs' },
+    ]);
+    await t.db.insert(products).values([
+      { id: u(1), slug: 'ours-app', name: 'Ours App', promotionStatus: 'promoted' },
+      { id: u(2), slug: 'theirs-app', name: 'Theirs App', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: u(1), vendorId: OURS, isPrimary: true },
+      { productId: u(2), vendorId: THEIRS, isPrimary: true },
+    ]);
+    await t.db.insert(profiles).values([
+      { id: VENDOR_ADMIN_ID, role: 'vendor_admin', vendorId: OURS },
+      { id: ADMIN_ID, role: 'admin' },
+    ]);
+  });
+
+  /** `post()` with the offline-JWKS seam, `SUPABASE_URL`, and the browser
+   *  session cookie, which is how both the SPA POST and the forwarded arrival
+   *  carry the session. */
+  async function postAs(sub: string | null, body: Record<string, unknown>) {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (sub) {
+      const token = await jwks.mintToken({ sub, supabaseUrl: SUPABASE_URL });
+      headers.cookie = `sb-test-auth-token=base64-${btoa(JSON.stringify({ access_token: token }))}`;
+    }
+    const app = buildAppWithHandler({
+      method: 'post',
+      path: '/api/page-views',
+      handler: createPageViewsHandler(t.factory, { getKey: jwks.getKey }),
+    });
+    const { ctx, settle } = settlingCtx();
+    const res = await app.request(
+      '/api/page-views',
+      { method: 'POST', body: JSON.stringify(body), headers },
+      { ...TEST_ENV, SUPABASE_URL },
+      ctx,
+    );
+    expect(res.status).toBe(204);
+    await settle();
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  }
+
+  it('flags an SSR arrival at the vendor’s own product page', async () => {
+    const row = await postAs(VENDOR_ADMIN_ID, {
+      route: '/products/:slug',
+      path: '/products/ours-app',
+      navigation: 'arrival',
+      entity_type: 'product',
+      entity_id: u(1),
+    });
+    expect(row.isOwnerVisit).toBe(true);
+    expect(row.isOperator).toBe(false);
+  });
+
+  it('flags an SPA hop to the vendor’s own product page, which sends only the route', async () => {
+    const row = await postAs(VENDOR_ADMIN_ID, { route: '/products/ours-app', navigation: 'spa' });
+    expect(row.isOwnerVisit).toBe(true);
+    // Only the flag reads the path: product attribution is unchanged.
+    expect(row.productId).toBeNull();
+  });
+
+  it('flags the vendor’s own vendor page', async () => {
+    const row = await postAs(VENDOR_ADMIN_ID, {
+      route: '/vendors/:slug',
+      path: '/vendors/ours',
+      entity_type: 'vendor',
+      entity_id: OURS,
+    });
+    expect(row.isOwnerVisit).toBe(true);
+  });
+
+  it.each([
+    ['/products/ours-app/integrations/theirs-app'],
+    ['/products/theirs-app/integrations/ours-app'],
+  ])('flags a pair page with the vendor’s product on either side: %s', async (path) => {
+    const row = await postAs(VENDOR_ADMIN_ID, { route: PAIR_ROUTE, path });
+    expect(row.isOwnerVisit).toBe(true);
+  });
+
+  it('stores false when the vendor admin views another vendor’s page', async () => {
+    const row = await postAs(VENDOR_ADMIN_ID, {
+      route: '/products/:slug',
+      path: '/products/theirs-app',
+      entity_type: 'product',
+      entity_id: u(2),
+    });
+    expect(row.isOwnerVisit).toBe(false);
+  });
+
+  it('stores false for an anonymous view of the same page', async () => {
+    const row = await postAs(null, {
+      route: '/products/:slug',
+      path: '/products/ours-app',
+      entity_type: 'product',
+      entity_id: u(1),
+    });
+    expect(row.isOwnerVisit).toBe(false);
+  });
+
+  it('keeps the operator and the owner flags apart', async () => {
+    const row = await postAs(ADMIN_ID, { route: '/products/ours-app', navigation: 'spa' });
+    expect(row.isOperator).toBe(true);
+    expect(row.isOwnerVisit).toBe(false);
   });
 });
 

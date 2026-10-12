@@ -23,7 +23,7 @@ function item(slug: string, name: string, vendorName: string | null = null): Pro
     logo_url: null,
     product_role: 'application',
     vendor: vendorName
-      ? { id: 'v-' + slug, slug: 'v-' + slug, name: vendorName, logo_url: null, verified: false }
+      ? { id: 'v-' + slug, slug: 'v-' + slug, name: vendorName, logo_url: null }
       : null,
     integration_count: 0,
     review_count: 0,

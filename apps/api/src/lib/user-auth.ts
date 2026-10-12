@@ -100,8 +100,8 @@ export async function verifySupabaseJwt(
  *
  * **This must never be used to authorize anything, and the name is the guard.**
  * There is exactly one legitimate caller — `lib/operator-session.ts`, deciding
- * the `page_views.is_operator` analytics flag — and the distinction that makes
- * it sound is that `is_operator` is not an authorization decision. It grants no
+ * the `page_views.is_operator` and `is_owner_visit` analytics flags — and the
+ * distinction that makes it sound is that neither is an authorization decision. It grants no
  * access, reads no private data and changes no response. It decides whether a
  * row counts as the operator's own traffic in the operator's own analytics
  * (`ADMIN_PANEL_SPEC.md` §13 D13).

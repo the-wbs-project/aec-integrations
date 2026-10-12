@@ -49,7 +49,6 @@ const fixtureResponse: ProductsListResponse = {
         name: 'Procore Technologies',
         slug: 'procore',
         logo_url: null,
-        verified: false,
       },
       integration_count: 12,
       review_count: 3,

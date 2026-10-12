@@ -233,10 +233,10 @@ It contributes **no** entitlement row and emits **no statement naming `vendors`*
 mirror is untouched. That is not an oversight: `STAGE_2_SPEC.md` §8.9 gives a
 pure **connector** vendor a catalogue-maintenance seat and never sells it verification, and
 because `vendors.verified` mirrors off `status = 'active'` rather than `tier`, *any*
-entitlement row would flip the public `verified` mirror. So "a seat but no `verified`" had to be
+entitlement row would flip the `verified` mirror. So "a seat but no `verified`" had to be
 built outside the entitlement table entirely. (This read "light the badge" until AECI-1264
-removed the public badge on 2026-10-09. The mirror still drives the claim button copy and the
-version-diff gate.) The two paths are held apart by
+removed the public badge on 2026-10-09. Since AECI-1266 on 2026-10-12 the mirror is never
+public. It only drives the API's pair version-diff gate.) The two paths are held apart by
 `apps/api/src/routes/vendor-admin-role-writers.spec.ts`, which asserts at the source level
 that `vendor_admin` has exactly two writers (both `lib/` batch builders) and that no module
 composes `provisionSeatStatements` with `activateEntitlementStatements`.
@@ -753,8 +753,10 @@ backwards:
   `assertVerifiedVendor()`, a one-function stand-in that read the
   `vendors.verified` mirror and answered `403 FORBIDDEN`. That stand-in is
   deleted. No authorization decision reads the mirror any more; it survives only
-  for rendering: the claim button copy and the version-diff depth gate. (The
-  public account badge read it too until AECI-1264 removed it on 2026-10-09.) The
+  for the API's pair version-diff depth gate, read off the raw vendor row. No
+  public payload carries it. (The public account badge read it until AECI-1264
+  removed it on 2026-10-09. The claim button copy, the public `verified` field
+  and the web re-gate read it until AECI-1266 removed them on 2026-10-12.) The
   same capability gates the three attestation writes on `/api/vendor/claims*`.
 
 Two rejection cells are deliberate and easy to get wrong:

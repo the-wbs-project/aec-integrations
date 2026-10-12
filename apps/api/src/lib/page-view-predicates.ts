@@ -117,6 +117,23 @@ export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
 export const BOT = eq(pageViews.isBot, true);
 
 /**
+ * Excludes a vendor admin's views of its own listing (`page_views.is_owner_visit`,
+ * AECI-934 / `ADMIN_PANEL_SPEC.md` §13 D26). NULL-safe like every predicate here:
+ * rows written before migration 0068 are NULL and stay counted. Do not "simplify"
+ * this to `is_owner_visit = 0`, which would drop every one of them.
+ *
+ * Deliberately NOT part of {@link NOT_INTERNAL}. A vendor is not the operator, so
+ * the platform-wide figures (digest, `/admin` overview, trending, `metrics_daily`)
+ * keep counting these rows, and `notInternalSql()` in `metrics-backfill.ts` stays
+ * in step without a change. The consumer is the vendor performance report
+ * (`VENDOR_PERFORMANCE_SPEC.md` §2.3 rule 1), which ANDs this with `NOT_INTERNAL`.
+ */
+export const NOT_OWNER_VISIT = or(
+  isNull(pageViews.isOwnerVisit),
+  eq(pageViews.isOwnerVisit, false),
+);
+
+/**
  * How far either side of a row the retro-join will look for an `is_operator = 1`
  * anchor on the same visitor pair. A documented launch tunable
  * (`POST_LAUNCH_MONITORING.md` §3) — raise it only against measured evidence.

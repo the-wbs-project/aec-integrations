@@ -455,7 +455,7 @@ describe('RequestFormBody bodyPrefill (AECI-967)', () => {
 describe('RequestFormBody drawer confirmation', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  function setupDrawerClaim(claimed: boolean) {
+  function setupDrawerClaim() {
     const api = makeApiMock();
     const session = makeSessionStub(null);
     TestBed.configureTestingModule({
@@ -473,7 +473,6 @@ describe('RequestFormBody drawer confirmation', () => {
     fixture.componentRef.setInput('kind', 'claim');
     fixture.componentRef.setInput('slug', 'acme');
     fixture.componentRef.setInput('variant', 'drawer');
-    fixture.componentRef.setInput('claimed', claimed);
     const sent: string[] = [];
     fixture.componentInstance.sent.subscribe((email) => sent.push(email));
     fixture.detectChanges();
@@ -498,26 +497,19 @@ describe('RequestFormBody drawer confirmation', () => {
   }
 
   it('emits the trimmed email and renders steps without a heading of its own', async () => {
-    const { fixture, sent, el, httpMock } = setupDrawerClaim(false);
+    const { fixture, sent, el, httpMock } = setupDrawerClaim();
     await submitClaim(fixture, el);
 
     expect(sent).toEqual(['dana@acme.example']);
     expect(el.querySelector('h1')).toBeNull();
     expect(el.textContent).not.toContain('Submission received');
     expect(el.textContent).toContain('Nothing is granted automatically');
+    // AECI-1266: one set of steps for every listing, no access-request variant.
+    expect(el.textContent).not.toContain('who already holds a seat on the account');
     const done = el.querySelector('button') as HTMLButtonElement;
     expect(done.textContent).toContain('Done');
     await settle();
     expect(document.activeElement).toBe(done);
-    httpMock.verify();
-  });
-
-  it('uses the access-request steps when the listing is already claimed', async () => {
-    const { fixture, el, httpMock } = setupDrawerClaim(true);
-    await submitClaim(fixture, el);
-
-    expect(el.textContent).toContain('who already holds a seat on the account');
-    expect(el.textContent).not.toContain('Nothing is granted automatically');
     httpMock.verify();
   });
 });

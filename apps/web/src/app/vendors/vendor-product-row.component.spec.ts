@@ -18,7 +18,6 @@ const baseProduct: ProductListItem = {
     slug: 'procore',
     name: 'Procore Technologies',
     logo_url: null,
-    verified: false,
   },
   integration_count: 7,
   review_count: 6,

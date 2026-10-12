@@ -24,9 +24,11 @@
  * It is stamped EXPLICITLY, never left to `$onUpdate`, and it rides inside the same
  * guarded `WHERE verified = <old>` — so a second-seat grant, a renewal, and a
  * drifted self-heal all leave it alone (no needless nightly Algolia re-push), while a
- * real flip in EITHER direction bumps it. The un-verify direction is the one AECI-529
- * never reasoned about: without the bump, a lapsed vendor keeps `verified: true` on its
- * Algolia record indefinitely.
+ * real flip in EITHER direction bumps it. Since AECI-1266 the Algolia vendor record
+ * carries no `verified` field, so the bump no longer serves its freshness. It stays
+ * because the vendor portal's `GET /api/vendor/updates` cursor reads `updated_at` and
+ * the portal shows the mirror (`api/vendor-updates.ts`), and because the R2 rule is
+ * cheap to keep and costly to re-derive.
  *
  * ── NO WORKFLOW ROW ────────────────────────────────────────────────────────────
  * Entitlement changes write no `workflow_instances` row. `workflow_instances_type_check`

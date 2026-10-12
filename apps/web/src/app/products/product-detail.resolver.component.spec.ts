@@ -35,7 +35,6 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
       slug: 'procore',
       name: 'Procore Technologies',
       logo_url: 'https://example.com/procore-logo.png',
-      verified: false,
     },
     integration_count: 2,
     review_count: 0,

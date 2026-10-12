@@ -115,13 +115,12 @@ export const ADMIN_VENDOR_SORT_DEFAULT_ORDER: Record<AdminVendorSort, SortOrder>
 };
 
 /**
- * List filter. Deliberately NOT `VendorsListQuerySchema` (`vendors.ts`), whose
- * `verified` is `z.coerce.boolean()` — and `Boolean("false") === true`, so
- * `?verified=false` there filters for VERIFIED. The public directory never sends
- * `false` (its facet is a one-way "Verified only" toggle) so the bug has never
- * tripped; this surface needs a real tri-state, so it uses the enum form. The
- * public schema is fixed separately in AECI-691 — that is a public contract
- * change and does not belong buried in a new admin surface.
+ * List filter. Deliberately NOT the old public `VendorsListQuerySchema` shape,
+ * whose `verified` was `z.coerce.boolean()` — and `Boolean("false") === true`, so
+ * `?verified=false` there filtered for VERIFIED (AECI-691). This surface needs a
+ * real tri-state, so it uses the enum form. AECI-1266 retired the public filter
+ * altogether, because it listed the vendors on a paid plan. This admin filter is
+ * the only `verified` filter left.
  *
  * `search` matches company name OR slug, substring, case-insensitively (SQLite
  * `LIKE` is case-insensitive for ASCII). Wildcards in the operator's box are

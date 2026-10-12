@@ -8,12 +8,15 @@
  * — and duplicated tag construction is exactly how a page goes stale on one path and
  * not the other. Renamed off "grant" because the set is no longer grant-specific.
  *
- * Why the FULL set and not just `vendor:{slug}`: `vendors.verified` drives the claim
- * button copy and its "Already managed" note on the vendor page AND every owned product
- * page, and the version-diff gate on every pair page (which carries both endpoints'
- * `product:` tags). Purging only the vendor tag leaves stale claim copy on every cached
- * product page (§5.3). Until AECI-1264 (2026-10-09) it also drove the public account
- * badge, which is gone. The tag set did not change.
+ * Why the FULL set and not just `vendor:{slug}`: `vendors.verified` drives the
+ * version-diff gate on every pair page, and a pair page carries both endpoints'
+ * `product:` tags. Those `product:` tags are the only part of the set that guards
+ * anything derived from `verified` today. Until AECI-1266 (2026-10-12) the flag also
+ * drove the claim button copy and its "Already managed" note on the vendor page and
+ * every owned product page, and until AECI-1264 (2026-10-09) the public account
+ * badge. Both are gone, and no public payload carries the flag any more. The
+ * `vendor:` and `index:products` tags stay: a redundant purge costs one cache miss,
+ * and dropping them would buy nothing. The tag set did not change.
  *
  * This module builds tags and nothing else. Enqueuing them onto the tier's
  * `CACHE_PURGE_QUEUE` stays in the route (`purgeGrantTags`) — that needs the Worker

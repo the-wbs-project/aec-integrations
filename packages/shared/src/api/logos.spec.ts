@@ -47,6 +47,6 @@ describe('logo contracts', () => {
       logo_url: path,
     };
     expect(ProductLinkSchema.parse(row).logo_url).toBe(path);
-    expect(VendorLinkSchema.parse({ ...row, verified: false }).logo_url).toBe(path);
+    expect(VendorLinkSchema.parse(row).logo_url).toBe(path);
   });
 });

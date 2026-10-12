@@ -277,7 +277,6 @@ describe('toAlgoliaVendor', () => {
       // AECI-825 — what the `name_asc` replica ranks on.
       company_name_sort: 'procore technologies',
       slug: 'procore-technologies',
-      verified: true,
       description: null,
       headquarters: 'Carpinteria, CA',
       founded_year: 2003,
@@ -288,11 +287,13 @@ describe('toAlgoliaVendor', () => {
     expect(() => AlgoliaVendorRecordSchema.parse(record)).not.toThrow();
   });
 
-  it('maps the verified flag from the vendor row, defaulting to false (AECI-529)', async () => {
-    // A vendor not yet granted a verified account carries the schema default.
-    await t.db.insert(vendors).values({ id: u(1), slug: 'unclaimed', companyName: 'Unclaimed Co' });
+  // AECI-1266: a public index must not say which vendors pay.
+  it('never carries the plan mirror, even for a vendor whose mirror is set', async () => {
+    await t.db
+      .insert(vendors)
+      .values({ id: u(1), slug: 'managed', companyName: 'Managed Co', verified: true });
     const record = toAlgoliaVendor((await vendorById(u(1)))!);
-    expect(record.verified).toBe(false);
+    expect(record).not.toHaveProperty('verified');
   });
 
   it('reports zero counts for a vendor with no products / integrations', async () => {

@@ -7,9 +7,10 @@
  *
  *   1. **`vendors.updated_at` moves on BOTH the set and the clear.** The un-verify
  *      direction is the one AECI-529 never reasoned about: the nightly Algolia sync is
- *      watermark-driven, so a clear that forgets the stamp leaves `verified: true` on the
- *      Algolia record indefinitely (R2). A renew, which does NOT move the mirror, must equally
- *      NOT move the watermark.
+ *      watermark-driven, so a clear that forgot the stamp left `verified: true` on the
+ *      Algolia record indefinitely (R2). The record has carried no `verified` since
+ *      AECI-1266, but the portal's updates cursor still reads the stamp. A renew, which
+ *      does NOT move the mirror, must equally NOT move the watermark.
  *   2. **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a
  *      closed CHECK and §1.2 settles entitlement changes as audit-only, permanently.
  *   3. **Clearing does not revoke seats.** Three orthogonal "take it away" actions
@@ -452,8 +453,8 @@ describe('cache purge', () => {
     expect((await patch(VENDOR, { action: 'set' }, envWithQueue(send))).status).toBe(200);
     await vi.waitFor(() => expect(send).toHaveBeenCalled());
 
-    // Purging only `vendor:{slug}` would leave stale claim copy on every cached product
-    // page, which reads the built-by vendor's `verified` for its claim button.
+    // Purging only `vendor:{slug}` would leave a stale version-diff gate on every cached
+    // pair page, which carries both endpoints' `product:` tags.
     expect(firstMessage(send)).toEqual({
       tags: ['vendor:autodesk', 'product:revit', 'index:products'],
       source: 'moderation',

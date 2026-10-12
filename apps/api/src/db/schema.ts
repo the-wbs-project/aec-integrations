@@ -1369,10 +1369,11 @@ export const vendorRequests = sqliteTable(
 /**
  * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
  * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
- * table, so the shipped readers (the public `?verified=` filter,
- * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record)
- * are untouched by the epic (§2.4/§2.5). A fifth reader, `aec-vendor-account-badge`,
- * was deleted by AECI-1264 (2026-10-09).
+ * table (§2.4/§2.5). It has no public reader left: AECI-1264 (2026-10-09) deleted
+ * `aec-vendor-account-badge`, and AECI-1266 (2026-10-12) took the flag off
+ * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the `?verified=` filter and
+ * the Algolia vendor record. Its readers are internal: the pair version-diff gate,
+ * admin, the vendor portal, data-quality, retract and the backfill.
  *
  * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
  * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate
@@ -2186,6 +2187,24 @@ export const pageViews = sqliteTable(
     // is NULL and is not backfillable — nothing stored on those rows implies a session.
     isOperator: integer('is_operator', { mode: 'boolean' }),
 
+    // Whether the request carried a VERIFIED `vendor_admin` session whose vendor owns
+    // the entity this row is about (AECI-934, `ADMIN_PANEL_SPEC.md` §13 D26). The
+    // session half comes from the same check as `is_operator` above
+    // (`lib/operator-session.ts`); the ownership half is `lib/owner-visit.ts`: the
+    // row's vendor, any `product_vendors` row for its product or for either pair
+    // endpoint, or, for an SPA hop that stores no entity id, the `/products/:slug` or
+    // `/vendors/:slug` in its path.
+    //
+    // It is `is_operator`'s shape, not D7's `profile_role`: one boolean whose only
+    // consumer is an exclusion predicate (`NOT_OWNER_VISIT`,
+    // `lib/page-view-predicates.ts`). The vendor id is never stored. Signed-out
+    // self-visits stay unknowable.
+    //
+    // NULL = unknown, and reads as NOT an owner visit. Every row written before
+    // migration 0068 is NULL and is never backfilled — nothing stored on those rows
+    // implies a session. New rows always store true or false.
+    isOwnerVisit: integer('is_owner_visit', { mode: 'boolean' }),
+
     // ─── Request-shape signals (AECI-658, `lib/client-signals.ts`) ───────────
     //
     // How browser-shaped the request was. These exist because the two levers we
@@ -2274,8 +2293,8 @@ export const pageViews = sqliteTable(
     // on the SSR arrival path, so it would have been right half the time. `page_views`
     // now holds no user linkage at all, which is also the strongest form of the GDPR
     // erasure story (`AUTH_AND_RLS.md` §8). Do not reintroduce them. `is_operator`
-    // (above) is deliberately none of the three: read its comment before concluding
-    // otherwise.
+    // and `is_owner_visit` (above) are deliberately none of the three: read their
+    // comments before concluding otherwise.
 
     // AECI-743 — the one-arrival-one-row guard. A deterministic
     // `sha256(concrete_path | user_agent_hash | cf_asn | 10s bucket)` computed at
@@ -4467,6 +4486,7 @@ export const schema = {
   // type-check and autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5
   // forbids ("joining vendor_entitlements into the public ?verified= filter so it
   // reads the truth rather than the mirror would defeat the entire denormalization").
+  // That filter is gone (AECI-1266); the rule still covers every read path.
   // Without the relation that line does not compile. The §4 entitlement gate and the
   // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)

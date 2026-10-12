@@ -204,15 +204,15 @@ export const LinkRefSchema = z.object({
   slug: z.string().min(1),
 });
 
-// VendorLink extends LinkRef with logo_url + verified (the legacy account-access
-// mirror from vendors.verified — required, since the column is NOT NULL DEFAULT
-// false). It drives the claim button copy on the product page and the pair page's
-// version-diff gate. The AECI-965 account label it once drove was removed on
-// 2026-10-09 (AECI-1264).
+// VendorLink extends LinkRef with logo_url only. It has no `verified` key, and
+// must not gain one (AECI-1266, 2026-10-12). vendors.verified mirrors an active
+// paid plan, so publishing it tells every visitor which vendors pay. It once drove
+// the account label (removed by AECI-1264), the claim button copy and the web
+// version-diff re-gate (both removed by AECI-1266). The API still reads the mirror
+// internally for the pair version-diff gate, off the raw vendor row.
 // ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
 });
 
 export const ProductLinkSchema = LinkRefSchema.extend({
@@ -515,7 +515,6 @@ export const VendorListItemSchema = z.object({
   slug: z.string().min(1),
   company_name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
   product_count: z.number().int().min(0),
@@ -726,12 +725,17 @@ Default sort `created` (DESC). The public `name` key maps to `company_name` serv
 export const VendorsListQuerySchema = PageQuerySchema.extend({
   sort: VendorSortSchema,                          // default 'created'
   search: z.string().optional(),
-  verified: z.coerce.boolean().optional(),
 });
 
 export const VendorsListResponseSchema = paginatedResponseSchema(VendorListItemSchema);
 export type VendorsListResponse = z.infer<typeof VendorsListResponseSchema>;
 ```
+
+**The `verified` filter is retired (AECI-1266, 2026-10-12).** It let anyone list the
+vendors on a paid plan. A stale `?verified=` param is not rejected with a 400. Zod strips
+the unknown key and the caller gets the unfiltered list. No public vendor shape carries
+`verified` either: not `VendorListItem`, not `VendorDetail`, not `VendorLink`. The admin
+`GET /api/admin/vendors?verified=` filter is a separate schema and is unchanged.
 
 #### `GET /api/vendors/:slug`
 
@@ -1554,13 +1558,21 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 - **Pair pages are attributed to both products from `path` (AECI-929, `ADMIN_PANEL_SPEC.md` §13 D25).** The payload is unchanged. When the concrete path (`path`, else `route`) has the shape `/products/<a>/integrations/<b>` with `a` ≠ `b`, the handler resolves both slugs against `products.slug` in one read and stores the ids in `pair_product_a_id` / `pair_product_b_id`, lower id first (BINARY). An unknown slug stores NULL on that side and the row is still written. `product_id` stays NULL on these rows. The parser is `parsePairPagePath` in `@aeci/shared`. Any other path costs no extra read.
 - **`user_id` / `session_id` / `profile_role` were dropped** (§13 D7). They were never written; see `DATABASE_SCHEMA.md` §9.1 for why they were dropped rather than filled.
 
-**AECI-585's successor: `is_operator` (§13 D13, 2026-08-19).** One more write-time-only column, and the one part of enrichment that is **not** derived from the payload or a forwarded header. The handler resolves it itself via `lib/operator-session.ts`: extract the token (`Authorization: Bearer`, else the `sb-<ref>-auth-token` cookie — the same two sources `lib/authz.ts` uses), verify it against Supabase's JWKS, then re-read `profiles.role`. `true` only for a verified `admin`. **Since AECI-689 (§13 D22) the expiry check alone is relaxed** by `OPERATOR_TOKEN_GRACE_SECONDS` (24 h), because `is_operator` is an analytics flag rather than an authorization decision — signature, issuer, audience and the role re-read are all unchanged, and the guards in `lib/authz.ts` / `requireUserAuth` still reject an expired token outright.
+**AECI-585's successor: `is_operator` (§13 D13, 2026-08-19).** One more write-time-only column, and the one part of enrichment that is **not** derived from the payload or a forwarded header. The handler resolves it itself via `lib/operator-session.ts`: extract the token (`Authorization: Bearer`, else the `sb-<ref>-auth-token` cookie — the same two sources `lib/authz.ts` uses), verify it against Supabase's JWKS, then re-read `profiles.role`. `true` only for a verified `admin`. The same verification (`resolveVisitorSession`, which replaced `isOperatorRequest` in AECI-934) also yields the vendor a verified `vendor_admin` session administers, which feeds `is_owner_visit` below. **Since AECI-689 (§13 D22) the expiry check alone is relaxed** by `OPERATOR_TOKEN_GRACE_SECONDS` (24 h), because `is_operator` is an analytics flag rather than an authorization decision — signature, issuer, audience and the role re-read are all unchanged, and the guards in `lib/authz.ts` / `requireUserAuth` still reject an expired token outright.
 
 It is deliberately **not** a payload field and **not** a header. A client-settable flag would let any caller hide their own traffic from the operator's analytics, and this column's entire purpose is to be trustworthy. Three behaviours are contractual:
 
 - **Anonymous requests short-circuit.** No token → `false` with no crypto and no D1 read. This endpoint is the hottest write path in the app and must not grow a per-view auth round trip for visitors who have no session.
-- **A signed-in non-admin is `false`.** Ordinary authenticated users are real traffic; only the operator is excluded.
+- **A signed-in non-admin is `false`.** Ordinary authenticated users are real traffic; only the operator is excluded. A `vendor_admin` is `false` for `is_operator` and is handled by `is_owner_visit` below.
 - **Every failure is `false`, never a rejection.** Expired token, bad signature, JWKS unreachable, missing profile, D1 error — the row is still written, unflagged. The check runs inside the same `waitUntil` as the insert, so an auth hiccup must cost the flag rather than the page view.
+
+**`is_owner_visit` (AECI-934, `ADMIN_PANEL_SPEC.md` §13 D26, 2026-10-12).** The second session-derived column, resolved the same way and under the same three contractual behaviours: server-derived and never a payload field or header, free for anonymous traffic, and never a rejection. A verified `vendor_admin` session with a non-null `profiles.vendor_id` yields an owner vendor, and `lib/owner-visit.ts` sets the flag `true` when the row's entity belongs to it:
+
+- the row's `vendor_id` is that vendor, or
+- any `product_vendors` row (primary or not) ties that vendor to `product_id` or to either pair endpoint (`pair_product_a_id` / `pair_product_b_id`), or
+- the row stored no entity id, as with an SPA hop whose payload carries only `route` and `navigation`, and the concrete path is `/products/<slug>` or `/vendors/<slug>` for an entity that vendor owns.
+
+Every other case stores `false`: anonymous, any non-vendor role, a site admin, a `vendor_admin` whose `vendor_id` is NULL, an unverifiable token, and a D1 error. The AECI-689 expiry grace applies to this flag as it does to `is_operator`. The row is written either way, and the vendor id is never stored. Rows from before migration `0068` are `NULL`, read as not an owner visit, and are not backfilled. Signed-out self-visits cannot be detected. The read side is `NOT_OWNER_VISIT`, used by the vendor performance report and deliberately not by `NOT_INTERNAL`.
 
 **Cookie forwarding contract.** The browser POST already carries the session cookie: the SSR Worker's `/api/*` passthrough forwards cookies untouched, and `withForwardedCfContext` rebuilds only the `x-aeci-cf-*` set. The SSR Worker's own `firePageView` did not, so arrivals were anonymous to this check — the concrete form of D7's "right half the time" objection. It now copies the inbound `Cookie` onto that subrequest. The header is transport only (nothing in it is trusted before JWKS verification) and it rides the fire-and-forget analytics call exclusively — never `renderer()`, which on the cacheable branch works from a cookie-stripped request, so edge-cache neutrality is untouched.
 
@@ -2239,8 +2251,9 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   sort: AdminVendorSortSchema,
   order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
-  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the public
+  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the old public
   // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
+  // The public filter itself was retired by AECI-1266.
   verified: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
@@ -2621,10 +2634,11 @@ part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite r
 those need a claim or an existing owner seat behind them. The first opens an entitlement on a Managed approve only. Since AECI-1215 a Free approve opens none.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
-mirrors off `status = 'active'` rather than `tier`. So any active row flips the public
+mirrors off `status = 'active'` rather than `tier`. So any active row flips the
 `verified` mirror, and "a seat but no `verified`" is not expressible through that table.
-(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. The
-mirror still drives the claim button copy and the version-diff gate.) Every prior path to a seat opened
+(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. Since
+AECI-1266 on 2026-10-12 the mirror is never public. It only drives the API's pair
+version-diff gate.) Every prior path to a seat opened
 one on the way (`approveClaim` composed `grantSeatStatements` with
 `activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
 operators not to press Grant and to park the claim instead. AECI-1215 since gave the claim
@@ -2760,9 +2774,10 @@ includes `unclaimed`, because the session block (§6.14) and the grant summary m
 `TIERS` minus `unclaimed`. The distinction is not tidiness: an `active` row at `unclaimed`
 would flip the mirror while resolving to only the Free capabilities every seat already holds
 (AECI-1214), i.e. a vendor billed for an account status that unlocks nothing. The flipped mirror
-still shows in public: the claim button reads "Request access to this listing" and the
-`verified` field turns true. (Until 2026-10-09 it also showed the public account label, which
-AECI-1264 removed.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
+unlocks the pair version-diff depth. It no longer shows in public. (Until 2026-10-09 it also
+showed the public account label, which AECI-1264 removed. Until 2026-10-12 it switched the
+claim button to "Request access to this listing" and set a public `verified` field. AECI-1266
+removed both.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
 
 The three actions:
 
@@ -2796,9 +2811,11 @@ row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-
 `aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
 `index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
-whether the mirror actually flipped: a redundant purge costs one cache miss, a missed one
-leaves wrong claim button copy on every cached product page. (This said "a wrong badge" until
-AECI-1264 removed the public badge on 2026-10-09.)
+whether the mirror actually flipped: a redundant purge costs one cache miss. The `product:`
+tags are the ones that matter. A pair page carries both endpoints' `product:` tags, and a
+missed purge leaves a stale version-diff gate on it. (This said "a wrong badge" until
+AECI-1264 removed the public badge on 2026-10-09. It said "wrong claim button copy" until
+AECI-1266 made the claim button stateless on 2026-10-12.)
 
 Errors:
 
@@ -3096,8 +3113,8 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 ```
 
 - **Every boolean filter is an enum-plus-transform, never `z.coerce.boolean()`.**
-  `Boolean("false") === true` — the live AECI-691 defect on the public vendors
-  endpoint. Here it would mean `?banned=false` returning the *banned* users, on a
+  `Boolean("false") === true` — the AECI-691 defect on the public vendors
+  endpoint. That defect is no longer live, because AECI-1266 retired the public filter. Here it would mean `?banned=false` returning the *banned* users, on a
   moderation surface. An omitted filter is a genuine third state and stays
   `undefined`.
 - **`role` is an enum on the request and a plain string on the response.** The two

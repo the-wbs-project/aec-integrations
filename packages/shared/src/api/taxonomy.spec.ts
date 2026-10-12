@@ -27,7 +27,7 @@ const validProductListItem = {
   name: 'Procore Platform',
   logo_url: null,
   product_role: 'application' as const,
-  vendor: { id: uuid(3), name: 'Procore', slug: 'procore', logo_url: null, verified: false },
+  vendor: { id: uuid(3), name: 'Procore', slug: 'procore', logo_url: null },
   integration_count: 12,
   review_count: 5,
   rating_overall_avg: 4.2,

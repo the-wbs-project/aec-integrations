@@ -47,7 +47,7 @@ import {
   integrationListConfig,
   integrationPairConfig,
   integrationTimelineConfig,
-  pickPrimaryVendor,
+  pickPrimaryVendorRow,
   productListConfig,
   productVersionDiffGateConfig,
   productLinkColumns,
@@ -576,9 +576,11 @@ export function createProductPairHandler(
       // a pure function of the two slugs in the URL and the page stays edge-cacheable.
       // `verified` is the mirror of an `active` entitlement row; the entitlement
       // table is never queried on a read path (`STAGE_2_PAID_TIERS_SPEC.md` §2.5).
+      // It is read off the RAW vendor row: the public `vendor` link no longer
+      // carries it (AECI-1266).
       pairVendorTiers: vendorTiersFromMirror([
-        pickPrimaryVendor(contextProduct.productVendors),
-        pickPrimaryVendor(otherProduct.productVendors),
+        pickPrimaryVendorRow(contextProduct.productVendors),
+        pickPrimaryVendorRow(otherProduct.productVendors),
       ]),
       hasVersionStamps,
     });
@@ -640,7 +642,7 @@ export function createPairTimelineHandler(
     const { db } = dbFor(c.env);
     // `productVersionDiffGateConfig` widens the old `{ id: true }` by exactly the
     // vendor links the §9.3 gate reads (AECI-304). Same config + same
-    // `pickPrimaryVendor` as the pair read, so the two endpoints cannot disagree
+    // `pickPrimaryVendorRow` as the pair read, so the two endpoints cannot disagree
     // about which vendor of a multi-vendor product decides the gate.
     const [contextProduct, otherProduct] = await Promise.all([
       db.query.products.findFirst({
@@ -657,13 +659,13 @@ export function createPairTimelineHandler(
 
     // The timeline IS history, so `historical` is unconditionally true. Routed
     // through `resolveDiffAccess` rather than calling `canViewVersionDiff` directly,
-    // which is what keeps the seam at exactly two consult sites repo-wide (§9.3).
+    // which is what keeps the seam at exactly one consult site repo-wide (§9.3).
     // The tiers are the PAIR'S, never the reader's (AECI-304).
     const access = resolveDiffAccess(
       true,
       vendorTiersFromMirror([
-        pickPrimaryVendor(contextProduct.productVendors),
-        pickPrimaryVendor(otherProduct.productVendors),
+        pickPrimaryVendorRow(contextProduct.productVendors),
+        pickPrimaryVendorRow(otherProduct.productVendors),
       ]),
     );
     if (access === 'latest_only') {

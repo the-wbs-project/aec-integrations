@@ -194,9 +194,9 @@ describe('the entitlement and ranking vocabularies are disjoint (§3.2) [invaria
   });
 
   it('(b) no entitlement concept appears in INDEX_SETTINGS at all', () => {
-    // The Algolia vendor RECORD may carry `verified` (AECI-529) — it is
-    // display-only, and no card renders it since AECI-1131. INDEX_SETTINGS may never name
-    // it: not searchable, not a facet, not a custom-ranking signal.
+    // The Algolia vendor RECORD no longer carries `verified` (AECI-1266). Records
+    // pushed before then may still hold it until their next push. INDEX_SETTINGS may
+    // never name it: not searchable, not a facet, not a custom-ranking signal.
     for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan']) {
       expect(
         rankingVocabulary.has(banned),

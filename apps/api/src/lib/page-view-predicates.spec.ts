@@ -18,6 +18,7 @@ import {
   BOT,
   HUMAN,
   NOT_INTERNAL,
+  NOT_OWNER_VISIT,
   notFlagged,
   OPERATOR_PAIR_LOOKBACK_DAYS,
   OPERATOR_PAIR_MATCH,
@@ -129,6 +130,22 @@ describe('HUMAN / BOT', () => {
     ]);
     expect(await countWhere(and(window, HUMAN))).toBe(2);
     expect(await countWhere(and(window, BOT))).toBe(1);
+  });
+});
+
+describe('NOT_OWNER_VISIT (AECI-934 / §13 D26)', () => {
+  it('keeps pre-0068 NULL rows and 0, drops only a flagged owner visit', async () => {
+    await t.db.insert(pageViews).values([
+      { path: '/a', createdAt: AT, isOwnerVisit: null },
+      { path: '/b', createdAt: AT, isOwnerVisit: false },
+      { path: '/c', createdAt: AT, isOwnerVisit: true },
+    ]);
+    expect(await countWhere(and(window, NOT_OWNER_VISIT))).toBe(2);
+  });
+
+  it('is not part of NOT_INTERNAL, so platform figures still count owner visits', async () => {
+    await t.db.insert(pageViews).values({ path: '/c', createdAt: AT, isOwnerVisit: true });
+    expect(await countWhere(and(window, NOT_INTERNAL))).toBe(1);
   });
 });
 

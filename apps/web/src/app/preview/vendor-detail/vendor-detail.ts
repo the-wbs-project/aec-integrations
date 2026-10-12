@@ -30,7 +30,6 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   slug: 'procore',
   company_name: VENDOR_FIXTURE.name,
   logo_url: null,
-  verified: true,
   product_count: 0,
   integration_count: 0,
   review_count: 0,

@@ -40,8 +40,8 @@ describe('vendorPurgeTags', () => {
 
     const tags = await vendorPurgeTags(t.db, { id: VENDOR_ID, slug: 'autodesk', verified: true });
 
-    // `verified` drives the claim button copy on the vendor page and every owned product
-    // page. Purging only `vendor:` would leave it stale on cached product pages.
+    // `verified` drives the version-diff gate on every pair page, which carries both
+    // endpoints' `product:` tags. Purging only `vendor:` would leave that gate stale.
     expect(tags).toContain('vendor:autodesk');
     expect(tags).toContain('product:revit');
     expect(tags).toContain('product:autocad');

@@ -211,7 +211,7 @@ interface ExpiringRow {
  *
  * Explicit `select` + `innerJoin`, NOT the relational query builder: §2.5 forbids
  * a `relations()` entry for `vendor_entitlements` (a relation is exactly what
- * would make joining it into the public `?verified=` filter type-check), and this
+ * would make joining it into a read path type-check), and this
  * is the same explicit-join shape the §4 gate and the `entitlement_mirror_drift`
  * check use.
  *

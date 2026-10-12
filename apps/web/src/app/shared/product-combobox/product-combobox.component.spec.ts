@@ -38,7 +38,6 @@ const ACONEX: ProductComboboxItem = {
     slug: 'oracle',
     name: 'Oracle',
     logo_url: null,
-    verified: false,
   },
 };
 const PROCORE: ProductComboboxItem = {

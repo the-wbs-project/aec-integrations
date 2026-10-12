@@ -57,8 +57,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  *
  * No account or plan label in the hero (AECI-1264, marketing review B1). The
  * "Active on AEC Integrations" badge is gone: it implied a vendor without it was
- * inactive, and it marked publicly who pays. `v.verified` still drives the claim
- * CTA's copy below, and nothing else on this page.
+ * inactive, and it marked publicly who pays. The claim CTA below is stateless
+ * too (AECI-1266): every listing reads "Claim this listing", and `VendorDetail`
+ * no longer carries the plan mirror at all.
  *
  * "Funding stage badge" from the AECI-59 acceptance criteria is omitted:
  * `VendorDetail` has no `funding_stage` field today. A follow-up issue would
@@ -292,7 +293,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [entity]="'vendor'"
                 [kind]="'claim'"
                 [slug]="v.slug"
-                [claimed]="v.verified"
                 [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
@@ -316,15 +316,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                @if (v.verified) {
-                  <ng-container i18n="@@vendors.detail.metadata.requestAccess"
-                    >Request access to this listing</ng-container
-                  >
-                } @else {
-                  <ng-container i18n="@@vendors.detail.metadata.claim"
-                    >Claim this listing</ng-container
-                  >
-                }
+                <ng-container i18n="@@vendors.detail.metadata.claim"
+                  >Claim this listing</ng-container
+                >
               </a>
               <a
                 aecRequestTrigger
@@ -359,15 +353,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 >
               </a>
             </div>
-            @if (v.verified) {
-              <p
-                class="text-xs leading-relaxed text-(--text-secondary)"
-                i18n="@@vendors.detail.metadata.claimedNote"
-              >
-                Already managed through an active vendor account. Request access if you work there
-                too.
-              </p>
-            }
           </section>
         </div>
 
