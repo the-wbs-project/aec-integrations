@@ -25,6 +25,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import { makeApi, type MockApi } from './integration-detail-testing.harness';
 import { VendorIntegrationDetailPage } from './vendor-integration-detail-page';
+import { expectVendorDocsLink } from '../components/vendor-docs-link.testing';
 
 @Component({ selector: 'aec-test-list', template: 'list' })
 class ListStub {}
@@ -191,5 +192,16 @@ describe('the section nav', () => {
     expect(link.getAttribute('aria-label')).toBe(
       'View public page: the Summit Model Coordination and Procore integration (opens in a new tab)',
     );
+  });
+});
+
+describe('the guide links (AECI-1253)', () => {
+  it('links one guide page per section: owning, attesting, contests', async () => {
+    const { root } = await open(
+      `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}`,
+    );
+    expectVendorDocsLink(root.querySelector('#overview')!, 'owning-an-integration');
+    expectVendorDocsLink(root.querySelector('#data-shared')!, 'attesting-an-integration');
+    expectVendorDocsLink(root.querySelector('#change-requests')!, 'contests-and-protests');
   });
 });

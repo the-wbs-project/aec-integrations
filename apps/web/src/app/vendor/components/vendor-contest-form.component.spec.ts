@@ -31,6 +31,7 @@ import {
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { NO_OWNER, VendorContestForm } from './vendor-contest-form';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -364,5 +365,13 @@ describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
       expect.objectContaining({ field: 'docs_url', context_product_id: PAIR.context_product.id }),
       'evidenced_pair',
     );
+  });
+});
+
+describe('VendorContestForm: the guide link (AECI-1253)', () => {
+  it('links Contests and protests from the open form', async () => {
+    const fixture = await createForm();
+    await open(fixture);
+    expectVendorDocsLink(el(fixture), 'contests-and-protests');
   });
 });

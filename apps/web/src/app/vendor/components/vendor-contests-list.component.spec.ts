@@ -14,6 +14,7 @@ import { VENDOR_CONTESTS_EMPTY_FIXTURE, VENDOR_CONTESTS_FIXTURE } from '../vendo
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorContestsList } from './vendor-contests-list';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -201,5 +202,11 @@ describe('VendorContestsList — withdrawing', () => {
     const fixture = await create();
     const closed = VENDOR_CONTESTS_FIXTURE.submitted.find((c) => c.status !== 'open')!;
     expect(button(row(fixture, closed.id), 'Withdraw')).toBeUndefined();
+  });
+});
+
+describe('VendorContestsList: the guide link (AECI-1253)', () => {
+  it('links Contests and protests under the intro', async () => {
+    expectVendorDocsLink(el(await create()), 'contests-and-protests');
   });
 });

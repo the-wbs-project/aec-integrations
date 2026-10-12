@@ -240,7 +240,7 @@ to `a11y-manual-testing-checklist.md` §4. File every ❌ against AECI-633.
 AECI-1104 built the six pages under `/docs/vendors/*`, and every slug below is the built one
 (`apps/web/src/app/docs/docs-content.ts`). Each link points at the production URL, which renders once this deploys. The pages were
 noindex and unlinked from the site until AECI-1253 indexed them and linked them from the footer on
-2026-10-12. The portal "Learn more" links still wait on AECI-1105. Page 6 was "Plans and the
+2026-10-12. The portal "Learn more" links shipped the same day (AECI-1253 item 3). Page 6 was "Plans and the
 account label" until AECI-1264 removed the public label and renamed it "Plans" (2026-10-09). Its old
 URL 301s to the new one.
 

@@ -2620,7 +2620,13 @@ Google "requested" shows only when an operator recorded the request when clearin
 
 **Preview.** `/preview/vendor-dashboard/history` renders `vendor/vendor-history-fixtures.ts`: every actor kind, an AECi row with a reason and one without, a row with no plan, and an action this build does not know. `PreviewVendorApi.getHistoryFollowUp` serves `VENDOR_HISTORY_FOLLOW_UP_FIXTURE`: a Managed edit with several URLs (submitted, requested, failed and retrying), a second Managed edit queued on both channels with a failure that will not retry, and a Free edit showing "No expedited search submission". `?fixture=unverified` (no products) is the empty state.
 
-**Help page.** `/docs/vendors/change-history`.
+**Help page.** `/docs/vendors/change-history`. The page links it under its intro (§6.20).
+
+### 6.20 As built — "Learn more" links into the vendor guide (AECI-1253 item 3, 2026-10-12)
+
+Each portal surface with a vendor-guide page carries one "Learn more" link to it, under the surface's heading or intro. The full list of surfaces and pages is `STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 1. In short: Messages links `claiming-your-listing` at "Claim & correction status" and `contests-and-protests` at Change requests; Seats links `your-seat`; the integration page links `owning-an-integration` at Overview, `attesting-an-integration` at "Data that's shared" and `contests-and-protests` at Change requests; the Integrations tab links `owning-an-integration` beside "Add an integration" and under "Integrations your company offers"; the open "Request a change" form links `contests-and-protests`; Reviews links `replying-to-reviews`; the plan panel links `plans`; both checklists link `checklists`; Changes links `change-history`.
+
+Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). It is a standalone link (`DESIGN.md`, "The Link Treatment Rule") and opens a new tab under that rule's case 2, because the portal holds unsaved form state. `rel="noopener"` alone, as the guide is our own site. The visible text is always "Learn more". A visually hidden suffix names the page, and `aec-new-tab-icon` adds "(opens in a new tab)", so the accessible name reads "Learn more: Your seat (opens in a new tab)". A links list never shows two identical names for different pages. No help link sits inside a `aec-vendor-tip` panel: a link in a portaled overlay cannot be reached with Tab (`vendor-tip.ts`).
 
 ---
 

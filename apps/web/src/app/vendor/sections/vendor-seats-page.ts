@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorSeatInviteDialog } from '../components/vendor-seat-invite-dialog';
 import { VendorSeatRoster } from '../components/vendor-seat-roster';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -20,7 +21,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-seats-page',
-  imports: [VendorSeatInviteDialog, VendorSeatRoster],
+  imports: [VendorDocsLink, VendorSeatInviteDialog, VendorSeatRoster],
   template: `
     @if (me(); as m) {
       <div>
@@ -32,7 +33,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
           <!-- Owner-only; renders nothing for a member seat. -->
           <aec-vendor-seat-invite-dialog />
         </div>
-        <div class="mt-4">
+        <p class="mt-1"><aec-vendor-docs-link page="your-seat" /></p>
+        <div class="mt-3">
           <aec-vendor-seat-roster [seatCount]="m.seat_count" />
         </div>
       </div>

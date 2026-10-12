@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 
 import { VendorContestsList } from '../components/vendor-contests-list';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorNotificationsList } from '../components/vendor-notifications-list';
 import { VendorNudgeMuteToggle } from '../components/vendor-nudge-mute-toggle';
 import { VendorRequestStatus } from '../components/vendor-request-status';
@@ -55,6 +56,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
   selector: 'aec-vendor-messages-page',
   imports: [
     VendorContestsList,
+    VendorDocsLink,
     VendorNotificationsList,
     VendorNudgeMuteToggle,
     VendorRequestStatus,
@@ -86,7 +88,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
           >
             Claim &amp; correction status
           </h3>
-          <div class="mt-4">
+          <p class="mt-1"><aec-vendor-docs-link page="claiming-your-listing" /></p>
+          <div class="mt-3">
             <aec-vendor-request-status [requests]="m.requests" />
           </div>
         </div>

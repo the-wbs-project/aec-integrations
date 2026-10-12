@@ -36,6 +36,7 @@ import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { editFieldLabel } from './vendor-contest-labels';
+import { VendorDocsLink } from './vendor-docs-link';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { editValueMessage } from './vendor-integration-ownership-labels';
 
@@ -79,7 +80,7 @@ function emptyDraft(): Draft {
  */
 @Component({
   selector: 'aec-vendor-integration-create',
-  imports: [LogoOrInitial, ProductCombobox],
+  imports: [LogoOrInitial, ProductCombobox, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="integration-create">
@@ -101,6 +102,7 @@ function emptyDraft(): Draft {
             List an integration your company offers that is not on record yet.
           </p>
         }
+        <aec-vendor-docs-link page="owning-an-integration" />
       </div>
 
       @if (result(); as created) {
