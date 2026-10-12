@@ -299,6 +299,20 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
     note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
+  'listing-request-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: { kind: 'route', ref: 'POST /api/requests/listing (routes/listing-requests.ts)' },
+    envRule: 'any-tier',
+    dedupe: 'Key listing-request-alert:{requestId}, so at most one alert per saved request.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
+    summary:
+      'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
+    note: 'No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way.',
+  },
   'contest-submitted-alert': {
     channel: 'email',
     audience: 'operator',

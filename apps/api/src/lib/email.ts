@@ -1921,6 +1921,9 @@ export function sendClaimSubmittedNotification(
     /** AECI-847 identity signal: the claimant's own LinkedIn profile, or null when
      *  they skipped the optional field. */
     submitterLinkedinUrl: string | null;
+    /** AECI-1293: the claimant's plan answer (`free` | `managed` | `not_sure`), or
+     *  null when not answered. Optional so a caller that predates it still compiles. */
+    planInterest?: string | null;
     /** §6.8 signal: `match` | `no_match` | `pending`. */
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
@@ -1940,6 +1943,7 @@ export function sendClaimSubmittedNotification(
     ['Name', opts.submitterName ?? '—'],
     ['Role', opts.submitterRole ?? '—'],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied'],
+    ['Plan interest', planInterestText(opts.planInterest ?? null)],
     ['Domain match', opts.domainMatch],
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
     ['Request id', opts.requestId],
@@ -2552,6 +2556,90 @@ export function sendPlanInquiryAlert(
     subject: `[AECi] ${inquiry.planName} plan inquiry from ${subjectSafe(inquiry.company)}`,
     render: () => houseBody(shared, [intro], [escapeHtml(intro)]),
     replyTo: inquiry.email,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
+/**
+ * A plan answer from the claim dialog or the claim form (AECI-1293), as the operator
+ * reads it. `null` is "not answered", never a default plan.
+ */
+export function planInterestText(value: string | null): string {
+  switch (value) {
+    case 'free':
+      return 'Free';
+    case 'managed':
+      return 'Managed';
+    case 'not_sure':
+      return 'Not sure yet';
+    default:
+      return 'not answered';
+  }
+}
+
+/** A typed-in listing as `POST /api/requests/listing` saved it (AECI-1293). */
+export interface ListingRequestSummary {
+  /** The `listing_requests.id` of the saved row. */
+  requestId: string;
+  listingName: string;
+  website: string;
+  submitterEmail: string;
+  submitterName: string | null;
+  submitterRole: string | null;
+  submitterLinkedinUrl: string | null;
+  planInterest: string | null;
+  /** "Additional comments", `''` when none. */
+  body: string;
+}
+
+/**
+ * Operator alert: a visitor typed in a product or company we do not list, from the
+ * claim dialog (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). To `SUPPORT_EMAIL`,
+ * reply-to the submitter, so answering is one click. The CTA opens `/admin/requests`,
+ * where the request waits either way, which is why the entry is pausable.
+ *
+ * Every visitor-typed value is `plain`: the name, the website and the email are typed,
+ * not verified, so AECi's markup must never turn them into links in the support inbox
+ * (the AECI-1197 rule). There is no email to the visitor: the address is unverified,
+ * as on a claim, and the dialog's own receipt is the receipt.
+ */
+export function sendListingRequestAlert(
+  c: EmailContext,
+  opts: { request: ListingRequestSummary } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { request } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const rows: EmailTableRow[] = [
+    ['Listing', request.listingName, { plain: true }],
+    ['Website', request.website, { plain: true }],
+    ['Submitter', request.submitterEmail, { plain: true }],
+    ['Name', request.submitterName ?? '—', { plain: true }],
+    ['Role', request.submitterRole ?? '—', { plain: true }],
+    ['LinkedIn', request.submitterLinkedinUrl ?? 'not supplied', { plain: true }],
+    ['Plan interest', planInterestText(request.planInterest)],
+    ['Comments', request.body || '(none)', { plain: true }],
+    ['Request id', request.requestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+
+  const name = subjectSafe(request.listingName);
+  const intro = `${request.submitterEmail} asked us to add ${name}, so they can claim it. Add the listing, then reply to this email to tell them it is ready to claim.`;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: `Listing request: ${name}`,
+    table: rows,
+    ...(base
+      ? { cta: { label: 'Open the requests queue', url: link(`${base}/admin/requests`) } }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'listing-request-alert',
+    subject: `[AECi] Listing request: ${name}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    replyTo: request.submitterEmail,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });

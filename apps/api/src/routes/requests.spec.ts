@@ -399,6 +399,71 @@ describe('POST /api/requests/claim', () => {
   });
 });
 
+// ─── AECI-1293: the plan answer and the comments ─────────────────────────────
+describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
+  const body = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+  };
+  const submit = (extra: Record<string, unknown>) =>
+    claimApp().request(
+      '/api/requests/claim',
+      postInit({ ...body, ...extra }),
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+  it('stores the plan answer and the comments, and records the answer in the audit row', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({ plan_interest: 'managed', body: 'We have four products.' });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row?.planInterest).toBe('managed');
+    expect(row?.body).toBe('We have four products.');
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({ plan_interest: 'managed' });
+  });
+
+  it('stores NULL when the key is absent, so a body that predates the field still validates', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({});
+    expect(res.status).toBe(201);
+    expect((await createdRow(res)).row?.planInterest).toBeNull();
+  });
+
+  it('stores NULL for "" (not answered)', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({ plan_interest: '' });
+    expect((await createdRow(res)).row?.planInterest).toBeNull();
+  });
+
+  it('rejects a value outside the vocabulary and writes nothing', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({ plan_interest: 'enterprise' });
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('leaves the key off a correction audit row', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submitCorrection({
+      target_type: 'product',
+      slug: 'acme-build',
+      body: 'The founding year on this listing is wrong; it should read 2009.',
+      source_url: '',
+      submitter_email: 'reporter@example.com',
+    });
+    expect(res.status).toBe(201);
+    expect((await createdRow(res)).row?.planInterest).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).not.toHaveProperty('plan_interest');
+  });
+});
+
 // ─── Phase 6.8 (AECI-215): domain-match + duplicate signals ─────────────────────
 describe('POST /api/requests/* → Phase 6.8 signals', () => {
   const correctionBody = (over: Record<string, unknown> = {}) => ({
@@ -571,6 +636,23 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     expect(sent.to).toBe('support@aecintegrations.com');
     expect(sent.subject).toContain('New vendor claim');
     expect(sent.text).toContain('dana@acme.com');
+  });
+
+  it('carries the plan answer as a row (AECI-1293)', async () => {
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+    await claimApp().request(
+      '/api/requests/claim',
+      postInit({ ...claimBody, plan_interest: 'not_sure' }),
+      ENV_WITH_ALERT,
+      execCtx,
+    );
+    await drain(execCtx);
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      text: string;
+    };
+    expect(sent.text).toContain('Plan interest: Not sure yet');
   });
 
   it('carries the Linear permalink and the admin deep link (AECI-861)', async () => {

@@ -31,6 +31,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
+  type PlanInterest,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
@@ -2202,6 +2203,8 @@ export const adminVendorRequestConfig = {
     submitterName: true,
     submitterRole: true,
     submitterLinkedinUrl: true,
+    // AECI-1293: the claimant's plan answer, shown beside the plan radios.
+    planInterest: true,
     domainMatch: true,
     body: true,
     sourceUrl: true,
@@ -2232,6 +2235,7 @@ export interface RawAdminVendorRequestRow {
   submitterName: string | null;
   submitterRole: string | null;
   submitterLinkedinUrl: string | null;
+  planInterest: string | null;
   domainMatch: string;
   body: string;
   sourceUrl: string | null;
@@ -2302,6 +2306,15 @@ export async function resolveRequestTargets(
  *  PATCH confirmation passes `false`). `kind`/`status`/`target_type` cast to their
  *  enums — the DB CHECK guarantees the value and dev response-validation catches
  *  drift (same pattern as `toAdminReview`'s `status`). */
+/**
+ * A stored `plan_interest` (AECI-1293) as the wire enum. The column has no CHECK
+ * (a CHECK change is a D1 recreate), so a value outside the vocabulary reads as
+ * `null`, "not answered", rather than failing the response schema.
+ */
+export function toPlanInterest(value: string | null): PlanInterest | null {
+  return value === 'free' || value === 'managed' || value === 'not_sure' ? value : null;
+}
+
 export function toAdminVendorRequest(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -2323,6 +2336,7 @@ export function toAdminVendorRequest(
     submitter_name: raw.submitterName,
     submitter_role: raw.submitterRole,
     submitter_linkedin_url: raw.submitterLinkedinUrl,
+    plan_interest: toPlanInterest(raw.planInterest),
     domain_match: raw.domainMatch,
     body: raw.body,
     source_url: raw.sourceUrl,

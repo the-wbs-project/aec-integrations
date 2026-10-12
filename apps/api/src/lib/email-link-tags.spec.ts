@@ -42,6 +42,7 @@ import {
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
   sendPlanInquiryAlert,
+  sendListingRequestAlert,
   sendPlanInquiryReceivedEmail,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
@@ -275,6 +276,25 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         region: null,
         country: null,
         referrer: REFERRER,
+      }),
+  },
+  // AECI-1293: the queue CTA is ours and tagged. Every visitor-typed value is plain.
+  'listing-request-alert': {
+    links: true,
+    verbatim: ['https://sitediary.example.com'],
+    send: (c) =>
+      sendListingRequestAlert(c, {
+        request: {
+          requestId: 'lr-1',
+          listingName: 'Site Diary Pro',
+          website: 'https://sitediary.example.com',
+          submitterEmail: 'pat@sitediary.example.com',
+          submitterName: 'Pat',
+          submitterRole: 'Founder',
+          submitterLinkedinUrl: null,
+          planInterest: 'managed',
+          body: '',
+        },
       }),
   },
   'claim-submitted-alert': {

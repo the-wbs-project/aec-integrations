@@ -53,6 +53,8 @@ type ResourceKind =
   | 'notification_setting'
   // An AECi field lock (AECI-1237). The caller is an authenticated admin.
   | 'field_override'
+  // A typed-in listing request on `/admin/requests` (AECI-1293). Admin-only.
+  | 'listing_request'
   | 'category'
   | 'audience'
   | 'phase'

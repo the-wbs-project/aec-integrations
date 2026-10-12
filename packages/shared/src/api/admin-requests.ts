@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import { PlanInterestSchema } from './requests';
 
 /**
  * Admin requests moderation contracts (AECI-216 / Phase 6.9) — the admin-facing
@@ -71,6 +72,11 @@ export const AdminVendorRequestSchema = z.object({
    *  or that predates the column. `/admin/claims` renders it as the reviewer's
    *  primary person link, falling back to the built name-search URL when null. */
   submitter_linkedin_url: z.string().nullable(),
+  /** AECI-1293: the claimant's answer to "Which plan are you interested in?", or
+   *  `null` when not answered, for a correction, or for a claim that predates the
+   *  column. Shown beside the plan radios on `/admin/claims`, which stay unselected
+   *  whatever it says (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). */
+  plan_interest: PlanInterestSchema.nullable(),
   domain_match: z.string(),
   body: z.string(),
   source_url: z.string().nullable(),
@@ -113,3 +119,44 @@ export type ModerateRequestInput = z.infer<typeof ModerateRequestSchema>;
 
 /** `PATCH /api/admin/requests/:id` returns the moderated request (`AdminVendorRequest`). */
 export type ModerateRequestResponse = AdminVendorRequest;
+
+// ─── Listing requests (AECI-1293) ────────────────────────────────────────────
+
+/**
+ * The listing request queue (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.5): a product or
+ * company the visitor typed into the claim dialog because it is not in the catalog.
+ * Its own table, `listing_requests`, so its own endpoints:
+ *
+ *   GET   /api/admin/listing-requests     — the queue, by status, paginated.
+ *   PATCH /api/admin/listing-requests/:id — resolve / reject an open request.
+ *
+ * Rendered as the second section of `/admin/requests`. Moderation reuses
+ * `ModerateRequestSchema` (reason optional, recorded in the audit row only).
+ */
+export const ListListingRequestsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'resolved', 'rejected']).default('open'),
+});
+export type ListListingRequestsQuery = z.infer<typeof ListListingRequestsQuerySchema>;
+
+export const AdminListingRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'resolved', 'rejected']),
+  listing_name: z.string(),
+  /** `https://` only (`HttpsUrlSchema` at submit). Rendered as text plus a new-tab link. */
+  website: z.string(),
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  submitter_linkedin_url: z.string().nullable(),
+  plan_interest: PlanInterestSchema.nullable(),
+  /** "Additional comments". `''` when the visitor wrote none. */
+  body: z.string(),
+  created_at: z.string().datetime(),
+  resolved_at: z.string().datetime().nullable(),
+  /** The deciding admin's profile id. No FK (§15.4), so it survives an erasure. */
+  resolved_by: z.string().nullable(),
+});
+export type AdminListingRequest = z.infer<typeof AdminListingRequestSchema>;
+
+export const ListListingRequestsResponseSchema = paginatedResponseSchema(AdminListingRequestSchema);
+export type ListListingRequestsResponse = z.infer<typeof ListListingRequestsResponseSchema>;

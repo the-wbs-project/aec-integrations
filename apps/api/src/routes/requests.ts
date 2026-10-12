@@ -5,6 +5,11 @@
  *   POST /api/requests/correction     — insert a `kind:'correction'` row.
  *   POST /api/requests/claim          — insert a `kind:'claim'` row.
  *
+ * A typed-in listing from the claim dialog (`POST /api/requests/listing`, AECI-1293) is
+ * NOT a kind here: it has no target, so it lives in `listing_requests`
+ * (`routes/listing-requests.ts`). A claim carries the dialog's plan answer as
+ * `plan_interest`, and its "Additional comments" as the existing `body`.
+ *
  * Contracts: `CorrectionRequestSchema` / `ClaimRequestSchema` from `@aeci/shared`.
  * Rows land in `vendor_requests` (Phase 2 Spec §5.1) with `status:'open'` and
  * `linear_issue_id:null`.
@@ -161,6 +166,8 @@ interface RequestInsert {
   /** AECI-847: claimant-supplied LinkedIn profile, an identity signal for the
    *  reviewer. Claim-only — the correction handler always passes `null`. */
   submitterLinkedinUrl: string | null;
+  /** AECI-1293: the claimant's plan answer, or null (not answered, or a correction). */
+  planInterest: string | null;
   body: string;
   sourceUrl: string | null;
 }
@@ -198,6 +205,9 @@ async function createRequest(
     slug,
     domain_match: domainMatch,
     duplicate_of_request_id: duplicate?.id ?? null,
+    // AECI-1293: claims only. A correction carries no plan answer, so the key is left
+    // out rather than recorded as null on every correction's audit row.
+    ...(kind === 'claim' ? { plan_interest: insert.planInterest } : {}),
   };
 
   // Ids generated up front so the batch needs no return values.
@@ -267,6 +277,7 @@ async function createRequest(
     submitterName: insert.submitterName,
     submitterRole: insert.submitterRole,
     submitterLinkedinUrl: insert.submitterLinkedinUrl,
+    planInterest: insert.planInterest,
     body: insert.body,
     sourceUrl: insert.sourceUrl,
     // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
@@ -303,6 +314,7 @@ async function createRequest(
         submitterName: insert.submitterName,
         submitterRole: insert.submitterRole,
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
+        planInterest: insert.planInterest,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
         linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
@@ -341,6 +353,7 @@ export function createCorrectionSubmitHandler(
       submitterName: null,
       submitterRole: null,
       submitterLinkedinUrl: null,
+      planInterest: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
     });
@@ -367,6 +380,8 @@ export function createClaimSubmitHandler(
       // Optional field: the form submits `''` when the claimant skipped it, and an
       // empty string is not an absent signal to anything downstream. Store NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
+      // AECI-1293: `''` is "not answered", stored as NULL like the LinkedIn field.
+      planInterest: payload.plan_interest ? payload.plan_interest : null,
       body: payload.body,
       sourceUrl: null,
     });

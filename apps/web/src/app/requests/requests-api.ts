@@ -15,7 +15,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
-  ClaimForm,
+  ClaimFormInput,
   CorrectionForm,
   RequestSubmitResponse,
   RequestTargetType,
@@ -44,7 +44,9 @@ export class RequestsApi {
     );
   }
 
-  submitClaim(target: RequestTargetRef, formValue: ClaimForm): Promise<RequestSubmitResponse> {
+  /** `ClaimFormInput`: every defaulted key (`body`, the LinkedIn URL, the AECI-1293
+   *  `plan_interest`) may be left out, as the endpoint allows. */
+  submitClaim(target: RequestTargetRef, formValue: ClaimFormInput): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/claim', {
         ...formValue,

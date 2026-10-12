@@ -78,14 +78,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 29 |
+| `email` | 30 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 21 |
 | `linear` | 4 |
-| **Total** | **56** |
+| **Total** | **57** |
 
-## Email (Resend) (`email`, 29)
+## Email (Resend) (`email`, 30)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -111,6 +111,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `entitlement-expiring-admin` | Tells SUPPORT_EMAIL a vendor term ends soon, with payer and invoice ref. | operator | cron: 0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts) | `any-tier` | Same fence as entitlement-expiring. | `notification_sends`, `fence-column` | `none` | yes | docs/STAGE_2_PAID_TIERS_SPEC.md §7.2 | Pausable: operator alert. The vendor notice alone stamps the fence. |
 | `landing-feedback` | Tells SUPPORT_EMAIL someone submitted feedback. | operator | route: POST /api/feedback (routes/landing-forms.ts) | `any-tier` | None. Every submit sends. | `notification_sends` | `none` | yes | docs/email.md §Template content notes | The feedback row records the submission, not the send. Pausable: operator alert. /admin/audience lists the feedback either way. |
 | `landing-signup` | Tells SUPPORT_EMAIL someone joined the mailing list. | operator | route: POST /api/subscribe (routes/landing-forms.ts) | `any-tier` | Not sent for an address that is already active. Key landing-signup:{recipientHash}:{YYYY-MM} (UTC), keyed on the subscriber. | `notification_sends` | `none` | yes | docs/email.md §Template content notes | Pausable: operator alert. /admin/audience lists the subscriber either way. |
+| `listing-request-alert` | Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them. | operator | route: POST /api/requests/listing (routes/listing-requests.ts) | `any-tier` | Key listing-request-alert:{requestId}, so at most one alert per saved request. | `notification_sends` | `none` | yes | docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4 | No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way. |
 | `mailing-list-welcome` | Welcomes a new mailing-list subscriber. | external | route: POST /api/subscribe (routes/landing-forms.ts) | `production-external` | Not sent to an address that is already active. Key mailing-list-welcome:{recipientHash}:{YYYY-MM} (UTC), so an unsubscribe then resubscribe welcomes once per calendar month. | `notification_sends` | `mailing-list-unsubscribe` | yes | docs/email.md §Template content notes | The mailing_list row is a log-class record of the subscription, not of the send. Pausable: a welcome. No obligation rides on it. |
 | `mailing-list-welcome-operator-copy` | Sends the EMAIL_BCC list a COPY: of the welcome, with an inert unsubscribe link. | operator | route: POST /api/subscribe (routes/landing-forms.ts) | `any-tier` | Sent only after mailing-list-welcome was sent, so a duplicate welcome sends no copy. | `notification_sends` | `none` | no | docs/email.md §Architecture | Not counted in aeci.email.send. A failed copy only warns. Always on as an entry: the support-copy switch is its control, not a switch of its own. |
 | `plan-inquiry-alert` | Tells SUPPORT_EMAIL someone asked about a plan, with every field, and sets reply-to to the visitor. | operator | route: POST /api/plan-inquiries (routes/plan-inquiries.ts) | `any-tier` | None. Every saved inquiry sends. | `notification_sends` | `none` | no | docs/email.md §Template content notes | Always on: no admin screen lists plan_inquiries yet, so this alert is the only place an operator sees one. Pausing it would hide sales inquiries. |
