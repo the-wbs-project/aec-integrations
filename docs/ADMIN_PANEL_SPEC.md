@@ -1579,7 +1579,8 @@ or the support copy, on this tier, from this page. §13 D24 records the choices 
   stays always on: seat invites, claim decisions, review decisions, the account-deleted
   confirmation, and every vendor email that carries a deadline (the protest and decline
   windows, the reply reminder, plan expiry). Operator alerts, the cron digests, receipts and
-  nudges are pausable. Each entry's `note` says why. `docs/NOTIFICATIONS.md` has a Pausable
+  nudges are pausable. The exception is `plan-inquiry-alert` (AECI-1279): no screen lists
+  plan inquiries yet, so the alert is their only reader and stays on. Each entry's `note` says why. `docs/NOTIFICATIONS.md` has a Pausable
   column.
 - **The support copy.** One more switch, the reserved key `support-copy`. Paused, the
   transport drops the `EMAIL_BCC` blind copy from every send and skips the separate `COPY:`

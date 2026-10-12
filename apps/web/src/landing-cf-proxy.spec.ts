@@ -1,7 +1,7 @@
 import { LANDING_CF_HEADERS } from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
 
-import { applyLandingCfHeaders, withForwardedLandingCf } from './server-runtime';
+import { LANDING_CF_PATHS, applyLandingCfHeaders, withForwardedLandingCf } from './server-runtime';
 
 /**
  * AECI-275 — the SSR `/api/*` proxy enriches the unified-home island's
@@ -98,5 +98,17 @@ describe('withForwardedLandingCf', () => {
       reqWithCf(undefined, { [LANDING_CF_HEADERS.country]: 'ZZ' }),
     );
     expect(out.headers.get(LANDING_CF_HEADERS.country)).toBeNull();
+  });
+});
+
+// AECI-1279: every handler that reads LANDING_CF_HEADERS must sit behind the
+// strip-then-set proxy, or a client could forge its own geo on that path.
+describe('LANDING_CF_PATHS', () => {
+  it('covers the three lead-capture POSTs, the plan inquiry form included', () => {
+    expect([...LANDING_CF_PATHS].sort()).toEqual([
+      '/api/feedback',
+      '/api/plan-inquiries',
+      '/api/subscribe',
+    ]);
   });
 });

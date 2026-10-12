@@ -41,6 +41,8 @@ import {
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
+  sendPlanInquiryAlert,
+  sendPlanInquiryReceivedEmail,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
   sendProtestSubmittedAlert,
@@ -237,6 +239,38 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         features: 'More filters',
         tools: 'Revit',
         subscribed: true,
+        city: null,
+        region: null,
+        country: null,
+        referrer: REFERRER,
+      }),
+  },
+  // AECI-1279: neither carries a link we built. The alert's referrer is a recorded fact.
+  'plan-inquiry-received': {
+    links: false,
+    send: (c) =>
+      sendPlanInquiryReceivedEmail(c, {
+        inquiry: {
+          inquiryId: '1',
+          planName: 'Managed',
+          email: 'p@example.com',
+          company: 'Acme',
+          details: null,
+        },
+      }),
+  },
+  'plan-inquiry-alert': {
+    links: false,
+    verbatim: [REFERRER],
+    send: (c) =>
+      sendPlanInquiryAlert(c, {
+        inquiry: {
+          inquiryId: '1',
+          planName: 'Managed',
+          email: 'p@example.com',
+          company: 'Acme',
+          details: 'Revit add-in',
+        },
         city: null,
         region: null,
         country: null,

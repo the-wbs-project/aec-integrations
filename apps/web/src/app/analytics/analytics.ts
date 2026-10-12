@@ -132,6 +132,13 @@ export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 /** Where a Plans-page call to action sits (`plan_cta_clicked.placement`). */
 export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
 
+/**
+ * Where a plan inquiry form was sent from (`plan_inquiry_submitted.placement`): a
+ * Plans-page call to action that opened the dialog, or the form on
+ * `/contact?topic=managed`.
+ */
+export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
+
 @Injectable({ providedIn: 'root' })
 export class Analytics {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
@@ -297,10 +304,22 @@ export class Analytics {
   /**
    * A click on a plan call to action in the vendor guide's Plans page
    * (`docs/docs-plans-cta.ts`). `placement` says which copy of the button it
-   * was, so the placements can be compared. Consent-gated like every event.
+   * was, so the placements can be compared. A Managed click opens the inquiry
+   * dialog (AECI-1279), so this counts opens, not inquiries: see
+   * `planInquirySubmitted`. Consent-gated like every event.
    */
   planCtaClicked(input: { plan: 'free' | 'managed'; placement: PlanCtaPlacement }): void {
     this.capture('plan_cta_clicked', { plan: input.plan, placement: input.placement });
+  }
+
+  /**
+   * A plan inquiry the API accepted (`POST /api/plan-inquiries` → 201, AECI-1279),
+   * fired by the inquiry form. `placement` is the button that opened it, or `contact`.
+   * No field the visitor typed is sent (§2). Consent-gated like every event, so the
+   * `plan_inquiries` table stays the authoritative count.
+   */
+  planInquirySubmitted(input: { topic: 'managed'; placement: PlanInquiryPlacement }): void {
+    this.capture('plan_inquiry_submitted', { topic: input.topic, placement: input.placement });
   }
 
   // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────

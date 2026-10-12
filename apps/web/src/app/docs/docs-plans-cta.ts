@@ -18,12 +18,17 @@
  *
  * **The wording stays "Talk to us about Managed".** There is no checkout, so a
  * button that says "Get" or "Start" would promise what the click does not do.
- * Every Managed button goes to `/contact?topic=managed`, which pre-fills the
- * email's subject and prompts (`contact/contact.ts`). Every click fires
- * `plan_cta_clicked` with its placement (`docs/ANALYTICS.md` §4).
+ * Every Managed button opens the plan inquiry dialog in place (AECI-1279,
+ * `shared/plan-inquiry/`), one dialog per page, mounted by `docs-page.ts`. Each
+ * is a link to `/contact?topic=managed`, which carries the same form, so a click
+ * without JS or into a new tab still reaches it. Every click fires
+ * `plan_cta_clicked` with its placement, and a sent inquiry fires
+ * `plan_inquiry_submitted` (`docs/ANALYTICS.md` §4).
  *
  * The reply line repeats the contact page's own promise ("most messages within
- * a couple of business days"). Change both together, or neither.
+ * a couple of business days"), and so do the inquiry form's thanks line and the
+ * receipt email (`PLAN_INQUIRY_REPLY_PROMISE`, `apps/api/src/lib/email.ts`).
+ * Change them together, or none of them.
  *
  * Static and visitor-neutral in the SSR HTML: the bar renders hidden and is
  * shown only by the browser, so the edge-cached HTML is the same for everyone.
@@ -40,14 +45,19 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { PlanInquiryTrigger } from '../shared/plan-inquiry/plan-inquiry-trigger';
+
 import { MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
 import { Analytics, type PlanCtaPlacement } from '../analytics/analytics';
 import { formatPlanPrice, planLabel } from '../vendor/vendor-plan';
 
-/** The contact page, asked about Managed. */
-export const MANAGED_CONTACT_PATH = '/contact';
-export const MANAGED_CONTACT_QUERY = { topic: 'managed' } as const;
+/**
+ * The contact page, asked about Managed: the no-JS and new-tab destination of every
+ * Managed button. It carries the same inquiry form the dialog does. A plain `href`,
+ * not `routerLink`: `RouterLink` navigates even when the trigger prevented the click.
+ */
+export const MANAGED_CONTACT_HREF = '/contact?topic=managed';
 
 /** Where "Claim your listing" points. */
 export const CLAIM_PATH = '/docs/vendors/claiming-your-listing';
@@ -67,8 +77,7 @@ function managedPriceLine(locale: string): string {
 /** Records a click. Shared so every placement reports the same shape. */
 abstract class PlanCta {
   private readonly analytics = inject(Analytics);
-  protected readonly contactPath = MANAGED_CONTACT_PATH;
-  protected readonly contactQuery = MANAGED_CONTACT_QUERY;
+  protected readonly contactHref = MANAGED_CONTACT_HREF;
   protected readonly claimPath = CLAIM_PATH;
 
   protected track(plan: 'free' | 'managed', placement: PlanCtaPlacement): void {
@@ -79,13 +88,13 @@ abstract class PlanCta {
 /** The button row under the intro (`placement: top`). */
 @Component({
   selector: 'app-docs-plans-actions',
-  imports: [RouterLink],
+  imports: [RouterLink, PlanInquiryTrigger],
   host: { class: 'block', 'data-plans-cta': 'top' },
   template: `
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
       <a
-        [routerLink]="contactPath"
-        [queryParams]="contactQuery"
+        [href]="contactHref"
+        aecPlanInquiryTrigger="top"
         (click)="track('managed', 'top')"
         class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@app.docs.plans.cta.managed"
@@ -106,7 +115,7 @@ export class DocsPlansActionsComponent extends PlanCta {}
 /** The full-width Forest panel in "Getting Managed" (`placement: bottom`). */
 @Component({
   selector: 'app-docs-plans-cta-panel',
-  imports: [RouterLink],
+  imports: [PlanInquiryTrigger],
   host: { class: 'block', 'data-plans-cta': 'bottom' },
   template: `
     <section
@@ -126,8 +135,8 @@ export class DocsPlansActionsComponent extends PlanCta {}
         >
       </p>
       <a
-        [routerLink]="contactPath"
-        [queryParams]="contactQuery"
+        [href]="contactHref"
+        aecPlanInquiryTrigger="bottom"
         (click)="track('managed', 'bottom')"
         class="mt-5 inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto"
         i18n="@@app.docs.plans.cta.managed"
@@ -155,7 +164,7 @@ export class DocsPlansCtaPanelComponent extends PlanCta {
 /** The small sticky card under the rail's dashes (`placement: rail`). */
 @Component({
   selector: 'app-docs-plans-rail',
-  imports: [RouterLink],
+  imports: [PlanInquiryTrigger],
   host: { class: 'block' },
   template: `
     <aside class="aec-plan-card p-4" aria-labelledby="plans-rail-heading">
@@ -164,8 +173,8 @@ export class DocsPlansCtaPanelComponent extends PlanCta {
       </p>
       <p class="mt-1 text-xs leading-snug text-(--text-secondary)">{{ price }}</p>
       <a
-        [routerLink]="contactPath"
-        [queryParams]="contactQuery"
+        [href]="contactHref"
+        aecPlanInquiryTrigger="rail"
         (click)="track('managed', 'rail')"
         class="mt-3 flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-3 py-2 text-sm font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@app.docs.plans.cta.short"
@@ -188,7 +197,7 @@ export class DocsPlansRailComponent extends PlanCta {
  */
 @Component({
   selector: 'app-docs-plans-mobile-bar',
-  imports: [RouterLink],
+  imports: [PlanInquiryTrigger],
   host: { class: 'lg:hidden' },
   template: `
     @if (visible()) {
@@ -204,8 +213,8 @@ export class DocsPlansRailComponent extends PlanCta {
             <span class="text-(--text-secondary)"> · {{ price }}</span>
           </p>
           <a
-            [routerLink]="contactPath"
-            [queryParams]="contactQuery"
+            [href]="contactHref"
+            aecPlanInquiryTrigger="mobile_bar"
             (click)="track('managed', 'mobile_bar')"
             class="shrink-0 rounded-(--radius-md) bg-(--accent-primary) px-4 py-2.5 text-sm font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@app.docs.plans.cta.short"

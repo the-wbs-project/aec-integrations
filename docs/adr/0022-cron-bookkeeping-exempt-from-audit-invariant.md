@@ -268,3 +268,26 @@ row. No third writer was added.
 reads `recrawl_submissions` through this vendor's `recrawl_submission_causes` rows. It is a read,
 so it writes nothing and changes none of the four rules. `recrawl_queue_causes` is still shown to
 no one.
+
+## Amendment 2026-10-12 — plan inquiries are lead capture (AECI-1279)
+
+Nothing above is reversed, and no new class is added. `plan_inquiries` (`DATABASE_SCHEMA.md`
+§2a) joins `feedback` and `mailing_list` on the original footing.
+
+**The table.** One row per "Talk to us about Managed" inquiry, written by
+`POST /api/plan-inquiries` (`apps/api/src/routes/plan-inquiries.ts`): the topic, the visitor's
+email, company and free-text details, trusted geo and the referrer.
+
+**Why it is exempt.** It passes the three-part test the way `feedback` does. (a) It is a
+lead-capture log: one insert per submit, never updated, never deleted by the app. (b) It is
+invisible on every public surface, and nothing in search, ranking or a listing reads it.
+(c) It records no decision and changes nothing a visitor or vendor sees, so there is no
+state to reproduce. An `audit_log` row would only say that someone filled in a form, which the
+row already says.
+
+**What would end the exemption.** If an operator workflow ever changes an inquiry (a status, an
+owner, a link to a vendor or an entitlement), that write is a sales decision and is domain
+state. It audits like any other, in the same `db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.

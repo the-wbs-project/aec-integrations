@@ -435,6 +435,21 @@ because nobody legitimately submits five forms in a minute, and the failure mode
 shared counter (a form submitter briefly blocked after four request submissions) is far
 cheaper than an uncapped mailer.
 
+**Pending operator action: add `/api/plan-inquiries` (AECI-1279).** The Plans page's
+"Talk to us about Managed" form posts to `POST /api/plan-inquiries`, which sends two
+Resend emails per submit (a receipt to the typed address and an alert to support), the same
+exposure that put subscribe and feedback on this rule. The code change does not touch the
+zone. Until an operator edits the rule, the in-Worker `token` bucket (§6.2) is the path's
+only cap. The intended expression is the one above with one more clause:
+
+```
+(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and (http.request.method eq "POST") and (starts_with(http.request.uri.path, "/api/requests/") or http.request.uri.path eq "/api/subscribe" or http.request.uri.path eq "/api/feedback" or http.request.uri.path eq "/api/plan-inquiries")
+```
+
+The table above records the deployed state. When the rule is edited in the dashboard,
+replace the table's expression with this one, delete this note, and add a dated entry under
+"Deployed state". The four families then share one 5-per-minute counter.
+
 ### Rule B — `/api/reviews` submissions (per IP — proxy for the spec's per-user limit)
 
 | Field | Value |
@@ -1339,6 +1354,7 @@ Four properties to hold on to before changing anything:
 | **`DELETE /api/account`** | **none** | Erasure is a legal obligation (`AUTH_AND_RLS.md` §8), the second call is a no-op, and the whole abuse ceiling is one account erasing itself. **A 429 must never be why an erasure fails.** `requireAuth()` is the control |
 | **every `GET`, everywhere** | **none** | See §6.3 |
 | **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
+| `POST /api/plan-inquiries` (AECI-1279) | `token` (by IP) | The Managed inquiry form. Anonymous, and every submit sends two Resend emails. Zone Rule A does not match it until the §1 operator edit lands, so this is its only cap until then, and stays as the per-IP burst brake after. Keyed by IP because the email is caller-supplied and rotates for free. Not `write`: that bucket refuses a caller with no principal. The receipt also carries a per-address per-day dedupe key, which bounds mail to any one typed address |
 | **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
 | **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |
 | **`POST /api/webhooks/resend`** (AECI-1222) | none | Svix-signature-gated, no actor to key on, and Resend **retries** — a 429 drops a delivery event. A bad signature costs one HMAC and a 401 |

@@ -44,8 +44,9 @@ import {
 } from '@aeci/shared/entitlements';
 
 import { Analytics, type PlanCtaPlacement } from '../analytics/analytics';
+import { PlanInquiryTrigger } from '../shared/plan-inquiry/plan-inquiry-trigger';
 import { formatPlanPrice, planLabel } from '../vendor/vendor-plan';
-import { CLAIM_PATH, MANAGED_CONTACT_PATH, MANAGED_CONTACT_QUERY } from './docs-plans-cta';
+import { CLAIM_PATH, MANAGED_CONTACT_HREF } from './docs-plans-cta';
 
 /** A cell: included, not included, or a value to print (a count, a price). */
 export type PlanCell = boolean | string;
@@ -163,7 +164,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
 
 @Component({
   selector: 'app-docs-plans-comparison',
-  imports: [RouterLink],
+  imports: [RouterLink, PlanInquiryTrigger],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2">
@@ -231,8 +232,8 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
           >
         </p>
         <a
-          [routerLink]="contactPath"
-          [queryParams]="contactQuery"
+          [href]="contactHref"
+          aecPlanInquiryTrigger="card"
           (click)="track('managed', 'card')"
           class="mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@app.docs.plans.managed.cta"
@@ -351,8 +352,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
 export class DocsPlansComparisonComponent {
   private readonly locale = inject(LOCALE_ID);
   private readonly analytics = inject(Analytics);
-  protected readonly contactPath = MANAGED_CONTACT_PATH;
-  protected readonly contactQuery = MANAGED_CONTACT_QUERY;
+  protected readonly contactHref = MANAGED_CONTACT_HREF;
   protected readonly claimPath = CLAIM_PATH;
 
   protected readonly freeName = planLabel('free');

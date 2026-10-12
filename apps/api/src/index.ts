@@ -114,6 +114,7 @@ import {
   createUnsubscribeHandler,
 } from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
+import { createPlanInquiryHandler } from './routes/plan-inquiries';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
@@ -365,6 +366,13 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // route — no new public ingress.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
+// AECI-1279: the Plans page "Talk to us about Managed" form. Public lead capture like
+// `/api/feedback` (no audit row, ADR 0022), but every submit sends two Resend emails
+// and zone Rule A does not match this path until an operator widens it
+// (`docs/waf-rate-limits.md` §1). So it carries the `token` bucket keyed by IP, the
+// only key an anonymous caller cannot rotate for free. `write` cannot be used: it
+// refuses a caller with no principal.
+phase28.post('/api/plan-inquiries', rateLimit('token', { by: 'ip' }), createPlanInquiryHandler());
 // Mailing-list opt-out (AECI-537). Token-keyed soft-delete; serves both the
 // `/unsubscribe` page (JSON body) and the welcome email's RFC 8058 one-click
 // header (`?token=` query). No public ingress — reached via the SSR `/api/*`

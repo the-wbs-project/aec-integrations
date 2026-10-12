@@ -8,10 +8,12 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { TIER_CAPABILITIES } from '@aeci/shared/entitlements';
 
+import { Analytics } from '../analytics/analytics';
+import { PlanInquiryService } from '../shared/plan-inquiry/plan-inquiry.service';
 import { DocsPlansComparisonComponent, planComparisonGroups } from './docs-plans-comparison';
 
 function render(): HTMLElement {
@@ -74,6 +76,27 @@ describe('DocsPlansComparisonComponent', () => {
     expect(cards[1].textContent).toContain('$25');
     expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/contact?topic=managed');
     expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Talk to us about Managed');
+  });
+
+  // AECI-1279: the card's button opens the page's one inquiry dialog in place.
+  it('opens the inquiry dialog from the Managed card, tracked as the card', () => {
+    const planCtaClicked = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideRouter([]), { provide: Analytics, useValue: { planCtaClicked } }],
+    });
+    const inquiry = TestBed.inject(PlanInquiryService);
+    inquiry.attachHost();
+    const fixture = TestBed.createComponent(DocsPlansComparisonComponent);
+    fixture.detectChanges();
+    const link = (fixture.nativeElement as HTMLElement)
+      .querySelectorAll('.aec-plan-card')[1]
+      .querySelector('a')!;
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(inquiry.placement()).toBe('card');
+    expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'card' });
   });
 
   // The trust point is the sort rule, never a promise that Managed ranks higher.

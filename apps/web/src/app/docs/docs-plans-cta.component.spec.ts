@@ -8,6 +8,7 @@ import { provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../analytics/analytics';
+import { PlanInquiryService } from '../shared/plan-inquiry/plan-inquiry.service';
 import {
   DocsPlansActionsComponent,
   DocsPlansCtaPanelComponent,
@@ -15,7 +16,7 @@ import {
   DocsPlansRailComponent,
 } from './docs-plans-cta';
 
-function render<T>(component: Type<T>) {
+function render<T>(component: Type<T>, hosted = true) {
   const planCtaClicked = vi.fn();
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -24,9 +25,20 @@ function render<T>(component: Type<T>) {
       { provide: Analytics, useValue: { planCtaClicked } },
     ],
   });
+  // A mounted host, as on the Plans page, so a Managed click opens the dialog in
+  // place rather than following its link.
+  const inquiry = TestBed.inject(PlanInquiryService);
+  if (hosted) inquiry.attachHost();
   const fixture = TestBed.createComponent(component);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, planCtaClicked };
+  return { host: fixture.nativeElement as HTMLElement, planCtaClicked, inquiry };
+}
+
+/** Clicks like a mouse and reports whether the link's navigation was prevented. */
+function click(link: HTMLElement, init: MouseEventInit = {}): boolean {
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init });
+  link.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 const MANAGED_HREF = '/contact?topic=managed';
@@ -43,12 +55,48 @@ describe('Plans calls to action', () => {
     expect(links[0].getAttribute('href')).toBe(MANAGED_HREF);
     expect(links[1].getAttribute('href')).toBe('/docs/vendors/claiming-your-listing');
     expect(host.getAttribute('data-plans-cta')).toBe('top');
-    links[0].click();
+    links[1].addEventListener('click', (e) => e.preventDefault());
+    expect(click(links[0])).toBe(true);
     links[1].click();
     expect(planCtaClicked.mock.calls).toEqual([
       [{ plan: 'managed', placement: 'top' }],
       [{ plan: 'free', placement: 'top' }],
     ]);
+  });
+
+  // AECI-1279: a plain click opens the one inquiry dialog, carrying its placement.
+  it('a Managed click opens the inquiry dialog with its placement', () => {
+    const { host, inquiry } = render(DocsPlansActionsComponent);
+    expect(click(host.querySelector('a')!)).toBe(true);
+    expect(inquiry.placement()).toBe('top');
+  });
+
+  // With no dialog on the page the link is left alone, so it reaches the contact form.
+  it('follows the link when no inquiry host is mounted', () => {
+    const { host, inquiry } = render(DocsPlansActionsComponent, false);
+    const link = host.querySelector('a')!;
+    let prevented: boolean | null = null;
+    // Read the verdict after the trigger ran, then stop jsdom navigating.
+    link.addEventListener('click', (e) => {
+      prevented = e.defaultPrevented;
+      e.preventDefault();
+    });
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    expect(prevented).toBe(false);
+    expect(inquiry.isOpen()).toBe(false);
+  });
+
+  // A new-tab click keeps the link, so the visitor gets the contact page form.
+  it('a modified click follows the link instead', () => {
+    const { host, inquiry, planCtaClicked } = render(DocsPlansActionsComponent);
+    const link = host.querySelector('a')!;
+    link.addEventListener('click', (e) => e.preventDefault());
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    // The listener above stops jsdom navigating. Read the trigger's verdict from the
+    // service instead: it must not have opened.
+    link.dispatchEvent(event);
+    expect(inquiry.isOpen()).toBe(false);
+    expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'top' });
   });
 
   it('bottom panel: headline, price, safety line, button and next steps', () => {
@@ -62,7 +110,7 @@ describe('Plans calls to action', () => {
     expect(host.querySelectorAll('ol li')).toHaveLength(2);
     const link = host.querySelector('a')!;
     expect(link.getAttribute('href')).toBe(MANAGED_HREF);
-    link.click();
+    expect(click(link)).toBe(true);
     expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'bottom' });
   });
 
@@ -70,7 +118,9 @@ describe('Plans calls to action', () => {
     const { host, planCtaClicked } = render(DocsPlansRailComponent);
     expect(host.textContent).toContain('Managed');
     expect(host.textContent).toContain('$25 a month per product');
-    host.querySelector('a')!.click();
+    const link = host.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe(MANAGED_HREF);
+    expect(click(link)).toBe(true);
     expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'rail' });
   });
 

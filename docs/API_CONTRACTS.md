@@ -45,6 +45,7 @@ packages/shared/
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
 │   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
+│   │   ├── plan-inquiry.ts    # Plan inquiry form (POST /api/plan-inquiries, AECI-1279)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
@@ -5919,6 +5920,38 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 **Audit.** A change writes `notification_preferences.updated` with `metadata.source: 'one-click'` in the same batch. The actor is the seat that owns the token. A repeat writes nothing. The token is a bearer capability and is never logged, audited or returned.
 
 **One non-200: `RATE_LIMITED` (429).** The route carries the `token` bucket, 10 per client IP per 10 s (§4.1a), for the same reason as `/api/unsubscribe`. Other errors: `VALIDATION_FAILED` (400, token missing or over 100 characters) · `MALFORMED_REQUEST` (400, body not JSON). No new codes.
+
+### 6.13a Plan inquiries (AECI-1279)
+
+#### `POST /api/plan-inquiries`
+
+The "Talk to us about Managed" form. It opens as a dialog from every Managed button on the vendor guide's Plans page (`/docs/vendors/plans`), and sits inline on `/contact?topic=managed`, which is those buttons' link target without JS. Public, no session. Schema in `@aeci/shared` (`api/plan-inquiry.ts`), handler `apps/api/src/routes/plan-inquiries.ts`.
+
+```typescript
+export const PlanInquirySubmitSchema = z.object({
+  topic: z.enum(['managed']),
+  email: z.string().trim().email().max(200),
+  company: z.string().trim().min(1).max(200),
+  details: z.string().trim().max(2000).nullish(),
+  website: z.string().max(2000).nullish(), // honeypot
+  referrer: z.string().max(2000).nullish(),
+});
+```
+
+**What it does.** Inserts one `plan_inquiries` row (`DATABASE_SCHEMA.md` §2a), then schedules two fire-and-forget sends in `ctx.waitUntil`:
+
+- `plan-inquiry-received` to `email`: a receipt that repeats the reply promise and echoes the answers. Keyed `plan-inquiry-received:{recipientHash}:{YYYY-MM-DD}`, so at most one per address per UTC day. The address is typed, not verified, and the key bounds what a stranger can make us send to it. Reply-to is `SUPPORT_EMAIL` when set.
+- `plan-inquiry-alert` to `SUPPORT_EMAIL`: every field, the location and referrer, the row id. Reply-to is the visitor, so replying in the support inbox answers them. No dedupe. Not pausable, because no admin screen lists plan inquiries yet.
+
+Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silent skip, and neither changes the response. Geo comes from the trusted `LANDING_CF_HEADERS` (§6.13), which the SSR proxy strips and sets for this path too (`LANDING_CF_PATHS`, `apps/web/src/server-runtime.ts`).
+
+**Honeypot.** The form carries a `website` field hidden from people and assistive technology. When it is non-empty the handler returns the normal `201` and saves and sends nothing, so a bot cannot tell it was caught.
+
+**No audit row.** Lead capture, like `feedback` (ADR 0022, the 2026-10-12 amendment).
+
+**Response:** `PlanInquiryResult`, `{ received: true }`, HTTP `201`, including for a filled honeypot.
+
+**Errors.** `VALIDATION_FAILED` (400): a missing or invalid email, an empty or over-long company, details over 2,000 characters, or an unknown topic. `MALFORMED_REQUEST` (400): the body is not JSON. `RATE_LIMITED` (429, `Retry-After: 10`, §4.1a): the `token` bucket, 10 per client IP per 10 s (`waf-rate-limits.md` §6.2). Zone Rule A does not match this path until an operator widens its expression (`waf-rate-limits.md` §1), so this limiter is the only cap until then. No new codes.
 
 ---
 
