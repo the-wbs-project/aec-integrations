@@ -100,7 +100,8 @@ holding only `<!-- docs:<widget> -->` becomes a widget block (`docs-markdown.ts`
 table rules do not reach it. An unknown id throws at module init. Three widgets exist, all on
 `/docs/vendors/plans`: `plans-actions` (the call-to-action row under the intro), `plans-comparison`
 (the pricing cards and comparison table, `docs-plans-comparison.ts`) and `plans-cta` (the "Getting
-Managed" panel). The first and last live in `docs-plans-cta.ts`. A page whose frontmatter says
+Managed" panel). The first and last mount the shared plan call-to-action components in
+`app/shared/plan-cta/`, which `/vendor-program` also uses. A page whose frontmatter says
 `cta: managed` also gets the Managed card in its rail and a sticky bar on phones; only Plans does,
 and any other `cta` value throws. A widget's text is not in the search index, so put a searchable sentence above it
 and keep the full prose below it. The Plans page's `## Coming soon` section is the one ruled exception to "describes only what the

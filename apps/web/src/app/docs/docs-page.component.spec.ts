@@ -152,20 +152,42 @@ describe('DocsPageComponent', () => {
 
     // The calls to action: the top row, the Getting Managed panel, the rail
     // card and the phone bar. Plans only.
-    expect(host.querySelector('app-docs-plans-actions')?.closest('.aec-prose')).toBeNull();
-    expect(host.querySelector('app-docs-plans-cta-panel')?.closest('.aec-prose')).toBeNull();
-    expect(host.querySelector('app-docs-plans-rail')).not.toBeNull();
-    expect(host.querySelector('app-docs-plans-mobile-bar')).not.toBeNull();
+    expect(host.querySelector('aec-plan-cta-actions')?.closest('.aec-prose')).toBeNull();
+    expect(host.querySelector('aec-plan-cta-panel')?.closest('.aec-prose')).toBeNull();
+    expect(host.querySelector('aec-plan-cta-rail')).not.toBeNull();
+    expect(host.querySelector('aec-plan-cta-mobile-bar')).not.toBeNull();
+    // Exactly one inquiry dialog host for every Managed button on the page.
+    expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
+    // The closing panel shows the annual price beside the monthly one.
+    expect(host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ')).toContain(
+      '$25 a month per product, or $250 a year',
+    );
 
     const other = render('vendors', 'your-seat').host;
     for (const tag of [
       'app-docs-plans-comparison',
-      'app-docs-plans-actions',
-      'app-docs-plans-cta-panel',
-      'app-docs-plans-rail',
-      'app-docs-plans-mobile-bar',
+      'aec-plan-cta-actions',
+      'aec-plan-cta-panel',
+      'aec-plan-cta-rail',
+      'aec-plan-cta-mobile-bar',
+      'aec-plan-inquiry-host',
+      '[data-testid="docs-plans-vendor-program"]',
     ]) {
       expect(other.querySelector(tag), tag).toBeNull();
     }
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §10: one intro line points to the public vendor
+  // program page, above the button pair and outside the prose.
+  it('links the Plans intro to /vendor-program, above the button pair', () => {
+    const { host } = render('vendors', 'plans');
+    const line = host.querySelector('[data-testid="docs-plans-vendor-program"]')!;
+    expect(line).not.toBeNull();
+    expect(line.closest('.aec-prose')).toBeNull();
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'For a short overview of what AEC Integrations offers vendors, see the vendor program.',
+    );
+    expect(line.querySelector('a')?.getAttribute('href')).toBe('/vendor-program');
+    expect(line.nextElementSibling?.tagName.toLowerCase()).toBe('aec-plan-cta-actions');
   });
 });

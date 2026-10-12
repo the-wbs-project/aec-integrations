@@ -87,6 +87,7 @@ import { PlanInquiryService } from './plan-inquiry.service';
             <aec-plan-inquiry-form
               idPrefix="plan-inquiry-dialog"
               [placement]="inquiry.placement() ?? 'top'"
+              [page]="inquiry.page() ?? undefined"
             />
           </div>
         </div>

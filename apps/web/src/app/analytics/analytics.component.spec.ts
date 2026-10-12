@@ -26,6 +26,8 @@ import {
   Analytics,
   INTERNAL_PERSON_PROPERTY,
   VENDOR_GROUP_TYPE,
+  type PlanCtaPage,
+  type PlanCtaPlacement,
 } from './analytics';
 import { ConsentService, type ConsentState } from './consent';
 import {
@@ -209,18 +211,40 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
   it('fires plan_cta_clicked with the plan and the placement once consented', async () => {
     const { analytics, client } = setup();
     TestBed.tick();
-    analytics.planCtaClicked({ plan: 'managed', placement: 'rail' });
+    analytics.planCtaClicked({ plan: 'managed', placement: 'rail', page: 'docs_plans' });
     await flush();
     expect(client.capture).toHaveBeenCalledWith(
       'plan_cta_clicked',
-      expect.objectContaining({ plan: 'managed', placement: 'rail', locale: 'en-US' }),
+      expect.objectContaining({
+        plan: 'managed',
+        placement: 'rail',
+        page: 'docs_plans',
+        locale: 'en-US',
+      }),
     );
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page it sat on, and the search-result placement.
+  it('fires plan_cta_clicked with page vendor_program and placement search_result', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    const placement: PlanCtaPlacement = 'search_result';
+    const page: PlanCtaPage = 'vendor_program';
+    analytics.planCtaClicked({ plan: 'free', placement, page });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_cta_clicked',
+      expect.objectContaining({ plan: 'free', placement: 'search_result', page: 'vendor_program' }),
+    );
+    // @ts-expect-error a placement outside the union does not compile.
+    const unknown: PlanCtaPlacement = 'sidebar';
+    expect(unknown).toBe('sidebar');
   });
 
   it('does not fire plan_cta_clicked before consent is granted', async () => {
     const { analytics, client } = setup({ consent: 'unknown' });
     TestBed.tick();
-    analytics.planCtaClicked({ plan: 'managed', placement: 'top' });
+    analytics.planCtaClicked({ plan: 'managed', placement: 'top', page: 'docs_plans' });
     await flush();
     expect(captured(client)).not.toContain('plan_cta_clicked');
   });
@@ -240,6 +264,44 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     )![1] as Record<string, unknown>;
     expect(Object.keys(props)).not.toContain('email');
     expect(Object.keys(props)).not.toContain('company');
+    // The /contact form sits on no plan page, so the key is absent, not empty.
+    expect(Object.keys(props)).not.toContain('page');
+  });
+
+  it('carries the page of the button that opened the inquiry dialog', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.planInquirySubmitted({ topic: 'managed', placement: 'card', page: 'vendor_program' });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_inquiry_submitted',
+      expect.objectContaining({ topic: 'managed', placement: 'card', page: 'vendor_program' }),
+    );
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the count only, never the query text.
+  it('fires vendor_product_search with the result count and nothing else', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.vendorProductSearch({ results_count: 3 });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'vendor_product_search',
+      expect.objectContaining({ results_count: 3 }),
+    );
+    const props = client.capture.mock.calls.find(
+      (call) => call[0] === 'vendor_product_search',
+    )![1] as Record<string, unknown>;
+    expect(Object.keys(props)).not.toContain('query');
+    expect(Object.keys(props)).not.toContain('q');
+  });
+
+  it('does not fire vendor_product_search before consent is granted', async () => {
+    const { analytics, client } = setup({ consent: 'unknown' });
+    TestBed.tick();
+    analytics.vendorProductSearch({ results_count: 0 });
+    await flush();
+    expect(captured(client)).not.toContain('vendor_product_search');
   });
 
   it('does not fire plan_inquiry_submitted before consent is granted', async () => {

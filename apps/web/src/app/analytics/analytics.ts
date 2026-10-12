@@ -129,12 +129,23 @@ export const VENDOR_GROUP_TYPE = 'vendor';
  */
 export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 
-/** Where a Plans-page call to action sits (`plan_cta_clicked.placement`). */
-export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
+/**
+ * Where a plan call to action sits (`plan_cta_clicked.placement`). `search_result`
+ * is "Claim this listing" on a Find your product result (`VENDOR_PROGRAM_PAGE_SPEC.md`
+ * §6), on the vendor program page only.
+ */
+export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom' | 'search_result';
+
+/**
+ * Which page a plan call to action sits on (`plan_cta_clicked.page`,
+ * `plan_inquiry_submitted.page`): the vendor guide's Plans page
+ * (`/docs/vendors/plans`) or the public vendor program page (`/vendor-program`).
+ */
+export type PlanCtaPage = 'docs_plans' | 'vendor_program';
 
 /**
  * Where a plan inquiry form was sent from (`plan_inquiry_submitted.placement`): a
- * Plans-page call to action that opened the dialog, or the form on
+ * plan call to action that opened the dialog, or the form on
  * `/contact?topic=managed`.
  */
 export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
@@ -302,24 +313,52 @@ export class Analytics {
   }
 
   /**
-   * A click on a plan call to action in the vendor guide's Plans page
-   * (`docs/docs-plans-cta.ts`). `placement` says which copy of the button it
-   * was, so the placements can be compared. A Managed click opens the inquiry
-   * dialog (AECI-1279), so this counts opens, not inquiries: see
-   * `planInquirySubmitted`. Consent-gated like every event.
+   * A click on a plan call to action (`shared/plan-cta/`), on the vendor guide's
+   * Plans page or the vendor program page. `placement` says which copy of the
+   * button it was and `page` which page it sat on, so both can be compared. A
+   * Managed click opens the inquiry dialog (AECI-1279), so this counts opens, not
+   * inquiries: see `planInquirySubmitted`. Consent-gated like every event.
    */
-  planCtaClicked(input: { plan: 'free' | 'managed'; placement: PlanCtaPlacement }): void {
-    this.capture('plan_cta_clicked', { plan: input.plan, placement: input.placement });
+  planCtaClicked(input: {
+    plan: 'free' | 'managed';
+    placement: PlanCtaPlacement;
+    page: PlanCtaPage;
+  }): void {
+    this.capture('plan_cta_clicked', {
+      plan: input.plan,
+      placement: input.placement,
+      page: input.page,
+    });
   }
 
   /**
    * A plan inquiry the API accepted (`POST /api/plan-inquiries` → 201, AECI-1279),
    * fired by the inquiry form. `placement` is the button that opened it, or `contact`.
-   * No field the visitor typed is sent (§2). Consent-gated like every event, so the
-   * `plan_inquiries` table stays the authoritative count.
+   * `page` is the page that button sat on. The `/contact` form has no `page`, so the
+   * key is left out rather than sent empty. No field the visitor typed is sent (§2).
+   * Consent-gated like every event, so the `plan_inquiries` table stays the
+   * authoritative count.
    */
-  planInquirySubmitted(input: { topic: 'managed'; placement: PlanInquiryPlacement }): void {
-    this.capture('plan_inquiry_submitted', { topic: input.topic, placement: input.placement });
+  planInquirySubmitted(input: {
+    topic: 'managed';
+    placement: PlanInquiryPlacement;
+    page?: PlanCtaPage;
+  }): void {
+    this.capture('plan_inquiry_submitted', {
+      topic: input.topic,
+      placement: input.placement,
+      ...(input.page ? { page: input.page } : {}),
+    });
+  }
+
+  /**
+   * A settled, non-empty search in the vendor program page's Find your product
+   * (`VENDOR_PROGRAM_PAGE_SPEC.md` §6, §9). The caller fires it once per settled
+   * query. Only the count is sent, never the query text: a query can name a
+   * company before it has agreed to anything (§2). Consent-gated like every event.
+   */
+  vendorProductSearch(input: { results_count: number }): void {
+    this.capture('vendor_product_search', { results_count: input.results_count });
   }
 
   // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────

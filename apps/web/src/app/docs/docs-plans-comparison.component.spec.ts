@@ -1,6 +1,7 @@
 /**
  * The Plans page's pricing cards and comparison table
- * (`docs-plans-comparison.ts`). The page-level placement is pinned in
+ * (`docs-plans-comparison.ts`). The cards themselves are pinned in
+ * `shared/plan-cta/plan-cards.component.spec.ts`. The page-level placement is pinned in
  * `docs-page.component.spec.ts`.
  *
  * `*.component.spec.ts` because the component reads `$localize`, which only the
@@ -76,6 +77,11 @@ describe('DocsPlansComparisonComponent', () => {
     expect(cards[1].textContent).toContain('$25');
     expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/contact?topic=managed');
     expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Talk to us about Managed');
+    // The docs card keeps its shipped wording and target (AECI-1289: no visual change).
+    expect(cards[0].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');
+    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe(
+      '/docs/vendors/claiming-your-listing',
+    );
   });
 
   // AECI-1279: the card's button opens the page's one inquiry dialog in place.
@@ -96,7 +102,12 @@ describe('DocsPlansComparisonComponent', () => {
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(inquiry.placement()).toBe('card');
-    expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'card' });
+    expect(inquiry.page()).toBe('docs_plans');
+    expect(planCtaClicked).toHaveBeenCalledWith({
+      plan: 'managed',
+      placement: 'card',
+      page: 'docs_plans',
+    });
   });
 
   // The trust point is the sort rule, never a promise that Managed ranks higher.

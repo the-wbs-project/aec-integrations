@@ -3,8 +3,8 @@
  *
  * `*.component.spec.ts`: the form reads `$localize` and Signal Forms' async schema
  * validation, which only the Angular `ng test` tier sets up. The CTA side (which link
- * opens the dialog, with which placement) is pinned in
- * `docs/docs-plans-cta.component.spec.ts` and `docs-plans-comparison.component.spec.ts`.
+ * opens the dialog, with which placement and page) is pinned in
+ * `shared/plan-cta/plan-cta.component.spec.ts` and `plan-cards.component.spec.ts`.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -25,7 +25,7 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-function setup(sessionEmail: string | null = null) {
+function setup(sessionEmail: string | null = null, page?: 'docs_plans' | 'vendor_program') {
   const email = signal<string | null>(sessionEmail);
   const planInquirySubmitted = vi.fn();
   TestBed.configureTestingModule({
@@ -38,6 +38,7 @@ function setup(sessionEmail: string | null = null) {
   });
   const fixture = TestBed.createComponent(PlanInquiryForm);
   fixture.componentRef.setInput('placement', 'rail');
+  if (page) fixture.componentRef.setInput('page', page);
   fixture.detectChanges();
   return {
     fixture,
@@ -143,7 +144,25 @@ describe('PlanInquiryForm', () => {
       'Thanks. We reply to most messages within a couple of business days.',
     );
     expect(el.querySelector('form')).toBeNull();
+    // No page: the /contact form's shape, so the event carries no `page` key.
     expect(planInquirySubmitted).toHaveBeenCalledWith({ topic: 'managed', placement: 'rail' });
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page of the button that opened the dialog.
+  it('reports the page it was opened from on plan_inquiry_submitted', async () => {
+    const { fixture, http, planInquirySubmitted } = setup(null, 'vendor_program');
+    type(fixture, 'email', 'buyer@acme.example');
+    type(fixture, 'company', 'Acme');
+    await submitForm(fixture);
+    http
+      .expectOne('/api/plan-inquiries')
+      .flush({ received: true }, { status: 201, statusText: 'Created' });
+    await settle();
+    expect(planInquirySubmitted).toHaveBeenCalledWith({
+      topic: 'managed',
+      placement: 'rail',
+      page: 'vendor_program',
+    });
   });
 
   it('carries a filled honeypot to the server, which decides', async () => {
@@ -209,7 +228,7 @@ describe('PlanInquiryDialog', () => {
   // The first click lands before the deferred dialog exists; it opens itself.
   it('opens on its first render when a click already asked for it', async () => {
     const { inquiry, create } = mount();
-    inquiry.open('bottom');
+    inquiry.open('bottom', 'docs_plans');
     const fixture = create();
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
@@ -225,7 +244,8 @@ describe('PlanInquiryDialog', () => {
     await TestBed.inject(ApplicationRef).whenStable();
     expect(panel()).toBeNull();
 
-    inquiry.open('rail');
+    inquiry.open('rail', 'vendor_program');
+    expect(inquiry.page()).toBe('vendor_program');
     await TestBed.inject(ApplicationRef).whenStable();
     expect(panel()).not.toBeNull();
 

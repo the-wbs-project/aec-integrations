@@ -19,8 +19,8 @@
  * strings authored with `i18n`/`$localize`; the email address itself is literal
  * (not translated) and shared between the visible label and the `mailto:` href.
  *
- * **`?topic=managed`** (the vendor guide's Plans page buttons, `docs-plans-cta.ts`).
- * The Plans page opens the plan inquiry form in a dialog (AECI-1279). This page is
+ * **`?topic=managed`** (the plan call-to-action buttons, `shared/plan-cta/`).
+ * Those pages open the plan inquiry form in a dialog (AECI-1279). This page is
  * those buttons' link target, so a click without JS, or into a new tab, lands on the
  * same form, inline (`PlanInquiryForm`, `POST /api/plan-inquiries`). The page also
  * says what happens next. Any other topic value is ignored. `/contact` is not cached,

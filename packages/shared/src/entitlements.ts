@@ -363,6 +363,14 @@ function termHasEnded(periodEnd: string | null, now: Date | string): boolean {
  */
 export const MANAGED_LIST_PRICE_CENTS = 2500;
 
+/**
+ * Managed's public annual price, per product per year, in US cents ($250,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §1.1 decision 3). Shown beside the monthly
+ * price on the public plan pages. Display only, like the monthly price: a
+ * company's own price and term are agreed with it, and nothing bills from this.
+ */
+export const MANAGED_ANNUAL_PRICE_CENTS = 25000;
+
 /** Upper bound on an admin price override, in cents ($100,000). */
 export const MANAGED_PRICE_CENTS_MAX = 10_000_000;
 

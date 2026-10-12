@@ -3,7 +3,7 @@ import { FormField, form, maxLength, submit, validateStandardSchema } from '@ang
 
 import { PLAN_INQUIRY_LIMITS, PlanInquirySubmitSchema, type PlanInquirySubmit } from '@aeci/shared';
 
-import { Analytics, type PlanInquiryPlacement } from '../../analytics/analytics';
+import { Analytics, type PlanCtaPage, type PlanInquiryPlacement } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 
@@ -194,6 +194,11 @@ export class PlanInquiryForm {
 
   /** Which button sent the visitor here, for `plan_inquiry_submitted`. */
   readonly placement = input.required<PlanInquiryPlacement>();
+  /**
+   * The page of the button that opened the dialog, for `plan_inquiry_submitted`.
+   * Left unset on `/contact`, which is no plan page, so the event carries no `page`.
+   */
+  readonly page = input<PlanCtaPage | undefined>(undefined);
   /** Keeps element ids unique if two forms ever share a page. */
   readonly idPrefix = input('plan-inquiry');
 
@@ -252,7 +257,12 @@ export class PlanInquiryForm {
       try {
         await this.api.submitPlanInquiry(this.body(f().value()));
         this.sent.set(true);
-        this.analytics.planInquirySubmitted({ topic: 'managed', placement: this.placement() });
+        const page = this.page();
+        this.analytics.planInquirySubmitted({
+          topic: 'managed',
+          placement: this.placement(),
+          ...(page ? { page } : {}),
+        });
       } catch {
         // Retryable: the answers stay, and the button reads "Try again".
         this.failed.set(true);

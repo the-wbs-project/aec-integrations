@@ -1172,7 +1172,7 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 
 No row means the default. Resetting both fields deletes the row.
 
-**The default.** `MANAGED_LIST_PRICE_CENTS = 2500` in `packages/shared/src/entitlements.ts`. It is the only place the list price lives. The same module holds the bounds and `planPriceDisplay`, the precedence rule.
+**The default.** `MANAGED_LIST_PRICE_CENTS = 2500` in `packages/shared/src/entitlements.ts`. It is the only place the list price lives. The same module holds the bounds and `planPriceDisplay`, the precedence rule. Beside it, `MANAGED_ANNUAL_PRICE_CENTS = 25000` is the public annual price the plan pages show (`VENDOR_PROGRAM_PAGE_SPEC.md` §4, AECI-1285). It is display only too, and an override does not touch it.
 
 **Write.** `PUT /api/admin/vendors/:id/plan-pricing` behind `requireAdmin()` and `rateLimit('write')` (`API_CONTRACTS.md` §6.10). The upsert or delete and its `audit_log` row go in one `db.batch`. The actions are `vendor_plan_pricing.set` and `vendor_plan_pricing.cleared`, with `entity_id` the vendor id. They are vendor-scoped, not receipts: the vendor's change history does not list them. A request that changes nothing writes nothing. There is no cache purge, because no public page renders the override.
 
