@@ -248,7 +248,7 @@ a tier with no cache-purge queue (local).
 
 ```bash
 pnpm install
-pnpm --filter @aeci/datatool deploy   # wrangler deploy + COMMIT_SHA/DEPLOYED_AT --var
+pnpm --filter @aeci/datatool run deploy   # wrangler deploy + COMMIT_SHA/DEPLOYED_AT --var
 ```
 
 Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs) +

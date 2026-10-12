@@ -506,7 +506,7 @@ Two Workers in this repo are **hand-deployed**. No job builds, deploys or versio
 
 | Worker | What it is | Deploy |
 | --- | --- | --- |
-| `apps/datatool` | Internal admin Worker: clone D1 data env→env (mirror; log-class tables cleared, not copied, by default), seed reviews, reindex Algolia, and (WC-7 / AECI-321) enqueue a bulk cache purge. | `pnpm --filter @aeci/datatool deploy` |
+| `apps/datatool` | Internal admin Worker: clone D1 data env→env (mirror; log-class tables cleared, not copied, by default), seed reviews, reindex Algolia, and (WC-7 / AECI-321) enqueue a bulk cache purge. | `pnpm --filter @aeci/datatool run deploy` |
 | `apps/agent` | Catalog question-answering **spike** on Flue (ADR 0034). Reads D1 read-only, writes only its own R2 corpus. | `pnpm --filter @aeci/agent deploy` / `deploy:production` |
 
 Both deploy scripts pass `--var COMMIT_SHA` and `--var DEPLOYED_AT` per the AECI-74 convention, so a hand deploy still reports a real SHA.

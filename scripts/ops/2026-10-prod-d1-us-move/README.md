@@ -155,7 +155,7 @@ On the day:
 6. **Agent:** `move.sh export`, then `move.sh import`, then `move.sh verify --strict`. It must print `VERIFY CLEAN`. If not, stop, run `move.sh resume-crons`, and unfreeze. Nothing has changed for visitors.
 7. **Chris:** run `promote-to-prod` on the merge SHA and approve it. Its deploy restores the crons. If it fails or is cancelled before its deploy step, nothing restores them. Run `move.sh resume-crons` then.
 8. **Agent:** confirm, below.
-9. **Chris or agent:** redeploy the datatool, and the agent Worker if it is deployed: `pnpm --filter @aeci/datatool deploy`, `pnpm --filter @aeci/agent deploy:production`.
+9. **Chris or agent:** redeploy the datatool, and the agent Worker if it is deployed: `pnpm --filter @aeci/datatool run deploy`, `pnpm --filter @aeci/agent run deploy:production`.
 10. **Chris:** unfreeze.
 
 **Do not merge the PR early.** Once the rebind is on `main`, any `promote-to-prod` points production at the new database. Before step 6 that database holds the stale rehearsal copy. Production would serve it and drop every write since.
