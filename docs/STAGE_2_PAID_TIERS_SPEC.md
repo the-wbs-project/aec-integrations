@@ -1022,7 +1022,7 @@ Before AECI-1215, `approveClaim` hardcoded `GRANT_TIER = 'verified'` at `apps/ap
 - **Free on a vendor that already has a row.** An `active` row stays active, so a Free second seat on a Managed vendor leaves it Managed and answers `plan: 'free'`, `tier: 'verified'`. An ended row stays ended. Free never reactivates.
 - **Email.** One template id, `claim-approved`, with a Free and a Managed capabilities line. `email.md` has the copy.
 - **Admin UI.** `/admin/claims` asks for the plan in a `fieldset` with two native radios and nothing preselected. "Confirm grant" is disabled until one is picked. The arrangement notes field renders for Managed only. A note typed under Managed is not sent if the operator then switches to Free.
-- **The claimant's answer (AECI-1293).** Since the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) a claim may carry `plan_interest` (`free`, `managed`, `not_sure`, or null). The approve form shows it beside the radios as "They asked about: Managed". It never preselects a radio: the operator still chooses, and a claimant who asked about Managed may still be granted Free while the price is agreed.
+- **The claimant's answer (AECI-1293).** Since the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) a claim may carry `plan_interest` (`free`, `managed`, `not_sure`, or null). The approve form shows it beside the radios as "They asked about: Managed", only when the claimant answered. It never preselects a radio: the operator still chooses, and a claimant who asked about Managed may still be granted Free while the price is agreed.
 
 ### 13.7 Per-product plan field
 

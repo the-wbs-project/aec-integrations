@@ -51,6 +51,7 @@ import { integrationFieldChallenges, vendorRequests, workflowInstances } from '.
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
+import { planInterestText } from './email';
 import type { LinearNotificationId } from './notifications/registry';
 import { adminContestUrl, adminRequestUrl, environmentHost, publicPairUrl } from './request-links';
 
@@ -1032,7 +1033,7 @@ function buildDescription(env: Env, input: LinearIssueInput): string {
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
   if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
   if (input.submitterLinkedinUrl) lines.push(`**LinkedIn:** ${input.submitterLinkedinUrl}`);
-  if (input.planInterest) lines.push(`**Plan interest:** ${input.planInterest}`);
+  if (input.planInterest) lines.push(`**Plan interest:** ${planInterestText(input.planInterest)}`);
   lines.push(`**Domain match:** ${input.domainMatch ?? 'pending'}`);
 
   const host = environmentHost(env);

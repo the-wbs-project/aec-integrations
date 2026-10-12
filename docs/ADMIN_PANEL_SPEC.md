@@ -1645,7 +1645,9 @@ badge.
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
   Rejected filter. Each row shows the name, the website as text plus a new-tab link
   (`rel="noopener noreferrer nofollow"`), the submitter's email, name, role and LinkedIn, the
-  plan interest, the comments and the date, with Resolve and Reject.
+  plan interest, the comments and the date, with Resolve and Reject. The list loads the first
+  100 rows. Past that it says "Showing the first N of M listing requests", like the corrections
+  section. A filter change ignores any response for a filter the admin already left.
 - **The badge.** `pending_requests` counts open corrections plus open listing requests, so
   the Requests count matches the screen. A resolve or reject of an open row decrements it.
 - **What Resolve means.** The operator added the listing upstream (the review app, then
@@ -1653,7 +1655,7 @@ badge.
   submitter. Resolving creates nothing.
 - **Claims.** The claim queue and the claim detail (§5.10) show the claimant's plan answer as
   "Plan interest", and the queue's approve form repeats it beside the plan radios ("They
-  asked about: Managed"). The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
+  asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
 
 ## 6. API surface

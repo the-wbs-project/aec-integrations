@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 
 import type { AdminListingRequest } from '@aeci/shared';
 
@@ -92,6 +92,16 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
           No listing requests match this filter.
         </p>
       } @else {
+        @if (truncated()) {
+          <p
+            class="mt-6 text-xs text-(--text-secondary)"
+            data-testid="listing-requests-capped"
+            i18n="@@admin.listingRequests.cappedNote"
+          >
+            Showing the first {{ rows().length }} of {{ total() }} listing requests. Moderate these
+            to see the rest.
+          </p>
+        }
         <ul role="list" class="mt-6 space-y-5">
           @for (r of rows(); track r.id) {
             <li>
@@ -218,6 +228,11 @@ export class ListingRequestQueue {
 
   protected readonly planInterestLabel = planInterestLabel;
   protected readonly rows = signal<readonly AdminListingRequest[]>([]);
+  /** The server's count for the filter. More than `rows` means the page is capped. */
+  protected readonly total = signal(0);
+  protected readonly truncated = computed(() => this.total() > this.rows().length);
+  /** Bumped per `load()`, so a response for an earlier filter never lands last. */
+  private loadSeq = 0;
   protected readonly status = signal<StatusFilter>('open');
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
@@ -236,6 +251,7 @@ export class ListingRequestQueue {
   }
 
   protected async load(): Promise<void> {
+    const seq = ++this.loadSeq;
     this.loading.set(true);
     this.loadFailed.set(false);
     try {
@@ -244,11 +260,13 @@ export class ListingRequestQueue {
         page: 1,
         perPage: PAGE_SIZE,
       });
+      if (seq !== this.loadSeq) return;
       this.rows.set(res.data);
+      this.total.set(res.total);
     } catch {
-      this.loadFailed.set(true);
+      if (seq === this.loadSeq) this.loadFailed.set(true);
     } finally {
-      this.loading.set(false);
+      if (seq === this.loadSeq) this.loading.set(false);
     }
   }
 
@@ -288,5 +306,6 @@ export class ListingRequestQueue {
 
   private drop(id: string): void {
     this.rows.update((list) => list.filter((r) => r.id !== id));
+    this.total.update((n) => Math.max(0, n - 1));
   }
 }

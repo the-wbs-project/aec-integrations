@@ -1316,7 +1316,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 
 Unlike the other submitter fields, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
 
-**`body` is optional on a claim.** "Anything we should know?" has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
+**`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
 
 #### `POST /api/requests/correction`
 

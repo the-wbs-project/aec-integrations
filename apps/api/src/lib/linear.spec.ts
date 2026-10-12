@@ -223,6 +223,24 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
   });
 
+  // AECI-1293: the same wording the claim alert email uses, never the raw token.
+  it('writes the plan answer as the operator reads it', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(
+      ctx(),
+      store,
+      { ...INPUT, kind: 'claim', planInterest: 'not_sure' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input.description).toContain('**Plan interest:** Not sure yet');
+  });
+
   it('omits the LinkedIn line when the claimant supplied nothing', async () => {
     const fetchImpl = mockFetch();
     const { store } = makeStore();

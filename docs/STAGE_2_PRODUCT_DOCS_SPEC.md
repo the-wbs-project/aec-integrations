@@ -140,8 +140,8 @@
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
 > AECI-1253 lifts it, in the same sitting as AECI-1105. *(It lifted it on 2026-10-12, ahead of AECI-1105, by Chris's ruling. The footer Help column now links the guide too.)* Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
-> "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs` but
-> not into the vendor guide. The portal "Learn more" links (now AECI-1105) are not built. The same-PR sync rule (§4) is in
+> "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs`, and
+> since AECI-1253 into the vendor guide ("Vendor guide"). The portal "Learn more" links shipped 2026-10-12 (AECI-1253 item 3, §7 question 1). The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 
 ---

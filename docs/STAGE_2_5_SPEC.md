@@ -247,7 +247,7 @@ Both stay children of AECI-771. The epic itself stays in Stage 2.1, with AECI-72
 
 **The sixth admitted exception to §9's "no new surface area"** (epic **AECI-1281**). It is admitted by operator decision on 2026-10-12, not under one of the four §1 tests. Stage 2.1 cannot hold it: it is a new public page, not a refinement of the vendor surface, so it fails the `STAGE_2_1_SPEC.md` §1 admission test.
 
-The exception is **one public page**, `/vendor-program`. It asks vendors to claim their listing and to talk to us about Managed. It also covers the shared call-to-action components it splits out of the `/docs/vendors/plans` page, the small deltas on that page, and one browser-only read of `GET /api/vendor/me` for signed-in variants. It adds no write, no table and no endpoint.
+The exception is **one public page**, `/vendor-program`. It asks vendors to claim their listing and to talk to us about Managed. It also covers the shared call-to-action components it splits out of the `/docs/vendors/plans` page, the small deltas on that page, and one browser-only read of `GET /api/vendor/me` for signed-in variants. §1 to §14 of the build contract add no write. Its §15, the claim dialog (AECI-1293), adds one nullable column (`vendor_requests.plan_interest`), one table (`listing_requests`), `POST /api/requests/listing` and two admin endpoints for it.
 
 The build contract is **`docs/VENDOR_PROGRAM_PAGE_SPEC.md`**. Its §1.1 records the six decisions settled on 2026-10-12, its §1.2 records where the marketing draft and the code disagreed, and its §14 maps the issues.
 

@@ -289,34 +289,4 @@ describe('SearchAutocomplete', () => {
     expect(input.classList).toContain('h-11');
     expect(input.classList).not.toContain('h-9');
   });
-
-  it('emits searchSettled from its controller', async () => {
-    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = {
-      appId: 'APP',
-      searchKey: 'key',
-      indexes: { products: 'p', vendors: 'v', integrations: 'i' },
-    };
-    TestBed.configureTestingModule({
-      providers: [
-        {
-          provide: AUTOCOMPLETE_SEARCH_FACTORY,
-          useValue: () =>
-            Promise.resolve(() =>
-              Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 1 }),
-            ),
-        },
-      ],
-    });
-    const fixture = TestBed.createComponent(SearchAutocomplete);
-    fixture.detectChanges();
-    await fixture.whenStable();
-    const settled: unknown[] = [];
-    fixture.componentInstance.searchSettled.subscribe((s) => settled.push(s));
-
-    const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
-    input.value = 'rev';
-    input.dispatchEvent(new Event('input'));
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    expect(settled).toEqual([{ query: 'rev', count: 1, total: 1, failed: false }]);
-  });
 });

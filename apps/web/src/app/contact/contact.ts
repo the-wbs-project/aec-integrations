@@ -30,10 +30,11 @@
  * **`?topic=add-product`** (`VENDOR_PROGRAM_PAGE_SPEC.md` §6; its in-app link,
  * Find your product, was removed on 2026-10-12, and the topic keeps working for
  * outside links). A vendor whose product is not in the
- * directory asks us to add it. There is no submission flow (§13 question 5), so
- * the page shows a panel whose button is the same support `mailto:` with the
- * subject and a prompt filled in: product name, website, and the products it
- * integrates with. The message reaches the same mailbox as every other email.
+ * directory asks us to add it. The in-app path is the claim dialog's typed-in step
+ * (a listing request, §15.4). This topic is the fallback for outside links: the
+ * page shows a panel whose button is the same support `mailto:` with the subject
+ * and a prompt filled in: product name, website, and the products it integrates
+ * with. The message reaches the same mailbox as every other email.
  * Topic values live in `contact-topics.ts`.
  */
 import { Component, inject } from '@angular/core';

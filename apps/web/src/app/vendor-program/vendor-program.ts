@@ -70,9 +70,11 @@ import {
   Component,
   LOCALE_ID,
   PLATFORM_ID,
+  TransferState,
   afterNextRender,
   computed,
   inject,
+  makeStateKey,
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
@@ -98,6 +100,8 @@ import { VendorProgramBenefit } from './vendor-program-benefit';
 /** The Plans page, for the Managed lines with no page of their own. */
 const PLANS_PATH = '/docs/vendors/plans';
 
+/** The server's "today" for the example maintenance label (see `exampleUpdatedAt`). */
+const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example-updated-at');
 @Component({
   selector: 'aec-vendor-program',
   imports: [
@@ -450,7 +454,7 @@ const PLANS_PATH = '/docs/vendors/plans';
                 Coming soon
               </h2>
               <span
-                class="rounded-full border border-(--border-strong) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                class="aec-badge-strong rounded-full px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
                 i18n="@@vendorProgram.comingSoon.badge"
                 >Not available yet</span
               >
@@ -654,8 +658,13 @@ export class VendorProgramPage {
    * The date on the "after" label in What changes when you claim: today, in UTC, so
    * the example reads as "if you updated it today". The marker formats it in UTC, so
    * the server and the browser print the same day. It is not visitor state.
+   *
+   * The page is edge-cached for 24 hours, so the browser takes the server's value
+   * through `TransferState` instead of reading its own clock. Otherwise a copy cached
+   * on an earlier UTC day would redraw the date after hydration. A client-side
+   * navigation has no server value and reads the clock.
    */
-  protected readonly exampleUpdatedAt = new Date().toISOString();
+  protected readonly exampleUpdatedAt = this.resolveExampleUpdatedAt();
   protected readonly summaryClass =
     'flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden';
   protected readonly answerClass = 'max-w-[60ch] pb-5 leading-relaxed text-(--text-secondary)';
@@ -693,5 +702,14 @@ export class VendorProgramPage {
     afterNextRender(() => {
       if (this.isBrowser) this.hydrated.set(true);
     });
+  }
+
+  private resolveExampleUpdatedAt(): string {
+    const state = inject(TransferState);
+    const transferred = state.get(EXAMPLE_UPDATED_AT_KEY, null);
+    if (transferred) return transferred;
+    const now = new Date().toISOString();
+    if (!this.isBrowser) state.set(EXAMPLE_UPDATED_AT_KEY, now);
+    return now;
   }
 }

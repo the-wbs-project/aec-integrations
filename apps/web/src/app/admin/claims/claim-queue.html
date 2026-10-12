@@ -600,6 +600,7 @@
             </p>
             <!-- AECI-1293: what the claimant said, beside the radios. The radios stay
                  unselected whatever it says (STAGE_2_PAID_TIERS_SPEC.md 13.6). -->
+            @if (r.plan_interest) {
             <p
               class="text-xs font-medium text-(--text-primary)"
               data-testid="claim-plan-asked"
@@ -607,6 +608,7 @@
             >
               They asked about: {{ planInterestLabel(r.plan_interest) }}
             </p>
+            }
             <div class="flex flex-wrap gap-x-6 gap-y-2">
               <label
                 class="inline-flex cursor-pointer items-center gap-2 text-sm text-(--text-primary)"

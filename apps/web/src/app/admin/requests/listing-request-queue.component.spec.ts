@@ -136,4 +136,40 @@ describe('ListingRequestQueue', () => {
     });
     expect(el.querySelector('article button')).toBeNull();
   });
+  it('says how many it is not showing when the server caps the page', async () => {
+    const { el, fixture, api } = await setup([]);
+    api.listListingRequests.mockResolvedValueOnce({
+      data: [row()],
+      page: 1,
+      perPage: 100,
+      total: 140,
+    });
+    button(el, 'Resolved').click();
+    await settle();
+    fixture.detectChanges();
+    expect(text(el.querySelector('[data-testid="listing-requests-capped"]'))).toBe(
+      'Showing the first 1 of 140 listing requests. Moderate these to see the rest.',
+    );
+  });
+
+  it('ignores a response for a filter the admin already left', async () => {
+    const { el, fixture, api } = await setup([]);
+    let releaseStale!: () => void;
+    const stale = new Promise<void>((resolve) => (releaseStale = resolve)).then(() => ({
+      data: [row({ id: 'lr-stale', listing_name: 'Stale', status: 'resolved' })],
+      page: 1,
+      perPage: 100,
+      total: 1,
+    }));
+    api.listListingRequests
+      .mockReturnValueOnce(stale)
+      .mockResolvedValueOnce({ data: [row()], page: 1, perPage: 100, total: 1 });
+    button(el, 'Resolved').click();
+    button(el, 'Open').click();
+    await settle();
+    releaseStale();
+    await settle();
+    fixture.detectChanges();
+    expect(text(el.querySelector('article h3'))).toBe('Site Diary Pro');
+  });
 });

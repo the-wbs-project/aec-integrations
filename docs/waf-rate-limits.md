@@ -416,7 +416,7 @@ same characteristics" = IP** → set the rate and action as listed.
 | Action | **Block** |
 | Duration (mitigation timeout) | **1 hour** (3600 s) — block duration supports up to 1 h even though the counting period caps at 1 min |
 
-`starts_with(…, "/api/requests/")` covers the current `claim` and `correction`
+`starts_with(…, "/api/requests/")` covers the current `claim`, `correction` and `listing`
 submissions and any future request submission added under that prefix. These are
 anonymous POSTs. The spec wants "5 submissions per IP **per hour**"; the Pro
 dashboard can only count per **minute**, so this is a per-minute burst cap (5/min)

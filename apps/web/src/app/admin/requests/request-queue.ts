@@ -221,7 +221,7 @@ export class RequestQueue {
   ): Promise<void> {
     if (this.pendingActionId()) return;
     // Read the status BEFORE the row is dropped. `pending_requests` counts `open`
-    // corrections only, and `isActionable` also admits `in_review` — a status this
+    // corrections plus open listing requests, and `isActionable` also admits `in_review` — a status this
     // screen's filter cannot currently select, but decrementing on one would walk
     // the badge below the real backlog with nothing to resync it until the next
     // full visit to /admin.

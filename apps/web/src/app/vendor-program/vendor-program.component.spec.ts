@@ -1,4 +1,10 @@
-import { PLATFORM_ID, provideZonelessChangeDetection, signal } from '@angular/core';
+import {
+  PLATFORM_ID,
+  TransferState,
+  makeStateKey,
+  provideZonelessChangeDetection,
+  signal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Title } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
@@ -245,6 +251,27 @@ describe('VendorProgramPage', () => {
       expect(host.querySelectorAll('#vp-free li')).toHaveLength(3);
       // No Free line has a docs page of its own, so none ends in "Learn more".
       expect(host.querySelector('#vp-free [data-testid="vp-learn-more"]')).toBeNull();
+    });
+
+    // A cached copy carries the server's day. The browser must not redraw it.
+    it('takes the example date from the server through TransferState', async () => {
+      const key = makeStateKey<string>('aeci.vendor-program.example-updated-at');
+      const server = await setup({ platform: 'server' });
+      const serverValue = (
+        server.fixture.componentInstance as unknown as { exampleUpdatedAt: string }
+      ).exampleUpdatedAt;
+      expect(TestBed.inject(TransferState).get(key, null)).toBe(serverValue);
+
+      TestBed.resetTestingModule();
+      const transferred = new TransferState();
+      transferred.set(key, '2026-01-02T03:04:05.000Z');
+      const browser = await setup({
+        providers: [{ provide: TransferState, useValue: transferred }],
+      });
+      expect(
+        (browser.fixture.componentInstance as unknown as { exampleUpdatedAt: string })
+          .exampleUpdatedAt,
+      ).toBe('2026-01-02T03:04:05.000Z');
     });
 
     it('shows the real maintenance labels before and after a claim', async () => {

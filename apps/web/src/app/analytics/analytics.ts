@@ -130,9 +130,7 @@ export const VENDOR_GROUP_TYPE = 'vendor';
 export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 
 /**
- * Where a plan call to action sits (`plan_cta_clicked.placement`). `search_result`
- * ("Claim this listing" on a Find your product result) was retired on 2026-10-12
- * with that section (`VENDOR_PROGRAM_PAGE_SPEC.md` §6, §9).
+ * Where a plan call to action sits (`plan_cta_clicked.placement`).
  */
 export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
 
@@ -152,9 +150,7 @@ export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
 
 /**
  * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement. The
- * `ask_to_add` entry ("Ask us to add it" in Find your product) was retired on
- * 2026-10-12 with that section.
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement.
  */
 export type ClaimDialogEntry = PlanCtaPlacement;
 

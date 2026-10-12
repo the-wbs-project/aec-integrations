@@ -2454,9 +2454,10 @@ export interface PlanInquirySummary {
 }
 
 /**
- * The reply promise. It repeats the contact page (`apps/web/.../contact/contact.ts`) and
- * the Plans page (`docs-plans-cta.ts`, `docs-plans-comparison.ts`) word for word. Change
- * them together, or none of them.
+ * The reply promise. It repeats the contact page (`apps/web/.../contact/contact.ts`), the
+ * plan cards (`shared/plan-cta/plan-cards.ts`) and the plan inquiry form
+ * (`shared/plan-inquiry/plan-inquiry-form.ts`) word for word. Change them together, or
+ * none of them.
  */
 const PLAN_INQUIRY_REPLY_PROMISE = 'We reply to most messages within a couple of business days.';
 

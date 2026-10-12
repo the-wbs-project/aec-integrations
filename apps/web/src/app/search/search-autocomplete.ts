@@ -35,10 +35,8 @@
  *
  * A third mount, the claim dialog's Find step (`shared/claim-dialog/`, AECI-1293),
  * uses the optional hooks the header leaves at their defaults: a visible `label`
- * and a taller `inputHeightClass`. `searchSettled` reports each settled result set
- * (and each clear). Its caller, the vendor program page's Find your product
- * (AECI-1287), was removed on 2026-10-12, so nothing listens to it today. All of
- * them default to the header's markup and behavior.
+ * and a taller `inputHeightClass`. All of them default to the header's markup and
+ * behavior.
  *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a
@@ -62,7 +60,7 @@ import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
 
 import { readAlgoliaConfig } from './algolia-config';
-import { AutocompleteController, type AutocompleteSettled } from './autocomplete-controller';
+import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 
@@ -191,12 +189,6 @@ export class SearchAutocomplete {
   readonly querySubmitted = output<string>();
   /** Emitted when a suggestion is committed → its detail page. */
   readonly suggestionChosen = output<AutocompleteSuggestion>();
-  /**
-   * Emitted when a search settles, and when the box is cleared (`query: ''`). For a
-   * caller that reacts to the result set, such as a "no match" line (AECI-1287).
-   * Browser-only, like every search here. The header does not listen.
-   */
-  readonly searchSettled = output<AutocompleteSettled>();
 
   /** Combobox text value (two-way with `ngCombobox`). */
   protected readonly queryModel = signal('');
@@ -247,9 +239,7 @@ export class SearchAutocomplete {
       void this.factory(config)
         .then((searchFn) => {
           if (this.destroyed) return;
-          this.controller.set(
-            new AutocompleteController(searchFn, (settled) => this.searchSettled.emit(settled)),
-          );
+          this.controller.set(new AutocompleteController(searchFn));
         })
         .catch((error: unknown) => {
           // Autocomplete must never break the header — degrade silently.

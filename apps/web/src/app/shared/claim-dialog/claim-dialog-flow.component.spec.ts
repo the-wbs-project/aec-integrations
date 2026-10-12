@@ -8,7 +8,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../../analytics/analytics';
@@ -123,6 +123,25 @@ describe('ClaimDialogFlow', () => {
       page: 'vendor_program',
       entry: 'top',
     });
+  });
+
+  // §15.2 step 1: Enter with no suggestion chosen does nothing, and never leaves
+  // the open form for /search.
+  it('does nothing on Enter in the search box when no suggestion is chosen', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl');
+    const box = t.fixture.debugElement.query(By.directive(SearchAutocomplete))
+      .componentInstance as SearchAutocomplete;
+    box.querySubmitted.emit('acme');
+    t.$<HTMLFormElement>('form[action="/search"]')!.dispatchEvent(
+      new Event('submit', { cancelable: true }),
+    );
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+    expect(t.heading()).toBe('Find your listing');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(t.api.submitClaim).not.toHaveBeenCalled();
+    expect(t.api.submitListing).not.toHaveBeenCalled();
   });
 
   it('walks a found listing through every step and sends the claim with the plan and comments', async () => {
