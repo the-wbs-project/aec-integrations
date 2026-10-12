@@ -75,15 +75,11 @@ describe('DocsPlansComparisonComponent', () => {
     expect(cards[1].classList).toContain('aec-plan-card-featured');
     expect(cards[0].textContent).toContain('$0');
     expect(cards[1].textContent).toContain('$25');
-    // AECI-1293: both cards open the claim dialog; no-JS lands on Find your product.
+    // AECI-1293: both cards open the claim dialog; no-JS lands on the search page.
     expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Start with Managed');
-    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe(
-      '/vendor-program#find-your-product',
-    );
+    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/search');
     expect(cards[0].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');
-    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe(
-      '/vendor-program#find-your-product',
-    );
+    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/search');
   });
 
   // AECI-1293: "Start with Managed" opens the claim dialog with Managed preselected.

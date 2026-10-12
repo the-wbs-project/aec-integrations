@@ -247,17 +247,6 @@ interface ClaimDialogModel {
                     <span i18n="@@claimDialog.you.typedLede"
                       >Tell us the product or company to add.</span
                     >
-                    {{ ' ' }}
-                    @if (startStep() !== 'find') {
-                      <button
-                        type="button"
-                        (click)="toFind()"
-                        [class]="textButtonClass"
-                        i18n="@@claimDialog.you.searchInstead"
-                      >
-                        Search for it instead
-                      </button>
-                    }
                   </p>
                   <div class="mt-5 space-y-6">
                     <div class="space-y-1.5">
@@ -490,8 +479,6 @@ export class ClaimDialogFlow implements OnInit {
 
   protected readonly stepCount = STEPS.length;
   protected readonly step = signal<ClaimDialogStep>('find');
-  /** The first step the visitor saw. Back never goes before it. */
-  protected readonly startStep = signal<ClaimDialogStep>('find');
   protected readonly path = signal<'found' | 'typed' | null>(null);
   protected readonly listing = signal<ClaimListing | null>(null);
   protected readonly submitting = signal(false);
@@ -532,9 +519,7 @@ export class ClaimDialogFlow implements OnInit {
         return $localize`:@@claimDialog.stepName.comments:Comments`;
     }
   });
-  protected readonly canGoBack = computed(
-    () => this.step() !== 'done' && STEPS.indexOf(this.step()) > STEPS.indexOf(this.startStep()),
-  );
+  protected readonly canGoBack = computed(() => this.step() !== 'done' && this.step() !== 'find');
 
   protected readonly searchLabel = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly searchPlaceholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
@@ -570,18 +555,7 @@ export class ClaimDialogFlow implements OnInit {
   ngOnInit(): void {
     const opening = this.opening();
     if (opening.plan) this.model.update((m) => ({ ...m, plan_interest: opening.plan ?? '' }));
-    if (opening.listing) {
-      this.listing.set(opening.listing);
-      this.path.set('found');
-      this.startStep.set('you');
-      this.show('you', false);
-    } else if (opening.typed) {
-      this.path.set('typed');
-      this.startStep.set('you');
-      this.show('you', false);
-    } else {
-      this.show('find', false);
-    }
+    this.show('find', false);
   }
 
   /** A suggestion chosen in step 1: that listing, then step 2. */
@@ -609,7 +583,6 @@ export class ClaimDialogFlow implements OnInit {
   }
 
   protected toFind(): void {
-    this.startStep.set('find');
     this.show('find');
   }
 

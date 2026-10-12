@@ -47,7 +47,7 @@ function render(): HTMLElement {
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([]),
-      { provide: Analytics, useValue: { planCtaClicked: vi.fn(), vendorProductSearch: vi.fn() } },
+      { provide: Analytics, useValue: { planCtaClicked: vi.fn() } },
       {
         provide: VendorPlanStatus,
         useValue: { vendorSlug: signal(null), vendorName: signal(null), managed: signal(null) },

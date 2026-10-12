@@ -16,7 +16,8 @@ import { VendorProgramPage } from './vendor-program';
  * and the anchor. AECI-1284 owns the sections in the §3 order and the §8 copy
  * rules. AECI-1285's placements are wired here with this page's targets. AECI-1286
  * owns the signed-in variants, applied only after the first browser render.
- * Find your product itself is pinned in `vendor-program-find.component.spec.ts`.
+ * Find your product was removed on 2026-10-12: the claim dialog's Find step
+ * (`shared/claim-dialog/`) replaces it, and its specs pin that step.
  */
 
 /** A `VendorPlanStatus` stand-in: `null` is the signed-out (and SSR) default. */
@@ -43,7 +44,7 @@ async function setup(
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([{ path: '**', children: [] }]),
-      { provide: Analytics, useValue: { planCtaClicked, vendorProductSearch: vi.fn() } },
+      { provide: Analytics, useValue: { planCtaClicked } },
       ...(opts.plan ? [{ provide: VendorPlanStatus, useValue: opts.plan }] : []),
       ...(opts.platform === 'server' ? [{ provide: PLATFORM_ID, useValue: 'server' }] : []),
       ...((opts.providers ?? []) as never[]),
@@ -130,7 +131,6 @@ describe('VendorProgramPage', () => {
       expect(headings).toEqual([
         'H1:Your products may already be listed here. Make sure buyers read your version.',
         'H2:What changes when you claim',
-        'H2:Find your product',
         'H2:What a free claim gets you',
         'H2:What Managed adds',
         'H2:Free and Managed',
@@ -139,27 +139,79 @@ describe('VendorProgramPage', () => {
         'H2:Questions vendors ask',
         'H2:Tell the full story of your product',
       ]);
-      // The three Managed jobs, then the plan cards, sit one level down.
-      expect([...host.querySelectorAll('h3')].map(text)).toEqual([
-        'Explain what your product does on a project',
-        'Back up your integrations',
-        'Answer buyers in public',
-        'Free',
-        'Managed',
-      ]);
+      // Only the plan cards sit one level down. Free and Managed have no subgroup
+      // headings (2026-10-12).
+      expect([...host.querySelectorAll('h3')].map(text)).toEqual(['Free', 'Managed']);
     });
 
-    it('anchors Find your product, which every claim link scrolls to', async () => {
+    it('drops Find your product: the claim dialog starts with Find it', async () => {
       const { host } = await setup({ plan: stub() });
-      const section = host.querySelector('section#find-your-product');
-      expect(section?.querySelector('h2')?.textContent).toContain('Find your product');
+      expect(host.querySelector('#find-your-product')).toBeNull();
+      expect(host.querySelector('aec-search-autocomplete')).toBeNull();
+      // Step 1 of "How claiming works" no longer says "on this page".
+      expect(text(host.querySelector('[data-testid="vp-how"] li'))).toContain(
+        'Find your product Start your claim, then search for your product or your company.',
+      );
     });
 
-    it('links each Managed line to the page that explains it', async () => {
+    // Ruling 2026-10-12: Free and Managed are one pattern. The same split, and the
+    // same item: a plain title, the body, then "Learn more" when there is a docs page.
+    it('builds Free and Managed from the same section layout and item', async () => {
+      const { host } = await setup({ plan: stub() });
+      const free = host.querySelector('#vp-free')!;
+      const managed = host.querySelector('#vp-managed')!;
+      expect(free.className).toBe(managed.className);
+      expect(free.querySelector(':scope > div')!.className).toBe(
+        managed.querySelector(':scope > div')!.className,
+      );
+      expect(free.querySelector(':scope > ul')!.className).toBe(
+        managed.querySelector(':scope > ul')!.className,
+      );
+      expect(free.querySelector(':scope > ul')!.classList).toContain('md:grid-cols-2');
+      const titles = (section: Element) =>
+        [...section.querySelectorAll('li > p:first-child')].map((p) => {
+          // A plain title: no link, not a heading.
+          expect(p.querySelector('a')).toBeNull();
+          expect(p.classList).toContain('font-semibold');
+          return text(p);
+        });
+      expect(titles(free)).toEqual([
+        'Your listing, in your words',
+        'Your integrations, owned by you',
+        'A complete listing, at no cost',
+      ]);
+      expect(titles(managed)).toEqual([
+        'How teams use it',
+        'Trades, audiences and phases',
+        'More detailed information about integrations (additional URLs, data flow, etc.)',
+        'Connector integrations',
+        'Review replies',
+      ]);
+      // Every line is the one shared item: the same host classes on both sections.
+      const itemClasses = new Set(
+        [...free.querySelectorAll('li'), ...managed.querySelectorAll('li')].map(
+          (li) => li.className,
+        ),
+      );
+      expect(itemClasses.size).toBe(1);
+      for (const li of [...free.querySelectorAll('li'), ...managed.querySelectorAll('li')]) {
+        expect(li.hasAttribute('aec-vendor-program-benefit')).toBe(true);
+      }
+    });
+
+    it('ends each Managed line with "Learn more" to the page that explains it', async () => {
       const { host } = await setup({ plan: stub() });
       const items = [...host.querySelectorAll('#vp-managed li')];
       expect(items).toHaveLength(5);
-      const hrefs = items.map((li) => li.querySelector('a')?.getAttribute('href'));
+      const more = items.map((li) => li.querySelector('[data-testid="vp-learn-more"]')!);
+      for (const [i, a] of more.entries()) {
+        // The last thing in the line, named by the title for a links list.
+        expect(items[i]!.lastElementChild?.contains(a)).toBe(true);
+        expect(text(a)).toMatch(/^Learn more: /);
+        expect(text(a)).toContain(text(items[i]!.querySelector('p')));
+        expect(text(a)).toContain('(opens in a new tab)');
+      }
+      const hrefs = more.map((a) => a.getAttribute('href'));
       expect(hrefs).toEqual([
         '/docs/vendors/plans#what-managed-adds',
         '/docs/getting-started/taxonomy',
@@ -169,13 +221,10 @@ describe('VendorProgramPage', () => {
       ]);
       // Ruling 2026-10-12: the links line and the data flows line are one entry,
       // which keeps both docs links.
-      const detail = items[2];
-      expect(text(detail)).toContain(
-        'More detailed information about integrations (additional URLs, data flow, etc.).',
-      );
+      const detail = items[2]!;
       expect([...detail.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-        '/docs/vendors/plans#what-managed-adds',
         '/docs/vendors/attesting-an-integration',
+        '/docs/vendors/plans#what-managed-adds',
       ]);
       // The price leads the section, from the shared terms line.
       expect(text(host.querySelector('#vp-managed > div > p'))).toBe(
@@ -188,6 +237,8 @@ describe('VendorProgramPage', () => {
       const hrefs = [...host.querySelectorAll('#vp-free a')].map((a) => a.getAttribute('href'));
       expect(hrefs).toEqual(['/docs/vendors/your-seat', '/docs/vendors/checklists']);
       expect(host.querySelectorAll('#vp-free li')).toHaveLength(3);
+      // No Free line has a docs page of its own, so none ends in "Learn more".
+      expect(host.querySelector('#vp-free [data-testid="vp-learn-more"]')).toBeNull();
     });
 
     it('shows the real maintenance labels before and after a claim', async () => {
@@ -198,7 +249,7 @@ describe('VendorProgramPage', () => {
       expect(text(after)).toMatch(/^Vendor maintained · Updated [A-Z][a-z]+ \d{1,2}, \d{4}$/);
     });
 
-    // Ruling 2026-10-12: every docs link, and View the listing, opens in a new tab
+    // Ruling 2026-10-12: every docs link opens in a new tab
     // with the drawn cue and the sr-only note. Conversion links stay in the tab.
     it('opens every docs link in a new tab with the new-tab cue', async () => {
       const { host } = await setup({ plan: stub() });
@@ -291,16 +342,15 @@ describe('VendorProgramPage', () => {
     });
 
     // AECI-1293 (spec §15.1): every main control reads "Claim your listing" and opens
-    // the one claim dialog; without JS it lands on Find your product.
-    it('labels every claim control "Claim your listing", with Find your product as the no-JS target', async () => {
+    // the one claim dialog; without JS it lands on the search page (2026-10-12).
+    it('labels every claim control "Claim your listing", with the search page as the no-JS target', async () => {
       const { host, planCtaClicked } = await setup({ plan: stub() });
       expect(links(host, 'Claim your listing free')).toHaveLength(0);
       expect(links(host, 'Talk to us about Managed')).toHaveLength(0);
       const claims = links(host, 'Claim your listing');
       // Hero, Free card, closing panel.
       expect(claims).toHaveLength(3);
-      for (const a of claims)
-        expect(a.getAttribute('href')).toBe('/vendor-program#find-your-product');
+      for (const a of claims) expect(a.getAttribute('href')).toBe('/search');
       const managed = links(host, 'Start with Managed');
       expect(managed).toHaveLength(1);
 

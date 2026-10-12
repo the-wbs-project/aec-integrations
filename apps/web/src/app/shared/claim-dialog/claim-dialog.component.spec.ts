@@ -39,21 +39,16 @@ describe('ClaimDialog', () => {
   afterEach(() => document.querySelector('.cdk-overlay-container')?.remove());
 
   // The first click lands before the deferred dialog exists; it opens itself.
-  it('opens on its first render, named by its title, at the step the opening asked for', async () => {
+  it('opens on its first render, named by its title, at step 1', async () => {
     const service = mount();
-    service.open({
-      page: 'vendor_program',
-      entry: 'search_result',
-      listing: { targetType: 'product', slug: 'x', name: 'X Pro' },
-    });
+    service.open({ page: 'vendor_program', entry: 'top' });
     TestBed.createComponent(ClaimDialog).detectChanges();
     await stable();
     const dialog = document.querySelector('[role="dialog"]')!;
     const title = panel()!.querySelector('h2')!;
     expect(title.textContent?.trim()).toBe('Claim your listing');
     expect(dialog.getAttribute('aria-labelledby')).toBe(title.id);
-    expect(panel()!.querySelector('h3')?.textContent?.trim()).toBe('About you');
-    expect(panel()!.textContent).toContain('X Pro');
+    expect(panel()!.querySelector('h3')?.textContent?.trim()).toBe('Find your listing');
   });
 
   it('is a full-screen sheet below sm and a centred panel from sm', async () => {
@@ -129,9 +124,11 @@ describe('ClaimDialogTrigger', () => {
     return { service, link: (fixture.nativeElement as HTMLElement).querySelector('a')! };
   }
 
-  it('keeps the absolute no-JS target, never a bare fragment', () => {
+  // 2026-10-12: Find your product was removed from /vendor-program, so the no-JS
+  // target is the search page, where the header search box falls back too.
+  it('keeps the absolute no-JS target, the search page', () => {
     const { link } = render(true);
-    expect(link.getAttribute('href')).toBe('/vendor-program#find-your-product');
+    expect(link.getAttribute('href')).toBe('/search');
   });
 
   it('opens the dialog with its entry, page and plan on a plain click', () => {

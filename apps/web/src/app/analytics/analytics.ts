@@ -131,10 +131,10 @@ export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 
 /**
  * Where a plan call to action sits (`plan_cta_clicked.placement`). `search_result`
- * is "Claim this listing" on a Find your product result (`VENDOR_PROGRAM_PAGE_SPEC.md`
- * §6), on the vendor program page only.
+ * ("Claim this listing" on a Find your product result) was retired on 2026-10-12
+ * with that section (`VENDOR_PROGRAM_PAGE_SPEC.md` §6, §9).
  */
-export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom' | 'search_result';
+export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
 
 /**
  * Which page a plan call to action sits on (`plan_cta_clicked.page`,
@@ -152,10 +152,11 @@ export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
 
 /**
  * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement, or
- * `ask_to_add`, "Ask us to add it" in Find your product.
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement. The
+ * `ask_to_add` entry ("Ask us to add it" in Find your product) was retired on
+ * 2026-10-12 with that section.
  */
-export type ClaimDialogEntry = PlanCtaPlacement | 'ask_to_add';
+export type ClaimDialogEntry = PlanCtaPlacement;
 
 /** A claim dialog step (`claim_dialog_step.step`). */
 export type ClaimDialogStep = 'find' | 'you' | 'plan' | 'comments' | 'done';
@@ -403,16 +404,6 @@ export class Analytics {
       placement: input.placement,
       ...(input.page ? { page: input.page } : {}),
     });
-  }
-
-  /**
-   * A settled, non-empty search in the vendor program page's Find your product
-   * (`VENDOR_PROGRAM_PAGE_SPEC.md` §6, §9). The caller fires it once per settled
-   * query. Only the count is sent, never the query text: a query can name a
-   * company before it has agreed to anything (§2). Consent-gated like every event.
-   */
-  vendorProductSearch(input: { results_count: number }): void {
-    this.capture('vendor_product_search', { results_count: input.results_count });
   }
 
   // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────

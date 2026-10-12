@@ -18,9 +18,9 @@
  * dialog (`shared/claim-dialog/`): "Claim your listing" on the hero, the panel and the
  * Free card; "Start with Managed", with Managed preselected, on the Managed card, the
  * rail and the phone bar. Each page mounts exactly one `aec-claim-dialog-host`. Each
- * control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (Find your product on
- * `/vendor-program`), so a click without JS or into a new tab still lands somewhere a
- * claim starts. "Talk to us about Managed" is now the text link "Questions about
+ * control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click
+ * without JS or into a new tab still lands where a visitor can find the listing and
+ * its claim form. "Talk to us about Managed" is now the text link "Questions about
  * pricing? Talk to us", which opens the plan inquiry dialog (AECI-1279,
  * `shared/plan-inquiry/`); each page also mounts one `aec-plan-inquiry-host`. Never
  * "Get Managed", "Buy" or "Start now": there is no checkout.

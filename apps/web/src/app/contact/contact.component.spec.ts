@@ -84,8 +84,8 @@ describe('ContactPage', () => {
     );
   });
 
-  // ?topic=add-product (Find your product on /vendor-program, VENDOR_PROGRAM_PAGE_SPEC.md
-  // section 6): the support mailto with the subject and the prompt filled in. No form.
+  // ?topic=add-product (VENDOR_PROGRAM_PAGE_SPEC.md section 6, kept for outside links):
+  // the support mailto with the subject and the prompt filled in. No form.
   it('offers a prefilled email on ?topic=add-product', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({

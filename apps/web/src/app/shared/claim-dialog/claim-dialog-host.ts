@@ -5,8 +5,8 @@ import { ClaimDialogService } from './claim-dialog.service';
 
 /**
  * The one claim dialog for a page (AECI-1293). Mount it once; every
- * `aecClaimDialogTrigger` link on the page, and Find your product, open it. Without
- * it the triggers follow their link to Find your product on `/vendor-program`.
+ * `aecClaimDialogTrigger` link on the page opens it. Without it the triggers follow
+ * their link to the search page (`CLAIM_DIALOG_FALLBACK_HREF`).
  *
  * The dialog is `@defer`-loaded on the first open, so it adds nothing to the page's
  * initial JS and renders nothing into the cached SSR HTML.

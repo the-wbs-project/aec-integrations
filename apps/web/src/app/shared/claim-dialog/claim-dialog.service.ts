@@ -5,14 +5,16 @@ import type { PlanInterest, RequestTargetType } from '@aeci/shared';
 import type { ClaimDialogEntry, PlanCtaPage } from '../../analytics/analytics';
 
 /**
- * Where every claim dialog trigger points without JS (AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.1): the vendor program page's Find your product
- * section, which has its own no-JS `/search` form. An absolute path, never a bare
- * `#id`, because `<base href>` resolves a bare fragment against the site root.
+ * Where every claim dialog trigger points without JS, before hydration, on a page
+ * with no host, or on a modified click (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.1): the
+ * search page, the same place the header search box falls back to. A visitor finds
+ * the listing there, and the listing carries its own claim form. Changed from the
+ * vendor program page's Find your product section when that section was removed
+ * (2026-10-12).
  */
-export const CLAIM_DIALOG_FALLBACK_HREF = '/vendor-program#find-your-product';
+export const CLAIM_DIALOG_FALLBACK_HREF = '/search';
 
-/** A catalog listing the visitor chose (step 1, or a Find your product result). */
+/** A catalog listing the visitor chose in step 1. */
 export interface ClaimListing {
   readonly targetType: RequestTargetType;
   readonly slug: string;
@@ -25,16 +27,12 @@ export interface ClaimDialogOpening {
   readonly entry: ClaimDialogEntry;
   /** Seeds step 3: Managed from a Managed control, Free from the Free card. */
   readonly plan?: PlanInterest | null;
-  /** A listing already chosen: the dialog starts at step 2 with it filled in. */
-  readonly listing?: ClaimListing | null;
-  /** "Ask us to add it": the dialog starts at step 2, typed in. */
-  readonly typed?: boolean;
 }
 
 /**
  * Root state for the one claim dialog on a page (AECI-1293), the `PlanInquiryService`
- * pattern. Every "Claim your listing" and "Start with Managed" control, and Find your
- * product, open it through here; `ClaimDialogHost` mounts the dialog.
+ * pattern. Every "Claim your listing" and "Start with Managed" control opens it
+ * through here; `ClaimDialogHost` mounts the dialog.
  *
  * **Why an opener callback, not an effect.** `BrnDialog.open()` throws NG0602 inside
  * an `effect()`. The dialog registers a plain callback, and `open()` calls it from the

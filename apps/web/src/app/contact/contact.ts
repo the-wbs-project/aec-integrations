@@ -27,8 +27,9 @@
  * so reading the query in SSR is safe, and the canonical URL stays `/contact`. The
  * general "Email us" card is unchanged for every other question.
  *
- * **`?topic=add-product`** (Find your product on `/vendor-program`,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §6). A vendor whose product is not in the
+ * **`?topic=add-product`** (`VENDOR_PROGRAM_PAGE_SPEC.md` §6; its in-app link,
+ * Find your product, was removed on 2026-10-12, and the topic keeps working for
+ * outside links). A vendor whose product is not in the
  * directory asks us to add it. There is no submission flow (§13 question 5), so
  * the page shows a panel whose button is the same support `mailto:` with the
  * subject and a prompt filled in: product name, website, and the products it
@@ -190,7 +191,7 @@ export class ContactPage {
   private readonly topic = inject(ActivatedRoute).snapshot.queryParamMap.get('topic');
   /** `?topic=managed`: asked from the Plans page. */
   protected readonly managed = this.topic === MANAGED_TOPIC;
-  /** `?topic=add-product`: asked from Find your product on `/vendor-program`. */
+  /** `?topic=add-product`: a product not in the directory (spec §6). */
   protected readonly addProduct = this.topic === ADD_PRODUCT_TOPIC;
 
   /** The public contact address. Shared by the visible label and the `mailto:`

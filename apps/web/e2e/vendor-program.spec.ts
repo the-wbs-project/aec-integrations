@@ -6,13 +6,14 @@
  * share card, the SSR-rendered hero, the sitemap entry, the footer link in, and
  * that `/vendors` still 301s to `/products` (§1.1 decision 6).
  *
- * AECI-1284 to 1287 add the page body: the heading order (§3), the phone bar's
- * visibility rules (§4.1, asked for by AECI-1285), Find your product leading to a
- * claim form (§6, AECI-1287, against a mocked search index), and axe on the full
- * page at desktop and phone widths.
+ * AECI-1284 to 1286 add the page body: the heading order (§3), the phone bar's
+ * visibility rules (§4.1, asked for by AECI-1285), and axe on the full page at
+ * desktop and phone widths. Find your product (§6, AECI-1287) was removed on
+ * 2026-10-12: the claim dialog starts with Find it, and
+ * `vendor-program-claim-dialog.spec.ts` covers that step against a mocked index.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { type Page, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
 
@@ -30,14 +31,14 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
   });
 
-  test('SSR-renders the hero and the find-your-product anchor, indexable with the share card', async ({
+  test('SSR-renders the hero, with no Find your product section, indexable with the share card', async ({
     request,
   }) => {
     const html = await (await request.get('/vendor-program')).text();
     expect(html).toContain(
       'Your products may already be listed here. Make sure buyers read your version.',
     );
-    expect(html).toContain('id="find-your-product"');
+    expect(html).not.toContain('id="find-your-product"');
     expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
     expect(html).toMatch(/<link[^>]+rel="canonical"[^>]+href="https?:\/\/[^"]+\/vendor-program"/);
     expect(html).toMatch(
@@ -101,7 +102,6 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(headings).toEqual([
       'H1:Your products may already be listed here. Make sure buyers read your version.',
       'H2:What changes when you claim',
-      'H2:Find your product',
       'H2:What a free claim gets you',
       'H2:What Managed adds',
       'H2:Free and Managed',
@@ -131,8 +131,8 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
   });
 
   // AECI-1293: the hero claim opens the claim dialog in place. Its href is the
-  // no-JS target, Find your product on this page.
-  test('the hero claim opens the claim dialog, with Find your product as its no-JS target', async ({
+  // no-JS target, the search page (2026-10-12, when Find your product was removed).
+  test('the hero claim opens the claim dialog, with the search page as its no-JS target', async ({
     page,
   }) => {
     await page.goto('/vendor-program');
@@ -140,7 +140,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     const claim = page
       .locator('aec-plan-cta-actions')
       .getByRole('link', { name: 'Claim your listing' });
-    await expect(claim).toHaveAttribute('href', '/vendor-program#find-your-product');
+    await expect(claim).toHaveAttribute('href', '/search');
     await expect(async () => {
       await claim.click();
       await expect(page.getByRole('dialog', { name: 'Claim your listing' })).toBeVisible({
@@ -196,7 +196,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
         const sections = [
           hero,
           ...document.querySelectorAll(
-            '#vp-what-changes, #find-your-product, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
+            '#vp-what-changes, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
           ),
         ];
         const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();
@@ -240,102 +240,5 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(new URL(tab.url()).pathname).toBe('/docs/trust/how-ranking-works');
     await expect(page).toHaveURL(/\/vendor-program$/);
     await tab.close();
-  });
-
-  test('Find your product: the no-JS form goes to /search', async ({ request }) => {
-    const html = await (await request.get('/vendor-program')).text();
-    expect(html).toMatch(/<form[^>]+action="\/search"[^>]*method="get"/);
-    expect(html).toContain('id="vendor-program-search"');
-  });
-});
-
-/**
- * Find your product against a mocked search index. No environment ships Algolia
- * to local or CI runs, so the page gets a stand-in public config and the search
- * request is answered here. Nothing leaves the machine.
- */
-async function mockSearch(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    (window as unknown as { __AECI_ALGOLIA__: unknown }).__AECI_ALGOLIA__ = {
-      appId: 'E2ETEST',
-      searchKey: 'e2e',
-      indexes: { products: 'products', vendors: 'vendors', integrations: 'integrations' },
-    };
-  });
-  await page.route('**/1/indexes/*/queries**', async (route) => {
-    const body = route.request().postDataJSON() as { requests: { query?: string }[] };
-    const query = body.requests[0]?.query ?? '';
-    const product = {
-      objectID: 'p1',
-      name: 'Procore',
-      slug: 'fixture-procore',
-      vendor_name: 'Procore Technologies',
-    };
-    const hit = query.toLowerCase().startsWith('proc');
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        results: [
-          { hits: hit ? [product] : [], nbHits: hit ? 1 : 0, query, params: '', index: 'products' },
-          { hits: [], nbHits: 0, query, params: '', index: 'vendors' },
-        ],
-      }),
-    });
-  });
-}
-
-test.describe('/vendor-program Find your product (AECI-1287)', () => {
-  test('pick a hit and claim it in the dialog, at step 2', async ({ page }) => {
-    await mockSearch(page);
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-
-    const box = page.getByLabel('Your product or company');
-    await box.fill('Proc');
-    await page.getByRole('option', { name: /Procore/ }).click();
-
-    const card = page.locator('[data-testid="vp-find-result"]');
-    await expect(card).toContainText('Procore');
-    const view = card.getByRole('link', { name: /View the listing/ });
-    await expect(view).toHaveAttribute('href', '/products/fixture-procore');
-    // Ruling 2026-10-12: the listing opens in a new tab, so the claim stays here.
-    await expect(view).toHaveAttribute('target', '_blank');
-    const claim = card.getByRole('link', { name: 'Claim this listing' });
-    // The listing's own claim form stays the no-JS and new-tab target.
-    await expect(claim).toHaveAttribute('href', '/products/fixture-procore/claim');
-    await claim.click();
-
-    const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
-    await expect(dialog.getByRole('heading', { name: 'About you' })).toBeVisible();
-    await expect(dialog.getByTestId('claim-dialog-listing')).toContainText('Procore');
-    await expect(page).toHaveURL(/\/vendor-program$/);
-  });
-
-  test('a miss says the products may already be listed, and asks us to add it', async ({
-    page,
-  }) => {
-    await mockSearch(page);
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-
-    const ask = page.locator('[data-testid="vp-find-ask"]');
-    await expect(ask).toHaveText("Can't find your product? Ask us to add it.");
-
-    await page.getByLabel('Your product or company').fill('zzz nothing');
-    const miss = page.locator('[data-testid="vp-find-miss"]');
-    await expect(miss).toContainText('Your products may already be listed');
-    await expect(miss.getByRole('link', { name: 'ask us to add it' })).toHaveAttribute(
-      'href',
-      '/contact?topic=add-product',
-    );
-
-    // AECI-1293: it opens the claim dialog at the typed-in step; the contact topic
-    // stays its no-JS target.
-    const askLink = ask.getByRole('link', { name: 'Ask us to add it.' });
-    await expect(askLink).toHaveAttribute('href', '/contact?topic=add-product');
-    await askLink.click();
-    const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
-    await expect(dialog.getByLabel('Product or company name')).toBeVisible();
-    await expect(page).toHaveURL(/\/vendor-program$/);
   });
 });

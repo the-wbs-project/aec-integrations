@@ -230,21 +230,25 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     );
   });
 
-  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page it sat on, and the search-result placement.
-  it('fires plan_cta_clicked with page vendor_program and placement search_result', async () => {
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page it sat on. The search-result placement
+  // was retired on 2026-10-12 with Find your product.
+  it('fires plan_cta_clicked with page vendor_program', async () => {
     const { analytics, client } = setup();
     TestBed.tick();
-    const placement: PlanCtaPlacement = 'search_result';
+    const placement: PlanCtaPlacement = 'card';
     const page: PlanCtaPage = 'vendor_program';
     analytics.planCtaClicked({ plan: 'free', placement, page });
     await flush();
     expect(client.capture).toHaveBeenCalledWith(
       'plan_cta_clicked',
-      expect.objectContaining({ plan: 'free', placement: 'search_result', page: 'vendor_program' }),
+      expect.objectContaining({ plan: 'free', placement: 'card', page: 'vendor_program' }),
     );
     // @ts-expect-error a placement outside the union does not compile.
     const unknown: PlanCtaPlacement = 'sidebar';
     expect(unknown).toBe('sidebar');
+    // @ts-expect-error the retired search-result placement no longer compiles.
+    const retired: PlanCtaPlacement = 'search_result';
+    expect(retired).toBe('search_result');
   });
 
   it('does not fire plan_cta_clicked before consent is granted', async () => {
@@ -283,23 +287,6 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
       'plan_inquiry_submitted',
       expect.objectContaining({ topic: 'managed', placement: 'card', page: 'vendor_program' }),
     );
-  });
-
-  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the count only, never the query text.
-  it('fires vendor_product_search with the result count and nothing else', async () => {
-    const { analytics, client } = setup();
-    TestBed.tick();
-    analytics.vendorProductSearch({ results_count: 3 });
-    await flush();
-    expect(client.capture).toHaveBeenCalledWith(
-      'vendor_product_search',
-      expect.objectContaining({ results_count: 3 }),
-    );
-    const props = client.capture.mock.calls.find(
-      (call) => call[0] === 'vendor_product_search',
-    )![1] as Record<string, unknown>;
-    expect(Object.keys(props)).not.toContain('query');
-    expect(Object.keys(props)).not.toContain('q');
   });
 
   // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.7): a step, never typed text.
@@ -347,14 +334,6 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     expect(planInterestProperty('')).toBe('none');
     expect(planInterestProperty('not_sure')).toBe('not_sure');
     expect(planInterestProperty('bogus')).toBe('none');
-  });
-
-  it('does not fire vendor_product_search before consent is granted', async () => {
-    const { analytics, client } = setup({ consent: 'unknown' });
-    TestBed.tick();
-    analytics.vendorProductSearch({ results_count: 0 });
-    await flush();
-    expect(captured(client)).not.toContain('vendor_product_search');
   });
 
   it('does not fire plan_inquiry_submitted before consent is granted', async () => {

@@ -250,7 +250,7 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
     await page.goto('/docs/vendors/plans');
     await waitForHydrationSettle(page);
     const claim = page.locator('aec-plan-cards').getByRole('link', { name: 'Claim your listing' });
-    await expect(claim).toHaveAttribute('href', '/vendor-program#find-your-product');
+    await expect(claim).toHaveAttribute('href', '/search');
     const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
     await expect(async () => {
       await claim.click();

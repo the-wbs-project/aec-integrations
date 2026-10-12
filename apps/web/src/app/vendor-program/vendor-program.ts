@@ -2,13 +2,16 @@
  * The public vendor landing page (`/vendor-program`). Governed by
  * `docs/VENDOR_PROGRAM_PAGE_SPEC.md`: §2 owns this file's route, caching and meta
  * (AECI-1283), §3 the sections and §8 the copy (AECI-1284), §4 the calls to action
- * (AECI-1285), §5 the signed-in variants (AECI-1286), §6 Find your product
- * (AECI-1287, `vendor-program-find.ts`).
+ * (AECI-1285), §5 the signed-in variants (AECI-1286). §6's Find your product
+ * section was removed on 2026-10-12: the claim dialog starts with Find it (§15).
  *
  * **Sections, in the §3 order.** One `h1` in the hero, then one `h2` per section:
- * what changes when you claim, Find your product, what a free claim gets you, what
- * Managed adds, the plan cards, how listings are sorted, coming soon, the FAQ, and
- * the closing panel.
+ * what changes when you claim, what a free claim gets you, what Managed adds, the
+ * plan cards, how listings are sorted, coming soon, the FAQ, and the closing panel.
+ *
+ * **Free and Managed share one pattern (ruling 2026-10-12).** The same split and
+ * the same item, `li[aec-vendor-program-benefit]` (`vendor-program-benefit.ts`): a plain
+ * title, the body, then "Learn more" to the docs page when the line has one.
  *
  * **This page carries its own benefit copy (ruling 2026-10-12).** The vendor
  * guide's Plans page (`src/content/docs/vendors/plans.md`) stays the feature
@@ -22,22 +25,19 @@
  * **What changes when you claim** draws both labels with the listing's own
  * `aec-maintenance-marker`, so the page can never show wording a listing does not.
  *
- * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*`, and
- * "View the listing" in Find your product, carries `target="_blank" rel="noopener"`
+ * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*` carries `target="_blank" rel="noopener"`
  * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
  * A `routerLink` with a `target` builds the same absolute `/docs/...` href and lets
  * the browser open it, so `<base href>` does not touch it. Conversion links stay in
- * the tab: every claim link, the Managed inquiry, "Ask us to add it" and "Go to your
- * portal".
+ * the tab: every claim link, the Managed inquiry and "Go to your portal".
  *
  * **Calls to action (§4.1, §15).** The hero pair (`top`), the plan cards (`card`),
- * Find your product (`search_result`), the phone bar (`mobile_bar`) and the closing
- * panel (`bottom`). No rail on this page: it would reserve an empty column beside
+ * the phone bar (`mobile_bar`) and the closing panel (`bottom`). No rail on this page: it would reserve an empty column beside
  * every section (2026-10-12). The docs Plans page keeps its rail. Every one of them
  * opens the one claim dialog (AECI-1293): "Claim your listing", or "Start with
- * Managed" with Managed preselected. Without JS they link to `#find-your-product`
- * through an absolute `/vendor-program#find-your-product`, never a bare `#id` (the
- * `<base href>` trap). "Questions about pricing? Talk to us" opens the plan inquiry
+ * Managed" with Managed preselected. Without JS they link to `/search`
+ * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
+ * claim form. "Questions about pricing? Talk to us" opens the plan inquiry
  * dialog. The plan cards carry `data-plans-cta`, so the phone bar also hides while
  * they are on screen. Exactly one `aec-claim-dialog-host` and one
  * `aec-plan-inquiry-host`.
@@ -52,8 +52,8 @@
  *  - a Managed company: also no phone bar, no pricing link or Managed steps in the panel.
  *
  * **Full width at desktop (§11).** Every section uses the whole `max-w-7xl`
- * container from `lg`: a 12-column split (heading left, content right), a 3-column
- * Free grid, three Managed jobs in 2-column lists, the plan cards side by side, a
+ * container from `lg`: a 12-column split (heading left, content right), the Free
+ * and Managed lines in a 2-column grid beside their heading, the plan cards side by side, a
  * split Bone panel and a split closing panel. No narrow column with a blank right half.
  * Paragraphs keep a readable measure inside their column. Phones stay one column.
  *
@@ -93,11 +93,7 @@ import {
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
 import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
-import { VendorProgramFind } from './vendor-program-find';
-
-/** The page and its Find your product section, the no-JS target of every claim dialog control. */
-export const VENDOR_PROGRAM_PATH = '/vendor-program';
-export const FIND_YOUR_PRODUCT = 'find-your-product';
+import { VendorProgramBenefit } from './vendor-program-benefit';
 
 /** The Plans page, for the Managed lines with no page of their own. */
 const PLANS_PATH = '/docs/vendors/plans';
@@ -115,7 +111,7 @@ const PLANS_PATH = '/docs/vendors/plans';
     PlanCtaPanelComponent,
     ClaimDialogHost,
     PlanInquiryHost,
-    VendorProgramFind,
+    VendorProgramBenefit,
   ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
@@ -164,7 +160,7 @@ const PLANS_PATH = '/docs/vendors/plans';
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.find.body"
                   >
-                    Search for your product or your company on this page.
+                    Start your claim, then search for your product or your company.
                   </p>
                 </div>
               </li>
@@ -263,41 +259,32 @@ const PLANS_PATH = '/docs/vendors/plans';
             </ul>
           </section>
 
-          <!-- 3. Find your product (spec section 6). The claim controls land here without JS. -->
-          <section id="find-your-product" aria-labelledby="vp-find-heading" class="scroll-mt-24">
-            <aec-vendor-program-find />
-          </section>
-
-          <!-- 4. What a free claim gets you. This page's own benefit copy (spec section 3,
-               2026-10-12): each line says what you can do, what your company gains, and what
-               the buyer or the person using the integration gains. -->
-          <section id="vp-free" aria-labelledby="vp-free-heading">
-            <h2 id="vp-free-heading" i18n="@@vendorProgram.free.heading">
-              What a free claim gets you
-            </h2>
-            <p
-              class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)"
-              i18n="@@vendorProgram.free.lede"
-            >
-              Everything here is on the free plan. Invite colleagues to share the work: each person
-              gets
-              <a
-                routerLink="/docs/vendors/your-seat"
-                target="_blank"
-                rel="noopener"
-                [class]="inTextLink"
-                >their own seat<aec-new-tab-icon /></a
-              >.
-            </p>
-            <ul class="mt-6 grid gap-x-10 lg:grid-cols-3 lg:gap-x-8" role="list">
-              <li class="border-t border-(--border-default) py-4">
-                <p class="font-semibold" i18n="@@vendorProgram.free.details.title">
-                  Your listing, in your words
-                </p>
-                <p
-                  class="mt-1 leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendorProgram.free.details.body"
-                >
+          <!-- 3. What a free claim gets you, and 4. What Managed adds: one pattern
+               (spec section 3, 2026-10-12). Heading and lede in the left four columns,
+               the lines in a two-column grid on the right, each line the shared
+               aec-vendor-program-benefit item. This page's own benefit copy: each line says
+               what you can do, what your company gains, and what the buyer or the person
+               using the integration gains. -->
+          <section id="vp-free" aria-labelledby="vp-free-heading" [class]="benefitSection">
+            <div [class]="benefitIntro">
+              <h2 id="vp-free-heading" i18n="@@vendorProgram.free.heading">
+                What a free claim gets you
+              </h2>
+              <p [class]="benefitLede" i18n="@@vendorProgram.free.lede">
+                Everything here is on the free plan. Invite colleagues to share the work: each
+                person gets
+                <a
+                  routerLink="/docs/vendors/your-seat"
+                  target="_blank"
+                  rel="noopener"
+                  [class]="inTextLink"
+                  >their own seat<aec-new-tab-icon /></a
+                >.
+              </p>
+            </div>
+            <ul [class]="benefitList" role="list">
+              <li aec-vendor-program-benefit [benefitTitle]="freeTitles.details">
+                <ng-container i18n="@@vendorProgram.free.details.body">
                   Keep your company and product details current: the description, website, logo and
                   categories. You decide what buyers read about you. They see a current page marked
                   "Vendor maintained", with the date you last updated it.
@@ -309,162 +296,104 @@ const PLANS_PATH = '/docs/vendors/plans';
                     >Your checklists<aec-new-tab-icon
                   /></a>
                   show what to fill in first.
-                </p>
+                </ng-container>
               </li>
-              <li class="border-t border-(--border-default) py-4">
-                <p class="font-semibold" i18n="@@vendorProgram.free.integrations.title">
-                  Your integrations, owned by you
-                </p>
-                <p
-                  class="mt-1 leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendorProgram.free.integrations.body"
-                >
+              <li aec-vendor-program-benefit [benefitTitle]="freeTitles.integrations">
+                <ng-container i18n="@@vendorProgram.free.integrations.body">
                   Claim the integrations your company builds, and add your setup guide to any
                   integration with your product. Buyers see who maintains each one. The person
                   setting it up on a project gets your guide from the integration page, not a
                   support ticket. If a partner's listing gets a detail of yours wrong, you can
                   contest it.
-                </p>
+                </ng-container>
               </li>
-              <li class="border-t border-(--border-default) py-4">
-                <p class="font-semibold" i18n="@@vendorProgram.free.complete.title">
-                  A complete listing, at no cost
-                </p>
-                <p
-                  class="mt-1 leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendorProgram.free.complete.body"
-                >
+              <li aec-vendor-program-benefit [benefitTitle]="freeTitles.complete">
+                <ng-container i18n="@@vendorProgram.free.complete.body">
                   When two listings match a search about equally well, the more complete one comes
                   first. Every detail that counts toward completeness can be filled in on the free
                   plan. That rule is the same for every listing, whatever its plan.
-                </p>
+                </ng-container>
               </li>
             </ul>
           </section>
 
-          <!-- 5. What Managed adds: this page's own benefit copy in three jobs. Each bold
-                 lead-in links to the docs page that explains it, in a new tab. -->
-          <section
-            id="vp-managed"
-            aria-labelledby="vp-managed-heading"
-            class="grid gap-6 lg:grid-cols-12 lg:gap-x-12"
-          >
-            <div class="lg:col-span-4">
+          <section id="vp-managed" aria-labelledby="vp-managed-heading" [class]="benefitSection">
+            <div [class]="benefitIntro">
               <h2 id="vp-managed-heading" i18n="@@vendorProgram.managed.heading">
                 What Managed adds
               </h2>
-              <p class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)">
-                {{ terms }}
-              </p>
+              <p [class]="benefitLede">{{ terms }}</p>
             </div>
-            <div class="flex flex-col gap-8 lg:col-span-8">
-              <div>
-                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.explain.heading">
-                  Explain what your product does on a project
-                </h3>
-                <ul [class]="managedList" role="list">
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.usefulness">
-                      <a
-                        [routerLink]="plansPath"
-                        fragment="what-managed-adds"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >How teams use it.<aec-new-tab-icon
-                      /></a>
-                      Describe, in your own words, the work your product does on a real project.
-                      Buyers judge fit by the job it does, not a feature list. The people who will
-                      use it can picture it on their own project.
-                    </ng-container>
-                  </li>
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.taxonomy">
-                      <a
-                        routerLink="/docs/getting-started/taxonomy"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >Trades, audiences and phases.<aec-new-tab-icon
-                      /></a>
-                      Set who each product is for and when in a project it is used, rather than
-                      leave it to our reading of public sources. Buyers browsing a trade, audience
-                      or phase page, or filtering a search by one, find the products tagged with it.
-                      An MEP contractor filtering by trade sees the tools built for that trade.
-                    </ng-container>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.backUp.heading">
-                  Back up your integrations
-                </h3>
-                <ul [class]="managedList" role="list">
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.integrationDetail">
-                      <a
-                        [routerLink]="plansPath"
-                        fragment="what-managed-adds"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >More detailed information about integrations (additional URLs, data flow,
-                        etc.).<aec-new-tab-icon
-                      /></a>
-                      Link evaluators straight to your integrations page and API docs, and say which
-                      data moves in each of your integrations. Your answer counts the same as your
-                      partner's. Buyers know what syncs before a project depends on it. See
-                      <a
-                        routerLink="/docs/vendors/attesting-an-integration"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLink"
-                        >Attesting an integration<aec-new-tab-icon /></a
-                      >.
-                    </ng-container>
-                  </li>
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.connector">
-                      <a
-                        routerLink="/docs/vendors/owning-an-integration"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >Connector integrations.<aec-new-tab-icon
-                      /></a>
-                      Claim, edit, retire and restore the integrations you deliver through a
-                      connector, not only the ones you built directly. Those listings stay as
-                      current as your direct ones, so a team using one on a project reads up-to-date
-                      details.
-                    </ng-container>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.answer.heading">
-                  Answer buyers in public
-                </h3>
-                <ul [class]="managedList" role="list">
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.replies">
-                      <a
-                        routerLink="/docs/vendors/replying-to-reviews"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >Review replies.<aec-new-tab-icon
-                      /></a>
-                      Reply to reviews of your products, so buyers see your side and how you handle
-                      a problem. Someone weighing a critical review reads your answer beside it. We
-                      check each reply before it goes live.
-                    </ng-container>
-                  </li>
-                </ul>
-              </div>
-            </div>
+            <ul [class]="benefitList" role="list">
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="managedTitles.usefulness"
+                [link]="plansPath"
+                fragment="what-managed-adds"
+              >
+                <ng-container i18n="@@vendorProgram.managed.usefulness.body">
+                  Describe, in your own words, the work your product does on a real project. Buyers
+                  judge fit by the job it does, not a feature list. The people who will use it can
+                  picture it on their own project.
+                </ng-container>
+              </li>
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="managedTitles.taxonomy"
+                link="/docs/getting-started/taxonomy"
+              >
+                <ng-container i18n="@@vendorProgram.managed.taxonomy.body">
+                  Set who each product is for and when in a project it is used, rather than leave it
+                  to our reading of public sources. Buyers browsing a trade, audience or phase page,
+                  or filtering a search by one, find the products tagged with it. An MEP contractor
+                  filtering by trade sees the tools built for that trade.
+                </ng-container>
+              </li>
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="managedTitles.integrationDetail"
+                [link]="plansPath"
+                fragment="what-managed-adds"
+              >
+                <ng-container i18n="@@vendorProgram.managed.integrationDetail.body">
+                  Link evaluators straight to your integrations page and API docs, and say which
+                  data moves in each of your integrations. Your answer counts the same as your
+                  partner's. Buyers know what syncs before a project depends on it. See
+                  <a
+                    routerLink="/docs/vendors/attesting-an-integration"
+                    target="_blank"
+                    rel="noopener"
+                    [class]="inTextLink"
+                    >Attesting an integration<aec-new-tab-icon /></a
+                  >.
+                </ng-container>
+              </li>
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="managedTitles.connector"
+                link="/docs/vendors/owning-an-integration"
+              >
+                <ng-container i18n="@@vendorProgram.managed.connector.body">
+                  Claim, edit, retire and restore the integrations you deliver through a connector,
+                  not only the ones you built directly. Those listings stay as current as your
+                  direct ones, so a team using one on a project reads up-to-date details.
+                </ng-container>
+              </li>
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="managedTitles.replies"
+                link="/docs/vendors/replying-to-reviews"
+              >
+                <ng-container i18n="@@vendorProgram.managed.replies.body">
+                  Reply to reviews of your products, so buyers see your side and how you handle a
+                  problem. Someone weighing a critical review reads your answer beside it. We check
+                  each reply before it goes live.
+                </ng-container>
+              </li>
+            </ul>
           </section>
 
-          <!-- 6. The plan cards (shared with the Plans page). -->
+          <!-- 5. The plan cards (shared with the Plans page). -->
           <section id="vp-plans" aria-labelledby="vp-plans-heading">
             <h2 id="vp-plans-heading" i18n="@@vendorProgram.plans.heading">Free and Managed</h2>
             <aec-plan-cards
@@ -487,7 +416,7 @@ const PLANS_PATH = '/docs/vendors/plans';
             </p>
           </section>
 
-          <!-- 7. How listings are sorted: the reason buyers trust the order. -->
+          <!-- 6. How listings are sorted: the reason buyers trust the order. -->
           <section
             id="vp-sorting"
             aria-labelledby="vp-sorting-heading"
@@ -525,7 +454,7 @@ const PLANS_PATH = '/docs/vendors/plans';
             </div>
           </section>
 
-          <!-- 8. Coming soon: the one labelled exception to "only what ships". -->
+          <!-- 7. Coming soon: the one labelled exception to "only what ships". -->
           <section id="vp-coming-soon" aria-labelledby="vp-coming-soon-heading" [class]="split">
             <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2 lg:col-span-5">
               <h2 id="vp-coming-soon-heading" i18n="@@vendorProgram.comingSoon.heading">
@@ -550,7 +479,7 @@ const PLANS_PATH = '/docs/vendors/plans';
             </p>
           </section>
 
-          <!-- 9. FAQ, a native details list (no JS, indexable answers). -->
+          <!-- 8. FAQ, a native details list (no JS, indexable answers). -->
           <section id="vp-faq" aria-labelledby="vp-faq-heading" [class]="split">
             <h2 id="vp-faq-heading" class="lg:col-span-5" i18n="@@vendorProgram.faq.heading">
               Questions vendors ask
@@ -655,7 +584,7 @@ const PLANS_PATH = '/docs/vendors/plans';
             </div>
           </section>
 
-          <!-- 10. The closing panel, its own section (h2). -->
+          <!-- 9. The closing panel, its own section (h2). -->
           <aec-plan-cta-panel
             page="vendor_program"
             [headingLevel]="2"
@@ -707,12 +636,29 @@ export class VendorProgramPage {
    */
   protected readonly inTextLink =
     'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:ms-1 [&_svg]:inline [&_svg]:align-[-0.125em]';
-  /** The same, as the bold lead of a list line. */
+  /** The same, bold: "How ranking works". */
   protected readonly inTextLinkStrong = `${this.inTextLink} font-semibold`;
-  /** A Managed job: the small heading over its lines. */
-  protected readonly groupHeading = 'text-base font-semibold text-(--text-primary)';
-  protected readonly managedList = 'mt-2 grid gap-x-8 md:grid-cols-2';
-  protected readonly managedItem = 'border-t border-(--border-default) py-4 leading-relaxed';
+  /**
+   * What a free claim gets you and What Managed adds share one layout (2026-10-12):
+   * from `lg` the heading and lede take the left four columns and the lines a
+   * two-column grid in the right eight. Each line is `li[aec-vendor-program-benefit]`.
+   */
+  protected readonly benefitSection = 'grid gap-6 lg:grid-cols-12 lg:gap-x-12';
+  protected readonly benefitIntro = 'lg:col-span-4';
+  protected readonly benefitLede = 'mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)';
+  protected readonly benefitList = 'grid gap-x-8 md:grid-cols-2 lg:col-span-8';
+  protected readonly freeTitles = {
+    details: $localize`:@@vendorProgram.free.details.title:Your listing, in your words`,
+    integrations: $localize`:@@vendorProgram.free.integrations.title:Your integrations, owned by you`,
+    complete: $localize`:@@vendorProgram.free.complete.title:A complete listing, at no cost`,
+  };
+  protected readonly managedTitles = {
+    usefulness: $localize`:@@vendorProgram.managed.usefulness.title:How teams use it`,
+    taxonomy: $localize`:@@vendorProgram.managed.taxonomy.title:Trades, audiences and phases`,
+    integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:More detailed information about integrations (additional URLs, data flow, etc.)`,
+    connector: $localize`:@@vendorProgram.managed.connector.title:Connector integrations`,
+    replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
+  };
   /** `$25 a month per product, or $250 a year, billed by invoice or purchase order.` */
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
   /**

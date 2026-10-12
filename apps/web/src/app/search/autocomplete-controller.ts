@@ -22,7 +22,8 @@ const AUTOCOMPLETE_DEBOUNCE_MS = 180;
 
 /**
  * One settled search, for a caller that reacts to the result set rather than to a
- * chosen option (the vendor program page's Find your product, AECI-1287). `query`
+ * chosen option (written for the vendor program page's Find your product, AECI-1287,
+ * removed 2026-10-12; no caller today). `query`
  * is the trimmed text that settled, `''` when the box was cleared. `count` is the
  * suggestion count; `total` is the index-wide match count when the seam reports it.
  * `failed` is a search that errored, which is not a miss.

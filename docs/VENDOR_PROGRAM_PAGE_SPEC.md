@@ -1,6 +1,6 @@
 # AEC Integrations — Vendor Program Page Specification
 
-**Version:** 0.3, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links; §15 the claim dialog)
+**Version:** 0.4, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links; §15 the claim dialog; Find your product removed and Free and Managed made one pattern)
 **Date:** 2026-10-12
 **Status:** Build contract. Admitted into **Stage 2.5** by operator decision on 2026-10-12, as the sixth named exception to its "no new surface area" rule (`STAGE_2_5_SPEC.md` §14). It turns the marketing review's requirements draft ("For vendors" marketing page, 2026-10-12) into a contract checked against the code. Where the draft and the code disagreed, §1.2 records the ruling.
 **Supersedes:** nothing. The draft stays a marketing-side input; this doc is the build truth.
@@ -36,7 +36,7 @@ A public landing page for AEC software vendors at **`/vendor-program`**.
 | Draft | Code | Ruling |
 |---|---|---|
 | URL `/vendors` | A permanent redirect to `/products` (`removedIndexRedirect`, `apps/web/src/server-runtime.ts`). The index was removed on purpose. | `/vendor-program`. |
-| Claim is "sign-in, then the claim flow" | A claim needs no account. It is per listing: `/products/:slug/claim` and `/vendors/:slug/claim`, both `RequestForm` with `kind: 'claim'`. | "Claim your listing free" scrolls to Find your product (§6). A result leads to that listing's claim form. |
+| Claim is "sign-in, then the claim flow" | A claim needs no account. It is per listing: `/products/:slug/claim` and `/vendors/:slug/claim`, both `RequestForm` with `kind: 'claim'`. | "Claim your listing free" scrolls to Find your product (§6). A result leads to that listing's claim form. **Superseded 2026-10-12 by §15:** every claim control opens the claim dialog, which starts with Find it. The Find your product section is removed. |
 | "Submit your product" on a miss | No submission flow exists. | "Ask us to add it" links to `/contact?topic=add-product` (§6, settled 2026-10-12). A real submission flow remains a future option (§13). |
 | Form: name, work email, company, products, message | `PlanInquirySubmitSchema` has `email`, `company` and optional `details` ("Which products, and anything we should know?"). | Reuse the form unchanged. Products go in `details`. A `name` field is an open decision (§13). |
 | Nav link "For vendors" in the site nav | `DESIGN.md` Navigation: the header row is public-directory-only, and any new item needs a re-measure (AECI-669). | Footer only (§2.4). The header link is an open decision (§13). |
@@ -87,29 +87,31 @@ The header row gets no link (§1.2).
 
 1. **Hero.** The headline (settled 2026-10-12): "Your products may already be listed here. Make sure buyers read your version." A subhead saying the catalog comes from public sources, a claim is free, and a listing kept current reads "Vendor maintained" with the date. Both calls to action (§4). No statistics.
 2. **What changes when you claim** (settled 2026-10-12, replaces "The problem"). One or two sentences of the problem, then a before and after panel with the two real maintenance labels: "AEC Integrations maintained" before, "Vendor maintained · Updated" and a date once the vendor saves a change or confirms a page is right (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `STAGE_2_PAID_TIERS_SPEC.md` §13.8). Both labels are drawn by the listing's own `shared/maintenance-marker` component, never retyped, so the page cannot show wording a listing does not. The example date is today, in UTC. A claim alone does not change the label, so the copy never says it does.
-3. **Find your product** (`id="find-your-product"`). §6.
-4. **What a free claim gets you.** Three outcomes: your listing in your words, your integrations owned by you, a complete listing at no cost. The seat and checklist links stay, in the lede and the first item.
-5. **What Managed adds.** The price and terms line first, from the shared constants. Then five lines in three jobs: explain what your product does on a project (how teams use it; trades, audiences and phases), back up your integrations (more detailed information about integrations; connector integrations), and answer buyers in public (review replies). Each bold lead-in links to the docs page that explains it. Ruled 2026-10-12: the integrations page and API docs links line and the confirmed data flows line are one entry, "More detailed information about integrations (additional URLs, data flow, etc.).", which keeps both docs links. The plan cards merge the same two items into the same line. "Search engine notice" stays on the plan cards and the docs page, not in this list.
-6. **Plan cards.** Free and Managed side by side (§4, placement `card`). Reuse `DocsPlansComparisonComponent`'s cards. Do not copy them.
-7. **How listings are sorted.** "Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that." Link to `/docs/trust/how-ranking-works`. Write it as the reason buyers trust the directory, not as a disclaimer.
-8. **Coming soon.** Performance reporting for Managed, labelled as not available yet, framed as what it will let the vendor see. It keeps the sentence that it never changes where a listing ranks or appears.
-9. **FAQ.** Who can claim; how long approval takes (generally within 48 hours, §12); several products; invoice or purchase order; what happens when a plan ends; whether paying affects reviews or ranking. Use a native `<details>` list.
-10. **Closing panel.** §4, placement `bottom`.
+3. **What a free claim gets you.** Three outcomes: your listing in your words, your integrations owned by you, a complete listing at no cost. The seat link stays in the lede, and the checklist link in the first item's body.
+4. **What Managed adds.** The price and terms line first, from the shared constants. Then five lines: how teams use it; trades, audiences and phases; more detailed information about integrations; connector integrations; review replies. Ruled 2026-10-12: the integrations page and API docs links line and the confirmed data flows line are one entry, "More detailed information about integrations (additional URLs, data flow, etc.)", which keeps both docs links. The plan cards merge the same two items into the same line. "Search engine notice" stays on the plan cards and the docs page, not in this list.
+5. **Plan cards.** Free and Managed side by side (§4, placement `card`). Reuse `DocsPlansComparisonComponent`'s cards. Do not copy them.
+6. **How listings are sorted.** "Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that." Link to `/docs/trust/how-ranking-works`. Write it as the reason buyers trust the directory, not as a disclaimer.
+7. **Coming soon.** Performance reporting for Managed, labelled as not available yet, framed as what it will let the vendor see. It keeps the sentence that it never changes where a listing ranks or appears.
+8. **FAQ.** Who can claim; how long approval takes (generally within 48 hours, §12); several products; invoice or purchase order; what happens when a plan ends; whether paying affects reviews or ranking. Use a native `<details>` list.
+9. **Closing panel.** §4, placement `bottom`.
 
-One `h1`, then `h2` per section, in this order. What Managed adds groups its lines under three `h3`s, above the plan cards' own `h3`s.
+**Removed 2026-10-12 (Chris): Find your product** (`id="find-your-product"`, formerly the third section, §6). The claim dialog starts with Find it (§15.2 step 1), so the section repeated it. The hero's "How claiming works" step 1 now reads "Start your claim, then search for your product or your company."
+
+**Free and Managed are one pattern (settled 2026-10-12, Chris).** Both sections use the same layout and the same item, `li[aec-vendor-program-benefit]` (`vendor-program/vendor-program-benefit.ts`), so they cannot drift. An item is a plain semibold title (never a link), then the body, then, when the line has a docs page, a trailing "Learn more" link in a new tab with the new-tab cue. Its accessible name carries the title ("Learn more: How teams use it"). Neither section has subgroup headings: the three Managed `h3`s ("Explain what your product does on a project", "Back up your integrations", "Answer buyers in public") are gone. The wording of every line and every link target stayed. Only the old bold link lead-in became the plain title plus "Learn more", and the title dropped its trailing period. In-body links stay in the body: the checklists link in Free and "Attesting an integration" in Managed. No Free line has a docs page of its own, so none ends in "Learn more".
+
+One `h1`, then `h2` per section, in this order. The only `h3`s are the plan cards' own.
 
 **This page carries its own benefit copy (settled 2026-10-12).** `/docs/vendors/plans` stays the feature reference. This page is the pitch. Every Free and Managed line says three things, in order: what the vendor can do, what the vendor gains, and what the buyer or the end user gains. The end user is the person who uses the integration on a project. The facts stay aligned with the docs page. The sentences do not have to match, and no test makes them. Two things stay shared: the plan cards (item 6, one component) and the sort rule (item 7, one i18n id, `@@app.docs.plans.sortRule`, which reads the same as the Plans page). `vendor-program/vendor-program-copy.component.spec.ts` pins only the sort rule and the Plans page fragments this page links to.
 
-**Doc links open in a new tab (settled 2026-10-12).** Every link on this page to `/docs/*` opens in a new tab: the section links, the FAQ answers, "How ranking works" and "Compare every feature side by side". So does "View the listing" on a Find your product result. Each carries `target="_blank" rel="noopener"` and `aec-new-tab-icon`, the drawn icon plus the visually hidden "(opens in a new tab)". The reason is that a vendor reading the pitch keeps the claim one tab away. Conversion links stay in the tab: every claim link, the Managed inquiry, "Ask us to add it" and "Go to your portal". This is a page-scoped exception to `DESIGN.md`'s new-tab rule. `/docs/vendors/plans` keeps its links in the tab.
+**Doc links open in a new tab (settled 2026-10-12).** Every link on this page to `/docs/*` opens in a new tab: the section links, each "Learn more", the FAQ answers, "How ranking works" and "Compare every feature side by side". Each carries `target="_blank" rel="noopener"` and `aec-new-tab-icon`, the drawn icon plus the visually hidden "(opens in a new tab)". The reason is that a vendor reading the pitch keeps the claim one tab away. Conversion links stay in the tab: every claim link, the Managed inquiry and "Go to your portal". This is a page-scoped exception to `DESIGN.md`'s new-tab rule. `/docs/vendors/plans` keeps its links in the tab.
 
 **Full width at desktop (settled 2026-10-12).** No narrow column with a blank right half: fill desktop width by layout. From `lg`, every section uses the whole `max-w-7xl` container, at 1024, 1280 and 1440px alike. Prose keeps a readable measure inside its column. The layout per section:
 
 | Section | From `lg` |
 |---|---|
 | Hero | The copy and both buttons in the left seven of twelve columns. "How claiming works" in the right five: three numbered steps (find, claim, we review it), facts the FAQ already states. Not a heading. Hidden below `lg`. |
-| What changes when you claim, Find your product, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. What changes when you claim puts the two labels side by side on the right (stacked below `sm`). Find your product puts the box, the "ask us to add it" line and the result card on the right. |
-| What a free claim gets you | The three outcomes in three columns from `lg`. One column below. |
-| What Managed adds | A split: heading and terms line in the left four columns, the three jobs stacked in the right eight, each job's lines as a two-column list from `md`. |
+| What changes when you claim, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. What changes when you claim puts the two labels side by side on the right (stacked below `sm`). |
+| What a free claim gets you, What Managed adds | The same split for both (2026-10-12): the heading and lede (Free's seat line, Managed's terms line) in the left four columns, the lines in the right eight as a two-column grid from `md`. One column at 375. |
 | Plan cards | The shared cards side by side across the full width. |
 | How listings are sorted | The Bone panel, split: heading and sort rule left, the trust line and link right. |
 | Closing panel | The Forest panel, split: heading and terms left, the buttons and next steps right (`PlanCtaPanelComponent`'s `split` input). |
@@ -126,7 +128,7 @@ Two actions, with the same wording everywhere.
 
 | Action | Text | Goes to |
 |---|---|---|
-| Claim | "Claim your listing free" | `#find-your-product` on this page. On `/docs/vendors/plans` it stays `CLAIM_PATH`. |
+| Claim | "Claim your listing free" | `#find-your-product` on this page. On `/docs/vendors/plans` it stays `CLAIM_PATH`. (Superseded by §15.1: the claim dialog, with `/search` as the no-JS target since 2026-10-12.) |
 | Managed | "Talk to us about Managed" | The plan inquiry dialog in place. The `href` stays `/contact?topic=managed` (`MANAGED_CONTACT_HREF`) for no-JS and new-tab clicks. |
 
 Never "Get Managed", "Start now" or "Buy". There is no checkout.
@@ -137,7 +139,7 @@ Never "Get Managed", "Start now" or "Buy". There is no checkout.
 |---|---|---|
 | Hero | `top` | Both buttons side by side, on the first screen on desktop and phone. Managed is filled. Claim is outlined. |
 | Plan cards | `card` | "Claim your listing free" on Free, secondary style. "Talk to us about Managed" on Managed, full card width, filled. The existing reply line sits under it. |
-| Find your product | `search_result` | "Claim this listing" on a result (§6). |
+| Find your product | `search_result` | **Removed 2026-10-12** with the section (§6). The value is retired. |
 | Rail | `rail` | **Not on this page** (2026-10-12): it reserved an empty column beside every section (§3). The rail card stays on `/docs/vendors/plans`, so the `rail` placement value stays in analytics for that page. |
 | Phone bar | `mobile_bar` | Below `lg`: a slim bar fixed to the bottom. It hides while any full CTA is on screen, and it never covers the inquiry form or the closing panel. |
 | Closing panel | `bottom` | A full-width band before the footer, with the headline "Tell the full story of your product" and the line "$25 a month per product, or $250 a year, billed by invoice or purchase order. If a plan ends, nothing you entered is removed." A large Managed button, with "Claim your listing free" as a text link beside it. Under the button, the two steps already in `DocsPlansCtaPanelComponent`. |
@@ -170,6 +172,8 @@ The SSR HTML is always the signed-out page. After hydration:
 ---
 
 ## 6. Find your product
+
+> **Removed 2026-10-12 (Chris). Superseded by §15.2 step 1.** The claim dialog starts with Find it, so the page section repeated it, and the section and `vendor-program-find.ts` are gone. Its analytics are retired (§9). The `/contact?topic=add-product` panel stays for links from outside the app. The text below is the record of what shipped.
 
 > **Amended by §15 (2026-10-12, AECI-1293).** "Claim this listing" on a result opens the claim dialog at step 2 with that listing filled in. "Ask us to add it" opens it at the typed-in step. Both stay links to their old targets for no-JS and new-tab clicks. The rest of this section stands.
 
@@ -208,12 +212,12 @@ Extend the events that ship (`apps/web/src/app/analytics/analytics.ts`, `docs/AN
 
 | Event | Change |
 |---|---|
-| `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result`. Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. **Since §15:** `free` is a "Claim your listing" click and `managed` a "Start with Managed" click, and both open the claim dialog. |
+| `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result` (**retired 2026-10-12** with Find your product). Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. **Since §15:** `free` is a "Claim your listing" click and `managed` a "Start with Managed" click, and both open the claim dialog. |
 | `plan_inquiry_submitted` | Add `page`, with the same values. `contact` stays a placement for the `/contact` form, with `page` absent. |
-| `vendor_product_search` | **New.** Fired once per settled non-empty query in Find your product. Properties: `results_count`. Never the query text: it can name a company before it has agreed to anything. |
+| `vendor_product_search` | **Retired 2026-10-12** with Find your product (§6). It was fired once per settled non-empty query, with `results_count` only. Nothing fires it now. The claim dialog's `claim_dialog_step` covers the find funnel: step `find` shown, then step `you` with `path` `found` (a listing chosen) or `typed` (not listed) (§15.7). The dialog never sent the search text and still does not. |
 | `claim_requested` | No change here. §15.7 adds `plan_interest`. It fires when a claim form is sent, from any entry point. |
 
-"Ask us to add it" (§6) fires nothing. It is not a plan call to action, so `plan_cta_clicked` would be wrong. A `$pageview` on `/contact` whose `$current_url` carries `topic=add-product` already counts the arrivals.
+"Ask us to add it" (§6, removed 2026-10-12) fired nothing. It is not a plan call to action, so `plan_cta_clicked` would be wrong. A `$pageview` on `/contact` whose `$current_url` carries `topic=add-product` already counts the arrivals.
 
 Not added, and why:
 
@@ -244,7 +248,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 - Use the site layout and components. Plain and trustworthy, not a SaaS hype page (`PRODUCT.md`, `DESIGN.md`). Light only.
 - Mobile first. Test at 375px first.
 - **No narrow column with a blank right half: fill desktop width by layout** (2026-10-12). At 1024, 1280 and 1440px every section reaches the right half of the `max-w-7xl` container, by split, grid or side-by-side layout, never by stretching prose to 150-character lines. §3 lists the layout per section. `apps/web/e2e/vendor-program.spec.ts` checks it at all three widths.
-- One heading order. Visible focus on the search box and every button. Button contrast meets WCAG AA. The phone bar reserves its height and never traps focus (WCAG 2.2, 2.4.11), as the docs bar already does.
+- One heading order. Visible focus on every link and button. Button contrast meets WCAG AA. The phone bar reserves its height and never traps focus (WCAG 2.2, 2.4.11), as the docs bar already does.
 
 ---
 
@@ -283,7 +287,7 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | **AECI-1284** Page sections and copy | §3, §8 |
 | **AECI-1285** Shared CTA components, placements, annual price | §4 |
 | **AECI-1286** `VendorPlanStatus` probe and signed-in variants | §5 |
-| **AECI-1287** Find your product | §6 |
+| **AECI-1287** Find your product (removed 2026-10-12, §6) | §6 |
 | **AECI-1288** Analytics: `page`, `search_result`, `vendor_product_search` | §9 |
 | **AECI-1289** `/docs/vendors/plans` deltas | §10 |
 | **AECI-1290** Publication-day fact check | §12 |
@@ -303,8 +307,8 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | Managed plan card (`card`) | "Start with Managed" | The dialog at step 1, Managed preselected. |
 | Phone bar (`mobile_bar`), docs rail (`rail`) | "Start with Managed" | The same as the Managed card. Both are Managed-labelled surfaces: the bar's region is "Managed plan" and it already hides for a Managed company (§5). |
 | Beside the hero's "Claim your listing", under the Managed card's button, beside the closing panel's button | "Questions about pricing? Talk to us" (text link) | The plan inquiry dialog (§7), unchanged. Its `href` stays `MANAGED_CONTACT_HREF`. |
-| Find your product, a chosen result (`search_result`) | "Claim this listing" | The dialog at step 2 with that listing filled in. |
-| Find your product, "Ask us to add it" | (unchanged copy) | The dialog at the typed-in step. `/contact?topic=add-product` keeps working for every other entry point. |
+| ~~Find your product, a chosen result (`search_result`)~~ | ~~"Claim this listing"~~ | Removed 2026-10-12 with the section (§6). The dialog no longer opens at step 2. |
+| ~~Find your product, "Ask us to add it"~~ | | Removed 2026-10-12 with the section. `/contact?topic=add-product` keeps working for links from outside the app. |
 
 "Talk to us about Managed" no longer appears as a button on either page. "Claim your listing free" is retired. Never "Get Managed", "Buy" or "Start now".
 
@@ -312,7 +316,7 @@ The same labels apply on `/docs/vendors/plans` through the shared `shared/plan-c
 
 **Signed-in vendor (§5).** A vendor seat sees "Go to your portal" (`/vendor`) wherever a control would open the dialog. That includes "Start with Managed". The pricing link stays, because a Free company asking about Managed is the inquiry form's job. A Managed company keeps §5's rule: no phone bar, no Managed button in the panel.
 
-**No-JS fallback.** Every dialog trigger is an `<a href="/vendor-program#find-your-product">`. Without JS, before hydration, with no host on the page, or on a modified click, the link is followed. An absolute path, never a bare `#id`, because of the `<base href>` trap. On `/vendor-program` it lands on the inline section, which has its own no-JS `/search` form (§6).
+**No-JS fallback.** Every dialog trigger is an `<a href="/search">` (`CLAIM_DIALOG_FALLBACK_HREF`). Without JS, before hydration, with no host on the page, or on a modified click, the link is followed. Changed 2026-10-12 from `/vendor-program#find-your-product` when that section was removed. `/search` is where the header search box falls back too, and it is the page equivalent of the dialog's Find it step: a visitor searches, opens the listing, and uses its own claim form. A new-tab click has JS, so search works there in full. Without JS the page renders its box and no results, the same as the header path.
 
 ### 15.2 The steps
 
@@ -391,13 +395,13 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 
 | Event | Properties | When |
 |---|---|---|
-| `claim_dialog_step` (new) | `step` (`find`, `you`, `plan`, `comments`, `done`), `page` (`vendor_program`, `docs_plans`), `entry` (the `PlanCtaPlacement` that opened it, or `ask_to_add`), `path` (`found`, `typed`; absent on `find`) | Once each time a step is shown, including the first. |
+| `claim_dialog_step` (new) | `step` (`find`, `you`, `plan`, `comments`, `done`), `page` (`vendor_program`, `docs_plans`), `entry` (the `PlanCtaPlacement` that opened it; `ask_to_add` retired 2026-10-12), `path` (`found`, `typed`; absent on `find`) | Once each time a step is shown, including the first. |
 | `claim_requested` | adds `plan_interest` (`free`, `managed`, `not_sure`, `none`) | A found-listing claim the API accepted, from the dialog, a claim page or the drawer. |
 | `listing_requested` (new) | `plan_interest`, `page` | A typed-in request the API accepted. |
 | `plan_cta_clicked` | unchanged shape. `plan: 'free'` now means a "Claim your listing" click and `plan: 'managed'` a "Start with Managed" click. Both open the claim dialog, so it counts opens. | Every plan call to action. |
 | `plan_inquiry_submitted` | unchanged. It now counts inquiries from the "Questions about pricing? Talk to us" link and `/contact`. | |
 
-Never the search text, a typed name, a website or an email. The dialog's Find step does not fire `vendor_product_search`: that event stays the inline section's count (§9), so the two can be compared.
+Never the search text, a typed name, a website or an email. The dialog's Find step does not fire `vendor_product_search`. That event was the inline section's count, and it is retired with the section (§9, 2026-10-12).
 
 ### 15.8 Migration
 
@@ -416,7 +420,7 @@ One drizzle-kit migration, additive only. The generated SQL must be exactly `CRE
 
 ### 15.11 Not changed
 
-- The "What Managed adds" list and the FAQ copy (other rulings pending).
+- The "What Managed adds" list and the FAQ copy (other rulings pending). On 2026-10-12 the list's structure changed (§3, Free and Managed one pattern). Its wording did not.
 - `POST /api/plan-inquiries` and the inquiry dialog (§7).
 - The claim approval flow, the plan radios' rule and the grant emails.
 - The full-width layout rule (§3, §11).

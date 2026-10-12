@@ -33,11 +33,12 @@
  * and `querySubmitted` (Enter with no option → `/search?q=`). The wrapping
  * `<form action="/search" method="get">` is the no-JS base layer.
  *
- * A third mount, Find your product on `/vendor-program` (AECI-1287), uses the
- * optional hooks the header leaves at their defaults: a visible `label`, a taller
- * `inputHeightClass`, and `searchSettled`, which reports each settled result set
- * (and each clear) so the page can show its own "no match" line and count
- * searches. All of them default to the header's markup and behavior.
+ * A third mount, the claim dialog's Find step (`shared/claim-dialog/`, AECI-1293),
+ * uses the optional hooks the header leaves at their defaults: a visible `label`
+ * and a taller `inputHeightClass`. `searchSettled` reports each settled result set
+ * (and each clear). Its caller, the vendor program page's Find your product
+ * (AECI-1287), was removed on 2026-10-12, so nothing listens to it today. All of
+ * them default to the header's markup and behavior.
  *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a

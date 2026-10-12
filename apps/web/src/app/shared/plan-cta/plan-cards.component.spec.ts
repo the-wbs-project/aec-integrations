@@ -62,7 +62,7 @@ describe('PlanCardsComponent', () => {
     const { cards, planCtaClicked, claimDialog, inquiry } = render({ page: 'vendor_program' });
     const claim = cards[0].querySelector('a')!;
     expect(claim.textContent?.trim()).toBe('Claim your listing');
-    expect(claim.getAttribute('href')).toBe('/vendor-program#find-your-product');
+    expect(claim.getAttribute('href')).toBe('/search');
     expect(click(claim)).toBe(true);
     expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card', plan: 'free' });
 

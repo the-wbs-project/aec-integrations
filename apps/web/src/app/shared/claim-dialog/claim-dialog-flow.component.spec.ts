@@ -225,14 +225,11 @@ describe('ClaimDialogFlow', () => {
     expect(t.analytics.claimRequested.mock.calls[0]![0].plan_interest).toBe('none');
   });
 
-  it('a Find your product result starts at step 2 with no Back, and Change returns to search', () => {
-    const t = setup({
-      page: 'vendor_program',
-      entry: 'search_result',
-      listing: { targetType: 'vendor', slug: 'acme', name: 'Acme Software' },
-    });
+  it('a chosen listing shows on step 2, and Change returns to search', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose(PRODUCT);
     expect(t.heading()).toBe('About you');
-    expect(t.$('[data-testid="claim-dialog-back"]')).toBeNull();
+    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Acme Takeoff');
     const change = [...t.host.querySelectorAll('button')].find((b) => text(b) === 'Change')!;
     change.click();
     t.fixture.detectChanges();
@@ -289,18 +286,6 @@ describe('ClaimDialogFlow', () => {
     for (const typed of ['Site Diary Pro', 'sitediary', 'dana@', 'Dana Reyes']) {
       expect(payloads).not.toContain(typed);
     }
-  });
-
-  it('"Ask us to add it" starts at the typed-in step, with a way back to search', () => {
-    const t = setup({ page: 'vendor_program', entry: 'ask_to_add', typed: true });
-    expect(t.$('#claim-dialog-listing-name')).not.toBeNull();
-    expect(t.$('[data-testid="claim-dialog-back"]')).toBeNull();
-    const search = [...t.host.querySelectorAll('button')].find(
-      (b) => text(b) === 'Search for it instead',
-    )!;
-    search.click();
-    t.fixture.detectChanges();
-    expect(t.heading()).toBe('Find your listing');
   });
 
   it('a listing gone since the search offers the typed-in path with its name', async () => {

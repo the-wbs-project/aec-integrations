@@ -54,7 +54,7 @@ function click(link: HTMLElement, init: MouseEventInit = {}): boolean {
 }
 
 const MANAGED_HREF = '/contact?topic=managed';
-const CLAIM_HREF = '/vendor-program#find-your-product';
+const CLAIM_HREF = '/search';
 
 const linkTexts = (host: HTMLElement) =>
   [...host.querySelectorAll('a')].map((a) => a.textContent?.replace(/\s+/g, ' ').trim());
@@ -110,7 +110,7 @@ describe('Plans calls to action', () => {
     expect(linkTexts(host)).toContain('Talk to us');
   });
 
-  // With no dialog on the page the link is left alone, so it reaches Find your product.
+  // With no dialog on the page the link is left alone, so it reaches the search page.
   it('follows the link when no claim dialog host is mounted', () => {
     const { host, claim } = render(PlanCtaActionsComponent, false);
     const link = host.querySelector('a')!;
