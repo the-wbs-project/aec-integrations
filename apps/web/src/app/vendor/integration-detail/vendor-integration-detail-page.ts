@@ -20,6 +20,7 @@ import { filter, map } from 'rxjs';
 
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { vendorProductContext } from '../sections/vendor-product-context';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -85,6 +86,7 @@ const SPY_TOP_PX = 80;
     IntegrationLinksSection,
     IntegrationChangeRequests,
     IntegrationSettings,
+    VendorDocsLink,
   ],
   providers: [IntegrationDetailState],
   styles: [ID_STYLES],
@@ -282,7 +284,8 @@ const SPY_TOP_PX = 80;
             >
               Overview
             </h3>
-            <div class="mt-3"><aec-integration-overview [integration]="i" /></div>
+            <p class="mt-1"><aec-vendor-docs-link page="owning-an-integration" /></p>
+            <div class="mt-2"><aec-integration-overview [integration]="i" /></div>
           </section>
 
           <section

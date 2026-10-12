@@ -23,11 +23,18 @@ import {
 } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
 
-import { ClaimFormSchema, CorrectionFormSchema, type RequestSubmitResponse } from '@aeci/shared';
+import {
+  ClaimFormSchema,
+  CorrectionFormSchema,
+  type PlanInterest,
+  type RequestSubmitResponse,
+} from '@aeci/shared';
 
-import { Analytics } from '../analytics/analytics';
+import { Analytics, planInterestProperty } from '../analytics/analytics';
 import { SessionStatus } from '../auth/session-status';
 
+import { ClaimantFields } from './claimant-fields';
+import { PlanInterestField } from './plan-interest-field';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 
 type Entity = 'product' | 'vendor';
@@ -52,6 +59,8 @@ interface RequestModel {
   submitter_linkedin_url: string;
   body: string;
   source_url: string;
+  /** Claim-only (AECI-1293): `''` (not answered) or a `PlanInterest`. */
+  plan_interest: '' | PlanInterest;
 }
 
 /**
@@ -87,7 +96,7 @@ interface RequestModel {
  */
 @Component({
   selector: 'aec-request-form-body',
-  imports: [FormField, RouterLink],
+  imports: [FormField, RouterLink, ClaimantFields, PlanInterestField],
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
@@ -145,6 +154,7 @@ export class RequestFormBody implements OnInit {
     submitter_linkedin_url: '',
     body: '',
     source_url: '',
+    plan_interest: '',
   });
 
   /** Built in `ngOnInit` (see class doc) — guaranteed assigned before first render. */
@@ -218,6 +228,7 @@ export class RequestFormBody implements OnInit {
                 submitter_role: v.submitter_role,
                 submitter_linkedin_url: v.submitter_linkedin_url,
                 body: v.body,
+                plan_interest: v.plan_interest,
               })
             : await this.api.submitCorrection(target, {
                 body: v.body,
@@ -237,8 +248,12 @@ export class RequestFormBody implements OnInit {
           slug: target.slug,
           request_id: res.request_id,
         };
-        if (this.kind() === 'claim') this.analytics.claimRequested(payload);
-        else this.analytics.correctionRequested(payload);
+        if (this.kind() === 'claim') {
+          this.analytics.claimRequested({
+            ...payload,
+            plan_interest: planInterestProperty(v.plan_interest),
+          });
+        } else this.analytics.correctionRequested(payload);
       } catch {
         // Surface the failure as a notice, not a form error — returning a
         // `ValidationError` here would mark the form invalid and disable the

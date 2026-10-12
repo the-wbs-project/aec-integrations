@@ -15,8 +15,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
-  ClaimForm,
+  ClaimFormInput,
   CorrectionForm,
+  ListingRequestInput,
   RequestSubmitResponse,
   RequestTargetType,
 } from '@aeci/shared';
@@ -44,13 +45,22 @@ export class RequestsApi {
     );
   }
 
-  submitClaim(target: RequestTargetRef, formValue: ClaimForm): Promise<RequestSubmitResponse> {
+  /** `ClaimFormInput`: every defaulted key (`body`, the LinkedIn URL, the AECI-1293
+   *  `plan_interest`) may be left out, as the endpoint allows. */
+  submitClaim(target: RequestTargetRef, formValue: ClaimFormInput): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/claim', {
         ...formValue,
         target_type: target.targetType,
         slug: target.slug,
       }),
+    );
+  }
+
+  /** `POST /api/requests/listing` (AECI-1293): a typed-in listing from the claim dialog. */
+  submitListing(formValue: ListingRequestInput): Promise<RequestSubmitResponse> {
+    return firstValueFrom(
+      this.http.post<RequestSubmitResponse>('/api/requests/listing', formValue),
     );
   }
 }

@@ -29,8 +29,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1180 added the vendor review email and the two review feed rows: 49.
  * AECI-1159 added the three AECi override feed rows: 52. AECI-1237 added the field
  * correction and its lift: 54. AECI-1279 added the plan inquiry receipt and alert: 56.
+ * AECI-1293 added the listing request alert: 57.
  */
-const EXPECTED_COUNT = 56;
+const EXPECTED_COUNT = 57;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -65,8 +66,8 @@ describe('notification registry shape', () => {
       // `contest-protest-reply-reminder` and `contest-declined-protest-window`.
       // AECI-1180 added `vendor-review-published`, `portal-review` and
       // `portal-review-response`. AECI-1279 added `plan-inquiry-received` and
-      // `plan-inquiry-alert`.
-      email: 29,
+      // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`.
+      email: 30,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 21,
@@ -221,9 +222,9 @@ describe('pausable (AECI-1224)', () => {
     }
   });
 
-  it('pauses only what is listed: 16 pausable email entries', () => {
+  it('pauses only what is listed: 17 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(16);
+    expect(pausable).toHaveLength(17);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

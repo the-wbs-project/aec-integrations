@@ -299,6 +299,20 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
     note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
+  'listing-request-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: { kind: 'route', ref: 'POST /api/requests/listing (routes/listing-requests.ts)' },
+    envRule: 'any-tier',
+    dedupe: 'Key listing-request-alert:{requestId}, so at most one alert per saved request.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
+    summary:
+      'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
+    note: 'No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way.',
+  },
   'contest-submitted-alert': {
     channel: 'email',
     audience: 'operator',
@@ -397,7 +411,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event. Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event. Both end with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',

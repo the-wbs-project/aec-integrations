@@ -7,6 +7,7 @@ import type {
   VendorHistoryKind,
 } from '@aeci/shared';
 
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, vendorHistoryCsvUrl } from '../vendor-api';
 
@@ -54,7 +55,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
  */
 @Component({
   selector: 'aec-vendor-history-page',
-  imports: [VendorHistoryFollowUp],
+  imports: [VendorDocsLink, VendorHistoryFollowUp],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-history-heading" data-vendor-history>
@@ -72,6 +73,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
             Every change to your company, products, integrations and seats, newest first. It shows
             who made each change: your team, AEC Integrations, or an automatic process.
           </p>
+          <p><aec-vendor-docs-link page="change-history" /></p>
         </div>
         <a [href]="csvUrl()" download [class]="secondaryClass" data-history-csv>
           <svg

@@ -130,6 +130,8 @@ describe('cacheTagInputsForPath', () => {
     ['/roadmap', { route: 'index' }],
     // AECI-804 — same shape: static content page, no §2 entity, route tag only.
     ['/methodology', { route: 'index' }],
+    // AECI-1283 — the vendor landing page, same shape.
+    ['/vendor-program', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     // AECI-1104, AECI-1248 — the product docs: static content, route tag only,
@@ -220,6 +222,7 @@ describe('cacheTagInputsForPath', () => {
       '/',
       '/about',
       '/methodology',
+      '/vendor-program',
       '/updates',
       '/roadmap',
       '/legal/terms',

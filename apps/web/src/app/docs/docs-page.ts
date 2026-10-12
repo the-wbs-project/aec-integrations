@@ -28,7 +28,8 @@
  *
  * **Noindex by path.** The robots meta comes from `pathForcesNoindex`
  * (`docs-indexing.ts`), the same list the egress `X-Robots-Tag` stamp and the
- * sitemap read. Today it holds the vendor guide out until AECI-1253.
+ * sitemap read. It has been empty since AECI-1253, so every docs page is
+ * indexable.
  *
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule, `src/content/README.md`). The chrome below is `i18n` /
@@ -46,13 +47,14 @@ import { type DocsBlock, type DocsPage, docsNeighbours, getDocsPage } from './do
 import { pathForcesNoindex } from './docs-indexing';
 import type { DocsWidget } from './docs-markdown';
 import { DocsPlansComparisonComponent } from './docs-plans-comparison';
-import {
-  DocsPlansActionsComponent,
-  DocsPlansCtaPanelComponent,
-  DocsPlansMobileBarComponent,
-  DocsPlansRailComponent,
-} from './docs-plans-cta';
 import { DocsTocComponent } from './docs-toc';
+import {
+  PlanCtaActionsComponent,
+  PlanCtaMobileBarComponent,
+  PlanCtaPanelComponent,
+  PlanCtaRailComponent,
+} from '../shared/plan-cta/plan-cta';
+import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
 import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 
 /** A run of prose blocks, or one widget. */
@@ -84,11 +86,12 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
   imports: [
     RouterLink,
     DocsTocComponent,
-    DocsPlansActionsComponent,
     DocsPlansComparisonComponent,
-    DocsPlansCtaPanelComponent,
-    DocsPlansMobileBarComponent,
-    DocsPlansRailComponent,
+    PlanCtaActionsComponent,
+    PlanCtaMobileBarComponent,
+    PlanCtaPanelComponent,
+    PlanCtaRailComponent,
+    ClaimDialogHost,
     PlanInquiryHost,
   ],
   template: `
@@ -113,9 +116,23 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           @if (segment.widget === 'plans-comparison') {
             <app-docs-plans-comparison class="mt-5 mb-10" />
           } @else if (segment.widget === 'plans-actions') {
-            <app-docs-plans-actions class="mt-6 mb-10" />
+            <!-- The intro's pointer to the public vendor program page
+                 (VENDOR_PROGRAM_PAGE_SPEC.md section 10), then the button pair. -->
+            <p
+              class="mt-6 leading-relaxed text-(--text-secondary)"
+              data-testid="docs-plans-vendor-program"
+              i18n="@@app.docs.plans.vendorProgram"
+            >
+              For a short overview of what AEC Integrations offers vendors, see
+              <a
+                routerLink="/vendor-program"
+                class="rounded-sm font-medium text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >the vendor program</a
+              >.
+            </p>
+            <aec-plan-cta-actions class="mt-6 mb-10" page="docs_plans" />
           } @else if (segment.widget === 'plans-cta') {
-            <app-docs-plans-cta-panel class="mt-6 mb-6" />
+            <aec-plan-cta-panel class="mt-6 mb-6" page="docs_plans" />
           } @else {
             <div class="aec-prose aec-docs-prose" [class.mt-6]="first">
               @for (block of segment.blocks; track $index) {
@@ -143,12 +160,13 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
         <div
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:flex xl:flex-col xl:items-end xl:gap-8 xl:self-start xl:justify-self-end"
         >
-          <app-docs-plans-rail class="hidden w-44 min-[90rem]:block" />
+          <aec-plan-cta-rail class="hidden w-44 min-[90rem]:block" page="docs_plans" />
           <app-docs-toc class="block w-10" [headings]="page.headings" [path]="page.path" />
         </div>
-        <app-docs-plans-mobile-bar />
-        <!-- One inquiry dialog for every Managed button on the page (AECI-1279),
-             loaded on the first click. -->
+        <aec-plan-cta-mobile-bar page="docs_plans" />
+        <!-- One claim dialog for every claim control (AECI-1293) and one inquiry
+             dialog for the pricing links (AECI-1279), each loaded on first use. -->
+        <aec-claim-dialog-host />
         <aec-plan-inquiry-host />
       } @else {
         <app-docs-toc
@@ -220,7 +238,6 @@ export class DocsPageComponent {
       title: $localize`:@@meta.docsPageTitle:${page.title}:title: · AEC Integrations`,
       description: page.description,
       canonical: canonicalUrl(page.path),
-      // TODO(AECI-1253): the vendor guide stays noindex until it is published.
       noindex: pathForcesNoindex(page.path),
     });
   }

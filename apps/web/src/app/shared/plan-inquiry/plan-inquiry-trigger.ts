@@ -1,7 +1,7 @@
 import { isPlatformBrowser } from '@angular/common';
 import { Directive, PLATFORM_ID, inject, input } from '@angular/core';
 
-import type { PlanInquiryPlacement } from '../../analytics/analytics';
+import type { PlanCtaPage, PlanInquiryPlacement } from '../../analytics/analytics';
 
 import { PlanInquiryService } from './plan-inquiry.service';
 
@@ -26,6 +26,8 @@ export class PlanInquiryTrigger {
 
   /** Which button this is, carried to `plan_inquiry_submitted`. */
   readonly placement = input.required<PlanInquiryPlacement>({ alias: 'aecPlanInquiryTrigger' });
+  /** Which page this button sits on, carried to `plan_inquiry_submitted`. */
+  readonly aecPlanInquiryPage = input.required<PlanCtaPage>();
 
   protected onClick(event: MouseEvent): void {
     if (!this.isBrowser || !this.inquiry.hosted()) return;
@@ -33,6 +35,6 @@ export class PlanInquiryTrigger {
       return;
     }
     event.preventDefault();
-    this.inquiry.open(this.placement());
+    this.inquiry.open(this.placement(), this.aecPlanInquiryPage());
   }
 }

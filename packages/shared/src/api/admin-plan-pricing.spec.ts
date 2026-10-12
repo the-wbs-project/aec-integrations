@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_PLAN_PRICE,
+  MANAGED_ANNUAL_PRICE_CENTS,
   MANAGED_LIST_PRICE_CENTS,
   MANAGED_PRICE_CENTS_MAX,
   PLAN_PRICE_MESSAGE_MAX,
@@ -138,5 +139,10 @@ describe('planPriceDisplay precedence', () => {
 
   it('keeps the default list price at $25', () => {
     expect(MANAGED_LIST_PRICE_CENTS).toBe(2500);
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §1.1 decision 3: $250 a year per product.
+  it('keeps the public annual price at $250', () => {
+    expect(MANAGED_ANNUAL_PRICE_CENTS).toBe(25000);
   });
 });

@@ -35,6 +35,7 @@ import {
   contestValueMessage,
   noOwnerLabel,
 } from './vendor-contest-labels';
+import { VendorDocsLink } from './vendor-docs-link';
 
 /** The owner picker's value for "neither endpoint vendor". Never a UUID, so it
  *  can never collide with a vendor id. It becomes `null` on the wire. */
@@ -115,6 +116,7 @@ interface SelectOption {
  */
 @Component({
   selector: 'aec-vendor-contest-form',
+  imports: [VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
     <div class="border-t border-(--border-default) px-5 py-4">
@@ -157,6 +159,7 @@ interface SelectOption {
               AEC Integrations reviews it. Nothing on the public page changes unless it is accepted.
               You can follow it in Messages.
             </p>
+            <p><aec-vendor-docs-link page="contests-and-protests" /></p>
           </div>
 
           <div class="max-w-sm space-y-2">

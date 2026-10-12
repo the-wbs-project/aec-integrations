@@ -3,8 +3,9 @@ import { FormField, form, maxLength, submit, validateStandardSchema } from '@ang
 
 import { PLAN_INQUIRY_LIMITS, PlanInquirySubmitSchema, type PlanInquirySubmit } from '@aeci/shared';
 
-import { Analytics, type PlanInquiryPlacement } from '../../analytics/analytics';
+import { Analytics, type PlanCtaPage, type PlanInquiryPlacement } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
+import { VendorPlanStatus } from '../../vendor/vendor-plan-status';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 
 /** The fields the visitor fills. The honeypot is held apart, see `website`. */
@@ -25,6 +26,11 @@ interface PlanInquiryModel {
  *   one-shot latch `requests/request-form-body.ts` uses, so it never overwrites what
  *   they typed or cleared. `SessionStatus.email()` is `null` in SSR, so the server HTML
  *   stays visitor-neutral.
+ * - **Company prefill.** A signed-in vendor seat's company name
+ *   (`VendorPlanStatus.vendorName()`, `VENDOR_PROGRAM_PAGE_SPEC.md` §5, AECI-1286)
+ *   fills the company field once, the same way. It never fills a field the visitor
+ *   has typed in, even one they cleared. `vendorName()` is `null` in SSR and for
+ *   every visitor without a vendor seat.
  * - **Validation** is the shared `PlanInquirySubmitSchema`, through Signal Forms. Errors
  *   show once a field is touched, and every field is touched on submit.
  * - **Honeypot.** A visually hidden `website` field, out of the tab order and hidden
@@ -191,9 +197,15 @@ export class PlanInquiryForm {
   private readonly api = inject(LandingApi);
   private readonly analytics = inject(Analytics);
   private readonly session = inject(SessionStatus);
+  private readonly vendorPlan = inject(VendorPlanStatus);
 
   /** Which button sent the visitor here, for `plan_inquiry_submitted`. */
   readonly placement = input.required<PlanInquiryPlacement>();
+  /**
+   * The page of the button that opened the dialog, for `plan_inquiry_submitted`.
+   * Left unset on `/contact`, which is no plan page, so the event carries no `page`.
+   */
+  readonly page = input<PlanCtaPage | undefined>(undefined);
   /** Keeps element ids unique if two forms ever share a page. */
   readonly idPrefix = input('plan-inquiry');
 
@@ -228,6 +240,8 @@ export class PlanInquiryForm {
 
   /** One-shot: a later `email()` emission must never overwrite the visitor's own edit. */
   private prefilledEmail = false;
+  /** One-shot, the same for `company` from the vendor seat's company name. */
+  private prefilledCompany = false;
 
   constructor() {
     effect(() => {
@@ -237,6 +251,16 @@ export class PlanInquiryForm {
         if (this.prefilledEmail || this.model().email) return;
         this.prefilledEmail = true;
         this.model.update((m) => ({ ...m, email }));
+      });
+    });
+    effect(() => {
+      const company = this.vendorPlan.vendorName();
+      if (!company) return;
+      untracked(() => {
+        // `dirty()` covers a visitor who typed and then cleared the field.
+        if (this.prefilledCompany || this.model().company || this.form.company().dirty()) return;
+        this.prefilledCompany = true;
+        this.model.update((m) => ({ ...m, company }));
       });
     });
   }
@@ -252,7 +276,12 @@ export class PlanInquiryForm {
       try {
         await this.api.submitPlanInquiry(this.body(f().value()));
         this.sent.set(true);
-        this.analytics.planInquirySubmitted({ topic: 'managed', placement: this.placement() });
+        const page = this.page();
+        this.analytics.planInquirySubmitted({
+          topic: 'managed',
+          placement: this.placement(),
+          ...(page ? { page } : {}),
+        });
       } catch {
         // Retryable: the answers stay, and the button reads "Try again".
         this.failed.set(true);

@@ -129,7 +129,7 @@ export interface DocsPage {
   readonly links: readonly string[];
   /**
    * Frontmatter `cta: managed`: the page carries the Managed call to action in
-   * its rail and a sticky bar on phones (`docs-plans-cta.ts`). Only Plans does.
+   * its rail and a sticky bar on phones (`shared/plan-cta/plan-cta.ts`). Only Plans does.
    */
   readonly cta?: 'managed';
 }

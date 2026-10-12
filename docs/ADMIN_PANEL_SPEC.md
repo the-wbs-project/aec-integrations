@@ -235,7 +235,7 @@ the **Operations trigger renders their SUM**.
 | Nav entry | Count | Predicate |
 |---|---|---|
 | Review queue | `pending_reviews` | `reviews.status = 'pending'` |
-| Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
+| Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, plus `listing_requests.status = 'open'` (AECI-1293) |
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | Field contests | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
 | Review replies (AECI-1177) | `pending_review_responses` | `review_responses.status = 'pending'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c) |
@@ -1631,6 +1631,32 @@ or the support copy, on this tier, from this page. §13 D24 records the choices 
 ---
 
 ---
+
+### 5.15 Listing requests on `/admin/requests` — SHIPPED (AECI-1293, 2026-10-12)
+
+This section does not own its contract. `VENDOR_PROGRAM_PAGE_SPEC.md` §15.5 does, and
+`API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here for the route and the
+badge.
+
+- **What it is.** A product or company a visitor typed into the claim dialog ("Not listed?
+  Type it in"), so AECi can add it and then invite them to claim it. Rows live in
+  `listing_requests`, not `vendor_requests`.
+- **Where.** The second section of `/admin/requests` (`admin/requests/listing-request-queue.ts`),
+  under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
+  Rejected filter. Each row shows the name, the website as text plus a new-tab link
+  (`rel="noopener noreferrer nofollow"`), the submitter's email, name, role and LinkedIn, the
+  plan interest, the comments and the date, with Resolve and Reject. The list loads the first
+  100 rows. Past that it says "Showing the first N of M listing requests", like the corrections
+  section. A filter change ignores any response for a filter the admin already left.
+- **The badge.** `pending_requests` counts open corrections plus open listing requests, so
+  the Requests count matches the screen. A resolve or reject of an open row decrements it.
+- **What Resolve means.** The operator added the listing upstream (the review app, then
+  promote) and replied to the `listing-request-alert` email, whose reply-to is the
+  submitter. Resolving creates nothing.
+- **Claims.** The claim queue and the claim detail (§5.10) show the claimant's plan answer as
+  "Plan interest", and the queue's approve form repeats it beside the plan radios ("They
+  asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
+  The claim body is labelled "Comments".
 
 ## 6. API surface
 

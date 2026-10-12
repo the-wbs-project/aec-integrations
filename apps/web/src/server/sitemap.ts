@@ -208,11 +208,15 @@ export async function resolveSitemapEntries(
     // Higher priority than the legal set and a shorter changefreq, because it is
     // revised whenever the product's verification posture moves.
     { loc: `${base}/methodology`, changefreq: 'monthly', priority: 0.5 },
+    // AECI-1283 — the public vendor landing page (`VENDOR_PROGRAM_PAGE_SPEC.md`
+    // §2.3). Listed on purpose: vendors searching "list my software" are meant
+    // to find it. Same weight as /methodology, the other static page listed.
+    { loc: `${base}/vendor-program`, changefreq: 'monthly', priority: 0.5 },
     // AECI-1248 — the product docs, from the manifest: `/docs`, each indexable
     // section index and page. No `<lastmod>`, the `/legal/*` rule: the page's
     // `last_updated` is a display string, not a date. The vendor guide
-    // (`/docs/vendors` and below) is ABSENT while `pathForcesNoindex` covers it;
-    // TODO(AECI-1253) lifts that, and this list follows with no change here.
+    // (`/docs/vendors` and below) is listed since AECI-1253 emptied the
+    // `pathForcesNoindex` list. A path that list covers is left out.
     ...docsPaths.map(
       (path): SitemapEntry => ({ loc: `${base}${path}`, changefreq: 'monthly', priority: 0.4 }),
     ),

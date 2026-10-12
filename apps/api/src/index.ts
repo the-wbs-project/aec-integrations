@@ -68,6 +68,11 @@ import {
   createModerateRequestHandler,
 } from './routes/admin-requests';
 import {
+  createAdminListingRequestsListHandler,
+  createModerateListingRequestHandler,
+} from './routes/admin-listing-requests';
+import { createListingRequestHandler } from './routes/listing-requests';
+import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
@@ -356,6 +361,11 @@ phase28.get('/api/stats/home', createStatsHomeHandler());
 // `routes/requests.ts` / `lib/linear.ts`. No n8n (dropped — STAGE_1_PHASE_6_SPEC.md §4).
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
+// AECI-1293: "Not listed? Type it in" in the claim dialog, a `listing_requests` row
+// (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Under `/api/requests/`, so zone Rule A caps it
+// per IP like the claim route, and like it, it carries no in-Worker bucket
+// (`docs/waf-rate-limits.md` §6.2).
+phase28.post('/api/requests/listing', createListingRequestHandler());
 
 // Landing lead-capture (ADR 0016 / AECI-257) — the feedback + mailing-list signup
 // forms, moved off Supabase Postgres onto D1. Public (no auth), no audit row
@@ -720,6 +730,19 @@ authAdmin.patch(
   '/api/admin/requests/:id',
   requireAdmin(),
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
+);
+// AECI-1293: the listing request queue, the second section of /admin/requests.
+// Moderation is a resolve/reject with its audit row, like the requests PATCH above,
+// and like it carries no limiter (`docs/waf-rate-limits.md` §6.2).
+authAdmin.get(
+  '/api/admin/listing-requests',
+  requireAdmin(),
+  createAdminListingRequestsListHandler(),
+);
+authAdmin.patch(
+  '/api/admin/listing-requests/:id',
+  requireAdmin(),
+  createModerateListingRequestHandler(),
 );
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.

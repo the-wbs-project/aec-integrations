@@ -505,6 +505,16 @@ export const routes: Routes = [
     path: 'methodology',
     loadComponent: () => import('./methodology/methodology').then((m) => m.MethodologyPage),
   },
+  // AECI-1283 — the public vendor landing page (`docs/VENDOR_PROGRAM_PAGE_SPEC.md`
+  // §2). Static + indexable + CACHEABLE on the /about static-page TTL, pre-wired in
+  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`, and in `sitemap.xml`. No
+  // resolver: the body needs no API data at SSR time, and every signed-in variant
+  // (§5) is applied after hydration. Not `/vendors`, which stays a 301 to
+  // `/products` (AECI-165).
+  {
+    path: 'vendor-program',
+    loadComponent: () => import('./vendor-program/vendor-program').then((m) => m.VendorProgramPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
@@ -533,8 +543,8 @@ export const routes: Routes = [
   // `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>`
   // (article). Lazy children generated from the docs manifest, so the Markdown
   // ships only on docs routes and an unknown `/docs/*` falls through to the `**`
-  // 404. Cacheable on the static-page TTL; `/docs/vendors` and everything under
-  // it is noindex until the vendor guide is published (AECI-1253).
+  // 404. Cacheable on the static-page TTL. Every docs page, the vendor guide
+  // included, is indexable and in `sitemap.xml` since AECI-1253.
   {
     path: 'docs',
     loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),

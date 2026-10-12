@@ -19,6 +19,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VENDOR_REVIEWS_FIXTURE } from '../vendor-review-fixtures';
 
 import { VendorReviewsList } from './vendor-reviews-list';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -372,5 +373,11 @@ describe('VendorReviewsList — live', () => {
     await settle(fixture);
     expect(api.listReviews).not.toHaveBeenCalled();
     expect(el(fixture).querySelector('[data-reviews-stale]')).not.toBeNull();
+  });
+});
+
+describe('VendorReviewsList: the guide link (AECI-1253)', () => {
+  it('links Replying to reviews under the intro', async () => {
+    expectVendorDocsLink(el(await create()), 'replying-to-reviews');
   });
 });

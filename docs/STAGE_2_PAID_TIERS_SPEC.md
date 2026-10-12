@@ -1022,6 +1022,7 @@ Before AECI-1215, `approveClaim` hardcoded `GRANT_TIER = 'verified'` at `apps/ap
 - **Free on a vendor that already has a row.** An `active` row stays active, so a Free second seat on a Managed vendor leaves it Managed and answers `plan: 'free'`, `tier: 'verified'`. An ended row stays ended. Free never reactivates.
 - **Email.** One template id, `claim-approved`, with a Free and a Managed capabilities line. `email.md` has the copy.
 - **Admin UI.** `/admin/claims` asks for the plan in a `fieldset` with two native radios and nothing preselected. "Confirm grant" is disabled until one is picked. The arrangement notes field renders for Managed only. A note typed under Managed is not sent if the operator then switches to Free.
+- **The claimant's answer (AECI-1293).** Since the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) a claim may carry `plan_interest` (`free`, `managed`, `not_sure`, or null). The approve form shows it beside the radios as "They asked about: Managed", only when the claimant answered. It never preselects a radio: the operator still chooses, and a claimant who asked about Managed may still be granted Free while the price is agreed.
 
 ### 13.7 Per-product plan field
 
@@ -1172,7 +1173,7 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 
 No row means the default. Resetting both fields deletes the row.
 
-**The default.** `MANAGED_LIST_PRICE_CENTS = 2500` in `packages/shared/src/entitlements.ts`. It is the only place the list price lives. The same module holds the bounds and `planPriceDisplay`, the precedence rule.
+**The default.** `MANAGED_LIST_PRICE_CENTS = 2500` in `packages/shared/src/entitlements.ts`. It is the only place the list price lives. The same module holds the bounds and `planPriceDisplay`, the precedence rule. Beside it, `MANAGED_ANNUAL_PRICE_CENTS = 25000` is the public annual price the plan pages show (`VENDOR_PROGRAM_PAGE_SPEC.md` §4, AECI-1285). It is display only too, and an override does not touch it.
 
 **Write.** `PUT /api/admin/vendors/:id/plan-pricing` behind `requireAdmin()` and `rateLimit('write')` (`API_CONTRACTS.md` §6.10). The upsert or delete and its `audit_log` row go in one `db.batch`. The actions are `vendor_plan_pricing.set` and `vendor_plan_pricing.cleared`, with `entity_id` the vendor id. They are vendor-scoped, not receipts: the vendor's change history does not list them. A request that changes nothing writes nothing. There is no cache purge, because no public page renders the override.
 

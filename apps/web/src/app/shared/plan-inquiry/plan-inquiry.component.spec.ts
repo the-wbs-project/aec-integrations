@@ -3,8 +3,8 @@
  *
  * `*.component.spec.ts`: the form reads `$localize` and Signal Forms' async schema
  * validation, which only the Angular `ng test` tier sets up. The CTA side (which link
- * opens the dialog, with which placement) is pinned in
- * `docs/docs-plans-cta.component.spec.ts` and `docs-plans-comparison.component.spec.ts`.
+ * opens the dialog, with which placement and page) is pinned in
+ * `shared/plan-cta/plan-cta.component.spec.ts` and `plan-cards.component.spec.ts`.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -16,6 +16,7 @@ import type { PlanInquirySubmit } from '@aeci/shared';
 
 import { Analytics } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
+import { VendorPlanStatus } from '../../vendor/vendor-plan-status';
 import { PlanInquiryDialog } from './plan-inquiry-dialog';
 import { PlanInquiryForm } from './plan-inquiry-form';
 import { PlanInquiryService } from './plan-inquiry.service';
@@ -25,23 +26,31 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-function setup(sessionEmail: string | null = null) {
+function setup(
+  sessionEmail: string | null = null,
+  page?: 'docs_plans' | 'vendor_program',
+  vendor: string | null = null,
+) {
   const email = signal<string | null>(sessionEmail);
+  const vendorName = signal<string | null>(vendor);
   const planInquirySubmitted = vi.fn();
   TestBed.configureTestingModule({
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: SessionStatus, useValue: { email: email.asReadonly() } },
+      { provide: VendorPlanStatus, useValue: { vendorName: vendorName.asReadonly() } },
       { provide: Analytics, useValue: { planInquirySubmitted } },
     ],
   });
   const fixture = TestBed.createComponent(PlanInquiryForm);
   fixture.componentRef.setInput('placement', 'rail');
+  if (page) fixture.componentRef.setInput('page', page);
   fixture.detectChanges();
   return {
     fixture,
     email,
+    vendorName,
     planInquirySubmitted,
     http: TestBed.inject(HttpTestingController),
     el: fixture.nativeElement as HTMLElement,
@@ -106,6 +115,48 @@ describe('PlanInquiryForm', () => {
     expect(field(fixture, 'email').value).toBe('typed@acme.example');
   });
 
+  // AECI-1286, VENDOR_PROGRAM_PAGE_SPEC.md section 5: a vendor seat's company name.
+  it('prefills the company from a vendor seat once', async () => {
+    const { fixture, vendorName } = setup(null, undefined, 'Acme Software');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+
+    // One-shot: a later name (an account switch) does not refill the field.
+    vendorName.set('Other Co');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+  });
+
+  it('prefills the company when the vendor name lands after the form opens', async () => {
+    const { fixture, vendorName } = setup();
+    expect(field(fixture, 'company').value).toBe('');
+    vendorName.set('Acme Software');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+  });
+
+  it("never overwrites the visitor's own company, even one they cleared", async () => {
+    const typed = setup();
+    type(typed.fixture, 'company', 'Typed Co');
+    typed.vendorName.set('Acme Software');
+    await settle();
+    typed.fixture.detectChanges();
+    expect(field(typed.fixture, 'company').value).toBe('Typed Co');
+
+    TestBed.inject(HttpTestingController).verify();
+    TestBed.resetTestingModule();
+    const cleared = setup();
+    type(cleared.fixture, 'company', 'Typed Co');
+    type(cleared.fixture, 'company', '');
+    cleared.vendorName.set('Acme Software');
+    await settle();
+    cleared.fixture.detectChanges();
+    expect(field(cleared.fixture, 'company').value).toBe('');
+  });
+
   it('shows the field errors and sends nothing when email and company are missing', async () => {
     const { fixture, el, http } = setup();
     await submitForm(fixture);
@@ -143,7 +194,25 @@ describe('PlanInquiryForm', () => {
       'Thanks. We reply to most messages within a couple of business days.',
     );
     expect(el.querySelector('form')).toBeNull();
+    // No page: the /contact form's shape, so the event carries no `page` key.
     expect(planInquirySubmitted).toHaveBeenCalledWith({ topic: 'managed', placement: 'rail' });
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page of the button that opened the dialog.
+  it('reports the page it was opened from on plan_inquiry_submitted', async () => {
+    const { fixture, http, planInquirySubmitted } = setup(null, 'vendor_program');
+    type(fixture, 'email', 'buyer@acme.example');
+    type(fixture, 'company', 'Acme');
+    await submitForm(fixture);
+    http
+      .expectOne('/api/plan-inquiries')
+      .flush({ received: true }, { status: 201, statusText: 'Created' });
+    await settle();
+    expect(planInquirySubmitted).toHaveBeenCalledWith({
+      topic: 'managed',
+      placement: 'rail',
+      page: 'vendor_program',
+    });
   });
 
   it('carries a filled honeypot to the server, which decides', async () => {
@@ -197,6 +266,7 @@ describe('PlanInquiryDialog', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: SessionStatus, useValue: { email: signal(null) } },
+        { provide: VendorPlanStatus, useValue: { vendorName: signal(null) } },
         { provide: Analytics, useValue: { planInquirySubmitted: vi.fn() } },
       ],
     });
@@ -209,7 +279,7 @@ describe('PlanInquiryDialog', () => {
   // The first click lands before the deferred dialog exists; it opens itself.
   it('opens on its first render when a click already asked for it', async () => {
     const { inquiry, create } = mount();
-    inquiry.open('bottom');
+    inquiry.open('bottom', 'docs_plans');
     const fixture = create();
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
@@ -225,7 +295,8 @@ describe('PlanInquiryDialog', () => {
     await TestBed.inject(ApplicationRef).whenStable();
     expect(panel()).toBeNull();
 
-    inquiry.open('rail');
+    inquiry.open('rail', 'vendor_program');
+    expect(inquiry.page()).toBe('vendor_program');
     await TestBed.inject(ApplicationRef).whenStable();
     expect(panel()).not.toBeNull();
 

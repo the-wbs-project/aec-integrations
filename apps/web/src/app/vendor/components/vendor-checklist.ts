@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { ChecklistStepStatus } from '@aeci/shared';
 
+import { VendorDocsLink } from './vendor-docs-link';
 import { VendorLooksRight, type LooksRightTarget } from './vendor-looks-right';
 import { latchReviewDecisions, type ReviewLatchEntry } from './vendor-review-strip';
 
@@ -61,7 +62,7 @@ export interface ChecklistRow {
 @Component({
   selector: 'aec-vendor-checklist',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, VendorLooksRight],
+  imports: [RouterLink, VendorDocsLink, VendorLooksRight],
   template: `
     <section
       [attr.aria-labelledby]="headingId()"
@@ -80,6 +81,7 @@ export interface ChecklistRow {
       @if (lede(); as l) {
         <p class="mt-1.5 max-w-prose text-sm leading-relaxed text-(--text-secondary)">{{ l }}</p>
       }
+      <p class="mt-1"><aec-vendor-docs-link page="checklists" /></p>
 
       <div aria-hidden="true" class="mt-4 flex gap-1">
         @for (seg of segments(); track $index) {

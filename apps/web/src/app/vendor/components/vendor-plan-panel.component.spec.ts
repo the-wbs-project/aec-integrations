@@ -29,6 +29,7 @@ import type { VendorEntitlementBlock } from '@aeci/shared';
 import { DEFAULT_PLAN_PRICE, capabilitiesFor } from '@aeci/shared/entitlements';
 
 import { VendorPlanPanel } from './vendor-plan-panel';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const DAY_MS = 86_400_000;
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
@@ -285,5 +286,11 @@ describe('VendorPlanPanel: per-vendor price overrides (ruling 2026-10-08, §13.1
     f.componentRef.setInput('plan', withPrice(FREE, { managed_price_cents: 900, message: null }));
     f.detectChanges();
     expect(priceText(f)).toBe('Managed is $9 a month per product.');
+  });
+});
+
+describe('VendorPlanPanel: the guide link (AECI-1253)', () => {
+  it('links the Plans page in a new tab', () => {
+    expectVendorDocsLink(el(create(managedIn(300))), 'plans');
   });
 });

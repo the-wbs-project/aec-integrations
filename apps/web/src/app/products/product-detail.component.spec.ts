@@ -906,6 +906,16 @@ describe('ProductDetailPage claim CTA', () => {
     expect(section.textContent).toContain('Claim this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
+
+  // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): the vendor landing page sits
+  // beside the claim CTA. It is the same for every visitor and every plan, so it
+  // stays in the cached HTML.
+  it('links "Is this your product?" to /vendor-program beside the claim CTA', () => {
+    const { el } = setup(buildProduct());
+    const link = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendor-program"]');
+    expect(link).toBeTruthy();
+    expect(link!.textContent?.trim()).toBe('Is this your product?');
+  });
 });
 
 /**

@@ -19,6 +19,7 @@ import {
 } from '../vendor-history-fixtures';
 
 import { VENDOR_HISTORY_PAGE_SIZE, VendorHistoryPage } from './vendor-history-page';
+import { expectVendorDocsLink } from '../components/vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -421,5 +422,11 @@ describe('historyKindKeeps — the preview filter mirrors the API (AECI-1194)', 
       expect(keep('aeci')).not.toContain(r);
       expect(keep('all')).toContain(r);
     }
+  });
+});
+
+describe('VendorHistoryPage: the guide link (AECI-1253)', () => {
+  it('links Your change history under the intro', async () => {
+    expectVendorDocsLink(el(await create()), 'change-history');
   });
 });

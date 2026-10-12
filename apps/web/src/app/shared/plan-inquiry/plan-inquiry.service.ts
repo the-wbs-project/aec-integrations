@@ -1,6 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 
-import type { PlanInquiryPlacement } from '../../analytics/analytics';
+import type { PlanCtaPage, PlanInquiryPlacement } from '../../analytics/analytics';
 
 /**
  * Root state for the one plan inquiry dialog on a page (AECI-1279). Five "Talk to us
@@ -14,23 +14,31 @@ import type { PlanInquiryPlacement } from '../../analytics/analytics';
  * before the `@defer`-loaded dialog exists, so there is no callback yet: the dialog
  * then opens itself once, after its first render, because `isOpen()` is already true.
  *
+ * The opening button's `placement` and `page` ride along, so the form can report
+ * both on `plan_inquiry_submitted` (`VENDOR_PROGRAM_PAGE_SPEC.md` §9).
+ *
  * SSR-neutral: a fresh service is closed and has no host, so the cached Plans-page
  * HTML is the same for every visitor.
  */
 @Injectable({ providedIn: 'root' })
 export class PlanInquiryService {
-  private readonly active = signal<PlanInquiryPlacement | null>(null);
+  private readonly active = signal<{
+    placement: PlanInquiryPlacement;
+    page: PlanCtaPage;
+  } | null>(null);
   private readonly hosts = signal(0);
   private opener: (() => void) | null = null;
 
   /** The button that opened the dialog, or `null` when it is closed. */
-  readonly placement = this.active.asReadonly();
+  readonly placement = computed(() => this.active()?.placement ?? null);
+  /** The page that button sits on, or `null` when the dialog is closed. */
+  readonly page = computed(() => this.active()?.page ?? null);
   readonly isOpen = computed(() => this.active() !== null);
   /** Whether a `PlanInquiryHost` is mounted. With none, a trigger leaves the link alone. */
   readonly hosted = computed(() => this.hosts() > 0);
 
-  open(placement: PlanInquiryPlacement): void {
-    this.active.set(placement);
+  open(placement: PlanInquiryPlacement, page: PlanCtaPage): void {
+    this.active.set({ placement, page });
     this.opener?.();
   }
 

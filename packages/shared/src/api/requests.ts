@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { HttpsUrlSchema } from './https-url';
+
 /**
  * Vendor-request contracts (AECI-128): the claim & correction submission forms
  * and their server endpoints. These back the first real Signal Forms forms
@@ -36,9 +38,31 @@ import { z } from 'zod';
 export const RequestTargetTypeSchema = z.enum(['product', 'vendor']);
 export type RequestTargetType = z.infer<typeof RequestTargetTypeSchema>;
 
-/** `vendor_requests.kind`. */
+/** `vendor_requests.kind`. A typed-in listing (`listing_request`, AECI-1293) is
+ *  NOT a kind of this table: it lives in `listing_requests`, because admitting it
+ *  here would change two CHECKs and a NOT NULL, which is a drizzle-kit recreate of a
+ *  table with FK children (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). */
 export const RequestKindSchema = z.enum(['claim', 'correction']);
 export type RequestKind = z.infer<typeof RequestKindSchema>;
+
+/**
+ * The claimant's answer to "Which plan are you interested in?" (AECI-1293,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15). Informational for the reviewer: the operator
+ * still picks the plan at approval, with nothing preselected
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Stored in `vendor_requests.plan_interest` and
+ * `listing_requests.plan_interest`, both nullable with NO CHECK (a CHECK change is a
+ * D1 table recreate), so this enum is the only place the vocabulary is enforced.
+ */
+export const PlanInterestSchema = z.enum(['free', 'managed', 'not_sure']);
+export type PlanInterest = z.infer<typeof PlanInterestSchema>;
+
+/**
+ * The form-side `plan_interest`: one of the three answers, or `''` for "not
+ * answered" (stored as NULL). A concrete string so the Signal Forms field is never
+ * `undefined`, and `.default('')` so the KEY is omittable: the claim endpoint already
+ * serves production traffic, and a body that predates the field must still validate.
+ */
+const PlanInterestFieldSchema = z.union([z.literal(''), PlanInterestSchema]).default('');
 
 // ─── Correction ──────────────────────────────────────────────────────────────
 
@@ -153,8 +177,12 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
+  /** AECI-1293: "Which plan are you interested in?" `''` = not answered. */
+  plan_interest: PlanInterestFieldSchema,
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
+/** The wire body before defaults: every defaulted key may be omitted. */
+export type ClaimFormInput = z.input<typeof ClaimFormSchema>;
 
 /** Wire body for `POST /api/requests/claim`. */
 export const ClaimRequestSchema = ClaimFormSchema.extend({
@@ -163,9 +191,37 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
+// ─── Listing request (a typed-in listing) ────────────────────────────────────
+
+/**
+ * "Not listed? Type it in" in the claim dialog (AECI-1293,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). The claim form's fields, unchanged (the same
+ * LinkedIn host allowlist, the same optional `body`, here labelled "Additional
+ * comments"), plus the listing the visitor typed. There is no target: the product or
+ * company is not in the catalog yet, which is the point of the request.
+ *
+ * `website` is the shared `HttpsUrlSchema` rule (https only, no credentials), capped
+ * at 500 like a correction's `source_url`. The admin queue renders it, so the scheme
+ * allowlist is what keeps a `javascript:` URL out of an `href`.
+ */
+export const ListingRequestFormSchema = ClaimFormSchema.extend({
+  listing_name: z
+    .string()
+    .trim()
+    .min(1, 'The product or company name is required.')
+    .max(200, 'Keep the name under 200 characters.'),
+  website: HttpsUrlSchema.max(500, 'Keep the website under 500 characters.'),
+});
+export type ListingRequestForm = z.infer<typeof ListingRequestFormSchema>;
+
+/** Wire body for `POST /api/requests/listing`. No target: see above. */
+export const ListingRequestSchema = ListingRequestFormSchema;
+export type ListingRequest = z.infer<typeof ListingRequestSchema>;
+export type ListingRequestInput = z.input<typeof ListingRequestSchema>;
+
 // ─── Responses ───────────────────────────────────────────────────────────────
 
-/** Returned by both `POST /api/requests/{claim,correction}`. */
+/** Returned by `POST /api/requests/{claim,correction,listing}`. */
 export const RequestSubmitResponseSchema = z.object({
   request_id: z.string().uuid(),
   message: z.string(),

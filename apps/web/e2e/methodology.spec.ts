@@ -92,7 +92,10 @@ test.describe('/methodology — AECI-804', () => {
     }
   });
 
-  test('footer Help links resolve to /docs pages (AECI-1252)', async ({ page, request }) => {
+  test('footer Help links resolve to /docs pages (AECI-1252, AECI-1253)', async ({
+    page,
+    request,
+  }) => {
     await page.goto('/methodology');
     await expect(page.locator('app-root')).toBeAttached();
 
@@ -100,7 +103,12 @@ test.describe('/methodology — AECI-804', () => {
     const hrefs = await help
       .getByRole('link')
       .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
-    expect(hrefs).toEqual(['/docs', '/docs/getting-started', '/docs/trust/how-ranking-works']);
+    expect(hrefs).toEqual([
+      '/docs',
+      '/docs/getting-started',
+      '/docs/trust/how-ranking-works',
+      '/docs/vendors/overview',
+    ]);
 
     for (const href of hrefs) {
       const res = await request.get(href!, { maxRedirects: 0 });

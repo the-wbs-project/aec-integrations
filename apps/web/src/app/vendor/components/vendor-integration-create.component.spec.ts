@@ -35,6 +35,7 @@ import {
   VendorIntegrationCreate,
   createErrorMessage,
 } from './vendor-integration-create';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -340,5 +341,11 @@ describe('createErrorMessage', () => {
     const messages = codes.map((code) => createErrorMessage(apiError(400, code)));
     expect(new Set(messages).size).toBe(codes.length);
     expect(createErrorMessage(new Error('x'))).toContain('Could not add');
+  });
+});
+
+describe('VendorIntegrationCreate: the guide link (AECI-1253)', () => {
+  it('links Owning an integration beside the trigger', async () => {
+    expectVendorDocsLink(el(await mount()), 'owning-an-integration');
   });
 });

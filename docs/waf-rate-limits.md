@@ -416,7 +416,7 @@ same characteristics" = IP** → set the rate and action as listed.
 | Action | **Block** |
 | Duration (mitigation timeout) | **1 hour** (3600 s) — block duration supports up to 1 h even though the counting period caps at 1 min |
 
-`starts_with(…, "/api/requests/")` covers the current `claim` and `correction`
+`starts_with(…, "/api/requests/")` covers the current `claim`, `correction` and `listing`
 submissions and any future request submission added under that prefix. These are
 anonymous POSTs. The spec wants "5 submissions per IP **per hour**"; the Pro
 dashboard can only count per **minute**, so this is a per-minute burst cap (5/min)
@@ -1353,7 +1353,7 @@ Four properties to hold on to before changing anything:
 | `POST /api/seat-invites/:token/accept`, `POST /api/unsubscribe`, `POST /api/notifications/nudges/mute` (AECI-1204) | `token` (by IP) | The caller presents a secret. Keyed by IP, **never by the token** — a per-token key hands every guess its own fresh budget |
 | **`DELETE /api/account`** | **none** | Erasure is a legal obligation (`AUTH_AND_RLS.md` §8), the second call is a no-op, and the whole abuse ceiling is one account erasing itself. **A 429 must never be why an erasure fails.** `requireAuth()` is the control |
 | **every `GET`, everywhere** | **none** | See §6.3 |
-| **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
+| **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | `/api/requests/*` includes `POST /api/requests/listing`, the claim dialog's typed-in listing (AECI-1293), whose one send goes to `SUPPORT_EMAIL`, never to the typed address. Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
 | `POST /api/plan-inquiries` (AECI-1279) | `token` (by IP) | The Managed inquiry form. Anonymous, and every submit sends two Resend emails. Zone Rule A does not match it until the §1 operator edit lands, so this is its only cap until then, and stays as the per-IP burst brake after. Keyed by IP because the email is caller-supplied and rotates for free. Not `write`: that bucket refuses a caller with no principal. The receipt also carries a per-address per-day dedupe key, which bounds mail to any one typed address |
 | **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
 | **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |

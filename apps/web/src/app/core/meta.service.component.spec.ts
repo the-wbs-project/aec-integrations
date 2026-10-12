@@ -255,6 +255,79 @@ describe('MetaService.setStaticPageMeta', () => {
 
     expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();
   });
+
+  const content = (doc: Document, selector: string): string | null | undefined =>
+    doc.head.querySelector(selector)?.getAttribute('content');
+
+  it('keeps the monogram fallback and no image-alt when no ogImage is passed', () => {
+    const { service, doc } = setup();
+
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About AEC Integrations.',
+      canonical: 'https://aecintegrations.com/about',
+    });
+
+    expect(content(doc, 'meta[property="og:image"]')).toBe('/branding/monogram-light.svg');
+    expect(doc.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
+    expect(doc.head.querySelector('meta[name="twitter:image:alt"]')).toBeNull();
+  });
+
+  // AECI-1283: a static page's own share card, emitted the way `setHomeMeta` emits
+  // the home card: an absolute URL plus an image-alt pair.
+  it('resolves a site-relative ogImage to an absolute URL and sets the image-alt pair', () => {
+    const { service, doc } = setup();
+
+    service.setStaticPageMeta({
+      title: 'For vendors · AEC Integrations',
+      description: 'For vendors.',
+      canonical: 'https://aecintegrations.com/vendor-program?utm_source=linkedin',
+      ogImage: '/branding/vendor-program-og.png',
+      ogImageAlt: 'The vendor card.',
+    });
+
+    const abs = 'https://aecintegrations.com/branding/vendor-program-og.png';
+    expect(content(doc, 'meta[property="og:image"]')).toBe(abs);
+    expect(content(doc, 'meta[name="twitter:image"]')).toBe(abs);
+    expect(content(doc, 'meta[property="og:image:alt"]')).toBe('The vendor card.');
+    expect(content(doc, 'meta[name="twitter:image:alt"]')).toBe('The vendor card.');
+    expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  it('passes an already-absolute ogImage through unchanged', () => {
+    const { service, doc } = setup();
+
+    service.setStaticPageMeta({
+      title: 'For vendors · AEC Integrations',
+      description: 'For vendors.',
+      canonical: 'https://aecintegrations.com/vendor-program',
+      ogImage: 'https://cdn.example.com/card.png',
+      ogImageAlt: 'A card.',
+    });
+
+    expect(content(doc, 'meta[property="og:image"]')).toBe('https://cdn.example.com/card.png');
+  });
+
+  it('drops a stale image-alt pair on a client nav onto a page with no card', () => {
+    const { service, doc } = setup();
+
+    service.setStaticPageMeta({
+      title: 'For vendors · AEC Integrations',
+      description: 'For vendors.',
+      canonical: 'https://aecintegrations.com/vendor-program',
+      ogImage: '/branding/vendor-program-og.png',
+      ogImageAlt: 'The vendor card.',
+    });
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About AEC Integrations.',
+      canonical: 'https://aecintegrations.com/about',
+    });
+
+    expect(content(doc, 'meta[property="og:image"]')).toBe('/branding/monogram-light.svg');
+    expect(doc.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
+    expect(doc.head.querySelector('meta[name="twitter:image:alt"]')).toBeNull();
+  });
 });
 
 // ── AECI-518 ────────────────────────────────────────────────────────────────

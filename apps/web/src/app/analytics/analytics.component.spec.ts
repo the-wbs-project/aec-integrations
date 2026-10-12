@@ -26,6 +26,9 @@ import {
   Analytics,
   INTERNAL_PERSON_PROPERTY,
   VENDOR_GROUP_TYPE,
+  planInterestProperty,
+  type PlanCtaPage,
+  type PlanCtaPlacement,
 } from './analytics';
 import { ConsentService, type ConsentState } from './consent';
 import {
@@ -100,7 +103,12 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     analytics.productViewed('prod-1');
     analytics.integrationViewed('int-1');
     analytics.reviewSubmitted('prod-1');
-    analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
+    analytics.claimRequested({
+      target_type: 'vendor',
+      slug: 'autodesk',
+      request_id: 'req-1',
+      plan_interest: 'none',
+    });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
       destination: 'https://x.com',
@@ -209,18 +217,44 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
   it('fires plan_cta_clicked with the plan and the placement once consented', async () => {
     const { analytics, client } = setup();
     TestBed.tick();
-    analytics.planCtaClicked({ plan: 'managed', placement: 'rail' });
+    analytics.planCtaClicked({ plan: 'managed', placement: 'rail', page: 'docs_plans' });
     await flush();
     expect(client.capture).toHaveBeenCalledWith(
       'plan_cta_clicked',
-      expect.objectContaining({ plan: 'managed', placement: 'rail', locale: 'en-US' }),
+      expect.objectContaining({
+        plan: 'managed',
+        placement: 'rail',
+        page: 'docs_plans',
+        locale: 'en-US',
+      }),
     );
+  });
+
+  // VENDOR_PROGRAM_PAGE_SPEC.md §9: the page it sat on. The search-result placement
+  // was retired on 2026-10-12 with Find your product.
+  it('fires plan_cta_clicked with page vendor_program', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    const placement: PlanCtaPlacement = 'card';
+    const page: PlanCtaPage = 'vendor_program';
+    analytics.planCtaClicked({ plan: 'free', placement, page });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_cta_clicked',
+      expect.objectContaining({ plan: 'free', placement: 'card', page: 'vendor_program' }),
+    );
+    // @ts-expect-error a placement outside the union does not compile.
+    const unknown: PlanCtaPlacement = 'sidebar';
+    expect(unknown).toBe('sidebar');
+    // @ts-expect-error the retired search-result placement no longer compiles.
+    const retired: PlanCtaPlacement = 'search_result';
+    expect(retired).toBe('search_result');
   });
 
   it('does not fire plan_cta_clicked before consent is granted', async () => {
     const { analytics, client } = setup({ consent: 'unknown' });
     TestBed.tick();
-    analytics.planCtaClicked({ plan: 'managed', placement: 'top' });
+    analytics.planCtaClicked({ plan: 'managed', placement: 'top', page: 'docs_plans' });
     await flush();
     expect(captured(client)).not.toContain('plan_cta_clicked');
   });
@@ -240,6 +274,66 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     )![1] as Record<string, unknown>;
     expect(Object.keys(props)).not.toContain('email');
     expect(Object.keys(props)).not.toContain('company');
+    // The /contact form sits on no plan page, so the key is absent, not empty.
+    expect(Object.keys(props)).not.toContain('page');
+  });
+
+  it('carries the page of the button that opened the inquiry dialog', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.planInquirySubmitted({ topic: 'managed', placement: 'card', page: 'vendor_program' });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_inquiry_submitted',
+      expect.objectContaining({ topic: 'managed', placement: 'card', page: 'vendor_program' }),
+    );
+  });
+
+  // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.7): a step, never typed text.
+  it('fires claim_dialog_step with step, page, entry and path only', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.claimDialogStep({
+      step: 'you',
+      page: 'vendor_program',
+      entry: 'card',
+      path: 'typed',
+    });
+    analytics.claimDialogStep({ step: 'find', page: 'docs_plans', entry: 'top' });
+    await flush();
+    const calls = client.capture.mock.calls.filter((call) => call[0] === 'claim_dialog_step');
+    expect(calls[0]![1]).toEqual(
+      expect.objectContaining({
+        step: 'you',
+        page: 'vendor_program',
+        entry: 'card',
+        path: 'typed',
+      }),
+    );
+    // `find` has no path yet: the key is absent, not empty.
+    expect(Object.keys(calls[1]![1] as object)).not.toContain('path');
+  });
+
+  it('fires listing_requested with the plan answer and page only', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.listingRequested({ plan_interest: 'managed', page: 'vendor_program' });
+    await flush();
+    const props = client.capture.mock.calls.find(
+      (call) => call[0] === 'listing_requested',
+    )![1] as Record<string, unknown>;
+    expect(props).toEqual(
+      expect.objectContaining({ plan_interest: 'managed', page: 'vendor_program' }),
+    );
+    for (const key of ['listing_name', 'website', 'email', 'name']) {
+      expect(Object.keys(props)).not.toContain(key);
+    }
+  });
+
+  it('maps a form plan answer to its event property', () => {
+    expect(planInterestProperty('')).toBe('none');
+    expect(planInterestProperty('not_sure')).toBe('not_sure');
+    expect(planInterestProperty('bogus')).toBe('none');
   });
 
   it('does not fire plan_inquiry_submitted before consent is granted', async () => {
@@ -738,7 +832,12 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     analytics.searchPerformed(SEARCH_INPUT);
     analytics.productViewed('prod-1');
     analytics.reviewSubmitted('prod-1');
-    analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
+    analytics.claimRequested({
+      target_type: 'vendor',
+      slug: 'autodesk',
+      request_id: 'req-1',
+      plan_interest: 'none',
+    });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
       destination: 'https://autodesk.com',

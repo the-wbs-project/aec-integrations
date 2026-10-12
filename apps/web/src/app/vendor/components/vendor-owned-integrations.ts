@@ -20,6 +20,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
 import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-edit-form';
+import { VendorDocsLink } from './vendor-docs-link';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from './vendor-not-ours';
 import { VendorOwnedRetire } from './vendor-owned-retire';
@@ -87,7 +88,7 @@ export function ownedRowsForProduct(
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
-  imports: [VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOurs],
+  imports: [VendorDocsLink, VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOurs],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -115,6 +116,7 @@ export function ownedRowsForProduct(
             rather than with the integrations above, because they are delivered through a connector
             or connect products your company does not make.
           </p>
+          <p class="m-0"><aec-vendor-docs-link page="owning-an-integration" /></p>
         </div>
 
         <ul class="m-0 list-none space-y-4 p-0">

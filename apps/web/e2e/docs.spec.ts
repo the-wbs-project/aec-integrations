@@ -6,6 +6,8 @@
  * AECI-1265 — the help center and the vendor guide: two trees from one manifest.
  * AECI-1271 — the General / For vendors guide toggle at the top of the sidebar.
  *
+ * AECI-1253 — the vendor guide is indexable, like every help page.
+ *
  * The manifest, components and noindex-by-path rules are pinned in the
  * `src/app/docs/*.component.spec.ts` specs and `src/server.spec.ts`; this
  * proves the real routes render, link together and stay accessible.
@@ -33,7 +35,15 @@ test.describe('/docs shell — AECI-1248', () => {
     expect(home).toContain('/docs/reviewers/requests-and-corrections');
   });
 
-  test('keeps the vendor guide noindex, its bare section index included', async ({ request }) => {
+  test('serves the vendor guide indexable like a help page, its section index included (AECI-1253)', async ({
+    request,
+  }) => {
+    // The env-wide X-Robots-Tag is a per-tier gate (absent only where
+    // ALLOW_INDEXING is "true"). The vendor guide must get exactly what a help
+    // page gets in this env, and no robots meta of its own.
+    const helpHeader = (await request.get('/docs/reviewers', { maxRedirects: 0 })).headers()[
+      'x-robots-tag'
+    ];
     // AECI-1271: overview and claiming moved into the vendor guide at the same URLs.
     for (const path of [
       '/docs/vendors',
@@ -41,10 +51,12 @@ test.describe('/docs shell — AECI-1248', () => {
       '/docs/vendors/overview',
       '/docs/vendors/claiming-your-listing',
       '/docs/vendors/connector-vendors',
+      '/docs/vendors/plans',
     ]) {
       const res = await request.get(path, { maxRedirects: 0 });
       expect(res.status(), path).toBe(200);
-      expect(res.headers()['x-robots-tag'] ?? '', path).toContain('noindex');
+      expect(res.headers()['x-robots-tag'], path).toBe(helpHeader);
+      expect(await res.text(), path).not.toMatch(/<meta[^>]+name="robots"/);
     }
   });
 

@@ -1,7 +1,8 @@
 /**
- * The Plans page's pricing layout (`/docs/vendors/plans`): a Free card, a
- * Managed card, then a side-by-side comparison table. Placed in the page by the
- * `<!-- docs:plans-comparison -->` line in `content/docs/vendors/plans.md`
+ * The Plans page's pricing layout (`/docs/vendors/plans`): the Free and Managed
+ * cards (`shared/plan-cta/plan-cards.ts`, shared with `/vendor-program` since
+ * AECI-1285), the sort rule, then a side-by-side comparison table. Placed in the
+ * page by the `<!-- docs:plans-comparison -->` line in `content/docs/vendors/plans.md`
  * (`docs-markdown.ts`, "Widgets"). The Markdown keeps the full prose, so search
  * and the "On this page" rail still read it. This is the at-a-glance view.
  *
@@ -25,8 +26,7 @@
  * instead.
  *
  * The price is the default list price (`MANAGED_LIST_PRICE_CENTS`, §13.13),
- * formatted by the same helper as the portal's plan panel. A company with a
- * price override sees its own price in the portal; the card says so.
+ * formatted by the same helper as the portal's plan panel.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Chrome only, so every string is
@@ -35,7 +35,6 @@
  * and this renders outside `.aec-prose`.
  */
 import { Component, LOCALE_ID, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 import {
   type Capability,
@@ -43,10 +42,9 @@ import {
   TIER_CAPABILITIES,
 } from '@aeci/shared/entitlements';
 
-import { Analytics, type PlanCtaPlacement } from '../analytics/analytics';
-import { PlanInquiryTrigger } from '../shared/plan-inquiry/plan-inquiry-trigger';
+import type { PlanCtaPage } from '../analytics/analytics';
+import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
 import { formatPlanPrice, planLabel } from '../vendor/vendor-plan';
-import { CLAIM_PATH, MANAGED_CONTACT_HREF } from './docs-plans-cta';
 
 /** A cell: included, not included, or a value to print (a count, a price). */
 export type PlanCell = boolean | string;
@@ -164,114 +162,10 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
 
 @Component({
   selector: 'app-docs-plans-comparison',
-  imports: [RouterLink, PlanInquiryTrigger],
+  imports: [PlanCardsComponent],
   host: { class: 'block' },
   template: `
-    <div class="grid gap-4 sm:grid-cols-2">
-      <section class="aec-plan-card flex flex-col p-5" aria-labelledby="plan-card-free">
-        <h3 id="plan-card-free" class="aec-plan-card-name text-(--text-primary)">
-          {{ freeName }}
-        </h3>
-        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.summary">
-          Keep your listing accurate.
-        </p>
-        <p class="mt-4 flex items-baseline gap-1.5">
-          <span class="aec-plan-price text-(--text-primary)">{{ freePrice }}</span>
-          <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.unit"
-            >for every company with a seat</span
-          >
-        </p>
-        <a
-          [routerLink]="claimPath"
-          (click)="track('free', 'card')"
-          class="mt-4 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-center text-sm font-medium text-(--text-primary) hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@app.docs.plans.free.cta"
-          >Claim your listing</a
-        >
-        <p
-          class="mt-5 text-xs font-medium text-(--text-secondary)"
-          i18n="@@app.docs.plans.free.includes"
-        >
-          Includes
-        </p>
-        <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
-          @for (item of freeHighlights; track item) {
-            <li class="flex gap-2">
-              <svg
-                class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.25"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-              <span>{{ item }}</span>
-            </li>
-          }
-        </ul>
-      </section>
-
-      <section
-        class="aec-plan-card aec-plan-card-featured flex flex-col p-5"
-        aria-labelledby="plan-card-managed"
-      >
-        <h3 id="plan-card-managed" class="aec-plan-card-name text-(--text-primary)">
-          {{ managedName }}
-        </h3>
-        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@app.docs.plans.managed.summary">
-          Tell the full story of each product.
-        </p>
-        <p class="mt-4 flex items-baseline gap-1.5">
-          <span class="aec-plan-price text-(--text-primary)">{{ managedPrice }}</span>
-          <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.managed.unit"
-            >a month per product</span
-          >
-        </p>
-        <a
-          [href]="contactHref"
-          aecPlanInquiryTrigger="card"
-          (click)="track('managed', 'card')"
-          class="mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@app.docs.plans.managed.cta"
-          >Talk to us about Managed</a
-        >
-        <p
-          class="mt-2 text-center text-xs text-(--text-secondary)"
-          i18n="@@app.docs.plans.managed.reply"
-        >
-          We reply to most messages within a couple of business days.
-        </p>
-        <p
-          class="mt-5 text-xs font-medium text-(--text-secondary)"
-          i18n="@@app.docs.plans.managed.includes"
-        >
-          Everything in Free, plus
-        </p>
-        <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
-          @for (item of managedHighlights; track item) {
-            <li class="flex gap-2">
-              <svg
-                class="mt-0.5 size-4 shrink-0 text-(--accent-primary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.25"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-              <span>{{ item }}</span>
-            </li>
-          }
-        </ul>
-      </section>
-    </div>
+    <aec-plan-cards [page]="page" />
 
     <p
       class="aec-plan-note mt-4 px-4 py-3 text-sm text-(--text-primary)"
@@ -351,34 +245,10 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
 })
 export class DocsPlansComparisonComponent {
   private readonly locale = inject(LOCALE_ID);
-  private readonly analytics = inject(Analytics);
-  protected readonly contactHref = MANAGED_CONTACT_HREF;
-  protected readonly claimPath = CLAIM_PATH;
+  /** This component lives on the vendor guide's Plans page only. */
+  protected readonly page: PlanCtaPage = 'docs_plans';
 
   protected readonly freeName = planLabel('free');
   protected readonly managedName = planLabel('managed');
-  protected readonly freePrice = formatPlanPrice(0, this.locale);
-  protected readonly managedPrice = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, this.locale);
   protected readonly groups = planComparisonGroups(this.locale);
-
-  protected readonly freeHighlights: readonly string[] = [
-    $localize`:@@app.docs.plans.free.h1:Keep your company details and logo current`,
-    $localize`:@@app.docs.plans.free.h2:Keep each product's description, website and categories current`,
-    $localize`:@@app.docs.plans.free.h3:Claim and maintain the integrations you build`,
-    $localize`:@@app.docs.plans.free.h4:Invite your colleagues`,
-  ];
-
-  protected readonly managedHighlights: readonly string[] = [
-    $localize`:@@app.docs.plans.managed.h1:"How teams use it", in your own words`,
-    $localize`:@@app.docs.plans.managed.h2:The trades, audiences and phases you serve`,
-    $localize`:@@app.docs.plans.managed.h3:Links to your integrations page and API docs`,
-    $localize`:@@app.docs.plans.managed.h4:Your answer on every data flow`,
-    $localize`:@@app.docs.plans.managed.h5:The integrations you deliver through a connector`,
-    $localize`:@@app.docs.plans.managed.h6:Public answers to reviews`,
-    $localize`:@@app.docs.plans.managed.h7:Search engines told when you update a page`,
-  ];
-
-  protected track(plan: 'free' | 'managed', placement: PlanCtaPlacement): void {
-    this.analytics.planCtaClicked({ plan, placement });
-  }
 }

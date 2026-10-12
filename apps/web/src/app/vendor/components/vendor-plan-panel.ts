@@ -21,6 +21,7 @@ import {
   type PlanState,
 } from '../vendor-plan';
 
+import { VendorDocsLink } from './vendor-docs-link';
 import { VendorPlanBadge } from './vendor-plan-badge';
 
 /**
@@ -75,7 +76,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, VendorPlanBadge],
+  imports: [NgTemplateOutlet, RouterLink, VendorDocsLink, VendorPlanBadge],
   template: `
     <section
       [attr.aria-labelledby]="headingId()"
@@ -139,6 +140,8 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           >
         }
       }
+
+      <p class="mt-3"><aec-vendor-docs-link page="plans" /></p>
 
       <p
         class="mt-5 border-t border-(--border-default) pt-3 text-xs leading-relaxed text-(--text-secondary)"

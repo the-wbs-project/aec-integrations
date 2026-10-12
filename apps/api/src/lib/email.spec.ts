@@ -640,6 +640,49 @@ describe('sendClaimApprovedEmail', () => {
     expect(text).not.toContain('Free plan');
   });
 
+  // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line links the public vendor
+  // page, on both plan variants. An inline link, so the portal stays the one button.
+  it.each(['free', 'managed'] as const)(
+    'links /vendor-program in one inline line on the %s variant',
+    async (plan) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendClaimApprovedEmail(
+        fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+        { to: 'owner@vendor.com', vendorName: 'Globex', invited: false, plan },
+      );
+      const body = lastBody(fetchSpy);
+      const text = String(body.text);
+      const html = String(body.html);
+      expect(text).toContain(
+        'See what each plan includes on our page for software vendors: https://aecintegrations.com/vendor-program',
+      );
+      expect(text.split('/vendor-program')).toHaveLength(2);
+      // Tagged like every site link in a transactional email (AECI-1209).
+      expect(html).toContain(
+        'href="https://aecintegrations.com/vendor-program?utm_source=email&amp;utm_campaign=claim-approved"',
+      );
+      expect(html).toContain('>our page for software vendors</a>.');
+      // Still one button, and it is the portal.
+      expect(html).toContain('>Go to your vendor portal</a>');
+      expect(html.match(/display:inline-block;background-color:#1e3a2f/g)).toHaveLength(1);
+      expect(text).not.toContain('—');
+    },
+  );
+
+  it('omits the /vendor-program line when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+      plan: 'free',
+    });
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('vendor-program');
+    expect(String(body.text)).not.toContain('page for software vendors');
+    expect(String(body.html)).not.toContain('vendor-program');
+  });
+
   it('routes the decision seam to the variant for the chosen plan', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimDecisionEmail(fakeContext(), {
@@ -703,6 +746,8 @@ describe('sendClaimRejectedEmail', () => {
     expect(String(body.html)).not.toContain('v:roundrect');
     expect(String(body.html)).not.toContain('Or paste this into your browser');
     expect(String(body.text)).not.toContain('http');
+    // AECI-1283: the vendor page link is claim-approved only.
+    expect(String(body.html)).not.toContain('vendor-program');
   });
 
   it('still carries no reviewer note and no table to hide one in', async () => {
@@ -1531,6 +1576,9 @@ describe('sendClaimSubmittedNotification', () => {
     // AECI-847: the reviewer reads the identity signal off the alert, not just Linear.
     expect(text).toContain('LinkedIn: https://www.linkedin.com/in/dana-ops');
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-submitted-alert']);
+    // AECI-1283: the vendor page link is claim-approved only; this goes to support.
+    expect(text).not.toContain('vendor-program');
+    expect(String(body.html)).not.toContain('vendor-program');
   });
 
   it('says the LinkedIn profile was not supplied rather than omitting the row', async () => {

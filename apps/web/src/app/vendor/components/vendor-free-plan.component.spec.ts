@@ -35,6 +35,7 @@ import { VendorChecklist } from './vendor-checklist';
 import { VendorLooksRight } from './vendor-looks-right';
 import { VendorPlanBadge } from './vendor-plan-badge';
 import { VendorPlanEndedBanner } from './vendor-plan-ended-banner';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const textOf = (f: ComponentFixture<unknown>) =>
@@ -133,6 +134,10 @@ describe('VendorChecklist with product rows', () => {
     (f.nativeElement as HTMLElement)
       .querySelector('[data-testid="checklist-score"]')
       ?.textContent?.trim();
+
+  it('links Your checklists in a new tab (AECI-1253)', () => {
+    expectVendorDocsLink(render(PRIMARY).nativeElement as HTMLElement, 'checklists');
+  });
 
   it('a finished Free product reads 3 of 3, with data flows optional (decision 6)', () => {
     const done: ChecklistFixtureState = {

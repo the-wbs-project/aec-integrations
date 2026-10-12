@@ -20,6 +20,7 @@ import type {
 import { compareText } from '@aeci/shared/text-sort';
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -84,7 +85,7 @@ import { VendorTip } from './vendor-tip';
  */
 @Component({
   selector: 'aec-integration-shared-data',
-  imports: [VendorTip, IntegrationAnswerForm],
+  imports: [VendorTip, VendorDocsLink, IntegrationAnswerForm],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -122,6 +123,7 @@ import { VendorTip } from './vendor-tip';
         </button>
       }
     </div>
+    <p class="mt-1"><aec-vendor-docs-link page="attesting-an-integration" /></p>
 
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {

@@ -9,6 +9,7 @@ import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
+import { ListingRequestQueue } from './listing-request-queue';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
@@ -47,10 +48,15 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * detection, the product-role breakdown, the operator note and the grant/reject
  * actions this screen's generic resolve/reject cannot express. Nothing here could
  * do to a claim what that screen does.
+ *
+ * ── LISTING REQUESTS (AECI-1293) ─────────────────────────────────────────────
+ * The second section, `ListingRequestQueue`: typed-in listings from the claim dialog,
+ * from their own table and endpoints. The Requests badge counts open corrections plus
+ * open listing requests, so both sections decrement it.
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [DatePipe, NewTabIcon, RouterLink],
+  imports: [DatePipe, ListingRequestQueue, NewTabIcon, RouterLink],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {
@@ -215,7 +221,7 @@ export class RequestQueue {
   ): Promise<void> {
     if (this.pendingActionId()) return;
     // Read the status BEFORE the row is dropped. `pending_requests` counts `open`
-    // corrections only, and `isActionable` also admits `in_review` — a status this
+    // corrections plus open listing requests, and `isActionable` also admits `in_review` — a status this
     // screen's filter cannot currently select, but decrementing on one would walk
     // the badge below the real backlog with nothing to resync it until the next
     // full visit to /admin.

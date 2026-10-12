@@ -32,6 +32,7 @@ import {
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorOwnedIntegrations, ownedRowsForProduct } from './vendor-owned-integrations';
+import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -362,5 +363,11 @@ describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
     trigger(fixture).click();
     await settle(fixture);
     expect(field(fixture, 'mechanism_kind')).not.toBeNull();
+  });
+});
+
+describe('VendorOwnedIntegrations: the guide link (AECI-1253)', () => {
+  it('links Owning an integration under the intro', async () => {
+    expectVendorDocsLink(el(await create()), 'owning-an-integration');
   });
 });

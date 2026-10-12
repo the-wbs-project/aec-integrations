@@ -129,15 +129,41 @@ export const VENDOR_GROUP_TYPE = 'vendor';
  */
 export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 
-/** Where a Plans-page call to action sits (`plan_cta_clicked.placement`). */
+/**
+ * Where a plan call to action sits (`plan_cta_clicked.placement`).
+ */
 export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
 
 /**
+ * Which page a plan call to action sits on (`plan_cta_clicked.page`,
+ * `plan_inquiry_submitted.page`): the vendor guide's Plans page
+ * (`/docs/vendors/plans`) or the public vendor program page (`/vendor-program`).
+ */
+export type PlanCtaPage = 'docs_plans' | 'vendor_program';
+
+/**
  * Where a plan inquiry form was sent from (`plan_inquiry_submitted.placement`): a
- * Plans-page call to action that opened the dialog, or the form on
+ * plan call to action that opened the dialog, or the form on
  * `/contact?topic=managed`.
  */
 export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
+
+/**
+ * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement.
+ */
+export type ClaimDialogEntry = PlanCtaPlacement;
+
+/** A claim dialog step (`claim_dialog_step.step`). */
+export type ClaimDialogStep = 'find' | 'you' | 'plan' | 'comments' | 'done';
+
+/** The plan answer as an event property: `none` when not answered (§15.7). */
+export type PlanInterestProperty = 'free' | 'managed' | 'not_sure' | 'none';
+
+/** Map a form's `plan_interest` (`''` or an answer) to its event property. */
+export function planInterestProperty(value: string): PlanInterestProperty {
+  return value === 'free' || value === 'managed' || value === 'not_sure' ? value : 'none';
+}
 
 @Injectable({ providedIn: 'root' })
 export class Analytics {
@@ -274,8 +300,44 @@ export class Analytics {
   /** §14.1 names `vendor_id`, but the request form holds only `(target_type,
    *  slug)` and the response returns only `request_id` — so we record the
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
-  claimRequested(input: { target_type: string; slug: string; request_id: string }): void {
+  claimRequested(input: {
+    target_type: string;
+    slug: string;
+    request_id: string;
+    /** AECI-1293: the claimant's plan answer, `none` when not answered. */
+    plan_interest: PlanInterestProperty;
+  }): void {
     this.capture('claim_requested', { ...input });
+  }
+
+  /**
+   * A claim dialog step was shown (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7),
+   * once per showing, including the first. `path` is `found` (a catalog listing) or
+   * `typed` (not listed), absent on `find`. Never the search text, a typed name, a
+   * website or an email. Consent-gated like every event.
+   */
+  claimDialogStep(input: {
+    step: ClaimDialogStep;
+    page: PlanCtaPage;
+    entry: ClaimDialogEntry;
+    path?: 'found' | 'typed';
+  }): void {
+    this.capture('claim_dialog_step', {
+      step: input.step,
+      page: input.page,
+      entry: input.entry,
+      ...(input.path ? { path: input.path } : {}),
+    });
+  }
+
+  /**
+   * A typed-in listing request the API accepted (`POST /api/requests/listing` → 201,
+   * AECI-1293). Only the plan answer and the page: the name, website and email the
+   * visitor typed never leave the form. The `listing_requests` table stays the
+   * authoritative count.
+   */
+  listingRequested(input: { plan_interest: PlanInterestProperty; page: PlanCtaPage }): void {
+    this.capture('listing_requested', { plan_interest: input.plan_interest, page: input.page });
   }
 
   correctionRequested(input: { target_type: string; slug: string; request_id: string }): void {
@@ -302,24 +364,42 @@ export class Analytics {
   }
 
   /**
-   * A click on a plan call to action in the vendor guide's Plans page
-   * (`docs/docs-plans-cta.ts`). `placement` says which copy of the button it
-   * was, so the placements can be compared. A Managed click opens the inquiry
-   * dialog (AECI-1279), so this counts opens, not inquiries: see
-   * `planInquirySubmitted`. Consent-gated like every event.
+   * A click on a plan call to action (`shared/plan-cta/`), on the vendor guide's
+   * Plans page or the vendor program page. `placement` says which copy of the
+   * button it was and `page` which page it sat on, so both can be compared. A
+   * Managed click opens the inquiry dialog (AECI-1279), so this counts opens, not
+   * inquiries: see `planInquirySubmitted`. Consent-gated like every event.
    */
-  planCtaClicked(input: { plan: 'free' | 'managed'; placement: PlanCtaPlacement }): void {
-    this.capture('plan_cta_clicked', { plan: input.plan, placement: input.placement });
+  planCtaClicked(input: {
+    plan: 'free' | 'managed';
+    placement: PlanCtaPlacement;
+    page: PlanCtaPage;
+  }): void {
+    this.capture('plan_cta_clicked', {
+      plan: input.plan,
+      placement: input.placement,
+      page: input.page,
+    });
   }
 
   /**
    * A plan inquiry the API accepted (`POST /api/plan-inquiries` → 201, AECI-1279),
    * fired by the inquiry form. `placement` is the button that opened it, or `contact`.
-   * No field the visitor typed is sent (§2). Consent-gated like every event, so the
-   * `plan_inquiries` table stays the authoritative count.
+   * `page` is the page that button sat on. The `/contact` form has no `page`, so the
+   * key is left out rather than sent empty. No field the visitor typed is sent (§2).
+   * Consent-gated like every event, so the `plan_inquiries` table stays the
+   * authoritative count.
    */
-  planInquirySubmitted(input: { topic: 'managed'; placement: PlanInquiryPlacement }): void {
-    this.capture('plan_inquiry_submitted', { topic: input.topic, placement: input.placement });
+  planInquirySubmitted(input: {
+    topic: 'managed';
+    placement: PlanInquiryPlacement;
+    page?: PlanCtaPage;
+  }): void {
+    this.capture('plan_inquiry_submitted', {
+      topic: input.topic,
+      placement: input.placement,
+      ...(input.page ? { page: input.page } : {}),
+    });
   }
 
   // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────

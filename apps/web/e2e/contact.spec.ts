@@ -59,6 +59,28 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
     );
   });
 
+  // ?topic=add-product (VENDOR_PROGRAM_PAGE_SPEC.md section 6): the support mailto with
+  // the subject and the prompt filled in. The canonical stays /contact.
+  test('?topic=add-product offers a prefilled email, with a clean axe pass', async ({ page }) => {
+    await page.goto('/contact?topic=add-product');
+    await waitForHydrationSettle(page);
+    const panel = page.locator('[data-testid="contact-add-product"]');
+    await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Ask us to add your product');
+    const href = await panel
+      .getByRole('link', { name: 'Email us about your product' })
+      .getAttribute('href');
+    const url = new URL(href ?? '');
+    expect(url.pathname).toBe('support@aecintegrations.com');
+    expect(url.searchParams.get('subject')).toBe('Please add my product to AEC Integrations');
+    expect(url.searchParams.get('body')).toContain('The products it integrates with:');
+    await expect(page.locator('head link[rel="canonical"]')).toHaveAttribute('href', /\/contact$/);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test('is reachable from the footer Company nav', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();

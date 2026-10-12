@@ -1,6 +1,7 @@
 /**
  * The Plans page's pricing cards and comparison table
- * (`docs-plans-comparison.ts`). The page-level placement is pinned in
+ * (`docs-plans-comparison.ts`). The cards themselves are pinned in
+ * `shared/plan-cta/plan-cards.component.spec.ts`. The page-level placement is pinned in
  * `docs-page.component.spec.ts`.
  *
  * `*.component.spec.ts` because the component reads `$localize`, which only the
@@ -13,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TIER_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { Analytics } from '../analytics/analytics';
-import { PlanInquiryService } from '../shared/plan-inquiry/plan-inquiry.service';
+import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { DocsPlansComparisonComponent, planComparisonGroups } from './docs-plans-comparison';
 
 function render(): HTMLElement {
@@ -74,19 +75,22 @@ describe('DocsPlansComparisonComponent', () => {
     expect(cards[1].classList).toContain('aec-plan-card-featured');
     expect(cards[0].textContent).toContain('$0');
     expect(cards[1].textContent).toContain('$25');
-    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/contact?topic=managed');
-    expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Talk to us about Managed');
+    // AECI-1293: both cards open the claim dialog; no-JS lands on the search page.
+    expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Start with Managed');
+    expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/search');
+    expect(cards[0].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');
+    expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/search');
   });
 
-  // AECI-1279: the card's button opens the page's one inquiry dialog in place.
-  it('opens the inquiry dialog from the Managed card, tracked as the card', () => {
+  // AECI-1293: "Start with Managed" opens the claim dialog with Managed preselected.
+  it('opens the claim dialog from the Managed card, tracked as the card', () => {
     const planCtaClicked = vi.fn();
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [provideRouter([]), { provide: Analytics, useValue: { planCtaClicked } }],
     });
-    const inquiry = TestBed.inject(PlanInquiryService);
-    inquiry.attachHost();
+    const claim = TestBed.inject(ClaimDialogService);
+    claim.attachHost();
     const fixture = TestBed.createComponent(DocsPlansComparisonComponent);
     fixture.detectChanges();
     const link = (fixture.nativeElement as HTMLElement)
@@ -95,8 +99,12 @@ describe('DocsPlansComparisonComponent', () => {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    expect(inquiry.placement()).toBe('card');
-    expect(planCtaClicked).toHaveBeenCalledWith({ plan: 'managed', placement: 'card' });
+    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'card', plan: 'managed' });
+    expect(planCtaClicked).toHaveBeenCalledWith({
+      plan: 'managed',
+      placement: 'card',
+      page: 'docs_plans',
+    });
   });
 
   // The trust point is the sort rule, never a promise that Managed ranks higher.

@@ -15,6 +15,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminListingRequest,
+  ListListingRequestsQuery,
+  ListListingRequestsResponse,
   ListVendorRequestsQuery,
   ListVendorRequestsResponse,
   ModerateRequestInput,
@@ -41,6 +44,29 @@ export class AdminRequestsApi {
     return firstValueFrom(
       this.http.patch<ModerateRequestResponse>(
         `/api/admin/requests/${encodeURIComponent(id)}`,
+        input,
+      ),
+    );
+  }
+
+  /** `GET /api/admin/listing-requests` (AECI-1293): typed-in listings from the claim dialog. */
+  listListingRequests(
+    query: Partial<ListListingRequestsQuery> = {},
+  ): Promise<ListListingRequestsResponse> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params = params.set(key, String(value));
+    }
+    return firstValueFrom(
+      this.http.get<ListListingRequestsResponse>('/api/admin/listing-requests', { params }),
+    );
+  }
+
+  /** `PATCH /api/admin/listing-requests/:id` — resolve or reject an open listing request. */
+  moderateListingRequest(id: string, input: ModerateRequestInput): Promise<AdminListingRequest> {
+    return firstValueFrom(
+      this.http.patch<AdminListingRequest>(
+        `/api/admin/listing-requests/${encodeURIComponent(id)}`,
         input,
       ),
     );

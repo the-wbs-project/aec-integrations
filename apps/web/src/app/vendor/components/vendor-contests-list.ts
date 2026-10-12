@@ -15,6 +15,7 @@ import {
   contestValueDisplay,
 } from './vendor-contest-labels';
 import { VendorContestProtest } from './vendor-contest-protest';
+import { VendorDocsLink } from './vendor-docs-link';
 
 type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw' };
 
@@ -49,7 +50,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
  */
 @Component({
   selector: 'aec-vendor-contests-list',
-  imports: [DatePipe, NgTemplateOutlet, VendorContestProtest],
+  imports: [DatePipe, NgTemplateOutlet, VendorContestProtest, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
     <section aria-labelledby="vendor-contests-heading">
@@ -67,6 +68,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
         A contest says one detail of an integration is wrong and proposes the right value. You can
         contest a field from any integration under your products.
       </p>
+      <p class="mt-1"><aec-vendor-docs-link page="contests-and-protests" /></p>
 
       <div class="mt-4" [attr.aria-busy]="loading() ? 'true' : null">
         @if (loading()) {

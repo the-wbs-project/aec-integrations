@@ -17,20 +17,24 @@
 
 /**
  * Path prefixes held out of the index in every env. A prefix covers the path
- * itself and everything below it: `/docs/vendors` matches `/docs/vendors` (the
- * section index) and `/docs/vendors/your-seat`, but not `/docs/vendorsx`.
+ * itself and everything below it: a `/docs/x` entry would match `/docs/x` (a
+ * section index) and `/docs/x/page`, but not `/docs/xy`.
  *
- * The vendor guide describes a portal that is still a dark launch, so it stays
- * unindexed until vendors are seated. Since AECI-1271 every vendor-guide page,
- * the claiming pages included, sits under `/docs/vendors`, and nothing else
- * does, so this one prefix covers the whole guide.
- *
- * TODO(AECI-1253): remove `/docs/vendors` when the vendor guide is published
- * (the same sitting as AECI-1105).
+ * Empty since AECI-1253 (Chris, 2026-10-12): every help page and the whole
+ * vendor guide are indexable and in the sitemap. The vendor guide held
+ * `/docs/vendors` here from AECI-1104 until then. The list and its three
+ * readers stay, so holding a section out again is a one-line change.
  */
-export const NOINDEX_PATH_PREFIXES: readonly string[] = ['/docs/vendors'];
+export const NOINDEX_PATH_PREFIXES: readonly string[] = [];
 
-/** Whether a locale-stripped pathname is held out of the index in every env. */
-export function pathForcesNoindex(path: string): boolean {
-  return NOINDEX_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+/**
+ * Whether a locale-stripped pathname is held out of the index in every env.
+ * `prefixes` defaults to the live list. Tests pass their own to pin the
+ * whole-segment matching while the live list is empty.
+ */
+export function pathForcesNoindex(
+  path: string,
+  prefixes: readonly string[] = NOINDEX_PATH_PREFIXES,
+): boolean {
+  return prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }

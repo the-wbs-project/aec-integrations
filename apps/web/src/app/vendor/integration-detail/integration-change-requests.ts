@@ -13,6 +13,7 @@ import type { ContestDecision, VendorClaim, VendorContest, VendorIntegration } f
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorContestProtest } from '../components/vendor-contest-protest';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -123,7 +124,13 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
  */
 @Component({
   selector: 'aec-integration-change-requests',
-  imports: [VendorTip, IntegrationAnswerForm, IntegrationRequestForm, VendorContestProtest],
+  imports: [
+    VendorTip,
+    VendorDocsLink,
+    IntegrationAnswerForm,
+    IntegrationRequestForm,
+    VendorContestProtest,
+  ],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -138,6 +145,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
       </h3>
       <aec-vendor-tip [label]="aboutLabel" [lines]="[aboutTip]" />
     </div>
+    <p class="mt-1"><aec-vendor-docs-link page="contests-and-protests" /></p>
 
     <div class="mt-3 flex flex-wrap items-center gap-3">
       <div class="relative min-w-[14rem] flex-1 sm:max-w-sm">

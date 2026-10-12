@@ -19,6 +19,7 @@ import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
+import { planInterestLabel } from './plan-interest-label';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -76,6 +77,8 @@ const AUDIT_PAGE_SIZE = 25;
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
+  /** AECI-1293: the claimant's plan answer, as the reviewer reads it. */
+  protected readonly planInterestLabel = planInterestLabel;
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly locale = inject(LOCALE_ID);

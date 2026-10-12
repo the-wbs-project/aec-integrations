@@ -33,8 +33,13 @@
  * label wraps ("How ranking works" did before).
  *
  * The Help column (AECI-1252) is the footer-only entry into `/docs`
- * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "For vendors" joins it with
- * AECI-1253, once `/docs/vendors` is indexable.
+ * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "Vendor guide" (AECI-1253) is
+ * its last link, to `/docs/vendors/overview`, the vendor guide's first page.
+ *
+ * The Company column's "For vendors" (AECI-1283) is the public vendor landing page,
+ * `/vendor-program` (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). It sits after Methodology.
+ * The header gets no link (that spec's §13 question 3). The Help column's link
+ * is labelled "Vendor guide" so no two footer links share a name.
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
@@ -148,6 +153,13 @@ import { BrandLogo } from './brand-logo';
                   ></a
                 >
               </li>
+              <li>
+                <a
+                  routerLink="/docs/vendors/overview"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.help.vendorGuide">Vendor guide</ng-container></a
+                >
+              </li>
             </ul>
           </nav>
           <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
@@ -207,6 +219,13 @@ import { BrandLogo } from './brand-logo';
                   routerLink="/methodology"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
                   ><ng-container i18n="@@app.footer.methodology">Methodology</ng-container></a
+                >
+              </li>
+              <li>
+                <a
+                  routerLink="/vendor-program"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.vendorProgram">For vendors</ng-container></a
                 >
               </li>
               <li>

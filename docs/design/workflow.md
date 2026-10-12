@@ -98,11 +98,12 @@ These routes never ship to production. They exist so reviewers can see the port 
 
 A preview route needs a component, which means it needs the design decided. When
 the question is *which* design, a standalone HTML file is cheaper and gets in
-front of the PO faster. Two are checked in:
+front of the PO faster. Three are checked in:
 
 | File | Screen | Issue |
 | -- | -- | -- |
 | [`apps/web/scripts/home-og-template.html`](../../apps/web/scripts/home-og-template.html) | The OpenGraph card, rendered to PNG by Playwright | AECI-276 |
+| [`apps/web/scripts/vendor-program-og-template.html`](../../apps/web/scripts/vendor-program-og-template.html) | The `/vendor-program` OpenGraph card for LinkedIn, same renderer (`render-og.mjs`) | AECI-1283 |
 | [`docs/design/vendor-overview-concepts.html`](./vendor-overview-concepts.html) | Vendor portal overview. Chosen 2026-09-17: concept A with the views band and a 1d / 1w / 1m toggle. The unchosen concepts stay switchable for the record | AECI-983 |
 
 The pattern, if you write another one:

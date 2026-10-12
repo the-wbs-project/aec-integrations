@@ -2,8 +2,20 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built (AECI-1104) and, since AECI-1253, indexable, in the sitemap, in the footer Help column and linked from the vendor portal (§7 question 1). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-12, the vendor guide is published (AECI-1253, items 1, 2 and 4).** Chris ruled that no
+> help page or landing page is noindex. `NOINDEX_PATH_PREFIXES` is now empty, so `/docs/vendors` and
+> every page under it renders no robots meta, gets no path-forced `X-Robots-Tag`, and is listed in
+> `sitemap.xml`. The list and its three readers stay, so holding a path out again is a one-line
+> change. The footer Help column gained "Vendor guide" (`/docs/vendors/overview`). This was
+> decoupled from AECI-1105: `/vendor-program` is public and indexable and links into the guide. The
+> portal "Learn more" links (§7 question 1) and the `STAGE_2_1_SPEC.md` §5 tick were held for AECI-1105.
+> Every "noindex until AECI-1253" statement in the notes below is history.
+>
+> **Same day, the portal links shipped too (AECI-1253 item 3).** Chris ruled "we are going live
+> today", so item 3 was built rather than held for AECI-1105. §7 question 1 lists every link.
 
 > **2026-10-12, two guides behind a toggle (AECI-1271).** The help center's For vendors section
 > is gone. Its two pages, `overview` and `claiming-your-listing`, moved into the vendor guide at
@@ -29,7 +41,8 @@
 >   page. On its pages the shell shows the vendor guide's own tree and a "Back to the help center"
 >   link. The home and the help-center sidebar never list it. Which tree renders follows from the
 >   URL alone, so cached pages stay visitor-neutral. Indexing is unchanged: everything under
->   `/docs/vendors`, the For vendors pages included, stays noindex until AECI-1253.
+>   `/docs/vendors`, the For vendors pages included, stays noindex until AECI-1253. *(AECI-1253
+>   lifted it on 2026-10-12.)*
 > - **Vendor material left the buyer pages** for the vendor guide: "If you are the vendor" on
 >   `agreement-states`, the vendor change-request section of `requests-and-corrections` (one
 >   sentence now links to `contests-and-protests`), the seat-address rule on `signing-in`, and the
@@ -126,9 +139,9 @@
 > page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
-> AECI-1253 lifts it, in the same sitting as AECI-1105. Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
-> "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs` but
-> not into the vendor guide. The portal "Learn more" links (AECI-1253) are not built. The same-PR sync rule (§4) is in
+> AECI-1253 lifts it, in the same sitting as AECI-1105. *(It lifted it on 2026-10-12, ahead of AECI-1105, by Chris's ruling. The footer Help column now links the guide too.)* Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
+> "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs`, and
+> since AECI-1253 into the vendor guide ("Vendor guide"). The portal "Learn more" links shipped 2026-10-12 (AECI-1253 item 3, §7 question 1). The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 
 ---
@@ -185,7 +198,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser), on both `/docs` and `/docs/*`. Freshness on deploy is automatic (§2.3). **`Cache-Tag: route:index`**, not the `docs docs:{slug}` first sketched here (AECI-1104): the content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
-| Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list. A prefix covers the path itself and everything below it, so `/docs/vendors` covers the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
+| Indexing | Every docs page is indexable since AECI-1253. Driven by path: `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list, and it is empty. A prefix covers the path itself and everything below it, so a `/docs/x` entry would cover the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Holding a section out is a one-line change |
 | Sitemap | `/docs`, every indexable section index and every indexable page, built from the manifest. **No `<lastmod>`**, the same as `/legal/*`: `last_updated` is a display string, and parsing it would add a second date format |
 | Re-crawl pings | **None.** IndexNow is not part of docs publishing (Chris, 2026-10-08). Its producers are catalog promotes and vendor portal writes. Nothing submits a build-inlined static page, and `/methodology` and `/legal/*` rely on the sitemap too |
 | Search | **One search box per guide (AECI-1270).** It sits under the guide toggle and searches only the current guide. Records live in one Algolia index per tier on the existing app: `staging_docs` and `production_docs`, named `<prefix>_docs` like the entity indexes (this replaced the `docs_{env}` sketch). Demo reads `production_docs` and never writes it. Records are built from the manifest by `buildDocsSearchRecords` (`docs-search-records.ts`): one per page lede, one per `h2` with its `h3`s folded in, `## Related` skipped, the vendor guide's landing intro included. Each carries `guide` (`help` or `vendor`), and the box filters on it. Anchors are the ids `renderDocsBody` renders. `scripts/algolia/push-docs.mjs` pushes them on every staging deploy and production promote, after the settings step: save every record, then delete ids no longer built, never a full replace. The box renders in the browser only, after hydration, and is absent when the inline config carries no `docsIndex`. It is an Angular Aria combobox on the lite client, loaded only in the lazy `/docs` chunk. Settings: `SEARCH_RANKING.md` §3.5. Keys and CI: `CICD_PLAN.md` §7.5 |
@@ -243,7 +256,7 @@ on neither the General home nor its sidebar):
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 ├─ contests-and-protests             — sending and receiving contests and change requests, the protest to AECi (§11b)
 ├─ replying-to-reviews               — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
-├─ plans                             — Free vs Managed, benefit-first (marketing review 2026-10-12): pricing cards + comparison table (`docs-plans-comparison.ts`), what every plan includes, what Managed adds, why buyers trust the order, a "Coming soon" teaser (the one ruled exception to "describe only what ships"), plan end, then "Getting Managed" last so the page closes on its call-to-action panel. "Talk to us about Managed" sits in four more places: under the intro, on the Managed card, in the rail from 90rem, and in a phone bar (`docs-plans-cta.ts`, CTA review 2026-10-12). Every one opens the plan inquiry dialog in place, which saves the inquiry and emails the visitor and support (`POST /api/plan-inquiries`, AECI-1279); `/contact?topic=managed` carries the same form for no-JS clicks (AECI-1219; slug renamed by AECI-1264, old URL 301s)
+├─ plans                             — Free vs Managed, benefit-first (marketing review 2026-10-12): pricing cards (`shared/plan-cta/plan-cards.ts`) + comparison table (`docs-plans-comparison.ts`), an intro line linking to the public `/vendor-program` page, what every plan includes, what Managed adds, why buyers trust the order, a "Coming soon" teaser (the one ruled exception to "describe only what ships"), plan end, then "Getting Managed" last so the page closes on its call-to-action panel. Since AECI-1293 (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) every call to action opens the one claim dialog: "Claim your listing" under the intro, on the Free card and in the closing panel, and "Start with Managed" (Managed preselected) on the Managed card, in the rail from 90rem and in the phone bar. "Questions about pricing? Talk to us" sits under the intro, on the Managed card and in the panel, and opens the plan inquiry dialog. The page mounts one `aec-claim-dialog-host` and one `aec-plan-inquiry-host`. Since AECI-1285 these components live in `shared/plan-cta/` and are shared with `/vendor-program`. Each takes `page: 'docs_plans'` here, which `plan_cta_clicked` and `plan_inquiry_submitted` carry (`ANALYTICS.md` §4, AECI-1288). The closing panel's terms line shows the monthly and the annual price, both from `@aeci/shared/entitlements` (`MANAGED_LIST_PRICE_CENTS`, `MANAGED_ANNUAL_PRICE_CENTS`, AECI-1289). The pricing link opens the plan inquiry dialog in place, which saves the inquiry and emails the visitor and support (`POST /api/plan-inquiries`, AECI-1279); `/contact?topic=managed` carries the same form for no-JS clicks (AECI-1219; slug renamed by AECI-1264, old URL 301s). The public `/vendor-program` page shares these CTA components and links here, including to the `#what-managed-adds`, `#compare-plans` and `#when-a-managed-plan-ends` headings. Since the 2026-10-12 ruling that page carries its own benefit copy and this page stays the feature reference: an edit to a Free, Managed or "Coming soon" sentence here needs no matching edit there. Keep the facts aligned, so a feature that changes here is checked there too. Two things stay shared. The plan cards are one component. The sort rule is one i18n id (`@@app.docs.plans.sortRule`) in `docs-plans-comparison.ts` and on that page, and it must read the same as this page's "Why buyers trust the order". `vendor-program/vendor-program-copy.component.spec.ts` fails when the sort rule, or one of the three heading ids that page links to, changes on one side only. Its contract is `VENDOR_PROGRAM_PAGE_SPEC.md` §4, and the Plans-page deltas it made are §10
 ├─ checklists                        — the company and product checklists and "Looks right", moved off `plans` on 2026-10-12
 ├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 ├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
@@ -251,7 +264,7 @@ on neither the General home nor its sidebar):
    notifications-and-messages; performance only if analytics.view has shipped; product-versions waits until a vendor can create a release (AECI-1263)
 ```
 
-Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is noindex until AECI-1253.
+Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is indexable and in the sitemap since AECI-1253, like the General guide.
 
 > **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
@@ -285,22 +298,22 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 
 ## 7. Open questions, answered
 
-1. **Which portal moments get a "Learn more" link?** **Answered 2026-10-08 (AECI-1247).** One link per moment, added by AECI-1253 when the vendor guide is published:
+1. **Which portal moments get a "Learn more" link?** **Answered 2026-10-08 (AECI-1247); built 2026-10-12 (AECI-1253 item 3).** One link per surface, under the surface's heading or intro. Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`): the visible text "Learn more", a visually hidden suffix naming the page, a new tab with `aec-new-tab-icon`, `rel="noopener"`. It keeps its own copy of each page title so the portal bundle does not carry the docs manifest. Its spec fails when a slug stops resolving or a title drifts from the page's frontmatter. The table names the component that renders each link:
 
    | Portal moment | Component | Page |
    |---|---|---|
-   | Claim outcome | `vendor/components/vendor-claim-outcome.ts` | `claiming-your-listing` (in the vendor guide since AECI-1271; URL unchanged) |
+   | Claim outcome: the "Claim & correction status" block on Messages | `vendor/sections/vendor-messages-page.ts` | `claiming-your-listing` (in the vendor guide since AECI-1271; URL unchanged). Until 2026-10-12 this row named `vendor-claim-outcome.ts`. That file is the attestation lane's "what happens next" line about a data-flow claim, not a listing claim, so the link went to where a listing claim's status shows |
    | Seats page | `vendor/sections/vendor-seats-page.ts` | `your-seat` |
-   | Attestation lane | `vendor/integration-detail/` | `attesting-an-integration` |
-   | Integration edit, create, retire | `vendor-integration-edit-form.ts`, `vendor-integration-create.ts` | `owning-an-integration` |
-   | Contest form and protest | `vendor-contest-form.ts`, `vendor-contest-protest.ts` | `contests-and-protests` |
-   | Review reply | `vendor/sections/vendor-product-reviews-page.ts` | `replying-to-reviews` |
-   | Plan panel and free-plan checklist | `vendor/vendor-plan.ts`, the free-plan checklist | `plans`, `checklists` |
-   | Capability registry and plan price | `@aeci/shared/entitlements` (`TIER_CAPABILITIES`, `MANAGED_LIST_PRICE_CENTS`) | `plans`. The comparison table's capability rows and the list price read the registry, so they follow it. Its other rows (seat rights, search-engine notice, connector integrations) are literals in `docs/docs-plans-comparison.ts` and must be edited by hand |
-   | Changes page | `vendor/history/` | `change-history` |
+   | Attestation lane: "Data that's shared" on the integration page | `vendor/integration-detail/integration-shared-data.ts` | `attesting-an-integration` |
+   | Integration edit, create, retire | The integration page's Overview section (`vendor-integration-detail-page.ts`), "Add an integration" (`vendor-integration-create.ts`), "Integrations your company offers" (`vendor-owned-integrations.ts`, which holds the edit form and Retire) | `owning-an-integration` |
+   | Contest form and protest | The open "Request a change" form (`vendor-contest-form.ts`), the Change requests block on Messages (`vendor-contests-list.ts`) and on the integration page (`integration-change-requests.ts`). The protest renders inside the last two | `contests-and-protests` |
+   | Review reply | `vendor/components/vendor-reviews-list.ts` | `replying-to-reviews` |
+   | Plan panel and checklist | `vendor/components/vendor-plan-panel.ts`; `vendor/components/vendor-checklist.ts`, so the company and the product checklist both carry it | `plans`, `checklists`. The issue named `plans-and-the-account-label`, which AECI-1264 renamed to `plans`; the checklist text moved to `checklists` on 2026-10-12 |
+   | Capability registry and plan price | `@aeci/shared/entitlements` (`TIER_CAPABILITIES`, `MANAGED_LIST_PRICE_CENTS`, `MANAGED_ANNUAL_PRICE_CENTS`) | `plans`. The comparison table's capability rows, the list price and the closing panel's annual price read the registry, so they follow it. Its other rows (seat rights, search-engine notice, connector integrations) are literals in `docs/docs-plans-comparison.ts` and must be edited by hand |
+   | Changes page | `vendor/history/vendor-history-page.ts` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
-3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "Vendor guide" (`/docs/vendors/overview`), shipped by AECI-1253 on 2026-10-12. It is not called "For vendors": that label is the Company column's link to `/vendor-program` (AECI-1283). Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
 4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
 
 ## 8. Epic decomposition (2026-10-08)
@@ -315,7 +328,7 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T3 | AECI-1250 | Reviewer and account pages | T1 |
 | T4 | AECI-1251 | The rest of the vendor guide | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
-| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "For vendors" in the footer, the §7 portal links | T1; run in the same sitting as AECI-1105 |
+| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links. **All three shipped 2026-10-12** by Chris's rulings, ahead of AECI-1105: the first two, then the portal links ("we are going live today") | T1 |
 | T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |
 
 The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6).
