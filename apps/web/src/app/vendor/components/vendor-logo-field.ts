@@ -14,7 +14,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { LogoUrlSchema } from '@aeci/shared';
+import { LogoPathSchema, LogoUrlSchema } from '@aeci/shared';
 import {
   BrnDialog,
   BrnDialogClose,
@@ -196,12 +196,50 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
                   <span i18n="@@vendor.logo.dialog.fromFile">From {{ fileName() }}</span>
                 } @else if (source() === 'url' && draft()) {
                   <span i18n="@@vendor.logo.dialog.fromUrl">From the URL below</span>
+                } @else if (currentKind() === 'upload') {
+                  <span i18n="@@vendor.logo.dialog.currentUploaded"
+                    >Uploaded file. Paste a URL or upload a file to replace it.</span
+                  >
+                } @else if (currentKind() === 'url') {
+                  <span i18n="@@vendor.logo.dialog.currentLinked"
+                    >Linked from this URL. Paste a URL or upload a file to replace it.</span
+                  >
                 } @else {
                   <span i18n="@@vendor.logo.dialog.pickOne">Paste a URL or upload a file.</span>
                 }
               </p>
             </div>
           </div>
+          @if (currentKind() === 'url' && !draft()) {
+            <div class="mt-3 flex items-center gap-2" data-testid="logo-current-url">
+              <input
+                type="text"
+                readonly
+                [value]="current()"
+                i18n-aria-label="@@vendor.logo.dialog.currentUrlLabel"
+                aria-label="Current logo URL"
+                (focus)="selectAll($event)"
+                class="min-w-0 flex-1 truncate rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2 text-xs text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              />
+              <button
+                type="button"
+                (click)="copyCurrent()"
+                [class]="secondaryButtonClass"
+                data-testid="logo-copy-url"
+              >
+                @if (copied()) {
+                  <span i18n="@@vendor.logo.dialog.copied">Copied</span>
+                } @else {
+                  <span i18n="@@vendor.logo.dialog.copy">Copy URL</span>
+                }
+              </button>
+              <p class="sr-only" role="status" data-testid="logo-copy-status">
+                @if (copied()) {
+                  <span i18n="@@vendor.logo.copiedAnnounce">Logo URL copied.</span>
+                }
+              </p>
+            </div>
+          }
 
           <section
             class="mt-6 rounded-(--radius-md) border p-4"
@@ -368,6 +406,16 @@ export class VendorLogoField {
     computation: () => false,
   });
 
+  /** Where the saved logo came from: one of our uploads (`/api/logos/<hash>`,
+   *  an opaque path not worth showing) or an external HTTPS link, which the
+   *  dialog shows with a Copy button. */
+  protected readonly currentKind = computed<'upload' | 'url' | null>(() => {
+    const value = this.current();
+    if (!value) return null;
+    return LogoPathSchema.safeParse(value).success ? 'upload' : 'url';
+  });
+  protected readonly copied = signal(false);
+
   protected readonly source = signal<'url' | 'file' | null>(null);
   protected readonly urlText = signal('');
   protected readonly uploadedPath = signal('');
@@ -431,6 +479,31 @@ export class VendorLogoField {
    *  None of them can close the dialog while a save is in flight. */
   protected onClosed(): void {
     this.reset();
+  }
+
+  protected selectAll(event: Event): void {
+    (event.target as HTMLInputElement).select();
+  }
+
+  /** Copy the linked logo's URL. The button label confirms it, and so does the
+   *  dialog's own status region: the portal announcer sits behind the modal,
+   *  which the CDK hides from screen readers while the dialog is open. */
+  protected async copyCurrent(): Promise<void> {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      this.error.set(
+        $localize`:@@vendor.logo.copyUnavailable:This browser will not let us copy. Select the URL and copy it by hand.`,
+      );
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(this.current());
+      this.error.set('');
+      this.copied.set(true);
+    } catch {
+      this.error.set(
+        $localize`:@@vendor.logo.copyFailed:We could not copy the URL. Select it and copy it by hand.`,
+      );
+    }
   }
 
   protected onUrl(event: Event): void {
@@ -543,6 +616,7 @@ export class VendorLogoField {
     this.fileName.set('');
     this.error.set('');
     this.dragging.set(false);
+    this.copied.set(false);
   }
 
   private cancelUpload(): void {
