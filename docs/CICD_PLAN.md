@@ -65,8 +65,8 @@ shipped.
 > **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
 > - **Cloudflare account (AECI-1161, [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)).** Every environment deploys to The WBS Project account from the 2026-10-04 cutover. The config PR that changes `account_id` in the wrangler files merges only after the cutover. Staging deploys from `main` on every merge, and its custom domain cannot bind on the WBS account until the zone has moved, so an early merge would break the staging deploy. Runbook: `scripts/ops/2026-09-wbs-account-move/README.md`.
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
-> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with a single `commit_sha` input (AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres). It is gated on Lighthouse: the SHA needs a `lighthouse: success` commit status, or the promote measures it first (§11c).
-> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with a single explicit `commit_sha` input and a GH Environment approval gate. AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation and the approval gate is the real stop. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
+> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with an optional `commit_sha` input; blank promotes whatever staging runs (AECI-879 dropped the typed `confirm=PROMOTE` box; the dispatch is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres). It is gated on Lighthouse: the SHA needs a `lighthouse: success` commit status, or the promote measures it first (§11c).
+> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with an optional `commit_sha` input (blank promotes whatever demo runs) and a required `confirm` input that must equal `PROMOTE`. AECI-879 dropped that box when the pasted SHA was the confirmation; it returned when the SHA became optional, because the `production` environment has no required reviewer (AECI-1239). It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews are retired (AECI-1268, 2026-10-10).** `pr-preview.yml` is deleted. Human review and Algolia use staging. See §2.1.
 
 Three permanent deployed environments, all on Cloudflare, plus local:
@@ -128,7 +128,7 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 The real site. **Launched** — the AECI-247/277 apex cutover is done, so production serves the public apex `aecintegrations.com` and `www.aecintegrations.com` (the bare apex 301s to `www.`, which is canonical per ADR 0011 as amended 2026-07-05), and nothing else since **AECI-807** retired the internal `prod.aecintegrations.com`. Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
-- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`)
+- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`). Not active: the `production` environment has no required reviewer (AECI-1239), so the typed `confirm=PROMOTE` input is the human step today.
 - Own D1 (`aeci-app-production`); shares the single Supabase auth project (ADR 0017)
 - Production Algolia indexes (`production_*`)
 - PostHog under the production project `aec-integrations` (354071), with deployment markers — the live alerting plane (ADR 0024; the Datadog plane was retired at AECI-651)
@@ -392,15 +392,15 @@ The former independent `migrate-preview` job (AECI-828) was deleted on 2026-10-1
 
 Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered by Chris (workflow_dispatch with a single `commit_sha` input) and gated by the `production` GH Environment approval on the `deploy-prod-workers` job. Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
+Triggered by Chris (workflow_dispatch with an optional `commit_sha` input and `confirm=PROMOTE`). The `deploy-prod-workers` job targets the `production` GH Environment, which has no required reviewer today (AECI-1239). Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
 
 **Job: `pre-promotion-checks`**
-1. Validate `commit_sha` matches `^[0-9a-f]{40}$`
-2. Checkout at `inputs.commit_sha`
+1. Validate `confirm` equals `PROMOTE`, then pick the commit with `scripts/resolve-promote-sha.sh`: blank `commit_sha` → the SHA both demo Workers report (refused if they disagree); otherwise it must match `^[0-9a-f]{40}$`. Exposed as the job output `sha`, which every later step reads.
+2. Checkout at the chosen SHA
 3. Assert **demo** reports the same SHA on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `demo is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
 4. `scripts/require-secrets.sh` — refuse to promote if a required prod secret is missing (before the approval gate, so nothing is deployed)
 
-**Job: `deploy-prod-workers`** (gated by GH Environment `production` — the single approval gate; blocks before any mutation)
+**Job: `deploy-prod-workers`** (targets GH Environment `production`, the approval gate once a required reviewer is set; none is set today, AECI-1239)
 1. Provision the prod scheduled-job queues — six as of AECI-302 (`aeci-{algolia-sync,algolia-drift,stats,reconcile,data-quality,attestation-notify}-production`), plus `aeci-gsc-inspect-production` since AECI-1236 — **and the WC-5 cross-Worker `aeci-cache-purge-production` queue** (idempotent; before both Worker deploys — its consumer is on the SSR Worker)
 2. Apply the app DB migrations to **Cloudflare D1** + reconcile the D1 taxonomy seed via `scripts/d1-apply-migrations.sh aeci-app-production production` (wraps `wrangler d1 migrations apply … --remote` + the two `wrangler d1 execute … --file=seed/*.sql` reconciles, **retrying each on a transient Cloudflare D1 `[code: 7500]` internal error** — safe because all three are idempotent), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
@@ -409,7 +409,7 @@ Triggered by Chris (workflow_dispatch with a single `commit_sha` input) and gate
 6. Poll both `www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
-The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `commit_sha` matches `^[0-9a-f]{40}$` (and that a Lighthouse override carries a reason) → assert **staging** is at the SHA → Lighthouse gate (reuse a `lighthouse: success` status on the SHA, else measure it now through `lighthouse.yml`; §11c) → (GH Environment `demo`) provision `aeci-*-demo` queues (the eight-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, the AECI-1210 `aeci-vendor-snapshot-demo` and the AECI-1236 `aeci-gsc-inspect-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
+The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): pick the commit (blank `commit_sha` → staging's SHA, else it must match `^[0-9a-f]{40}$`) and check that a Lighthouse override carries a reason → assert **staging** is at the SHA → Lighthouse gate (reuse a `lighthouse: success` status on the SHA, else measure it now through `lighthouse.yml`; §11c) → (GH Environment `demo`) provision `aeci-*-demo` queues (the eight-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, the AECI-1210 `aeci-vendor-snapshot-demo` and the AECI-1236 `aeci-gsc-inspect-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
 Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention was a comment recording that an alert-grade Datadog *event* replaced it on rollback — removed with the Datadog leg at AECI-651). Release-tag automation remains unbuilt — see §3.4.
 
@@ -1063,7 +1063,7 @@ wrangler deploy --env staging \
   only line.** Kept here because merged PRs #501–#520 have an `admin-panel` base.
 - **Hotfix flow (unchanged)** — this *is* the "apply a fix to live prod" path:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
-  (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`
+  → `promote-to-prod` (`commit_sha` blank ships the tier above). The buttons also take an **arbitrary** `commit_sha`
   (gated only on the SHA being live one tier up), so no workflow change is needed.
 - **The reconcile must be a MERGE, never a squash — the one rule that has actually bitten.**
   AECI-619 reconciled `main` into `stage-2` and landed via squash (PR #552). The content arrived;
@@ -1338,7 +1338,7 @@ Lighthouse does not run on PRs or on merges to `main`. It measures a commit in t
 | Trigger | What it measures | Skips when | Alerts |
 |---|---|---|---|
 | `schedule`, `0 9 * * *` (09:00 UTC daily) | `main` HEAD | HEAD already has `lighthouse: success`, or a `failure` posted by an earlier nightly run. A failure posted by the promote gate or a manual run never alerted, so the nightly measures again. | Yes. See below. |
-| `workflow_call` from `promote-to-demo.yml` | `inputs.commit_sha` | Never. The promote only calls it when it needs a fresh result. | No. The promote gate is the signal. |
+| `workflow_call` from `promote-to-demo.yml` | the promote's chosen SHA | Never. The promote only calls it when it needs a fresh result. | No. The promote gate is the signal. |
 | `workflow_dispatch` | The dispatched ref | Never | No |
 
 **The result lives on the commit.** Each measurement posts a GitHub commit status with context `lighthouse` on the measured SHA. It posts `pending` first, then `success` or `failure`. A cancelled run posts `error`. The description ends with the trigger: `(nightly)`, `(promote gate)` or `(manual)`. The status links to the run that measured it. A measurement made through `workflow_call` appears as a `promote-to-demo` run, so callers look up the status, not the workflow's run list. Only statuses posted by `github-actions[bot]` count.
@@ -1352,7 +1352,7 @@ Lighthouse does not run on PRs or on merges to `main`. It measures a commit in t
 
 `promote-to-prod.yml` has no Lighthouse step. It requires demo to be at the SHA, so the demo gate covers production.
 
-**Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. The `demo` and `production` environments carry a deployment-branch rule that allows `main` only, set 2026-10-07. That rule does stop it: the deploy job cannot start from any other ref. Check it with `gh api repos/the-wbs-project/aec-integrations/environments/demo/deployment-branch-policies`.
+**Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` (or the upstream tier, when blank) still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. The `demo` and `production` environments carry a deployment-branch rule that allows `main` only, set 2026-10-07. That rule does stop it: the deploy job cannot start from any other ref. Check it with `gh api repos/the-wbs-project/aec-integrations/environments/demo/deployment-branch-policies`.
 
 **Token scope.** The `lighthouse` job holds a `statuses: write` token. Its checkout sets `persist-credentials: false`, so the token is not written to `.git/config` where `pnpm install` scripts could read it. Only the two status steps receive it, as `GH_TOKEN`.
 

@@ -25,8 +25,8 @@ main (HEAD) ──auto──► staging ──promote(SHA)──► demo ──p
 ```
 
 - Every push to `main` auto-deploys to **staging** (`deploy.yml`).
-- `promote-to-demo.yml` / `promote-to-prod.yml` each take an explicit `commit_sha` and
-  refuse to run unless that SHA is already live on the immediate upstream tier (demo checks
+- `promote-to-demo.yml` / `promote-to-prod.yml` each take a `commit_sha` (optional since
+  2026-10-12: blank ships what the tier above runs) and refuse to run unless that SHA is already live on the immediate upstream tier (demo checks
   staging; prod checks demo). The buttons already accept an **arbitrary** commit — the
   promote *mechanism* supports shipping a specific fix.
 

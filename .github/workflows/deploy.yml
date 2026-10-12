@@ -21,9 +21,8 @@
 # the whole suite under the ADR 0019 branch model).
 #
 # Promotion to production happens via the separate `promote-to-prod.yml`
-# workflow (AECI-78), triggered manually with explicit commit_sha + a
-# `production` GH Environment approval gate. There is intentionally no
-# auto-deploy-to-prod here.
+# workflow (AECI-78), triggered manually with an optional commit_sha and a
+# typed confirm=PROMOTE. There is intentionally no auto-deploy-to-prod here.
 #
 # AECI-65 originally un-parked the `lighthouse` job here against a local
 # `dev:bound` server; it has since moved to its own workflow —
