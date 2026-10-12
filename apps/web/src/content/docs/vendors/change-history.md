@@ -2,7 +2,7 @@
 title: Your change history
 description: Where to see every change to your company, products, integrations and seats, who made it, and why AEC Integrations changed something.
 section: vendors
-order: 9
+order: 10
 last_updated: 9 October 2026
 ---
 
@@ -64,7 +64,7 @@ A change here is a change to your listing on AEC Integrations. "Submitted" and "
 
 ## Related
 
-- Previous: [Plans](/docs/vendors/plans).
+- Previous: [Your checklists](/docs/vendors/checklists).
 - Next: [For connector vendors](/docs/vendors/connector-vendors).
 - Back to the start: [Your seat](/docs/vendors/your-seat).
 - [Contests and protests](/docs/vendors/contests-and-protests), for how to ask for a change to an integration you do not own.

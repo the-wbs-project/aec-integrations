@@ -206,6 +206,25 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     );
   });
 
+  it('fires plan_cta_clicked with the plan and the placement once consented', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.planCtaClicked({ plan: 'managed', placement: 'rail' });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_cta_clicked',
+      expect.objectContaining({ plan: 'managed', placement: 'rail', locale: 'en-US' }),
+    );
+  });
+
+  it('does not fire plan_cta_clicked before consent is granted', async () => {
+    const { analytics, client } = setup({ consent: 'unknown' });
+    TestBed.tick();
+    analytics.planCtaClicked({ plan: 'managed', placement: 'top' });
+    await flush();
+    expect(captured(client)).not.toContain('plan_cta_clicked');
+  });
+
   it('does not fire mailing_list_signup before consent is granted', async () => {
     const { analytics, client } = setup({ consent: 'unknown' });
     TestBed.tick();

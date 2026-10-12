@@ -263,6 +263,8 @@ A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admi
 6. **Crawlers and discovery.** Crawls by purpose with the §2.3(2) disclaimer; referrer sources with the small-group floor; the search-console block (§6) or its not-connected state; at most three suggestions, each an evidence-attached gap (an unconfirmed claim on a viewed pair, a missing docs URL on a clicked mechanism, an empty rich field on a viewed product), linking to the existing editor and promising nothing about traffic or ranking.
 7. **Download and definitions.** CSV export; print view; inline definitions naming every rule in §2 in plain words, including the crawl disclaimer and the pre-claim label.
 
+> **Docs hook (2026-10-12).** The vendor guide's Plans page lists this reporting in its `## Coming soon` section (`apps/web/src/content/docs/vendors/plans.md`). The PR that ships the page rewrites that section and adds the reporting to the comparison table (`apps/web/src/app/docs/docs-plans-comparison.ts`) as `analytics.view` rows.
+
 ### 5.3 States
 
 | State | Behaviour |

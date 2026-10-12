@@ -9,13 +9,16 @@
  * compact centred column with a small Source Serif `h1`, one muted lede line,
  * then the body in `.aec-prose aec-docs-prose`. From `xl` the "On this page"
  * rail (`docs-toc.ts`) sits at the far right. A quiet previous / next pager
- * closes the article. No overline, no hero, no cards.
+ * closes the article. No overline, no hero, no cards (the Plans page's
+ * pricing widget is the one exception).
  *
  * **Headings carry ids.** The body arrives as blocks (`docs-markdown.ts`). This
  * template renders each `h2` / `h3` with a bound `[id]`, because the
  * `[innerHTML]` sanitizer would strip one, and passes only the HTML between
  * headings through `[innerHTML]`. The block wrappers are `display: contents`,
- * so the prose rhythm sees one flat flow.
+ * so the prose rhythm sees one flat flow. A widget block (the Plans page's
+ * cards and table) splits the flow: it renders its component outside
+ * `.aec-prose`, and the prose resumes in a new wrapper after it.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch and no per-visitor state:
  * the Markdown is bundled at build time and parsed once per isolate, so the HTML
@@ -39,13 +42,53 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-import { type DocsPage, docsNeighbours, getDocsPage } from './docs-content';
+import { type DocsBlock, type DocsPage, docsNeighbours, getDocsPage } from './docs-content';
 import { pathForcesNoindex } from './docs-indexing';
+import type { DocsWidget } from './docs-markdown';
+import { DocsPlansComparisonComponent } from './docs-plans-comparison';
+import {
+  DocsPlansActionsComponent,
+  DocsPlansCtaPanelComponent,
+  DocsPlansMobileBarComponent,
+  DocsPlansRailComponent,
+} from './docs-plans-cta';
 import { DocsTocComponent } from './docs-toc';
+
+/** A run of prose blocks, or one widget. */
+export interface DocsSegment {
+  /** Set on a widget segment, whose `blocks` is empty. */
+  readonly widget?: DocsWidget;
+  readonly blocks: readonly DocsBlock[];
+}
+
+/** Cuts a body at its widget blocks, so each prose run gets its own wrapper. */
+export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment[] {
+  const segments: DocsSegment[] = [];
+  let run: DocsBlock[] = [];
+  for (const block of blocks) {
+    if (block.widget) {
+      if (run.length > 0) segments.push({ blocks: run });
+      segments.push({ widget: block.widget, blocks: [] });
+      run = [];
+    } else {
+      run.push(block);
+    }
+  }
+  if (run.length > 0) segments.push({ blocks: run });
+  return segments;
+}
 
 @Component({
   selector: 'app-docs-page',
-  imports: [RouterLink, DocsTocComponent],
+  imports: [
+    RouterLink,
+    DocsTocComponent,
+    DocsPlansActionsComponent,
+    DocsPlansComparisonComponent,
+    DocsPlansCtaPanelComponent,
+    DocsPlansMobileBarComponent,
+    DocsPlansRailComponent,
+  ],
   template: `
     <div
       class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,42rem)_minmax(0,1fr)] xl:gap-x-8"
@@ -61,28 +104,54 @@ import { DocsTocComponent } from './docs-toc';
             Last updated {{ page.lastUpdated }}
           </p>
         </header>
-        <!-- Rendered Markdown, sanitized by Angular, styled by .aec-prose. -->
-        <div class="aec-prose aec-docs-prose mt-6">
-          @for (block of page.blocks; track $index) {
-            @if (block.heading; as heading) {
-              @if (heading.level === 2) {
-                <h2 [id]="heading.id">{{ heading.text }}</h2>
-              } @else {
-                <h3 [id]="heading.id">{{ heading.text }}</h3>
+        <!-- Rendered Markdown, sanitized by Angular, styled by .aec-prose. A
+             widget block renders its component between prose runs, outside
+             .aec-prose, so the prose list and table rules do not reach it. -->
+        @for (segment of segments; track $index; let first = $first) {
+          @if (segment.widget === 'plans-comparison') {
+            <app-docs-plans-comparison class="mt-5 mb-10" />
+          } @else if (segment.widget === 'plans-actions') {
+            <app-docs-plans-actions class="mt-6 mb-10" />
+          } @else if (segment.widget === 'plans-cta') {
+            <app-docs-plans-cta-panel class="mt-6 mb-6" />
+          } @else {
+            <div class="aec-prose aec-docs-prose" [class.mt-6]="first">
+              @for (block of segment.blocks; track $index) {
+                @if (block.heading; as heading) {
+                  @if (heading.level === 2) {
+                    <h2 [id]="heading.id">{{ heading.text }}</h2>
+                  } @else {
+                    <h3 [id]="heading.id">{{ heading.text }}</h3>
+                  }
+                }
+                @if (block.html) {
+                  <div class="contents" [innerHTML]="block.html"></div>
+                }
               }
-            }
-            @if (block.html) {
-              <div class="contents" [innerHTML]="block.html"></div>
-            }
+            </div>
           }
-        </div>
+        }
       </article>
 
-      <app-docs-toc
-        class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"
-        [headings]="page.headings"
-        [path]="page.path"
-      />
+      @if (page.cta === 'managed') {
+        <!-- The Plans page: the rail also carries the Managed card, from 90rem,
+             where the column is wide enough. Both stick together. The card goes
+             first: the dash list is absolutely placed and takes no height, so
+             anything after it would sit on top of the dashes. -->
+        <div
+          class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:flex xl:flex-col xl:items-end xl:gap-8 xl:self-start xl:justify-self-end"
+        >
+          <app-docs-plans-rail class="hidden w-44 min-[90rem]:block" />
+          <app-docs-toc class="block w-10" [headings]="page.headings" [path]="page.path" />
+        </div>
+        <app-docs-plans-mobile-bar />
+      } @else {
+        <app-docs-toc
+          class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"
+          [headings]="page.headings"
+          [path]="page.path"
+        />
+      }
 
       @if (neighbours.prev || neighbours.next) {
         <nav
@@ -128,6 +197,7 @@ export class DocsPageComponent {
   private readonly meta = inject(MetaService);
 
   protected readonly page: DocsPage;
+  protected readonly segments: readonly DocsSegment[];
   protected readonly neighbours: { readonly prev?: DocsPage; readonly next?: DocsPage };
 
   constructor() {
@@ -138,6 +208,7 @@ export class DocsPageComponent {
       throw new Error(`No docs page for /docs/${section}/${slug}`);
     }
     this.page = page;
+    this.segments = docsSegments(page.blocks);
     this.neighbours = docsNeighbours(page);
 
     this.meta.setStaticPageMeta({

@@ -53,6 +53,7 @@ import rankingMd from '../../content/docs/trust/how-ranking-works.md';
 import vendorGuideIntroMd from '../../content/docs/vendors/_index.md';
 import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
+import checklistsMd from '../../content/docs/vendors/checklists.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import connectorVendorsMd from '../../content/docs/vendors/connector-vendors.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
@@ -65,7 +66,7 @@ import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { pathForcesNoindex } from './docs-indexing';
 import { type DocsBlock, type DocsHeading, renderDocsBody } from './docs-markdown';
 
-export type { DocsBlock, DocsHeading } from './docs-markdown';
+export type { DocsBlock, DocsHeading, DocsWidget } from './docs-markdown';
 
 /** A docs section. Its URL segment under `/docs` is its id. */
 export type DocsSectionId =
@@ -126,6 +127,11 @@ export interface DocsPage {
   readonly headings: readonly DocsHeading[];
   /** Every link href in the body, as written. The cross-guide guard reads it. */
   readonly links: readonly string[];
+  /**
+   * Frontmatter `cta: managed`: the page carries the Managed call to action in
+   * its rail and a sticky bar on phones (`docs-plans-cta.ts`). Only Plans does.
+   */
+  readonly cta?: 'managed';
 }
 
 /** A section's optional landing copy, rendered on its index page. */
@@ -267,6 +273,7 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'contests-and-protests', source: contestsMd },
     { slug: 'replying-to-reviews', source: replyingMd },
     { slug: 'plans', source: plansMd },
+    { slug: 'checklists', source: checklistsMd },
     { slug: 'change-history', source: changeHistoryMd },
     { slug: 'connector-vendors', source: connectorVendorsMd },
   ],
@@ -294,6 +301,10 @@ function buildPage(
   if (!Number.isInteger(order)) {
     throw new Error(`Docs page "${section}/${slug}" has no integer frontmatter order`);
   }
+  const cta = data['cta'];
+  if (cta !== undefined && cta !== 'managed') {
+    throw new Error(`Docs page "${section}/${slug}" has an unknown frontmatter cta "${cta}"`);
+  }
   const { html, blocks, h2s, links } = renderDocsBody(body);
   if (h2s.at(-1)?.text !== 'Related') {
     throw new Error(`Docs page "${section}/${slug}" does not end in a "## Related" list`);
@@ -306,6 +317,7 @@ function buildPage(
     description: data['description'] ?? '',
     order,
     lastUpdated: data['last_updated'] ?? '',
+    ...(cta === 'managed' ? { cta } : {}),
     html,
     blocks,
     headings: h2s.slice(0, -1),

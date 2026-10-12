@@ -17,6 +17,13 @@
  * already uses (`DOCS_RESERVED_IDS`). They are stable while the heading text is
  * stable, so changing a heading breaks inbound `#` links to it, the same as on
  * GitHub.
+ *
+ * **Widgets (the Plans page).** A Markdown body cannot carry a styled
+ * component: the sanitizer strips `class`. A line holding only
+ * `<!-- docs:<widget> -->` becomes its own block with `widget` set and no HTML,
+ * and the page template renders that widget's component in its place. Only ids
+ * in `DOCS_WIDGETS` are allowed; any other `docs:` directive throws at module
+ * init, so a typo cannot ship as a silent gap.
  */
 import { type Token, type Tokens, marked } from 'marked';
 
@@ -27,9 +34,17 @@ export interface DocsHeading {
   readonly text: string;
 }
 
+/** The components a docs body may place with a `<!-- docs:<id> -->` line. */
+export const DOCS_WIDGETS = ['plans-actions', 'plans-comparison', 'plans-cta'] as const;
+
+/** One widget id. */
+export type DocsWidget = (typeof DOCS_WIDGETS)[number];
+
 /** A run of body HTML, led by the `h2` or `h3` that opens it (none for the intro). */
 export interface DocsBlock {
   readonly heading?: DocsHeading & { readonly level: 2 | 3 };
+  /** Set on a widget block, which has no heading and empty `html`. */
+  readonly widget?: DocsWidget;
   /** Sanitized by Angular at render. Empty when a heading is followed by another. */
   readonly html: string;
 }
@@ -97,6 +112,20 @@ function collectLinks(tokens: readonly Token[], into: string[]): void {
   }
 }
 
+/** A block-level HTML token that is only a `<!-- docs:<id> -->` comment. */
+const WIDGET_DIRECTIVE = /^<!--\s*docs:([a-z][a-z0-9-]*)\s*-->\s*$/;
+
+/** The widget a token places, or `undefined`. Throws on an unknown id. */
+function widgetOf(token: Token): DocsWidget | undefined {
+  if (token.type !== 'html') return undefined;
+  const id = WIDGET_DIRECTIVE.exec((token as Tokens.HTML).raw.trim())?.[1];
+  if (id === undefined) return undefined;
+  if (!(DOCS_WIDGETS as readonly string[]).includes(id)) {
+    throw new Error(`Unknown docs widget "docs:${id}". Known: ${DOCS_WIDGETS.join(', ')}`);
+  }
+  return id as DocsWidget;
+}
+
 const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -122,6 +151,12 @@ export function renderDocsBody(body: string): DocsBody {
   };
 
   for (const token of tokens) {
+    const widget = widgetOf(token);
+    if (widget) {
+      flush();
+      blocks.push({ widget, html: '' });
+      continue;
+    }
     if (token.type !== 'heading' || (token.depth !== 2 && token.depth !== 3)) {
       run.push(token);
       continue;

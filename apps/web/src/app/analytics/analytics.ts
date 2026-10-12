@@ -129,6 +129,9 @@ export const VENDOR_GROUP_TYPE = 'vendor';
  */
 export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 
+/** Where a Plans-page call to action sits (`plan_cta_clicked.placement`). */
+export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
+
 @Injectable({ providedIn: 'root' })
 export class Analytics {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
@@ -289,6 +292,15 @@ export class Analytics {
    */
   mailingListSignup(input: { source: string }): void {
     this.capture('mailing_list_signup', { source: input.source });
+  }
+
+  /**
+   * A click on a plan call to action in the vendor guide's Plans page
+   * (`docs/docs-plans-cta.ts`). `placement` says which copy of the button it
+   * was, so the placements can be compared. Consent-gated like every event.
+   */
+  planCtaClicked(input: { plan: 'free' | 'managed'; placement: PlanCtaPlacement }): void {
+    this.capture('plan_cta_clicked', { plan: input.plan, placement: input.placement });
   }
 
   // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────

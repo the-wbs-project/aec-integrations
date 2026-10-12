@@ -243,7 +243,8 @@ on neither the General home nor its sidebar):
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 ├─ contests-and-protests             — sending and receiving contests and change requests, the protest to AECi (§11b)
 ├─ replying-to-reviews               — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
-├─ plans                             — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219; slug renamed by AECI-1264, old URL 301s)
+├─ plans                             — Free vs Managed, benefit-first (marketing review 2026-10-12): pricing cards + comparison table (`docs-plans-comparison.ts`), what every plan includes, what Managed adds, why buyers trust the order, a "Coming soon" teaser (the one ruled exception to "describe only what ships"), plan end, then "Getting Managed" last so the page closes on its call-to-action panel. "Talk to us about Managed" sits in four more places: under the intro, on the Managed card, in the rail from 90rem, and in a phone bar (`docs-plans-cta.ts`, CTA review 2026-10-12) (AECI-1219; slug renamed by AECI-1264, old URL 301s)
+├─ checklists                        — the company and product checklists and "Looks right", moved off `plans` on 2026-10-12
 ├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 ├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
 └─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products,
@@ -294,7 +295,8 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
    | Integration edit, create, retire | `vendor-integration-edit-form.ts`, `vendor-integration-create.ts` | `owning-an-integration` |
    | Contest form and protest | `vendor-contest-form.ts`, `vendor-contest-protest.ts` | `contests-and-protests` |
    | Review reply | `vendor/sections/vendor-product-reviews-page.ts` | `replying-to-reviews` |
-   | Plan panel and free-plan checklist | `vendor/vendor-plan.ts`, the free-plan checklist | `plans` |
+   | Plan panel and free-plan checklist | `vendor/vendor-plan.ts`, the free-plan checklist | `plans`, `checklists` |
+   | Capability registry and plan price | `@aeci/shared/entitlements` (`TIER_CAPABILITIES`, `MANAGED_LIST_PRICE_CENTS`) | `plans`. The comparison table's capability rows and the list price read the registry, so they follow it. Its other rows (seat rights, search-engine notice, connector integrations) are literals in `docs/docs-plans-comparison.ts` and must be edited by hand |
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.

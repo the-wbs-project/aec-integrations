@@ -162,3 +162,30 @@ describe('renderDocsBody', () => {
     expect(renderDocsBody('Plain text.\n').links).toEqual([]);
   });
 });
+
+describe('renderDocsBody widgets', () => {
+  // A directive line becomes its own block, so the page can place a component.
+  it('cuts a widget block out of the flow, with no heading and no HTML', () => {
+    const { blocks, html } = renderDocsBody(
+      '## Compare\n\nLead.\n\n<!-- docs:plans-comparison -->\n\nAfter.\n\n## Next\n',
+    );
+    expect(blocks.map((block) => block.widget ?? block.heading?.id ?? 'run')).toEqual([
+      'compare',
+      'plans-comparison',
+      'run',
+      'next',
+    ]);
+    expect(blocks[1].html).toBe('');
+    expect(html).not.toContain('docs:');
+  });
+
+  // A typo must fail at module init, not ship as a silent gap.
+  it('throws on an unknown widget id', () => {
+    expect(() => renderDocsBody('<!-- docs:plans-comparisn -->\n')).toThrow(/Unknown docs widget/);
+  });
+
+  // Any other HTML comment stays ordinary content.
+  it('leaves a plain HTML comment alone', () => {
+    expect(renderDocsBody('<!-- a note -->\n').blocks.every((block) => !block.widget)).toBe(true);
+  });
+});
