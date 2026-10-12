@@ -18,9 +18,11 @@ import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
+import { claimantAccountLabel } from './claimant-account-label';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 /** Same page size as the vendor and connector trails. */
@@ -297,15 +299,9 @@ export class ClaimDetail {
     }
   }
 
-  protected authAccountLabel(value: boolean | null): string {
-    if (value === true) {
-      return $localize`:@@admin.claims.detail.auth.exists:Existing account: approve links it`;
-    }
-    if (value === false) {
-      return $localize`:@@admin.claims.detail.auth.none:No account: approve provisions one`;
-    }
-    return $localize`:@@admin.claims.detail.auth.unknown:Account status unknown`;
-  }
+  /** The "Claimant account" signal, worded for the claim's status (AECI-1278).
+   *  The SAME helper `/admin/claims` uses. */
+  protected readonly accountLabel = claimantAccountLabel;
 
   /** The §5.2 payer test as one readable line — the SAME helper `/admin/claims`
    *  and `/admin/vendors/:id` use. */
@@ -333,9 +329,8 @@ export class ClaimDetail {
       : ['/vendors', claim.target.slug];
   }
 
-  protected seatDisplayName(name: string | null): string {
-    return name?.trim() ? name : $localize`:@@admin.claims.detail.seat.unnamed:Unnamed seat`;
-  }
+  /** Display name, else email (AECI-1277) — the rule shared with the roster. */
+  protected readonly seatLabel = seatLabel;
 
   /**
    * FALLBACK person link (AECI-847): a pre-built LinkedIn people-search URL from

@@ -1886,9 +1886,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   duplicate_of_request_id: z.string().uuid().nullable(), // the Phase-6 duplicate chain
   existing_seats: z.array(z.object({                     // active vendor_admin seats on the vendor
     display_name: z.string().nullable(),
+    email: z.string().nullable(),                         // AECI-1277: sign-in email (GoTrue), admin-only
     work_email_verified: z.boolean(),
     created_at: z.string(),
   })).nullable(),                                         // null = signal unavailable, [] = none
+  seat_emails_available: z.boolean(),                     // AECI-1277: false ⇒ every seat email is null because GoTrue was unreachable
   related_requests: z.array(z.object({                   // prior requests from the same email
     id: z.string().uuid(),
     kind: z.enum(['claim', 'correction']),
@@ -1922,7 +1924,10 @@ export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaim
 Signals: `domain_match` (stored verbatim), `has_auth_account` (tri-state via the GoTrue
 `fetchAuthAccountsByEmail` seam — `null` when creds absent / lookup fails), `existing_seats`
 (one grouped `profiles` scan over the page's target vendors; a `product` claim resolves to its
-primary vendor), `related_requests` (other `vendor_requests` sharing the `submitter_email`,
+primary vendor. Since AECI-1277 each seat carries its `email` from one bounded GoTrue by-id
+lookup over the page's distinct seat ids, run after the other enrichments. The surface labels a
+seat by `display_name`, else by `email`. `seat_emails_available` is `false` only when that lookup
+could not answer, the same three-state rule as `GET /api/admin/vendors/:id`), `related_requests` (other `vendor_requests` sharing the `submitter_email`,
 excluding self) + `duplicate_of_request_id`, and — since AECI-847 — `submitter_linkedin_url`,
 the claimant's own volunteered profile (`null` for a correction, for a claim that skipped the
 optional field, and for any claim predating the column). The LinkedIn/person **search** link is
@@ -5992,7 +5997,7 @@ Multi-seat is **flat in data capability** — every seat edits the same things �
 
 **This read is never capability-gated** (R13, with `GET /api/vendor/me`): a vendor whose entitlement lapsed must still be able to see and manage who has access.
 
-**Order (AECI-1243).** `seats` A to Z by `display_name` (case-insensitive), a seat with no name last, then `user_id`. `pending_invites` in the order they were sent, then `id`. The admin vendor roster (`GET /api/admin/vendors/:id`) and the claim queue's `existing_seats` use the same seat order.
+**Order (AECI-1243).** `seats` A to Z by `display_name` (case-insensitive), a seat with no name last, then `user_id`. `pending_invites` in the order they were sent, then `id`. The admin vendor roster (`GET /api/admin/vendors/:id`) and the claim queue's `existing_seats` use the same seat order. Since AECI-1277 the admin surfaces label a nameless seat by its email, but the order does not change: a nameless seat still sorts last, by `user_id`, not by its email.
 
 **`token` is deliberately absent from `pending_invites`.** Every seat can read this payload, and a token is the redeem handle — putting it here would let any seat redeem an invite addressed to somebody else's mailbox. Revoking uses the row `id`; the token appears only in the invite email.
 

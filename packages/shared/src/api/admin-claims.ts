@@ -188,12 +188,18 @@ export type ModerateClaimResponse = z.infer<typeof ModerateClaimResponseSchema>;
  * A currently-active seat on the claimed vendor (§5 "existing seats" signal): a
  * `profiles` row with `role='vendor_admin'`, a matching `vendor_id`, and no ban.
  * Lets the reviewer tell a SECOND-SEAT request (the vendor already has admins)
- * from a FIRST claim (empty roster). No email — a seat belongs to the claimed
- * vendor, so `display_name` + when-granted + work-email-verified is the useful
- * signal without exposing a second party's address.
+ * from a FIRST claim (empty roster).
+ *
+ * `email` is the seat's sign-in address from the GoTrue seam (AECI-1277). The
+ * surface labels a seat by `display_name`, else by `email`, so a seat whose holder
+ * never set a name (every Google sign-in, until they do) still says who holds it.
+ * Admin-only: it rides `/api/admin/*` and nothing else. `null` either because the
+ * seam was unreachable or because the account has no address; the claim's
+ * `seat_emails_available` says which.
  */
 export const AdminVendorSeatSchema = z.object({
   display_name: z.string().nullable(),
+  email: z.string().nullable(),
   work_email_verified: z.boolean(),
   created_at: z.string(),
 });
@@ -228,6 +234,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    *  the earliest matching open request this one was flagged against, or null. */
   duplicate_of_request_id: z.string().uuid().nullable(),
   existing_seats: AdminVendorSeatSchema.array().nullable(),
+  /** Whether the GoTrue email lookup for `existing_seats` succeeded (AECI-1277),
+   *  the same three-state discipline as `AdminVendorDetail.seat_emails_available`.
+   *  `false` ⇒ every seat `email` is `null` because the seam was unavailable, NOT
+   *  because the accounts have no address. `true` when there was nothing to look up. */
+  seat_emails_available: z.boolean(),
   related_requests: RelatedRequestRefSchema.array().nullable(),
   /**
    * The vendor this claim's entitlement applies to (AECI-532 /

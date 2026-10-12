@@ -639,6 +639,24 @@ describe('VendorDetail', () => {
       expect(el.textContent).toContain('Ada Lovelace');
     });
 
+    it('labels a nameless seat by its email, once, never "Unnamed seat" (AECI-1277)', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeVendor({ seats: [makeSeat({ display_name: null, email: 'holder@gmail.com' })] }),
+        ),
+      );
+      const header = el.querySelector('tbody th[scope="row"]');
+      expect(header?.textContent?.trim()).toBe('holder@gmail.com');
+      expect(el.textContent).not.toContain('Unnamed seat');
+    });
+
+    it('keeps the email on the second line when the seat has a name (AECI-1277)', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const header = el.querySelector('tbody th[scope="row"]');
+      expect(header?.textContent).toContain('Ada Lovelace');
+      expect(header?.querySelectorAll('span')[1]?.textContent?.trim()).toBe('ada@autodesk.com');
+    });
+
     it('says "no email on file" when the seam worked and the account has none', async () => {
       // The distinction the 2026-08-24 incident lacked: a blank means different
       // things depending on whether the lookup succeeded.

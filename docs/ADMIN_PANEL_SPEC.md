@@ -685,6 +685,8 @@ Three IA notes:
 - **The detail route is not in the nav.** Only reachable destinations belong there (§5's "an unbuilt route is omitted, not disabled" has a sibling rule: a parameterised route has no nav-able URL).
 - **No live updates**, per §2 — the audit trail and the roster refresh on action or on reload, deliberately.
 
+> **Seat labels — display name, else email (AECI-1277, 2026-10-12).** A seat with no display name used to read "Unnamed seat" here, on the claim queue and on the claim detail. Every claimant who signs in with Google starts with no name, so the label said nothing about who held the seat. All three surfaces now share one rule, in `apps/web/src/app/admin/seat-label.ts`. Show the display name. When it is null or blank, show the sign-in email. When there is no email either, show "Email unavailable" if the GoTrue lookup failed, or "No email on file" if it worked. On this roster the email also stays on the second line under a name, and is not repeated when it is already the label. The claim payloads gained the email to make this possible (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.1, AECI-1277 amendment). The email is admin-only.
+
 > **List rendering revision — SHIPPED (2026-09-03).** Four changes to `/admin/vendors`; the contract lives in `STAGE_2_PAID_TIERS_SPEC.md` §5.6, which carries the reasoning in full. In this doc's terms:
 >
 > - **The Integrations column is gone**, and with it `integration_count` on `AdminVendorRowSchema`. An operator on the list is triaging entitlements and seats; the integration count is a catalog fact acted on at `/admin/vendors/:id`, and carrying it here cost a correlated subquery per row for a number nobody triaged on.

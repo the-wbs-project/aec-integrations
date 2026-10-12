@@ -124,7 +124,11 @@ import {
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { fetchAuthAccountsByEmail, fetchAuthUserEmailsResult } from '../lib/supabase-admin';
+import {
+  fetchAuthAccountsByEmail,
+  fetchAuthUserEmailsResult,
+  type AuthEmailLookup,
+} from '../lib/supabase-admin';
 import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
 import {
   EMPTY_PRODUCT_ROLES,
@@ -900,22 +904,32 @@ async function loadVendorProductRoles(
   );
 }
 
+/** Injected seat-email seam (AECI-1277), in the availability-reporting form —
+ *  the same seam and the same reason as the vendor roster's (`admin-vendors.ts`). */
+export type FetchSeatEmails = (env: Env, ids: readonly string[]) => Promise<AuthEmailLookup>;
+
+/** A seat before its email is attached: the `profiles` id is what the GoTrue
+ *  lookup keys on, and it never reaches the wire. */
+type SeatWithoutEmail = Omit<AdminVendorSeat, 'email'> & { userId: string };
+
 /**
  * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats"). ONE
  * grouped `profiles` scan over the page's vendor ids (`role='vendor_admin' AND
  * banned_at IS NULL`) — no per-row N+1. A claim whose product has no vendor is absent
  * from `vendorByRow` and maps to `[]` (there is no vendor to seat). Ordered A to Z by
- * display name, unnamed seats last, then id (AECI-1243).
+ * display name, unnamed seats last, then id (AECI-1243). Emails are attached
+ * afterwards by `attachSeatEmails`.
  */
 async function loadExistingSeats(
   db: Db,
   vendorByRow: Map<string, string>,
-): Promise<Map<string, AdminVendorSeat[]>> {
+): Promise<Map<string, SeatWithoutEmail[]>> {
   const vendorIds = [...new Set(vendorByRow.values())];
-  const seatsByVendor = new Map<string, AdminVendorSeat[]>();
+  const seatsByVendor = new Map<string, SeatWithoutEmail[]>();
   if (vendorIds.length > 0) {
     const seatRows = await db
       .select({
+        id: profiles.id,
         vendorId: profiles.vendorId,
         displayName: profiles.displayName,
         workEmailVerified: profiles.workEmailVerified,
@@ -935,6 +949,7 @@ async function loadExistingSeats(
       if (!s.vendorId) continue;
       const list = seatsByVendor.get(s.vendorId) ?? [];
       list.push({
+        userId: s.id,
         display_name: s.displayName,
         work_email_verified: s.workEmailVerified,
         created_at: s.createdAt,
@@ -943,11 +958,42 @@ async function loadExistingSeats(
     }
   }
 
-  const byRow = new Map<string, AdminVendorSeat[]>();
+  const byRow = new Map<string, SeatWithoutEmail[]>();
   for (const [rowId, vendorId] of vendorByRow) {
     byRow.set(rowId, seatsByVendor.get(vendorId) ?? []);
   }
   return byRow;
+}
+
+/**
+ * Attach each seat's sign-in email (AECI-1277): ONE bounded GoTrue fan-out over the
+ * page's distinct seat ids, never one per claim. The caller runs it AFTER its
+ * `Promise.all`, so it never shares the Worker's connection budget with the
+ * `has_auth_account` fan-out (ADR 0021, 2026-08-27 amendment).
+ *
+ * `available` mirrors `AdminVendorDetail.seat_emails_available`: `false` means the
+ * seam could not answer and every `email` is `null` for that reason. With no seats
+ * to look up there is nothing to fail, so it is `true` and GoTrue is not called.
+ */
+async function attachSeatEmails(
+  env: Env,
+  seatsByRow: Map<string, SeatWithoutEmail[]> | null,
+  fetchEmails: FetchSeatEmails,
+): Promise<{ seatsByRow: Map<string, AdminVendorSeat[]> | null; available: boolean }> {
+  if (!seatsByRow) return { seatsByRow: null, available: true };
+  const ids = [...new Set([...seatsByRow.values()].flat().map((s) => s.userId))];
+  const lookup: AuthEmailLookup =
+    ids.length > 0
+      ? await fetchEmails(env, ids)
+      : { available: true, emails: new Map(), reason: 'ok' };
+  const out = new Map<string, AdminVendorSeat[]>();
+  for (const [rowId, seats] of seatsByRow) {
+    out.set(
+      rowId,
+      seats.map(({ userId, ...seat }) => ({ ...seat, email: lookup.emails.get(userId) ?? null })),
+    );
+  }
+  return { seatsByRow: out, available: lookup.available };
 }
 
 /**
@@ -1015,6 +1061,8 @@ export function createAdminClaimsListHandler(
   /** Reviewer signal seam (#4a batched, AECI-527). Default hits the GoTrue Admin
    *  API; degrades to an empty map → `has_auth_account: null`. */
   fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
+  /** Seat-email seam (AECI-1277). Default hits the GoTrue Admin API by id. */
+  fetchEmails: FetchSeatEmails = fetchAuthUserEmailsResult,
 ): (c: ClaimContext) => Promise<Response> {
   return async (c) => {
     const query = ListVendorClaimsQuerySchema.parse(
@@ -1084,7 +1132,7 @@ export function createAdminClaimsListHandler(
     const [
       targets,
       authAccountByEmail,
-      seatsByRow,
+      seatsWithoutEmail,
       relatedByRow,
       entitlementByVendor,
       productRolesByVendor,
@@ -1106,6 +1154,12 @@ export function createAdminClaimsListHandler(
         ? loadOwnedIntegrations(db, [...new Set(vendorByRow.values())]).catch(() => null)
         : null,
     ]);
+    // After the `Promise.all`, so the two GoTrue fan-outs never run at once.
+    const { seatsByRow, available: seatEmailsAvailable } = await attachSeatEmails(
+      c.env,
+      seatsWithoutEmail,
+      fetchEmails,
+    );
 
     /** The claim's resolved vendor + entitlement, or `[null, null]` when there is no
      *  vendor to act on (a product with no `product_vendors` row) or the enrichment
@@ -1153,6 +1207,7 @@ export function createAdminClaimsListHandler(
           targets.get(row.targetId) ?? null,
           authAccountByEmail,
           seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
+          seatEmailsAvailable,
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
           ...entitlementFor(row),
           ...productRolesFor(row),
@@ -1286,6 +1341,7 @@ async function buildClaimDetail(
   db: Db,
   row: RawAdminVendorRequestRow,
   fetchAuthAccounts: typeof fetchAuthAccountsByEmail,
+  fetchEmails: FetchSeatEmails,
 ): Promise<AdminClaimDetail> {
   const rows = [row];
   const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
@@ -1294,7 +1350,7 @@ async function buildClaimDetail(
   const [
     targets,
     authAccountByEmail,
-    seatsByRow,
+    seatsWithoutEmail,
     relatedByRow,
     entitlementByVendor,
     productRolesByVendor,
@@ -1310,6 +1366,12 @@ async function buildClaimDetail(
     vendorByRow ? loadOwnedIntegrations(db, vendorIds).catch(() => null) : null,
     loadDuplicateSiblings(db, row),
   ]);
+  // After the `Promise.all`, as on the LIST: one GoTrue fan-out at a time.
+  const { seatsByRow, available: seatEmailsAvailable } = await attachSeatEmails(
+    c.env,
+    seatsWithoutEmail,
+    fetchEmails,
+  );
 
   const vendorId = vendorByRow?.get(row.id);
   const entitlementHit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
@@ -1333,6 +1395,7 @@ async function buildClaimDetail(
       targets.get(row.targetId) ?? null,
       authAccountByEmail,
       seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
+      seatEmailsAvailable,
       relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
       entitlementHit ? entitlementHit.vendor : null,
       entitlementHit ? entitlementHit.entitlement : null,
@@ -1358,6 +1421,7 @@ async function buildClaimDetail(
 export function createAdminClaimDetailHandler(
   dbFor: DbFactory = getDb,
   fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
+  fetchEmails: FetchSeatEmails = fetchAuthUserEmailsResult,
 ): (c: ClaimContext) => Promise<Response> {
   return async (c) => {
     const id = c.req.param('id');
@@ -1367,7 +1431,7 @@ export function createAdminClaimDetailHandler(
 
     const { db } = dbFor(c.env);
     const row = await loadClaimRow(db, id);
-    const body = await buildClaimDetail(c, db, row, fetchAuthAccounts);
+    const body = await buildClaimDetail(c, db, row, fetchAuthAccounts, fetchEmails);
 
     validateResponseInDev(c.env, () => {
       AdminClaimDetailSchema.parse(body);
@@ -1409,6 +1473,7 @@ export function createAdminClaimDetailHandler(
 export function createSaveClaimNotesHandler(
   dbFor: DbFactory = getDb,
   fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
+  fetchEmails: FetchSeatEmails = fetchAuthUserEmailsResult,
 ): (c: ClaimContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -1449,7 +1514,13 @@ export function createSaveClaimNotesHandler(
 
     // Rebuild off the committed value rather than re-reading the row: the note is
     // the only thing this endpoint changed, and every other signal is unaffected.
-    const body = await buildClaimDetail(c, db, { ...row, adminNotes: next }, fetchAuthAccounts);
+    const body = await buildClaimDetail(
+      c,
+      db,
+      { ...row, adminNotes: next },
+      fetchAuthAccounts,
+      fetchEmails,
+    );
 
     validateResponseInDev(c.env, () => {
       AdminClaimDetailSchema.parse(body);

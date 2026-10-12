@@ -44,6 +44,7 @@ import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { seatEmailText, seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 const AUDIT_PAGE_SIZE = 25;
@@ -435,8 +436,16 @@ export class VendorDetail {
     void this.loadAudit();
   }
 
+  /** Display name, else email (AECI-1277) — the rule shared with the claim pages. */
   protected seatName(seat: AdminVendorSeatRow): string {
-    return seat.display_name ?? $localize`:@@admin.vendors.seats.unnamed:Unnamed seat`;
+    return seatLabel(seat, this.vendor()?.seat_emails_available !== false);
+  }
+
+  /** Whether the seat has a non-blank display name, so the row's second line
+   *  carries the email. Without one the email IS the label, so it is not
+   *  repeated. */
+  protected seatHasName(seat: AdminVendorSeatRow): boolean {
+    return !!seat.display_name?.trim();
   }
 
   /**
@@ -448,10 +457,7 @@ export class VendorDetail {
    * `true` with no email means that account genuinely has none.
    */
   protected seatEmail(seat: AdminVendorSeatRow): string {
-    if (seat.email) return seat.email;
-    return this.vendor()?.seat_emails_available === false
-      ? $localize`:@@admin.vendors.seats.emailUnavailable:Email unavailable`
-      : $localize`:@@admin.vendors.seats.emailNone:No email on file`;
+    return seatEmailText(seat.email, this.vendor()?.seat_emails_available !== false);
   }
 
   // ── Products ───────────────────────────────────────────────────────────────

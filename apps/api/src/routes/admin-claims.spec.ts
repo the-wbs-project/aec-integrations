@@ -65,6 +65,7 @@ import {
   createAdminClaimsListHandler,
   createModerateClaimHandler,
   createSaveClaimNotesHandler,
+  type FetchSeatEmails,
   type SendClaimDecisionEmail,
 } from './admin-claims';
 
@@ -1090,9 +1091,18 @@ describe('revokeSeatStatements', () => {
 /** Stub-middleware app for the claims LIST (the `requireAdmin()` guard is covered
  *  in `authz.spec.ts`). `fetchAuthAccounts` (the GoTrue signal seam) and `dbFor`
  *  (to exercise the fail-soft enrichment) are injectable. */
+/** The seat-email seam (AECI-1277), stubbed to "available, nobody has an address"
+ *  unless a test injects its own, so no test reaches GoTrue. */
+const noSeatEmails: FetchSeatEmails = vi.fn(async () => ({
+  available: true,
+  emails: new Map<string, string>(),
+  reason: 'ok' as const,
+}));
+
 function claimsListApp(
   opts: {
     fetchAuthAccounts?: typeof fetchAuthAccountsByEmail;
+    fetchEmails?: FetchSeatEmails;
     dbFor?: typeof t.factory;
   } = {},
 ) {
@@ -1104,7 +1114,11 @@ function claimsListApp(
   });
   app.get(
     '/api/admin/claims',
-    createAdminClaimsListHandler(opts.dbFor ?? t.factory, opts.fetchAuthAccounts),
+    createAdminClaimsListHandler(
+      opts.dbFor ?? t.factory,
+      opts.fetchAuthAccounts,
+      opts.fetchEmails ?? noSeatEmails,
+    ),
   );
   return app;
 }
@@ -1273,6 +1287,66 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
 
     const body = await parseClaims(await getClaims());
     expect(body.data[0]!.existing_seats!.map((s) => s.display_name)).toEqual(['Amy', 'zed', null]);
+  });
+
+  // ── AECI-1277: a seat is labelled by its name, else its email ──────────────
+  it('attaches each seat’s email from ONE seam call over the distinct seat ids (AECI-1277)', async () => {
+    await seedVendor();
+    // Two claims on the same vendor share its roster: the seam must still see each
+    // seat id once, not once per claim.
+    await seedRequest();
+    await seedRequest({ id: '88888888-8888-4888-8888-888888888888' });
+    await t.db.insert(profiles).values([
+      { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, displayName: null },
+      { id: CLAIMANT2_ID, role: 'vendor_admin', vendorId: VENDOR_ID, displayName: 'Named' },
+    ]);
+    const fetchEmails = vi.fn<FetchSeatEmails>(async () => ({
+      available: true,
+      emails: new Map([[CLAIMANT_ID, 'holder@acme.com']]),
+      reason: 'ok' as const,
+    }));
+
+    const body = await parseClaims(await getClaims({ fetchEmails }));
+
+    expect(fetchEmails).toHaveBeenCalledTimes(1);
+    expect([...fetchEmails.mock.calls[0]![1]].sort()).toEqual([CLAIMANT_ID, CLAIMANT2_ID].sort());
+    for (const claim of body.data) {
+      expect(claim.seat_emails_available).toBe(true);
+      expect(claim.existing_seats).toEqual([
+        expect.objectContaining({ display_name: 'Named', email: null }),
+        expect.objectContaining({ display_name: null, email: 'holder@acme.com' }),
+      ]);
+    }
+  });
+
+  it('reports seat emails unavailable when the seam cannot answer (AECI-1277)', async () => {
+    await seedVendor();
+    await seedRequest();
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, displayName: null });
+    const fetchEmails = vi.fn<FetchSeatEmails>(async () => ({
+      available: false,
+      emails: new Map<string, string>(),
+      reason: 'no_credentials' as const,
+    }));
+
+    const body = await parseClaims(await getClaims({ fetchEmails }));
+
+    expect(body.data[0]!.seat_emails_available).toBe(false);
+    expect(body.data[0]!.existing_seats).toEqual([expect.objectContaining({ email: null })]);
+  });
+
+  it('does not call the seat-email seam when no claim has a seat (AECI-1277)', async () => {
+    await seedVendor();
+    await seedRequest();
+    const fetchEmails = vi.fn<FetchSeatEmails>();
+
+    const body = await parseClaims(await getClaims({ fetchEmails }));
+
+    expect(fetchEmails).not.toHaveBeenCalled();
+    expect(body.data[0]!.existing_seats).toEqual([]);
+    expect(body.data[0]!.seat_emails_available).toBe(true);
   });
 
   // ── The entitlement column (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ──────
@@ -1627,15 +1701,24 @@ const noAuthAccounts = vi.fn(
   async () => new Map<string, boolean>(),
 ) as unknown as typeof fetchAuthAccountsByEmail;
 
-function claimDetailApp(dbFor: typeof t.factory = t.factory) {
+function claimDetailApp(
+  dbFor: typeof t.factory = t.factory,
+  fetchEmails: FetchSeatEmails = noSeatEmails,
+) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.use('/api/admin/claims/*', async (c, next) => {
     c.set('auth', ADMIN_AUTH);
     await next();
   });
-  app.get('/api/admin/claims/:id', createAdminClaimDetailHandler(dbFor, noAuthAccounts));
-  app.patch('/api/admin/claims/:id/notes', createSaveClaimNotesHandler(dbFor, noAuthAccounts));
+  app.get(
+    '/api/admin/claims/:id',
+    createAdminClaimDetailHandler(dbFor, noAuthAccounts, fetchEmails),
+  );
+  app.patch(
+    '/api/admin/claims/:id/notes',
+    createSaveClaimNotesHandler(dbFor, noAuthAccounts, fetchEmails),
+  );
   return app;
 }
 
@@ -1758,6 +1841,33 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
 
     const body = await parseDetail(await getClaim(REQUEST_ID));
     expect(body.duplicate_siblings).toEqual([]);
+  });
+
+  it('labels an unnamed seat by its email on the detail too (AECI-1277)', async () => {
+    await seedVendor();
+    await seedRequest({ id: REQUEST_ID });
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, displayName: null });
+    const fetchEmails = vi.fn<FetchSeatEmails>(async () => ({
+      available: true,
+      emails: new Map([[CLAIMANT_ID, 'holder@acme.com']]),
+      reason: 'ok' as const,
+    }));
+
+    const res = await claimDetailApp(t.factory, fetchEmails).request(
+      `/api/admin/claims/${REQUEST_ID}`,
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = await parseDetail(res);
+
+    expect(fetchEmails).toHaveBeenCalledWith(TEST_ENV, [CLAIMANT_ID]);
+    expect(body.seat_emails_available).toBe(true);
+    expect(body.existing_seats).toEqual([
+      expect.objectContaining({ display_name: null, email: 'holder@acme.com' }),
+    ]);
   });
 });
 
