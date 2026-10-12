@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Title } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -45,5 +45,38 @@ describe('ContactPage', () => {
   it('sets an indexable static-page title (no noindex robots tag)', () => {
     expect(setup().title.getTitle()).toBe('Contact · AEC Integrations');
     expect(document.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  // ?topic=managed (the Plans page buttons): no form, so the email is pre-filled.
+  it('pre-fills a labelled Managed email on ?topic=managed', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({ topic: 'managed' }) } },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(ContactPage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const panel = host.querySelector('[data-testid="contact-managed"]');
+    expect(panel?.querySelector('h2')?.textContent?.trim()).toBe('Talk to us about Managed');
+    const href = panel?.querySelector('a')?.getAttribute('href') ?? '';
+    expect(href.startsWith('mailto:support@aecintegrations.com?subject=')).toBe(true);
+    const url = new URL(href);
+    expect(url.searchParams.get('subject')).toBe('Managed plan inquiry');
+    expect(url.searchParams.get('body')).toContain('Products we want on Managed:');
+  });
+
+  it('shows no Managed panel and a bare mailto without the topic', () => {
+    TestBed.resetTestingModule();
+    const { host } = setup();
+    expect(host.querySelector('[data-testid="contact-managed"]')).toBeNull();
+    expect(host.querySelector('a[href^="mailto:"]')?.getAttribute('href')).toBe(
+      'mailto:support@aecintegrations.com',
+    );
   });
 });

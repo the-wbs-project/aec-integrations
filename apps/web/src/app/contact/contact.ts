@@ -17,12 +17,32 @@
  * 70ch, Source Serif headings, Atkinson body. Light theme only (Stage 1). All
  * strings authored with `i18n`/`$localize`; the email address itself is literal
  * (not translated) and shared between the visible label and the `mailto:` href.
+ *
+ * **`?topic=managed`** (the vendor guide's Plans page buttons, `docs-plans-cta.ts`).
+ * There is no contact form, so the topic pre-fills the email instead: a fixed
+ * subject, so the inquiry arrives labelled, and a short body with the three
+ * things we need to quote. The page also says what happens next. Any other
+ * topic value is ignored. `/contact` is not cached, so reading the query in SSR
+ * is safe, and the canonical URL stays `/contact`.
  */
 import { Component, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+
+/** The subject a Managed inquiry arrives under, so it can be filtered. */
+export function managedSubject(): string {
+  return $localize`:@@app.contact.managed.subject:Managed plan inquiry`;
+}
+
+/** The prompts a Managed inquiry starts with. Plain text; the visitor fills it in. */
+export function managedBody(): string {
+  return $localize`:@@app.contact.managed.mailBody:Company:
+Products we want on Managed:
+Who should receive the invoice:
+`;
+}
 
 @Component({
   selector: 'app-contact',
@@ -51,6 +71,34 @@ import { MetaService } from '../core/meta.service';
       </section>
 
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
+        @if (managed) {
+          <section
+            class="mb-6 max-w-5xl rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
+            data-testid="contact-managed"
+          >
+            <h2
+              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
+              i18n="@@app.contact.managed.heading"
+            >
+              Talk to us about Managed
+            </h2>
+            <p
+              class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
+              i18n="@@app.contact.managed.body"
+            >
+              Email us with your company name, the products you want on Managed, and who should
+              receive the invoice. The button below starts that email for you. We agree the price
+              and the term with you, then switch Managed on for your company.
+            </p>
+            <a
+              [href]="mailtoHref"
+              class="mt-6 inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.contact.managed.cta"
+            >
+              Email us about Managed
+            </a>
+          </section>
+        }
         <div class="grid max-w-5xl gap-6 md:grid-cols-2">
           <section
             class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
@@ -118,10 +166,16 @@ import { MetaService } from '../core/meta.service';
 export class ContactPage {
   private readonly meta = inject(MetaService);
 
+  /** `?topic=managed`: asked from the Plans page. */
+  protected readonly managed =
+    inject(ActivatedRoute).snapshot.queryParamMap.get('topic') === 'managed';
+
   /** The public contact address. Shared by the visible label and the `mailto:`
    *  href so they can never drift. */
   protected readonly email = 'support@aecintegrations.com';
-  protected readonly mailtoHref = `mailto:${this.email}`;
+  protected readonly mailtoHref = this.managed
+    ? `mailto:${this.email}?subject=${encodeURIComponent(managedSubject())}&body=${encodeURIComponent(managedBody())}`
+    : `mailto:${this.email}`;
 
   constructor() {
     this.meta.setStaticPageMeta({

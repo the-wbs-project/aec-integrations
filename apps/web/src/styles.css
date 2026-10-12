@@ -732,6 +732,97 @@ html {
   scroll-margin-top: 1.5rem;
 }
 
+/* The Plans page's cards and comparison table (`docs-plans-comparison.ts`;
+   anchor site Mintlify's billing page). Unlayered for the `.aec-nav-tab`
+   reason: a border-color utility loses to the unlayered `*` rule. Borders, never
+   shadows: the Managed card is marked by a 2px Forest border (the "featured"
+   weight in DESIGN.md's Borders-Not-Shadows Rule). */
+.aec-plan-card {
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+}
+
+.aec-plan-card-featured {
+  border: 2px solid var(--accent-primary);
+}
+
+/* A card's plan name: serif at 20px, above the Serif-Floor Rule's 18px. A class
+   beats the unlayered `h3` rule; a `text-*` utility would not. */
+.aec-plan-card-name {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.aec-plan-price {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The sort rule under the plan cards, on a Bone band like the site's other
+   trust callouts. */
+.aec-plan-note {
+  background-color: var(--accent-warm);
+  border-radius: 0.5rem;
+}
+
+/* The "Getting Managed" panel's heading (`docs-plans-cta.ts`): serif at 24px,
+   on Forest. A class beats the unlayered `h3` rule. */
+.aec-plan-cta-heading {
+  color: var(--surface-base);
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.aec-plan-table {
+  border-collapse: collapse;
+}
+
+.aec-plan-table th,
+.aec-plan-table td {
+  border-block-end: 1px solid var(--border-default);
+  padding-block: 0.625rem;
+  vertical-align: middle;
+}
+
+.aec-plan-table thead th {
+  border-block-end-color: var(--border-strong);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.aec-plan-table-feature {
+  color: var(--text-primary);
+  font-weight: 400;
+  padding-inline-end: 1rem;
+  text-align: start;
+}
+
+.aec-plan-table-plan {
+  color: var(--text-primary);
+  text-align: center;
+  width: 5.5rem;
+}
+
+@media (min-width: 40rem) {
+  .aec-plan-table-plan {
+    width: 8.5rem;
+  }
+}
+
+.aec-plan-table-group {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding-block-start: 1.5rem;
+  text-align: start;
+  text-transform: uppercase;
+}
+
 /* "On this page" rail (`docs-toc.ts`). Closed: one dash per heading, the label
    visually hidden but still the link's name. Open on hover or when a link has
    focus: a bordered panel with the headings beside their dashes. The list is

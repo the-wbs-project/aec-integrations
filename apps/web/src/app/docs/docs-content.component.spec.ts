@@ -46,6 +46,7 @@ const VENDOR_SLUGS = [
   'contests-and-protests',
   'replying-to-reviews',
   'plans',
+  'checklists',
   'change-history',
   'connector-vendors',
 ];
@@ -628,7 +629,7 @@ describe('docs manifest', () => {
   });
 
   // AECI-1265 B2: the panel line and the Plans list, as approved 2026-10-09.
-  it('quotes the reworded plan panel line and the What no plan changes list', () => {
+  it('quotes the reworded plan panel line and the Why buyers trust the order list', () => {
     const page = getDocsPage('vendors', 'plans')!;
     const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
     expect(text).toContain(

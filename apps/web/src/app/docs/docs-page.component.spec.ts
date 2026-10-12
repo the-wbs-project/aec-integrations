@@ -134,4 +134,38 @@ describe('DocsPageComponent', () => {
     );
     expect(host.querySelector('h1')?.textContent?.trim()).toBe('Requests and corrections');
   });
+
+  // The Plans page places its pricing cards and comparison table between prose
+  // runs, outside .aec-prose, so the prose table and list rules do not reach it.
+  it('renders the plans comparison on the Plans page only, outside the prose', () => {
+    const { host } = render('vendors', 'plans');
+    const widget = host.querySelector('app-docs-plans-comparison');
+    expect(widget).not.toBeNull();
+    expect(widget!.closest('.aec-prose')).toBeNull();
+    expect(widget!.querySelectorAll('.aec-plan-card')).toHaveLength(2);
+    expect(widget!.querySelector('table caption')?.textContent?.trim()).toBe(
+      'What each plan includes',
+    );
+    // The prose on both sides of it still renders, headings with ids.
+    expect(host.querySelector('h2#compare-plans')).not.toBeNull();
+    expect(host.querySelector('h2#what-every-plan-includes')).not.toBeNull();
+
+    // The calls to action: the top row, the Getting Managed panel, the rail
+    // card and the phone bar. Plans only.
+    expect(host.querySelector('app-docs-plans-actions')?.closest('.aec-prose')).toBeNull();
+    expect(host.querySelector('app-docs-plans-cta-panel')?.closest('.aec-prose')).toBeNull();
+    expect(host.querySelector('app-docs-plans-rail')).not.toBeNull();
+    expect(host.querySelector('app-docs-plans-mobile-bar')).not.toBeNull();
+
+    const other = render('vendors', 'your-seat').host;
+    for (const tag of [
+      'app-docs-plans-comparison',
+      'app-docs-plans-actions',
+      'app-docs-plans-cta-panel',
+      'app-docs-plans-rail',
+      'app-docs-plans-mobile-bar',
+    ]) {
+      expect(other.querySelector(tag), tag).toBeNull();
+    }
+  });
 });

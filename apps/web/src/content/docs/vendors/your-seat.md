@@ -62,7 +62,7 @@ On every plan, including Free, you can:
 
 - see everything in the vendor portal,
 - edit your company details, and each product's description, website, logo and categories,
-- mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Plans](/docs/vendors/plans)),
+- mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Your checklists](/docs/vendors/checklists)),
 - manage seats, if you are an owner,
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
