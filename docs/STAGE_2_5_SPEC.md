@@ -128,10 +128,11 @@ Three planned surfaces overlap, and without a rule they duplicate:
 - [ ] The public-site screen-reader pass (AECI-244) logged — **the machine half is done** (`docs/ACCESSIBILITY_AUDIT.md`, 2026-09-09); what gates this box is the VoiceOver/NVDA run and its §4 run-log entry. The defects it found are **Stage 3** (AECI-829…832), so they do not gate 2.5. The four-doc de-stale sweep merged.
 - [ ] `/methodology` live, indexable and in the sitemap, with every assertion on it traceable to shipped behaviour (§7.1).
 - [ ] The vendor Performance page live for vendors with active analytics access, its measurement foundation (AECI-930) and search-console channel (AECI-931) shipped, and the privacy-policy sentence published in the same release as the page (§10, `VENDOR_PERFORMANCE_SPEC.md`).
+- [ ] `/vendor-program` live and indexable, with its publication-day facts checked (§14, `VENDOR_PROGRAM_PAGE_SPEC.md` §12).
 
 ## 9. Out of scope
 
-Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly five named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation; the logo controls in §11, admitted 2026-09-15 under AECI-955; the vendor-authored "How teams use it" block in §12, admitted 2026-09-16 by operator decision under AECI-963; and the two connector-lane public surfaces in §13, placed here 2026-09-23 by operator decision.
+Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly six named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation; the logo controls in §11, admitted 2026-09-15 under AECI-955; the vendor-authored "How teams use it" block in §12, admitted 2026-09-16 by operator decision under AECI-963; the two connector-lane public surfaces in §13, placed here 2026-09-23 by operator decision; and the public vendor landing page in §14, admitted 2026-10-12 by operator decision.
 
 **Not out of scope, but not *in* Stage 2.5 either:** the Product Docs / Help Center (**AECI-634**) is **Stage 2 work** (`STAGE_2_SPEC.md` §2.6) that runs in the same calendar window — it was always sequenced after vendor-portal testing settles, and it must ship **before vendors are asked to do the work and pay**, because that ask has to come with support. Stage 2.5 neither blocks it nor absorbs it; the one touchpoint is §2 step 3 (the ranking-method page prefers the `/docs` trust section as its home).
 
@@ -241,3 +242,13 @@ The editor stages into a dirty-diff rather than persisting on close, because a s
 | **AECI-716** | Reachable-lane publication: the endpoint summary line and curated pair pages for undelivered pairs, with a connector comparison. Verify that two connectors reach each candidate pair before building. | It is a new public catalog surface. It fails the `STAGE_2_1_SPEC.md` §1 admission test. |
 
 Both stay children of AECI-771. The epic itself stays in Stage 2.1, with AECI-724, AECI-769, AECI-710, AECI-711 and AECI-928 (`STAGE_2_1_SPEC.md` §3.3.2). The epic's gate, Epics 1 to 4 closing, was met on 2026-09-22. The contract for both surfaces is `STAGE_1_5_SPEC.md` §13.7 (the reachable-lane boundary), with §13.6 for the AECI-715 host page.
+
+## 14. Vendor program page (admitted 2026-10-12)
+
+**The sixth admitted exception to §9's "no new surface area"** (epic **AECI-1281**). It is admitted by operator decision on 2026-10-12, not under one of the four §1 tests. Stage 2.1 cannot hold it: it is a new public page, not a refinement of the vendor surface, so it fails the `STAGE_2_1_SPEC.md` §1 admission test.
+
+The exception is **one public page**, `/vendor-program`. It asks vendors to claim their listing and to talk to us about Managed. It also covers the shared call-to-action components it splits out of the `/docs/vendors/plans` page, the small deltas on that page, and one browser-only read of `GET /api/vendor/me` for signed-in variants. It adds no write, no table and no endpoint.
+
+The build contract is **`docs/VENDOR_PROGRAM_PAGE_SPEC.md`**. Its §1.1 records the six decisions settled on 2026-10-12, its §1.2 records where the marketing draft and the code disagreed, and its §14 maps the issues.
+
+One rule is restated here because a sales page is where it is most likely to bend: nothing on the page may suggest that a plan affects ranking, placement, review publication or agreement labels (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
