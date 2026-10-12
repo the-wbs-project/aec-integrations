@@ -668,7 +668,7 @@ describe('docs manifest', () => {
   // AECI-1266: the claim button reads the same on every listing, so the page names
   // one button and says a colleague joining uses it too.
   it('names one claim button and covers a colleague joining', () => {
-    const page = getDocsPage('for-vendors', 'claiming-your-listing')!;
+    const page = getDocsPage('vendors', 'claiming-your-listing')!;
     const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
     expect(text).not.toContain('Request access');
     expect(text).toContain('when a colleague already has a seat');
