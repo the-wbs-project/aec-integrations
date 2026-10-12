@@ -69,4 +69,16 @@ describe('AdminClaimsApi', () => {
     req.flush({ request: { id: 'a/b' }, grant: null });
     await promise;
   });
+
+  it('GETs /api/admin/claims/:id/audit with the page params (AECI-1276)', async () => {
+    const promise = api.listAudit('a/b', { page: 2, perPage: 25 });
+    const req = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === '/api/admin/claims/a%2Fb/audit',
+    );
+    expect(req.request.params.get('page')).toBe('2');
+    expect(req.request.params.get('perPage')).toBe('25');
+    const body = { data: [], page: 2, perPage: 25, total: 0, actor_emails_available: true };
+    req.flush(body);
+    await expect(promise).resolves.toEqual(body);
+  });
 });

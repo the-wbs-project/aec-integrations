@@ -319,8 +319,9 @@ export const routes: Routes = [
       },
       // AECI-739 — the claim detail page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
       // step 6): where the operator note is written and the queue's duplicate chip
-      // is explained. Same flat-child shape and the same reasoning as the vendor
-      // and user pairs below — its sections are read together, so a route per
+      // is explained. AECI-1276 added its audit trail as a sixth section. Same
+      // flat-child shape and the same reasoning as the vendor and user pairs
+      // below — its sections are read together, so a route per
       // section would buy nothing but resolvers, and `adminSummaryResolver` on the
       // parent is the gate. NOT in `ADMIN_NAV_GROUPS`: a parameterised route has no
       // nav-able URL.

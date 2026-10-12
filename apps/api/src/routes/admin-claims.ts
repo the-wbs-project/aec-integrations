@@ -11,6 +11,7 @@
  *   GET   /api/admin/claims           — the review queue (AECI-521 / §5).
  *   GET   /api/admin/claims/:id       — one claim (AECI-739 / §5.2 step 6).
  *   PATCH /api/admin/claims/:id/notes — write/clear the operator note (AECI-739).
+ *   GET   /api/admin/claims/:id/audit — the claim's audit trail (AECI-1276).
  *
  * ── THE OPERATOR NOTE (AECI-739 / §5.2 step 6) ────────────────────────────────
  * §5.2 tells an operator to PARK a pure-connector vendor's claim as `open` and
@@ -66,6 +67,8 @@
  */
 
 import {
+  AdminClaimAuditQuerySchema,
+  AdminClaimAuditResponseSchema,
   AdminClaimDetailSchema,
   ApiErrorCode,
   ListVendorClaimsQuerySchema,
@@ -94,6 +97,7 @@ import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import {
+  auditLog,
   productVendors,
   profiles,
   vendorEntitlements,
@@ -101,6 +105,7 @@ import {
   vendors,
   workflowInstances,
 } from '../db/schema';
+import { readAdminAuditPage, type FetchAuthEmails } from '../lib/admin-audit-page';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -1521,6 +1526,51 @@ export function createSaveClaimNotesHandler(
       AdminClaimDetailSchema.parse(body);
     });
 
+    return json(body);
+  };
+}
+
+/**
+ * `GET /api/admin/claims/:id/audit` — the claim's audit trail (AECI-1276).
+ *
+ * The note's help text on `/admin/claims/:id` says every version is kept in the
+ * audit trail. This is where an admin reads it without leaving the claim.
+ *
+ * Gated by `loadClaimRow`, so an unknown id is 404 and a correction is 422, the
+ * same answers the detail GET gives. Without the gate an unknown id would return
+ * an empty page, which reads as "no history" rather than "no such claim".
+ *
+ * ONE disjunct: `entity_type = 'vendor_request'` and the claim id. Every claim
+ * writer files there (`vendor_request.created`, `vendor_claim.note_updated`,
+ * `vendor_claim.granted`, `vendor_claim.rejected`), and so does the Linear
+ * webhook's `vendor_request.status_changed` (actor `null`). A Managed grant's
+ * `vendor_entitlement.granted` row is filed against the vendor and stays on the
+ * vendor's audit tab.
+ *
+ * Read-only, so no `audit_log` row and no rate limit.
+ */
+export function createAdminClaimAuditHandler(
+  dbFor: DbFactory = getDb,
+  fetchEmails: FetchAuthEmails = fetchAuthUserEmailsResult,
+): (c: ClaimContext) => Promise<Response> {
+  return async (c) => {
+    const id = c.req.param('id');
+    if (!id) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing claim id', { field: 'id' });
+    }
+    const query = AdminClaimAuditQuerySchema.parse(
+      Object.fromEntries(new URL(c.req.url).searchParams),
+    );
+
+    const { db } = dbFor(c.env);
+    await loadClaimRow(db, id);
+
+    const where = and(eq(auditLog.entityType, 'vendor_request'), eq(auditLog.entityId, id));
+    const body = await readAdminAuditPage(db, c.env, where, query, fetchEmails);
+
+    validateResponseInDev(c.env, () => {
+      AdminClaimAuditResponseSchema.parse(body);
+    });
     return json(body);
   };
 }

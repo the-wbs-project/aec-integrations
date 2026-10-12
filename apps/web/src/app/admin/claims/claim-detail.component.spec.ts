@@ -8,6 +8,9 @@
  * mapping, the duplicate explanation in both its states, and the structural
  * invariants axe relies on: heading order and the single polite live region.
  *
+ * AECI-1276 adds the audit trail: it loads after the claim, refetches after a
+ * note save, is skipped on 404/422, and fails soft without hiding the claim.
+ *
  * **404 and 422 are asserted separately on purpose.** The API distinguishes an
  * unknown id from a `kind='correction'` id, and a page that collapsed both into
  * "not found" would send an operator looking for a row that exists.
@@ -21,7 +24,12 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
+import type {
+  AdminAuditRow,
+  AdminClaimAuditResponse,
+  AdminClaimDetail,
+  ClaimDuplicateSibling,
+} from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
 import { ClaimDetail } from './claim-detail';
@@ -83,6 +91,28 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
 interface ApiMock {
   getClaim: ReturnType<typeof vi.fn>;
   saveNotes: ReturnType<typeof vi.fn>;
+  listAudit: ReturnType<typeof vi.fn>;
+}
+
+const ADMIN_ID = '00000000-0000-4000-8000-0000000000aa';
+
+function makeAuditRow(over: Partial<AdminAuditRow> = {}): AdminAuditRow {
+  return {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    action: 'vendor_request.created',
+    actor: null,
+    actor_type: 'user',
+    entity_type: 'vendor_request',
+    entity_id: CLAIM_ID,
+    created_at: '2026-06-01T00:00:00.000Z',
+    before_state: null,
+    after_state: { status: 'open' },
+    ...over,
+  };
+}
+
+function makeAudit(rows: AdminAuditRow[] = [makeAuditRow()]): AdminClaimAuditResponse {
+  return { data: rows, page: 1, perPage: 25, total: rows.length, actor_emails_available: true };
 }
 
 /**
@@ -93,8 +123,16 @@ interface ApiMock {
  * so an `instanceof Error` discriminator silently returns the error object AS the
  * claim and the page renders a blank success. Ask for a failure explicitly.
  */
-function makeApiMock(detail: AdminClaimDetail, failWith?: HttpErrorResponse): ApiMock {
+function makeApiMock(
+  detail: AdminClaimDetail,
+  failWith?: HttpErrorResponse,
+  audit: AdminClaimAuditResponse | HttpErrorResponse = makeAudit(),
+): ApiMock {
   return {
+    listAudit: vi.fn(async () => {
+      if (audit instanceof HttpErrorResponse) throw audit;
+      return structuredClone(audit);
+    }),
     getClaim: vi.fn(async () => {
       if (failWith) throw failWith;
       return structuredClone(detail);
@@ -302,6 +340,36 @@ describe('ClaimDetail', () => {
       expect(api.getClaim).toHaveBeenCalledTimes(1);
     });
 
+    it('refetches the audit trail on page 1 after a save (AECI-1276)', async () => {
+      const api = makeApiMock(makeDetail());
+      const { el, fixture } = await setup(api);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+
+      api.listAudit.mockResolvedValueOnce(
+        makeAudit([
+          makeAuditRow({
+            id: '00000000-0000-4000-8000-0000000000a2',
+            action: 'vendor_claim.note_updated',
+            actor: { id: ADMIN_ID, display_name: 'Ops Admin', email: 'ops@aeci.test' },
+            actor_type: 'admin',
+            created_at: '2026-06-02T00:00:00.000Z',
+            before_state: { admin_notes: null },
+            after_state: { admin_notes: 'Parked.' },
+          }),
+          makeAuditRow(),
+        ]),
+      );
+      await typeNote(fixture, el, 'Parked.');
+      buttonByText(el, 'Save note').click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.listAudit).toHaveBeenCalledTimes(2);
+      expect(api.listAudit).toHaveBeenLastCalledWith(CLAIM_ID, { page: 1, perPage: 25 });
+      expect(el.querySelector('aec-audit-trail')?.textContent).toContain('Ops Admin');
+    });
+
     it('sends null when the field is emptied — "clear" and "blank" are one action', async () => {
       const { el, fixture, api } = await setup(makeApiMock(makeDetail({ admin_notes: 'Parked.' })));
       await typeNote(fixture, el, '   ');
@@ -383,6 +451,68 @@ describe('ClaimDetail', () => {
 
     const inReview = await setup(makeApiMock(makeDetail({ status: 'in_review' })));
     expect(inReview.el.textContent).toContain('This claim is in review');
+  });
+
+  describe('audit trail (AECI-1276)', () => {
+    it("loads the claim's trail and renders it under its own heading", async () => {
+      const { el, api } = await setup(makeApiMock(makeDetail()));
+      expect(api.listAudit).toHaveBeenCalledWith(CLAIM_ID, { page: 1, perPage: 25 });
+      expect(el.querySelector('#admin-claim-audit')?.textContent?.trim()).toBe('Audit trail');
+      const trail = el.querySelector('aec-audit-trail');
+      expect(trail).not.toBeNull();
+      expect(trail?.querySelectorAll('tbody tr').length).toBeGreaterThan(0);
+    });
+
+    it("links the vendor's audit trail when the claim's vendor is known", async () => {
+      const { el } = await setup(makeApiMock(makeDetail()));
+      const hrefs = [...el.querySelectorAll('#admin-claim-audit ~ p a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(hrefs).toContain(`/admin/vendors/${VENDOR_ID}`);
+    });
+
+    it('omits the vendor link when no vendor resolved', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ entitlement_vendor: null })));
+      expect(el.querySelectorAll('#admin-claim-audit ~ p a')).toHaveLength(0);
+    });
+
+    it('fails soft: the claim, signals and note still render beside the retry', async () => {
+      const { el } = await setup(
+        makeApiMock(makeDetail(), undefined, new HttpErrorResponse({ status: 500 })),
+      );
+      expect(el.textContent).toContain('Procore');
+      expect(el.querySelector('#admin-claim-signals')).not.toBeNull();
+      expect(el.querySelector('#admin-claim-note-field')).not.toBeNull();
+      const trail = el.querySelector('aec-audit-trail') as HTMLElement;
+      expect(trail.querySelector('[role="alert"]')).not.toBeNull();
+      expect(buttonByText(trail, 'Try again')).toBeTruthy();
+      // The page-level failure state is not shown.
+      expect(el.textContent).not.toContain("We couldn't load this claim");
+    });
+
+    it('retries the trail alone', async () => {
+      const api = makeApiMock(makeDetail(), undefined, new HttpErrorResponse({ status: 500 }));
+      const { el, fixture } = await setup(api);
+      api.listAudit.mockResolvedValueOnce(makeAudit());
+      buttonByText(el.querySelector('aec-audit-trail') as HTMLElement, 'Try again').click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      expect(api.listAudit).toHaveBeenCalledTimes(2);
+      expect(api.getClaim).toHaveBeenCalledTimes(1);
+      expect(el.querySelector('aec-audit-trail [role="alert"]')).toBeNull();
+    });
+
+    it('does not fetch a trail on 404 or 422', async () => {
+      const missing = await setup(
+        makeApiMock(makeDetail(), new HttpErrorResponse({ status: 404 })),
+      );
+      expect(missing.api.listAudit).not.toHaveBeenCalled();
+      const correction = await setup(
+        makeApiMock(makeDetail(), new HttpErrorResponse({ status: 422 })),
+      );
+      expect(correction.api.listAudit).not.toHaveBeenCalled();
+    });
   });
 
   describe('the has_auth_account signal is worded for the claim status (AECI-1278)', () => {

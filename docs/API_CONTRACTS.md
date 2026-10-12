@@ -2192,6 +2192,37 @@ Errors:
 - `NOT_FOUND` (404) — unknown request id.
 - Plus the shared `requireAdmin()` 401/403.
 
+#### `GET /api/admin/claims/:id/audit` (Stage 2 — AECI-1276)
+
+**The claim's audit trail.** It backs the Audit trail section on `/admin/claims/:id`.
+Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin-claims.ts`,
+`apps/api/src/routes/admin-claims.ts`, and the shared page reader
+`apps/api/src/lib/admin-audit-page.ts`.
+
+```typescript
+export const AdminClaimAuditQuerySchema = PageQuerySchema; // ?page=&perPage=
+export const AdminClaimAuditResponseSchema = paginatedResponseSchema(AdminAuditRowSchema).extend({
+  actor_emails_available: z.boolean(), // false = the email seam failed, not "no email"
+});
+```
+
+**Filter.** `entity_type = 'vendor_request' AND entity_id = :id`, off `audit_log_entity_idx`.
+Every claim writer files there: `vendor_request.created`, `vendor_claim.note_updated`,
+`vendor_claim.granted` and `vendor_claim.rejected`. The Linear webhook's status move
+(`vendor_request.status_changed`, actor `null`) files there too. Order is
+`created_at DESC, id DESC`.
+A Managed grant's `vendor_entitlement.granted` row is filed against the vendor. It shows on
+`GET /api/admin/vendors/:id/audit`, not here. The public submission row
+(`vendor_request.created`) has no actor id, so its `actor` is `null`.
+
+**A read.** No `audit_log` row and no rate limit. The page reader is the same one
+`GET /api/admin/connector-catalogs/:id/audit` uses, so the two trails cannot drift.
+
+Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as
+`GET /api/admin/claims/:id`. Without the 404 gate an unknown id would return an empty page,
+which reads as "no history" rather than "no such claim". Plus `VALIDATION_FAILED` (400) on a
+bad page query, and the shared 401/403.
+
 #### `PATCH /api/admin/claims/:id/notes` (Stage 2 — AECI-739)
 
 Write or clear the **operator note** on a claim. Behind `requireAdmin()`. Audited into
@@ -2217,7 +2248,8 @@ already-granted claim, and NOT the 422 `PATCH /api/admin/vendors/:id/entitlement
 (that gate rejects invalid *state transitions*; text that did not change is not one). It
 matters because **the audit rows ARE the note's history**: each write records the full old
 and new note in `before_state` / `after_state`, so a trail of identical states would
-degrade the very record this endpoint exists to keep. Blank and `null` are the same
+degrade the very record this endpoint exists to keep. That history shows on the claim page itself
+through `GET /api/admin/claims/:id/audit` (AECI-1276). Blank and `null` are the same
 action — the note trims to `null` — so "empty the box and save" cannot produce a note made
 of spaces.
 

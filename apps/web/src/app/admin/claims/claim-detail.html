@@ -491,5 +491,50 @@
     </div>
   </section>
 
+  <!--
+    ── 5. Audit trail (AECI-1276) ──────────────────────────────────────────────
+    The claim's own rows: filed, every note change, the decision. This is the
+    history the note help text promises. The table is the shared, display-only
+    trail component, so this page owns the heading and the fetch. A trail
+    failure shows the component's own retry and never hides the claim above.
+  -->
+  <section class="mt-6" aria-labelledby="admin-claim-audit">
+    <h3
+      id="admin-claim-audit"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.claims.detail.audit.heading"
+    >
+      Audit trail
+    </h3>
+
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.claims.detail.audit.intro">
+      This claim's history, newest first: when it was filed, every note change, and the decision.
+      Opening it records nothing. A Managed approval also writes an entitlement row against the
+      vendor, and that row shows on the vendor's audit trail, not here.
+    </p>
+    @if (c.entitlement_vendor; as v) {
+    <p class="mt-1 text-sm">
+      <a
+        [routerLink]="['/admin/vendors', v.id]"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.claims.detail.audit.vendorLink"
+        >Open the vendor's audit trail</a
+      >
+    </p>
+    }
+
+    <aec-audit-trail
+      [rows]="auditRows()"
+      [page]="auditPage()"
+      [perPage]="auditPerPage"
+      [total]="auditTotal()"
+      [loading]="auditLoading()"
+      [failed]="auditFailed()"
+      [emailsAvailable]="auditEmailsAvailable()"
+      (pageChange)="goToAuditPage($event)"
+      (retry)="retryAudit()"
+    />
+  </section>
+
   }
 </section>

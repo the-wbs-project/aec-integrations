@@ -12,7 +12,8 @@
  * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
  * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, by
  * AECI-722 with the five `/api/admin/connector-catalogs` reads, by AECI-739 with
- * `GET /api/admin/claims/:id`, by AECI-859 with `GET /api/admin/subscribers`, by
+ * `GET /api/admin/claims/:id`, by AECI-1276 with `GET /api/admin/claims/:id/audit`,
+ * by AECI-859 with `GET /api/admin/subscribers`, by
  * AECI-1008 with `GET /api/admin/contests`, by AECI-1177 with
  * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, and by
  * AECI-1188 with `GET /api/admin/reindex/submissions`.
@@ -40,7 +41,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
-import { createAdminClaimDetailHandler } from './admin-claims';
+import { createAdminClaimAuditHandler, createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminContestsListHandler } from './admin-contests';
 import { createAdminReviewResponsesListHandler } from './admin-review-responses';
 import { createAdminEmailSendsHandler, createAdminEmailSummaryHandler } from './admin-email';
@@ -163,6 +164,8 @@ const ROUTES = [
   // not: this file is `get()`-shaped, and a write belongs with the rest of its
   // write semantics (`admin-claims.spec.ts`).
   { name: 'GET /api/admin/claims/:id', url: `/api/admin/claims/${CLAIM}` },
+  // AECI-1276 — the claim's audit trail on the same page. A read.
+  { name: 'GET /api/admin/claims/:id/audit', url: `/api/admin/claims/${CLAIM}/audit` },
   // AECI-946 — the §5.11 re-index worklist. ONE read; the Done button's DELETE
   // is not here, for the same reason as the vendor DELETE and the AECI-720
   // PATCH above: this file is `get()`-shaped, and a write belongs with the rest
@@ -339,6 +342,13 @@ function makeApp() {
     '/api/admin/claims/:id',
     requireAdmin(guard),
     createAdminClaimDetailHandler(t.factory, noAuthAccounts),
+  );
+  // AECI-1276. The audit read takes the email seam second, like the connector
+  // audit, so it gets `noEmails` for the same reason.
+  app.get(
+    '/api/admin/claims/:id/audit',
+    requireAdmin(guard),
+    createAdminClaimAuditHandler(t.factory, noEmails),
   );
   app.get('/api/admin/reindex', requireAdmin(guard), createAdminReindexListHandler(t.factory));
   app.get(

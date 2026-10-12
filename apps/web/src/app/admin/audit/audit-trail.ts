@@ -25,11 +25,11 @@ interface AuditRowView {
 /**
  * The `audit_log` viewer, as a table (AECI-694).
  *
- * Extracted from `/admin/vendors/:id`, which is still its only caller and still
- * the platform's only read surface over `audit_log`. It is a component rather
- * than markup in that page because "audit trail" is a shape the console will
- * want again (a user, a product, a request all have trails worth reading), and
- * the next one should be a drop-in rather than a second divergent renderer.
+ * Extracted from `/admin/vendors/:id`. Since then `/admin/connectors/:id`
+ * (AECI-722) and `/admin/claims/:id` (AECI-1276) render it too. It is a
+ * component rather than markup in one page because "audit trail" is a shape the
+ * console keeps wanting, and each new one should be a drop-in rather than a
+ * second divergent renderer.
  *
  * ── PRESENTATION ONLY ────────────────────────────────────────────────────────
  * It owns the table, the collapsed diffs and the paginator; it owns no fetching
