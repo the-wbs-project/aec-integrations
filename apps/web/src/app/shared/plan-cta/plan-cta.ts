@@ -8,7 +8,8 @@
  *  - `top`        the button pair (`PlanCtaActionsComponent`): under the docs
  *                 intro, in the vendor program hero.
  *  - `card`       the plan cards' buttons (`plan-cards.ts`).
- *  - `rail`       a small sticky card (`PlanCtaRailComponent`).
+ *  - `rail`       a small sticky card (`PlanCtaRailComponent`), on the docs Plans
+ *                 page only. The vendor program page uses its full width instead.
  *  - `mobile_bar` a slim bar fixed to the bottom of the screen below `lg`
  *                 (`PlanCtaMobileBarComponent`). It shows only once the top pair
  *                 has scrolled away, and hides while a full call to action is on
@@ -186,72 +187,99 @@ export class PlanCtaActionsComponent extends PlanCtaWithClaim {}
   template: `
     <section
       class="rounded-(--radius-lg) bg-(--accent-primary) px-6 py-7 text-(--surface-base) sm:px-8"
+      [class.lg:grid]="split()"
+      [class.lg:grid-cols-12]="split()"
+      [class.lg:items-center]="split()"
+      [class.lg:gap-x-12]="split()"
+      [class.lg:px-10]="split()"
+      [class.lg:py-10]="split()"
       aria-labelledby="plans-cta-heading"
     >
-      @if (headingLevel() === 2) {
-        <h2 id="plans-cta-heading" class="aec-plan-cta-heading" i18n="@@app.docs.plans.cta.heading">
-          Tell the full story of your product
-        </h2>
-      } @else {
-        <h3 id="plans-cta-heading" class="aec-plan-cta-heading" i18n="@@app.docs.plans.cta.heading">
-          Tell the full story of your product
-        </h3>
-      }
-      <p class="mt-2 max-w-[34rem] leading-relaxed">
-        <span>{{ terms }}</span>
-        {{ ' ' }}
-        <span i18n="@@app.docs.plans.cta.safety"
-          >If a plan ends, nothing you entered is removed.</span
-        >
-      </p>
-      @if (!hideManaged() || showClaim()) {
-        <div class="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
-          @if (!hideManaged()) {
-            <a
-              [href]="contactHref"
-              aecPlanInquiryTrigger="bottom"
-              [aecPlanInquiryPage]="page()"
-              (click)="track('managed', 'bottom')"
-              class="inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto"
-              i18n="@@app.docs.plans.cta.managed"
-              >Talk to us about Managed</a
-            >
-          }
-          @if (showClaim()) {
-            @if (portal()) {
+      <div [class.lg:col-span-6]="split()" [class.xl:col-span-7]="split()">
+        @if (headingLevel() === 2) {
+          <h2
+            id="plans-cta-heading"
+            class="aec-plan-cta-heading"
+            i18n="@@app.docs.plans.cta.heading"
+          >
+            Tell the full story of your product
+          </h2>
+        } @else {
+          <h3
+            id="plans-cta-heading"
+            class="aec-plan-cta-heading"
+            i18n="@@app.docs.plans.cta.heading"
+          >
+            Tell the full story of your product
+          </h3>
+        }
+        <p class="mt-2 max-w-[34rem] leading-relaxed">
+          <span>{{ terms }}</span>
+          {{ ' ' }}
+          <span i18n="@@app.docs.plans.cta.safety"
+            >If a plan ends, nothing you entered is removed.</span
+          >
+        </p>
+      </div>
+      <div [class.lg:col-span-6]="split()" [class.xl:col-span-5]="split()">
+        @if (!hideManaged() || showClaim()) {
+          <div
+            class="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6"
+            [class.lg:mt-0]="split()"
+            [class.lg:flex-col]="split()"
+            [class.lg:items-start]="split()"
+            [class.xl:flex-row]="split()"
+            [class.xl:items-center]="split()"
+          >
+            @if (!hideManaged()) {
               <a
-                [routerLink]="portalPath"
-                class="text-base font-medium text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)"
-                i18n="@@planCta.portal"
-                >Go to your portal</a
-              >
-            } @else {
-              <a
-                [routerLink]="claimPath()"
-                [fragment]="claimFragment()"
-                (click)="track('free', 'bottom')"
-                class="text-base font-medium text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)"
-                i18n="@@app.docs.plans.cta.claimFree"
-                >Claim your listing free</a
+                [href]="contactHref"
+                aecPlanInquiryTrigger="bottom"
+                [aecPlanInquiryPage]="page()"
+                (click)="track('managed', 'bottom')"
+                class="inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto"
+                i18n="@@app.docs.plans.cta.managed"
+                >Talk to us about Managed</a
               >
             }
-          }
-        </div>
-      }
-      @if (!hideManaged()) {
-        <ol class="mt-5 space-y-1.5 text-sm">
-          <li class="flex gap-2">
-            <span class="font-semibold" aria-hidden="true">1.</span>
-            <span i18n="@@app.docs.plans.cta.step1">We agree the price and the term with you.</span>
-          </li>
-          <li class="flex gap-2">
-            <span class="font-semibold" aria-hidden="true">2.</span>
-            <span i18n="@@app.docs.plans.cta.step2"
-              >We switch Managed on, and everyone with a seat sees it in the portal.</span
-            >
-          </li>
-        </ol>
-      }
+            @if (showClaim()) {
+              @if (portal()) {
+                <a
+                  [routerLink]="portalPath"
+                  class="text-base font-medium text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)"
+                  i18n="@@planCta.portal"
+                  >Go to your portal</a
+                >
+              } @else {
+                <a
+                  [routerLink]="claimPath()"
+                  [fragment]="claimFragment()"
+                  (click)="track('free', 'bottom')"
+                  class="text-base font-medium text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)"
+                  i18n="@@app.docs.plans.cta.claimFree"
+                  >Claim your listing free</a
+                >
+              }
+            }
+          </div>
+        }
+        @if (!hideManaged()) {
+          <ol class="mt-5 space-y-1.5 text-sm">
+            <li class="flex gap-2">
+              <span class="font-semibold" aria-hidden="true">1.</span>
+              <span i18n="@@app.docs.plans.cta.step1"
+                >We agree the price and the term with you.</span
+              >
+            </li>
+            <li class="flex gap-2">
+              <span class="font-semibold" aria-hidden="true">2.</span>
+              <span i18n="@@app.docs.plans.cta.step2"
+                >We switch Managed on, and everyone with a seat sees it in the portal.</span
+              >
+            </li>
+          </ol>
+        }
+      </div>
     </section>
   `,
 })
@@ -266,6 +294,12 @@ export class PlanCtaPanelComponent extends PlanCtaWithClaim {
   readonly showClaim = input(false);
   /** A Managed company: drop the Managed button and its next steps (spec §5). */
   readonly hideManaged = input(false);
+  /**
+   * From `lg`, the heading and terms on the left and the actions on the right (six
+   * and six with the actions stacked, then seven and five in a row from `xl`), so a full-width panel has no blank right half. The vendor
+   * program page sets it. The docs panel sits in the article column and does not.
+   */
+  readonly split = input(false);
 }
 
 /** The small sticky card beside the article (`placement: rail`). */

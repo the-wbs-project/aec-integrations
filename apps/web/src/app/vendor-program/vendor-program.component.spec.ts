@@ -91,7 +91,11 @@ describe('VendorProgramPage', () => {
 
     it('states no statistics in the hero', async () => {
       const { host } = await setup({ plan: stub() });
-      expect(host.querySelector('section')?.textContent).not.toMatch(/\d/);
+      // The step discs of "How claiming works" are ordinals, hidden from assistive
+      // tech (the list itself is numbered). Everything else carries no digit.
+      const hero = host.querySelector('section')!.cloneNode(true) as HTMLElement;
+      hero.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+      expect(hero.textContent).not.toMatch(/\d/);
     });
 
     it('sets indexable meta with a canonical and the absolute share card', async () => {
@@ -207,16 +211,11 @@ describe('VendorProgramPage', () => {
   });
 
   describe('calls to action (AECI-1285 placements)', () => {
-    it('mounts the hero pair, the cards, the rail, the phone bar, the panel and one inquiry host', async () => {
+    it('mounts the hero pair, the cards, the phone bar, the panel and one inquiry host', async () => {
       const { host } = await setup({ plan: stub() });
       const hero = host.querySelector('section')!;
       expect(hero.querySelector('aec-plan-cta-actions')).not.toBeNull();
-      for (const tag of [
-        'aec-plan-cards',
-        'aec-plan-cta-rail',
-        'aec-plan-cta-mobile-bar',
-        'aec-plan-cta-panel',
-      ]) {
+      for (const tag of ['aec-plan-cards', 'aec-plan-cta-mobile-bar', 'aec-plan-cta-panel']) {
         expect(host.querySelectorAll(tag), tag).toHaveLength(1);
       }
       expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
@@ -246,14 +245,29 @@ describe('VendorProgramPage', () => {
     it('opens every Managed ask as the vendor program page', async () => {
       const { host } = await setup({ plan: stub() });
       const managed = links(host, 'Talk to us about Managed');
-      // Hero, Managed card, closing panel. The rail and bar say "Talk to us".
+      // Hero, Managed card, closing panel. The phone bar says "Talk to us".
       expect(managed).toHaveLength(3);
       for (const a of managed) expect(a.getAttribute('href')).toBe('/contact?topic=managed');
     });
 
-    it('keeps the rail hidden until the hero scrolls away', async () => {
+    // Full width at desktop (spec section 11, 2026-10-12): no rail, so no column is
+    // reserved beside the sections, and the closing panel splits across the width.
+    it('mounts no rail and reserves no rail column', async () => {
       const { host } = await setup({ plan: stub() });
-      expect(host.querySelector('[data-testid="vp-rail"]')?.classList).toContain('invisible');
+      expect(host.querySelector('aec-plan-cta-rail')).toBeNull();
+      expect(host.querySelector('[data-testid="vp-rail"]')).toBeNull();
+      expect(host.innerHTML).not.toContain('13rem');
+      const panel = host.querySelector('aec-plan-cta-panel section')!;
+      expect(panel.classList).toContain('lg:grid-cols-12');
+    });
+
+    it('shows how claiming works beside the hero copy from lg', async () => {
+      const { host } = await setup({ plan: stub() });
+      const how = host.querySelector('section [data-testid="vp-how"]')!;
+      expect(text(how.querySelector('#vp-how-heading'))).toBe('How claiming works');
+      expect(how.querySelectorAll('ol > li')).toHaveLength(3);
+      // Not a section heading: the page keeps one h1, then one h2 per section.
+      expect(how.querySelector('h1, h2, h3')).toBeNull();
     });
   });
 
@@ -262,7 +276,6 @@ describe('VendorProgramPage', () => {
       const { host } = await setup({ plan: stub('signed-out') });
       expect(links(host, 'Go to your portal')).toHaveLength(0);
       expect(links(host, 'Claim your listing free')).toHaveLength(3);
-      expect(host.querySelector('aec-plan-cta-rail aside')).not.toBeNull();
     });
 
     it('a Free vendor seat: claim links become "Go to your portal", Managed asks stay', async () => {
@@ -272,13 +285,11 @@ describe('VendorProgramPage', () => {
       expect(portal).toHaveLength(3);
       for (const a of portal) expect(a.getAttribute('href')).toBe('/vendor');
       expect(links(host, 'Talk to us about Managed')).toHaveLength(3);
-      expect(host.querySelector('aec-plan-cta-rail aside')).not.toBeNull();
     });
 
-    it('a Managed vendor seat: also no rail, and no Managed button in the panel', async () => {
+    it('a Managed vendor seat: also no Managed button in the panel', async () => {
       const { host } = await setup({ plan: stub('managed') });
       expect(links(host, 'Go to your portal')).toHaveLength(3);
-      expect(host.querySelector('aec-plan-cta-rail aside')).toBeNull();
       const panel = host.querySelector('aec-plan-cta-panel')!;
       expect(links(panel as HTMLElement, 'Talk to us about Managed')).toHaveLength(0);
       // The hero and the Managed card keep theirs (spec section 5 lists only three).

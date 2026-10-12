@@ -170,16 +170,51 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await expect(page.locator('aec-plan-cta-panel')).toBeInViewport();
   });
 
-  test('the rail shows on desktop once the hero has scrolled away', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-    const rail = page.locator('[data-testid="vp-rail"]');
-    await expect(rail).toBeHidden();
-    await page.locator('#vp-managed').evaluate((el) => el.scrollIntoView({ block: 'start' }));
-    await expect(rail).toBeVisible();
-    await expect(rail.getByRole('link', { name: 'Talk to us' })).toBeVisible();
-  });
+  // Full width at desktop (spec section 11, 2026-10-12): no rail, and no section
+  // leaves the right half of the container blank.
+  for (const width of [1024, 1280, 1440]) {
+    test(`at ${width}px every section reaches the right half, with no rail`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/vendor-program');
+      await waitForHydrationSettle(page);
+      await expect(page.locator('aec-plan-cta-rail')).toHaveCount(0);
+
+      const reach = await page.evaluate(() => {
+        const hero = document.querySelector('aec-vendor-program section')!;
+        const sections = [
+          hero,
+          ...document.querySelectorAll(
+            '#vp-problem, #find-your-product, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
+          ),
+        ];
+        const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();
+        const left = container.left + 32;
+        const inner = container.width - 64;
+        return sections.map((section) => {
+          // The right edge of the furthest visible text or control in the section.
+          let right = 0;
+          const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const node = walker.currentNode;
+            if (!node.textContent?.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) right = Math.max(right, rect.right);
+          }
+          for (const el of section.querySelectorAll('input, a, summary, [data-testid="vp-how"]')) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0) right = Math.max(right, rect.right);
+          }
+          return { id: section.id || section.tagName, share: (right - left) / inner };
+        });
+      });
+      for (const { id, share } of reach) {
+        expect(share, `${id} stops at ${Math.round(share * 100)}% of the width`).toBeGreaterThan(
+          0.75,
+        );
+      }
+    });
+  }
 
   test('Find your product: the no-JS form goes to /search', async ({ request }) => {
     const html = await (await request.get('/vendor-program')).text();
@@ -245,14 +280,26 @@ test.describe('/vendor-program Find your product (AECI-1287)', () => {
     await expect(page.getByRole('heading', { name: 'Claim this listing' })).toBeVisible();
   });
 
-  test('a miss says the products may already be listed, and links to contact', async ({ page }) => {
+  test('a miss says the products may already be listed, and asks us to add it', async ({
+    page,
+  }) => {
     await mockSearch(page);
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
 
+    const ask = page.locator('[data-testid="vp-find-ask"]');
+    await expect(ask).toHaveText("Can't find your product? Ask us to add it.");
+
     await page.getByLabel('Your product or company').fill('zzz nothing');
     const miss = page.locator('[data-testid="vp-find-miss"]');
     await expect(miss).toContainText('Your products may already be listed');
-    await expect(miss.getByRole('link', { name: 'tell us' })).toHaveAttribute('href', '/contact');
+    await expect(miss.getByRole('link', { name: 'ask us to add it' })).toHaveAttribute(
+      'href',
+      '/contact?topic=add-product',
+    );
+
+    await ask.getByRole('link', { name: 'Ask us to add it.' }).click();
+    await expect(page).toHaveURL(/\/contact\?topic=add-product$/);
+    await expect(page.getByRole('heading', { name: 'Ask us to add your product' })).toBeVisible();
   });
 });

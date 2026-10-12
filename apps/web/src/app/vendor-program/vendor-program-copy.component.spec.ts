@@ -79,7 +79,7 @@ describe('vendor program copy stays in step with /docs/vendors/plans', () => {
 
   it('What Managed adds: the lede and every line are the Plans page wording', () => {
     const host = render();
-    expectFromDocs(host.querySelector('#vp-managed > p'), 'managed lede');
+    expectFromDocs(host.querySelector('#vp-managed > div > p'), 'managed lede');
     const items = [...host.querySelectorAll('#vp-managed li')];
     expect(items).toHaveLength(7);
     items.forEach((li, i) => expectFromDocs(li, `managed ${i}`));

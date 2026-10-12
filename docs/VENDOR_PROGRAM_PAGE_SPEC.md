@@ -37,7 +37,7 @@ A public landing page for AEC software vendors at **`/vendor-program`**.
 |---|---|---|
 | URL `/vendors` | A permanent redirect to `/products` (`removedIndexRedirect`, `apps/web/src/server-runtime.ts`). The index was removed on purpose. | `/vendor-program`. |
 | Claim is "sign-in, then the claim flow" | A claim needs no account. It is per listing: `/products/:slug/claim` and `/vendors/:slug/claim`, both `RequestForm` with `kind: 'claim'`. | "Claim your listing free" scrolls to Find your product (§6). A result leads to that listing's claim form. |
-| "Submit your product" on a miss | No submission flow exists. | A miss links to `/contact`. A real flow is an open decision (§13). |
+| "Submit your product" on a miss | No submission flow exists. | "Ask us to add it" links to `/contact?topic=add-product` (§6, settled 2026-10-12). A real submission flow remains a future option (§13). |
 | Form: name, work email, company, products, message | `PlanInquirySubmitSchema` has `email`, `company` and optional `details` ("Which products, and anything we should know?"). | Reuse the form unchanged. Products go in `details`. A `name` field is an open decision (§13). |
 | Nav link "For vendors" in the site nav | `DESIGN.md` Navigation: the header row is public-directory-only, and any new item needs a re-measure (AECI-669). | Footer only (§2.4). The header link is an open decision (§13). |
 | New events `vendor_cta_clicked`, `managed_inquiry_submitted`, `claim_started`, `claim_completed`, `vendor_page_viewed` | `plan_cta_clicked`, `plan_inquiry_submitted` and `claim_requested` already ship. | Extend the existing events (§9). One new event. |
@@ -105,6 +105,20 @@ The header row gets no link (§1.2).
 
 One `h1`, then `h2` per section, in this order.
 
+**Full width at desktop (settled 2026-10-12).** No narrow column with a blank right half: fill desktop width by layout. From `lg`, every section uses the whole `max-w-7xl` container, at 1024, 1280 and 1440px alike. Prose keeps a readable measure inside its column. The layout per section:
+
+| Section | From `lg` |
+|---|---|
+| Hero | The copy and both buttons in the left seven of twelve columns. "How claiming works" in the right five: three numbered steps (find, claim, we review it), facts the FAQ already states. Not a heading. Hidden below `lg`. |
+| The problem, Find your product, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. Find your product puts the box, the "ask us to add it" line and the result card on the right. |
+| What Free gives you | The four outcomes in four columns (two from `md`). |
+| What Managed adds | A split: heading and lede in the left four columns, the seven lines as a two-column list in the right eight. |
+| Plan cards | The shared cards side by side across the full width. |
+| How listings are sorted | The Bone panel, split: heading and sort rule left, the trust line and link right. |
+| Closing panel | The Forest panel, split: heading and terms left, the buttons and next steps right (`PlanCtaPanelComponent`'s `split` input). |
+
+Phones stay one column.
+
 ---
 
 ## 4. Calls to action
@@ -125,11 +139,11 @@ Never "Get Managed", "Start now" or "Buy". There is no checkout.
 | Hero | `top` | Both buttons side by side, on the first screen on desktop and phone. Managed is filled. Claim is outlined. |
 | Plan cards | `card` | "Claim your listing free" on Free, secondary style. "Talk to us about Managed" on Managed, full card width, filled. The existing reply line sits under it. |
 | Find your product | `search_result` | "Claim this listing" on a result (§6). |
-| Rail | `rail` | Desktop: a small card, "Managed · $25 a month per product · Talk to us". It appears once the hero has scrolled away. |
+| Rail | `rail` | **Not on this page** (2026-10-12): it reserved an empty column beside every section (§3). The rail card stays on `/docs/vendors/plans`, so the `rail` placement value stays in analytics for that page. |
 | Phone bar | `mobile_bar` | Below `lg`: a slim bar fixed to the bottom. It hides while any full CTA is on screen, and it never covers the inquiry form or the closing panel. |
 | Closing panel | `bottom` | A full-width band before the footer, with the headline "Tell the full story of your product" and the line "$25 a month per product, or $250 a year, billed by invoice or purchase order. If a plan ends, nothing you entered is removed." A large Managed button, with "Claim your listing free" as a text link beside it. Under the button, the two steps already in `DocsPlansCtaPanelComponent`. |
 
-**Reuse, don't fork.** The rail, the phone bar and the closing panel already exist in `apps/web/src/app/docs/docs-plans-cta.ts`. Move them to `apps/web/src/app/shared/plan-cta/`, give them a `page` input (§9), and have both pages mount them. The phone bar's `IntersectionObserver` logic and its `data-plans-cta` contract stay as they are. Mount exactly one `aec-plan-inquiry-host` on the page.
+**Reuse, don't fork.** The rail, the phone bar and the closing panel already exist in `apps/web/src/app/docs/docs-plans-cta.ts`. Move them to `apps/web/src/app/shared/plan-cta/`, give them a `page` input (§9), and have both pages mount the phone bar and the closing panel. Only the docs page mounts the rail. The phone bar's `IntersectionObserver` logic and its `data-plans-cta` contract stay as they are. Mount exactly one `aec-plan-inquiry-host` on the page.
 
 **Annual price.** Add `MANAGED_ANNUAL_PRICE_CENTS = 25000` beside `MANAGED_LIST_PRICE_CENTS` in `packages/shared/src/entitlements.ts`. Format it with `formatPlanPrice`. Never hard-code "$250" in a template.
 
@@ -143,7 +157,7 @@ The SSR HTML is always the signed-out page. After hydration:
 |---|---|
 | Signed out, or signed in without a vendor seat | None. |
 | Vendor seat, Free company | "Claim your listing free" becomes "Go to your portal" (`/vendor`). The inquiry form prefills `company` with the vendor's name. |
-| Vendor seat, Managed company | As Free, plus the rail card, the phone bar and the closing panel's Managed button are hidden. |
+| Vendor seat, Managed company | As Free, plus the phone bar and the closing panel's Managed button are hidden. |
 
 **The probe.** Add a root-provided `VendorPlanStatus` in `apps/web/src/app/vendor/`, on the `RoleStatus` pattern (`auth/role-status.ts`):
 
@@ -160,7 +174,8 @@ The SSR HTML is always the signed-out page. After hydration:
 
 - Reuse `aec-search-autocomplete` (`apps/web/src/app/search/search-autocomplete.ts`) with its own `inputId`, a visible label, and the placeholder "Search for your product or company". It searches in the browser only, so it does not affect the cached HTML.
 - **A result.** Choosing a product or vendor hit shows a result card: the name and "Claim this listing", which links to `/products/:slug/claim` or `/vendors/:slug/claim`. It does not navigate to the listing first. The card also offers "View the listing".
-- **A miss.** Copy: "Your products may already be listed, under a different name. If you cannot find them, tell us." "Tell us" links to `/contact`.
+- **Ask us to add it (settled 2026-10-12).** Under the box, always: "Can't find your product? Ask us to add it." The link goes to `/contact?topic=add-product`. That topic shows a panel on the contact page whose button is the support `mailto:` with the subject ("Please add my product to AEC Integrations") and a prompt filled in: product name, website, and the products it integrates with. It reaches the same support mailbox as every other contact email. No API validates the topic, because it adds no field to any request. The link fires no analytics event (§9 is unchanged).
+- **A miss.** Copy: "Your products may already be listed, under a different name. If you cannot find yours, ask us to add it." "Ask us to add it" links to `/contact?topic=add-product`. The line under the box stays.
 - The no-JS fallback form goes to `/search`, as it does in the header.
 - Copy says "may already be listed", never "are already listed".
 
@@ -196,6 +211,8 @@ Extend the events that ship (`apps/web/src/app/analytics/analytics.ts`, `docs/AN
 | `vendor_product_search` | **New.** Fired once per settled non-empty query in Find your product. Properties: `results_count`. Never the query text: it can name a company before it has agreed to anything. |
 | `claim_requested` | No change. It fires when a claim form is sent, from any entry point. |
 
+"Ask us to add it" (§6) fires nothing. It is not a plan call to action, so `plan_cta_clicked` would be wrong. A `$pageview` on `/contact` whose `$current_url` carries `topic=add-product` already counts the arrivals.
+
 Not added, and why:
 
 - `vendor_page_viewed`: `$pageview` with `pathname = /vendor-program` already counts it.
@@ -224,6 +241,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 - Follow the CLAUDE.md design checklist: critique, a Mobbin anchor, craft, polish, `npx impeccable detect` against the rendered page, axe-core.
 - Use the site layout and components. Plain and trustworthy, not a SaaS hype page (`PRODUCT.md`, `DESIGN.md`). Light only.
 - Mobile first. Test at 375px first.
+- **No narrow column with a blank right half: fill desktop width by layout** (2026-10-12). At 1024, 1280 and 1440px every section reaches the right half of the `max-w-7xl` container, by split, grid or side-by-side layout, never by stretching prose to 150-character lines. §3 lists the layout per section. `apps/web/e2e/vendor-program.spec.ts` checks it at all three widths.
 - One heading order. Visible focus on the search box and every button. Button contrast meets WCAG AA. The phone bar reserves its height and never traps focus (WCAG 2.2, 2.4.11), as the docs bar already does.
 
 ---
@@ -248,7 +266,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 | 2 | A claim approval time in the FAQ? | The FAQ says we review each claim and email the result, with no time. |
 | 3 | A "For vendors" link in the header row? | Footer only. A header link needs a `DESIGN.md` change and the AECI-669 re-measure. |
 | 4 | A `name` field on plan inquiries? | No. It is a schema, migration and email-template change. |
-| 5 | A "Submit your product" flow for a product not in the catalog? | A miss links to `/contact`. |
+| 5 | A "Submit your product" flow for a product not in the catalog? | **Settled 2026-10-12:** the contact path with a topic, `/contact?topic=add-product` (§6). A real submission flow remains a future option. |
 
 ---
 

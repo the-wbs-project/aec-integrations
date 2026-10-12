@@ -26,6 +26,14 @@
  * says what happens next. Any other topic value is ignored. `/contact` is not cached,
  * so reading the query in SSR is safe, and the canonical URL stays `/contact`. The
  * general "Email us" card is unchanged for every other question.
+ *
+ * **`?topic=add-product`** (Find your product on `/vendor-program`,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §6). A vendor whose product is not in the
+ * directory asks us to add it. There is no submission flow (§13 question 5), so
+ * the page shows a panel whose button is the same support `mailto:` with the
+ * subject and a prompt filled in: product name, website, and the products it
+ * integrates with. The message reaches the same mailbox as every other email.
+ * Topic values live in `contact-topics.ts`.
  */
 import { Component, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -33,6 +41,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { PlanInquiryForm } from '../shared/plan-inquiry/plan-inquiry-form';
+import { ADD_PRODUCT_TOPIC, MANAGED_TOPIC } from './contact-topics';
 
 @Component({
   selector: 'app-contact',
@@ -82,6 +91,33 @@ import { PlanInquiryForm } from '../shared/plan-inquiry/plan-inquiry-form';
             <div class="mt-6 max-w-xl">
               <aec-plan-inquiry-form idPrefix="contact-plan-inquiry" placement="contact" />
             </div>
+          </section>
+        }
+        @if (addProduct) {
+          <section
+            class="mb-6 max-w-5xl rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
+            data-testid="contact-add-product"
+          >
+            <h2
+              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
+              i18n="@@app.contact.addProduct.heading"
+            >
+              Ask us to add your product
+            </h2>
+            <p
+              class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
+              i18n="@@app.contact.addProduct.body"
+            >
+              Email us the product name, its website, and the products it integrates with. The email
+              opens with these questions filled in.
+            </p>
+            <a
+              [href]="addProductHref"
+              class="mt-6 inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.contact.addProduct.cta"
+            >
+              Email us about your product
+            </a>
           </section>
         }
         <div class="grid max-w-5xl gap-6 md:grid-cols-2">
@@ -151,14 +187,22 @@ import { PlanInquiryForm } from '../shared/plan-inquiry/plan-inquiry-form';
 export class ContactPage {
   private readonly meta = inject(MetaService);
 
+  private readonly topic = inject(ActivatedRoute).snapshot.queryParamMap.get('topic');
   /** `?topic=managed`: asked from the Plans page. */
-  protected readonly managed =
-    inject(ActivatedRoute).snapshot.queryParamMap.get('topic') === 'managed';
+  protected readonly managed = this.topic === MANAGED_TOPIC;
+  /** `?topic=add-product`: asked from Find your product on `/vendor-program`. */
+  protected readonly addProduct = this.topic === ADD_PRODUCT_TOPIC;
 
   /** The public contact address. Shared by the visible label and the `mailto:`
    *  href so they can never drift. */
   protected readonly email = 'support@aecintegrations.com';
   protected readonly mailtoHref = `mailto:${this.email}`;
+  /** The same address, with the subject and the prompt for a missing product filled in. */
+  protected readonly addProductHref = `${this.mailtoHref}?subject=${encodeURIComponent(
+    $localize`:@@app.contact.addProduct.subject:Please add my product to AEC Integrations`,
+  )}&body=${encodeURIComponent(
+    $localize`:@@app.contact.addProduct.prompt:Product name:\n\nWebsite:\n\nThe products it integrates with:\n`,
+  )}`;
 
   constructor() {
     this.meta.setStaticPageMeta({

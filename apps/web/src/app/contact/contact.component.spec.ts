@@ -84,10 +84,41 @@ describe('ContactPage', () => {
     );
   });
 
+  // ?topic=add-product (Find your product on /vendor-program, VENDOR_PROGRAM_PAGE_SPEC.md
+  // section 6): the support mailto with the subject and the prompt filled in. No form.
+  it('offers a prefilled email on ?topic=add-product', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({ topic: 'add-product' }) } },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(ContactPage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const panel = host.querySelector('[data-testid="contact-add-product"]')!;
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Ask us to add your product');
+    expect(panel.querySelector('form')).toBeNull();
+    const href = panel.querySelector('a')?.getAttribute('href') ?? '';
+    const url = new URL(href);
+    expect(url.protocol).toBe('mailto:');
+    expect(url.pathname).toBe('support@aecintegrations.com');
+    expect(url.searchParams.get('subject')).toBe('Please add my product to AEC Integrations');
+    expect(url.searchParams.get('body')).toBe(
+      'Product name:\n\nWebsite:\n\nThe products it integrates with:\n',
+    );
+    expect(host.querySelector('[data-testid="contact-managed"]')).toBeNull();
+  });
+
   it('shows no Managed panel and a bare mailto without the topic', () => {
     TestBed.resetTestingModule();
     const { host } = setup();
     expect(host.querySelector('[data-testid="contact-managed"]')).toBeNull();
+    expect(host.querySelector('[data-testid="contact-add-product"]')).toBeNull();
     expect(host.querySelector('a[href^="mailto:"]')?.getAttribute('href')).toBe(
       'mailto:support@aecintegrations.com',
     );

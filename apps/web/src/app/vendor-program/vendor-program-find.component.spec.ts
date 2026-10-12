@@ -145,15 +145,32 @@ describe('VendorProgramFind', () => {
     expect(navigateByUrl).not.toHaveBeenCalled();
   });
 
-  it('a miss shows the may-already-be-listed line, with "tell us" to /contact', async () => {
+  // Settled 2026-10-12 (spec section 6): the ask is always under the box, and it
+  // goes to the contact page's add-product topic. It fires no analytics event.
+  it('always shows "Can\'t find your product? Ask us to add it." under the box', async () => {
+    const { host, planCtaClicked, vendorProductSearch } = await setup(none);
+    const ask = host.querySelector('[data-testid="vp-find-ask"]')!;
+    expect(text(ask)).toBe("Can't find your product? Ask us to add it.");
+    const link = ask.querySelector('a')!;
+    expect(text(link)).toBe('Ask us to add it.');
+    expect(link.getAttribute('href')).toBe('/contact?topic=add-product');
+    link.addEventListener('click', (e) => e.preventDefault());
+    link.click();
+    expect(planCtaClicked).not.toHaveBeenCalled();
+    expect(vendorProductSearch).not.toHaveBeenCalled();
+  });
+
+  it('a miss shows the may-already-be-listed line, ending in "ask us to add it"', async () => {
     const { host, typeQuery } = await setup(none);
     await typeQuery('zzz unknown');
     const miss = host.querySelector('[data-testid="vp-find-miss"]')!;
     expect(text(miss)).toBe(
-      'Your products may already be listed, under a different name. If you cannot find them, tell us.',
+      'Your products may already be listed, under a different name. If you cannot find yours, ask us to add it.',
     );
-    expect(miss.querySelector('a')?.getAttribute('href')).toBe('/contact');
+    expect(miss.querySelector('a')?.getAttribute('href')).toBe('/contact?topic=add-product');
     expect(host.querySelector('[data-testid="vp-find-result"]')).toBeNull();
+    // The ask under the box stays too.
+    expect(host.querySelector('[data-testid="vp-find-ask"]')).not.toBeNull();
   });
 
   it('clearing the box drops the miss line', async () => {
