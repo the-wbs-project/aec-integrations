@@ -129,6 +129,37 @@ describe('VendorLogoField', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Logo saved.');
   });
 
+  it('shows a linked logo as its URL with a Copy button', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const fixture = await mount();
+    await openDialog(fixture);
+    expect(document.body.textContent).toContain('Linked from this URL.');
+    const field = q<HTMLInputElement>('[data-testid="logo-current-url"] input')!;
+    expect(field.value).toBe('https://example.com/old.png');
+    expect(field.readOnly).toBe(true);
+
+    q<HTMLButtonElement>('[data-testid="logo-copy-url"]')!.click();
+    await settle(fixture);
+    expect(writeText).toHaveBeenCalledWith('https://example.com/old.png');
+    expect(q('[data-testid="logo-copy-url"]')?.textContent?.trim()).toBe('Copied');
+    expect(q('[data-testid="logo-copy-status"]')?.textContent?.trim()).toBe('Logo URL copied.');
+
+    typeUrl('https://example.com/new.png');
+    await settle(fixture);
+    expect(q('[data-testid="logo-current-url"]')).toBeNull();
+  });
+
+  it('labels an uploaded logo as a file and does not show its path', async () => {
+    const fixture = await mount();
+    fixture.componentInstance.logoUrl.set(PATH);
+    await settle(fixture);
+    await openDialog(fixture);
+    expect(document.body.textContent).toContain('Uploaded file.');
+    expect(q('[data-testid="logo-current-url"]')).toBeNull();
+    expect(q('[data-testid="logo-copy-url"]')).toBeNull();
+  });
+
   it('rejects a non-HTTPS URL', async () => {
     const fixture = await mount();
     await openDialog(fixture);
