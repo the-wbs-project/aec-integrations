@@ -1197,8 +1197,8 @@ export function createListVendorIntegrationsHandler(
     const ownedRows = await loadOwnedIntegrations(db, vendorId, new Set(authorities.keys()));
 
     // AECI-1237 (§11d.5): AECi's field locks on each row, so the owner's edit controls
-    // render those fields read-only. One read per anchor table on the partial unique
-    // index, and only rows the caller already sees.
+    // render those fields read-only. Reads per anchor table on the partial unique
+    // index, chunked under D1's bound-parameter cap, and only rows the caller sees.
     const [integrationLocks, pairLocks] = await Promise.all([
       lockedFieldsByEntity(db, 'integration', [
         ...surface.map((entry) => entry.id),
