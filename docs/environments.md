@@ -30,6 +30,7 @@ AECi runs three deployed tiers plus local. The per-PR preview tier was retired o
 > - **The binding keeps the old name.** In `apps/{api,agent,datatool}/wrangler.jsonc` the production block says `database_name: "aeci-app-production"` with the new id. So `wrangler d1 … aeci-app-production --env production`, run inside `apps/api`, reaches the ENAM database.
 > - **Outside a wrangler config, use the real name.** From `/tmp` or the repo root, `aeci-app-production` is looked up by name and reaches the retired APAC copy. Use `aeci-app-production-us` there.
 > - **Check the binding, not the name.** From `apps/api`, `wrangler d1 info aeci-app-production --env production` must report `uuid` `1f4378db-…` and `running_in_region` `ENAM`. `d1 info aeci-app-production-us` is always ENAM, so it cannot tell you which database production uses.
+> - **The production API Worker runs under targeted placement to `aws:us-east-1`** (AECI-839 trial), so the D1 leg stays in-region near ENAM. The SSR Worker stays at the edge. Staging and demo have no placement.
 > - Runbook and rollback: `scripts/ops/2026-10-prod-d1-us-move/README.md`.
 
 Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
