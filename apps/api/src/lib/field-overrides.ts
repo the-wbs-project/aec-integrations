@@ -43,6 +43,7 @@ import {
 import { ApiError } from '../errors';
 import { ONE_ROW } from './integration-claims';
 import { EDIT_FIELD_COLUMNS } from './integration-contests';
+import { chunked } from './promote-claims';
 
 /** The token the sentinel raises. Its presence in the error is how a handler knows. */
 export const FIELD_LOCKED_TOKEN = 'field-locked-by-aeci';
@@ -113,9 +114,12 @@ export async function activeLocksOn(
 }
 
 /**
- * Active locks for many entities of one type, keyed by entity id: one read on the
- * partial unique index. An empty id list reads nothing (Drizzle's `inArray` with `[]`
- * emits degenerate SQL).
+ * Active locks for many entities of one type, keyed by entity id: one read per
+ * {@link chunked} slice on the partial unique index. Chunked because D1 caps a query
+ * at 100 bound parameters and a vendor's integration list is unbounded (a 153-row
+ * vendor 500'd `GET /api/vendor/integrations`). An entity lives in exactly one slice,
+ * so each entity's list keeps the newest-first order. An empty id list reads nothing
+ * (Drizzle's `inArray` with `[]` emits degenerate SQL).
  */
 export async function lockedFieldsByEntity(
   db: Db,
@@ -125,22 +129,28 @@ export async function lockedFieldsByEntity(
   const out = new Map<string, LockedField[]>();
   const ids = [...new Set(entityIds)];
   if (ids.length === 0) return out;
-  const rows = await db
-    .select({
-      entityId: fieldOverrides.entityId,
-      field: fieldOverrides.field,
-      reason: fieldOverrides.reason,
-      setAt: fieldOverrides.setAt,
-    })
-    .from(fieldOverrides)
-    .where(
-      and(
-        eq(fieldOverrides.entityType, entityType),
-        inArray(fieldOverrides.entityId, ids),
-        isNull(fieldOverrides.liftedAt),
+  const rows = (
+    await Promise.all(
+      chunked(ids).map((slice) =>
+        db
+          .select({
+            entityId: fieldOverrides.entityId,
+            field: fieldOverrides.field,
+            reason: fieldOverrides.reason,
+            setAt: fieldOverrides.setAt,
+          })
+          .from(fieldOverrides)
+          .where(
+            and(
+              eq(fieldOverrides.entityType, entityType),
+              inArray(fieldOverrides.entityId, slice),
+              isNull(fieldOverrides.liftedAt),
+            ),
+          )
+          .orderBy(desc(fieldOverrides.setAt)),
       ),
     )
-    .orderBy(desc(fieldOverrides.setAt));
+  ).flat();
   for (const row of rows) {
     const list = out.get(row.entityId) ?? [];
     list.push({ field: row.field, reason: row.reason, set_at: row.setAt });
