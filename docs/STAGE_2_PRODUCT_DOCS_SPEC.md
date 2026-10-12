@@ -300,7 +300,7 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
-3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "Vendor guide" from AECI-1253. It is not called "For vendors": that label is the Company column's link to `/vendor-program` (AECI-1283). Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
 4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
 
 ## 8. Epic decomposition (2026-10-08)
@@ -315,7 +315,7 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T3 | AECI-1250 | Reviewer and account pages | T1 |
 | T4 | AECI-1251 | The rest of the vendor guide | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
-| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "For vendors" in the footer, the §7 portal links | T1; run in the same sitting as AECI-1105 |
+| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links | T1; run in the same sitting as AECI-1105 |
 | T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |
 
 The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6).

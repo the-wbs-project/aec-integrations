@@ -33,13 +33,13 @@
  * label wraps ("How ranking works" did before).
  *
  * The Help column (AECI-1252) is the footer-only entry into `/docs`
- * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "For vendors" joins it with
+ * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "Vendor guide" joins it with
  * AECI-1253, once `/docs/vendors` is indexable.
  *
  * The Company column's "For vendors" (AECI-1283) is the public vendor landing page,
  * `/vendor-program` (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). It sits after Methodology.
  * The header gets no link (that spec's §13 question 3). If AECI-1253 adds a Help
- * link to the vendor guide, it needs a different label from this one.
+ * link to the vendor guide, it is labelled "Vendor guide", not this label.
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).

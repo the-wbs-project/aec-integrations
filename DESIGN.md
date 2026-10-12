@@ -996,7 +996,7 @@ brand's tagline gives up width instead of a link label wrapping.
 | Column | Holds | Why |
 |---|---|---|
 | **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
-| **Help** | Help center, Getting started, How ranking works | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). The header row is closed, so the help center comes here. "For vendors" joins with AECI-1253, once `/docs/vendors` is indexable. |
+| **Help** | Help center, Getting started, How ranking works | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). The header row is closed, so the help center comes here. "Vendor guide" joins with AECI-1253, once `/docs/vendors` is indexable. |
 | **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
 | **Company** | About, Methodology, For vendors, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination — how the directory works (AECI-804). "For vendors" is the public vendor landing page `/vendor-program`, after Methodology (AECI-1283, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4). Methodology, For vendors, Updates and Roadmap are all footer-only; the header links none of them, so this is their sole site-wide entry. Six items is the column's ceiling. |
 
