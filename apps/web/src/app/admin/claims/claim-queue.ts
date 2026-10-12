@@ -14,6 +14,7 @@ import type {
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
+import { claimantAccountLabel } from './claimant-account-label';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -244,18 +245,10 @@ export class ClaimQueue {
     }
   }
 
-  /** What approving this claim will do to the claimant's auth account — the AECI-527
-   *  reviewer signal. `null` (unknown) is common: absent Supabase creds or a failed
-   *  lookup, never a decision gate. */
-  protected authAccountLabel(value: boolean | null): string {
-    if (value === true) {
-      return $localize`:@@admin.claims.auth.exists:Existing account: approve links it`;
-    }
-    if (value === false) {
-      return $localize`:@@admin.claims.auth.none:No account: approve provisions one`;
-    }
-    return $localize`:@@admin.claims.auth.unknown:Account status unknown`;
-  }
+  /** The AECI-527 "Claimant account" reviewer signal, worded for the claim's
+   *  status (AECI-1278). Shared with `/admin/claims/:id`. `null` (unknown) is
+   *  common: absent Supabase creds or a failed lookup, never a decision gate. */
+  protected readonly accountLabel = claimantAccountLabel;
 
   /** The §5.2 payer test as one readable line — shared with `/admin/vendors/:id`
    *  so the two screens cannot describe the same vendor differently. */

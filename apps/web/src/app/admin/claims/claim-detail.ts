@@ -17,6 +17,7 @@ import type { AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AdminClaimsApi } from './admin-claims-api';
+import { claimantAccountLabel } from './claimant-account-label';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -235,15 +236,9 @@ export class ClaimDetail {
     }
   }
 
-  protected authAccountLabel(value: boolean | null): string {
-    if (value === true) {
-      return $localize`:@@admin.claims.detail.auth.exists:Existing account: approve links it`;
-    }
-    if (value === false) {
-      return $localize`:@@admin.claims.detail.auth.none:No account: approve provisions one`;
-    }
-    return $localize`:@@admin.claims.detail.auth.unknown:Account status unknown`;
-  }
+  /** The "Claimant account" signal, worded for the claim's status (AECI-1278).
+   *  The SAME helper `/admin/claims` uses. */
+  protected readonly accountLabel = claimantAccountLabel;
 
   /** The §5.2 payer test as one readable line — the SAME helper `/admin/claims`
    *  and `/admin/vendors/:id` use. */

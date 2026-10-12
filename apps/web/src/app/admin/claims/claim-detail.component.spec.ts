@@ -362,6 +362,31 @@ describe('ClaimDetail', () => {
     expect(inReview.el.textContent).toContain('This claim is in review');
   });
 
+  describe('the has_auth_account signal is worded for the claim status (AECI-1278)', () => {
+    function accountSignal(el: HTMLElement): string {
+      const dt = [...el.querySelectorAll('dt')].find(
+        (d) => d.textContent?.trim() === 'Claimant account',
+      );
+      return dt?.nextElementSibling?.textContent?.trim() ?? '';
+    }
+
+    const cases: [AdminClaimDetail['status'], boolean | null, string][] = [
+      ['open', true, 'Existing account: approve links it'],
+      ['open', false, 'No account: approve provisions one'],
+      ['in_review', true, 'Existing account: approve links it'],
+      ['resolved', true, 'Account exists (claim granted)'],
+      ['resolved', false, 'No account found'],
+      ['rejected', true, 'Existing account'],
+      ['rejected', false, 'No account'],
+      ['rejected', null, 'Account status unknown'],
+    ];
+
+    it.each(cases)('%s + %s reads "%s"', async (status, hasAccount, expected) => {
+      const { el } = await setup(makeApiMock(makeDetail({ status, has_auth_account: hasAccount })));
+      expect(accountSignal(el)).toBe(expected);
+    });
+  });
+
   describe('structural a11y', () => {
     it('keeps heading order h2 → h3 → h4 with no skips', async () => {
       const { el } = await setup(makeApiMock(makeDetail({ duplicate_siblings: [makeSibling()] })));
