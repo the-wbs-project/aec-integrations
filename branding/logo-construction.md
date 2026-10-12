@@ -2,7 +2,7 @@
 
 This is the technical companion to the brand guidelines. The brand guidelines cover *when and where* to use the logo. This document covers *how to build it* — exact coordinates, type specs, color values, and the geometry of the connector mark. If the source SVG files are ever lost, corrupted, or need to be rebuilt in a different tool, this document is the source of truth.
 
-Every variant of the logo is constructed from one of three primitives: the **wordmark**, the **monogram**, or the **lockup**. All three share the same color tokens, the same connector geometry, and the same italic "i" rule. Once you understand the wordmark, the rest follows.
+Every variant of the logo is constructed from one of four primitives: the **wordmark**, the **monogram**, the **lockup**, or the **stacked logo**. All four share the same color tokens and the same italic "i" rule. The stacked logo is the one exception to the connector geometry; see its section. Once you understand the wordmark, the rest follows.
 
 ---
 
@@ -187,6 +187,47 @@ For 20pt lockup wordmark, the relative coordinates become:
 | Line end | `x + 59.8` |
 | Second dot center | `x + 63.0` |
 | Integrations declared x | `x + 69.5` |
+
+---
+
+## The stacked logo
+
+The stacked logo is the wordmark rearranged to fit a square. "AEC" sits on top, the clay connector sits below it, and "Integrations" sits below the connector. All three are centred on a Bone square.
+
+It exists for third-party surfaces that need a square image and then compare it against the homepage. The first one is the Google OAuth consent screen. Google rejected the monogram there on 2026-10-12: "Your logo does not uniquely identify your brand and identity." The "AEC i" monogram appears nowhere on the public site, so the reviewer could not tie it to `aecintegrations.com`. The stacked logo carries the same words and connector as the site header, so it matches.
+
+Use the monogram for favicons and avatars we control. Use the stacked logo wherever an outside reviewer has to recognise the brand from a square.
+
+### Construction specifications
+
+The canvas is `120 × 120`, which is Google's logo size. Scale the whole SVG to export larger. Never move individual coordinates.
+
+| Element | Value |
+|---|---|
+| Background | `#F5F2EA` (Bone), full bleed, no corner radius |
+| `AEC` | weight 600, size 34, letter-spacing -0.5, Forest, centred at `x 60`, baseline `y 56` |
+| Connector dots | radius 3, Clay, centres `(48, 64)` and `(72, 64)` |
+| Connector line | `x 52` → `x 68` at `y 64`, stroke-width 2, Clay |
+| `Integrations` | weight 400, size 17, letter-spacing -0.3, Forest, centred at `x 60`, baseline `y 84` |
+
+`Integrations` is weight 400 here, not the wordmark's 300. At 120 px a 300 weight breaks up. AEC stays heavier, so the hierarchy holds.
+
+The wordmark's 7/7 connector spacing does not apply here. In the stacked logo the connector sits between two lines, not between two words. The gaps were set by eye on the rendered output and are locked at the values above.
+
+### Files
+
+| File | Use |
+|---|---|
+| `stacked-logo.svg` | Source |
+| `stacked-logo-120.png` | The Google OAuth consent-screen upload |
+| `stacked-logo-512.png` | High-res export for other square slots |
+
+Regenerate the PNGs from the SVG:
+
+```bash
+rsvg-convert -w 120 -h 120 branding/stacked-logo.svg -o branding/stacked-logo-120.png
+rsvg-convert -w 512 -h 512 branding/stacked-logo.svg -o branding/stacked-logo-512.png
+```
 
 ---
 
