@@ -5,13 +5,12 @@
  * vitest runner) rather than the node-only Vitest pass that excludes Angular DI
  * (see `apps/web/vitest.config.ts`).
  *
- * Scope: the claim CTA's two copy states. `vendors.verified` is the only public
- * signal that a listing is claimed (it is the AECI-519 grant's mirror), so it
- * drives the wording: an inactive vendor account gets "Claim this listing", an active
- * one gets "Request access to this listing" plus a note. The CTA is never
- * removed — seats are admin-granted and multi-seat, and self-serve invite is
- * deferred (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the public claim form stays
- * the only route in for a second person at the vendor (and the only correction
+ * Scope: the claim CTA is stateless (AECI-1266). Every listing reads "Claim this
+ * listing" with no note, whatever plan the vendor holds: a state-dependent
+ * wording told visitors which vendors pay. The CTA is never removed. Seats are
+ * admin-granted and multi-seat, and self-serve invite is deferred
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the public claim form stays the only
+ * route in for a second person at the vendor (and the only correction
  * path for a wrong grant). The vendor is delivered via a stub `ActivatedRoute`,
  * the same channel `vendorDetailResolver` populates in production.
  */
@@ -35,7 +34,6 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     slug: 'procore',
     company_name: 'Procore Technologies',
     logo_url: null,
-    verified: false,
     headquarters: 'Carpinteria, CA',
     founded_year: 2002,
     product_count: 1,
@@ -213,7 +211,7 @@ describe('VendorDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="vendor-actions-label"]') as HTMLElement;
 
-  it('offers to claim the listing when the vendor is unverified', () => {
+  it('always offers to claim the listing, with no note', () => {
     const { el } = setup(buildVendor());
     const section = actions(el);
 
@@ -223,35 +221,20 @@ describe('VendorDetailPage claim CTA', () => {
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
 
-  it('offers to request access when the vendor is verified', () => {
-    const { el } = setup(buildVendor({ verified: true }));
-    const section = actions(el);
-
-    expect(section.textContent).toContain('Request access to this listing');
-    expect(section.textContent).not.toContain('Claim this listing');
-    expect(section.textContent).toContain('Already managed through an active vendor account');
-  });
-
   // AECI-1264 (marketing review B1): no public account or plan label. The hero
   // shows the same thing for a vendor with or without an active plan.
-  it('shows no account label and no "What this means" link, whatever the plan', () => {
-    for (const verified of [false, true]) {
-      TestBed.resetTestingModule();
-      const { el } = setup(buildVendor({ verified }));
-      expect(el.textContent).not.toContain('Active on AEC Integrations');
-      expect(el.textContent).not.toContain('What this means');
-      expect(el.querySelector('a[href^="/docs/trust/the-account-label"]')).toBeNull();
-    }
+  it('shows no account label and no "What this means" link', () => {
+    const { el } = setup(buildVendor());
+    expect(el.textContent).not.toContain('Active on AEC Integrations');
+    expect(el.textContent).not.toContain('What this means');
+    expect(el.querySelector('a[href^="/docs/trust/the-account-label"]')).toBeNull();
   });
 
-  it('keeps the CTA pointed at the same claim route in both states', () => {
-    // Copy only: a claimed listing still submits `kind:'claim'` to the same
-    // route, because that is the only seat/dispute path there is (§11).
-    for (const verified of [false, true]) {
-      TestBed.resetTestingModule();
-      const { el } = setup(buildVendor({ verified }));
-      const cta = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendors/procore/claim"]');
-      expect(cta).toBeTruthy();
-    }
+  it('points the CTA at the claim route', () => {
+    // A colleague joining an account someone already holds uses the same
+    // `kind:'claim'` route, because that is the only seat/dispute path there is (§11).
+    const { el } = setup(buildVendor());
+    const cta = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendors/procore/claim"]');
+    expect(cta).toBeTruthy();
   });
 });

@@ -6,11 +6,11 @@
  * regression tests for defects the design review found rather than happy-path
  * coverage:
  *
- *  1. **`?verified=false` returns UNVERIFIED vendors.** The public
- *     `VendorsListQuerySchema` uses `z.coerce.boolean()`, and
+ *  1. **`?verified=false` returns UNVERIFIED vendors.** The old public
+ *     `VendorsListQuerySchema` used `z.coerce.boolean()`, and
  *     `Boolean("false") === true`, so copying it would have shipped a filter that
- *     returns the exact opposite of what it says (AECI-691). This is the single
- *     most valuable assertion in the file.
+ *     returns the exact opposite of what it says (AECI-691). AECI-1266 retired
+ *     that public filter. This is the single most valuable assertion in the file.
  *  2. **A literal `%` in `search` matches literally.** That is the entire reason
  *     `likeContains` escapes and emits `ESCAPE '\'`.
  *  3. **The audit viewer reaches rows that `entity_id = <vendor>` cannot.** A

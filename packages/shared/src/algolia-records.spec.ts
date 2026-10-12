@@ -33,7 +33,6 @@ const VENDOR = {
   company_name: 'Procore Technologies',
   company_name_sort: 'procore technologies',
   slug: 'procore-technologies',
-  verified: true,
   description: null,
   headquarters: 'Carpinteria, CA',
   founded_year: 2003,
@@ -165,13 +164,11 @@ describe('AlgoliaVendorRecordSchema', () => {
     expect(() => AlgoliaVendorRecordSchema.parse(rest)).toThrow();
   });
 
-  it('carries the verified flag through (AECI-529)', () => {
-    expect(AlgoliaVendorRecordSchema.parse(VENDOR).verified).toBe(true);
-  });
-
-  it('defaults verified to false when omitted (records indexed before AECI-529)', () => {
-    const { verified: _omit, ...rest } = VENDOR;
-    expect(AlgoliaVendorRecordSchema.parse(rest).verified).toBe(false);
+  // AECI-1266: the plan mirror is not part of the record. A record written before
+  // then still parses, and the stale key is stripped.
+  it('strips a stale verified flag from a record indexed before AECI-1266', () => {
+    const parsed = AlgoliaVendorRecordSchema.parse({ ...VENDOR, verified: true });
+    expect(parsed).not.toHaveProperty('verified');
   });
 });
 

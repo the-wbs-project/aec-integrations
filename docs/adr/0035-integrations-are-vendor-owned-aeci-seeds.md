@@ -174,6 +174,12 @@ Rule 2 of "The non-endpoint owner" says the ordinary paid seat "lights the publi
 
 Decisions 1 to 15 are unchanged.
 
+## 2026-10-12 note: the public mirror reads are gone (AECI-1266)
+
+The 2026-10-09 note says the mirror drives the claim button copy on public pages. That is no longer true. AECI-1266 made the claim CTA stateless: every listing reads "Claim this listing". It also dropped `verified` from the public vendor shapes, from `VendorLink` and from the Algolia vendor record, and retired the public `?verified=` filter. Each of these let a reader tell who pays. Publicly, the mirror now drives only the pair page's version-diff gate. The API reads it off the raw vendor row and never ships it. Admin and the vendor portal still read it internally. A Managed grant still opens a `verified` row and still flips `vendors.verified`. The contracts are `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a and `STAGE_2_ATTESTATIONS_SPEC.md` §9.3.
+
+Decisions 1 to 15 are unchanged.
+
 ## Revisit
 
 When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the last-seat hand-back (the 2026-09-23 note).

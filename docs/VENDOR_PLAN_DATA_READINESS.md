@@ -243,6 +243,10 @@ Four indirect couplings need a ruling:
    `GET /api/vendors?verified=` filter still say `verified`. Anyone can list paying vendors with it.
    _Amended 2026-10-09 (AECI-1264): the public label is removed, so no page shows it. The column,
    the API field, the tier id and the `?verified=` filter are unchanged, so this finding stands._
+   _Closed 2026-10-12 (AECI-1266): the public API field and the `?verified=` filter are gone.
+   `verified` is dropped from `VendorLink`, the public vendor shapes and the Algolia vendor record.
+   The claim CTA no longer changes wording by plan. No public field or filter lists paying vendors
+   now. Finding 3's version-diff depth is the one deliberate public effect left, and it is disclosed. The column and the tier id keep the name, but both are internal._
 
 A minor one: `sort=updated` on public lists orders by `updated_at`, and paid saves bump it.
 

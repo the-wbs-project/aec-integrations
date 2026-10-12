@@ -43,7 +43,6 @@ function buildProduct(slug: string, id: string): ProductListItem {
       slug: 'procore',
       name: 'Procore Technologies',
       logo_url: null,
-      verified: false,
     },
     integration_count: 0,
     review_count: 0,

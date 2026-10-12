@@ -39,17 +39,17 @@ export type LinkRef = z.infer<typeof LinkRefSchema>;
  * to render its vendor (id + display fields + logo). Extends LinkRef so all
  * consumers can rely on `id`, `name`, `slug` being present.
  *
- * `verified` mirrors `vendors.verified` (the AECi-verified-vendor-account bit,
- * flipped by the AECI-519 claim grant) so the SSR pages can read the built-by vendor's
- * state: the product page's claim button copy and the pair page's version-diff gate.
- * It once drove the account-status label (AECI-523/AECI-965), which AECI-1264 removed
- * on 2026-10-09. Required — the DB column is `NOT NULL DEFAULT false`, so the mapper
- * always emits a real boolean (matching the required `verified` on
- * `VendorListItem` / `VendorDetail`).
+ * **No `verified` key, and there must not be one (AECI-1266).** `vendors.verified`
+ * mirrors an active paid plan, so publishing it tells every visitor which vendors
+ * pay. It once drove the account label (AECI-523/AECI-965, removed by AECI-1264),
+ * the claim button copy and the web pair page's version-diff re-gate (both removed
+ * by AECI-1266). The API still reads the mirror internally for the version-diff
+ * gate, off the raw vendor row (`pickPrimaryVendorRow`). Zod strips unknown keys,
+ * so a stale `verified` on an old payload parses away. `public-vendor-shapes.spec.ts`
+ * pins the absence.
  */
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
 });
 
 export type VendorLink = z.infer<typeof VendorLinkSchema>;

@@ -3,7 +3,7 @@
  * (Stage 1.5 §7 / AECI-294), against the in-memory D1 harness.
  */
 
-import type { ClaimDirection } from '@aeci/shared';
+import type { ClaimDirection, ProductPairResponse } from '@aeci/shared';
 import { ProductPairResponseSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -1439,9 +1439,12 @@ describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI
       // Acme (Procore) is verified; Globex (Revit) is not. Either side opens it.
       await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P9 }]);
 
-      const diff = ProductPairResponseSchema.parse(
-        await (await get(HISTORICAL)).json(),
-      ).version_diff!;
+      const body = (await (await get(HISTORICAL)).json()) as ProductPairResponse;
+      // AECI-1266: the gate reads the mirror off the internal vendor row. The public
+      // vendor links never carry it, even on the side that opened the diff.
+      expect(body.context_product.vendor).not.toHaveProperty('verified');
+      expect(body.other_product.vendor).not.toHaveProperty('verified');
+      const diff = ProductPairResponseSchema.parse(body).version_diff!;
       expect(diff.diff_access).toBe('full');
       expect(diff.selected.context).toBe('2026.1');
       expect(diff.is_default).toBe(false);

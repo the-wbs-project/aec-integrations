@@ -21,7 +21,6 @@ const productListItem = (n: number, slug: string, name: string) => ({
     name: `${name} Inc`,
     slug: `${slug}-inc`,
     logo_url: null,
-    verified: false,
   },
   integration_count: 1,
   review_count: 0,

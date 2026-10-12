@@ -46,7 +46,6 @@ function vendor(overrides: Partial<AlgoliaVendorRecord> = {}): AlgoliaVendorReco
     // AECI-825 — same derivation as the product fixture above.
     company_name_sort: algoliaSortKey(companyName),
     slug: 'autodesk',
-    verified: false,
     description: null,
     headquarters: null,
     founded_year: null,

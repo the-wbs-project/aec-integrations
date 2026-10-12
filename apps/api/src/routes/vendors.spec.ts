@@ -7,7 +7,7 @@
 import { VendorDetailSchema, VendorsListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { integrations, products, productVendors, vendorEntitlements, vendors } from '../db/schema';
+import { integrations, products, productVendors, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createVendorDetailHandler, createVendorsListHandler } from './vendors';
@@ -69,41 +69,29 @@ describe('GET /api/vendors', () => {
     expect(parsed.data[0]?.integration_count).toBe(1);
   });
 
-  it('filters by search and by verified', async () => {
-    await seedVendor(u(1), 'autodesk', 'Autodesk', { verified: true });
-    await seedVendor(u(2), 'bentley', 'Bentley Systems', { verified: false });
+  it('filters by search', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk');
+    await seedVendor(u(2), 'bentley', 'Bentley Systems');
 
     const bySearch = VendorsListResponseSchema.parse(
       await (await get(listApp(), '/api/vendors?search=bentley')).json(),
     );
     expect(bySearch.data.map((v) => v.slug)).toEqual(['bentley']);
-
-    const byVerified = VendorsListResponseSchema.parse(
-      await (await get(listApp(), '/api/vendors?verified=true')).json(),
-    );
-    expect(byVerified.data.map((v) => v.slug)).toEqual(['autodesk']);
   });
 
-  it('?verified= reads the MIRROR, never vendor_entitlements (AECI-609 §2.5 / R9)', async () => {
-    // The whole epic is additive because no read path touches the entitlement table:
-    // `vendors.verified` is a denormalized mirror and this filter keeps reading it.
-    // Seeding a DELIBERATELY DRIFTED pair is what makes that provable rather than
-    // asserted — if someone "improves" the filter by joining vendor_entitlements so it
-    // reads the truth, the expectation below flips and this test fails. That
-    // improvement would defeat the entire denormalization (§2.5).
-    await seedVendor(u(1), 'autodesk', 'Autodesk', { verified: true }); // no entitlement row
-    await seedVendor(u(2), 'procore', 'Procore', { verified: false });
-    await t.db.insert(vendorEntitlements).values({
-      vendorId: u(2), // an ACTIVE entitlement whose mirror was never flipped
-      tier: 'verified',
-      status: 'active',
-      grantedAt: '2026-01-01T00:00:00.000Z',
-    });
+  // AECI-1266: the `?verified=` filter listed the vendors on a paid plan. It is
+  // retired. A stale param is ignored, not rejected, and no row carries the mirror.
+  it('ignores ?verified= and returns the unfiltered list with no plan mirror', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { verified: true });
+    await seedVendor(u(2), 'bentley', 'Bentley Systems', { verified: false });
 
-    const res = VendorsListResponseSchema.parse(
-      await (await get(listApp(), '/api/vendors?verified=true')).json(),
-    );
-    expect(res.data.map((v) => v.slug)).toEqual(['autodesk']);
+    for (const query of ['?verified=true', '?verified=false']) {
+      const res = await get(listApp(), `/api/vendors${query}&sort=name`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Record<string, unknown>[] };
+      expect(body.data.map((v) => v['slug'])).toEqual(['autodesk', 'bentley']);
+      for (const row of body.data) expect(row).not.toHaveProperty('verified');
+    }
   });
 });
 
@@ -158,15 +146,16 @@ describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
     expect(detail.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
   });
 
-  it('surfaces a real review date, distinct from the verified ACCOUNT bit', async () => {
+  it('surfaces a real review date, and never the plan mirror (AECI-1266)', async () => {
     const reviewed = '2026-03-04T00:00:00.000Z';
-    await seedVendor(u(1), 'autodesk', 'Autodesk', { lastReviewedAt: reviewed, verified: false });
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { lastReviewedAt: reviewed, verified: true });
 
     const res = await get(detailApp(), '/api/vendors/autodesk');
-    const detail = VendorDetailSchema.parse(await res.json());
-    // Two different signals on one page: `verified` is an AECi-verified vendor
-    // ACCOUNT, `maintenance` is who maintains the catalog record.
-    expect(detail.verified).toBe(false);
+    const body = (await res.json()) as Record<string, unknown>;
+    // `maintenance` is who maintains the catalog record. The plan mirror is never
+    // public, even for a vendor whose mirror is set.
+    expect(body).not.toHaveProperty('verified');
+    const detail = VendorDetailSchema.parse(body);
     expect(detail.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
   });
 
@@ -176,13 +165,10 @@ describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
     await seedVendor(u(1), 'autodesk', 'Autodesk', {
       maintainedBy: 'vendor',
       lastReviewedAt: updated,
-      verified: false,
     });
 
     const res = await get(detailApp(), '/api/vendors/autodesk');
     const detail = VendorDetailSchema.parse(await res.json());
-    // Still three independent signals, and this one moved without the others.
-    expect(detail.verified).toBe(false);
     expect(detail.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: updated });
   });
 });

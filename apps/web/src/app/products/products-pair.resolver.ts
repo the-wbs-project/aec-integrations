@@ -91,11 +91,13 @@
  *
  * ── AECI-304: THE PAYWALL IS ON THE PAIR'S VENDORS, NOT THE READER ──────────
  * Historical diff depth is open when either endpoint vendor holds
- * `'integration.version_diff'`, read off the `vendors.verified` mirror already on
- * `ProductListItem.vendor`. That keeps the gate a function of the two slugs in the
- * URL, so this page stays in the shared, URL-keyed edge cache — no cookie, no
- * session, no `Cache-Control: private`, no new cache-key axis. See
- * `gateHistoricalDepth` below, which is the seam's second and last consult site.
+ * `'integration.version_diff'`. That keeps the gate a function of the two slugs in
+ * the URL, so this page stays in the shared, URL-keyed edge cache — no cookie, no
+ * session, no `Cache-Control: private`, no new cache-key axis. The API decides and
+ * clamps server-side (`version_diff.diff_access`); this resolver renders what it
+ * gets. Until AECI-1266 it re-gated here off the vendors' `verified` mirror on
+ * `ProductListItem.vendor`. That field is gone from the public payload, because it
+ * said which vendors pay, so the re-gate went with it (§9.3 as revised).
  *
  * ── THE TRANSFERSTATE KEY CARRIES EVERY AXIS THE PAYLOAD DEPENDS ON ─────────
  * It keys on `contextSlug|otherSlug` **in URL order** plus the selection. The
@@ -123,17 +125,8 @@ import {
 } from '@angular/core';
 import { ResolveFn, Router } from '@angular/router';
 
-import {
-  orderedPairSlugs,
-  type ProductPairMechanism,
-  type ProductPairResponse,
-} from '@aeci/shared';
-import {
-  canViewVersionDiff,
-  CONTEXT_VERSION_PARAM,
-  OTHER_VERSION_PARAM,
-  vendorTiersFromMirror,
-} from '@aeci/shared/version-diff';
+import { orderedPairSlugs, type ProductPairResponse } from '@aeci/shared';
+import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import type { AeciRequestContext } from '../../server/request-context';
 import {
@@ -254,68 +247,6 @@ function pairMetaDescription(pair: ProductPairResponse): string {
   return $localize`:@@pair.meta.description:How ${context}:context: and ${other}:other: exchange data across their integrations.`;
 }
 
-/** A mechanism with every claim's `version_status` marker removed. */
-function withoutVersionStatus(mechanism: ProductPairMechanism): ProductPairMechanism {
-  return {
-    ...mechanism,
-    claims: mechanism.claims.map((claim) => {
-      const stripped = { ...claim };
-      delete stripped.version_status;
-      return stripped;
-    }),
-  };
-}
-
-/**
- * The seam's second consult site (§9.3 / AECI-303 AC5) — and the only one that runs
- * inside the SSR render.
- *
- * **The gate is on the pair's two endpoint vendors, never the reader** (AECI-304).
- * `vendors.verified` is the mirror of an `active` entitlement row, it already rides
- * on `ProductListItem.vendor`, and it is a function of the two slugs in the URL — so
- * the answer is URL-derived and a gated pair page stays storable in the shared,
- * URL-keyed edge cache. No cookie is read, nothing is marked `private`, and no
- * cache-key axis is added.
- *
- * The consult moved AFTER the fetch because the resolver cannot know the pair's
- * vendors until the payload arrives — the API is the authority and clamps
- * server-side, so in the ordinary case this agrees with `diff_access` and changes
- * nothing.
- *
- * It is still not ceremony. The SSR and API Workers deploy per-commit but **not
- * atomically** (`diff_access` carries `.default('full')` for exactly that reason),
- * and this resolver is the only place that knows the render — HTML *and* its
- * `TransferState` block — is going into a URL-keyed, publicly shared, 900s cache
- * entry. Against an API Worker that predates this gate, stripping here is what keeps
- * gated depth out of that entry. It degrades to `version_diff: null`, which is the
- * payload's ONE documented suppression spelling and needs no new render branch: no
- * selectors, no markers, no summary — the free latest view, in full.
- */
-export function gateHistoricalDepth(
-  pair: ProductPairResponse,
-  historical: boolean,
-): ProductPairResponse {
-  const access = canViewVersionDiff({
-    historical,
-    pairVendorTiers: vendorTiersFromMirror([
-      pair.context_product.vendor,
-      pair.other_product.vendor,
-    ]),
-  });
-  // Entitled, or nothing to withhold. A falsy `version_diff` is already the free
-  // shape — `null` from the API, or genuinely `undefined` against an API Worker that
-  // predates AECI-303, since the web never Zod-parses this response. A `latest_only`
-  // payload is one the API has already clamped, left intact so the enum survives for
-  // whoever builds the locked-state affordance.
-  if (access === 'full') return pair;
-  if (!pair.version_diff || pair.version_diff.diff_access === 'latest_only') return pair;
-  return {
-    ...pair,
-    version_diff: null,
-    mechanisms: pair.mechanisms.map(withoutVersionStatus),
-  };
-}
-
 export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async (route) => {
   const contextSlug = route.paramMap.get('contextSlug') ?? '';
   const otherSlug = route.paramMap.get('otherSlug') ?? '';
@@ -325,9 +256,8 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
 
   // ── The §9 version selection ─────────────────────────────────────────────
   // The requested selection is forwarded unconditionally and the API is the
-  // authority: AECI-304 put the gate on the PAIR'S vendors, and this resolver does
-  // not know who they are until the payload comes back. The seam's consult therefore
-  // moved AFTER the fetch (see `gateHistoricalDepth`).
+  // authority: AECI-304 put the gate on the PAIR'S vendors, and the API alone
+  // decides it (`version_diff.diff_access`). The web never re-gates (AECI-1266).
   const requestedContext = route.queryParamMap.get(CONTEXT_VERSION_PARAM);
   const requestedOther = route.queryParamMap.get(OTHER_VERSION_PARAM);
   const historical = Boolean(requestedContext ?? requestedOther);
@@ -379,8 +309,8 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // beyond its two endpoints. `setEntityMeta` clears prior JSON-LD, so the
     // noindex branch leaves the head clean without an explicit removal here.
     //
-    // Built from `pair` — the payload AFTER `gateHistoricalDepth` (AECI-304), so
-    // the LD can never describe version depth the page does not serve. Reusing
+    // Built from `pair` — the payload the API already gated (AECI-304), so the LD
+    // can never describe version depth the page does not serve. Reusing
     // `name` / `description` verbatim is what keeps the structured data and the
     // `<title>` from drifting; the breadcrumb labels reuse the template's own
     // `@@pair.breadcrumb.home` / `@@pair.breadcrumb.integrations` message ids for
@@ -408,11 +338,9 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // always has one, and a null router simply skips the redirect and renders.
     const router = inject(Router, { optional: true });
     const http = inject(HttpClient);
-    const fetched = transferState.hasKey(stateKey)
+    const pair = transferState.hasKey(stateKey)
       ? transferState.get(stateKey, null)
       : await httpGetOrNull<ProductPairResponse>(http, pairPath(contextSlug, otherSlug, selection));
-    // Idempotent on a hydration hit — the server already gated what it transferred.
-    const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
 
     // AECI-953 — the client half of the moved-pair redirect. A SPA navigation has no
     // HTTP status, so the equivalent of a 301 is a `replaceUrl` navigation: the moved
@@ -450,10 +378,7 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     return null;
   }
 
-  const fetched = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
-  // Gate BEFORE the transfer: `TransferState` is serialised into the SSR document,
-  // which is the artefact that lands in the shared edge-cache entry.
-  const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
+  const pair = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
 
   // ── AECI-953: the moved-pair 301, before anything else the server does ──────
   // Checked ahead of the `!pair` 404 branch and ahead of the TransferState write:

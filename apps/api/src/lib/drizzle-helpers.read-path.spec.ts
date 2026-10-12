@@ -5,10 +5,12 @@
  * This is an INVARIANT test (§10) — it encodes a decision, not behaviour, and must not
  * be deleted without reopening the spec.
  *
- * `vendors.verified` is a denormalized MIRROR. The whole epic is additive precisely
- * because the shipped readers (the public `?verified=` filter, `VendorLinkSchema`,
- * `VendorDetail`/`VendorListItem`, the Algolia vendor record) keep reading the mirror.
- * A fifth, `aec-vendor-account-badge`, was deleted by AECI-1264 (2026-10-09).
+ * `vendors.verified` is a denormalized MIRROR. The whole epic was additive precisely
+ * because the shipped readers kept reading the mirror. The public ones are gone:
+ * AECI-1264 (2026-10-09) deleted `aec-vendor-account-badge`, and AECI-1266
+ * (2026-10-12) took the flag off `VendorLinkSchema`, `VendorDetail`/`VendorListItem`,
+ * the `?verified=` filter and the Algolia vendor record. The pair version-diff gate
+ * still reads the mirror, off the raw vendor row, and the rule below covers it.
  * The obvious "improvement" — joining `vendor_entitlements`
  * into a read config so it reads the truth rather than the mirror — would defeat the
  * entire denormalization, put an entitlement lookup on every public request, and break
@@ -25,8 +27,9 @@
  * cannot even compile. The §4 gate and the `entitlement_mirror_drift` check both use an
  * explicit `leftJoin`, which needs no relation.
  *
- * The behavioural half of this guard is in `routes/vendors.spec.ts` — a deliberately
- * drifted pair proving `?verified=` returns the mirror's answer, not the truth (R9).
+ * The behavioural half of this guard was a drifted-pair test of `?verified=` in
+ * `routes/vendors.spec.ts` (R9). That filter is retired (AECI-1266), so the test
+ * went with it. This source scan is the guard that remains.
  */
 
 import { readFileSync } from 'node:fs';
