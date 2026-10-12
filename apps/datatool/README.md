@@ -6,7 +6,8 @@ three D1 environments (`staging` / `demo` / `production` — one per deploy tier
 (AECI-1268, 2026-10-10). The `DB_PREVIEW` binding is gone too, so the deployed Worker needs a hand redeploy:
 
 1. **Copy data env→env** — a **full clone** in **replace/mirror** mode: the
-   destination becomes an exact copy of the source, table for table.
+   destination becomes a copy of the source, table for table. Log-class tables are
+   cleared but not copied unless you opt in (AECI-1273, below).
 2. **Seed reviews** — generate ~150–200 deterministic anonymous reviews against
    any env's products (the in-Worker port of `apps/api db:seed-reviews`).
 3. **Prune orphaned integrations** — delete stranded `integrations` rows (+ their
@@ -27,21 +28,71 @@ that tier's own SSR Worker consumes.
 
 ## How it works (and what it deliberately doesn't)
 
-- **Copy = replace/mirror, all tables.** Discovers every user table at runtime
+- **Copy = replace/mirror, all tables cleared.** Discovers every user table at runtime
   (`introspect.ts`, excluding `sqlite_%` / `_cf_%` / `d1_migrations`), topologically
-  orders by FK, clears the destination child-first, and reloads parent-first. The
-  one self-FK (`vendor_requests.duplicate_of_request_id`) is nulled then restored.
-  Ordering — not deferred FKs — is the correctness contract.
+  orders by FK, clears the destination child-first in one atomic batch, and reloads
+  parent-first. The one self-FK (`vendor_requests.duplicate_of_request_id`) is nulled
+  then restored. Ordering — not deferred FKs — is the correctness contract.
+- **Log-class tables are cleared, not reloaded, by default (AECI-1273).** The
+  production→staging clone of 2026-10-12 died twice in the reload: once on a D1 error,
+  once on error 1102 (Worker exceeded resource limits). Production `page_views` is
+  large and mostly bot traffic, and its product/vendor FKs have no `ON DELETE` rule, so
+  an orphan row in the source fails the insert. `LOG_CLASS_TABLES` in `copy.ts` lists
+  the tables the copy skips, each with its reason:
+
+  | Table | Why it is skipped |
+  |---|---|
+  | `page_views` | Huge request log; source orphans fail its FKs. |
+  | `audit_log` | Second-largest log. The destination's vendor History shows only events written after the clone. |
+  | `job_runs` | Cron liveness ledger. Copied rows would report the source's crons as the destination's. |
+  | `health_check` | Probe scratch table; nothing reads it. |
+  | `gsc_recrawl_queue`, `indexnow_queue` | Pending work. Copied rows would make the destination's drains submit the source's URLs. |
+  | `recrawl_queue_causes` | Causes of those queue rows, keyed by `audit_log` id. Both join partners are skipped. |
+  | `user_activity_daily` | Per-user activity log; only the vendor-snapshot cron reads it. |
+  | `vendor_activity_daily` | Derived nightly rollup; no screen reads it. |
+
+  Some audit-exempt tables stay **included** because a page reads them: `stats_cache`
+  (home), `metrics_daily` (admin analytics), `notification_sends` (admin email screen,
+  and the dedupe ledger that stops the destination's crons re-sending),
+  `notification_delivery_events` (admin email screen), and `recrawl_submissions` +
+  `recrawl_submission_causes` (vendor re-crawl submissions). Lead data (`mailing_list`,
+  `feedback`) is included too.
+
+  Skipped tables are **still cleared** on the destination, because their FKs would
+  otherwise block deleting the parents. `includeLogTables: true` (the "Include log
+  tables" checkbox, off by default) copies them too. The copy refuses with **400
+  `EXCLUDED_TABLE_REFERENCED`** if any reloaded table has an FK into a skipped one,
+  since every such insert would fail. Nothing does today, and a test pins that.
+- **The reload streams.** Each table is read one keyset page at a time
+  (`READ_PAGE = 2000` rows) and that page is written in batches of 50 before the next
+  page is read. No table is ever held whole in Worker memory. The self-FK restore
+  keeps only its `UPDATE` statements (non-null values only), not the rows.
 - **Cross-env auth coherence (post-ADR 0017).** A full clone copies `profiles` /
-  `reviews` / `audit_log` etc. whose ids reference Supabase `auth.users`. Per
+  `reviews` etc. (and `audit_log` with `includeLogTables`) whose ids reference
+  Supabase `auth.users`. Per
   [ADR 0017](../../docs/adr/0017-single-supabase-auth-project-across-environments.md)
   **every tier shares one auth project** (`ktuhnlypztujpsseujzx`), so those
   referenced users exist everywhere — a clone between **any** two tiers
   (staging/demo/production) stays sign-in-coherent. (This retires the
   earlier two-project caveat, where a prod↔dev clone left auth-linked rows orphaned;
   D1 has no auth FK regardless, so the insert always succeeds.)
-- **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
-  leaves the destination partially replaced — **re-run** (replace is idempotent).
+- **Not globally atomic, but a failure says where it stopped.** A clone spans many
+  tables / batches; a mid-clone failure leaves the destination partially replaced —
+  **re-run** (replace is idempotent). A failed batch returns **500 `COPY_FAILED`** with:
+
+  | Field | Meaning |
+  |---|---|
+  | `stage` | `clear`, `reload`, or `selfref` |
+  | `table` | The table being written (`null` for `clear`, which is one batch over every table) |
+  | `rowsWritten` | Rows committed to that table before the failing batch |
+  | `completedTables` | Tables fully reloaded before the failure, in insert order |
+  | `d1Message` | The D1 error message, with its cause when D1 wraps one |
+
+  The same report is logged as one `datatool.copy_failed` JSON line. The UI prints it
+  in plain words above the JSON. Any other uncaught error returns **500
+  `INTERNAL_ERROR`** as JSON (`app.onError`), logged as `datatool.unhandled_error`. A
+  response that is not JSON at all (the platform's error 1102 page) is shown with its
+  HTTP status and the same "partially replaced, re-run" warning.
 - **`promote_jobs` is cloned too, and that is correct** (AECI-571). The table is the
   promote ingest's exactly-once ledger, keyed by job id, holding the committed ID map
   as JSON — so it must travel with the rows it describes, or a replayed job id in the
@@ -184,7 +235,7 @@ ungated (the edge Access gates the host).
 
 | Route | Body | Notes |
 |---|---|---|
-| `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff). Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
+| `/api/copy` | `{ source, dest, includeLogTables?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true**: per-table counts in `tables`, plus `excludedTables` (cleared, not reloaded, with source and dest counts). `includeLogTables` defaults **false**. Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. Errors: 400 `SCHEMA_MISMATCH`, 400 `EXCLUDED_TABLE_REFERENCED`, 500 `COPY_FAILED` (partial copy, see above). |
 | `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). Same confirm rules. |
 | `/api/reindex` | `{ target, entities?, purge? }` | Rebuild search from current D1 (no DB write). |
 | `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; a vendor-held id ⇒ **409 `VENDOR_HELD`**, not overridable (AECI-1005); same confirm rules as above. |

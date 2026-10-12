@@ -65,10 +65,11 @@ export function renderUi(nonce: string): string {
 
   <section>
     <h2>Copy data (full clone → replace)</h2>
-    <p class="muted">Makes the destination an exact mirror of the source — every table, including reviews/auth/analytics. Destructive on the destination.</p>
+    <p class="muted">Makes the destination a mirror of the source: every table, including reviews and auth-linked rows. Log tables (page views, audit log, cron and queue ledgers) are cleared on the destination but not copied unless you tick the box below; the dry run lists them. Destructive on the destination.</p>
     <div class="row">
       <div><label for="copy-source">Source</label><select id="copy-source">${envOptions('production')}</select></div>
       <div><label for="copy-dest">Destination</label><select id="copy-dest">${envOptions('staging')}</select></div>
+      <div class="checkline"><input type="checkbox" id="copy-logs"><label for="copy-logs">Include log tables (slow: production page views are large)</label></div>
       <button id="copy-dry" class="primary">Dry run</button>
     </div>
     <div class="confirm">
@@ -156,12 +157,40 @@ export function renderUi(nonce: string): string {
 function $(id){ return document.getElementById(id); }
 function tokenHeaders(){ var t = $('token').value.trim(); return t ? { 'Authorization': 'Bearer ' + t } : {}; }
 function show(id, obj){ $(id).textContent = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2); }
+// A failed copy is spelled out in plain words above the JSON: the destination is
+// left half-loaded, and the operator has to know that before doing anything else.
+function copyFailureText(err){
+  return [
+    'COPY FAILED. The destination is PARTIALLY replaced. Re-run the copy to finish it.',
+    '',
+    'Stage: ' + err.stage,
+    'Table: ' + (err.table || '(the clear runs as one batch over every table)'),
+    'Rows written to that table before the failure: ' + err.rowsWritten,
+    'Tables fully copied before it: ' + ((err.completedTables && err.completedTables.length) ? err.completedTables.join(', ') : 'none'),
+    'D1 error: ' + err.d1Message,
+    '',
+    'Full response:'
+  ].join('\\n');
+}
 async function post(path, body, outId){
   show(outId, 'Running…');
   try {
     var res = await fetch(path, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, tokenHeaders()), body: JSON.stringify(body) });
-    var json = await res.json();
-    show(outId, json);
+    var text = await res.text();
+    var json;
+    try { json = JSON.parse(text); } catch (parseErr) {
+      // Not JSON: the platform answered instead of the Worker (e.g. error 1102 when
+      // the Worker exceeds its resource limits), so the route never reported back.
+      var msg = 'HTTP ' + res.status + ': the response was not JSON, so the Worker did not finish the request.';
+      if (path === '/api/copy' && body.dryRun === false) msg += ' The destination may be PARTIALLY replaced. Re-run the copy to finish it.';
+      show(outId, msg + '\\n\\n' + text.slice(0, 2000));
+      return null;
+    }
+    if (json && json.error && json.error.code === 'COPY_FAILED') {
+      show(outId, copyFailureText(json.error) + '\\n' + JSON.stringify(json, null, 2));
+    } else {
+      show(outId, json);
+    }
     return json;
   } catch (e) { show(outId, 'Request failed: ' + e); return null; }
 }
@@ -176,8 +205,8 @@ function sync(){
 }
 function seedAction(){ return document.querySelector('input[name=seed-action]:checked').value; }
 function seedVal(){ var v = parseInt($('seed-seed').value, 10); return isNaN(v) ? undefined : v; }
-function copyDry(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, dryRun: true }, 'copy-out'); }
-function copyExec(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, dryRun: false, confirmName: $('copy-confirm').value, prodConfirm: $('copy-prod').checked, refresh: $('copy-refresh').checked }, 'copy-out'); }
+function copyDry(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, includeLogTables: $('copy-logs').checked, dryRun: true }, 'copy-out'); }
+function copyExec(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, includeLogTables: $('copy-logs').checked, dryRun: false, confirmName: $('copy-confirm').value, prodConfirm: $('copy-prod').checked, refresh: $('copy-refresh').checked }, 'copy-out'); }
 function seedDry(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: true }, 'seed-out'); }
 function seedExec(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: false, confirmName: $('seed-confirm').value, prodConfirm: $('seed-prod').checked, refresh: $('seed-refresh').checked }, 'seed-out'); }
 function reindexRun(){ return post('/api/reindex', { target: $('reindex-target').value }, 'reindex-out'); }

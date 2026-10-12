@@ -627,4 +627,128 @@ describe('datatool routes', () => {
       staging.raw.prepare('SELECT integration_count AS c FROM products ORDER BY slug').all(),
     ).toEqual([{ c: 1 }, { c: 1 }]);
   });
+
+  // ── AECI-1273: copy exclusions and the structured failure report ────────────────
+
+  it('copy dry-run lists the excluded log tables with their source counts', async () => {
+    seedCatalog(production.raw);
+    production.raw
+      .prepare(
+        "INSERT INTO page_views (path, product_id, created_at) VALUES ('/products/:slug', 'prod-1', '2026-10-01T00:00:00.000Z')",
+      )
+      .run();
+    const res = await call('/api/copy', { source: 'production', dest: 'staging' }, TOKEN);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      includeLogTables: boolean;
+      tables: { table: string }[];
+      excludedTables: { table: string; sourceRows: number }[];
+    };
+    expect(json.includeLogTables).toBe(false);
+    expect(json.tables.map((t) => t.table)).not.toContain('page_views');
+    expect(json.excludedTables.find((t) => t.table === 'page_views')!.sourceRows).toBe(1);
+
+    const optIn = await call(
+      '/api/copy',
+      { source: 'production', dest: 'staging', includeLogTables: true },
+      TOKEN,
+    );
+    const optJson = (await optIn.json()) as {
+      excludedTables: unknown[];
+      tables: { table: string }[];
+    };
+    expect(optJson.excludedTables).toEqual([]);
+    expect(optJson.tables.map((t) => t.table)).toContain('page_views');
+  });
+
+  it('copy refuses with EXCLUDED_TABLE_REFERENCED when a reloaded table points at an excluded one', async () => {
+    const ddl =
+      'CREATE TABLE zz_child (id TEXT PRIMARY KEY, view_id INTEGER REFERENCES page_views(id))';
+    production.raw.prepare(ddl).run();
+    staging.raw.prepare(ddl).run();
+    const res = await call('/api/copy', { source: 'production', dest: 'staging' }, TOKEN);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string; detail: string[] } };
+    expect(json.error.code).toBe('EXCLUDED_TABLE_REFERENCED');
+    expect(json.error.detail.join(' ')).toContain('zz_child');
+  });
+
+  it('a failed copy returns COPY_FAILED with stage, table, rows written, and the D1 message', async () => {
+    seedCatalog(production.raw);
+    // An orphan product_vendors row: the staging FK rejects it on insert.
+    production.raw.pragma('foreign_keys = OFF');
+    production.raw
+      .prepare(
+        "INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES ('prod-2', 'ven-missing', 0, 'x')",
+      )
+      .run();
+    production.raw.pragma('foreign_keys = ON');
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await call(
+      '/api/copy',
+      { source: 'production', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(500);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    const json = (await res.json()) as {
+      error: {
+        code: string;
+        message: string;
+        stage: string;
+        table: string;
+        rowsWritten: number;
+        completedTables: string[];
+        d1Message: string;
+      };
+    };
+    expect(json.error.code).toBe('COPY_FAILED');
+    expect(json.error.stage).toBe('reload');
+    expect(json.error.table).toBe('product_vendors');
+    expect(json.error.rowsWritten).toBe(0); // both rows share one batch, which rolled back
+    expect(json.error.completedTables).toContain('products');
+    expect(json.error.d1Message).toContain('FOREIGN KEY');
+    expect(json.error.message).toContain('PARTIALLY replaced');
+
+    // One JSON log line carrying the same report.
+    const logged = errors.mock.calls.map(
+      (c) => JSON.parse(String(c[0])) as Record<string, unknown>,
+    );
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      event: 'datatool.copy_failed',
+      stage: 'reload',
+      table: 'product_vendors',
+      source: 'production',
+      dest: 'staging',
+    });
+    errors.mockRestore();
+  });
+
+  it('an unexpected throw becomes a JSON 500, never a bare one', async () => {
+    env.DB_STAGING = undefined; // introspect() throws a TypeError on the missing binding
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await call('/api/copy', { source: 'production', dest: 'staging' }, TOKEN);
+    expect(res.status).toBe(500);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('INTERNAL_ERROR');
+    expect(JSON.parse(String(errors.mock.calls[0][0]))).toMatchObject({
+      event: 'datatool.unhandled_error',
+      path: '/api/copy',
+    });
+    errors.mockRestore();
+  });
+
+  it('the UI offers the log-table opt-in, unchecked by default', async () => {
+    const html = await (await app.fetch(new Request('http://tool.local/'), env, CTX)).text();
+    expect(html).toMatch(/<input type="checkbox" id="copy-logs">/);
+    expect(html).toContain('includeLogTables');
+    expect(html).toContain('PARTIALLY replaced');
+    // The client script is a string inside a template literal, so an unescaped \n
+    // would break it at runtime. Parse it to be sure.
+    const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)![1];
+    expect(() => new Function(script)).not.toThrow();
+  });
 });

@@ -26,6 +26,8 @@ export interface TableInfo {
   references: string[];
   /** FK columns that point back at THIS table (the self-ref to null-then-update). */
   selfRefColumns: string[];
+  /** Declared `WITHOUT ROWID` (none today): the copy pages it by primary key. */
+  withoutRowid: boolean;
 }
 
 export interface Schema {
@@ -71,7 +73,13 @@ async function readTableInfo(db: D1Database, name: string): Promise<TableInfo> {
     ...new Set(fks.results.filter((r) => r.parent === name).map((r) => r.fromcol)),
   ];
 
-  return { name, columns, pkColumns, references, selfRefColumns };
+  const ddl = await db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .bind(name)
+    .first<{ sql: string | null }>();
+  const withoutRowid = /\bWITHOUT\s+ROWID\b/i.test(ddl?.sql ?? '');
+
+  return { name, columns, pkColumns, references, selfRefColumns, withoutRowid };
 }
 
 /** Kahn's algorithm over the parent→child edges; deterministic (name-sorted). A
@@ -111,6 +119,23 @@ export async function introspect(db: D1Database): Promise<Schema> {
   for (const name of names) tablesByName.set(name, await readTableInfo(db, name));
   const insertOrder = topoSort(tablesByName);
   return { tablesByName, insertOrder, deleteOrder: [...insertOrder].reverse() };
+}
+
+/** Every table in `included` that has an FK into a table in `excluded`, with the
+ * excluded parents it names. The copy refuses when this is non-empty: the parent
+ * rows are never reloaded, so each child insert that sets the FK would fail. */
+export function referencesInto(
+  schema: Schema,
+  included: readonly string[],
+  excluded: readonly string[],
+): { table: string; references: string[] }[] {
+  const skip = new Set(excluded);
+  const out: { table: string; references: string[] }[] = [];
+  for (const name of included) {
+    const hits = (schema.tablesByName.get(name)?.references ?? []).filter((p) => skip.has(p));
+    if (hits.length) out.push({ table: name, references: hits });
+  }
+  return out;
 }
 
 /** Human-readable schema differences (empty array = identical). Compares the table

@@ -137,7 +137,7 @@ What replaced it:
 
 The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) **redeploys the staging Workers and smoke-tests them**. It was **gutted with the Postgres-app-DB decommission (AECI-278)**: it no longer does any `pg_dump` / `pg_restore` / `supabase db push` / GRANT-RLS re-assert / Postgres drift check — there is no Postgres app DB to refresh. Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) it **never touches the auth schema** either — auth is one shared project across all environments, and the test accounts are seeded into the shared auth project out of band (see "Test accounts" / `scripts/seed-staging-users.sql`).
 
-**Refreshing staging _app data_ is now a separate, D1-native operation.** The Access-gated [`apps/datatool`](../apps/datatool) Worker clones one environment's D1 into another (replace-mirror of all tables) and reindexes Algolia; the staging D1 (`aeci-app-staging`) is seeded/cloned that way, not from a Postgres dump.
+**Refreshing staging _app data_ is now a separate, D1-native operation.** The Access-gated [`apps/datatool`](../apps/datatool) Worker clones one environment's D1 into another (replace-mirror: every table cleared, every table reloaded except the log-class tables it skips by default, AECI-1273) and reindexes Algolia; the staging D1 (`aeci-app-staging`) is seeded/cloned that way, not from a Postgres dump.
 
 Trigger the redeploy from the GitHub Actions UI:
 

@@ -24,7 +24,7 @@ import {
   type ReindexResult,
 } from './algolia-reindex';
 import { purgeEnvCache, type PurgeEnqueueOutcome } from './cache-purge';
-import { copyDryRun, copyExecute } from './copy';
+import { CopyFailedError, copyDryRun, copyExecute, type CopyResult } from './copy';
 import type { Env } from './env';
 import {
   MIN_ACK_REASON_LENGTH,
@@ -48,6 +48,22 @@ import { renderUi } from './ui';
 type App = { Bindings: Env; Variables: AccessVariables };
 
 const app = new Hono<App>();
+
+// No route returns a bare 500 (AECI-1273): an unexpected throw becomes a JSON error
+// the UI can render, and is logged as one line. Expected failures (COPY_FAILED,
+// guard refusals) are answered by their routes before reaching here.
+app.onError((err, c) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(
+    JSON.stringify({
+      event: 'datatool.unhandled_error',
+      method: c.req.method,
+      path: c.req.path,
+      message,
+    }),
+  );
+  return c.json({ error: { code: 'INTERNAL_ERROR', message } }, 500);
+});
 
 // Security headers on every response (no-store: this tool must never be cached).
 app.use('*', async (c, next) => {
@@ -155,13 +171,18 @@ app.post('/api/copy', requireAccess(), async (c) => {
   const src = targetFor(c.env, source);
   const dst = targetFor(c.env, dest);
 
-  const plan = await copyDryRun(src.db, dst.db);
+  // AECI-1273: log-class tables are cleared but not reloaded unless opted in.
+  const includeLogTables = body.includeLogTables === true;
+  const plan = await copyDryRun(src.db, dst.db, { includeLogTables });
   if (!plan.ok) {
     return c.json(
       {
         error: {
           code: plan.code,
-          message: 'Source and destination schemas differ.',
+          message:
+            plan.code === 'SCHEMA_MISMATCH'
+              ? 'Source and destination schemas differ.'
+              : 'A reloaded table references a table the copy excludes, so its inserts would fail. Add the parent to the copy (includeLogTables: true) or drop it from LOG_CLASS_TABLES.',
           detail: plan.messages,
         },
       },
@@ -177,26 +198,70 @@ app.post('/api/copy', requireAccess(), async (c) => {
       source,
       dest,
       mode: 'replace',
+      includeLogTables,
       tables: plan.tables,
+      excludedTables: plan.excludedTables,
       totalSourceRows: plan.totalSourceRows,
       totalDestRows: plan.totalDestRows,
-      note: 'Full clone (all tables). Executing replaces every destination row, including reviews/auth/analytics.',
+      note: plan.excludedTables.length
+        ? `Executing replaces every destination row. ${plan.excludedTables.length} log-class table(s) in excludedTables are cleared on the destination but not reloaded (includeLogTables: true copies them too).`
+        : 'Executing replaces every destination row, all tables reloaded (includeLogTables).',
     });
   }
 
   const err = confirmationError(dst, body);
   if (err) return c.json({ error: err }, 400);
 
-  const result = await copyExecute(src.db, dst.db, plan.schema);
+  let result: CopyResult;
+  try {
+    result = await copyExecute(src.db, dst.db, plan.schema, { includeLogTables });
+  } catch (e) {
+    if (!(e instanceof CopyFailedError)) throw e;
+    const failure = {
+      stage: e.stage,
+      table: e.table,
+      rowsWritten: e.rowsWritten,
+      completedTables: e.completedTables,
+      d1Message: e.d1Message,
+    };
+    console.error(
+      JSON.stringify({
+        event: 'datatool.copy_failed',
+        operator: c.get('operator'),
+        source,
+        dest,
+        includeLogTables,
+        ...failure,
+      }),
+    );
+    return c.json(
+      {
+        error: {
+          code: 'COPY_FAILED',
+          message: `The copy failed during ${e.stage}${e.table ? ` of "${e.table}"` : ''}. The destination ${dst.dbName} is now PARTIALLY replaced: re-run the copy to finish it.`,
+          ...failure,
+        },
+      },
+      500,
+    );
+  }
   const refresh = body.refresh === false ? null : await refreshTarget(dst, REINDEX_ENTITIES);
-  logOperation(c.get('operator'), { op: 'copy', source, dest, inserted: result.inserted });
+  logOperation(c.get('operator'), {
+    op: 'copy',
+    source,
+    dest,
+    includeLogTables,
+    inserted: result.inserted,
+  });
   return c.json({
     ok: true,
     executed: true,
     source,
     dest,
+    includeLogTables,
     inserted: result.inserted,
     perTable: result.perTable,
+    excludedTables: result.excludedTables,
     refresh,
   });
 });
