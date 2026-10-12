@@ -16,8 +16,8 @@
  * Inputs, as on the other plan calls to action (`plan-cta.ts`): `page` and the
  * signed-in `portal` swap. Both buttons open the claim dialog (AECI-1293, spec
  * §15.1): "Claim your listing" with Free preselected, "Start with Managed" with
- * Managed preselected. Under the Managed button, "Questions about pricing? Talk to us"
- * opens the plan inquiry dialog. A vendor seat sees "Go to your portal" on both.
+ * Managed preselected. Under the Managed button, "Questions about Managed or
+ * pricing? Talk to us" opens the plan inquiry dialog. A vendor seat sees "Go to your portal" on both.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Every string is `$localize`d or

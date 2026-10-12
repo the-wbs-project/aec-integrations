@@ -121,7 +121,7 @@ abstract class PlanCta {
   }
 }
 
-/** "Questions about pricing? Talk to us": the plan inquiry dialog, in place (§15.1). */
+/** "Questions about Managed or pricing? Talk to us": the plan inquiry dialog, in place (§15.1). */
 @Component({
   selector: 'aec-plan-pricing-link',
   imports: [PlanInquiryTrigger],
@@ -132,7 +132,7 @@ abstract class PlanCta {
         tone() === 'inverse' ? 'text-sm text-(--surface-base)' : 'text-sm text-(--text-secondary)'
       "
     >
-      <span i18n="@@planCta.pricing.lead">Questions about pricing?</span>
+      <span i18n="@@planCta.pricing.lead">Questions about Managed or pricing?</span>
       {{ ' ' }}
       <a
         [href]="contactHref"

@@ -76,7 +76,7 @@ describe('PlanCardsComponent', () => {
     });
 
     expect(pricing.textContent?.trim()).toBe('Talk to us');
-    expect(cards[1].textContent).toContain('Questions about pricing?');
+    expect(cards[1].textContent).toContain('Questions about Managed or pricing?');
     expect(click(pricing)).toBe(true);
     expect(inquiry.placement()).toBe('card');
     expect(inquiry.page()).toBe('vendor_program');

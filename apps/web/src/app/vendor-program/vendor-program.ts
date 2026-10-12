@@ -24,6 +24,10 @@
  *
  * **What changes when you claim** draws both labels with the listing's own
  * `aec-maintenance-marker`, so the page can never show wording a listing does not.
+ * Its lede says buyers read our account of your public pages until you claim.
+ *
+ * **What Managed adds** opens with its own lede (who Managed is for), then the
+ * price and terms line in small text (copy pass 2026-10-12).
  *
  * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*` carries `target="_blank" rel="noopener"`
  * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
@@ -37,7 +41,7 @@
  * opens the one claim dialog (AECI-1293): "Claim your listing", or "Start with
  * Managed" with Managed preselected. Without JS they link to `/search`
  * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
- * claim form. "Questions about pricing? Talk to us" opens the plan inquiry
+ * claim form. "Questions about Managed or pricing? Talk to us" opens the plan inquiry
  * dialog. The plan cards carry `data-plans-cta`, so the phone bar also hides while
  * they are on screen. Exactly one `aec-claim-dialog-host` and one
  * `aec-plan-inquiry-host`.
@@ -136,9 +140,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               class="mt-4 max-w-[52ch] text-base leading-relaxed text-(--text-secondary) md:mt-5 md:text-lg"
               i18n="@@app.vendorProgram.lede"
             >
-              AEC Integrations lists AEC software and its integrations from public sources. Claim
-              your listing for free to correct it, keep it current, and show buyers your team
-              maintains it.
+              AEC teams compare software and its integrations here before they buy. Claim your
+              listing, free, so what they read is current, complete and in your words.
             </p>
             <aec-plan-cta-actions class="mt-6 md:mt-8" page="vendor_program" [portal]="portal()" />
           </div>
@@ -190,7 +193,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.review.body"
                   >
-                    A person at AEC Integrations reads and processes every claim.
+                    Generally within two days. We email you the result either way.
                   </p>
                 </div>
               </li>
@@ -212,9 +215,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)"
                 i18n="@@vendorProgram.whatChanges.lede"
               >
-                Buyers compare your integrations on your listing, whether or not you wrote it. Every
-                listing says who keeps it up to date. Here is the label buyers see today, and the
-                one they see once you take it over.
+                Buyers compare your integrations on your listing, whether or not you wrote it. Until
+                you claim it, they are reading our account of your public pages. Every listing says
+                who keeps it current.
               </p>
             </div>
             <ul class="grid gap-4 sm:grid-cols-2 lg:col-span-7" role="list">
@@ -233,8 +236,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   class="mt-3 leading-relaxed text-(--text-secondary)"
                   i18n="@@vendorProgram.whatChanges.before.body"
                 >
-                  We wrote it from public sources. Buyers cannot tell whether your company has seen
-                  it.
+                  We wrote it from what we could find. Buyers cannot tell whether anything is
+                  missing or out of date.
                 </p>
               </li>
               <li
@@ -289,9 +292,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
             <ul [class]="benefitList" role="list">
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.details">
                 <ng-container i18n="@@vendorProgram.free.details.body">
-                  Keep your company and product details current: the description, website, logo and
-                  categories. You decide what buyers read about you. They see a current page marked
-                  "Vendor maintained", with the date you last updated it.
+                  Buyers read a page your team wrote, marked "Vendor maintained" with the date you
+                  last checked it. Keep the description, website, logo and categories current.
                   <a
                     routerLink="/docs/vendors/checklists"
                     target="_blank"
@@ -304,18 +306,19 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.integrations">
                 <ng-container i18n="@@vendorProgram.free.integrations.body">
-                  Claim the integrations your company builds, and add your setup guide to any
-                  integration with your product. Buyers see who maintains each one. The person
-                  setting it up on a project gets your guide from the integration page, not a
-                  support ticket. If a partner's listing gets a detail of yours wrong, you can
-                  contest it.
+                  The person setting up your integration on a project gets your guide from the
+                  integration page, not a support ticket. Claim the integrations your company
+                  builds, and add your setup guide to any integration with your product. Buyers see
+                  who maintains each one. If a partner's listing describes your integration wrongly,
+                  you can contest it.
                 </ng-container>
               </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.complete">
                 <ng-container i18n="@@vendorProgram.free.complete.body">
-                  When two listings match a search about equally well, the more complete one comes
-                  first. Every detail that counts toward completeness can be filled in on the free
-                  plan. That rule is the same for every listing, whatever its plan.
+                  A complete listing matches more searches and wins ties. When two listings match a
+                  search about equally well, the more complete one comes first. Every field that
+                  counts is free to fill in, and the rule is the same for every listing, whatever
+                  its plan.
                 </ng-container>
               </li>
             </ul>
@@ -326,7 +329,12 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               <h2 id="vp-managed-heading" i18n="@@vendorProgram.managed.heading">
                 What Managed adds
               </h2>
-              <p [class]="benefitLede">{{ terms }}</p>
+              <p [class]="benefitLede" i18n="@@vendorProgram.managed.lede">
+                Managed is for products that need more than a corrected listing: your own account of
+                what the product does on a project, who it is for, and how its integrations move
+                data.
+              </p>
+              <p class="mt-3 text-sm text-(--text-secondary)">{{ terms }}</p>
             </div>
             <ul [class]="benefitList" role="list">
               <li
@@ -337,8 +345,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               >
                 <ng-container i18n="@@vendorProgram.managed.usefulness.body">
                   Describe, in your own words, the work your product does on a real project. Buyers
-                  judge fit by the job it does, not a feature list. The people who will use it can
-                  picture it on their own project.
+                  judge fit by the job it does, not a feature list, and the people who will use it
+                  can picture it on their own project.
                 </ng-container>
               </li>
               <li
@@ -379,8 +387,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               >
                 <ng-container i18n="@@vendorProgram.managed.replies.body">
                   Reply to reviews of your products, so buyers see your side and how you handle a
-                  problem. Someone weighing a critical review reads your answer beside it. We check
-                  each reply before it goes live.
+                  problem. Someone weighing a critical review reads your answer beside it. Every
+                  reply is reviewed before it goes live, so buyers read it as part of the record,
+                  not a comment thread.
                 </ng-container>
               </li>
             </ul>
@@ -429,8 +438,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary) lg:mt-0"
                 i18n="@@vendorProgram.sorting.trust"
               >
-                That is why buyers trust the order they see. Your plan also never decides whether a
-                review is published or removed, whether a listing exists, or how an agreement label
+                That is why buyers trust what they find here, and why a claimed, complete listing is
+                worth more than a paid one that is not. Paying changes what you can say. It never
+                changes where you appear, whether a review is published, or how an agreement label
                 is worked out.
               </p>
               <p class="mt-5">
@@ -463,12 +473,11 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               class="max-w-[56ch] leading-relaxed text-(--text-secondary) lg:col-span-7 lg:max-w-none"
               i18n="@@vendorProgram.comingSoon.body"
             >
-              Performance reporting is coming to Managed, so you can see whether your listing is
-              working for you. It will show how many people view your product and integration pages,
-              how many click through to your website and docs, and how often search engines and AI
-              assistants visit. A monthly report you can download will let you share that with your
-              team. It reports attention only, and never changes where you rank or appear. It is not
-              available yet.
+              Is the listing working for you? Performance reporting is coming to Managed. It will
+              show how many people view your product and integration pages, how many click through
+              to your website and docs, and how often search engines and AI assistants visit, with a
+              monthly report you can download and share with your team. It reports attention only,
+              and never changes where you rank or appear.
             </p>
           </section>
 
@@ -487,9 +496,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.who.a">
                   Anyone who works at the company that makes the product. Claiming is free, and you
-                  do not need an account to start. We set up your account when we approve your
-                  claim. A claim on a product is a claim on the company that makes it, and the seat
-                  covers the whole company account. See
+                  do not need an account to start: we set up yours when we approve the claim. A
+                  claim on a product is a claim on the company that makes it, and the seat covers
+                  the whole company account. See
                   <a
                     routerLink="/docs/vendors/claiming-your-listing"
                     target="_blank"
@@ -505,9 +514,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.approval.a">
-                  Generally within 48 hours. A person at AEC Integrations reads every claim. Nothing
-                  is granted automatically. We review each claim and email the result to the address
-                  you gave.
+                  Generally within 48 hours. A person at AEC Integrations reviews every claim and
+                  emails the result to the address you gave.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -649,7 +657,7 @@ export class VendorProgramPage {
   protected readonly managedTitles = {
     usefulness: $localize`:@@vendorProgram.managed.usefulness.title:How teams use it`,
     taxonomy: $localize`:@@vendorProgram.managed.taxonomy.title:Trades, audiences and phases`,
-    integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:More detailed information about integrations (additional URLs, data flow, etc.)`,
+    integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:Integration detail buyers can check`,
     replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
   };
   /** `$25 a month per product, or $250 a year, billed by invoice or purchase order.` */

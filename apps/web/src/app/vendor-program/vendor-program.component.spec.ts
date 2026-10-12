@@ -96,7 +96,7 @@ describe('VendorProgramPage', () => {
         'Your products may already be listed here. Make sure buyers read your version.',
       );
       expect(text(host.querySelector('section'))).toContain(
-        'Claim your listing for free to correct it, keep it current, and show buyers your team maintains it.',
+        'Claim your listing, free, so what they read is current, complete and in your words.',
       );
     });
 
@@ -191,7 +191,7 @@ describe('VendorProgramPage', () => {
       expect(titles(managed)).toEqual([
         'How teams use it',
         'Trades, audiences and phases',
-        'More detailed information about integrations (additional URLs, data flow, etc.)',
+        'Integration detail buyers can check',
         'Review replies',
       ]);
       // Ruled 2026-10-12: the integration detail body, reworded for clarity.
@@ -238,8 +238,12 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/attesting-an-integration',
         '/docs/vendors/plans#what-managed-adds',
       ]);
-      // The price leads the section, from the shared terms line.
-      expect(text(host.querySelector('#vp-managed > div > p'))).toBe(
+      // Copy pass 2026-10-12: the section's own lede, then the shared terms line.
+      const intro = [...host.querySelectorAll('#vp-managed > div > p')];
+      expect(text(intro[0])).toMatch(
+        /^Managed is for products that need more than a corrected listing/,
+      );
+      expect(text(intro[1])).toBe(
         '$25 a month per product, or $250 a year, billed by invoice or purchase order.',
       );
     });
@@ -307,7 +311,7 @@ describe('VendorProgramPage', () => {
       expect(text(sorting)).toContain(
         'Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that.',
       );
-      expect(text(sorting)).toContain('That is why buyers trust the order they see.');
+      expect(text(sorting)).toContain('That is why buyers trust what they find here');
       expect(sorting?.querySelector('a')?.getAttribute('href')).toBe(
         '/docs/trust/how-ranking-works',
       );
@@ -335,7 +339,7 @@ describe('VendorProgramPage', () => {
       // The visible answer, without the link's screen-reader-only new-tab note.
       const answer = (d: Element) => text(d.querySelector('p')).replace('(opens in a new tab)', '');
       expect(answer(faq[1])).toMatch(/^Generally within 48 hours\. A person at AEC Integrations/);
-      expect(answer(faq[1])).toContain('We review each claim and email the result');
+      expect(answer(faq[1])).toContain('reviews every claim and emails the result');
       expect(answer(faq[2])).toBe(
         "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Plans are priced per product. Tell us which products you want on Managed, and we'll set it up with you.",
       );
@@ -406,7 +410,7 @@ describe('VendorProgramPage', () => {
       expect(pricing).toHaveLength(3);
       for (const a of pricing) {
         expect(a.getAttribute('href')).toBe('/contact?topic=managed');
-        expect(text(a.parentElement)).toContain('Questions about pricing?');
+        expect(text(a.parentElement)).toContain('Questions about Managed or pricing?');
       }
     });
 
@@ -430,7 +434,7 @@ describe('VendorProgramPage', () => {
       const bodies = [...how.querySelectorAll('ol > li p:last-child')].map((p) => text(p));
       expect(bodies.slice(1)).toEqual([
         'Claiming is free. We set up your account when we approve your claim.',
-        'A person at AEC Integrations reads and processes every claim.',
+        'Generally within two days. We email you the result either way.',
       ]);
       expect(text(how)).not.toContain('needs no account');
       // Not a section heading: the page keeps one h1, then one h2 per section.
