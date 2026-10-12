@@ -2,7 +2,7 @@
 title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
-order: 3
+order: 4
 last_updated: 9 October 2026
 ---
 

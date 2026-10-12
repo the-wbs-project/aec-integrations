@@ -1017,6 +1017,20 @@ jobs:
         run: pnpm algolia:apply-settings --env production
 
       # -----------------------------------------------------------------------
+      # AECI-1270: rebuild the docs search index (production_docs) from the docs
+      # Markdown at this SHA. Demo reads production_docs, so this is also what
+      # demo's docs search shows. Save-then-delete-stale, never a replace
+      # (scripts/algolia/push-docs.mjs). Skips (exit 0) when ALGOLIA_* are unset.
+      # Like the settings step above, a failure here marks the promote red
+      # WITHOUT rolling back the Workers (the rollback is gated on the smoke step).
+      # -----------------------------------------------------------------------
+      - name: Push docs search index (production)
+        env:
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+        run: pnpm algolia:push-docs --env production
+
+      # -----------------------------------------------------------------------
       # AECI-91: auto-rollback BOTH production Workers when the post-deploy
       # SMOKE step fails after both Workers went live. `wrangler rollback` with
       # no VERSION_ID reverts to the version uploaded before the latest — i.e.

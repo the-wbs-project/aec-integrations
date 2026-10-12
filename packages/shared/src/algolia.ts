@@ -17,7 +17,12 @@
  *   - `scripts/algolia/apply-settings.mjs` (operator/CI; applies the settings),
  *   - the SSR Worker's `algolia-bootstrap-inject.ts` (surfaces the public index
  *     names + search key to the browser),
- *   - sync (3.5/3.6) and `/search` (3.9) once they land.
+ *   - sync (3.5/3.6) and `/search` (3.9) once they land,
+ *   - `scripts/algolia/push-docs.mjs` (CI; the docs search index, AECI-1270).
+ *
+ * The docs index helpers (`docsIndexNameFor`, `syncDocsIndex`, the shared-key
+ * params) sit beside `INDEX_ENTITIES`, never inside it. See the "Product docs
+ * search" block below.
  *
  * Record *shapes* (the denormalized Zod schemas) live in `./algolia-records`,
  * kept separate so `zod` never enters the `.mjs` type-strip graph. The
@@ -148,7 +153,8 @@ export function keyDescription(role: AlgoliaKeyRole, env: AlgoliaEnv): string {
 export function searchKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
   return {
     acl: ['search'],
-    indexes: [...indexListFor(env), ...replicaNamesFor(env)],
+    // The docs index the tier READS (AECI-1270). Demo reads `production_docs`.
+    indexes: [...indexListFor(env), ...replicaNamesFor(env), docsIndexNameFor(env)],
     description: keyDescription('search', env),
   };
 }
@@ -169,8 +175,226 @@ export function managementKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
     acl: ['search', 'browse', 'addObject', 'deleteObject', 'editSettings', 'listIndexes'],
     // Includes the sort replicas (AECI-175) so the apply step can `setSettings`
     // each replica's `ranking`; without it the replica `setSettings` 403s.
-    indexes: [...indexListFor(env), ...replicaNamesFor(env)],
+    // The docs index only on a tier that WRITES it (AECI-1270). Demo reads
+    // `production_docs` but never writes it, so its key does not reach it.
+    indexes: [
+      ...indexListFor(env),
+      ...replicaNamesFor(env),
+      ...(isDocsWriterPrefix(indexPrefixForEnv(env)) ? [docsIndexNameFor(env)] : []),
+    ],
     description: keyDescription('management', env),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Product docs search (AECI-1270)
+//
+// Deliberately OUTSIDE `INDEX_ENTITIES`. The D1 sync, the drift check, the
+// orphan sweep and `applyIndexSettingsTo` all loop over that list, and none of
+// them may touch the docs index: its records come from the bundled Markdown,
+// not from D1, and only `scripts/algolia/push-docs.mjs` writes them.
+// ---------------------------------------------------------------------------
+
+/** The two physical docs indexes. There is no `demo_docs`. */
+export type DocsIndexName = 'staging_docs' | 'production_docs';
+
+/** Both docs indexes, staging first. */
+export const DOCS_INDEX_NAMES: readonly DocsIndexName[] = ['staging_docs', 'production_docs'];
+
+function isDocsWriterPrefix(prefix: AlgoliaIndexPrefix): boolean {
+  return prefix !== 'demo';
+}
+
+/**
+ * The docs index a tier READS. `production` and `demo` read `production_docs`;
+ * everything else (staging, development, a stale label) reads `staging_docs`.
+ *
+ * Deliberately NOT `indexPrefixForEnv`, which keeps demo on its own `demo_*`
+ * set. The docs are the same Markdown on every tier, so demo showing the
+ * production docs is correct, and a `demo_docs` index would only spend an index
+ * slot (`SEARCH_RANKING.md` §5a). Demo never writes it: see `docsIndexWriterFor`.
+ */
+export function docsIndexNameFor(env: AlgoliaEnv): DocsIndexName {
+  return env === 'production' || env === 'demo' ? 'production_docs' : 'staging_docs';
+}
+
+/**
+ * The docs index a tier may WRITE: `staging_docs` for `staging`,
+ * `production_docs` for `production`. Throws for `demo`, which reads
+ * `production_docs` and must never write it, and for `development`, so a local
+ * run can never push. The push script goes through this, never through
+ * `docsIndexNameFor`.
+ */
+export function docsIndexWriterFor(env: AlgoliaEnv): DocsIndexName {
+  if (env === 'staging') return 'staging_docs';
+  if (env === 'production') return 'production_docs';
+  throw new Error(
+    `docs search: env "${env}" never writes a docs index. Only staging and production push; demo reads production_docs.`,
+  );
+}
+
+/** One docs search record: a page lede or one `h2` section (with its `h3`s). */
+export type DocsSearchRecord = {
+  /** `<path>` for a lede, `<path>#<anchor>` for a section. Unique. */
+  objectID: string;
+  /** Which guide the page belongs to: `help` (General) or `vendor`. */
+  guide: 'help' | 'vendor';
+  /** The section label, e.g. "Reviewer guide". */
+  section: string;
+  page_title: string;
+  /** The `h2` text, or the page title for a lede. */
+  heading: string;
+  /** Site-absolute: `/docs/<section>/<slug>` plus `#<anchor>` for a section. */
+  url: string;
+  /** Plain text, entities decoded, capped near 8 KB. */
+  content: string;
+  /** Global reading order: guide, section, page, then position in the page. */
+  order: number;
+};
+
+/** The docs index's managed settings. Its own shape: it has snippets and no replicas. */
+export type DocsIndexSettings = {
+  searchableAttributes: string[];
+  attributesForFaceting: string[];
+  attributesToSnippet: string[];
+  snippetEllipsisText: string;
+  customRanking: string[];
+};
+
+/**
+ * Settings for both docs indexes. A heading match outranks a title match,
+ * which outranks body text. `guide` is filter-only: the box always filters on
+ * it and never shows it as a facet. Ties keep reading order.
+ */
+export const DOCS_INDEX_SETTINGS: Readonly<DocsIndexSettings> = {
+  searchableAttributes: ['heading', 'page_title', 'content'],
+  attributesForFaceting: ['filterOnly(guide)'],
+  attributesToSnippet: ['content:24'],
+  snippetEllipsisText: '…',
+  customRanking: ['asc(order)'],
+};
+
+/**
+ * The slice of the `algoliasearch` v5 client `syncDocsIndex` needs, declared
+ * structurally so this module never imports `algoliasearch`.
+ */
+export type DocsIndexClient = {
+  setSettings(args: {
+    indexName: string;
+    indexSettings: DocsIndexSettings;
+  }): Promise<{ taskID: number }>;
+  saveObjects(args: {
+    indexName: string;
+    objects: Record<string, unknown>[];
+  }): Promise<readonly { taskID: number }[]>;
+  browseObjects(args: {
+    indexName: string;
+    browseParams: { attributesToRetrieve: string[]; hitsPerPage: number };
+    aggregator: (response: { hits: readonly { objectID: string }[] }) => void;
+  }): Promise<unknown>;
+  deleteObjects(args: {
+    indexName: string;
+    objectIDs: string[];
+  }): Promise<readonly { taskID: number }[]>;
+  waitForTask(args: { indexName: string; taskID: number }): Promise<unknown>;
+};
+
+/** What one docs sync did. */
+export type DocsSyncResult = {
+  index: string;
+  records: number;
+  saved: number;
+  deleted: number;
+};
+
+/**
+ * Brings one docs index in line with `records`: settings, then save every
+ * record, then browse the index and delete any id the build no longer has.
+ *
+ * Save BEFORE delete, and wait on each step, so there is no moment when a
+ * page that still exists is missing from search. Never `replaceAllObjects`:
+ * its temporary index takes a slot the app does not have
+ * (`SEARCH_RANKING.md` §5a) and falls outside the scoped management key.
+ */
+export async function syncDocsIndex(
+  client: DocsIndexClient,
+  indexName: DocsIndexName,
+  records: readonly DocsSearchRecord[],
+): Promise<DocsSyncResult> {
+  const ids = new Set(records.map((record) => record.objectID));
+  if (ids.size !== records.length) {
+    throw new Error(`docs search: duplicate objectIDs in the ${indexName} build`);
+  }
+
+  const settings = await client.setSettings({
+    indexName,
+    indexSettings: { ...DOCS_INDEX_SETTINGS },
+  });
+  await client.waitForTask({ indexName, taskID: settings.taskID });
+
+  const saves = await client.saveObjects({
+    indexName,
+    objects: records.map((record) => ({ ...record })),
+  });
+  for (const { taskID } of saves) await client.waitForTask({ indexName, taskID });
+
+  const stale: string[] = [];
+  await client.browseObjects({
+    indexName,
+    browseParams: { attributesToRetrieve: ['objectID'], hitsPerPage: 1000 },
+    aggregator: (response) => {
+      for (const hit of response.hits) if (!ids.has(hit.objectID)) stale.push(hit.objectID);
+    },
+  });
+
+  if (stale.length > 0) {
+    const deletes = await client.deleteObjects({ indexName, objectIDs: stale });
+    for (const { taskID } of deletes) await client.waitForTask({ indexName, taskID });
+  }
+
+  return {
+    index: indexName,
+    records: records.length,
+    saved: records.length,
+    deleted: stale.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared keys (AECI-1270)
+//
+// GitHub Actions holds ONE `ALGOLIA_SEARCH_KEY` and ONE `ALGOLIA_ADMIN_KEY` for
+// every tier, so the key behind each must reach every tier's indexes. These
+// list every index by name. Never `*`: a wildcard would also cover any index
+// created later, by anyone.
+// ---------------------------------------------------------------------------
+
+/** The deployed tiers whose index sets the shared keys cover. */
+const SHARED_KEY_TIERS = ['staging', 'demo', 'production'] as const satisfies readonly AlgoliaEnv[];
+
+/** Every base index and replica on the three tiers, then both docs indexes. */
+function sharedIndexList(): string[] {
+  return [
+    ...SHARED_KEY_TIERS.flatMap((env) => [...indexListFor(env), ...replicaNamesFor(env)]),
+    ...DOCS_INDEX_NAMES,
+  ];
+}
+
+/** The shared query-only key: `ALGOLIA_SEARCH_KEY` on every tier. */
+export function sharedSearchKeyParams(): AlgoliaKeyParams {
+  return {
+    acl: [...searchKeyParams('staging').acl],
+    indexes: sharedIndexList(),
+    description: 'aeci:search:shared',
+  };
+}
+
+/** The shared management key: `ALGOLIA_ADMIN_KEY` in CI and on every API Worker. */
+export function sharedManagementKeyParams(): AlgoliaKeyParams {
+  return {
+    acl: [...managementKeyParams('staging').acl],
+    indexes: sharedIndexList(),
+    description: 'aeci:management:shared',
   };
 }
 

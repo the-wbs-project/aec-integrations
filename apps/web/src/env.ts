@@ -39,7 +39,7 @@
  * `window.__AECI_ALGOLIA__`).
  */
 
-import type { AlgoliaIndexNames } from '@aeci/shared/algolia';
+import type { AlgoliaIndexNames, DocsIndexName } from '@aeci/shared/algolia';
 
 /**
  * Public Algolia config rendered into the SSR HTML for the browser
@@ -51,6 +51,13 @@ export type AlgoliaPublicConfig = {
   appId: string;
   searchKey: string;
   indexes: AlgoliaIndexNames;
+  /**
+   * The docs search index this tier reads (AECI-1270): `staging_docs`, or
+   * `production_docs` on production and demo. Optional because HTML rendered
+   * before it existed carries a config without it, and the docs search box
+   * treats that as "no docs search". `/search` never reads it.
+   */
+  docsIndex?: DocsIndexName;
 };
 
 /**

@@ -4,6 +4,7 @@
  * AECI-1259 — the DeepWiki-style layout: the sidebar tree, the small-screen
  * menu, the "On this page" rail and its fragment links.
  * AECI-1265 — the help center and the vendor guide: two trees from one manifest.
+ * AECI-1271 — the General / For vendors guide toggle at the top of the sidebar.
  *
  * The manifest, components and noindex-by-path rules are pinned in the
  * `src/app/docs/*.component.spec.ts` specs and `src/server.spec.ts`; this
@@ -33,7 +34,7 @@ test.describe('/docs shell — AECI-1248', () => {
   });
 
   test('keeps the vendor guide noindex, its bare section index included', async ({ request }) => {
-    // AECI-1265: "For vendors" shares the /docs/vendors prefix, so it stays noindex too.
+    // AECI-1271: overview and claiming moved into the vendor guide at the same URLs.
     for (const path of [
       '/docs/vendors',
       '/docs/vendors/your-seat',
@@ -177,48 +178,52 @@ test.describe('/docs shell — AECI-1248', () => {
     await expect(tree.locator('a[aria-current="page"]')).toHaveText('Agreement states');
   });
 
-  // AECI-1265 — "For vendors" in the help center leads into the vendor guide,
-  // which has its own landing page and sidebar tree, and a way back.
-  test('walks For vendors → vendor guide → back to the help center', async ({ page }) => {
+  // AECI-1271 — /docs opens on General. The toggle reaches the vendor guide,
+  // whose first pages are overview and claiming, and comes back.
+  test('the guide toggle switches between General and For vendors', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/docs');
     await waitForHydrationSettle(page);
+    const guides = page.getByRole('navigation', { name: 'Guides' });
+    await expect(guides.locator('a[aria-current="true"]')).toHaveText('General');
     const help = page.getByRole('navigation', { name: 'Help center' });
     await expect(help.getByRole('link', { name: 'Your seat' })).toHaveCount(0);
 
-    await page.locator('main div[data-section="for-vendors"] h3 a').click();
-    await expect(page).toHaveURL(/\/docs\/vendors\/overview$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('For vendors');
-    await expect(help.locator('a[aria-current="page"]')).toHaveText('For vendors');
-
-    await page.locator('main article a[href="/docs/vendors"]').first().click();
+    await guides.getByRole('link', { name: 'For vendors' }).click();
     await expect(page).toHaveURL(/\/docs\/vendors$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vendor guide');
+    await expect(guides.locator('a[aria-current="true"]')).toHaveText('For vendors');
     const guide = page.getByRole('navigation', { name: 'Vendor guide' });
     await expect(guide).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Help center' })).toHaveCount(0);
     await expect(page.locator('#current-limits')).toHaveText('Current limits');
 
-    await guide.getByRole('link', { name: 'Plans', exact: true }).click();
-    await expect(page).toHaveURL(/\/docs\/vendors\/plans$/);
-    await expect(guide.locator('a[aria-current="page"]')).toHaveText('Plans');
+    await guide.getByRole('link', { name: 'Claiming your vendor listing', exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/claiming-your-listing$/);
+    await expect(guide.locator('a[aria-current="page"]')).toHaveText(
+      'Claiming your vendor listing',
+    );
+    await expect(guides.locator('a[aria-current="true"]')).toHaveText('For vendors');
 
-    await guide.getByRole('link', { name: 'Back to the help center' }).click();
+    await guides.getByRole('link', { name: 'General' }).click();
     await expect(page).toHaveURL(/\/docs$/);
     await expect(page.getByRole('navigation', { name: 'Help center' })).toBeVisible();
+    await expect(guides.locator('a[aria-current="true"]')).toHaveText('General');
   });
 
-  test('SSR-renders the vendor guide tree on its pages, and the help tree elsewhere', async ({
-    request,
-  }) => {
-    const guide = await (await request.get('/docs/vendors/your-seat')).text();
-    expect(guide).toMatch(/<nav[^>]+aria-label="Vendor guide"/);
-    expect(guide).not.toMatch(/<nav[^>]+aria-label="Help center"/);
-    const forVendors = await (await request.get('/docs/vendors/claiming-your-listing')).text();
-    expect(forVendors).toMatch(/<nav[^>]+aria-label="Help center"/);
-    // The help tree carries "For vendors" and never the vendor guide's section.
-    expect(forVendors).toContain('data-section="for-vendors"');
-    expect(forVendors).not.toContain('data-section="vendors"');
+  test('SSR-renders the toggle and the vendor guide tree on its pages', async ({ request }) => {
+    for (const path of ['/docs/vendors/your-seat', '/docs/vendors/claiming-your-listing']) {
+      const html = await (await request.get(path)).text();
+      expect(html, path).toMatch(/<nav[^>]+aria-label="Guides"/);
+      expect(html, path).toMatch(/<a(?=[^>]*href="\/docs\/vendors")(?=[^>]*aria-current="true")/);
+      expect(html, path).toMatch(/<nav[^>]+aria-label="Vendor guide"/);
+      expect(html, path).not.toMatch(/<nav[^>]+aria-label="Help center"/);
+      expect(html, path).not.toContain('Back to the help center');
+    }
+    const help = await (await request.get('/docs/trust/how-ranking-works')).text();
+    // Attribute order is the renderer's, so match both attributes on one tag.
+    expect(help).toMatch(/<a(?=[^>]*href="\/docs")(?=[^>]*aria-current="true")/);
+    expect(help).not.toContain('data-section="vendors"');
   });
 
   test('the rail links jump to their heading (AECI-1259)', async ({ page }) => {

@@ -1,9 +1,9 @@
 ---
 title: For vendors
-description: What claiming your listing means, what the Free and Managed plans include, and where the vendor guide takes over.
-section: for-vendors
+description: What claiming your listing means, what the Free and Managed plans include, and where this guide goes next.
+section: vendors
 order: 1
-last_updated: 9 October 2026
+last_updated: 12 October 2026
 ---
 
 AEC Integrations lists software products, the companies that make them, and the integrations between them. We compile every listing from public sources. If your company is listed, someone who works there can claim the listing and keep it accurate.
@@ -23,18 +23,18 @@ Every company with a seat is on one of two plans.
 
 Confirming data flows means answering Yes or No for each type of data an integration page lists. The portal calls each of those rows a data flow.
 
-[Plans](/docs/vendors/plans) in the vendor guide has the full list, and what happens when a plan ends.
+[Plans](/docs/vendors/plans) has the full list, and what happens when a plan ends.
 
 ## What no plan changes
 
 No plan changes where you rank or appear, or whether a review is published. Search order is worked out the same way for every listing: first how well it matches the search, then how complete it is. Every detail that counts toward completeness is editable on Free. [How ranking works](/docs/trust/how-ranking-works) sets out the rule.
 
-## The vendor guide
+## Where to go next
 
-Once you have a seat, the [vendor guide](/docs/vendors) covers the rest: your seat and your colleagues, confirming data flows, the integrations you own, contests, replies to reviews, plans, your change history, and connector products.
+Start with [Claiming your vendor listing](/docs/vendors/claiming-your-listing). Once you have a seat, the pages after it cover the rest: [your seat and your colleagues](/docs/vendors/your-seat), confirming data flows, the integrations you own, contests, replies to reviews, plans, your change history, and connector products.
 
 ## Related
 
 - Next: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
-- [Vendor guide](/docs/vendors).
+- [Your seat](/docs/vendors/your-seat), signing in and inviting colleagues.
 - [How ranking works](/docs/trust/how-ranking-works).

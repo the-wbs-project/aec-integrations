@@ -22,6 +22,17 @@
  * env (it never creates duplicates) and re-applies empty settings (a no-op).
  * Pass --rotate to mint fresh keys and delete the old ones for this env.
  *
+ * ── Shared mode (--shared, AECI-1270) ──────────────────────────────────────
+ * GitHub Actions holds ONE `ALGOLIA_SEARCH_KEY` and ONE `ALGOLIA_ADMIN_KEY`
+ * for every tier, so the key behind each must reach every tier's indexes.
+ * `--shared` (never with --env):
+ *   1. ensures both docs indexes exist (`staging_docs`, `production_docs`),
+ *   2. mints or reuses `aeci:search:shared` and `aeci:management:shared`, each
+ *      listing every tier's indexes, replicas and both docs indexes by name
+ *      (never `*`), honouring --rotate,
+ *   3. prints the secret commands for GitHub and every tier's Workers.
+ * Run it before the first deploy that pushes the docs index.
+ *
  * ── Credentials ────────────────────────────────────────────────────────────
  * Reads from the environment:
  *   ALGOLIA_APP_ID    — the AECi application id (shared across all envs).
@@ -34,6 +45,8 @@
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
  *     node scripts/algolia/provision.mjs --env <staging|demo|production> [--rotate]
+ *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
+ *     node scripts/algolia/provision.mjs --shared [--rotate]
  *
  * Requires Node ≥22.18 (native TypeScript type-stripping for the shared import);
  * the repo's `engines` floor (22.22.3) satisfies this.
@@ -49,9 +62,12 @@ import { algoliasearch } from 'algoliasearch';
 // The path below points straight at the source — the SAME file the Workers
 // import — so type-stripping applies and the single-source-of-truth holds.
 import {
+  DOCS_INDEX_NAMES,
   indexListFor,
   managementKeyParams,
   searchKeyParams,
+  sharedManagementKeyParams,
+  sharedSearchKeyParams,
 } from '../../packages/shared/src/algolia.ts';
 
 const VALID_ENVS = ['staging', 'demo', 'production'];
@@ -64,9 +80,22 @@ function fail(message) {
 function parseArgs(argv) {
   const args = argv.slice(2);
   const rotate = args.includes('--rotate');
+  const shared = args.includes('--shared');
   const envIdx = args.indexOf('--env');
   const env = envIdx >= 0 ? args[envIdx + 1] : undefined;
-  return { env, rotate };
+  return { env, rotate, shared, hasEnvFlag: envIdx >= 0 };
+}
+
+/**
+ * Shared mode: ensure both docs indexes exist. The entity indexes and replicas
+ * the shared keys also cover are each tier's own `--env` run's job.
+ */
+async function ensureDocsIndexes(client) {
+  console.log('• Ensuring docs indexes (empty settings; push-docs.mjs applies the real ones):');
+  for (const indexName of DOCS_INDEX_NAMES) {
+    await client.setSettings({ indexName, indexSettings: {} });
+    console.log(`    ✓ ${indexName}`);
+  }
 }
 
 /**
@@ -127,10 +156,9 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(`#   ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY and ALGOLIA_ADMIN_KEY are now`);
   console.log(`#   SINGLE shared secrets across every env (no _STAGING/_PRODUCTION/_DEMO`);
   console.log(`#   suffix). CAUTION: every env's deploy reads the SAME secret, so a`);
-  console.log(`#   per-env key minted here OVERWRITES the shared value — the search key you`);
-  console.log(`#   set must be able to query ALL envs' indexes (staging_*/demo_*/`);
-  console.log(`#   production_*), or scope it to the env that actually serves users.`);
-  console.log(`#   Local dev and the Lighthouse run search staging_* with it (AECI-1268).`);
+  console.log(`#   per-env key minted here would OVERWRITE the shared value and break the`);
+  console.log(`#   other tiers. Use the keys from \`provision.mjs --shared\` for these`);
+  console.log(`#   GitHub secrets instead (AECI-1270). Lines below are for reference.`);
   console.log(`gh secret set ALGOLIA_APP_ID --body '${appId}'`);
   console.log(`gh secret set ALGOLIA_SEARCH_KEY --body '${searchKey}'`);
   console.log(`gh secret set ALGOLIA_ADMIN_KEY --body '${managementKey}'`);
@@ -147,15 +175,79 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(`\n${rule}\n`);
 }
 
+function printSharedNextSteps({ appId, searchKey, managementKey }) {
+  const rule = '─'.repeat(76);
+  console.log(`\n${rule}`);
+  console.log('NEXT STEPS — set these secrets (values above are LIVE; treat as secret)');
+  console.log(rule);
+  console.log('\n# GitHub Actions secrets: one value for every tier');
+  console.log(`gh secret set ALGOLIA_APP_ID --body '${appId}'`);
+  console.log(`gh secret set ALGOLIA_SEARCH_KEY --body '${searchKey}'`);
+  console.log(`gh secret set ALGOLIA_ADMIN_KEY --body '${managementKey}'`);
+  console.log('\n# Cloudflare Worker secrets, every tier (a deploy also re-pushes them)');
+  console.log('#   web Worker: app id + the shared SEARCH key only (never the admin key)');
+  console.log('#   API Worker: app id + the shared MANAGEMENT key');
+  for (const env of VALID_ENVS) {
+    console.log(`cd apps/web`);
+    console.log(`echo '${searchKey}' | wrangler secret put ALGOLIA_SEARCH_KEY --env ${env}`);
+    console.log(`cd ../api`);
+    console.log(`echo '${managementKey}' | wrangler secret put ALGOLIA_ADMIN_KEY --env ${env}`);
+    console.log(`cd ../..`);
+  }
+  console.log('\n# Then re-run the next staging deploy, so push-docs fills staging_docs.');
+  console.log(`\n${rule}\n`);
+}
+
+async function provisionShared({ rotate }) {
+  const appId = process.env.ALGOLIA_APP_ID;
+  const rootAdminKey = process.env.ALGOLIA_ADMIN_KEY;
+  if (!appId || !rootAdminKey) {
+    fail(`Set ALGOLIA_APP_ID and ALGOLIA_ADMIN_KEY (the app-wide ROOT admin key) in your shell.`);
+  }
+
+  console.log(`\nAlgolia provisioning — shared keys${rotate ? ' (--rotate)' : ''}, app=${appId}\n`);
+  const client = algoliasearch(appId, rootAdminKey);
+  try {
+    await ensureDocsIndexes(client);
+
+    console.log('\n• Provisioning the shared API keys (every tier, by index name):');
+    const search = await ensureKey(client, sharedSearchKeyParams(), { rotate });
+    console.log(
+      `    ${search.created ? '＋ created' : '↺ reused'} aeci:search:shared      (ACL: search)`,
+    );
+    const management = await ensureKey(client, sharedManagementKeyParams(), { rotate });
+    console.log(
+      `    ${management.created ? '＋ created' : '↺ reused'} aeci:management:shared  (ACL: search + index-mutation)`,
+    );
+
+    console.log('\n• Live key values (set as secrets — do NOT commit):');
+    console.log(`    ALGOLIA_SEARCH_KEY = ${search.value}`);
+    console.log(`    ALGOLIA_ADMIN_KEY  = ${management.value}   (shared management key)`);
+
+    printSharedNextSteps({ appId, searchKey: search.value, managementKey: management.value });
+  } catch (error) {
+    fail(`Algolia API call failed: ${error?.message ?? error}`);
+  }
+}
+
 async function main() {
-  const { env, rotate } = parseArgs(process.argv);
+  const { env, rotate, shared, hasEnvFlag } = parseArgs(process.argv);
+
+  if (shared && hasEnvFlag) {
+    fail('--shared and --env are exclusive. --shared mints the keys every tier shares.');
+  }
+  if (shared) {
+    await provisionShared({ rotate });
+    return;
+  }
 
   if (!env || !VALID_ENVS.includes(env)) {
     fail(
       `--env is required and must be one of ${VALID_ENVS.join(' | ')}.\n` +
         `  (development folds onto the staging index set — provision 'staging'. The\n` +
         `  preview tier and its preview_* indexes retired with AECI-1268.)\n` +
-        `  Usage: node scripts/algolia/provision.mjs --env <staging|demo|production> [--rotate]`,
+        `  Usage: node scripts/algolia/provision.mjs --env <staging|demo|production> [--rotate]\n` +
+        `         node scripts/algolia/provision.mjs --shared [--rotate]`,
     );
   }
 

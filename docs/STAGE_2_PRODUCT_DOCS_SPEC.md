@@ -5,6 +5,20 @@
 **Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
 
+> **2026-10-12, two guides behind a toggle (AECI-1271).** The help center's For vendors section
+> is gone. Its two pages, `overview` and `claiming-your-listing`, moved into the vendor guide at
+> unchanged URLs, as its first two pages. The guides are now **General** (`help`) and
+> **For vendors** (`vendor`), with disjoint URL spaces: `/docs/vendors` and everything under it is
+> the vendor guide, and nothing else is. A "General / For vendors" toggle tops the sidebar on every
+> docs page and replaced the "Back to the help center" link. No General page links into the vendor
+> guide. The manifest throws on a new one unless it is on `GENERAL_TO_VENDOR_LINK_ALLOWLIST`, which
+> ships empty. The `urlSegment` and `home` section features went with For vendors, their only user.
+> The note below is the history this one supersedes in part.
+>
+> **Same day, docs search (AECI-1270).** Each guide now has a search box under the toggle, on one
+> Algolia index per tier (`staging_docs`, `production_docs`; demo reads production). §3 "Search" is
+> the contract. It left §6.
+
 > **2026-10-09, the vendor guide split out and the help center tightened (AECI-1265, marketing
 > review B2 to B7, B9, B10).** Chris's rulings, applied in one pass.
 > - **Two guides from one manifest.** Every section now belongs to a guide. The **help center**
@@ -69,8 +83,9 @@
 > slug id, built at manifest time by `docs-markdown.ts`. The template renders those headings itself,
 > because Angular's `[innerHTML]` sanitizer strips `id` and the repo never bypasses it. The home and
 > the section indexes drop their cards for divided lists, and the pager drops its cards for text
-> links. Content, routes, URLs, indexing, caching and the sitemap are unchanged. There is still no
-> docs search and no "Ask" box (§3). The layout contract is `DESIGN.md` "Product docs".
+> links. Content, routes, URLs, indexing, caching and the sitemap are unchanged. There was still no
+> docs search and no "Ask" box. *(AECI-1270 added docs search, §3 "Search". There is still no "Ask"
+> box.)* The layout contract is `DESIGN.md` "Product docs".
 
 > **2026-10-08 — reviewer and account pages shipped (AECI-1250).** Three pages, indexable and in
 > `sitemap.xml`: `reviewers/writing-a-review` (order 1, ahead of `requests-and-corrections`), and
@@ -162,9 +177,10 @@ No new Worker, no new schema, no new bindings, no migration.
 | Content | Markdown and YAML frontmatter: `apps/web/src/content/docs/<section>/<slug>.md` |
 | Build | The existing esbuild `text` loader (`apps/web/angular.json`). Inlined at build time, no runtime fetch |
 | Rendering | `marked` (GFM), the same pipeline as `legal-content.ts`. The **docs manifest** (`docs-content.ts`) is the single source for routes, navigation, prev/next and sitemap entries |
-| Sections | `getting-started`, `trust`, `reviewers`, `account`, `for-vendors`, `vendors`, `faq`. Each has a `$localize`-wrapped label and summary in the manifest, an order and a **guide**: `help` (the help center) or `vendor` (the vendor guide, `vendors` only). `faq` is a one-page section at `/docs/faq`. Since AECI-1265 a section's URL segment can differ from its id: `for-vendors` serves `/docs/vendors/*` beside the vendor guide. A section with a `home` page (`for-vendors`, home `overview`) has no index of its own. A section may carry an intro, rendered on its index (the vendor guide's landing) |
-| Routes | `/docs` (home), `/docs/<segment>` (section index), `/docs/<segment>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404. The manifest throws if two sections would own one index path or two pages one path |
-| Navigation | Two sidebar trees, picked from the URL (AECI-1265). The help center's lists its sections; the vendor guide's lists the vendor guide with a link back. The `/docs` home lists help-center sections only |
+| Sections | `getting-started`, `trust`, `reviewers`, `account`, `vendors`, `faq`. Each has a `$localize`-wrapped label and summary in the manifest, an order and a **guide**: `help` (the General guide) or `vendor` (the For vendors guide, `vendors` only). A section's URL segment is its id. `faq` is a one-page section at `/docs/faq`. A section may carry an intro, rendered on its index (the vendor guide's landing) |
+| Routes | `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404. The manifest throws if two pages share one path |
+| Navigation | A "General / For vendors" guide toggle tops the sidebar on every docs page (AECI-1271): two links, the current guide marked `aria-current="true"` from the URL alone. Under it, one of two sidebar trees, picked from the URL (AECI-1265): General lists its sections, For vendors lists the vendor guide. The `/docs` home lists General sections only |
+| Cross-guide links | No General page or intro links into the vendor guide (AECI-1271). The manifest collects every href from the `marked` tokens and throws at module init, naming the file, when a General href's path is or sits under a vendor-guide path. `GENERAL_TO_VENDOR_LINK_ALLOWLIST` in `docs-content.ts` ships empty. Vendor → General links are allowed |
 | Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string in US format, "Month D, YYYY": the legal rule. AECI-1262 set the format. Help-center pages still carry "D Month YYYY" until AECI-1267). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
@@ -172,7 +188,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list. A prefix covers the path itself and everything below it, so `/docs/vendors` covers the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
 | Sitemap | `/docs`, every indexable section index and every indexable page, built from the manifest. **No `<lastmod>`**, the same as `/legal/*`: `last_updated` is a display string, and parsing it would add a second date format |
 | Re-crawl pings | **None.** IndexNow is not part of docs publishing (Chris, 2026-10-08). Its producers are catalog promotes and vendor portal writes. Nothing submits a build-inlined static page, and `/methodology` and `/legal/*` rely on the sitemap too |
-| Search | **None at v0.** Navigation and browser find. The deferred path is an Algolia `docs_{env}` index on the existing app, not a new search system |
+| Search | **One search box per guide (AECI-1270).** It sits under the guide toggle and searches only the current guide. Records live in one Algolia index per tier on the existing app: `staging_docs` and `production_docs`, named `<prefix>_docs` like the entity indexes (this replaced the `docs_{env}` sketch). Demo reads `production_docs` and never writes it. Records are built from the manifest by `buildDocsSearchRecords` (`docs-search-records.ts`): one per page lede, one per `h2` with its `h3`s folded in, `## Related` skipped, the vendor guide's landing intro included. Each carries `guide` (`help` or `vendor`), and the box filters on it. Anchors are the ids `renderDocsBody` renders. `scripts/algolia/push-docs.mjs` pushes them on every staging deploy and production promote, after the settings step: save every record, then delete ids no longer built, never a full replace. The box renders in the browser only, after hydration, and is absent when the inline config carries no `docsIndex`. It is an Angular Aria combobox on the lite client, loaded only in the lazy `/docs` chunk. Settings: `SEARCH_RANKING.md` §3.5. Keys and CI: `CICD_PLAN.md` §7.5 |
 | i18n | The body is content, not UI strings (the legal rule, not extracted to `messages.xlf`). Page chrome is `i18n` / `$localize`-wrapped. Per-locale `.md` files are the later mechanism |
 | Analytics | PostHog page events, standard. No new instrumentation concept |
 
@@ -190,10 +206,11 @@ No new Worker, no new schema, no new bindings, no migration.
 
 ## 5. Site map
 
-URL scheme: `/docs/<segment>/<slug>`, kebab-case. About 25 pages at v1. Since AECI-1265 the site
-map has two guides.
+URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1. Since AECI-1265 the site
+map has two guides. Since AECI-1271 they are **General** and **For vendors**, switched by the
+sidebar toggle, with disjoint URL spaces.
 
-**The help center** (`/docs`, its home and its sidebar):
+**General** (`/docs`, its home and its sidebar):
 
 ```
 /docs                                — Help center home: audience split (reader / reviewer), then every help-center section   AECI-1248, AECI-1265
@@ -211,17 +228,16 @@ map has two guides.
 ├─ account/                          — SHIPPED (AECI-1250), indexable
 │  ├─ signing-in                     — magic link + Google, common failure modes, an expired session
 │  └─ your-data                      — links /legal/privacy; deletion/erasure path
-├─ For vendors (section `for-vendors`, URLs under /docs/vendors/, no index page) — AECI-1265, noindex until AECI-1253
-│  ├─ overview                       — "For vendors": what claiming is, Free and Managed at a glance, what no plan changes, the vendor guide
-│  └─ claiming-your-listing          — what buyers see, the claim form, what we check, outcomes
 └─ faq                               — AECI-1254: seeded from real pilot-vendor questions, not invented
 ```
 
-**The vendor guide** (section `vendors`, its own landing page and sidebar tree, listed on neither the
-help-center home nor its sidebar):
+**For vendors**, the vendor guide (section `vendors`, its own landing page and sidebar tree, listed
+on neither the General home nor its sidebar):
 
 ```
 /docs/vendors                        — Vendor guide landing: intro, the page list, one "Current limits" note   AECI-1265
+├─ overview                          — "For vendors": what claiming is, Free and Managed at a glance, what no plan changes, where to go next (moved from the help center, AECI-1271)
+├─ claiming-your-listing             — what buyers see, the claim form, what we check, outcomes (moved from the help center, AECI-1271)
 ├─ your-seat                         — sign-in, portal tabs, owners vs members, invites, removal, your account and your seat
 ├─ attesting-an-integration          — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
@@ -234,7 +250,7 @@ help-center home nor its sidebar):
    notifications-and-messages; performance only if analytics.view has shipped; product-versions waits until a vendor can create a release (AECI-1263)
 ```
 
-Everything under `/docs/vendors`, both guides' pages there included, is noindex until AECI-1253.
+Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is noindex until AECI-1253.
 
 > **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
@@ -258,7 +274,6 @@ Everything under `/docs/vendors`, both guides' pages there included, is noindex 
 
 ## 6. Deliberately deferred (not in this epic)
 
-- Docs search (Algolia `docs_{env}` is the path when wanted)
 - A changelog / what's-new page
 - Per-locale content files
 - Any versioned-docs mechanism
@@ -273,7 +288,7 @@ Everything under `/docs/vendors`, both guides' pages there included, is noindex 
 
    | Portal moment | Component | Page |
    |---|---|---|
-   | Claim outcome | `vendor/components/vendor-claim-outcome.ts` | `claiming-your-listing` (in the help center's For vendors section since AECI-1265; URL unchanged) |
+   | Claim outcome | `vendor/components/vendor-claim-outcome.ts` | `claiming-your-listing` (in the vendor guide since AECI-1271; URL unchanged) |
    | Seats page | `vendor/sections/vendor-seats-page.ts` | `your-seat` |
    | Attestation lane | `vendor/integration-detail/` | `attesting-an-integration` |
    | Integration edit, create, retire | `vendor-integration-edit-form.ts`, `vendor-integration-create.ts` | `owning-an-integration` |
@@ -283,7 +298,7 @@ Everything under `/docs/vendors`, both guides' pages there included, is noindex 
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
-3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
 4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
 
 ## 8. Epic decomposition (2026-10-08)

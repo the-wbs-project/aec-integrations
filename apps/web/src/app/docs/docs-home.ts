@@ -11,11 +11,9 @@
  * the manifest (`docs-content.ts`), so an empty section shows nowhere and an
  * audience with no non-empty section drops out of the split.
  *
- * **Help center only (AECI-1265).** The home lists the help center's sections,
- * never the vendor guide. Vendors reach it through the "For vendors" section,
- * which replaced both the "Listing your products" role card and the vendor
- * guide's block under "All sections". A section whose landing is a `home` page
- * links its heading there and lists its other pages.
+ * **General guide only (AECI-1265, AECI-1271).** The home lists the General
+ * guide's sections, never the vendor guide. Vendors reach theirs through the
+ * shell's guide toggle ("For vendors"), which also holds the claiming pages.
  *
  * Static, SSR-safe, edge-cached on the static-page TTL, and indexable (`/docs`
  * is in `sitemap.xml`). Light theme only.
@@ -150,22 +148,16 @@ export class DocsHomeComponent {
     sections: this.sections.filter((section) => section.audience === group.audience),
   })).filter((group) => group.sections.length > 0);
 
-  /**
-   * "All sections", each with the pages it lists. A `home` page is the section
-   * heading's link, so it is not listed again under it.
-   */
+  /** "All sections", each with the pages it lists. */
   protected readonly allSections: readonly {
     readonly section: DocsSection;
     readonly pages: readonly DocsPage[];
-  }[] = this.sections.map((section) => ({
-    section,
-    pages: section.pages.filter((page) => page.path !== section.path),
-  }));
+  }[] = this.sections.map((section) => ({ section, pages: section.pages }));
 
   constructor() {
     this.meta.setStaticPageMeta({
       title: $localize`:@@meta.docsHomeTitle:Help center · AEC Integrations`,
-      description: $localize`:@@meta.docsHomeDescription:Guides to AEC Integrations for readers, vendors and reviewers: how the directory works, how to claim a listing, and how to request a correction.`,
+      description: $localize`:@@meta.docsHomeDescription:Guides to AEC Integrations for readers and reviewers: how the directory works, how ranking is decided, how to write a review, and how to request a correction.`,
       canonical: canonicalUrl('/docs'),
       noindex: pathForcesNoindex('/docs'),
     });

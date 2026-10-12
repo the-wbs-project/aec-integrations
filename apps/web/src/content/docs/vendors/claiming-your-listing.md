@@ -1,7 +1,7 @@
 ---
 title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
-section: for-vendors
+section: vendors
 order: 2
 last_updated: 12 October 2026
 ---
@@ -53,6 +53,6 @@ A connector product carries data between other products. If your company makes o
 ## Related
 
 - Previous: [For vendors](/docs/vendors/overview).
-- [Your seat](/docs/vendors/your-seat), in the vendor guide: signing in and inviting colleagues.
+- Next: [Your seat](/docs/vendors/your-seat), signing in and inviting colleagues.
 - [Plans](/docs/vendors/plans), what the Free and Managed plans include.
 - [How we research and verify listings](/methodology).

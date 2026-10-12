@@ -61,6 +61,8 @@ describe('DocsSectionComponent', () => {
     expect(lead.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(list.compareDocumentPosition(rest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(lead.querySelector('a[href="/docs/vendors/overview"]')).not.toBeNull();
+    // AECI-1271: readers and reviewers are pointed back to General (vendor → General is allowed).
+    expect(lead.querySelector('a[href="/docs"]')).not.toBeNull();
     const heading = rest.querySelector('h2');
     expect(heading?.id).toBe('current-limits');
     expect(heading?.textContent?.trim()).toBe('Current limits');

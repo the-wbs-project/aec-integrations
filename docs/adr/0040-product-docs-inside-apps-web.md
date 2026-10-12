@@ -29,6 +29,11 @@ A help center is usually its own site. Most teams reach for a docs generator on 
 
 - A docs edit ships with an app deploy. Deploys are cheap and gated, so this is accepted.
 - The docs content adds to the bundle, but only to a lazy chunk loaded on `/docs` routes.
-- Docs have no runtime search at v0. The deferred path is an Algolia `docs_{env}` index on the existing Algolia app.
+- Docs have no runtime search at v0. The deferred path is an Algolia `docs_{env}` index on the existing Algolia app. *(Superseded by the 2026-10-12 amendment below: search shipped on `staging_docs` / `production_docs`.)*
 - **Re-open trigger.** Revisit a dedicated docs generator when any of these is true: the corpus passes about 75 pages, versioned docs become a requirement, or a public or partner API reference ships.
 - The build contract is `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`.
+
+**Amendment 2026-10-12 (AECI-1271, AECI-1270):** Two changes, both inside this decision.
+
+- **Two guides, disjoint URLs (AECI-1271).** The docs are now two guides behind a "General / For vendors" toggle at the top of the sidebar. `/docs/vendors` and everything under it is the For vendors guide, and nothing else is. The help center's For vendors section moved into the vendor guide at unchanged URLs. No General page links into the vendor guide, and the manifest throws at module init on a new link unless it is on an allowlist that ships empty.
+- **Runtime search (AECI-1270).** The "no runtime search at v0" consequence is retired. Each guide has a search box on one Algolia index per tier on the existing app: `staging_docs` and `production_docs`, named `<prefix>_docs` like the entity indexes rather than the `docs_{env}` first sketched. Demo reads `production_docs` and can never write it. The records are built from the same manifest that renders the pages, so the anchors cannot drift. The index is pushed by a CI step on each staging deploy and production promote, so "a docs edit ships with an app deploy" still holds, and the deploy trigger now re-includes `apps/web/src/content/**` so a Markdown-only content edit deploys staging. The box is client-only and loads the lite client in the `/docs` chunk alone. The contract is `STAGE_2_PRODUCT_DOCS_SPEC.md` §3 "Search".

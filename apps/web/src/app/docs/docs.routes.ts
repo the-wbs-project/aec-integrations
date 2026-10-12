@@ -13,14 +13,12 @@
  * `/legal/*` is explicit.
  *
  *   - `''`                    the docs home
- *   - `<segment>`             the section index, for each section that has one
- *   - `<segment>/<slug>`      each article
+ *   - `<section>`             the section index, for each section that has one
+ *   - `<section>/<slug>`      each article
  *
- * `<segment>` is the section's URL segment, which is its id unless the manifest
- * says otherwise (AECI-1265: the help center's `for-vendors` pages and the
- * vendor guide share `vendors`). A single-page section (`faq`) has no index: its
- * one page takes the `<segment>` path. A section whose landing is a `home` page
- * has no index either. A section with no pages gets no route at all.
+ * `<section>` is the section id. A single-page section (`faq`) has no index: its
+ * one page takes the `<section>` path. A section with no pages gets no route at
+ * all.
  */
 import type { Routes } from '@angular/router';
 
@@ -41,7 +39,7 @@ export const DOCS_CHILD_ROUTES: Routes = [
       const [page] = section.pages;
       return [
         {
-          path: section.urlSegment,
+          path: section.id,
           loadComponent: loadPage,
           data: { section: section.id, slug: page.slug },
         },
@@ -50,7 +48,7 @@ export const DOCS_CHILD_ROUTES: Routes = [
     const index: Routes = section.hasIndex
       ? [
           {
-            path: section.urlSegment,
+            path: section.id,
             loadComponent: () => import('./docs-section').then((m) => m.DocsSectionComponent),
             data: { section: section.id },
           },
@@ -59,7 +57,7 @@ export const DOCS_CHILD_ROUTES: Routes = [
     return [
       ...index,
       ...section.pages.map((page) => ({
-        path: `${section.urlSegment}/${page.slug}`,
+        path: `${section.id}/${page.slug}`,
         loadComponent: loadPage,
         data: { section: section.id, slug: page.slug },
       })),

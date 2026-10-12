@@ -6,9 +6,9 @@
  *
  * InstantSearch (3.9, the consumer) needs an `appId`, a query-only `searchKey`,
  * and the physical index names at app boot. The search key is explicitly
- * client-exposed (it can do nothing but search this env's three indexes), so we
- * read `ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY` from the SSR Worker's `env`,
- * derive the index names from `ENV`, and inline a tiny
+ * client-exposed (it can do nothing but search), so we read `ALGOLIA_APP_ID` +
+ * `ALGOLIA_SEARCH_KEY` from the SSR Worker's `env`, derive the index names and
+ * the docs index (`docsIndex`, AECI-1270) from `ENV`, and inline a tiny
  * `window.__AECI_ALGOLIA__ = {...}` snippet before `</head>`.
  *
  * Security (the review gate): the Algolia ADMIN/management key is never part of
@@ -30,7 +30,7 @@
  * first browser-side search query.
  */
 
-import { indexNamesFor } from '@aeci/shared/algolia';
+import { docsIndexNameFor, indexNamesFor } from '@aeci/shared/algolia';
 
 import type { AlgoliaPublicConfig, WebEnv } from './env';
 
@@ -47,10 +47,13 @@ export function buildAlgoliaPublicConfig(env: WebEnv): AlgoliaPublicConfig | nul
   const appId = env.ALGOLIA_APP_ID;
   const searchKey = env.ALGOLIA_SEARCH_KEY;
   if (!appId || !searchKey) return null;
+  const tier = env.ENV ?? 'development';
   return {
     appId,
     searchKey,
-    indexes: indexNamesFor(env.ENV ?? 'development'),
+    indexes: indexNamesFor(tier),
+    // The docs index this tier reads (AECI-1270). Demo reads production_docs.
+    docsIndex: docsIndexNameFor(tier),
   };
 }
 

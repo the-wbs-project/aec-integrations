@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { readAlgoliaConfig } from './algolia-config';
+import { readAlgoliaConfig, readDocsSearchConfig } from './algolia-config';
 
 /**
  * Plain-Vitest (node) coverage for the public Algolia config reader. No Angular,
@@ -56,5 +56,33 @@ describe('readAlgoliaConfig', () => {
     expect(readAlgoliaConfig()).toBeNull();
     setGlobal(null);
     expect(readAlgoliaConfig()).toBeNull();
+  });
+});
+
+// AECI-1270 — the docs search box reads only what it needs.
+describe('readDocsSearchConfig', () => {
+  it('returns app, key and docs index when docsIndex is known', () => {
+    setGlobal({ ...VALID, docsIndex: 'production_docs' });
+    expect(readDocsSearchConfig()).toEqual({
+      appId: 'APP123',
+      searchKey: 'search-only-key',
+      docsIndex: 'production_docs',
+    });
+  });
+
+  it('returns null without docsIndex, so HTML from before AECI-1270 shows no box', () => {
+    setGlobal(VALID);
+    expect(readDocsSearchConfig()).toBeNull();
+    // `/search` still accepts the same global.
+    expect(readAlgoliaConfig()).toEqual(VALID);
+  });
+
+  it('returns null for an unknown docs index, an absent global or missing credentials', () => {
+    setGlobal({ ...VALID, docsIndex: 'demo_docs' });
+    expect(readDocsSearchConfig()).toBeNull();
+    setGlobal({ ...VALID, searchKey: '', docsIndex: 'staging_docs' });
+    expect(readDocsSearchConfig()).toBeNull();
+    delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__;
+    expect(readDocsSearchConfig()).toBeNull();
   });
 });

@@ -903,6 +903,10 @@ jobs:
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:apply-settings --env demo
 
+      # No docs search push here, on purpose (AECI-1270). Demo's docs search box
+      # reads production_docs, which promote-to-prod.yml pushes. There is no
+      # demo_docs index, and `push-docs.mjs --env demo` exits 1.
+
       # Auto-rollback BOTH demo Workers when the smoke step fails after both went
       # live. Reverse of the deploy order (SSR first, then API). Demo has no DB
       # snapshot (it shares the prod Supabase project, untouched here), so this is

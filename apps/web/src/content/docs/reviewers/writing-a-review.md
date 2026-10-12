@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: 9 October 2026
+last_updated: 12 October 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -78,6 +78,5 @@ If you think someone else's review breaks the [Review Guidelines](/legal/review-
 - Next: [Requests and corrections](/docs/reviewers/requests-and-corrections), for a missing integration or a listing that is wrong.
 - [Signing in](/docs/account/signing-in).
 - [Your account and your data](/docs/account/your-data).
-- [Replying to reviews](/docs/vendors/replying-to-reviews), the vendor's side of a reply.
 - [Review Guidelines](/legal/review-guidelines).
 - [How we research and verify listings](/methodology).

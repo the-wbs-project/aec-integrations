@@ -171,9 +171,17 @@ on:
     # Add a branch here when a new long-lived integration branch is opened, and
     # remove it when that branch merges up and is retired.
     branches: [main, stage-2, admin-panel]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
+    # An ordered `paths` list, not `paths-ignore` (AECI-1270). Later patterns
+    # override earlier ones, so the ORDER IS LOAD-BEARING: everything, minus
+    # Markdown and docs/, plus the help-center content back in. The help center
+    # is Markdown under apps/web/src/content/, and an edit there must deploy
+    # staging, or the page and the docs search index (push-docs.mjs, below) go
+    # stale. `paths-ignore` cannot re-include a path, which is why this changed.
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
+      - 'apps/web/src/content/**'
 
 # Cancel superseded runs on the same PR / branch.
 concurrency:
@@ -539,7 +547,7 @@ jobs:
     # NON-required job — safe to skip on docs-only PRs. It is gated on the
     # `changes` filter (not a workflow-level `paths-ignore`) so the REQUIRED
     # checks above still always run and report. `build-web` is itself skipped on
-    # docs-only PRs' `push` runs via the retained push `paths-ignore`; on PRs it
+    # docs-only PRs' `push` runs via the push `paths` filter; on PRs it
     # always runs, so this job only needs its own `code` guard.
     #
     # The guard FAILS OPEN (`!= 'false'`, not `== 'true'`) — deliberate. This job
@@ -1270,6 +1278,17 @@ jobs:
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:apply-settings --env staging
+
+      # AECI-1270: rebuild the docs search index (staging_docs) from the docs
+      # Markdown this commit ships. Save-then-delete-stale, never a replace
+      # (scripts/algolia/push-docs.mjs). Warn-and-skip, exit 0, when ALGOLIA_* are
+      # unset, like the settings step. The key must reach staging_docs: the shared
+      # management key from `provision.mjs --shared` does (docs/environments.md §6b).
+      - name: Push docs search index (staging)
+        env:
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+        run: pnpm algolia:push-docs --env staging
 
       # CICD §3.2 step 5 (AECI-140 / AECI-266): report-only post-deploy verification
       # that the staging Algolia indexes match the promoted D1 rows, right after the

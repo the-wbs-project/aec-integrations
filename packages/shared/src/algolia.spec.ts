@@ -4,6 +4,15 @@ import {
   applyIndexSettings,
   applyIndexSettingsTo,
   DEFAULT_LOCALE,
+  DOCS_INDEX_NAMES,
+  DOCS_INDEX_SETTINGS,
+  docsIndexNameFor,
+  docsIndexWriterFor,
+  sharedManagementKeyParams,
+  sharedSearchKeyParams,
+  syncDocsIndex,
+  type DocsIndexClient,
+  type DocsSearchRecord,
   INDEX_ENTITIES,
   indexListFor,
   indexNamesFor,
@@ -130,6 +139,7 @@ describe('searchKeyParams', () => {
       'staging_integrations',
       'staging_products_name_asc',
       'staging_vendors_name_asc',
+      'staging_docs',
     ]);
     expect(params.description).toBe('aeci:search:staging');
   });
@@ -159,6 +169,7 @@ describe('managementKeyParams', () => {
       'production_integrations',
       'production_products_name_asc',
       'production_vendors_name_asc',
+      'production_docs',
     ]);
     expect(params.description).toBe('aeci:management:production');
   });
@@ -515,5 +526,184 @@ describe('applyIndexSettings', () => {
       'vendors',
       'integrations',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AECI-1270 — the docs search index
+// ---------------------------------------------------------------------------
+
+describe('docsIndexNameFor', () => {
+  it('maps every label to the docs index it reads', () => {
+    expect(docsIndexNameFor('development')).toBe('staging_docs');
+    expect(docsIndexNameFor('staging')).toBe('staging_docs');
+    expect(docsIndexNameFor('production')).toBe('production_docs');
+  });
+
+  it('points demo at production_docs, unlike its demo_* entity set', () => {
+    expect(docsIndexNameFor('demo')).toBe('production_docs');
+    expect(indexPrefixForEnv('demo')).toBe('demo');
+  });
+
+  it('folds a stale label onto staging_docs', () => {
+    expect(docsIndexNameFor('preview' as AlgoliaEnv)).toBe('staging_docs');
+  });
+
+  it('never adds docs to INDEX_ENTITIES, which the D1 sync and sweep loop over', () => {
+    expect(INDEX_ENTITIES as readonly string[]).not.toContain('docs');
+    for (const env of ['staging', 'demo', 'production'] as AlgoliaEnv[]) {
+      expect(indexListFor(env).some((name) => name.endsWith('_docs'))).toBe(false);
+    }
+  });
+});
+
+describe('docsIndexWriterFor', () => {
+  it('names the writable index for staging and production', () => {
+    expect(docsIndexWriterFor('staging')).toBe('staging_docs');
+    expect(docsIndexWriterFor('production')).toBe('production_docs');
+  });
+
+  it('throws for demo and development, so neither can ever push', () => {
+    expect(() => docsIndexWriterFor('demo')).toThrow(/never writes/);
+    expect(() => docsIndexWriterFor('development')).toThrow(/never writes/);
+  });
+});
+
+describe('docs index in the per-tier keys', () => {
+  it('adds the docs index each tier reads to its search key', () => {
+    expect(searchKeyParams('staging').indexes).toContain('staging_docs');
+    expect(searchKeyParams('demo').indexes).toContain('production_docs');
+    expect(searchKeyParams('production').indexes).toContain('production_docs');
+  });
+
+  it('adds the docs index to the management key on writer tiers only', () => {
+    expect(managementKeyParams('staging').indexes).toContain('staging_docs');
+    expect(managementKeyParams('production').indexes).toContain('production_docs');
+    const demo = managementKeyParams('demo').indexes;
+    expect(demo.some((name) => name.endsWith('_docs'))).toBe(false);
+  });
+});
+
+describe('shared keys', () => {
+  const everyIndex = [
+    ...(['staging', 'demo', 'production'] as AlgoliaEnv[]).flatMap((env) => [
+      ...indexListFor(env),
+      ...replicaNamesFor(env),
+    ]),
+    'staging_docs',
+    'production_docs',
+  ];
+
+  it('the shared search key is query-only and lists every tier index by name', () => {
+    const params = sharedSearchKeyParams();
+    expect(params.acl).toEqual(['search']);
+    expect(params.indexes).toEqual(everyIndex);
+    expect(params.description).toBe('aeci:search:shared');
+  });
+
+  it('the shared management key has the per-tier ACL over every tier index', () => {
+    const params = sharedManagementKeyParams();
+    expect(params.acl).toEqual(managementKeyParams('staging').acl);
+    expect(params.indexes).toEqual(everyIndex);
+    expect(params.description).toBe('aeci:management:shared');
+    expect(params.acl).not.toContain('deleteIndex');
+  });
+
+  it('never uses a wildcard', () => {
+    for (const params of [sharedSearchKeyParams(), sharedManagementKeyParams()]) {
+      expect(params.indexes.some((name) => name.includes('*'))).toBe(false);
+    }
+  });
+
+  it('has no duplicate index names', () => {
+    const { indexes } = sharedSearchKeyParams();
+    expect(new Set(indexes).size).toBe(indexes.length);
+    expect(DOCS_INDEX_NAMES).toEqual(['staging_docs', 'production_docs']);
+  });
+});
+
+describe('syncDocsIndex', () => {
+  const record = (objectID: string, order: number): DocsSearchRecord => ({
+    objectID,
+    guide: 'help',
+    section: 'Reviewer guide',
+    page_title: 'Writing a review',
+    heading: objectID,
+    url: objectID,
+    content: 'text',
+    order,
+  });
+
+  function makeClient(existing: string[]): { client: DocsIndexClient; log: string[] } {
+    const log: string[] = [];
+    let taskID = 0;
+    const client: DocsIndexClient = {
+      async setSettings({ indexName, indexSettings }) {
+        log.push(`settings ${indexName} ${JSON.stringify(indexSettings)}`);
+        return { taskID: ++taskID };
+      },
+      async saveObjects({ objects }) {
+        log.push(`save ${objects.map((o) => o['objectID']).join(',')}`);
+        return [{ taskID: ++taskID }];
+      },
+      async browseObjects({ aggregator }) {
+        log.push('browse');
+        aggregator({ hits: existing.map((objectID) => ({ objectID })) });
+        return undefined;
+      },
+      async deleteObjects({ objectIDs }) {
+        log.push(`delete ${objectIDs.join(',')}`);
+        return [{ taskID: ++taskID }];
+      },
+      async waitForTask({ taskID: id }) {
+        log.push(`wait ${id}`);
+        return undefined;
+      },
+    };
+    return { client, log };
+  }
+
+  it('saves every record, then deletes only the stale ids', async () => {
+    const { client, log } = makeClient(['/docs/a', '/docs/old', '/docs/b#gone']);
+    const result = await syncDocsIndex(client, 'staging_docs', [
+      record('/docs/a', 1),
+      record('/docs/b', 2),
+    ]);
+    expect(result).toEqual({ index: 'staging_docs', records: 2, saved: 2, deleted: 2 });
+    expect(log).toEqual([
+      `settings staging_docs ${JSON.stringify(DOCS_INDEX_SETTINGS)}`,
+      'wait 1',
+      'save /docs/a,/docs/b',
+      'wait 2',
+      'browse',
+      'delete /docs/old,/docs/b#gone',
+      'wait 3',
+    ]);
+  });
+
+  it('saves before it deletes, and skips the delete when nothing is stale', async () => {
+    const { client, log } = makeClient(['/docs/a']);
+    const result = await syncDocsIndex(client, 'production_docs', [record('/docs/a', 1)]);
+    expect(result.deleted).toBe(0);
+    expect(log.some((line) => line.startsWith('delete'))).toBe(false);
+    expect(log.findIndex((line) => line.startsWith('save'))).toBeLessThan(log.indexOf('browse'));
+  });
+
+  it('refuses a build with duplicate objectIDs before any call', async () => {
+    const { client, log } = makeClient([]);
+    await expect(
+      syncDocsIndex(client, 'staging_docs', [record('/docs/a', 1), record('/docs/a', 2)]),
+    ).rejects.toThrow(/duplicate objectIDs/);
+    expect(log).toEqual([]);
+  });
+
+  it('manages the documented settings', () => {
+    expect(DOCS_INDEX_SETTINGS).toEqual({
+      searchableAttributes: ['heading', 'page_title', 'content'],
+      attributesForFaceting: ['filterOnly(guide)'],
+      attributesToSnippet: ['content:24'],
+      snippetEllipsisText: '…',
+      customRanking: ['asc(order)'],
+    });
   });
 });
