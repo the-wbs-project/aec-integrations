@@ -1305,8 +1305,12 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
-//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200) }
+//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
+//                     plan_interest ('' | 'free' | 'managed' | 'not_sure',
+//                                    key omittable, AECI-1293) }
 ```
+
+**`plan_interest` (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The claimant's answer to "Which plan are you interested in?", asked by the claim dialog, the claim page and the claim drawer. Optional: `''` means not answered and is stored as `NULL` in `vendor_requests.plan_interest`. The KEY carries `.default('')`, like `submitter_linkedin_url`, because the endpoint already serves production traffic. It is informational for the reviewer and never preselects the approve form's plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The column has no CHECK, so `PlanInterestSchema` is the only place the vocabulary is enforced. The dialog's "Additional comments" is this endpoint's `body`; there is no separate comments field.
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
 
@@ -1327,6 +1331,22 @@ export const CorrectionRequestSchema = CorrectionFormSchema.extend({
 ```
 
 Both return `RequestSubmitResponse` (`{ request_id: string; message: string }`) with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
+
+#### `POST /api/requests/listing` (AECI-1293)
+
+"Not listed? Type it in" in the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or company the catalog does not list, so AECi can add it and then invite the submitter to claim it. Public, no session.
+
+```typescript
+export const ListingRequestSchema = ClaimFormSchema.extend({
+  listing_name: z.string().trim().min(1).max(200),
+  website: HttpsUrlSchema.max(500), // https only, no credentials
+});
+// No target: the listing is not in the catalog yet.
+```
+
+Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `plan_interest` and `has_linkedin`, never the typed name, website or email. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id; nothing goes to the submitter. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+
+Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
 
 ### 6.8 Account
 
@@ -1381,15 +1401,16 @@ resolver's gate and the in-shell badge feed.
 | Field | Counts |
 |---|---|
 | `pending_reviews` | `reviews.status = 'pending'` |
-| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
+| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, **plus** `listing_requests.status = 'open'` (AECI-1293: the second section of `/admin/requests`, a different table, so still disjoint from claims) |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
 | `pending_review_responses` | `review_responses.status = 'pending'`, vendor replies awaiting pre-moderation (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A sixth count on a different table, so disjoint from the other five. Badges `/admin/review-responses`. Optional on the wire type for deploy skew only |
 | `pending_contests` | Open contests AECi decides: `status = 'open'` and either `routed_to = 'aeci'` or a stranded owner-routed row (AECI-1008, AECI-1005), **plus** every `protest_status = 'open'` row (AECI-1009). A protested row is `declined`, so the two terms are disjoint. A fifth count on a different table, so still disjoint from the other four. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
 
 **The six are disjoint, and the header badge SUMS them.** Requests and claims
-are one table split by `kind`, so `pending_requests` is corrections-only; an
-all-kinds count would put every open claim into the total twice. `in_review` is
+are one table split by `kind`, so `pending_requests` counts corrections, never claims; an
+all-kinds count would put every open claim into the total twice. Since AECI-1293 it also
+counts open `listing_requests` rows, the second section of `/admin/requests`. `in_review` is
 deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
@@ -1712,7 +1733,7 @@ export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 
 Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of six `COUNT(*)`s (four until AECI-1008 and AECI-1177 added theirs), and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
 
-**The six counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` is corrections-only. That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
+**The six counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` never counts claims. It is open corrections plus open listing requests (AECI-1293). That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
 
 **Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badges. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same counts now ride on `GET /api/account` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the numbers stay consistent.
 
@@ -1805,6 +1826,9 @@ export const AdminVendorRequestSchema = z.object({
   // any claim predating the column. `/admin/claims` renders it as the reviewer's
   // primary person link and falls back to the built name-search URL when null.
   submitter_linkedin_url: z.string().nullable(),
+  // AECI-1293: the claimant's plan answer, `free | managed | not_sure`, or null when
+  // not answered, for a correction, or before the column. Informational only.
+  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
   // Surfaced VERBATIM from the DB (`pending|match|no_match|manual_review`). This
   // deviates from §7.1's yes/no framing; computing it is a 6.8 (AECI-215)
   // concern, so until that lands every row reads `pending`.
@@ -1864,6 +1888,43 @@ and (post-commit, best-effort) push the change to the linked Linear issue (§6.5
 
 Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
 not `open`/`in_review` (already terminal, or a concurrent action moved it).
+
+#### `GET /api/admin/listing-requests` and `PATCH /api/admin/listing-requests/:id` (AECI-1293)
+
+The listing request queue, the second section of `/admin/requests`
+(`VENDOR_PROGRAM_PAGE_SPEC.md` §15.5). Behind `requireAdmin()`. Source of truth:
+`packages/shared/src/api/admin-requests.ts`.
+
+```typescript
+export const ListListingRequestsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'resolved', 'rejected']).default('open'),
+});
+export const AdminListingRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'resolved', 'rejected']),
+  listing_name: z.string(),
+  website: z.string(), // https only at submit
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  submitter_linkedin_url: z.string().nullable(),
+  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
+  body: z.string(), // "Additional comments", '' when none
+  created_at: z.string().datetime(),
+  resolved_at: z.string().datetime().nullable(),
+  resolved_by: z.string().nullable(), // no FK to profiles
+});
+// GET  → paginatedResponseSchema(AdminListingRequestSchema), newest first, `id` tiebreak.
+// PATCH body: ModerateRequestSchema ({ action: 'resolve' | 'reject', reason? }).
+// PATCH → AdminListingRequest.
+```
+
+A PATCH is one `db.batch`: the guarded `UPDATE … WHERE status = 'open'` and its
+`listing_request.resolved` / `listing_request.rejected` audit row (the reason, when
+given, is in the audit metadata only). Resolving does not create the listing: the
+operator adds it upstream and emails the submitter. Errors: `NOT_FOUND` (unknown id),
+`INVALID_STATE_TRANSITION` (422, not `open`), `VALIDATION_FAILED`. No rate limit and no
+cache purge, like `PATCH /api/admin/requests/:id`.
 
 #### `GET /api/admin/claims` (Stage 2 — AECI-521)
 

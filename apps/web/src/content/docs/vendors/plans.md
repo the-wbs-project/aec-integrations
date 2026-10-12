@@ -79,7 +79,7 @@ Managed is priced per product, and today every product your company makes is on 
 
 <!-- docs:plans-cta -->
 
-When we approve a claim, we put your company on Free or on Managed, and the approval email tells you which. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing). If your company is already on Managed, a new seat does not change that.
+To start, claim your listing. The claim form asks which plan you are interested in, Free, Managed or not sure yet, and we confirm the plan with you before anything is billed. When we approve a claim, we put your company on Free or on Managed, and the approval email tells you which. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing). If your company is already on Managed, a new seat does not change that.
 
 The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To renew, or to change anything about billing, [contact us](/contact).
 

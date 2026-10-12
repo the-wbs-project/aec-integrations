@@ -208,7 +208,7 @@ Extend the events that ship (`apps/web/src/app/analytics/analytics.ts`, `docs/AN
 
 | Event | Change |
 |---|---|
-| `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result`. Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. |
+| `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result`. Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. **Since §15:** `free` is a "Claim your listing" click and `managed` a "Start with Managed" click, and both open the claim dialog. |
 | `plan_inquiry_submitted` | Add `page`, with the same values. `contact` stays a placement for the `/contact` form, with `page` absent. |
 | `vendor_product_search` | **New.** Fired once per settled non-empty query in Find your product. Properties: `results_count`. Never the query text: it can name a company before it has agreed to anything. |
 | `claim_requested` | No change here. §15.7 adds `plan_interest`. It fires when a claim form is sent, from any entry point. |

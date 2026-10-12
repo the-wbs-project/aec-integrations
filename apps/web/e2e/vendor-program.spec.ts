@@ -120,24 +120,34 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       await page.setViewportSize(size);
       await page.goto('/vendor-program');
       const hero = page.locator('aec-plan-cta-actions');
-      await expect(hero.getByRole('link', { name: 'Talk to us about Managed' })).toBeInViewport({
+      // AECI-1293: one claim control, and the pricing question as a text link.
+      await expect(hero.getByRole('link', { name: 'Claim your listing' })).toBeInViewport({
         ratio: 1,
       });
-      await expect(hero.getByRole('link', { name: 'Claim your listing free' })).toBeInViewport({
+      await expect(hero.getByRole('link', { name: 'Talk to us' })).toBeInViewport({
         ratio: 1,
       });
     }
   });
 
-  test('the hero claim link scrolls to Find your product', async ({ page }) => {
+  // AECI-1293: the hero claim opens the claim dialog in place. Its href is the
+  // no-JS target, Find your product on this page.
+  test('the hero claim opens the claim dialog, with Find your product as its no-JS target', async ({
+    page,
+  }) => {
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
-    await page
+    const claim = page
       .locator('aec-plan-cta-actions')
-      .getByRole('link', { name: 'Claim your listing free' })
-      .click();
-    await expect(page).toHaveURL(/\/vendor-program#find-your-product$/);
-    await expect(page.getByLabel('Your product or company')).toBeInViewport();
+      .getByRole('link', { name: 'Claim your listing' });
+    await expect(claim).toHaveAttribute('href', '/vendor-program#find-your-product');
+    await expect(async () => {
+      await claim.click();
+      await expect(page.getByRole('dialog', { name: 'Claim your listing' })).toBeVisible({
+        timeout: 2000,
+      });
+    }).toPass();
+    await expect(page).toHaveURL(/\/vendor-program$/);
   });
 
   // AECI-1285's e2e: the phone bar hides while a full call to action is on screen
@@ -275,7 +285,7 @@ async function mockSearch(page: Page): Promise<void> {
 }
 
 test.describe('/vendor-program Find your product (AECI-1287)', () => {
-  test('pick a hit and land on its claim form', async ({ page }) => {
+  test('pick a hit and claim it in the dialog, at step 2', async ({ page }) => {
     await mockSearch(page);
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
@@ -290,10 +300,15 @@ test.describe('/vendor-program Find your product (AECI-1287)', () => {
     await expect(view).toHaveAttribute('href', '/products/fixture-procore');
     // Ruling 2026-10-12: the listing opens in a new tab, so the claim stays here.
     await expect(view).toHaveAttribute('target', '_blank');
-    await card.getByRole('link', { name: 'Claim this listing' }).click();
+    const claim = card.getByRole('link', { name: 'Claim this listing' });
+    // The listing's own claim form stays the no-JS and new-tab target.
+    await expect(claim).toHaveAttribute('href', '/products/fixture-procore/claim');
+    await claim.click();
 
-    await expect(page).toHaveURL(/\/products\/fixture-procore\/claim$/);
-    await expect(page.getByRole('heading', { name: 'Claim this listing' })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
+    await expect(dialog.getByRole('heading', { name: 'About you' })).toBeVisible();
+    await expect(dialog.getByTestId('claim-dialog-listing')).toContainText('Procore');
+    await expect(page).toHaveURL(/\/vendor-program$/);
   });
 
   test('a miss says the products may already be listed, and asks us to add it', async ({
@@ -314,8 +329,13 @@ test.describe('/vendor-program Find your product (AECI-1287)', () => {
       '/contact?topic=add-product',
     );
 
-    await ask.getByRole('link', { name: 'Ask us to add it.' }).click();
-    await expect(page).toHaveURL(/\/contact\?topic=add-product$/);
-    await expect(page.getByRole('heading', { name: 'Ask us to add your product' })).toBeVisible();
+    // AECI-1293: it opens the claim dialog at the typed-in step; the contact topic
+    // stays its no-JS target.
+    const askLink = ask.getByRole('link', { name: 'Ask us to add it.' });
+    await expect(askLink).toHaveAttribute('href', '/contact?topic=add-product');
+    await askLink.click();
+    const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
+    await expect(dialog.getByLabel('Product or company name')).toBeVisible();
+    await expect(page).toHaveURL(/\/vendor-program$/);
   });
 });

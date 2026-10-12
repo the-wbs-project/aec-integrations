@@ -129,6 +129,7 @@ Tables grouped by domain:
 
 **Operations and workflow**:
 - `vendor_requests` — incoming claim and correction requests
+- `listing_requests` — typed-in listings from the claim dialog, a product or company not in the catalog (§8.1a, AECI-1293)
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
@@ -1302,6 +1303,13 @@ create table vendor_requests (
   -- step 6) — why a claim is parked and what was said out of band. Nullable.
   admin_notes text,
 
+  -- AECI-1293 (migration 0070): the claimant's answer to "Which plan are you
+  -- interested in?" ('free' | 'managed' | 'not_sure'), NULL when not answered, for
+  -- a correction, or before the column. NO CHECK on purpose: a CHECK change is a
+  -- drizzle-kit table recreate, and this table has FK children. PlanInterestSchema
+  -- enforces the vocabulary. Informational; never preselects the approve form.
+  plan_interest text,
+
   -- Status
   status text not null default 'open'
     check (status in ('open', 'in_review', 'resolved', 'rejected')),
@@ -1351,6 +1359,47 @@ it that the column alone does not say:
   `PATCH /api/admin/claims/:id/notes` is the sole writer and `toAdminClaim` the
   sole reader; a correction physically has the column and no route touches it.
   Extending it to corrections is a decision, not a migration.
+
+### 8.1a `listing_requests` (AECI-1293)
+
+A product or company a visitor typed into the claim dialog because the catalog does
+not list it (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). Written by `POST /api/requests/listing`,
+read and moderated by `/admin/requests` through `/api/admin/listing-requests`.
+
+```sql
+create table listing_requests (
+  id                     text primary key,      -- uuid
+  listing_name           text not null,         -- 1..200, as typed
+  website                text not null,         -- https only, <=500 (HttpsUrlSchema)
+  submitter_email        text not null,
+  submitter_name         text,
+  submitter_role         text,
+  submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
+  plan_interest          text,                  -- 'free' | 'managed' | 'not_sure' | NULL
+  body                   text not null default '', -- "Additional comments"
+  status                 text not null default 'open', -- 'open' | 'resolved' | 'rejected'
+  created_at             text not null,
+  resolved_at            text,
+  resolved_by            text                   -- an admin profile id, NO FK
+);
+create index listing_requests_status_created_idx on listing_requests(status, created_at);
+```
+
+- **Why its own table.** A typed-in listing has no target. Admitting it to
+  `vendor_requests` would change the `kind` and `target_type` CHECKs and the
+  `target_id` NOT NULL, each a drizzle-kit recreate of a table with FK children
+  (`vendor_entitlements.source_request_id`, the duplicate self-FK), which is the
+  cascade hazard of `docs/migrations.md` §0. Migration `0070` is a plain
+  `CREATE TABLE`, its index, and the `vendor_requests.plan_interest` `ADD COLUMN`.
+- **No FK and no CHECK**, the `field_overrides` precedent. `resolved_by` has no FK to
+  `profiles`, so it is not one of `AUTH_AND_RLS.md`'s inbound FKs and the erasure batch
+  has nothing new to null; an admin's id stays on the row as it does in audit metadata.
+  The `status` and `plan_interest` vocabularies are enforced by Zod.
+- **Domain state, audited.** The insert writes `listing_request.created`, and each
+  moderation `listing_request.resolved` / `listing_request.rejected`, in the same
+  `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
+  CHECK-constrained. The audit metadata never holds the typed name, website or email.
+- **No retention prune**, like `vendor_requests`.
 
 ### 8.2 `workflow_instances`
 
