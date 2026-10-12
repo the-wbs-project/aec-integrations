@@ -1,13 +1,13 @@
 # AEC Integrations — Vendor Program Page Specification
 
-**Version:** 0.2, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links)
+**Version:** 0.3, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links; §15 the claim dialog)
 **Date:** 2026-10-12
 **Status:** Build contract. Admitted into **Stage 2.5** by operator decision on 2026-10-12, as the sixth named exception to its "no new surface area" rule (`STAGE_2_5_SPEC.md` §14). It turns the marketing review's requirements draft ("For vendors" marketing page, 2026-10-12) into a contract checked against the code. Where the draft and the code disagreed, §1.2 records the ruling.
 **Supersedes:** nothing. The draft stays a marketing-side input; this doc is the build truth.
 **Inherits from:** Stage 1 / 1.5 / 2. Every constraint carries. The one most at risk here is the no-pay-for-placement firewall (`STAGE_2_PAID_TIERS_SPEC.md` §3.2): this page sells a plan, and nothing on it may suggest the plan buys position (§8).
 **Companion docs:** `STAGE_2_PRODUCT_DOCS_SPEC.md` §5 (the `/docs/vendors/plans` page this page sits beside), `ANALYTICS.md` §4 (the `plan_*` events, §9 here), `CACHE_STRATEGY.md` (route tag, §2), `API_CONTRACTS.md` (`POST /api/plan-inquiries`, `GET /api/vendor/me`, §5 and §7), `DESIGN.md` (navigation rule, §2.4), `docs/email.md` (the inquiry receipt and alert, §7).
 
-> **Data-layer note.** The page adds no write and no table. Its one new read is an existing endpoint (`GET /api/vendor/me`), called from the browser only. Nothing here touches `audit_log`, promote, or the rate limiter.
+> **Data-layer note.** §1 to §14 add no write and no table. Their one new read is an existing endpoint (`GET /api/vendor/me`), called from the browser only. **§15 (the claim dialog, AECI-1293) does add data:** a nullable `vendor_requests.plan_interest` column, a `listing_requests` table, `POST /api/requests/listing` and its audit row, and the two admin endpoints for it. §15.3 to §15.5 and §15.8 own them.
 
 ---
 
@@ -120,6 +120,8 @@ Phones stay one column.
 
 ## 4. Calls to action
 
+> **Superseded in part by §15 (2026-10-12, AECI-1293).** Every claim control and every Managed button now opens the claim dialog, labelled "Claim your listing" or "Start with Managed". "Talk to us about Managed" is now the text link "Questions about pricing? Talk to us". §15.1 is the current table. The placements below still name where each control sits.
+
 Two actions, with the same wording everywhere.
 
 | Action | Text | Goes to |
@@ -169,6 +171,8 @@ The SSR HTML is always the signed-out page. After hydration:
 
 ## 6. Find your product
 
+> **Amended by §15 (2026-10-12, AECI-1293).** "Claim this listing" on a result opens the claim dialog at step 2 with that listing filled in. "Ask us to add it" opens it at the typed-in step. Both stay links to their old targets for no-JS and new-tab clicks. The rest of this section stands.
+
 - Reuse `aec-search-autocomplete` (`apps/web/src/app/search/search-autocomplete.ts`) with its own `inputId`, a visible label, and the placeholder "Search for your product or company". It searches in the browser only, so it does not affect the cached HTML.
 - **A result.** Choosing a product or vendor hit shows a result card: the name and "Claim this listing", which links to `/products/:slug/claim` or `/vendors/:slug/claim`. It does not navigate to the listing first. The card also offers "View the listing".
 - **Ask us to add it (settled 2026-10-12).** Under the box, always: "Can't find your product? Ask us to add it." The link goes to `/contact?topic=add-product`. That topic shows a panel on the contact page whose button is the support `mailto:` with the subject ("Please add my product to AEC Integrations") and a prompt filled in: product name, website, and the products it integrates with. It reaches the same support mailbox as every other contact email. No API validates the topic, because it adds no field to any request. The link fires no analytics event (§9 is unchanged).
@@ -207,7 +211,7 @@ Extend the events that ship (`apps/web/src/app/analytics/analytics.ts`, `docs/AN
 | `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result`. Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. |
 | `plan_inquiry_submitted` | Add `page`, with the same values. `contact` stays a placement for the `/contact` form, with `page` absent. |
 | `vendor_product_search` | **New.** Fired once per settled non-empty query in Find your product. Properties: `results_count`. Never the query text: it can name a company before it has agreed to anything. |
-| `claim_requested` | No change. It fires when a claim form is sent, from any entry point. |
+| `claim_requested` | No change here. §15.7 adds `plan_interest`. It fires when a claim form is sent, from any entry point. |
 
 "Ask us to add it" (§6) fires nothing. It is not a plan call to action, so `plan_cta_clicked` would be wrong. A `$pageview` on `/contact` whose `$current_url` carries `topic=add-product` already counts the arrivals.
 
@@ -264,7 +268,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 | 2 | A claim approval time in the FAQ? | **Settled 2026-10-12:** "Generally within 48 hours." The FAQ leads with that line, then says a person reads every claim and we email the result. |
 | 3 | A "For vendors" link in the header row? | Footer only. A header link needs a `DESIGN.md` change and the AECI-669 re-measure. |
 | 4 | A `name` field on plan inquiries? | No. It is a schema, migration and email-template change. |
-| 5 | A "Submit your product" flow for a product not in the catalog? | **Settled 2026-10-12:** the contact path with a topic, `/contact?topic=add-product` (§6). A real submission flow remains a future option. |
+| 5 | A "Submit your product" flow for a product not in the catalog? | **Settled 2026-10-12:** the contact path with a topic, `/contact?topic=add-product` (§6). **Superseded the same day by §15:** the claim dialog's typed-in step, a `listing_request`. The contact topic stays for other entry points. |
 
 ---
 
@@ -283,3 +287,136 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | **AECI-1288** Analytics: `page`, `search_result`, `vendor_product_search` | §9 |
 | **AECI-1289** `/docs/vendors/plans` deltas | §10 |
 | **AECI-1290** Publication-day fact check | §12 |
+| **AECI-1293** Single claim dialog: find or type in, plan, comments | §15 |
+
+---
+
+## 15. Claim dialog
+
+**Ruling 2026-10-12 (Chris), AECI-1293.** One claim workflow replaces the two parallel asks. Managed is granted at claim approval (the `/admin/claims` plan radios, `STAGE_2_PAID_TIERS_SPEC.md` §13.6), so a separate Managed form was a second form with a hidden dependency on the first. Every main call to action now opens one dialog. This section supersedes the claim rows of §4 and §4.1, the result link and "Ask us to add it" target of §6, and the `plan_cta_clicked` wording of §9. §7 still governs the inquiry dialog, which stays as the pricing question's path.
+
+### 15.1 Labels and entry points
+
+| Where | Text | Opens |
+|---|---|---|
+| Hero (`top`), closing panel (`bottom`), Free plan card (`card`) | "Claim your listing" | The dialog at step 1. The Free card preselects Free. |
+| Managed plan card (`card`) | "Start with Managed" | The dialog at step 1, Managed preselected. |
+| Phone bar (`mobile_bar`), docs rail (`rail`) | "Start with Managed" | The same as the Managed card. Both are Managed-labelled surfaces: the bar's region is "Managed plan" and it already hides for a Managed company (§5). |
+| Under the hero pair, under the Managed card, in the closing panel | "Questions about pricing? Talk to us" (text link) | The plan inquiry dialog (§7), unchanged. Its `href` stays `MANAGED_CONTACT_HREF`. |
+| Find your product, a chosen result (`search_result`) | "Claim this listing" | The dialog at step 2 with that listing filled in. |
+| Find your product, "Ask us to add it" | (unchanged copy) | The dialog at the typed-in step. `/contact?topic=add-product` keeps working for every other entry point. |
+
+"Talk to us about Managed" no longer appears as a button on either page. "Claim your listing free" is retired. Never "Get Managed", "Buy" or "Start now".
+
+The same labels apply on `/docs/vendors/plans` through the shared `shared/plan-cta/` components. The docs Free card's "Claim your listing" now opens the dialog too.
+
+**Signed-in vendor (§5).** A vendor seat sees "Go to your portal" (`/vendor`) wherever a control would open the dialog. That includes "Start with Managed". The pricing link stays, because a Free company asking about Managed is the inquiry form's job. A Managed company keeps §5's rule: no phone bar, no Managed button in the panel.
+
+**No-JS fallback.** Every dialog trigger is an `<a href="/vendor-program#find-your-product">`. Without JS, before hydration, with no host on the page, or on a modified click, the link is followed. An absolute path, never a bare `#id`, because of the `<base href>` trap. On `/vendor-program` it lands on the inline section, which has its own no-JS `/search` form (§6).
+
+### 15.2 The steps
+
+One BrnDialog, the plan inquiry dialog's shell (`shared/plan-inquiry/plan-inquiry-dialog.ts`). The title is "Claim your listing". A visible step indicator reads "Step N of 4" and names the step. A Back button sits on every step after the first one the visitor saw, and never on the receipt.
+
+1. **Find it.** `aec-search-autocomplete` with its own `inputId`, the visible label "Your product or company" and the placeholder "Search for your product or company". Choosing a product or vendor suggestion selects that listing and moves to step 2. Under the box: "Not listed? Type it in", a button that moves to the typed-in variant of step 2. Enter with no suggestion chosen does nothing in the dialog: it never navigates away from an open form.
+2. **You.** A found listing shows a summary line ("Claiming" and the listing name, with "Change" back to step 1). A typed-in listing first asks "Product or company name" (1 to 200 characters) and "Website" (an `https://` URL, `HttpsUrlSchema`). Then the claim form's identity fields, unchanged: "Your name", "Your role at the company", "LinkedIn profile (optional)" with the AECI-847 host allowlist, and "Your work email". "Continue" validates this step's fields only.
+3. **Plan.** "Which plan are you interested in?" Three native radios: Free, Managed, Not sure yet. A one-line hint: "You can change your mind. We confirm the plan with you before anything is billed." Nothing is preselected unless the dialog was opened from a Managed control (Managed) or the Free card (Free). The answer is optional. "Continue" with no choice sends no plan answer.
+4. **Additional comments.** An optional textarea, "Additional comments", up to 2,000 characters, then the submit button, "Send claim" (found) or "Send request" (typed-in).
+5. **Done.** One receipt, focused on open. Found: "Claim sent", "We'll email {address} with our decision", and the three "What happens next" lines the claim form already shows. Typed-in: "Request sent", then "We'll add {name} to the directory, then email {address} so you can finish your claim." A "Done" button closes the dialog.
+
+**Behaviour.**
+
+- One host per page (`aec-claim-dialog-host`), `@defer`-loaded on the first open, so nothing reaches the cached SSR HTML.
+- Below `sm` the panel is a full-screen sheet (`100dvh`, no radius). From `sm` it is a centred panel, `min(92vw, 36rem)` wide, scrolling inside at `85vh`.
+- Focus moves into the dialog on open, to the step heading on every step change, and back to the trigger on close (BrnDialog / CDK). Escape and the close button close it at any step. Closing discards the form. Each open starts fresh.
+- Never opened from an `effect()` (NG0602): the service holds an opener callback, as `PlanInquiryService` does.
+- A submit failure keeps the visitor on step 4 with "Something went wrong. Please try again." A `404` on a found listing (the listing was unpublished since the search) says the listing is no longer available and offers "Type it in instead".
+
+### 15.3 A found listing: `POST /api/requests/claim`
+
+The existing endpoint and `ClaimRequestSchema`, plus one field:
+
+```typescript
+export const PlanInterestSchema = z.enum(['free', 'managed', 'not_sure']);
+// ClaimFormSchema gains
+plan_interest: z.union([z.literal(''), PlanInterestSchema]).default(''),
+```
+
+`''` means not answered and is stored as `NULL`. The key is omittable, like `submitter_linkedin_url`, because the endpoint already serves production traffic.
+
+**Comments are the claim's `body`.** Step 4's "Additional comments" is the claim form's existing optional `body` ("Anything we should know?", 0 to 2,000 characters). The dialog moves that field to the end and relabels it. It does not add a second free-text column: two notes from one claimant, under two labels, would split one answer across two places in the review. `vendor_requests.body` is `NOT NULL`, so an empty comment is stored as `''`, as today.
+
+**Storage.** One nullable column, `vendor_requests.plan_interest`, added by `ALTER TABLE ... ADD COLUMN`. **No CHECK constraint**, on purpose: a CHECK added in Drizzle is a table-level constraint, and any CHECK change makes drizzle-kit recreate the table (`docs/migrations.md` §0). `vendor_requests` has FK children (`vendor_entitlements.source_request_id`, and its own `duplicate_of_request_id`), so a recreate is the cascade hazard. The vocabulary is enforced by `PlanInterestSchema` at the API.
+
+The audit row (`vendor_request.created`) and the genesis workflow transition carry `plan_interest` in their metadata. The claim alert email (`claim-submitted-alert`) gains a "Plan interest" row. The Linear issue description gains the same line.
+
+### 15.4 A typed-in listing: `POST /api/requests/listing`
+
+A new request kind, `listing_request`, in its **own table**, `listing_requests`.
+
+**Why not a row in `vendor_requests`.** A typed-in listing has no target. `vendor_requests` has `target_type` and `target_id` `NOT NULL`, and CHECKs on `kind` (`claim`, `correction`) and `target_type` (`product`, `vendor`). Admitting the new kind means changing two CHECKs and a `NOT NULL`. On D1 each of those is a drizzle-kit table recreate, and `vendor_requests` has FK children, so the recreate's `DROP` fires the cascade path `docs/migrations.md` §0 forbids without its controls. The workflow side is the same: `workflow_instances.workflow_type` has a CHECK, and `workflow_transitions` is its FK child. A separate table is a plain `CREATE TABLE`, with nothing to cascade.
+
+**The wire.** `ListingRequestSchema` in `packages/shared/src/api/requests.ts`:
+
+```typescript
+export const ListingRequestFormSchema = ClaimFormSchema.extend({
+  listing_name: z.string().trim().min(1).max(200),
+  website: HttpsUrlSchema.max(500),
+});
+export const ListingRequestSchema = ListingRequestFormSchema; // no target
+```
+
+It returns `RequestSubmitResponse` with `201` and the message "Your request has been received. We will add the listing and email you to finish your claim." Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
+
+**The table.** `listing_requests`: `id` (uuid), `listing_name`, `website`, `submitter_name`, `submitter_email`, `submitter_role`, `submitter_linkedin_url` (nullable), `plan_interest` (nullable), `body` (`NOT NULL`, default `''`), `status` (`open`, `resolved`, `rejected`; default `open`), `created_at`, `resolved_at`, `resolved_by`. **No FK and no CHECK**, the `field_overrides` precedent (`apps/api/src/db/schema.ts`): no FK to `profiles`, so erasure has nothing new to null, and an admin's id stays on the record the way it does in audit metadata. The vocabularies are enforced by Zod. One index, `(status, created_at)`, for the admin list.
+
+**The write.** One `db.batch`: the insert and its `audit_log` row (`listing_request.created`, entity type `listing_request`, metadata `plan_interest` and `has_linkedin`, never the typed name, email or website). It is domain state (requests), so the row is required (ADR 0022). No `workflow_instances` row: the workflow vocabulary is CHECK-constrained (above), and the audit rows are the history. The §26.5 forward runs post-commit.
+
+**Rate limit.** The path sits under `/api/requests/*`, so zone Rule A already caps it at the claim route's rate (5 per minute per IP, with a one-hour block). Like the claim route, it carries no in-Worker bucket (`docs/waf-rate-limits.md` §6.2: "Rule A already covers them"). The only key the Worker holds is a typed email, which rotates for free.
+
+**Notification.** A new operator alert, `listing-request-alert`, to `SUPPORT_EMAIL`, fire-and-forget in `ctx.waitUntil` after commit. Reply-to is the submitter, so a reply answers them. The table carries the name, website (plain text, never linked), submitter fields, plan interest, comments and the row id, with a CTA to `/admin/requests`. Key `listing-request-alert:{id}`. Pausable: the request waits in `/admin/requests` either way. **No email to the visitor**, as with a claim: the address is typed, not verified, and the on-screen receipt is the receipt. No Linear issue: the alert and the admin queue are the record.
+
+### 15.5 Admin
+
+- **Claims.** `AdminVendorRequest` gains `plan_interest` (`'free' | 'managed' | 'not_sure' | null`). The `/admin/claims` queue row and the claim detail show "Plan interest" with the answer, or "Not answered". In the queue's approve form the answer sits beside the plan radios as "They asked about: Managed". **The radios stay unselected** whatever the claimant said (`STAGE_2_PAID_TIERS_SPEC.md` §13.6, "nothing preselected"). The claimant's comments are the body the queue and the detail already show, now under the label "Comments".
+- **Listing requests.** `/admin/requests` gains a second section, "Listing requests", under the corrections. Each row shows the name, website (plain text, with a copy-safe link that opens in a new tab), submitter name, role, email and LinkedIn, plan interest, comments and age, with Resolve and Reject. It reads `GET /api/admin/listing-requests` (`status` and page params, like `GET /api/admin/requests`) and moderates through `PATCH /api/admin/listing-requests/:id` (`ModerateRequestSchema`). Each moderation is one `db.batch`: the guarded update and its `listing_request.resolved` or `listing_request.rejected` audit row. Both are behind `requireAdmin()`.
+- **The badge.** `pending_requests` becomes open corrections plus open listing requests, so the Requests count matches the screen. Claims stay out of it (`admin-queue-counts.ts`).
+- Resolving a listing request does not create the listing. The operator adds it upstream (the review app, then promote) and emails the submitter to claim it. That is the "we add it, then email you" in the receipt.
+
+### 15.6 Per-listing claim pages
+
+`/products/:slug/claim`, `/vendors/:slug/claim` and the in-place claim drawer keep working. They are step 2 onward on one form: the identity fields, then the plan question, then "Anything we should know?" relabelled "Additional comments". The plan question and the comments are both optional. They submit to `POST /api/requests/claim` as before, with `plan_interest`.
+
+### 15.7 Analytics
+
+| Event | Properties | When |
+|---|---|---|
+| `claim_dialog_step` (new) | `step` (`find`, `you`, `plan`, `comments`, `done`), `page` (`vendor_program`, `docs_plans`), `entry` (the `PlanCtaPlacement` that opened it), `path` (`found`, `typed`; absent on `find`) | Once each time a step is shown, including the first. |
+| `claim_requested` | adds `plan_interest` (`free`, `managed`, `not_sure`, `none`) | A found-listing claim the API accepted, from the dialog, a claim page or the drawer. |
+| `listing_requested` (new) | `plan_interest`, `page` | A typed-in request the API accepted. |
+| `plan_cta_clicked` | unchanged shape. `plan: 'free'` now means a "Claim your listing" click and `plan: 'managed'` a "Start with Managed" click. Both open the claim dialog, so it counts opens. | Every plan call to action. |
+| `plan_inquiry_submitted` | unchanged. It now counts inquiries from the "Questions about pricing? Talk to us" link and `/contact`. | |
+
+Never the search text, a typed name, a website or an email. The dialog's Find step does not fire `vendor_product_search`: that event stays the inline section's count (§9), so the two can be compared.
+
+### 15.8 Migration
+
+One drizzle-kit migration, additive only. The generated SQL must be exactly `CREATE TABLE listing_requests`, its index, and `ALTER TABLE vendor_requests ADD COLUMN plan_interest text`. A `__new_` table, a `DROP TABLE` or an `INSERT INTO ... SELECT` in it means drizzle-kit chose a recreate, and the migration must not ship (`docs/migrations.md` §0).
+
+### 15.9 Tests
+
+- Shared: `plan_interest` accepts the three values and `''`, rejects others, defaults when the key is absent. `ListingRequestSchema` requires the name and an `https://` website, and keeps the LinkedIn allowlist.
+- API: a claim with `plan_interest` and comments stores both. A body without the key still validates. A listing request writes the row and its audit row in one batch, sends the alert after commit, and rejects a bad website and a non-LinkedIn profile. The admin list and moderation for listing requests, including the `422` on a terminal row. The badge count.
+- Web: the dialog's steps, Back, the Managed and Free preselect, the typed-in path, the signed-in swap to "Go to your portal", the analytics payloads (no typed text). The admin claim plan answer beside unselected radios. The listing request section.
+- e2e: `apps/web/e2e/vendor-program-claim-dialog.spec.ts`, both paths with the search index and the two POST endpoints mocked.
+
+### 15.10 Docs updated in the same change
+
+`API_CONTRACTS.md` §6.7 (the `plan_interest` field, the new endpoint) and §6.10 (the listing request admin endpoints, the `pending_requests` predicate); `DATABASE_SCHEMA.md` (the column, the table, the ledger row); `ADMIN_PANEL_SPEC.md` (the Requests screen's second section and its badge); `STAGE_2_VENDOR_PORTAL_SPEC.md` §5 (the plan answer beside the radios); `ANALYTICS.md` §4; `NOTIFICATIONS.md` (generated by `pnpm docs:notifications`) and `docs/email.md` (the new alert); `OBSERVABILITY.md` (the `aeci.email.send` template list); `waf-rate-limits.md` §6.2 (the new path under Rule A); `STAGE_2_PRODUCT_DOCS_SPEC.md` §5 (the Plans page labels); `DESIGN.md` (the CTA wording); `POST_LAUNCH_MONITORING.md` where it reads `pending_requests`; the vendor docs pages `claiming-your-listing.md` and `plans.md`.
+
+### 15.11 Not changed
+
+- The "What Managed adds" list and the FAQ copy (other rulings pending).
+- `POST /api/plan-inquiries` and the inquiry dialog (§7).
+- The claim approval flow, the plan radios' rule and the grant emails.
+- The full-width layout rule (§3, §11).
