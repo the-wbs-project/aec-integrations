@@ -66,7 +66,7 @@ describe('Plans calls to action', () => {
       page: 'vendor_program',
     });
     expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
-    expect(host.textContent).toContain('Questions about pricing?');
+    expect(host.textContent).toContain('Questions about Managed or pricing?');
     const [claimLink, pricing] = [...host.querySelectorAll('a')];
     expect(claimLink.getAttribute('href')).toBe(CLAIM_HREF);
     expect(pricing.getAttribute('href')).toBe(MANAGED_HREF);
