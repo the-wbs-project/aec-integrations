@@ -75,7 +75,7 @@ This applies to a pilot too.
 
 ## Getting Managed
 
-Managed is priced per product, and today every product your company makes is on the same plan as your company. The plan panel in your portal shows your company's price. We bill Managed by invoice or purchase order. There is no card payment and no online checkout.
+Managed is priced per product. Tell us which products you want on Managed, and we set it up with you. The plan panel in your portal shows your company's price. We bill paid plans by invoice or purchase order. Free plans require neither.
 
 <!-- docs:plans-cta -->
 

@@ -29,8 +29,8 @@
  * `plan_cta_clicked` and carried into both dialogs (`docs/ANALYTICS.md` §4).
  *
  * **Signed-in hooks (spec §5, AECI-1286).** `portal` turns every dialog control into
- * "Go to your portal" (`/vendor`). `hideManaged` drops the rail card, the phone bar,
- * and the panel's pricing link and Managed steps, for a Managed company. Both default
+ * "Go to your portal" (`/vendor`) and drops the panel's two claim steps. `hideManaged`
+ * drops the rail card, the phone bar and the panel's pricing link, for a Managed company. Both default
  * to the signed-out page, so the SSR HTML stays visitor-neutral, and both are set only
  * after hydration.
  *
@@ -262,18 +262,18 @@ export class PlanCtaActionsComponent extends PlanCta {}
             <aec-plan-pricing-link [page]="page()" placement="bottom" tone="inverse" />
           }
         </div>
-        @if (!hideManaged()) {
+        @if (!portal() && !hideManaged()) {
           <ol class="mt-5 space-y-1.5 text-sm">
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">1.</span>
-              <span i18n="@@app.docs.plans.cta.step1"
-                >We agree the price and the term with you.</span
+              <span i18n="@@planCta.step.find"
+                >Find your listing and tell us which plan you want.</span
               >
             </li>
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">2.</span>
-              <span i18n="@@app.docs.plans.cta.step2"
-                >We switch Managed on, and everyone with a seat sees it in the portal.</span
+              <span i18n="@@planCta.step.review"
+                >We review it, generally within 48 hours, and email you the result.</span
               >
             </li>
           </ol>
@@ -288,7 +288,11 @@ export class PlanCtaPanelComponent extends PlanCta {
     'inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto';
   /** `h3` under a page section (the docs page), `h2` as its own section. */
   readonly headingLevel = input<2 | 3>(3);
-  /** A Managed company: drop the pricing link and the Managed next steps (spec §5). */
+  /**
+   * A Managed company: drop the pricing link (spec §5). The two next steps describe the
+   * claim dialog, so they show only while the button opens it, never beside "Go to your
+   * portal" (ruled 2026-10-12, spec §4.1).
+   */
   readonly hideManaged = input(false);
   /**
    * From `lg`, the heading and terms on the left and the actions on the right (six

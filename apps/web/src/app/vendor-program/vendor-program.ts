@@ -356,9 +356,9 @@ const PLANS_PATH = '/docs/vendors/plans';
                 fragment="what-managed-adds"
               >
                 <ng-container i18n="@@vendorProgram.managed.integrationDetail.body">
-                  Link evaluators straight to your integrations page and API docs, and say which
-                  data moves in each of your integrations. Your answer counts the same as your
-                  partner's. Buyers know what syncs before a project depends on it. See
+                  Link evaluators to your integrations page and API docs. Confirm which data each
+                  integration moves, and your answer counts the same as your partner's. Buyers can
+                  check what an integration syncs before they rely on it for a project. See
                   <a
                     routerLink="/docs/vendors/attesting-an-integration"
                     target="_blank"
@@ -515,8 +515,8 @@ const PLANS_PATH = '/docs/vendors/plans';
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.products.a">
                   No. One claim gives you a seat on your company's account, and it covers every
-                  product your company makes. Plans are per product, so each product can be on the
-                  free plan or on Managed.
+                  product your company makes. Plans are priced per product. Tell us which products
+                  you want on Managed, and we'll set it up with you.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">

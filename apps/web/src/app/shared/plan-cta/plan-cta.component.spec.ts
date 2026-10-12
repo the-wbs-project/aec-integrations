@@ -154,7 +154,15 @@ describe('Plans calls to action', () => {
     expect(text).toContain(
       '$25 a month per product, or $250 a year, billed by invoice or purchase order. If a plan ends, nothing you entered is removed.',
     );
-    expect(host.querySelectorAll('ol li')).toHaveLength(2);
+    // Ruled 2026-10-12 (spec §4.1): the steps describe the claim dialog.
+    expect(
+      [...host.querySelectorAll('ol li span:last-child')].map((step) =>
+        step.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual([
+      'Find your listing and tell us which plan you want.',
+      'We review it, generally within 48 hours, and email you the result.',
+    ]);
     expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
     const link = host.querySelector('a')!;
     expect(link.getAttribute('href')).toBe(CLAIM_HREF);
@@ -178,7 +186,17 @@ describe('Plans calls to action', () => {
     expect(host.querySelector('h3')).toBeNull();
   });
 
-  // Spec §5 hook: a Managed company sees no pricing question and no Managed steps.
+  // The steps describe the claim dialog, so a Free seat's "Go to your portal" drops them.
+  it('bottom panel keeps the pricing link but drops the steps for a Free vendor seat', () => {
+    const { host } = render(PlanCtaPanelComponent, true, {
+      page: 'vendor_program',
+      portal: true,
+    });
+    expect(linkTexts(host)).toEqual(['Go to your portal', 'Talk to us']);
+    expect(host.querySelector('ol')).toBeNull();
+  });
+
+  // Spec §5 hook: a Managed company sees no pricing question and no steps.
   it('bottom panel drops the pricing link and the steps when hideManaged is set', () => {
     const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',

@@ -188,6 +188,11 @@ describe('VendorProgramPage', () => {
         'More detailed information about integrations (additional URLs, data flow, etc.)',
         'Review replies',
       ]);
+      // Ruled 2026-10-12: the integration detail body, reworded for clarity.
+      const detail = text(managed.querySelectorAll('li')[2]);
+      expect(detail).toContain(
+        "Link evaluators to your integrations page and API docs. Confirm which data each integration moves, and your answer counts the same as your partner's. Buyers can check what an integration syncs before they rely on it for a project.",
+      );
       // Every line is the one shared item: the same host classes on both sections.
       const itemClasses = new Set(
         [...free.querySelectorAll('li'), ...managed.querySelectorAll('li')].map(
@@ -305,7 +310,7 @@ describe('VendorProgramPage', () => {
       expect(answer(faq[1])).toMatch(/^Generally within 48 hours\. A person at AEC Integrations/);
       expect(answer(faq[1])).toContain('We review each claim and email the result');
       expect(answer(faq[2])).toBe(
-        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Plans are per product, so each product can be on the free plan or on Managed.",
+        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Plans are priced per product. Tell us which products you want on Managed, and we'll set it up with you.",
       );
       expect(answer(faq[3])).toBe(
         'Yes. We bill paid plans by invoice or purchase order. Free plans require neither.',
