@@ -36,6 +36,7 @@ import {
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createActivityArrivalHandler } from './routes/activity-arrival';
 import {
+  createAdminClaimAuditHandler,
   createAdminClaimDetailHandler,
   createAdminClaimsListHandler,
   createModerateClaimHandler,
@@ -718,6 +719,8 @@ authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler(
 // Stage 2 / AECI-739: one claim, plus the explanation behind the queue's duplicate
 // chip (§5.2 step 5). Read-only, no audit row.
 authAdmin.get('/api/admin/claims/:id', requireAdmin(), createAdminClaimDetailHandler());
+// AECI-1276: the claim's audit trail (`vendor_request` rows for this id). Read-only.
+authAdmin.get('/api/admin/claims/:id/audit', requireAdmin(), createAdminClaimAuditHandler());
 // Stage 2 / AECI-739: the operator note (§5.2 step 6) — a sub-resource, not a third
 // `ModerateClaimSchema.action`, because a note changes no status and is writable at
 // all four of them. One `db.batch` carrying the UPDATE + its audit row.

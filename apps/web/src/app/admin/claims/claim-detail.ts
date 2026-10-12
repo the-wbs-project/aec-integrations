@@ -12,15 +12,19 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
-import type { AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
+import type { AdminAuditRow, AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
 
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
+import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
+
+/** Same page size as the vendor and connector trails. */
+const AUDIT_PAGE_SIZE = 25;
 
 /**
  * AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 — one vendor claim, at
@@ -35,7 +39,7 @@ import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-labe
  * in-product home that does not exist", and the console showed a lengthening
  * queue of open claims with no visible reason why any of them was parked.
  *
- * Five sections, all read together — which is why this is a FLAT child of
+ * Six sections, all read together — which is why this is a FLAT child of
  * `/admin` with no per-route resolver, exactly like `/admin/vendors/:id` and
  * `/admin/users/:id`: a route per tab would buy nothing but resolvers. The gate is
  * the parent's `adminSummaryResolver`; this page paints its shell during SSR and
@@ -49,6 +53,13 @@ import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-labe
  *    emailed, writable at every status.
  * 4. **Duplicate explanation** — §5.2 step 5's trap made legible.
  * 5. **In-review explainer** — shown only at that status.
+ * 6. **Audit trail** (AECI-1276) — the claim's own `vendor_request` rows through
+ *    the shared `<aec-audit-trail>`. This is where the note's history lives, so
+ *    the note help text's promise is kept on the same page. It loads on its own,
+ *    after the claim, and fails soft: a trail error never hides the claim. It
+ *    loads fresh every time the page opens and refetches after a note save. A
+ *    Managed grant's `vendor_entitlement.granted` row is filed against the vendor
+ *    and stays on `/admin/vendors/:id`.
  *
  * Two boundaries this screen deliberately does NOT cross. **It does not moderate**
  * — Grant and Reject stay on the queue, where the §5.2 pure-connector warning
@@ -59,7 +70,7 @@ import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-labe
  */
 @Component({
   selector: 'aec-claim-detail',
-  imports: [DatePipe, NewTabIcon, RouterLink],
+  imports: [AuditTrail, DatePipe, NewTabIcon, RouterLink],
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
@@ -101,6 +112,17 @@ export class ClaimDetail {
    *  screen, so without an announcement it is silent to a screen reader. */
   protected readonly liveMessage = signal('');
 
+  // ── Audit (AECI-1276) ──────────────────────────────────────────────────────
+  // Page-owned state, the same set `/admin/connectors/:id` keeps. The trail
+  // component is display-only.
+  protected readonly auditRows = signal<readonly AdminAuditRow[]>([]);
+  protected readonly auditTotal = signal(0);
+  protected readonly auditPage = signal(1);
+  protected readonly auditPerPage = AUDIT_PAGE_SIZE;
+  protected readonly auditLoading = signal(true);
+  protected readonly auditFailed = signal(false);
+  protected readonly auditEmailsAvailable = signal(true);
+
   constructor() {
     afterNextRender(() => {
       void this.load();
@@ -130,6 +152,9 @@ export class ClaimDetail {
       const claim = await this.api.getClaim(id);
       this.claim.set(claim);
       this.noteDraft.set(claim.admin_notes ?? '');
+      // Only once the id is known to be a claim. A 404 or 422 has no trail to
+      // show, and the trail's own failure never touches the flags above.
+      void this.loadAudit();
     } catch (err) {
       // Structural, not `instanceof` — the admin bundle is lazily chunked, so an
       // error built in one chunk and caught in another can fail an identity check.
@@ -186,6 +211,10 @@ export class ClaimDetail {
       const updated = await this.api.saveNotes(id, next);
       this.claim.set(updated);
       this.noteDraft.set(updated.admin_notes ?? '');
+      // The save wrote a `vendor_claim.note_updated` row (or nothing, on a no-op).
+      // Back to page 1, where the newest row is.
+      this.auditPage.set(1);
+      void this.loadAudit();
       this.liveMessage.set(
         next === null
           ? $localize`:@@admin.claims.detail.note.announce.cleared:Operator note cleared.`
@@ -195,6 +224,39 @@ export class ClaimDetail {
       this.noteFailed.set(this.noteErrorMessage(err));
     } finally {
       this.notePending.set(false);
+    }
+  }
+
+  // ── Audit trail (AECI-1276) ────────────────────────────────────────────────
+
+  protected goToAuditPage(page: number): void {
+    this.auditPage.set(page);
+    void this.loadAudit();
+  }
+
+  protected retryAudit(): void {
+    void this.loadAudit();
+  }
+
+  private async loadAudit(): Promise<void> {
+    const id = this.claimId();
+    if (!id) return;
+    this.auditLoading.set(true);
+    this.auditFailed.set(false);
+    try {
+      const response = await this.api.listAudit(id, {
+        page: this.auditPage(),
+        perPage: this.auditPerPage,
+      });
+      this.auditRows.set(response.data);
+      this.auditTotal.set(response.total);
+      this.auditEmailsAvailable.set(response.actor_emails_available);
+    } catch {
+      this.auditFailed.set(true);
+      this.auditRows.set([]);
+      this.auditTotal.set(0);
+    } finally {
+      this.auditLoading.set(false);
     }
   }
 

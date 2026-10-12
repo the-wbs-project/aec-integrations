@@ -6,7 +6,11 @@ import {
   EntitlementTierSchema,
   VendorEntitlementResponseSchema,
 } from './admin-entitlements';
-import { VendorOwnedIntegrationsSchema, VendorProductRolesSchema } from './admin-vendors';
+import {
+  AdminAuditRowSchema,
+  VendorOwnedIntegrationsSchema,
+  VendorProductRolesSchema,
+} from './admin-vendors';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
@@ -385,3 +389,26 @@ export const SaveClaimNotesSchema = z.object({
   notes: z.string().max(2000).nullable(),
 });
 export type SaveClaimNotesInput = z.infer<typeof SaveClaimNotesSchema>;
+
+// ─── GET /api/admin/claims/:id/audit (AECI-1276) ─────────────────────────────
+
+export const AdminClaimAuditQuerySchema = PageQuerySchema;
+export type AdminClaimAuditQuery = z.infer<typeof AdminClaimAuditQuerySchema>;
+
+/**
+ * The claim's audit trail on `/admin/claims/:id`. **One disjunct**: every claim
+ * writer files under `entity_type = 'vendor_request'` with the claim id
+ * (`vendor_request.created`, `vendor_claim.note_updated`, `vendor_claim.granted`,
+ * `vendor_claim.rejected`, plus the Linear webhook's `vendor_request.status_changed`),
+ * so `audit_log_entity_idx` answers it directly.
+ *
+ * A Managed grant's `vendor_entitlement.granted` row is filed against the VENDOR
+ * and stays on the vendor's audit tab. It is not here.
+ *
+ * Same shape as `AdminConnectorAuditResponseSchema`: `actor_emails_available` is
+ * `false` when the email seam failed, so an absent email reads as "unknown".
+ */
+export const AdminClaimAuditResponseSchema = paginatedResponseSchema(AdminAuditRowSchema).extend({
+  actor_emails_available: z.boolean(),
+});
+export type AdminClaimAuditResponse = z.infer<typeof AdminClaimAuditResponseSchema>;

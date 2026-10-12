@@ -1,6 +1,6 @@
 /**
  * Client for the admin vendor-CLAIM endpoints (AECI-521 LIST + AECI-519 PATCH +
- * AECI-739 DETAIL/notes / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5, §5.2, §3), consumed
+ * AECI-739 DETAIL/notes + AECI-1276 audit / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5, §5.2, §3), consumed
  * by the `/admin/claims` reviewer surface and the `/admin/claims/:id` detail page.
  *
  * Mirrors `AdminRequestsApi`: browser-side reads/mutations over the SSR Worker's
@@ -16,6 +16,8 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminClaimAuditQuery,
+  AdminClaimAuditResponse,
   AdminClaimDetail,
   ListVendorClaimsQuery,
   ListVendorClaimsResponse,
@@ -60,6 +62,23 @@ export class AdminClaimsApi {
     return firstValueFrom(
       this.http.patch<AdminClaimDetail>(`/api/admin/claims/${encodeURIComponent(id)}/notes`, {
         notes,
+      }),
+    );
+  }
+
+  /** `GET /api/admin/claims/:id/audit` — the claim's own audit trail (AECI-1276):
+   *  `vendor_request` rows for this id, newest first. A read; it records nothing. */
+  listAudit(
+    id: string,
+    query: Partial<AdminClaimAuditQuery> = {},
+  ): Promise<AdminClaimAuditResponse> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params = params.set(key, String(value));
+    }
+    return firstValueFrom(
+      this.http.get<AdminClaimAuditResponse>(`/api/admin/claims/${encodeURIComponent(id)}/audit`, {
+        params,
       }),
     );
   }

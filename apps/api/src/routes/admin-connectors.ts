@@ -39,7 +39,6 @@ import {
   AdminConnectorPairsResponseSchema,
   AdminConnectorStubsQuerySchema,
   AdminConnectorStubsResponseSchema,
-  type AdminAuditRow,
   type AdminConnectorCatalogDetail,
   type AdminConnectorCatalogRow,
   type AdminConnectorCatalogsListResponse,
@@ -86,6 +85,7 @@ import {
   toMapping,
 } from '../lib/admin-connectors';
 import { note } from '../lib/admin-analytics';
+import { readAdminAuditPage } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
@@ -842,9 +842,8 @@ export function createAdminConnectorPairsHandler(
  * of when the feed last delivered anything, which is the other half of the
  * `STAGE_2_SPEC.md` §8.9(4) freshness duty this screen carries.
  *
- * Ordered `created_at DESC, id DESC`. The tiebreaker matters for the same reason
- * it does on the vendor trail: `created_at` is a JS-stamped ISO string and two
- * rows from one `db.batch` routinely share a millisecond.
+ * The page itself is `readAdminAuditPage` (`lib/admin-audit-page.ts`), shared
+ * with the claim trail (AECI-1276). It orders `created_at DESC, id DESC`.
  */
 export function createAdminConnectorAuditHandler(
   dbFor: DbFactory = getDb,
@@ -866,68 +865,7 @@ export function createAdminConnectorAuditHandler(
     if (!exists) throw notFoundError('connector_catalog', { id });
 
     const where = and(eq(auditLog.entityType, 'connector_catalog'), eq(auditLog.entityId, id));
-
-    const [rows, totals] = await db.batch([
-      db
-        .select({
-          id: auditLog.id,
-          action: auditLog.action,
-          actorId: auditLog.actorId,
-          actorType: auditLog.actorType,
-          entityType: auditLog.entityType,
-          entityId: auditLog.entityId,
-          createdAt: auditLog.createdAt,
-          beforeState: auditLog.beforeState,
-          afterState: auditLog.afterState,
-        })
-        .from(auditLog)
-        .where(where)
-        .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
-        .limit(query.perPage)
-        .offset((query.page - 1) * query.perPage),
-      db.select({ value: count() }).from(auditLog).where(where),
-    ]);
-
-    // Bounded by `perPage`, not by how much history the catalogue has.
-    const actorIds = [...new Set(rows.map((r) => r.actorId).filter((v): v is string => !!v))];
-    const [actorRows, lookup] = await Promise.all([
-      actorIds.length === 0
-        ? Promise.resolve([] as { id: string; displayName: string | null }[])
-        : db
-            .select({ id: profiles.id, displayName: profiles.displayName })
-            .from(profiles)
-            .where(inArray(profiles.id, actorIds)),
-      fetchEmails(c.env, actorIds),
-    ]);
-    const namesById = new Map(actorRows.map((r) => [r.id, r.displayName]));
-
-    const body = {
-      data: rows.map(
-        (row): AdminAuditRow => ({
-          id: row.id,
-          action: row.action,
-          // A `system` / `workflow` row — the sync's own — has no actor id at
-          // all. `null` here means "not a person", never "person unknown".
-          actor: row.actorId
-            ? {
-                id: row.actorId,
-                display_name: namesById.get(row.actorId) ?? null,
-                email: lookup.emails.get(row.actorId) ?? null,
-              }
-            : null,
-          actor_type: row.actorType,
-          entity_type: row.entityType,
-          entity_id: row.entityId,
-          created_at: row.createdAt,
-          before_state: row.beforeState ?? null,
-          after_state: row.afterState ?? null,
-        }),
-      ),
-      page: query.page,
-      perPage: query.perPage,
-      total: totals[0]?.value ?? 0,
-      actor_emails_available: lookup.available,
-    };
+    const body = await readAdminAuditPage(db, c.env, where, query, fetchEmails);
 
     validateResponseInDev(c.env, () => {
       AdminConnectorAuditResponseSchema.parse(body);

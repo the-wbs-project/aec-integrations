@@ -25,7 +25,12 @@
  * `lib/vendor-grant.ts` at all; `vendor-grant.spec.ts` guards that.
  */
 
-import { AdminClaimDetailSchema, ApiErrorCode, ListVendorClaimsResponseSchema } from '@aeci/shared';
+import {
+  AdminClaimAuditResponseSchema,
+  AdminClaimDetailSchema,
+  ApiErrorCode,
+  ListVendorClaimsResponseSchema,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -46,6 +51,7 @@ import {
 import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import type { FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
@@ -54,6 +60,7 @@ import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
+  createAdminClaimAuditHandler,
   createAdminClaimDetailHandler,
   createAdminClaimsListHandler,
   createModerateClaimHandler,
@@ -1881,5 +1888,173 @@ describe('PATCH /api/admin/claims/:id/notes — the operator note (AECI-739)', (
     const res = await patchNotes(REQUEST_ID, { notes: 'x'.repeat(2001) });
     expect(res.status).toBe(400);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+// ─── AECI-1276: the claim's audit trail ──────────────────────────────────────
+
+const AUDIT_IDS = [
+  'a0000000-0000-4000-8000-000000000001',
+  'a0000000-0000-4000-8000-000000000002',
+  'a0000000-0000-4000-8000-000000000003',
+  'a0000000-0000-4000-8000-000000000004',
+  'a0000000-0000-4000-8000-000000000005',
+] as const;
+
+const emailsUp: FetchAuthEmails = async (_env, ids) => ({
+  available: true,
+  emails: new Map(ids.map((id) => [id, `${id.slice(0, 4)}@aeci.test`])),
+  reason: 'ok',
+});
+const emailsDown: FetchAuthEmails = async () => ({
+  available: false,
+  emails: new Map(),
+  reason: 'error',
+});
+
+function claimAuditApp(fetchEmails: FetchAuthEmails = emailsUp) {
+  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  app.onError(errorHandler());
+  app.use('/api/admin/claims/*', async (c, next) => {
+    c.set('auth', ADMIN_AUTH);
+    await next();
+  });
+  app.get('/api/admin/claims/:id/audit', createAdminClaimAuditHandler(t.factory, fetchEmails));
+  return app;
+}
+
+const getClaimAudit = (id: string, qs = '', fetchEmails?: FetchAuthEmails) =>
+  claimAuditApp(fetchEmails).request(
+    `/api/admin/claims/${id}/audit${qs}`,
+    {},
+    TEST_ENV,
+    fakeExecutionContext(),
+  );
+
+/** The claim's own history, plus the two rows that must NOT show: another claim's
+ *  note and the vendor-entity Managed entitlement row. */
+async function seedClaimTrail() {
+  await seedVendor();
+  await seedRequest();
+  await seedRequest({ id: REQUEST2_ID, submitterEmail: 'other@vendor.com' });
+  await t.db.insert(auditLog).values([
+    {
+      id: AUDIT_IDS[0],
+      actorId: null,
+      actorType: 'user',
+      action: 'vendor_request.created',
+      entityType: 'vendor_request',
+      entityId: REQUEST_ID,
+      afterState: { status: 'open' },
+      createdAt: '2026-06-01T00:00:00.000Z',
+    },
+    {
+      id: AUDIT_IDS[1],
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      action: 'vendor_claim.note_updated',
+      entityType: 'vendor_request',
+      entityId: REQUEST_ID,
+      beforeState: { admin_notes: null },
+      afterState: { admin_notes: 'Parked.' },
+      createdAt: '2026-06-02T00:00:00.000Z',
+    },
+    {
+      id: AUDIT_IDS[2],
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      action: 'vendor_claim.granted',
+      entityType: 'vendor_request',
+      entityId: REQUEST_ID,
+      createdAt: '2026-06-03T00:00:00.000Z',
+    },
+    {
+      id: AUDIT_IDS[3],
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      action: 'vendor_claim.note_updated',
+      entityType: 'vendor_request',
+      entityId: REQUEST2_ID,
+      createdAt: '2026-06-02T00:00:00.000Z',
+    },
+    {
+      id: AUDIT_IDS[4],
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      action: 'vendor_entitlement.granted',
+      entityType: 'vendor_entitlement',
+      entityId: VENDOR_ID,
+      createdAt: '2026-06-03T00:00:00.000Z',
+    },
+  ]);
+}
+
+describe('GET /api/admin/claims/:id/audit — the claim trail (AECI-1276)', () => {
+  it("returns only this claim's rows, newest first", async () => {
+    await seedClaimTrail();
+
+    const res = await getClaimAudit(REQUEST_ID);
+    expect(res.status).toBe(200);
+    const body = AdminClaimAuditResponseSchema.parse(await res.json());
+    expect(body.data.map((r) => r.action)).toEqual([
+      'vendor_claim.granted',
+      'vendor_claim.note_updated',
+      'vendor_request.created',
+    ]);
+    expect(body.data.every((r) => r.entity_id === REQUEST_ID)).toBe(true);
+    expect(body.total).toBe(3);
+    expect(body.actor_emails_available).toBe(true);
+    expect(body.data[0]?.actor).toEqual({
+      id: ADMIN_ID,
+      display_name: null,
+      email: '4444@aeci.test',
+    });
+  });
+
+  it('reports actor null for a user row with no actor id (the public submission)', async () => {
+    await seedClaimTrail();
+    const body = AdminClaimAuditResponseSchema.parse(
+      await (await getClaimAudit(REQUEST_ID)).json(),
+    );
+    const created = body.data.find((r) => r.action === 'vendor_request.created');
+    expect(created?.actor).toBeNull();
+    expect(created?.actor_type).toBe('user');
+  });
+
+  it('paginates with the total of the whole trail', async () => {
+    await seedClaimTrail();
+    const body = AdminClaimAuditResponseSchema.parse(
+      await (await getClaimAudit(REQUEST_ID, '?page=2&perPage=2')).json(),
+    );
+    expect(body.page).toBe(2);
+    expect(body.perPage).toBe(2);
+    expect(body.total).toBe(3);
+    expect(body.data.map((r) => r.action)).toEqual(['vendor_request.created']);
+  });
+
+  it('reports actor_emails_available false when the email seam fails', async () => {
+    await seedClaimTrail();
+    const body = AdminClaimAuditResponseSchema.parse(
+      await (await getClaimAudit(REQUEST_ID, '', emailsDown)).json(),
+    );
+    expect(body.actor_emails_available).toBe(false);
+    expect(body.data[0]?.actor?.email).toBeNull();
+  });
+
+  it('404s on an unknown id and 422s on a correction, like the detail GET', async () => {
+    await seedVendor();
+    await seedRequest({ id: CORRECTION_ID, kind: 'correction' });
+
+    expect((await getClaimAudit(REQUEST2_ID)).status).toBe(404);
+    const res = await getClaimAudit(CORRECTION_ID);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+  });
+
+  it('writes no audit row of its own', async () => {
+    await seedClaimTrail();
+    await getClaimAudit(REQUEST_ID);
+    expect(await t.db.select().from(auditLog)).toHaveLength(AUDIT_IDS.length);
   });
 });
