@@ -1,4 +1,4 @@
-This guide is for people with a seat on a vendor account. If your company has not claimed its listing yet, start with [For vendors](/docs/vendors/overview) and [Claiming your vendor listing](/docs/vendors/claiming-your-listing) in the help center.
+This guide is for vendors: claiming your listing, then working in the vendor portal. If your company has not claimed its listing yet, start with [For vendors](/docs/vendors/overview) and [Claiming your vendor listing](/docs/vendors/claiming-your-listing). If you read the directory or write reviews, the [General guide](/docs) is for you.
 
 ## Current limits
 

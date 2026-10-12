@@ -2,7 +2,7 @@
 title: Replying to reviews
 description: How your company posts a public reply to a review of one of its products, how we check it, and how to edit or withdraw it.
 section: vendors
-order: 6
+order: 7
 last_updated: 9 October 2026
 ---
 

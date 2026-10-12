@@ -2,7 +2,7 @@
 title: For connector vendors
 description: The seat a company that makes connector products can have, how its Catalogue tab works, and how integrations delivered through a connector are owned.
 section: vendors
-order: 9
+order: 10
 last_updated: 9 October 2026
 ---
 

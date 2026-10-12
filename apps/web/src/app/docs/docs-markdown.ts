@@ -41,6 +41,13 @@ export interface DocsBody {
   readonly html: string;
   /** Every `h2`, in order. The rail reads it. */
   readonly h2s: readonly DocsHeading[];
+  /**
+   * Every Markdown link href in the body, in document order, as written
+   * (fragment and query kept). Collected from the lexer's tokens, not from the
+   * HTML, so it needs no DOM: the manifest builds at module init on the server
+   * too. The manifest's cross-guide guard reads it (AECI-1271).
+   */
+  readonly links: readonly string[];
 }
 
 /**
@@ -75,12 +82,29 @@ function plainText(tokens: readonly Token[]): string {
     .join('');
 }
 
+/** Every link href in a token tree, depth first, in document order. */
+function collectLinks(tokens: readonly Token[], into: string[]): void {
+  for (const token of tokens) {
+    if (token.type === 'link') into.push((token as Tokens.Link).href);
+    if ('tokens' in token && Array.isArray(token.tokens)) collectLinks(token.tokens, into);
+    if (token.type === 'list') {
+      for (const item of (token as Tokens.List).items) collectLinks(item.tokens, into);
+    }
+    if (token.type === 'table') {
+      const table = token as Tokens.Table;
+      for (const cell of [...table.header, ...table.rows.flat()]) collectLinks(cell.tokens, into);
+    }
+  }
+}
+
 const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Renders a Markdown body (frontmatter already removed) into blocks. */
 export function renderDocsBody(body: string): DocsBody {
   const tokens = marked.lexer(body, { gfm: true });
+  const links: string[] = [];
+  collectLinks(tokens, links);
   const used = new Set(DOCS_RESERVED_IDS);
   const blocks: DocsBlock[] = [];
   const h2s: DocsHeading[] = [];
@@ -119,5 +143,5 @@ export function renderDocsBody(body: string): DocsBody {
       h ? `<h${h.level} id="${h.id}">${escapeHtml(h.text)}</h${h.level}>${rest}` : rest,
     )
     .join('');
-  return { blocks, html, h2s };
+  return { blocks, html, h2s, links };
 }

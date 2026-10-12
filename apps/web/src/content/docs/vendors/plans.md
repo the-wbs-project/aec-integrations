@@ -2,7 +2,7 @@
 title: Plans
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, and what happens when a plan ends.
 section: vendors
-order: 7
+order: 8
 last_updated: 10 October 2026
 ---
 

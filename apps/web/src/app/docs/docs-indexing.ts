@@ -21,7 +21,9 @@
  * section index) and `/docs/vendors/your-seat`, but not `/docs/vendorsx`.
  *
  * The vendor guide describes a portal that is still a dark launch, so it stays
- * unindexed until vendors are seated.
+ * unindexed until vendors are seated. Since AECI-1271 every vendor-guide page,
+ * the claiming pages included, sits under `/docs/vendors`, and nothing else
+ * does, so this one prefix covers the whole guide.
  *
  * TODO(AECI-1253): remove `/docs/vendors` when the vendor guide is published
  * (the same sitting as AECI-1105).

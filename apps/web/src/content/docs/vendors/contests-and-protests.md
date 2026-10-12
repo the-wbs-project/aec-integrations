@@ -2,7 +2,7 @@
 title: Contests and protests
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
-order: 5
+order: 6
 last_updated: 9 October 2026
 ---
 

@@ -3,7 +3,7 @@ title: Signing in
 description: How to sign in with an emailed link or with Google, what to do when sign-in does not work, and how to sign out.
 section: account
 order: 1
-last_updated: 9 October 2026
+last_updated: 12 October 2026
 ---
 
 You need an account to write a review. Vendors need one to use the vendor portal. Browsing the directory needs no account. There is no password. You sign in with a link we email you, or with your Google account.
@@ -49,5 +49,4 @@ Open the account menu, the round button at the top right of any page. On a phone
 
 - Next: [Your account and your data](/docs/account/your-data).
 - [Writing a review](/docs/reviewers/writing-a-review).
-- [Your seat](/docs/vendors/your-seat), for signing in to the vendor portal.
 - [Privacy Policy](/legal/privacy).

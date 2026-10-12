@@ -18,31 +18,30 @@
  * entry. A `singlePage` section (`faq`) serves its one page at `/docs/<section>`
  * and has no index page.
  *
- * **Two guides (AECI-1265).** Every section belongs to a guide. The help center
- * (`help`) is what the `/docs` home and its sidebar show. The vendor guide
- * (`vendor`) is one section with its own landing page (`/docs/vendors`) and its
- * own sidebar tree, which the shell shows only on its pages. Which tree renders
- * follows from the URL alone, so a cached page is the same for every visitor.
+ * **Two guides (AECI-1265, AECI-1271).** Every section belongs to a guide, and
+ * the shell's toggle switches between them. The General guide (`help`) is what
+ * the `/docs` home and its sidebar show. The For vendors guide (`vendor`) is one
+ * section with its own landing page (`/docs/vendors`) and its own sidebar tree.
+ * Which tree renders follows from the URL alone, so a cached page is the same
+ * for every visitor. The two URL spaces are disjoint: `/docs/vendors` and
+ * everything under it is the vendor guide, and nothing else is. A section's URL
+ * segment is its id.
  *
- * A section's URL segment defaults to its id. Two sections may share one: the
- * help center's `for-vendors` and the vendor guide's `vendors` both serve
- * `/docs/vendors/*`, so every vendor URL kept its address. At most one of them
- * may have an index page there. A section with a `home` page has none of its
- * own: that page is its landing, and the sidebar links the section to it.
+ * **No General page links into the vendor guide (AECI-1271).** A reader or a
+ * reviewer should never land in it by accident. `buildDocsManifest` throws when
+ * a General page or intro links to a vendor-guide path, unless the link is in
+ * `GENERAL_TO_VENDOR_LINK_ALLOWLIST`. Links the other way are fine.
  *
  * The page order is the frontmatter `order`, not the import order, so the nav
  * and the Markdown agree on one source. `buildDocsManifest` throws at module
  * init when a page's frontmatter `section` does not match the folder, when its
  * `order` is not an integer or repeats within the section, when it does not end
  * in a `## Related` list, when a single-page section has more than one page,
- * when a `home` slug is not one of the section's pages, when two pages share a
- * path, when two sections would both own one index path, or when an intro is
- * declared for a section with no index page.
+ * when two pages share a path, when an intro is declared for a section with no
+ * index page, or when a General page or intro links into the vendor guide.
  */
 import signingInMd from '../../content/docs/account/signing-in.md';
 import yourDataMd from '../../content/docs/account/your-data.md';
-import claimingMd from '../../content/docs/for-vendors/claiming-your-listing.md';
-import forVendorsMd from '../../content/docs/for-vendors/overview.md';
 import aboutMd from '../../content/docs/getting-started/about-aec-integrations.md';
 import checkingMd from '../../content/docs/getting-started/checking-before-you-buy.md';
 import readingMd from '../../content/docs/getting-started/reading-an-integration-page.md';
@@ -54,8 +53,10 @@ import rankingMd from '../../content/docs/trust/how-ranking-works.md';
 import vendorGuideIntroMd from '../../content/docs/vendors/_index.md';
 import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
+import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import connectorVendorsMd from '../../content/docs/vendors/connector-vendors.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
+import vendorOverviewMd from '../../content/docs/vendors/overview.md';
 import owningMd from '../../content/docs/vendors/owning-an-integration.md';
 import plansMd from '../../content/docs/vendors/plans.md';
 import replyingMd from '../../content/docs/vendors/replying-to-reviews.md';
@@ -66,16 +67,12 @@ import { type DocsBlock, type DocsHeading, renderDocsBody } from './docs-markdow
 
 export type { DocsBlock, DocsHeading } from './docs-markdown';
 
-/**
- * A docs section. Its URL segment under `/docs` is its id unless
- * `DocsSectionMeta.urlSegment` says otherwise.
- */
+/** A docs section. Its URL segment under `/docs` is its id. */
 export type DocsSectionId =
   | 'getting-started'
   | 'trust'
   | 'reviewers'
   | 'account'
-  | 'for-vendors'
   | 'vendors'
   | 'faq';
 
@@ -83,9 +80,10 @@ export type DocsSectionId =
 export type DocsAudience = 'reader' | 'vendor' | 'reviewer';
 
 /**
- * Which guide a section belongs to (AECI-1265). `help` is the public help
- * center: the `/docs` home and its sidebar. `vendor` is the vendor guide, which
- * has its own landing page and sidebar tree and is listed on neither.
+ * Which guide a section belongs to (AECI-1265, AECI-1271). `help` is the
+ * General guide: the `/docs` home and its sidebar. `vendor` is the For vendors
+ * guide, which has its own landing page and sidebar tree and is listed on
+ * neither. The shell's toggle switches between the two.
  */
 export type DocsGuide = 'help' | 'vendor';
 
@@ -101,13 +99,6 @@ export interface DocsSectionMeta {
   readonly singlePage?: boolean;
   /** Defaults to `help`. */
   readonly guide?: DocsGuide;
-  /** The path segment under `/docs`. Defaults to the id. */
-  readonly urlSegment?: string;
-  /**
-   * The slug of the page that is this section's landing. The section then has
-   * no index page of its own: the sidebar and the home link it to this page.
-   */
-  readonly home?: string;
 }
 
 /** One rendered docs page. */
@@ -133,6 +124,8 @@ export interface DocsPage {
    * is left out: the manifest guarantees it is the last `h2` of every page.
    */
   readonly headings: readonly DocsHeading[];
+  /** Every link href in the body, as written. The cross-guide guard reads it. */
+  readonly links: readonly string[];
 }
 
 /** A section's optional landing copy, rendered on its index page. */
@@ -149,11 +142,7 @@ export interface DocsSectionIntro {
 export interface DocsSection extends DocsSectionMeta {
   readonly id: DocsSectionId;
   readonly guide: DocsGuide;
-  readonly urlSegment: string;
-  /**
-   * Where the section lives: its index page (`/docs/<segment>`), the page of a
-   * single-page section, or its `home` page.
-   */
+  /** Where the section lives: its index page (`/docs/<id>`), or the page of a single-page section. */
   readonly path: string;
   /** True when `path` is a generated section index page. */
   readonly hasIndex: boolean;
@@ -225,30 +214,15 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
     audience: 'reviewer',
     order: 4,
   },
-  // The help center's door for vendors (AECI-1265). Its pages keep their
-  // `/docs/vendors/*` URLs, and its overview is its landing, so it has no index
-  // page: `/docs/vendors` is the vendor guide's.
-  'for-vendors': {
-    get label() {
-      return $localize`:@@app.docs.section.forVendors:For vendors`;
-    },
-    get summary() {
-      return $localize`:@@app.docs.section.forVendors.summary:What claiming your listing means, and what the Free and Managed plans include.`;
-    },
-    audience: 'vendor',
-    order: 5,
-    urlSegment: 'vendors',
-    home: 'overview',
-  },
   vendors: {
     get label() {
       return $localize`:@@app.docs.section.vendors:Vendor guide`;
     },
     get summary() {
-      return $localize`:@@app.docs.section.vendors.summary:For people with a seat on a vendor account: the portal, data flows, the integrations you own, plans and your change history.`;
+      return $localize`:@@app.docs.section.vendors.summary:For vendors: claiming your listing, then the portal, data flows, the integrations you own, plans and your change history.`;
     },
     audience: 'vendor',
-    order: 6,
+    order: 5,
     guide: 'vendor',
   },
   faq: {
@@ -259,7 +233,7 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
       return $localize`:@@app.docs.section.faq.summary:Short answers to the questions people ask us most.`;
     },
     audience: 'reader',
-    order: 7,
+    order: 6,
     singlePage: true,
   },
 };
@@ -284,11 +258,9 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'signing-in', source: signingInMd },
     { slug: 'your-data', source: yourDataMd },
   ],
-  'for-vendors': [
-    { slug: 'overview', source: forVendorsMd },
-    { slug: 'claiming-your-listing', source: claimingMd },
-  ],
   vendors: [
+    { slug: 'overview', source: vendorOverviewMd },
+    { slug: 'claiming-your-listing', source: claimingMd },
     { slug: 'your-seat', source: seatMd },
     { slug: 'attesting-an-integration', source: attestingMd },
     { slug: 'owning-an-integration', source: owningMd },
@@ -314,7 +286,6 @@ function buildPage(
   meta: DocsSectionMeta,
   { slug, source }: RawDocsPage,
 ): DocsPage {
-  const segment = meta.urlSegment ?? section;
   const { data, body } = parseFrontmatter(source);
   if (data['section'] !== section) {
     throw new Error(`Docs page "${slug}" declares section "${data['section']}", not "${section}"`);
@@ -323,14 +294,14 @@ function buildPage(
   if (!Number.isInteger(order)) {
     throw new Error(`Docs page "${section}/${slug}" has no integer frontmatter order`);
   }
-  const { html, blocks, h2s } = renderDocsBody(body);
+  const { html, blocks, h2s, links } = renderDocsBody(body);
   if (h2s.at(-1)?.text !== 'Related') {
     throw new Error(`Docs page "${section}/${slug}" does not end in a "## Related" list`);
   }
   return {
     section,
     slug,
-    path: meta.singlePage ? `/docs/${segment}` : `/docs/${segment}/${slug}`,
+    path: meta.singlePage ? `/docs/${section}` : `/docs/${section}/${slug}`,
     title: data['title'] ?? '',
     description: data['description'] ?? '',
     order,
@@ -338,16 +309,84 @@ function buildPage(
     html,
     blocks,
     headings: h2s.slice(0, -1),
+    links,
   };
 }
 
 /** Cuts an intro at its first heading: the lead goes above the page list. */
-function buildIntro(source: string): DocsSectionIntro {
-  const { blocks, html } = renderDocsBody(source);
+function buildIntro(source: string): DocsSectionIntro & { readonly links: readonly string[] } {
+  const { blocks, html, links } = renderDocsBody(source);
   const split = blocks.findIndex((block) => block.heading !== undefined);
   return split < 0
-    ? { lead: blocks, rest: [], html }
-    : { lead: blocks.slice(0, split), rest: blocks.slice(split), html };
+    ? { lead: blocks, rest: [], html, links }
+    : { lead: blocks.slice(0, split), rest: blocks.slice(split), html, links };
+}
+
+/**
+ * General → vendor-guide links that are allowed on purpose (AECI-1271). Empty,
+ * and meant to stay that way: a reader or reviewer should not land in the vendor
+ * guide by accident. Adding an entry is a deliberate choice, made in review.
+ * An entry is a path (`/docs/vendors/plans`), matched with any fragment or
+ * query on the link removed.
+ */
+export const GENERAL_TO_VENDOR_LINK_ALLOWLIST: readonly string[] = [];
+
+/** The site's own origins. A link to one is checked by its path. */
+const OWN_ORIGIN = 'https://www.aecintegrations.com';
+
+/**
+ * The path a docs link points at, fragment and query removed, or `undefined`
+ * for a link off the site (`mailto:`, another host). Plain `URL`, no DOM: this
+ * runs at module init on the server.
+ */
+function sitePath(href: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(href, OWN_ORIGIN);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+  if (url.hostname !== 'aecintegrations.com' && !url.hostname.endsWith('.aecintegrations.com')) {
+    return undefined;
+  }
+  return url.pathname.replace(/\/+$/, '') || '/';
+}
+
+/**
+ * Throws when a General page or intro links into the vendor guide and the link
+ * is not allowlisted. A link lands in the vendor guide when its path is a
+ * vendor-guide section or page path, or sits under one.
+ */
+function assertNoGeneralToVendorLinks(
+  sections: readonly DocsSection[],
+  introLinks: ReadonlyMap<DocsSectionId, readonly string[]>,
+  allowlist: readonly string[],
+): void {
+  const vendorPaths = sections
+    .filter((section) => section.guide === 'vendor')
+    .flatMap((section) => [section.path, ...section.pages.map((page) => page.path)]);
+  const intoVendorGuide = (path: string): boolean =>
+    vendorPaths.some((vendor) => path === vendor || path.startsWith(`${vendor}/`));
+  for (const section of sections) {
+    if (section.guide !== 'help') continue;
+    const sources: { readonly file: string; readonly links: readonly string[] }[] = [
+      { file: `content/docs/${section.id}/_index.md`, links: introLinks.get(section.id) ?? [] },
+      ...section.pages.map((page) => ({
+        file: `content/docs/${section.id}/${page.slug}.md`,
+        links: page.links,
+      })),
+    ];
+    for (const { file, links } of sources) {
+      for (const href of links) {
+        const path = sitePath(href);
+        if (path === undefined || !intoVendorGuide(path) || allowlist.includes(path)) continue;
+        throw new Error(
+          `docs: ${file} links into the vendor guide (${href}). Add it to GENERAL_TO_VENDOR_LINK_ALLOWLIST if that is deliberate.`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -359,9 +398,10 @@ export function buildDocsManifest(
   meta: Readonly<Record<DocsSectionId, DocsSectionMeta>>,
   pagesBySection: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage[]>>>,
   introsBySection: Readonly<Partial<Record<DocsSectionId, string>>> = {},
+  crossGuideAllowlist: readonly string[] = GENERAL_TO_VENDOR_LINK_ALLOWLIST,
 ): DocsManifest {
   const sections: DocsSection[] = [];
-  const indexOwners = new Map<string, DocsSectionId>();
+  const introLinks = new Map<DocsSectionId, readonly string[]>();
   const pathOwners = new Map<string, string>();
   for (const id of Object.keys(meta) as DocsSectionId[]) {
     const raw = pagesBySection[id] ?? [];
@@ -386,39 +426,29 @@ export function buildDocsManifest(
     }
     pages.sort((a, b) => a.order - b.order);
 
-    const urlSegment = sectionMeta.urlSegment ?? id;
-    const home = sectionMeta.home;
-    const homePage = home === undefined ? undefined : pages.find((page) => page.slug === home);
-    if (home !== undefined && (!homePage || sectionMeta.singlePage)) {
-      throw new Error(`Docs section "${id}" names home "${home}", which is not one of its pages`);
-    }
-    const hasIndex = !sectionMeta.singlePage && homePage === undefined;
-    if (hasIndex) {
-      const clash = indexOwners.get(urlSegment);
-      if (clash) {
-        throw new Error(`Docs sections "${clash}" and "${id}" both own /docs/${urlSegment}`);
-      }
-      indexOwners.set(urlSegment, id);
-    }
+    const hasIndex = !sectionMeta.singlePage;
+    // A section's path is `/docs/<id>`, and ids are unique, so no two sections
+    // can own one index path now that the `urlSegment` override is gone.
+    const path = `/docs/${id}`;
     const introSource = introsBySection[id];
     if (introSource !== undefined && !hasIndex) {
       throw new Error(`Docs section "${id}" has an intro but no index page to show it on`);
     }
+    const intro = introSource === undefined ? undefined : buildIntro(introSource);
+    if (intro) introLinks.set(id, intro.links);
 
     // No spread: it would read the `label` / `summary` getters, and so call
     // `$localize`, at module init (see `SECTION_META`).
     sections.push({
       id,
-      path: homePage?.path ?? `/docs/${urlSegment}`,
+      path,
       hasIndex,
       pages,
       audience: sectionMeta.audience,
       order: sectionMeta.order,
       singlePage: sectionMeta.singlePage === true,
       guide: sectionMeta.guide ?? 'help',
-      urlSegment,
-      home,
-      intro: introSource === undefined ? undefined : buildIntro(introSource),
+      intro: intro && { lead: intro.lead, rest: intro.rest, html: intro.html },
       get label() {
         return sectionMeta.label;
       },
@@ -428,6 +458,7 @@ export function buildDocsManifest(
     });
   }
   sections.sort((a, b) => a.order - b.order);
+  assertNoGeneralToVendorLinks(sections, introLinks, crossGuideAllowlist);
   return { sections, pages: sections.flatMap((section) => section.pages) };
 }
 
@@ -506,8 +537,8 @@ export function docsNeighbours(
 
 /**
  * The docs paths `sitemap.xml` lists: `/docs`, each section index, each page,
- * minus anything `pathForcesNoindex` covers. A single-page section, or a section
- * whose landing is a `home` page, contributes each path once.
+ * minus anything `pathForcesNoindex` covers. A single-page section contributes
+ * its one path once.
  */
 export function indexableDocsPaths(manifest: DocsManifest = MANIFEST): readonly string[] {
   const paths = ['/docs'];

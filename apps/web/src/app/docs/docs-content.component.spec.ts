@@ -1,7 +1,7 @@
 /**
- * AECI-1104, AECI-1248, AECI-1259, AECI-1265 — the docs manifest and the routes
- * generated from it, including the split into the help center and the vendor
- * guide.
+ * AECI-1104, AECI-1248, AECI-1259, AECI-1265, AECI-1271 — the docs manifest and
+ * the routes generated from it, including the split into the General guide and
+ * the vendor guide, and the guard against General → vendor-guide links.
  *
  * `*.component.spec.ts` (the Angular `ng test` tier) because the manifest
  * imports `.md` files, and only the Angular build carries the esbuild `text`
@@ -16,6 +16,7 @@ import {
   DOCS_PAGES,
   DOCS_SECTIONS,
   type DocsSectionId,
+  GENERAL_TO_VENDOR_LINK_ALLOWLIST,
   type DocsSectionMeta,
   type RawDocsPage,
   buildDocsManifest,
@@ -34,8 +35,11 @@ import { headingSlug } from './docs-markdown';
 import { DocsShellComponent } from './docs-shell';
 import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
 
-// AECI-1265: the vendor guide. Every page keeps its `/docs/vendors/*` URL.
+// AECI-1265, AECI-1271: the vendor guide, overview and claiming first. Every
+// page keeps its `/docs/vendors/*` URL.
 const VENDOR_SLUGS = [
+  'overview',
+  'claiming-your-listing',
   'your-seat',
   'attesting-an-integration',
   'owning-an-integration',
@@ -45,9 +49,6 @@ const VENDOR_SLUGS = [
   'change-history',
   'connector-vendors',
 ];
-
-// AECI-1265: the help center's "For vendors" section, also under `/docs/vendors/*`.
-const FOR_VENDORS_SLUGS = ['overview', 'claiming-your-listing'];
 
 const REVIEWER_SLUGS = ['writing-a-review', 'requests-and-corrections'];
 
@@ -69,16 +70,8 @@ const FIXTURE_META: Record<DocsSectionId, DocsSectionMeta> = {
   trust: { label: 'Trust', summary: 's', audience: 'reader', order: 2 },
   reviewers: { label: 'Reviewers', summary: 's', audience: 'reviewer', order: 3 },
   account: { label: 'Account', summary: 's', audience: 'reviewer', order: 4 },
-  'for-vendors': {
-    label: 'For vendors',
-    summary: 's',
-    audience: 'vendor',
-    order: 5,
-    urlSegment: 'vendors',
-    home: 'overview',
-  },
-  vendors: { label: 'Vendors', summary: 's', audience: 'vendor', order: 6, guide: 'vendor' },
-  faq: { label: 'FAQ', summary: 's', audience: 'reader', order: 7, singlePage: true },
+  vendors: { label: 'Vendors', summary: 's', audience: 'vendor', order: 5, guide: 'vendor' },
+  faq: { label: 'FAQ', summary: 's', audience: 'reader', order: 6, singlePage: true },
 };
 
 function md(
@@ -208,70 +201,31 @@ describe('buildDocsManifest (fixtures)', () => {
     ).toThrow(/single-page/);
   });
 
-  // AECI-1265: two sections, two guides, one URL segment.
-  it('serves a home section and a guide section under one URL segment', () => {
+  // AECI-1271: the two guides have disjoint URL spaces.
+  it('puts every vendor-guide page under /docs/vendors and nothing else there', () => {
     const manifest = buildDocsManifest(FIXTURE_META, {
-      'for-vendors': [raw('overview', md('for-vendors', 1)), raw('claim', md('for-vendors', 2))],
-      vendors: [raw('seat', md('vendors', 1))],
+      trust: [raw('t', md('trust', 1))],
+      vendors: [raw('overview', md('vendors', 1)), raw('seat', md('vendors', 2))],
     });
-    const forVendors = getDocsSection('for-vendors', manifest)!;
     const guide = getDocsSection('vendors', manifest)!;
-    // The home section's landing is its home page, and it has no index of its own.
-    expect(forVendors.path).toBe('/docs/vendors/overview');
-    expect(forVendors.hasIndex).toBe(false);
-    expect(forVendors.guide).toBe('help');
-    expect(forVendors.pages.map((page) => page.path)).toEqual([
-      '/docs/vendors/overview',
-      '/docs/vendors/claim',
-    ]);
-    // The guide section owns the shared segment's index page.
     expect(guide.path).toBe('/docs/vendors');
     expect(guide.hasIndex).toBe(true);
     expect(guide.guide).toBe('vendor');
-    expect(getDocsSectionIndexByPath('/docs/vendors', manifest)?.id).toBe('vendors');
-    expect(getDocsPageByPath('/docs/vendors/claim', manifest)?.section).toBe('for-vendors');
-    expect(docsGuideForPath('/docs/vendors/seat', manifest)).toBe('vendor');
-    expect(docsGuideForPath('/docs/vendors/claim', manifest)).toBe('help');
-    expect(docsGuideForPath('/docs', manifest)).toBe('help');
-    expect(docsSectionsInGuide('help', manifest).map((section) => section.id)).toEqual([
-      'for-vendors',
+    expect(guide.pages.map((page) => page.path)).toEqual([
+      '/docs/vendors/overview',
+      '/docs/vendors/seat',
     ]);
-    // Each path once: no separate index entry for the home section.
-    expect(indexableDocsPaths(manifest)).toEqual(['/docs']);
-  });
-
-  it('lists a home section once in the sitemap paths when it is indexable', () => {
-    const meta = {
-      ...FIXTURE_META,
-      'for-vendors': { ...FIXTURE_META['for-vendors'], urlSegment: 'x' },
-    };
-    const manifest = buildDocsManifest(meta, {
-      'for-vendors': [raw('overview', md('for-vendors', 1)), raw('b', md('for-vendors', 2))],
-    });
-    expect(indexableDocsPaths(manifest)).toEqual(['/docs', '/docs/x/overview', '/docs/x/b']);
-  });
-
-  it('throws when a home slug is not one of the section pages', () => {
-    expect(() =>
-      buildDocsManifest(FIXTURE_META, { 'for-vendors': [raw('a', md('for-vendors', 1))] }),
-    ).toThrow(/home "overview"/);
-  });
-
-  it('throws when two sections would both own one index path', () => {
-    const meta = { ...FIXTURE_META, trust: { ...FIXTURE_META.trust, urlSegment: 'reviewers' } };
-    expect(() =>
-      buildDocsManifest(meta, {
-        trust: [raw('a', md('trust', 1))],
-        reviewers: [raw('b', md('reviewers', 1))],
-      }),
-    ).toThrow(/both own \/docs\/reviewers/);
+    expect(getDocsSectionIndexByPath('/docs/vendors', manifest)?.id).toBe('vendors');
+    expect(docsGuideForPath('/docs/vendors/overview', manifest)).toBe('vendor');
+    expect(docsGuideForPath('/docs/trust/t', manifest)).toBe('help');
+    expect(docsGuideForPath('/docs', manifest)).toBe('help');
+    expect(docsSectionsInGuide('help', manifest).map((section) => section.id)).toEqual(['trust']);
   });
 
   it('throws when two pages share a path', () => {
     expect(() =>
       buildDocsManifest(FIXTURE_META, {
-        'for-vendors': [raw('overview', md('for-vendors', 1))],
-        vendors: [raw('overview', md('vendors', 1))],
+        vendors: [raw('overview', md('vendors', 1)), raw('overview', md('vendors', 2))],
       }),
     ).toThrow(/share a path/);
   });
@@ -292,12 +246,89 @@ describe('buildDocsManifest (fixtures)', () => {
     });
     expect(intro.html).toContain('id="current-limits"');
     expect(() =>
+      buildDocsManifest(FIXTURE_META, { faq: [raw('faq', md('faq', 1))] }, { faq: 'Lead.' }),
+    ).toThrow(/no index page/);
+  });
+});
+
+// ─── The cross-guide guard (AECI-1271) ───────────────────────────────────────
+
+describe('buildDocsManifest cross-guide guard (fixtures)', () => {
+  const related = (links: string): string => `Body.\n\n## Related\n\n${links}`;
+  const vendorPages = { vendors: [raw('plans', md('vendors', 1))] };
+
+  it('throws on a General page linking into the vendor guide, naming the file', () => {
+    for (const href of [
+      '/docs/vendors',
+      '/docs/vendors/plans',
+      '/docs/vendors/plans#free',
+      '/docs/vendors/plans?x=1',
+      '/docs/vendors/',
+      'https://www.aecintegrations.com/docs/vendors/plans',
+    ]) {
+      expect(
+        () =>
+          buildDocsManifest(FIXTURE_META, {
+            ...vendorPages,
+            trust: [raw('ranking', md('trust', 1, related(`- [Plans](${href})\n`)))],
+          }),
+        href,
+      ).toThrow(
+        `docs: content/docs/trust/ranking.md links into the vendor guide (${href}). Add it to GENERAL_TO_VENDOR_LINK_ALLOWLIST if that is deliberate.`,
+      );
+    }
+  });
+
+  it('checks inline body links and General intros too', () => {
+    expect(() =>
+      buildDocsManifest(FIXTURE_META, {
+        ...vendorPages,
+        trust: [
+          raw('a', md('trust', 1, 'See [plans](/docs/vendors/plans).\n\n## Related\n\n- x\n')),
+        ],
+      }),
+    ).toThrow(/content\/docs\/trust\/a\.md/);
+    expect(() =>
       buildDocsManifest(
         FIXTURE_META,
-        { 'for-vendors': [raw('overview', md('for-vendors', 1))] },
-        { 'for-vendors': 'Lead.' },
+        { ...vendorPages, trust: [raw('a', md('trust', 1))] },
+        { trust: 'Vendors read [the guide](/docs/vendors).' },
       ),
-    ).toThrow(/no index page/);
+    ).toThrow(/content\/docs\/trust\/_index\.md links into the vendor guide/);
+  });
+
+  it('passes an allowlisted link, matched without its fragment', () => {
+    expect(() =>
+      buildDocsManifest(
+        FIXTURE_META,
+        {
+          ...vendorPages,
+          trust: [raw('a', md('trust', 1, related('- [Plans](/docs/vendors/plans#free)\n')))],
+        },
+        {},
+        ['/docs/vendors/plans'],
+      ),
+    ).not.toThrow();
+  });
+
+  it('passes vendor → General links and look-alike paths outside the guide', () => {
+    expect(() =>
+      buildDocsManifest(FIXTURE_META, {
+        vendors: [raw('plans', md('vendors', 1, related('- [Ranking](/docs/trust/a)\n')))],
+        trust: [
+          raw(
+            'a',
+            md(
+              'trust',
+              1,
+              related(
+                '- [Look-alike](/docs/vendorsx)\n- [Portal](/vendor)\n- [Mail](mailto:x@y.z)\n',
+              ),
+            ),
+          ),
+        ],
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -310,7 +341,6 @@ describe('docs manifest', () => {
       'trust',
       'reviewers',
       'account',
-      'for-vendors',
       'vendors',
     ]);
     for (const empty of ['faq']) {
@@ -325,36 +355,47 @@ describe('docs manifest', () => {
       expect(['reader', 'vendor', 'reviewer']).toContain(section.audience);
     }
     expect(getDocsSection('vendors')?.label).toBe('Vendor guide');
-    expect(getDocsSection('for-vendors')?.label).toBe('For vendors');
   });
 
-  // AECI-1265: the help center and the vendor guide, from one manifest.
-  it('splits the docs into the help center and the vendor guide', () => {
+  // AECI-1265, AECI-1271: the General guide and the vendor guide, from one
+  // manifest, with disjoint URL spaces.
+  it('splits the docs into the General guide and the vendor guide', () => {
     expect(docsSectionsInGuide('help').map((section) => section.id)).toEqual([
       'getting-started',
       'trust',
       'reviewers',
       'account',
-      'for-vendors',
     ]);
     expect(docsSectionsInGuide('vendor').map((section) => section.id)).toEqual(['vendors']);
-    // Every section index sits at /docs/<id>, except that /docs/vendors is the
-    // vendor guide's landing and "For vendors" lands on its overview.
-    for (const section of DOCS_SECTIONS.filter((entry) => entry.id !== 'for-vendors')) {
+    for (const section of DOCS_SECTIONS) {
       expect(section.path, section.id).toBe(`/docs/${section.id}`);
       expect(section.hasIndex, section.id).toBe(true);
     }
-    const forVendors = getDocsSection('for-vendors')!;
-    expect(forVendors.path).toBe('/docs/vendors/overview');
-    expect(forVendors.hasIndex).toBe(false);
-    // Every vendor URL kept its address, in either guide.
-    for (const page of [...docsSection('for-vendors'), ...docsSection('vendors')]) {
+    // Every vendor URL kept its address, the moved overview and claiming included.
+    for (const page of docsSection('vendors')) {
       expect(page.path).toBe(`/docs/vendors/${page.slug}`);
     }
     expect(docsGuideForPath('/docs/vendors')).toBe('vendor');
     expect(docsGuideForPath('/docs/vendors/plans')).toBe('vendor');
-    expect(docsGuideForPath('/docs/vendors/overview')).toBe('help');
-    expect(docsGuideForPath('/docs/vendors/claiming-your-listing')).toBe('help');
+    expect(docsGuideForPath('/docs/vendors/overview')).toBe('vendor');
+    expect(docsGuideForPath('/docs/vendors/claiming-your-listing')).toBe('vendor');
+    // No General section or page lives under /docs/vendors.
+    for (const section of docsSectionsInGuide('help')) {
+      for (const path of [section.path, ...section.pages.map((page) => page.path)]) {
+        expect(path === '/docs/vendors' || path.startsWith('/docs/vendors/'), path).toBe(false);
+      }
+    }
+  });
+
+  // AECI-1271: the guard ships with nothing on its allowlist, and the real
+  // content passes it (the manifest built at import, or this file would not load).
+  it('ships an empty General → vendor allowlist, and no General page links into the guide', () => {
+    expect(GENERAL_TO_VENDOR_LINK_ALLOWLIST).toEqual([]);
+    for (const page of DOCS_PAGES.filter((entry) => entry.section !== 'vendors')) {
+      for (const href of page.links) {
+        expect(href.startsWith('/docs/vendors'), `${page.slug} → ${href}`).toBe(false);
+      }
+    }
   });
 
   it('gives the vendor guide a landing page with one Current limits note', () => {
@@ -375,12 +416,10 @@ describe('docs manifest', () => {
     expect(docsSection('account').map((page) => page.slug)).toEqual(ACCOUNT_SLUGS);
     expect(docsSection('getting-started').map((page) => page.slug)).toEqual(GETTING_STARTED_SLUGS);
     expect(docsSection('trust').map((page) => page.slug)).toEqual(TRUST_SLUGS);
-    expect(docsSection('for-vendors').map((page) => page.slug)).toEqual(FOR_VENDORS_SLUGS);
     expect(DOCS_PAGES).toHaveLength(
       GETTING_STARTED_SLUGS.length +
         TRUST_SLUGS.length +
         VENDOR_SLUGS.length +
-        FOR_VENDORS_SLUGS.length +
         REVIEWER_SLUGS.length +
         ACCOUNT_SLUGS.length,
     );
@@ -554,7 +593,8 @@ describe('docs manifest', () => {
     // A public correction is never forwarded to an integration's owner by code.
     expect(requests).not.toContain('We will share it with the owner');
     expect(requests).toContain('Suggest a correction');
-    // AECI-1265: the vendor route moved to the vendor guide. One sentence links there.
+    // AECI-1265: the vendor route moved to the vendor guide. AECI-1271: one
+    // sentence names it, in plain text.
     expect(requests).not.toContain('Request a change');
     const contests = textOf('vendors', 'contests-and-protests');
     // The integration page's buttons; Contest a field is the connector lane only.
@@ -580,7 +620,7 @@ describe('docs manifest', () => {
     expect(textOf('vendors', 'owning-an-integration')).not.toContain(
       'Integrations your company offers',
     );
-    expect(textOf('for-vendors', 'claiming-your-listing')).not.toContain(
+    expect(textOf('vendors', 'claiming-your-listing')).not.toContain(
       'maintains your connector catalogue',
     );
     expect(textOf('vendors', 'connector-vendors')).toContain('maintains your connector catalogue');
@@ -619,7 +659,7 @@ describe('docs manifest', () => {
 
   // AECI-1265 B5: claiming opens with what buyers see, using the marker's labels.
   it('opens Claiming your vendor listing with what changes for buyers', () => {
-    const page = getDocsPage('for-vendors', 'claiming-your-listing')!;
+    const page = getDocsPage('vendors', 'claiming-your-listing')!;
     const first = new DOMParser().parseFromString(page.html, 'text/html').querySelector('p');
     expect(first?.textContent).toContain('Vendor maintained · Updated');
     expect(first?.textContent).toContain('AEC Integrations maintained');
@@ -734,7 +774,8 @@ describe('indexableDocsPaths', () => {
       ...REVIEWER_SLUGS.map((slug) => `/docs/reviewers/${slug}`),
       '/docs/account',
       ...ACCOUNT_SLUGS.map((slug) => `/docs/account/${slug}`),
-      // "For vendors" and the vendor guide sit under /docs/vendors: noindex until AECI-1253.
+      // The vendor guide, overview and claiming included, sits under
+      // /docs/vendors: noindex until AECI-1253.
     ]);
   });
 });
@@ -763,8 +804,6 @@ describe('DOCS_ROUTES', () => {
       ...REVIEWER_SLUGS.map((slug) => `reviewers/${slug}`),
       'account',
       ...ACCOUNT_SLUGS.map((slug) => `account/${slug}`),
-      // AECI-1265: "For vendors" has no index; the vendor guide owns `vendors`.
-      ...FOR_VENDORS_SLUGS.map((slug) => `vendors/${slug}`),
       'vendors',
       ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
     ]);

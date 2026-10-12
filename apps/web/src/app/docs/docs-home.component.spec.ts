@@ -73,7 +73,6 @@ describe('DocsHomeComponent', () => {
       'trust',
       'reviewers',
       'account',
-      'for-vendors',
     ]);
     const hrefs = sections.flatMap((s) =>
       Array.from(s.querySelectorAll('a')).map((a) => a.getAttribute('href')),
@@ -86,18 +85,15 @@ describe('DocsHomeComponent', () => {
     }
   });
 
-  // AECI-1265: the vendor guide is listed on neither the home nor its sidebar.
-  it('never links the vendor guide, and lists "For vendors" with its two pages', () => {
+  // AECI-1265, AECI-1271: the home lists the General guide only. Vendors reach
+  // theirs, claiming included, through the shell's guide toggle.
+  it('never links the vendor guide or any page under /docs/vendors', () => {
     const { host } = render();
     expect(host.querySelector('[data-section="vendors"]')).toBeNull();
-    expect(host.querySelector('a[href="/docs/vendors"]')).toBeNull();
+    expect(host.querySelector('a[href^="/docs/vendors"]')).toBeNull();
     for (const page of DOCS_PAGES.filter((entry) => entry.section === 'vendors')) {
       expect(host.querySelector(`a[href="${page.path}"]`), page.slug).toBeNull();
     }
-    const forVendors = host.querySelector('[data-section="for-vendors"]')!;
-    expect(Array.from(forVendors.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(
-      ['/docs/vendors/overview', '/docs/vendors/claiming-your-listing'],
-    );
   });
 
   it('is indexable, with title and canonical', () => {

@@ -122,4 +122,43 @@ describe('renderDocsBody', () => {
       'section-1',
     ]);
   });
+
+  // The cross-guide guard (AECI-1271) reads these: every link, wherever it sits.
+  it('collects every link href in document order, fragments and queries kept', () => {
+    const { links } = renderDocsBody(
+      [
+        'See [one](/docs/a#part) and **[two](/docs/b?x=1)**.',
+        '',
+        '> A [quoted](/docs/c) link.',
+        '',
+        '| Col |',
+        '| --- |',
+        '| [cell](/docs/d) |',
+        '',
+        '## Related',
+        '',
+        '- [Item](/docs/e).',
+        '- Nested',
+        '  - [deep](/docs/f#g)',
+        '- [Ref][r]',
+        '',
+        '[r]: /docs/h',
+      ].join('\n'),
+    );
+    expect(links).toEqual([
+      '/docs/a#part',
+      '/docs/b?x=1',
+      '/docs/c',
+      '/docs/d',
+      '/docs/e',
+      '/docs/f#g',
+      '/docs/h',
+    ]);
+  });
+
+  // A heading link counts too, and a page with none collects nothing.
+  it('collects a link in a heading and returns an empty list when there is none', () => {
+    expect(renderDocsBody('## See [x](/docs/x)\n').links).toEqual(['/docs/x']);
+    expect(renderDocsBody('Plain text.\n').links).toEqual([]);
+  });
 });

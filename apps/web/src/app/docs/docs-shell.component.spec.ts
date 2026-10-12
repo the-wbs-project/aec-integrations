@@ -1,7 +1,7 @@
 /**
- * AECI-1259 — the help-center shell (`/docs` layout route): the sidebar tree,
- * `aria-current`, the top bar, the small-screen menu toggle, and the "On this
- * page" rail it hosts on an article.
+ * AECI-1259, AECI-1271 — the help-center shell (`/docs` layout route): the
+ * guide toggle, the sidebar tree, `aria-current`, the top bar, the small-screen
+ * menu toggle, and the "On this page" rail it hosts on an article.
  *
  * `*.component.spec.ts` because the manifest imports `.md` files (see
  * `docs-page.component.spec.ts`). Rendered through the real `DOCS_ROUTES`, so
@@ -48,6 +48,18 @@ function current(host: HTMLElement, name = 'Help center'): string[] {
   );
 }
 
+/** The guide toggle's links, as [label, href, aria-current]. */
+function guides(host: HTMLElement): (readonly [string, string | null, string | null])[] {
+  return Array.from(host.querySelectorAll('nav[aria-label="Guides"] a')).map(
+    (a) =>
+      [
+        a.textContent?.trim() ?? '',
+        a.getAttribute('href'),
+        a.getAttribute('aria-current'),
+      ] as const,
+  );
+}
+
 function crumbs(host: HTMLElement): (readonly [string, string | null])[] {
   return Array.from(host.querySelectorAll('nav[aria-label="Breadcrumb"] li')).map((li) => {
     const link = li.querySelector('a');
@@ -82,51 +94,72 @@ describe('DocsShellComponent', () => {
     expect(tree(host).querySelector('a[href^="/docs/faq"]')).toBeNull();
   });
 
-  // AECI-1265: the help center's tree holds "For vendors" and its two pages, and
-  // nothing from the vendor guide.
-  it('keeps the vendor guide out of the help-center tree', async () => {
-    const { host } = await renderAt(ARTICLE);
-    const forVendors = tree(host).querySelector('li[data-section="for-vendors"]')!;
-    expect(forVendors.querySelector(':scope > a')?.getAttribute('href')).toBe(
-      '/docs/vendors/overview',
-    );
-    expect(forVendors.querySelector(':scope > a')?.textContent?.trim()).toBe('For vendors');
-    expect(
-      Array.from(forVendors.querySelectorAll(':scope > ul a')).map((a) => a.getAttribute('href')),
-    ).toEqual(['/docs/vendors/claiming-your-listing']);
-    expect(tree(host).querySelector('li[data-section="vendors"]')).toBeNull();
-    for (const page of DOCS_SECTIONS.find((section) => section.id === 'vendors')!.pages) {
-      expect(tree(host).querySelector(`a[href="${page.path}"]`), page.slug).toBeNull();
+  // AECI-1271: the toggle tops the sidebar on every docs page, both guides
+  // always, the current one marked from the URL alone.
+  it('marks General on the home, a General page and a General section index', async () => {
+    for (const url of ['/docs', ARTICLE, '/docs/trust']) {
+      const { host } = await renderAt(url);
+      expect(guides(host), url).toEqual([
+        ['General', '/docs', 'true'],
+        ['For vendors', '/docs/vendors', null],
+      ]);
     }
+  });
+
+  it('marks For vendors on the vendor guide landing and its pages', async () => {
+    for (const url of ['/docs/vendors', '/docs/vendors/overview', '/docs/vendors/plans']) {
+      const { host } = await renderAt(url);
+      expect(guides(host), url).toEqual([
+        ['General', '/docs', null],
+        ['For vendors', '/docs/vendors', 'true'],
+      ]);
+      expect(host.querySelectorAll('nav[aria-label="Guides"] [aria-current]').length, url).toBe(1);
+    }
+  });
+
+  it('puts the toggle first in the panel, outside the tree, with no back link', async () => {
+    const { host } = await renderAt('/docs/vendors/plans');
+    const panel = host.querySelector('#docs-nav-panel')!;
+    const navs = Array.from(panel.querySelectorAll('nav')).map((nav) =>
+      nav.getAttribute('aria-label'),
+    );
+    expect(navs).toEqual(['Guides', 'Vendor guide']);
+    expect(panel.textContent).not.toContain('Back to the help center');
+  });
+
+  // AECI-1271: the General tree holds nothing from the vendor guide.
+  it('keeps the vendor guide out of the General tree', async () => {
+    const { host } = await renderAt(ARTICLE);
+    expect(tree(host).querySelector('li[data-section="vendors"]')).toBeNull();
+    expect(tree(host).querySelector('a[href^="/docs/vendors"]')).toBeNull();
     expect(host.querySelector('nav[aria-label="Vendor guide"]')).toBeNull();
   });
 
   // AECI-1265: on a vendor guide page the sidebar is the vendor guide's own tree.
-  it('shows the vendor guide tree, with a link back, on a vendor guide page', async () => {
+  it('shows the vendor guide tree on a vendor guide page', async () => {
     const { host } = await renderAt('/docs/vendors/plans');
     expect(host.querySelector('nav[aria-label="Help center"]')).toBeNull();
     const nav = tree(host, 'Vendor guide');
-    const back = nav.querySelector(':scope > a')!;
-    expect(back.getAttribute('href')).toBe('/docs');
-    expect(back.textContent?.trim()).toBe('Back to the help center');
     const top = Array.from(nav.querySelectorAll(':scope > ul > li > a')).map((a) =>
       a.getAttribute('href'),
     );
     expect(top).toEqual(['/docs/vendors']);
     const guide = DOCS_SECTIONS.find((section) => section.id === 'vendors')!;
-    expect(
-      Array.from(nav.querySelectorAll('li[data-section="vendors"] > ul a')).map((a) =>
-        a.getAttribute('href'),
-      ),
-    ).toEqual(guide.pages.map((page) => page.path));
+    const pages = Array.from(nav.querySelectorAll('li[data-section="vendors"] > ul a')).map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(pages).toEqual(guide.pages.map((page) => page.path));
+    // AECI-1271: overview and claiming open the guide.
+    expect(pages.slice(0, 2)).toEqual([
+      '/docs/vendors/overview',
+      '/docs/vendors/claiming-your-listing',
+    ]);
     expect(current(host, 'Vendor guide')).toEqual(['/docs/vendors/plans']);
-    // The landing page uses the same tree.
+    // The landing page and the moved overview use the same tree.
     const landing = (await renderAt('/docs/vendors')).host;
     expect(current(landing, 'Vendor guide')).toEqual(['/docs/vendors']);
-    // "For vendors" pages share the URL prefix but belong to the help center.
     const overview = (await renderAt('/docs/vendors/overview')).host;
-    expect(overview.querySelector('nav[aria-label="Vendor guide"]')).toBeNull();
-    expect(current(overview)).toEqual(['/docs/vendors/overview']);
+    expect(current(overview, 'Vendor guide')).toEqual(['/docs/vendors/overview']);
   });
 
   // Exact matching: a page marks itself only, never its section or the home.
@@ -158,22 +191,16 @@ describe('DocsShellComponent', () => {
       ['Help center', '/docs'],
       ['Trust and ranking', '/docs/trust'],
     ]);
-    // AECI-1265: the vendor guide and "For vendors" share /docs/vendors.
+    // AECI-1271: the vendor guide's trail starts at the vendor guide.
     expect(crumbs((await renderAt('/docs/vendors/plans')).host)).toEqual([
-      ['Help center', '/docs'],
       ['Vendor guide', '/docs/vendors'],
     ]);
-    expect(crumbs((await renderAt('/docs/vendors')).host)).toEqual([
-      ['Help center', '/docs'],
-      ['Vendor guide', null],
-    ]);
+    expect(crumbs((await renderAt('/docs/vendors')).host)).toEqual([['Vendor guide', null]]);
     expect(crumbs((await renderAt('/docs/vendors/overview')).host)).toEqual([
-      ['Help center', '/docs'],
-      ['For vendors', null],
+      ['Vendor guide', '/docs/vendors'],
     ]);
     expect(crumbs((await renderAt('/docs/vendors/claiming-your-listing')).host)).toEqual([
-      ['Help center', '/docs'],
-      ['For vendors', '/docs/vendors/overview'],
+      ['Vendor guide', '/docs/vendors'],
     ]);
   });
 
