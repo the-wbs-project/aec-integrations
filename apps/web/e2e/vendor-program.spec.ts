@@ -34,7 +34,9 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     request,
   }) => {
     const html = await (await request.get('/vendor-program')).text();
-    expect(html).toContain('Contractors compare your integrations here');
+    expect(html).toContain(
+      'Your products may already be listed here. Make sure buyers read your version.',
+    );
     expect(html).toContain('id="find-your-product"');
     expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
     expect(html).toMatch(/<link[^>]+rel="canonical"[^>]+href="https?:\/\/[^"]+\/vendor-program"/);
@@ -62,7 +64,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
 
     await expect(page).toHaveURL(/\/vendor-program$/);
     await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'Contractors compare your integrations here',
+      'Your products may already be listed here.',
     );
   });
 
@@ -97,10 +99,10 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       .locator('main h1, main h2')
       .evaluateAll((all) => all.map((h) => `${h.tagName}:${h.textContent?.trim()}`));
     expect(headings).toEqual([
-      'H1:Contractors compare your integrations here',
-      'H2:What buyers read about you',
+      'H1:Your products may already be listed here. Make sure buyers read your version.',
+      'H2:What changes when you claim',
       'H2:Find your product',
-      'H2:What Free gives you',
+      'H2:What a free claim gets you',
       'H2:What Managed adds',
       'H2:Free and Managed',
       'H2:How listings are sorted',
@@ -184,7 +186,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
         const sections = [
           hero,
           ...document.querySelectorAll(
-            '#vp-problem, #find-your-product, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
+            '#vp-what-changes, #find-your-product, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
           ),
         ];
         const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();
@@ -215,6 +217,20 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       }
     });
   }
+
+  // Ruling 2026-10-12: a docs link opens a new tab on the real docs page, and its
+  // href survives <base href>. The claim links stay in this tab.
+  test('docs links open the docs in a new tab', async ({ page, context }) => {
+    await page.goto('/vendor-program');
+    await waitForHydrationSettle(page);
+    const link = page.locator('#vp-sorting').getByRole('link', { name: /How ranking works/ });
+    await expect(link).toHaveAttribute('href', '/docs/trust/how-ranking-works');
+    const [tab] = await Promise.all([context.waitForEvent('page'), link.click()]);
+    await tab.waitForLoadState();
+    expect(new URL(tab.url()).pathname).toBe('/docs/trust/how-ranking-works');
+    await expect(page).toHaveURL(/\/vendor-program$/);
+    await tab.close();
+  });
 
   test('Find your product: the no-JS form goes to /search', async ({ request }) => {
     const html = await (await request.get('/vendor-program')).text();
@@ -270,10 +286,10 @@ test.describe('/vendor-program Find your product (AECI-1287)', () => {
 
     const card = page.locator('[data-testid="vp-find-result"]');
     await expect(card).toContainText('Procore');
-    await expect(card.getByRole('link', { name: 'View the listing' })).toHaveAttribute(
-      'href',
-      '/products/fixture-procore',
-    );
+    const view = card.getByRole('link', { name: /View the listing/ });
+    await expect(view).toHaveAttribute('href', '/products/fixture-procore');
+    // Ruling 2026-10-12: the listing opens in a new tab, so the claim stays here.
+    await expect(view).toHaveAttribute('target', '_blank');
     await card.getByRole('link', { name: 'Claim this listing' }).click();
 
     await expect(page).toHaveURL(/\/products\/fixture-procore\/claim$/);

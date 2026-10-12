@@ -81,12 +81,14 @@ describe('VendorProgramPage', () => {
   });
 
   describe('meta and hero (AECI-1283)', () => {
-    it('renders one h1 about the buyer reality, with a free-to-claim subhead', async () => {
+    it('renders one h1 saying the products may already be listed, with a free claim', async () => {
       const { host } = await setup({ plan: stub() });
       const h1s = host.querySelectorAll('h1');
       expect(h1s).toHaveLength(1);
-      expect(text(h1s[0])).toBe('Contractors compare your integrations here');
-      expect(host.textContent).toContain('free to claim');
+      expect(text(h1s[0])).toBe(
+        'Your products may already be listed here. Make sure buyers read your version.',
+      );
+      expect(text(host.querySelector('section'))).toContain('Claiming your listing is free.');
     });
 
     it('states no statistics in the hero', async () => {
@@ -126,10 +128,10 @@ describe('VendorProgramPage', () => {
       const { host } = await setup({ plan: stub() });
       const headings = [...host.querySelectorAll('h1, h2')].map((h) => `${h.tagName}:${text(h)}`);
       expect(headings).toEqual([
-        'H1:Contractors compare your integrations here',
-        'H2:What buyers read about you',
+        'H1:Your products may already be listed here. Make sure buyers read your version.',
+        'H2:What changes when you claim',
         'H2:Find your product',
-        'H2:What Free gives you',
+        'H2:What a free claim gets you',
         'H2:What Managed adds',
         'H2:Free and Managed',
         'H2:How listings are sorted',
@@ -137,8 +139,14 @@ describe('VendorProgramPage', () => {
         'H2:Questions vendors ask',
         'H2:Tell the full story of your product',
       ]);
-      // The plan cards and nothing else sit one level down.
-      expect([...host.querySelectorAll('h3')].map(text)).toEqual(['Free', 'Managed']);
+      // The three Managed jobs, then the plan cards, sit one level down.
+      expect([...host.querySelectorAll('h3')].map(text)).toEqual([
+        'Explain what your product does on a project',
+        'Back up your integrations',
+        'Answer buyers in public',
+        'Free',
+        'Managed',
+      ]);
     });
 
     it('anchors Find your product, which every claim link scrolls to', async () => {
@@ -150,17 +158,54 @@ describe('VendorProgramPage', () => {
     it('links each Managed line to the page that explains it', async () => {
       const { host } = await setup({ plan: stub() });
       const items = [...host.querySelectorAll('#vp-managed li')];
-      expect(items).toHaveLength(7);
+      expect(items).toHaveLength(6);
       const hrefs = items.map((li) => li.querySelector('a')?.getAttribute('href'));
       expect(hrefs).toEqual([
         '/docs/vendors/plans#what-managed-adds',
         '/docs/getting-started/taxonomy',
-        '/docs/vendors/plans#what-managed-adds',
         '/docs/vendors/attesting-an-integration',
+        '/docs/vendors/plans#what-managed-adds',
         '/docs/vendors/owning-an-integration',
         '/docs/vendors/replying-to-reviews',
-        '/docs/vendors/plans#what-managed-adds',
       ]);
+      // The price leads the section, from the shared terms line.
+      expect(text(host.querySelector('#vp-managed > div > p'))).toBe(
+        '$25 a month per product, or $250 a year, billed by invoice or purchase order.',
+      );
+    });
+
+    it('keeps the Free links to the seat and checklist pages', async () => {
+      const { host } = await setup({ plan: stub() });
+      const hrefs = [...host.querySelectorAll('#vp-free a')].map((a) => a.getAttribute('href'));
+      expect(hrefs).toEqual(['/docs/vendors/your-seat', '/docs/vendors/checklists']);
+      expect(host.querySelectorAll('#vp-free li')).toHaveLength(3);
+    });
+
+    it('shows the real maintenance labels before and after a claim', async () => {
+      const { host } = await setup({ plan: stub() });
+      const before = host.querySelector('[data-testid="vp-before"] aec-maintenance-marker');
+      const after = host.querySelector('[data-testid="vp-after"] aec-maintenance-marker');
+      expect(text(before)).toBe('AEC Integrations maintained');
+      expect(text(after)).toMatch(/^Vendor maintained · Updated [A-Z][a-z]+ \d{1,2}, \d{4}$/);
+    });
+
+    // Ruling 2026-10-12: every docs link, and View the listing, opens in a new tab
+    // with the drawn cue and the sr-only note. Conversion links stay in the tab.
+    it('opens every docs link in a new tab with the new-tab cue', async () => {
+      const { host } = await setup({ plan: stub() });
+      const docs = [...host.querySelectorAll<HTMLAnchorElement>('a[href^="/docs/"]')];
+      expect(docs.length).toBe(13);
+      for (const a of docs) {
+        const href = a.getAttribute('href');
+        expect(a.getAttribute('target'), href!).toBe('_blank');
+        expect(a.getAttribute('rel'), href!).toBe('noopener');
+        expect(a.querySelector('aec-new-tab-icon svg[aria-hidden="true"]'), href!).not.toBeNull();
+        expect(text(a), href!).toContain('(opens in a new tab)');
+      }
+      // Every other link on the page stays in the tab.
+      for (const a of host.querySelectorAll('a:not([href^="/docs/"])')) {
+        expect(a.getAttribute('target'), a.getAttribute('href')!).toBeNull();
+      }
     });
 
     it('states the sort rule as the reason to trust the order, linked to how ranking works', async () => {
@@ -177,7 +222,9 @@ describe('VendorProgramPage', () => {
 
     it('labels Coming soon as not available yet', async () => {
       const { host } = await setup({ plan: stub() });
-      expect(text(host.querySelector('#vp-coming-soon'))).toContain('Not available yet');
+      const soon = text(host.querySelector('#vp-coming-soon'));
+      expect(soon).toContain('Not available yet');
+      expect(soon).toContain('never changes where you rank or appear');
     });
 
     it('answers the FAQ in a native details list, with no approval time', async () => {

@@ -9,13 +9,18 @@ import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramPage } from './vendor-program';
 
 /**
- * Drift guard (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §3 items 4, 5, 7 and 8): the
- * vendor program page takes its Free, Managed, sort-rule and Coming soon wording
- * from the vendor guide's Plans page (`src/content/docs/vendors/plans.md`). That
- * page is Markdown, not i18n'd, so the two cannot share ids. This spec fails when
- * a sentence on one side changes without the other. Comparison is per sentence,
- * case-insensitive, ignoring the trailing punctuation a Markdown list item carries.
- * It also pins the Plans page fragments this page links to.
+ * What the vendor program page still shares with the vendor guide's Plans page
+ * (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §3).
+ *
+ * Since the 2026-10-12 ruling this page carries its own benefit copy, and the Plans
+ * page (`src/content/docs/vendors/plans.md`) stays the feature reference. So the
+ * Free, Managed and Coming soon lines are NOT checked against the docs here: the
+ * facts stay aligned, the sentences do not. Two things are still genuinely shared,
+ * and this spec pins only those:
+ *
+ * - the sort rule, one i18n id on both Angular pages (`@@app.docs.plans.sortRule`),
+ *   which must also read the same as the Plans page's Markdown;
+ * - the Plans page fragments this page links to, which must exist.
  */
 function normalize(value: string): string {
   return value
@@ -54,45 +59,21 @@ function render(): HTMLElement {
   return fixture.nativeElement as HTMLElement;
 }
 
-describe('vendor program copy stays in step with /docs/vendors/plans', () => {
+describe('what the vendor program page shares with /docs/vendors/plans', () => {
   const plans = getDocsPage('vendors', 'plans')!;
   const docText = normalize(plans.html);
-
-  /** Every sentence in `el` must appear on the Plans page. */
-  function expectFromDocs(el: Element | null, label: string): void {
-    expect(el, label).not.toBeNull();
-    for (const sentence of sentences(el!.innerHTML)) {
-      expect(docText, `${label}: "${sentence}"`).toContain(sentence);
-    }
-  }
 
   it('the Plans page exists', () => {
     expect(plans).toBeDefined();
   });
 
-  it('What Free gives you: every line is the Plans page wording', () => {
-    const host = render();
-    const items = [...host.querySelectorAll('#vp-free li p:last-child')];
-    expect(items).toHaveLength(4);
-    items.forEach((p, i) => expectFromDocs(p, `free ${i}`));
-  });
-
-  it('What Managed adds: the lede and every line are the Plans page wording', () => {
-    const host = render();
-    expectFromDocs(host.querySelector('#vp-managed > div > p'), 'managed lede');
-    const items = [...host.querySelectorAll('#vp-managed li')];
-    expect(items).toHaveLength(7);
-    items.forEach((li, i) => expectFromDocs(li, `managed ${i}`));
-  });
-
   it('How listings are sorted: the sort rule is the Plans page wording', () => {
     const host = render();
-    expectFromDocs(host.querySelector('#vp-sorting p'), 'sort rule');
-  });
-
-  it('Coming soon: the Plans page wording', () => {
-    const host = render();
-    expectFromDocs(host.querySelector('#vp-coming-soon p'), 'coming soon');
+    const rule = host.querySelector('#vp-sorting p');
+    expect(rule).not.toBeNull();
+    for (const sentence of sentences(rule!.innerHTML)) {
+      expect(docText, `sort rule: "${sentence}"`).toContain(sentence);
+    }
   });
 
   it('every Plans page fragment this page links to exists', () => {

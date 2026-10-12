@@ -9,8 +9,9 @@
  *   nothing else.
  * - **A hit.** Choosing a product or vendor suggestion does not navigate. It shows
  *   a result card with the name, "Claim this listing" (the listing's own claim
- *   form, `/products/:slug/claim` or `/vendors/:slug/claim`) and "View the
- *   listing". The claim click fires `plan_cta_clicked` with plan `free`,
+ *   form, `/products/:slug/claim` or `/vendors/:slug/claim`, same tab) and "View
+ *   the listing", which opens in a new tab with the house cue (`aec-new-tab-icon`)
+ *   so the claim stays one click away (ruling 2026-10-12). The claim click fires `plan_cta_clicked` with plan `free`,
  *   placement `search_result`, page `vendor_program` (§9).
  * - **Ask us to add it.** Under the box, always: "Can't find your product? Ask us
  *   to add it." The link goes to `/contact?topic=add-product` (`ADD_PRODUCT_TOPIC`),
@@ -39,10 +40,11 @@ import { navigateToSearchQuery } from '../layout/search-submit';
 import type { AutocompleteSettled } from '../search/autocomplete-controller';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 @Component({
   selector: 'aec-vendor-program-find',
-  imports: [RouterLink, SearchAutocomplete],
+  imports: [RouterLink, NewTabIcon, SearchAutocomplete],
   host: { class: 'grid gap-6 lg:grid-cols-12 lg:gap-x-12' },
   template: `
     <div class="lg:col-span-5">
@@ -103,10 +105,13 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
               >
               <a
                 [routerLink]="hit.routerLink"
-                class="inline-flex items-center justify-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@vendorProgram.find.view"
-                >View the listing</a
+                target="_blank"
+                rel="noopener"
+                class="inline-flex items-center justify-center gap-1.5 rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               >
+                <span i18n="@@vendorProgram.find.view">View the listing</span>
+                <aec-new-tab-icon />
+              </a>
             </div>
           </div>
         } @else if (missed()) {

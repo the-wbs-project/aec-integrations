@@ -6,16 +6,29 @@
  * (AECI-1287, `vendor-program-find.ts`).
  *
  * **Sections, in the §3 order.** One `h1` in the hero, then one `h2` per section:
- * the problem, Find your product, what Free gives you, what Managed adds, the plan
- * cards, how listings are sorted, coming soon, the FAQ, and the closing panel.
+ * what changes when you claim, Find your product, what a free claim gets you, what
+ * Managed adds, the plan cards, how listings are sorted, coming soon, the FAQ, and
+ * the closing panel.
  *
- * **One source for the docs wording.** The Free, Managed, sort-rule and Coming
- * soon copy comes from the vendor guide's Plans page
- * (`src/content/docs/vendors/plans.md`). That page is Markdown, not i18n'd, so the
- * sentences are copied here verbatim and `vendor-program-copy.component.spec.ts`
- * fails when either side drifts. The sort rule is the one string both pages already
- * share as an i18n id (`@@app.docs.plans.sortRule`). The plan cards are the shared
- * `aec-plan-cards`, never a copy.
+ * **This page carries its own benefit copy (ruling 2026-10-12).** The vendor
+ * guide's Plans page (`src/content/docs/vendors/plans.md`) stays the feature
+ * reference. Here each Free and Managed line says what you can do, then what your
+ * company gains, then what the buyer or the person using the integration gains. The
+ * facts stay aligned with the docs, not the sentences. Two things stay shared: the
+ * plan cards (`aec-plan-cards`, never a copy) and the sort rule, one i18n id on both
+ * pages (`@@app.docs.plans.sortRule`). `vendor-program-copy.component.spec.ts` pins
+ * only those, plus the Plans page fragments this page links to.
+ *
+ * **What changes when you claim** draws both labels with the listing's own
+ * `aec-maintenance-marker`, so the page can never show wording a listing does not.
+ *
+ * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*`, and
+ * "View the listing" in Find your product, carries `target="_blank" rel="noopener"`
+ * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
+ * A `routerLink` with a `target` builds the same absolute `/docs/...` href and lets
+ * the browser open it, so `<base href>` does not touch it. Conversion links stay in
+ * the tab: every claim link, the Managed inquiry, "Ask us to add it" and "Go to your
+ * portal".
  *
  * **Calls to action (§4.1).** The hero pair (`top`), the plan cards (`card`), Find
  * your product (`search_result`), the phone bar (`mobile_bar`) and the closing panel
@@ -36,9 +49,9 @@
  *  - a Managed company: also no phone bar, no Managed button in the panel.
  *
  * **Full width at desktop (§11).** Every section uses the whole `max-w-7xl`
- * container from `lg`: a 12-column split (heading left, content right), a 4-column
- * Free grid, a 2-column Managed list, the plan cards side by side, a split Bone
- * panel and a split closing panel. No narrow column with a blank right half.
+ * container from `lg`: a 12-column split (heading left, content right), a 3-column
+ * Free grid, three Managed jobs in 2-column lists, the plan cards side by side, a
+ * split Bone panel and a split closing panel. No narrow column with a blank right half.
  * Paragraphs keep a readable measure inside their column. Phones stay one column.
  *
  * Copy rules (§8): sentence case, no em dashes, no statistics, "may already be
@@ -50,18 +63,29 @@
  * of lede, a filled and an outlined button side by side). The plan cards already
  * follow its billing page (`c74405c6-a307-4e35-b8eb-21a1129ce5f3`).
  */
-import { Component, PLATFORM_ID, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  LOCALE_ID,
+  PLATFORM_ID,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
 import {
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
   PlanCtaPanelComponent,
+  managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
 import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
@@ -79,6 +103,8 @@ const PLANS_PATH = '/docs/vendors/plans';
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    MaintenanceMarker,
+    NewTabIcon,
     PlanCardsComponent,
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
@@ -96,17 +122,18 @@ const PLANS_PATH = '/docs/vendors/plans';
         >
           <div class="lg:col-span-7">
             <h1
-              class="font-display text-4xl font-normal text-balance leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
+              class="font-display text-3xl font-normal text-balance leading-[1.1] tracking-[-0.01em] text-(--text-primary) sm:text-4xl md:text-5xl"
               i18n="@@app.vendorProgram.headline"
             >
-              Contractors compare your integrations here
+              Your products may already be listed here. Make sure buyers read your version.
             </h1>
             <p
               class="mt-4 max-w-[52ch] text-base leading-relaxed text-(--text-secondary) md:mt-5 md:text-lg"
               i18n="@@app.vendorProgram.lede"
             >
-              A listing on AEC Integrations is free to claim. Claim yours to keep what buyers read
-              about your products and integrations accurate.
+              AEC Integrations lists AEC software and its integrations from public sources. Claiming
+              your listing is free. Keep it current, and it reads "Vendor maintained" with the date
+              you last updated it.
             </p>
             <aec-plan-cta-actions
               class="mt-6 md:mt-8"
@@ -175,23 +202,66 @@ const PLANS_PATH = '/docs/vendors/plans';
 
       <div class="mx-auto max-w-7xl px-6 py-14 md:px-8 md:py-20">
         <div class="flex min-w-0 flex-col gap-16 md:gap-20">
-          <!-- 2. The problem. -->
-          <section id="vp-problem" aria-labelledby="vp-problem-heading" [class]="split">
-            <h2
-              id="vp-problem-heading"
-              class="lg:col-span-5"
-              i18n="@@vendorProgram.problem.heading"
-            >
-              What buyers read about you
-            </h2>
-            <p
-              class="max-w-[52ch] text-lg leading-relaxed lg:col-span-7 lg:max-w-none lg:text-xl"
-              i18n="@@vendorProgram.problem.body"
-            >
-              AEC Integrations compiles its listings from public sources, so your products may
-              already be listed. Buyers compare your integrations on that listing, whether or not
-              you wrote it. Claiming it lets you keep it accurate.
-            </p>
+          <!-- 2. What changes when you claim: the two labels a listing really shows,
+               drawn by the listing's own maintenance marker so they cannot drift. -->
+          <section id="vp-what-changes" aria-labelledby="vp-what-changes-heading" [class]="split">
+            <div class="lg:col-span-5">
+              <h2 id="vp-what-changes-heading" i18n="@@vendorProgram.whatChanges.heading">
+                What changes when you claim
+              </h2>
+              <p
+                class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)"
+                i18n="@@vendorProgram.whatChanges.lede"
+              >
+                Buyers compare your integrations on your listing, whether or not you wrote it. Every
+                listing says who keeps it up to date. Here is the label buyers see today, and the
+                one they see once you take it over.
+              </p>
+            </div>
+            <ul class="grid gap-4 sm:grid-cols-2 lg:col-span-7" role="list">
+              <li
+                class="rounded-(--radius-lg) border border-(--border-default) p-5"
+                data-testid="vp-before"
+              >
+                <p
+                  class="aec-overline text-(--text-secondary)"
+                  i18n="@@vendorProgram.whatChanges.before.label"
+                >
+                  Before you claim
+                </p>
+                <aec-maintenance-marker class="mt-3 block" maintainedBy="aeci" />
+                <p
+                  class="mt-3 leading-relaxed text-(--text-secondary)"
+                  i18n="@@vendorProgram.whatChanges.before.body"
+                >
+                  We wrote it from public sources. Buyers cannot tell whether your company has seen
+                  it.
+                </p>
+              </li>
+              <li
+                class="rounded-(--radius-lg) border border-(--border-default) p-5"
+                data-testid="vp-after"
+              >
+                <p
+                  class="aec-overline text-(--text-secondary)"
+                  i18n="@@vendorProgram.whatChanges.after.label"
+                >
+                  Once you claim and update it
+                </p>
+                <aec-maintenance-marker
+                  class="mt-3 block"
+                  maintainedBy="vendor"
+                  [reviewedAt]="exampleUpdatedAt"
+                />
+                <p
+                  class="mt-3 leading-relaxed text-(--text-secondary)"
+                  i18n="@@vendorProgram.whatChanges.after.body"
+                >
+                  Save a change, or confirm a page is right, and the label moves to your company
+                  with the date. Buyers can see you stand behind it, and when you last checked.
+                </p>
+              </li>
+            </ul>
           </section>
 
           <!-- 3. Find your product (spec section 6). Every claim link lands here. -->
@@ -199,68 +269,82 @@ const PLANS_PATH = '/docs/vendors/plans';
             <aec-vendor-program-find />
           </section>
 
-          <!-- 4. What Free gives you: the Plans page's "What every plan includes". -->
+          <!-- 4. What a free claim gets you. This page's own benefit copy (spec section 3,
+               2026-10-12): each line says what you can do, what your company gains, and what
+               the buyer or the person using the integration gains. -->
           <section id="vp-free" aria-labelledby="vp-free-heading">
-            <h2 id="vp-free-heading" i18n="@@vendorProgram.free.heading">What Free gives you</h2>
+            <h2 id="vp-free-heading" i18n="@@vendorProgram.free.heading">
+              What a free claim gets you
+            </h2>
             <p
               class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)"
               i18n="@@vendorProgram.free.lede"
             >
-              Free costs nothing. Anyone with a seat at your company can:
+              Everything here is on the free plan. Invite colleagues to share the work: each person
+              gets
+              <a
+                routerLink="/docs/vendors/your-seat"
+                target="_blank"
+                rel="noopener"
+                [class]="inTextLink"
+                >their own seat<aec-new-tab-icon /></a
+              >.
             </p>
-            <ul class="mt-6 grid gap-x-10 md:grid-cols-2 lg:grid-cols-4 lg:gap-x-8" role="list">
+            <ul class="mt-6 grid gap-x-10 lg:grid-cols-3 lg:gap-x-8" role="list">
               <li class="border-t border-(--border-default) py-4">
                 <p class="font-semibold" i18n="@@vendorProgram.free.details.title">
-                  Your company and products
+                  Your listing, in your words
                 </p>
                 <p
                   class="mt-1 leading-relaxed text-(--text-secondary)"
                   i18n="@@vendorProgram.free.details.body"
                 >
-                  Keep your company details current: the description, website, headquarters, logo
-                  and contact links. Keep each product's description, website, logo and categories
-                  current.
+                  Keep your company and product details current: the description, website, logo and
+                  categories. You decide what buyers read about you. They see a current page marked
+                  "Vendor maintained", with the date you last updated it.
+                  <a
+                    routerLink="/docs/vendors/checklists"
+                    target="_blank"
+                    rel="noopener"
+                    [class]="inTextLink"
+                    >Your checklists<aec-new-tab-icon
+                  /></a>
+                  show what to fill in first.
                 </p>
               </li>
               <li class="border-t border-(--border-default) py-4">
                 <p class="font-semibold" i18n="@@vendorProgram.free.integrations.title">
-                  Your integrations
+                  Your integrations, owned by you
                 </p>
                 <p
                   class="mt-1 leading-relaxed text-(--text-secondary)"
                   i18n="@@vendorProgram.free.integrations.body"
                 >
-                  Claim and maintain the integrations your company builds, add your own links, and
-                  contest a detail on one you do not own.
+                  Claim the integrations your company builds, and add your setup guide to any
+                  integration with your product. Buyers see who maintains each one. The person
+                  setting it up on a project gets your guide from the integration page, not a
+                  support ticket. If a partner's listing gets a detail of yours wrong, you can
+                  contest it.
                 </p>
               </li>
               <li class="border-t border-(--border-default) py-4">
-                <p class="font-semibold" i18n="@@vendorProgram.free.seats.title">Your colleagues</p>
-                <p
-                  class="mt-1 leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendorProgram.free.seats.body"
-                >
-                  Invite colleagues and manage seats. See
-                  <a routerLink="/docs/vendors/your-seat" [class]="inTextLink">Your seat</a>.
-                </p>
-              </li>
-              <li class="border-t border-(--border-default) py-4">
-                <p class="font-semibold" i18n="@@vendorProgram.free.checklists.title">
-                  Your checklists
+                <p class="font-semibold" i18n="@@vendorProgram.free.complete.title">
+                  A complete listing, at no cost
                 </p>
                 <p
                   class="mt-1 leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendorProgram.free.checklists.body"
+                  i18n="@@vendorProgram.free.complete.body"
                 >
-                  Work through the company and product checklists. See
-                  <a routerLink="/docs/vendors/checklists" [class]="inTextLink">Your checklists</a>.
+                  When two listings match a search about equally well, the more complete one comes
+                  first. Every detail that counts toward completeness can be filled in on the free
+                  plan. That rule is the same for every listing, whatever its plan.
                 </p>
               </li>
             </ul>
           </section>
 
-          <!-- 5. What Managed adds: the Plans page's list, one line each, each
-                 linked to the page that explains it. -->
+          <!-- 5. What Managed adds: this page's own benefit copy in three jobs. Each bold
+                 lead-in links to the docs page that explains it, in a new tab. -->
           <section
             id="vp-managed"
             aria-labelledby="vp-managed-heading"
@@ -270,89 +354,121 @@ const PLANS_PATH = '/docs/vendors/plans';
               <h2 id="vp-managed-heading" i18n="@@vendorProgram.managed.heading">
                 What Managed adds
               </h2>
-              <p
-                class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)"
-                i18n="@@vendorProgram.managed.lede"
-              >
-                Managed lets you tell the full story: how teams use each product, which trades and
-                phases it serves, and which data flows you confirm.
+              <p class="mt-3 max-w-[56ch] leading-relaxed text-(--text-secondary)">
+                {{ terms }}
               </p>
             </div>
-            <ul
-              class="grid max-w-[56ch] gap-x-8 md:max-w-none md:grid-cols-2 lg:col-span-8"
-              role="list"
-            >
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.usefulness">
-                  <a
-                    [routerLink]="plansPath"
-                    fragment="what-managed-adds"
-                    [class]="inTextLinkStrong"
-                    >How teams use it.</a
-                  >
-                  Show buyers, in your own words, what your product does on a real project.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.taxonomy">
-                  <a routerLink="/docs/getting-started/taxonomy" [class]="inTextLinkStrong"
-                    >Trades, audiences and phases.</a
-                  >
-                  Set the trades, audiences and project phases each product serves, so its listing
-                  describes it accurately.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.links">
-                  <a
-                    [routerLink]="plansPath"
-                    fragment="what-managed-adds"
-                    [class]="inTextLinkStrong"
-                    >Integrations page and API docs links.</a
-                  >
-                  Send evaluators straight from your listing to your docs.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.dataFlows">
-                  <a routerLink="/docs/vendors/attesting-an-integration" [class]="inTextLinkStrong"
-                    >Confirmed data flows.</a
-                  >
-                  Say which data moves in each of your integrations. Your answer counts toward the
-                  integration's agreement label, the same as your partner's.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.connector">
-                  <a routerLink="/docs/vendors/owning-an-integration" [class]="inTextLinkStrong"
-                    >Connector integrations.</a
-                  >
-                  Claim, edit, retire and restore the integrations you deliver through a connector,
-                  not only the ones you built directly.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.replies">
-                  <a routerLink="/docs/vendors/replying-to-reviews" [class]="inTextLinkStrong"
-                    >Review replies.</a
-                  >
-                  Answer reviews of your products in public, so buyers see your side. We check each
-                  reply before it goes live.
-                </ng-container>
-              </li>
-              <li class="border-t border-(--border-default) py-4 leading-relaxed">
-                <ng-container i18n="@@vendorProgram.managed.indexNow">
-                  <a
-                    [routerLink]="plansPath"
-                    fragment="what-managed-adds"
-                    [class]="inTextLinkStrong"
-                    >Search engine notice.</a
-                  >
-                  We tell search engines each time you update a public page. Telling a search engine
-                  about a page does not decide whether it crawls, indexes or ranks that page.
-                </ng-container>
-              </li>
-            </ul>
+            <div class="flex flex-col gap-8 lg:col-span-8">
+              <div>
+                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.explain.heading">
+                  Explain what your product does on a project
+                </h3>
+                <ul [class]="managedList" role="list">
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.usefulness">
+                      <a
+                        [routerLink]="plansPath"
+                        fragment="what-managed-adds"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >How teams use it.<aec-new-tab-icon
+                      /></a>
+                      Describe, in your own words, the work your product does on a real project.
+                      Buyers judge fit by the job it does, not a feature list. The people who will
+                      use it can picture it on their own project.
+                    </ng-container>
+                  </li>
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.taxonomy">
+                      <a
+                        routerLink="/docs/getting-started/taxonomy"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >Trades, audiences and phases.<aec-new-tab-icon
+                      /></a>
+                      Set who each product is for and when in a project it is used, rather than
+                      leave it to our reading of public sources. Buyers browsing a trade, audience
+                      or phase page, or filtering a search by one, find the products tagged with it.
+                      An MEP contractor filtering by trade sees the tools built for that trade.
+                    </ng-container>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.backUp.heading">
+                  Back up your integrations
+                </h3>
+                <ul [class]="managedList" role="list">
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.dataFlows">
+                      <a
+                        routerLink="/docs/vendors/attesting-an-integration"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >Confirmed data flows.<aec-new-tab-icon
+                      /></a>
+                      Say which data moves in each of your integrations. Buyers see your company's
+                      answer, and it counts the same as your partner's. The person relying on the
+                      integration knows what syncs before a project depends on it.
+                    </ng-container>
+                  </li>
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.links">
+                      <a
+                        [routerLink]="plansPath"
+                        fragment="what-managed-adds"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >Integrations page and API docs links.<aec-new-tab-icon
+                      /></a>
+                      Send evaluators straight from your listing to your docs. A technical evaluator
+                      is one click from the detail they need, and the person building against your
+                      API starts on the right page.
+                    </ng-container>
+                  </li>
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.connector">
+                      <a
+                        routerLink="/docs/vendors/owning-an-integration"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >Connector integrations.<aec-new-tab-icon
+                      /></a>
+                      Claim, edit, retire and restore the integrations you deliver through a
+                      connector, not only the ones you built directly. Those listings stay as
+                      current as your direct ones, so a team using one on a project reads up-to-date
+                      details.
+                    </ng-container>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <h3 [class]="groupHeading" i18n="@@vendorProgram.managed.answer.heading">
+                  Answer buyers in public
+                </h3>
+                <ul [class]="managedList" role="list">
+                  <li [class]="managedItem">
+                    <ng-container i18n="@@vendorProgram.managed.replies">
+                      <a
+                        routerLink="/docs/vendors/replying-to-reviews"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLinkStrong"
+                        >Review replies.<aec-new-tab-icon
+                      /></a>
+                      Reply to reviews of your products, so buyers see your side and how you handle
+                      a problem. Someone weighing a critical review reads your answer beside it. We
+                      check each reply before it goes live.
+                    </ng-container>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </section>
 
           <!-- 6. The plan cards (shared with the Plans page). -->
@@ -371,10 +487,13 @@ const PLANS_PATH = '/docs/vendors/plans';
               <a
                 [routerLink]="plansPath"
                 fragment="compare-plans"
-                class="rounded-(--radius-sm) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@vendorProgram.plans.compare"
-                >Compare every feature side by side</a
+                target="_blank"
+                rel="noopener"
+                class="inline-flex items-center gap-1.5 rounded-(--radius-sm) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               >
+                <span i18n="@@vendorProgram.plans.compare">Compare every feature side by side</span>
+                <aec-new-tab-icon />
+              </a>
             </p>
           </section>
 
@@ -405,10 +524,13 @@ const PLANS_PATH = '/docs/vendors/plans';
               <p class="mt-5">
                 <a
                   routerLink="/docs/trust/how-ranking-works"
+                  target="_blank"
+                  rel="noopener"
                   [class]="inTextLinkStrong"
-                  i18n="@@vendorProgram.sorting.link"
-                  >How ranking works</a
                 >
+                  <span i18n="@@vendorProgram.sorting.link">How ranking works</span>
+                  <aec-new-tab-icon />
+                </a>
               </p>
             </div>
           </section>
@@ -429,10 +551,11 @@ const PLANS_PATH = '/docs/vendors/plans';
               class="max-w-[56ch] leading-relaxed text-(--text-secondary) lg:col-span-7 lg:max-w-none"
               i18n="@@vendorProgram.comingSoon.body"
             >
-              Performance reporting is coming to Managed. It will show how many people view your
-              product and integration pages, how many click through to your website and docs, how
-              often search engines and AI assistants visit, and a monthly report you can download.
-              It reports attention only, and never changes where you rank or appear. It is not
+              Performance reporting is coming to Managed, so you can see whether your listing is
+              working for you. It will show how many people view your product and integration pages,
+              how many click through to your website and docs, and how often search engines and AI
+              assistants visit. A monthly report you can download will let you share that with your
+              team. It reports attention only, and never changes where you rank or appear. It is not
               available yet.
             </p>
           </section>
@@ -454,8 +577,12 @@ const PLANS_PATH = '/docs/vendors/plans';
                   Anyone who works at the company that makes the product. You do not need an
                   account, and a claim costs nothing. A claim on a product is a claim on the company
                   that makes it, and the seat covers the whole company account. See
-                  <a routerLink="/docs/vendors/claiming-your-listing" [class]="inTextLink"
-                    >Claiming your vendor listing</a
+                  <a
+                    routerLink="/docs/vendors/claiming-your-listing"
+                    target="_blank"
+                    rel="noopener"
+                    [class]="inTextLink"
+                    >Claiming your vendor listing<aec-new-tab-icon /></a
                   >.
                 </p>
               </details>
@@ -508,8 +635,10 @@ const PLANS_PATH = '/docs/vendors/plans';
                   <a
                     [routerLink]="plansPath"
                     fragment="when-a-managed-plan-ends"
+                    target="_blank"
+                    rel="noopener"
                     [class]="inTextLink"
-                    >when a Managed plan ends</a
+                    >when a Managed plan ends<aec-new-tab-icon /></a
                   >.
                 </p>
               </details>
@@ -524,8 +653,12 @@ const PLANS_PATH = '/docs/vendors/plans';
                   No. Every listing is sorted the same way on every plan. Your plan never decides
                   whether a review is published or removed, whether a listing exists, or how an
                   agreement label is worked out. See
-                  <a routerLink="/docs/trust/how-ranking-works" [class]="inTextLink"
-                    >How ranking works</a
+                  <a
+                    routerLink="/docs/trust/how-ranking-works"
+                    target="_blank"
+                    rel="noopener"
+                    [class]="inTextLink"
+                    >How ranking works<aec-new-tab-icon /></a
                   >.
                 </p>
               </details>
@@ -576,11 +709,27 @@ export class VendorProgramPage {
   protected readonly claimFragment = FIND_YOUR_PRODUCT;
   protected readonly plansPath = PLANS_PATH;
 
-  /** An in-text link (DESIGN.md, the Link Treatment Rule). */
+  /**
+   * An in-text link (DESIGN.md, the Link Treatment Rule). Every one on this page goes
+   * to the docs in a new tab, so it carries `aec-new-tab-icon`: the `[&_svg]` rules
+   * keep that icon inline in the running sentence instead of on its own line.
+   */
   protected readonly inTextLink =
-    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:ms-1 [&_svg]:inline [&_svg]:align-[-0.125em]';
   /** The same, as the bold lead of a list line. */
   protected readonly inTextLinkStrong = `${this.inTextLink} font-semibold`;
+  /** A Managed job: the small heading over its lines. */
+  protected readonly groupHeading = 'text-base font-semibold text-(--text-primary)';
+  protected readonly managedList = 'mt-2 grid gap-x-8 md:grid-cols-2';
+  protected readonly managedItem = 'border-t border-(--border-default) py-4 leading-relaxed';
+  /** `$25 a month per product, or $250 a year, billed by invoice or purchase order.` */
+  protected readonly terms = managedTermsLine(inject(LOCALE_ID));
+  /**
+   * The date on the "after" label in What changes when you claim: today, in UTC, so
+   * the example reads as "if you updated it today". The marker formats it in UTC, so
+   * the server and the browser print the same day. It is not visitor state.
+   */
+  protected readonly exampleUpdatedAt = new Date().toISOString();
   protected readonly summaryClass =
     'flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden';
   protected readonly answerClass = 'max-w-[60ch] pb-5 leading-relaxed text-(--text-secondary)';
@@ -611,7 +760,7 @@ export class VendorProgramPage {
       description: $localize`:@@meta.vendorProgramDescription:Claim your free listing in the AEC software directory. Keep your products and construction software integrations accurate where AEC teams compare them.`,
       canonical: canonicalUrl('/vendor-program'),
       ogImage: VENDOR_PROGRAM_OG_IMAGE,
-      ogImageAlt: $localize`:@@meta.vendorProgramOgImageAlt:AEC Integrations for software vendors: contractors compare your integrations here. Your listing is free to claim.`,
+      ogImageAlt: $localize`:@@meta.vendorProgramOgImageAlt:AEC Integrations for software vendors: your products may already be listed here. Make sure buyers read your version. Claiming your listing is free.`,
     });
 
     // Browser only: the signed-in variants never touch the SSR HTML.

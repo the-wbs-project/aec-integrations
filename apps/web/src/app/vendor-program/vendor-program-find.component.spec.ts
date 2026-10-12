@@ -117,8 +117,13 @@ describe('VendorProgramFind', () => {
     const [claim, view] = [...card.querySelectorAll('a')];
     expect(text(claim)).toBe('Claim this listing');
     expect(claim.getAttribute('href')).toBe('/products/acme-takeoff/claim');
-    expect(text(view)).toBe('View the listing');
+    expect(text(view)).toMatch(/^View the listing ?\(opens in a new tab\)$/);
     expect(view.getAttribute('href')).toBe('/products/acme-takeoff');
+    // Ruling 2026-10-12: the listing opens in a new tab, so the claim stays here.
+    expect(view.getAttribute('target')).toBe('_blank');
+    expect(view.getAttribute('rel')).toBe('noopener');
+    expect(view.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(claim.getAttribute('target')).toBeNull();
 
     claim.click();
     expect(planCtaClicked).toHaveBeenCalledExactlyOnceWith({

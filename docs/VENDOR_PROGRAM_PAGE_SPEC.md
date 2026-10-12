@@ -1,6 +1,6 @@
 # AEC Integrations — Vendor Program Page Specification
 
-**Version:** 0.1, build contract
+**Version:** 0.2, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links)
 **Date:** 2026-10-12
 **Status:** Build contract. Admitted into **Stage 2.5** by operator decision on 2026-10-12, as the sixth named exception to its "no new surface area" rule (`STAGE_2_5_SPEC.md` §14). It turns the marketing review's requirements draft ("For vendors" marketing page, 2026-10-12) into a contract checked against the code. Where the draft and the code disagreed, §1.2 records the ruling.
 **Supersedes:** nothing. The draft stays a marketing-side input; this doc is the build truth.
@@ -85,34 +85,31 @@ The header row gets no link (§1.2).
 
 ## 3. Page sections, in order
 
-1. **Hero.** A headline about the buyer reality: contractors compare your integrations here. A subhead saying a listing is free to claim. Both calls to action (§4). No statistics.
-2. **The problem.** Two or three sentences: buyers judge your integrations on information you may not have written.
+1. **Hero.** The headline (settled 2026-10-12): "Your products may already be listed here. Make sure buyers read your version." A subhead saying the catalog comes from public sources, a claim is free, and a listing kept current reads "Vendor maintained" with the date. Both calls to action (§4). No statistics.
+2. **What changes when you claim** (settled 2026-10-12, replaces "The problem"). One or two sentences of the problem, then a before and after panel with the two real maintenance labels: "AEC Integrations maintained" before, "Vendor maintained · Updated" and a date once the vendor saves a change or confirms a page is right (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `STAGE_2_PAID_TIERS_SPEC.md` §13.8). Both labels are drawn by the listing's own `shared/maintenance-marker` component, never retyped, so the page cannot show wording a listing does not. The example date is today, in UTC. A claim alone does not change the label, so the copy never says it does.
 3. **Find your product** (`id="find-your-product"`). §6.
-4. **What Free gives you.** Three or four outcomes, from the docs page's "What every plan includes": keep company and product details current, claim and maintain the integrations you build, invite colleagues, work through the checklists.
-5. **What Managed adds.** One outcome per line, each linking to its doc page. Take the wording from the docs page's "What Managed adds" so the two never drift:
-   - How teams use it, in your own words.
-   - The trades, audiences and phases each product serves. Products appear on those browse pages and in the search filters.
-   - Links to your integrations page and API docs.
-   - Your answer on which data each integration moves. It counts toward the agreement label, the same as your partner's.
-   - The integrations you deliver through a connector.
-   - Public answers to reviews, checked before they go live.
-   - We tell search engines when you update a page.
+4. **What a free claim gets you.** Three outcomes: your listing in your words, your integrations owned by you, a complete listing at no cost. The seat and checklist links stay, in the lede and the first item.
+5. **What Managed adds.** The price and terms line first, from the shared constants. Then six lines in three jobs: explain what your product does on a project (how teams use it; trades, audiences and phases), back up your integrations (confirmed data flows; integrations page and API docs links; connector integrations), and answer buyers in public (review replies). Each bold lead-in links to the docs page that explains it. "Search engine notice" stays on the plan cards and the docs page, not in this list.
 6. **Plan cards.** Free and Managed side by side (§4, placement `card`). Reuse `DocsPlansComparisonComponent`'s cards. Do not copy them.
 7. **How listings are sorted.** "Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that." Link to `/docs/trust/how-ranking-works`. Write it as the reason buyers trust the directory, not as a disclaimer.
-8. **Coming soon.** Performance reporting for Managed, labelled as not available yet. Reuse the docs page's wording.
+8. **Coming soon.** Performance reporting for Managed, labelled as not available yet, framed as what it will let the vendor see. It keeps the sentence that it never changes where a listing ranks or appears.
 9. **FAQ.** Who can claim; how long approval takes (only once §12 confirms a time); several products; invoice or purchase order; what happens when a plan ends; whether paying affects reviews or ranking. Use a native `<details>` list.
 10. **Closing panel.** §4, placement `bottom`.
 
-One `h1`, then `h2` per section, in this order.
+One `h1`, then `h2` per section, in this order. What Managed adds groups its lines under three `h3`s, above the plan cards' own `h3`s.
+
+**This page carries its own benefit copy (settled 2026-10-12).** `/docs/vendors/plans` stays the feature reference. This page is the pitch. Every Free and Managed line says three things, in order: what the vendor can do, what the vendor gains, and what the buyer or the end user gains. The end user is the person who uses the integration on a project. The facts stay aligned with the docs page. The sentences do not have to match, and no test makes them. Two things stay shared: the plan cards (item 6, one component) and the sort rule (item 7, one i18n id, `@@app.docs.plans.sortRule`, which reads the same as the Plans page). `vendor-program/vendor-program-copy.component.spec.ts` pins only the sort rule and the Plans page fragments this page links to.
+
+**Doc links open in a new tab (settled 2026-10-12).** Every link on this page to `/docs/*` opens in a new tab: the section links, the FAQ answers, "How ranking works" and "Compare every feature side by side". So does "View the listing" on a Find your product result. Each carries `target="_blank" rel="noopener"` and `aec-new-tab-icon`, the drawn icon plus the visually hidden "(opens in a new tab)". The reason is that a vendor reading the pitch keeps the claim one tab away. Conversion links stay in the tab: every claim link, the Managed inquiry, "Ask us to add it" and "Go to your portal". This is a page-scoped exception to `DESIGN.md`'s new-tab rule. `/docs/vendors/plans` keeps its links in the tab.
 
 **Full width at desktop (settled 2026-10-12).** No narrow column with a blank right half: fill desktop width by layout. From `lg`, every section uses the whole `max-w-7xl` container, at 1024, 1280 and 1440px alike. Prose keeps a readable measure inside its column. The layout per section:
 
 | Section | From `lg` |
 |---|---|
 | Hero | The copy and both buttons in the left seven of twelve columns. "How claiming works" in the right five: three numbered steps (find, claim, we review it), facts the FAQ already states. Not a heading. Hidden below `lg`. |
-| The problem, Find your product, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. Find your product puts the box, the "ask us to add it" line and the result card on the right. |
-| What Free gives you | The four outcomes in four columns (two from `md`). |
-| What Managed adds | A split: heading and lede in the left four columns, the seven lines as a two-column list in the right eight. |
+| What changes when you claim, Find your product, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. What changes when you claim puts the two labels side by side on the right (stacked below `sm`). Find your product puts the box, the "ask us to add it" line and the result card on the right. |
+| What a free claim gets you | The three outcomes in three columns from `lg`. One column below. |
+| What Managed adds | A split: heading and terms line in the left four columns, the three jobs stacked in the right eight, each job's lines as a two-column list from `md`. |
 | Plan cards | The shared cards side by side across the full width. |
 | How listings are sorted | The Bone panel, split: heading and sort rule left, the trust line and link right. |
 | Closing panel | The Forest panel, split: heading and terms left, the buttons and next steps right (`PlanCtaPanelComponent`'s `split` input). |
@@ -197,6 +194,7 @@ The SSR HTML is always the signed-out page. After hydration:
 - "Your products may already be listed", never "are already listed".
 - Catalog counts, if any appear, are read from the API at build or render time, never typed in. At launch there are none (§13).
 - The page describes only what ships, except the labelled "Coming soon" section. That is the same ruling as the docs page.
+- **Benefit lines (2026-10-12).** Each Free and Managed line names a feature, then the vendor's gain, then the buyer's or end user's gain (§3). A gain is an outcome a reader can check on a real page. It is never a number, a ranking effect or a promise about a label's value. The trades line may say buyers browsing or filtering by a trade find the products tagged with it. It may not say they find them sooner or higher. The data flow line may say the vendor's answer counts the same as its partner's. It may not promise any label.
 
 ---
 
