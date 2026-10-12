@@ -16,6 +16,7 @@ import type { PlanInquirySubmit } from '@aeci/shared';
 
 import { Analytics } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
+import { VendorPlanStatus } from '../../vendor/vendor-plan-status';
 import { PlanInquiryDialog } from './plan-inquiry-dialog';
 import { PlanInquiryForm } from './plan-inquiry-form';
 import { PlanInquiryService } from './plan-inquiry.service';
@@ -25,14 +26,20 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-function setup(sessionEmail: string | null = null, page?: 'docs_plans' | 'vendor_program') {
+function setup(
+  sessionEmail: string | null = null,
+  page?: 'docs_plans' | 'vendor_program',
+  vendor: string | null = null,
+) {
   const email = signal<string | null>(sessionEmail);
+  const vendorName = signal<string | null>(vendor);
   const planInquirySubmitted = vi.fn();
   TestBed.configureTestingModule({
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: SessionStatus, useValue: { email: email.asReadonly() } },
+      { provide: VendorPlanStatus, useValue: { vendorName: vendorName.asReadonly() } },
       { provide: Analytics, useValue: { planInquirySubmitted } },
     ],
   });
@@ -43,6 +50,7 @@ function setup(sessionEmail: string | null = null, page?: 'docs_plans' | 'vendor
   return {
     fixture,
     email,
+    vendorName,
     planInquirySubmitted,
     http: TestBed.inject(HttpTestingController),
     el: fixture.nativeElement as HTMLElement,
@@ -105,6 +113,48 @@ describe('PlanInquiryForm', () => {
     await settle();
     fixture.detectChanges();
     expect(field(fixture, 'email').value).toBe('typed@acme.example');
+  });
+
+  // AECI-1286, VENDOR_PROGRAM_PAGE_SPEC.md section 5: a vendor seat's company name.
+  it('prefills the company from a vendor seat once', async () => {
+    const { fixture, vendorName } = setup(null, undefined, 'Acme Software');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+
+    // One-shot: a later name (an account switch) does not refill the field.
+    vendorName.set('Other Co');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+  });
+
+  it('prefills the company when the vendor name lands after the form opens', async () => {
+    const { fixture, vendorName } = setup();
+    expect(field(fixture, 'company').value).toBe('');
+    vendorName.set('Acme Software');
+    await settle();
+    fixture.detectChanges();
+    expect(field(fixture, 'company').value).toBe('Acme Software');
+  });
+
+  it("never overwrites the visitor's own company, even one they cleared", async () => {
+    const typed = setup();
+    type(typed.fixture, 'company', 'Typed Co');
+    typed.vendorName.set('Acme Software');
+    await settle();
+    typed.fixture.detectChanges();
+    expect(field(typed.fixture, 'company').value).toBe('Typed Co');
+
+    TestBed.inject(HttpTestingController).verify();
+    TestBed.resetTestingModule();
+    const cleared = setup();
+    type(cleared.fixture, 'company', 'Typed Co');
+    type(cleared.fixture, 'company', '');
+    cleared.vendorName.set('Acme Software');
+    await settle();
+    cleared.fixture.detectChanges();
+    expect(field(cleared.fixture, 'company').value).toBe('');
   });
 
   it('shows the field errors and sends nothing when email and company are missing', async () => {
@@ -216,6 +266,7 @@ describe('PlanInquiryDialog', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: SessionStatus, useValue: { email: signal(null) } },
+        { provide: VendorPlanStatus, useValue: { vendorName: signal(null) } },
         { provide: Analytics, useValue: { planInquirySubmitted: vi.fn() } },
       ],
     });

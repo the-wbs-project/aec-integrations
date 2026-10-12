@@ -20,6 +20,20 @@ import type { AutocompleteSearchFn, AutocompleteSuggestion } from './autocomplet
 /** Search-as-you-type debounce, ms — a touch snappier than `/search`'s 200ms. */
 const AUTOCOMPLETE_DEBOUNCE_MS = 180;
 
+/**
+ * One settled search, for a caller that reacts to the result set rather than to a
+ * chosen option (the vendor program page's Find your product, AECI-1287). `query`
+ * is the trimmed text that settled, `''` when the box was cleared. `count` is the
+ * suggestion count; `total` is the index-wide match count when the seam reports it.
+ * `failed` is a search that errored, which is not a miss.
+ */
+export interface AutocompleteSettled {
+  readonly query: string;
+  readonly count: number;
+  readonly total: number | null;
+  readonly failed: boolean;
+}
+
 export class AutocompleteController {
   /** Current query text — mirrors the input synchronously (no debounce). */
   readonly query = signal('');
@@ -51,7 +65,11 @@ export class AutocompleteController {
   /** Monotonic request id; a resolved search is ignored unless it is still the latest. */
   private seq = 0;
 
-  constructor(private readonly searchFn: AutocompleteSearchFn) {}
+  constructor(
+    private readonly searchFn: AutocompleteSearchFn,
+    /** Optional: told about every settled search and every clear. The header passes none. */
+    private readonly onSettled?: (settled: AutocompleteSettled) => void,
+  ) {}
 
   /** Mirror the query to the signal now, run the (debounced) search. */
   setQuery(value: string): void {
@@ -67,6 +85,7 @@ export class AutocompleteController {
       this._vendors.set([]);
       this._loading.set(false);
       this._hasSearched.set(false);
+      this.onSettled?.({ query: '', count: 0, total: null, failed: false });
       return;
     }
 
@@ -92,6 +111,12 @@ export class AutocompleteController {
         this._vendors.set(result.vendors);
         this._hasSearched.set(true);
         this._loading.set(false);
+        this.onSettled?.({
+          query,
+          count: result.products.length + result.vendors.length,
+          total: result.nbHits ?? null,
+          failed: false,
+        });
       })
       .catch(() => {
         if (mine !== this.seq) return;
@@ -101,6 +126,7 @@ export class AutocompleteController {
         this._vendors.set([]);
         this._hasSearched.set(true);
         this._loading.set(false);
+        this.onSettled?.({ query, count: 0, total: null, failed: true });
       });
   }
 

@@ -7,6 +7,7 @@ import { Title } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { SessionStatus } from '../auth/session-status';
+import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { ContactPage } from './contact';
 
 function setup(): { host: HTMLElement; title: Title } {
@@ -61,6 +62,7 @@ describe('ContactPage', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: SessionStatus, useValue: { email: signal(null) } },
+        { provide: VendorPlanStatus, useValue: { vendorName: signal(null) } },
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { queryParamMap: convertToParamMap({ topic: 'managed' }) } },

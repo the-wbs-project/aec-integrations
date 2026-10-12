@@ -131,4 +131,47 @@ describe('AutocompleteController', () => {
     vi.advanceTimersByTime(500);
     expect(searchFn).not.toHaveBeenCalled();
   });
+
+  // AECI-1287: the optional settled hook, for a caller that reacts to the result set.
+  it('reports each settled search, each clear, and each failure to an onSettled caller', async () => {
+    const onSettled = vi.fn();
+    const searchFn = vi
+      .fn()
+      .mockResolvedValueOnce({ ...result('Revit', 'Rhino'), nbHits: 9 })
+      .mockRejectedValueOnce(new Error('network'));
+    const controller = new AutocompleteController(searchFn, onSettled);
+
+    controller.setQuery(' rev ');
+    vi.advanceTimersByTime(180);
+    await flush();
+    controller.setQuery('');
+    controller.setQuery('zzz');
+    vi.advanceTimersByTime(180);
+    await flush();
+    await flush();
+
+    expect(onSettled.mock.calls.map(([s]) => s)).toEqual([
+      { query: 'rev', count: 2, total: 9, failed: false },
+      { query: '', count: 0, total: null, failed: false },
+      { query: 'zzz', count: 0, total: null, failed: true },
+    ]);
+  });
+
+  it('does not report a superseded response', async () => {
+    const onSettled = vi.fn();
+    const first = deferred<AutocompleteResult>();
+    const searchFn = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(result('Revit'));
+    const controller = new AutocompleteController(searchFn, onSettled);
+    controller.setQuery('r');
+    vi.advanceTimersByTime(180);
+    controller.setQuery('rev');
+    vi.advanceTimersByTime(180);
+    await flush();
+    first.resolve(result('Rhino', 'Rubble'));
+    await flush();
+    expect(onSettled.mock.calls.map(([s]) => s.query)).toEqual(['rev']);
+  });
 });

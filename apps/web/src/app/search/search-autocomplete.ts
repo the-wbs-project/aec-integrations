@@ -33,6 +33,12 @@
  * and `querySubmitted` (Enter with no option → `/search?q=`). The wrapping
  * `<form action="/search" method="get">` is the no-JS base layer.
  *
+ * A third mount, Find your product on `/vendor-program` (AECI-1287), uses the
+ * optional hooks the header leaves at their defaults: a visible `label`, a taller
+ * `inputHeightClass`, and `searchSettled`, which reports each settled result set
+ * (and each clear) so the page can show its own "no match" line and count
+ * searches. All of them default to the header's markup and behavior.
+ *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a
  * zero-hit query therefore shows no listbox (kept strictly `role=option`-only
@@ -55,7 +61,7 @@ import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
 
 import { readAlgoliaConfig } from './algolia-config';
-import { AutocompleteController } from './autocomplete-controller';
+import { AutocompleteController, type AutocompleteSettled } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 
@@ -70,9 +76,15 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
       method="get"
       (submit)="onSubmit($event)"
     >
-      <label [attr.for]="inputId()" class="sr-only" i18n="@@app.search.autocomplete.label"
-        >Search</label
-      >
+      @if (label(); as text) {
+        <label [attr.for]="inputId()" [class]="labelVisible() ? labelClass() : 'sr-only'">{{
+          text
+        }}</label>
+      } @else {
+        <label [attr.for]="inputId()" class="sr-only" i18n="@@app.search.autocomplete.label"
+          >Search</label
+        >
+      }
       <input
         ngCombobox
         #combobox="ngCombobox"
@@ -90,7 +102,9 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
         [placeholder]="placeholderText()"
         [class]="
           inputClass() +
-          ' h-9 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+          ' ' +
+          inputHeightClass() +
+          ' rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
         "
       />
 
@@ -163,11 +177,25 @@ export class SearchAutocomplete {
   readonly inputClass = input('w-52');
   /** Optional placeholder override; defaults to the localized house copy. */
   readonly placeholder = input<string | undefined>(undefined);
+  /** Optional label text (already localized); defaults to the house "Search". */
+  readonly label = input<string | undefined>(undefined);
+  /** Show `label` on screen instead of `sr-only`. The header keeps it hidden. */
+  readonly labelVisible = input(false);
+  /** Classes for a visible label. */
+  readonly labelClass = input('mb-2 block text-sm font-semibold text-(--text-primary)');
+  /** Tailwind height utility for the input. The header keeps `h-9`. */
+  readonly inputHeightClass = input('h-9');
 
   /** Emitted when Enter is pressed with no suggestion chosen → `/search?q=`. */
   readonly querySubmitted = output<string>();
   /** Emitted when a suggestion is committed → its detail page. */
   readonly suggestionChosen = output<AutocompleteSuggestion>();
+  /**
+   * Emitted when a search settles, and when the box is cleared (`query: ''`). For a
+   * caller that reacts to the result set, such as a "no match" line (AECI-1287).
+   * Browser-only, like every search here. The header does not listen.
+   */
+  readonly searchSettled = output<AutocompleteSettled>();
 
   /** Combobox text value (two-way with `ngCombobox`). */
   protected readonly queryModel = signal('');
@@ -218,7 +246,9 @@ export class SearchAutocomplete {
       void this.factory(config)
         .then((searchFn) => {
           if (this.destroyed) return;
-          this.controller.set(new AutocompleteController(searchFn));
+          this.controller.set(
+            new AutocompleteController(searchFn, (settled) => this.searchSettled.emit(settled)),
+          );
         })
         .catch((error: unknown) => {
           // Autocomplete must never break the header — degrade silently.
