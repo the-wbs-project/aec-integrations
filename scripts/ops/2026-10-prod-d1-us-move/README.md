@@ -1,6 +1,6 @@
 # Move the production D1 from APAC to ENAM (AECI-839)
 
-**Status: prepared and rehearsed 2026-10-05. Cutover not run.** Production still reads and writes `aeci-app-production` in APAC.
+**Status: cutover complete.** Verified 2026-10-12: the production binding resolves to `aeci-app-production-us` (`1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b`) in ENAM, with active reads and writes. The rehearsal results and cutover instructions below are retained as a historical record; their pre-cutover statements are not the current production state.
 
 The 2026-10-04 account move created `aeci-app-production` without a location hint. It landed in APAC. Most traffic is US (IAD, ORD, LAX), so every D1 query from a US request crosses the Pacific and back. Detail renders got slower.
 

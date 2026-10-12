@@ -279,3 +279,5 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
   `docs/AUTH_AND_RLS.md` (rewritten), `docs/REVIEW_APP_PROMOTE_API.md` (updated).
 
 **Amendment 2026-10-10 (AECI-1268):** The `preview` D1 database is retired. `aeci-app-preview` survives only as the local-only name in the top-level `apps/api/wrangler.jsonc` block, so `.wrangler/state` carries over. Remote databases are staging, demo and production. Local dev runs on that block with `ENV=development`.
+
+**Amendment 2026-10-12 (AECI-839):** The Context note that Smart Placement can't help no longer holds for D1. The production D1 primary is in ENAM, and replicas in sparse regions go inactive between requests. The production API Worker now runs under targeted placement to `aws:us-east-1` as a measured trial. Staging, demo and the SSR Worker stay at the edge. The current note is in `apps/api/wrangler.jsonc`.

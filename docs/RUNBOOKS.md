@@ -247,6 +247,27 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
    `3bbbd4ca…` or the region is `APAC`, the binding points at the retired copy. Checking
    `aeci-app-production-us` by name proves nothing here, because that database is always
    ENAM whatever the binding says. See `scripts/ops/2026-10-prod-d1-us-move/README.md`.
+
+0b. **Is placement active on the API Worker?** Production's API Worker runs under
+   targeted placement (`placement.region: aws:us-east-1`) as an AECI-839 trial. The
+   API is private, so you cannot curl it. Open the Cloudflare dashboard at Workers →
+   `aeci-api-production` → Settings and confirm placement targets `aws:us-east-1`.
+   Targeted placement has no analysis period, so there is nothing to wait for. A
+   `cf-placement` header of `remote-XXX` means a Worker ran away from the visitor's
+   colo. `local-XXX` means it ran at the edge. A production page response does not
+   show the API's value. That header belongs to the SSR Worker, which is never placed. In Workers Logs, `$workers.event.request.cf.colo`
+   stays the visitor's colo either way.
+
+   Judge the trial by p50 gateway wall time, SIN against IAD. The 2026-10-12 baseline,
+   before placement:
+
+   | Colo | p50 gateway wall time |
+   | --- | --- |
+   | SIN | 1739 ms |
+   | IAD | 892 ms |
+
+   The trial works if SIN closes on IAD.
+
 1. Is the API slow? Check `p95:aeci.api.query.duration_ms by {endpoint}` for the detail
    endpoints (`/api/products/:slug`, `/api/vendors/:slug`, `/api/integrations/:id`).
 2. D1 health: the API's `db.batch` / query spans in the logs (`service:aeci-api`) and
