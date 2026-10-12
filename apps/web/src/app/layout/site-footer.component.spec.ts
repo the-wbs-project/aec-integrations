@@ -50,15 +50,25 @@ describe('SiteFooter', () => {
     ]);
   });
 
-  it('carries the Help column into /docs (AECI-1252)', () => {
+  it('carries the Help column into /docs (AECI-1252, AECI-1253)', () => {
     // STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3: the help center is footer-only,
-    // as its own column. "For vendors" is deliberately absent until AECI-1253,
-    // because /docs/vendors stays noindex until the portal opens.
+    // as its own column. The vendor guide joined it when AECI-1253 made
+    // /docs/vendors indexable.
     expect(column(render(), 'Help')).toEqual([
       '/docs',
       '/docs/getting-started',
       '/docs/trust/how-ranking-works',
+      '/docs/vendors/overview',
     ]);
+  });
+
+  it('labels the vendor guide link "Vendor guide", not "For vendors" (AECI-1253)', () => {
+    // "For vendors" is the Company column's link to /vendor-program (AECI-1283).
+    // Two links with one name and two destinations would confuse a screen
+    // reader's links list.
+    const help = render().querySelector('nav[aria-label="Help"]');
+    const link = help?.querySelector('a[href="/docs/vendors/overview"]');
+    expect(link?.textContent?.trim()).toBe('Vendor guide');
   });
 
   it('carries all four Legal pages', () => {

@@ -45,8 +45,9 @@ export function indexingAllowed(env: { ALLOW_INDEXING?: string }): boolean {
 
 /**
  * Paths held out of the index even where `ALLOW_INDEXING` is `"true"`
- * (AECI-1104, AECI-1248). The list lives in `src/app/docs/docs-indexing.ts` so
- * the docs components, this egress stamp and the sitemap read ONE list. It is
- * re-exported here so server code keeps one import site for crawler policy.
+ * (AECI-1104, AECI-1248). Empty since AECI-1253 published the vendor guide. The
+ * list lives in `src/app/docs/docs-indexing.ts` so the docs components, this
+ * egress stamp and the sitemap read ONE list. It is re-exported here so server
+ * code keeps one import site for crawler policy.
  */
 export { NOINDEX_PATH_PREFIXES, pathForcesNoindex } from '../app/docs/docs-indexing';

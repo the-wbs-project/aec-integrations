@@ -30,33 +30,35 @@ describe('NOINDEX_DIRECTIVE', () => {
   });
 });
 
-describe('pathForcesNoindex (AECI-1104, AECI-1248; lifted by AECI-1253)', () => {
-  it('holds the vendor guide out of the index, its section index included', () => {
-    expect(pathForcesNoindex('/docs/vendors/your-seat')).toBe(true);
-    // The bare section index: a `/docs/vendors/` prefix alone would miss it.
-    expect(pathForcesNoindex('/docs/vendors')).toBe(true);
-  });
-
-  it('matches whole segments, not a string prefix', () => {
-    expect(pathForcesNoindex('/docs/vendorsx')).toBe(false);
-    expect(pathForcesNoindex('/docs/vendors-guide/x')).toBe(false);
-  });
-
-  it('leaves every other path to the env gate', () => {
+describe('pathForcesNoindex (AECI-1104, AECI-1248; emptied by AECI-1253)', () => {
+  it('holds nothing out since AECI-1253: the vendor guide and every help page are indexable', () => {
     for (const path of [
       '/',
       '/docs',
-      '/docs/reviewers',
+      '/docs/vendors',
+      '/docs/vendors/overview',
+      '/docs/vendors/plans',
       '/docs/reviewers/requests-and-corrections',
+      '/vendor-program',
       '/methodology',
-      '/vendors/acme',
     ]) {
       expect(pathForcesNoindex(path), path).toBe(false);
     }
   });
 
+  // The live list is empty, so the matching rule is pinned with an explicit list.
+  it('covers a prefix and everything below it, the bare section index included', () => {
+    expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
+    expect(pathForcesNoindex('/docs/vendors', ['/docs/vendors'])).toBe(true);
+  });
+
+  it('matches whole segments, not a string prefix', () => {
+    expect(pathForcesNoindex('/docs/vendorsx', ['/docs/vendors'])).toBe(false);
+    expect(pathForcesNoindex('/docs/vendors-guide/x', ['/docs/vendors'])).toBe(false);
+  });
+
   it('is one list, re-exported from the app module (STAGE_2_PRODUCT_DOCS_SPEC.md §3)', () => {
     expect(NOINDEX_PATH_PREFIXES).toBe(APP_NOINDEX_PATH_PREFIXES);
-    expect(NOINDEX_PATH_PREFIXES).toEqual(['/docs/vendors']);
+    expect(NOINDEX_PATH_PREFIXES).toEqual([]);
   });
 });

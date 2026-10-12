@@ -68,7 +68,7 @@ A public landing page for AEC software vendors at **`/vendor-program`**.
 - **Sitemap:** add the URL in `apps/web/src/server/sitemap.ts` beside `/methodology`.
 - **No pricing structured data** until the price is final. The price is "agreed with you" per company (§7), so a schema.org `Offer` would overstate it.
 - **Target searches**, for the title and description only: "list my software", "AEC software directory listing", "construction software integrations directory". Do not stuff them into the body.
-- The page links into `/docs/vendors/*`, which stays noindex until AECI-1253. Linking an indexable page to noindex pages is correct. Do not "fix" it.
+- The page links into `/docs/vendors/*`, which is indexable and in the sitemap since AECI-1253 (2026-10-12).
 
 ### 2.4 Inbound links
 

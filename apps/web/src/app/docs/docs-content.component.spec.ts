@@ -30,6 +30,7 @@ import {
   getDocsSectionIndexByPath,
   indexableDocsPaths,
 } from './docs-content';
+import { NOINDEX_PATH_PREFIXES, pathForcesNoindex } from './docs-indexing';
 import { appRoutePatterns, findBrokenDocsLinks } from './docs-link-check.harness';
 import { headingSlug } from './docs-markdown';
 import { DocsShellComponent } from './docs-shell';
@@ -773,7 +774,7 @@ describe('docsNeighbours', () => {
 });
 
 describe('indexableDocsPaths', () => {
-  it('lists /docs and the reader and reviewer pages, and leaves the noindex vendor guide out', () => {
+  it('lists /docs, every help page and the whole vendor guide (AECI-1253)', () => {
     expect(indexableDocsPaths()).toEqual([
       '/docs',
       '/docs/getting-started',
@@ -784,9 +785,18 @@ describe('indexableDocsPaths', () => {
       ...REVIEWER_SLUGS.map((slug) => `/docs/reviewers/${slug}`),
       '/docs/account',
       ...ACCOUNT_SLUGS.map((slug) => `/docs/account/${slug}`),
-      // The vendor guide, overview and claiming included, sits under
-      // /docs/vendors: noindex until AECI-1253.
+      // The vendor guide is indexable since AECI-1253: its landing and every page.
+      '/docs/vendors',
+      ...VENDOR_SLUGS.map((slug) => `/docs/vendors/${slug}`),
     ]);
+  });
+
+  it('holds no docs path out, and the prefix rule still works for a later entry', () => {
+    // NOINDEX_PATH_PREFIXES is empty since AECI-1253. The explicit-list call
+    // pins the matching rule a later entry would rely on.
+    expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
+    expect(NOINDEX_PATH_PREFIXES).toEqual([]);
+    expect(indexableDocsPaths().some((path) => pathForcesNoindex(path))).toBe(false);
   });
 });
 

@@ -28,7 +28,8 @@
  *
  * **Noindex by path.** The robots meta comes from `pathForcesNoindex`
  * (`docs-indexing.ts`), the same list the egress `X-Robots-Tag` stamp and the
- * sitemap read. Today it holds the vendor guide out until AECI-1253.
+ * sitemap read. It has been empty since AECI-1253, so every docs page is
+ * indexable.
  *
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule, `src/content/README.md`). The chrome below is `i18n` /
@@ -237,7 +238,6 @@ export class DocsPageComponent {
       title: $localize`:@@meta.docsPageTitle:${page.title}:title: · AEC Integrations`,
       description: page.description,
       canonical: canonicalUrl(page.path),
-      // TODO(AECI-1253): the vendor guide stays noindex until it is published.
       noindex: pathForcesNoindex(page.path),
     });
   }

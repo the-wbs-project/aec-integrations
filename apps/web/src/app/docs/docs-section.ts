@@ -17,8 +17,9 @@
  * below it. Headings render from the template with bound ids, as on an article,
  * because the `[innerHTML]` sanitizer strips `id`.
  *
- * Static, SSR-safe and edge-cached like the article page. Noindex by path
- * (`pathForcesNoindex`), so `/docs/vendors` stays out with the vendor guide.
+ * Static, SSR-safe and edge-cached like the article page. Indexability is by
+ * path (`pathForcesNoindex`). Since AECI-1253 that list is empty, so
+ * `/docs/vendors` is indexable with the rest of the vendor guide.
  * Light theme only.
  */
 import { Component, inject } from '@angular/core';

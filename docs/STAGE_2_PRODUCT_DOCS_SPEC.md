@@ -2,8 +2,17 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built (AECI-1104) and, since AECI-1253, indexable, in the sitemap and in the footer Help column. The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-12, the vendor guide is published (AECI-1253, items 1, 2 and 4).** Chris ruled that no
+> help page or landing page is noindex. `NOINDEX_PATH_PREFIXES` is now empty, so `/docs/vendors` and
+> every page under it renders no robots meta, gets no path-forced `X-Robots-Tag`, and is listed in
+> `sitemap.xml`. The list and its three readers stay, so holding a path out again is a one-line
+> change. The footer Help column gained "Vendor guide" (`/docs/vendors/overview`). This was
+> decoupled from AECI-1105: `/vendor-program` is public and indexable and links into the guide. The
+> portal "Learn more" links (§7 question 1) and the `STAGE_2_1_SPEC.md` §5 tick stay with AECI-1105.
+> Every "noindex until AECI-1253" statement in the notes below is history.
 
 > **2026-10-12, two guides behind a toggle (AECI-1271).** The help center's For vendors section
 > is gone. Its two pages, `overview` and `claiming-your-listing`, moved into the vendor guide at
@@ -29,7 +38,8 @@
 >   page. On its pages the shell shows the vendor guide's own tree and a "Back to the help center"
 >   link. The home and the help-center sidebar never list it. Which tree renders follows from the
 >   URL alone, so cached pages stay visitor-neutral. Indexing is unchanged: everything under
->   `/docs/vendors`, the For vendors pages included, stays noindex until AECI-1253.
+>   `/docs/vendors`, the For vendors pages included, stays noindex until AECI-1253. *(AECI-1253
+>   lifted it on 2026-10-12.)*
 > - **Vendor material left the buyer pages** for the vendor guide: "If you are the vendor" on
 >   `agreement-states`, the vendor change-request section of `requests-and-corrections` (one
 >   sentence now links to `contests-and-protests`), the seat-address rule on `signing-in`, and the
@@ -126,9 +136,9 @@
 > page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
-> AECI-1253 lifts it, in the same sitting as AECI-1105. Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
+> AECI-1253 lifts it, in the same sitting as AECI-1105. *(It lifted it on 2026-10-12, ahead of AECI-1105, by Chris's ruling. The footer Help column now links the guide too.)* Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
 > "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs` but
-> not into the vendor guide. The portal "Learn more" links (AECI-1253) are not built. The same-PR sync rule (§4) is in
+> not into the vendor guide. The portal "Learn more" links (now AECI-1105) are not built. The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 
 ---
@@ -185,7 +195,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser), on both `/docs` and `/docs/*`. Freshness on deploy is automatic (§2.3). **`Cache-Tag: route:index`**, not the `docs docs:{slug}` first sketched here (AECI-1104): the content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
-| Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list. A prefix covers the path itself and everything below it, so `/docs/vendors` covers the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
+| Indexing | Every docs page is indexable since AECI-1253. Driven by path: `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list, and it is empty. A prefix covers the path itself and everything below it, so a `/docs/x` entry would cover the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Holding a section out is a one-line change |
 | Sitemap | `/docs`, every indexable section index and every indexable page, built from the manifest. **No `<lastmod>`**, the same as `/legal/*`: `last_updated` is a display string, and parsing it would add a second date format |
 | Re-crawl pings | **None.** IndexNow is not part of docs publishing (Chris, 2026-10-08). Its producers are catalog promotes and vendor portal writes. Nothing submits a build-inlined static page, and `/methodology` and `/legal/*` rely on the sitemap too |
 | Search | **One search box per guide (AECI-1270).** It sits under the guide toggle and searches only the current guide. Records live in one Algolia index per tier on the existing app: `staging_docs` and `production_docs`, named `<prefix>_docs` like the entity indexes (this replaced the `docs_{env}` sketch). Demo reads `production_docs` and never writes it. Records are built from the manifest by `buildDocsSearchRecords` (`docs-search-records.ts`): one per page lede, one per `h2` with its `h3`s folded in, `## Related` skipped, the vendor guide's landing intro included. Each carries `guide` (`help` or `vendor`), and the box filters on it. Anchors are the ids `renderDocsBody` renders. `scripts/algolia/push-docs.mjs` pushes them on every staging deploy and production promote, after the settings step: save every record, then delete ids no longer built, never a full replace. The box renders in the browser only, after hydration, and is absent when the inline config carries no `docsIndex`. It is an Angular Aria combobox on the lite client, loaded only in the lazy `/docs` chunk. Settings: `SEARCH_RANKING.md` §3.5. Keys and CI: `CICD_PLAN.md` §7.5 |
@@ -251,7 +261,7 @@ on neither the General home nor its sidebar):
    notifications-and-messages; performance only if analytics.view has shipped; product-versions waits until a vendor can create a release (AECI-1263)
 ```
 
-Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is noindex until AECI-1253.
+Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is indexable and in the sitemap since AECI-1253, like the General guide.
 
 > **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
@@ -285,7 +295,7 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 
 ## 7. Open questions, answered
 
-1. **Which portal moments get a "Learn more" link?** **Answered 2026-10-08 (AECI-1247).** One link per moment, added by AECI-1253 when the vendor guide is published:
+1. **Which portal moments get a "Learn more" link?** **Answered 2026-10-08 (AECI-1247).** One link per moment. The vendor guide was published by AECI-1253 on 2026-10-12, but these links were split off to AECI-1105 by that day's ruling and are not built yet:
 
    | Portal moment | Component | Page |
    |---|---|---|
@@ -300,7 +310,7 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
-3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "Vendor guide" from AECI-1253. It is not called "For vendors": that label is the Company column's link to `/vendor-program` (AECI-1283). Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "Vendor guide" (`/docs/vendors/overview`), shipped by AECI-1253 on 2026-10-12. It is not called "For vendors": that label is the Company column's link to `/vendor-program` (AECI-1283). Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
 4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
 
 ## 8. Epic decomposition (2026-10-08)
@@ -315,7 +325,7 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T3 | AECI-1250 | Reviewer and account pages | T1 |
 | T4 | AECI-1251 | The rest of the vendor guide | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
-| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links | T1; run in the same sitting as AECI-1105 |
+| T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links. **The first two shipped 2026-10-12** by Chris's ruling, ahead of AECI-1105. The portal links stay with AECI-1105 | T1; the portal links run in the same sitting as AECI-1105 |
 | T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |
 
 The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6).

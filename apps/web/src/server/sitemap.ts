@@ -215,8 +215,8 @@ export async function resolveSitemapEntries(
     // AECI-1248 — the product docs, from the manifest: `/docs`, each indexable
     // section index and page. No `<lastmod>`, the `/legal/*` rule: the page's
     // `last_updated` is a display string, not a date. The vendor guide
-    // (`/docs/vendors` and below) is ABSENT while `pathForcesNoindex` covers it;
-    // TODO(AECI-1253) lifts that, and this list follows with no change here.
+    // (`/docs/vendors` and below) is listed since AECI-1253 emptied the
+    // `pathForcesNoindex` list. A path that list covers is left out.
     ...docsPaths.map(
       (path): SitemapEntry => ({ loc: `${base}${path}`, changefreq: 'monthly', priority: 0.4 }),
     ),

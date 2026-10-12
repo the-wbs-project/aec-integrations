@@ -441,9 +441,9 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // AECI-1104, AECI-1248 — the product docs: `/docs` (home), `/docs/:section`
   // (section index) and `/docs/:section/:slug` (article). Build-inlined Markdown,
   // static and visitor-state-neutral, so the static-page TTL. Content is fresh on
-  // every deploy because the cache key includes the Worker version. The vendor
-  // guide is noindex for now (`pathForcesNoindex`), which does not affect
-  // cacheability. Bare `/docs` must match too: `startsWith('/docs/')` alone left
+  // every deploy because the cache key includes the Worker version. Every docs
+  // page is indexable since AECI-1253; a path `pathForcesNoindex` covers would
+  // still be cacheable. Bare `/docs` must match too: `startsWith('/docs/')` alone left
   // the home on the fail-closed `private, no-store` default.
   {
     match: (p) => p === '/docs' || p.startsWith('/docs/'),
@@ -1275,9 +1275,9 @@ export function createApp(options: {
   app.use('*', async (c, next) => {
     await next();
     const pathname = new URL(c.req.url).pathname;
-    // AECI-1104, AECI-1248: a few paths stay noindex even in the indexed env
-    // (`pathForcesNoindex`, the unopened vendor guide incl. its `/docs/vendors`
-    // index). Same stamp, same bake.
+    // AECI-1104, AECI-1248: a path `pathForcesNoindex` covers stays noindex even
+    // in the indexed env. Same stamp, same bake. The list is empty since
+    // AECI-1253 published the vendor guide.
     if (indexingAllowed(c.env) && !pathForcesNoindex(stripLocalePrefix(pathname).path)) return;
     if (pathname.startsWith('/api/')) return;
     const res = c.res;

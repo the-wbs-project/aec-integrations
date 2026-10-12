@@ -543,8 +543,8 @@ export const routes: Routes = [
   // `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>`
   // (article). Lazy children generated from the docs manifest, so the Markdown
   // ships only on docs routes and an unknown `/docs/*` falls through to the `**`
-  // 404. Cacheable on the static-page TTL; `/docs/vendors` and everything under
-  // it is noindex until the vendor guide is published (AECI-1253).
+  // 404. Cacheable on the static-page TTL. Every docs page, the vendor guide
+  // included, is indexable and in `sitemap.xml` since AECI-1253.
   {
     path: 'docs',
     loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),

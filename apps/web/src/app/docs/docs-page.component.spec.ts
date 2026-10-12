@@ -117,16 +117,24 @@ describe('DocsPageComponent', () => {
     ]);
   });
 
-  it('is noindex on the vendor guide until AECI-1253 and sets title + canonical', () => {
+  it('is indexable on the vendor guide (AECI-1253) and sets title + canonical', () => {
     const { title, meta } = render('vendors', 'your-seat');
-    expect(meta.getTag('name="robots"')?.content).toBe('noindex');
+    expect(meta.getTag('name="robots"')).toBeNull();
     expect(title.getTitle()).toBe('Your seat · AEC Integrations');
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
       /\/docs\/vendors\/your-seat$/,
     );
   });
 
-  it('is indexable outside the noindex prefixes (the reviewer guide)', () => {
+  it('renders /docs/vendors/overview with no robots meta and a self canonical (AECI-1253)', () => {
+    const { meta } = render('vendors', 'overview');
+    expect(meta.getTag('name="robots"')).toBeNull();
+    expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
+      /\/docs\/vendors\/overview$/,
+    );
+  });
+
+  it('is indexable on the reviewer guide', () => {
     const { meta, host } = render('reviewers', 'requests-and-corrections');
     expect(meta.getTag('name="robots"')).toBeNull();
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(

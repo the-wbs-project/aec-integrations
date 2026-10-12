@@ -2,8 +2,8 @@
  * AECI-1181 — the `/docs/vendors/replying-to-reviews` vendor guide page.
  *
  * The page is build-time-inlined Markdown (`apps/web/src/app/docs/docs-content.ts`),
- * so its body must be in the SSR payload. It stays noindex with the rest of
- * `/docs/vendors/*` until AECI-1105. Content rules are pinned in
+ * so its body must be in the SSR payload. It is indexable with the rest of
+ * `/docs/vendors/*` since AECI-1253. Content rules are pinned in
  * `docs-page.component.spec.ts`; this proves the real route renders and is
  * accessible.
  */
@@ -19,15 +19,17 @@ import {
 const PATH = '/docs/vendors/replying-to-reviews';
 
 test.describe('/docs/vendors/replying-to-reviews — AECI-1181', () => {
-  test('SSR-renders the guide body with a 200 and a noindex header', async ({ request }) => {
+  test('SSR-renders the guide body with a 200 and no robots meta (AECI-1253)', async ({
+    request,
+  }) => {
     const res = await request.get(PATH, { maxRedirects: 0 });
     expect(res.status()).toBe(200);
-    expect(res.headers()['x-robots-tag'] ?? '').toContain('noindex');
 
     const html = await res.text();
     expect(html).toContain('Replying to reviews');
     expect(html).toContain('What readers see');
     expect(html).toContain('A removed reply is final.');
+    expect(html).not.toMatch(/<meta[^>]+name="robots"/);
   });
 
   test('renders one h1 and marks the page current in the sidebar', async ({ page }) => {

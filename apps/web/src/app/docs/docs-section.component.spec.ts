@@ -80,9 +80,9 @@ describe('DocsSectionComponent', () => {
     expect(host.querySelector('nav[aria-label="Breadcrumb"]')).toBeNull();
   });
 
-  it('keeps the vendor guide index noindex (the bare /docs/vendors path)', () => {
+  it('makes the vendor guide index indexable (the bare /docs/vendors path, AECI-1253)', () => {
     const { meta } = render('vendors');
-    expect(meta.getTag('name="robots"')?.content).toBe('noindex');
+    expect(meta.getTag('name="robots"')).toBeNull();
   });
 
   it('leaves the reviewer guide index indexable, with title and canonical', () => {

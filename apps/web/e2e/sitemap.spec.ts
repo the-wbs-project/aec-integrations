@@ -47,13 +47,15 @@ test.describe('GET /sitemap.xml', () => {
     // `/roadmap` stay out (see `server/sitemap.spec.ts`, which pins the absence).
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/methodology<\/loc>/);
     // AECI-1248 — the indexable docs, from the manifest. The vendor guide
-    // (`/docs/vendors` and below) stays out while it is noindex (AECI-1253).
+    // (`/docs/vendors` and below) is listed since AECI-1253.
     // This also proves the sitemap's lazy manifest chunk loads in a cold
     // isolate, before Angular has installed `$localize`.
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs\/reviewers<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs\/reviewers\/requests-and-corrections<\/loc>/);
-    expect(xml).not.toMatch(/\/docs\/vendors/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs\/vendors<\/loc>/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs\/vendors\/overview<\/loc>/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/docs\/vendors\/plans<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/categories<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/audiences<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/phases<\/loc>/);

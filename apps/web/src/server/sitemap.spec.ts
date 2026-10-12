@@ -6,14 +6,17 @@ import type { ServerApiClient } from '../server-api-client';
 import { buildSitemapXml, resolveSitemapEntries, type SitemapEntry } from './sitemap';
 
 // The docs manifest imports `.md` files, which only the Angular build can load.
-// Stand in for it with the paths it yields today (AECI-1248): the vendor guide
-// is noindex and already filtered out by `indexableDocsPaths`. The real
-// derivation is pinned in `app/docs/docs-content.component.spec.ts`.
+// Stand in for it with a sample of the paths it yields today (AECI-1248,
+// AECI-1253): help pages and the vendor guide, which is indexable since
+// AECI-1253. The real derivation is pinned in
+// `app/docs/docs-content.component.spec.ts`.
 vi.mock('../app/docs/docs-content', () => ({
   indexableDocsPaths: () => [
     '/docs',
     '/docs/reviewers',
     '/docs/reviewers/requests-and-corrections',
+    '/docs/vendors',
+    '/docs/vendors/overview',
   ],
 }));
 
@@ -305,15 +308,7 @@ describe('resolveSitemapEntries', () => {
     // The other static pages stay OUT, so a future "add every static page" edit
     // has to be a deliberate one. /roadmap in particular is noindex, and listing
     // a noindexed URL is a crawl-budget contradiction.
-    // AECI-1104: the noindexed vendor guide stays out too, until AECI-1253.
-    for (const path of [
-      '/',
-      '/about',
-      '/updates',
-      '/roadmap',
-      '/docs/vendors',
-      '/docs/vendors/your-seat',
-    ]) {
+    for (const path of ['/', '/about', '/updates', '/roadmap']) {
       expect(
         entries.find((e) => e.loc === `https://aecintegrations.com${path}`),
         path,
@@ -333,13 +328,15 @@ describe('resolveSitemapEntries', () => {
     expect(entry?.lastmod).toBeUndefined();
   });
 
-  it('lists the indexable docs from the manifest, with no lastmod (AECI-1248)', async () => {
+  it('lists the indexable docs from the manifest, vendor guide included, with no lastmod (AECI-1248, AECI-1253)', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const docs = entries.filter((e) => e.loc.startsWith('https://aecintegrations.com/docs'));
     expect(docs.map((e) => e.loc)).toEqual([
       'https://aecintegrations.com/docs',
       'https://aecintegrations.com/docs/reviewers',
       'https://aecintegrations.com/docs/reviewers/requests-and-corrections',
+      'https://aecintegrations.com/docs/vendors',
+      'https://aecintegrations.com/docs/vendors/overview',
     ]);
     for (const entry of docs) expect(entry.lastmod, entry.loc).toBeUndefined();
   });
