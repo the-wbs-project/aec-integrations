@@ -89,11 +89,11 @@ The header row gets no link (§1.2).
 2. **What changes when you claim** (settled 2026-10-12, replaces "The problem"). One or two sentences of the problem, then a before and after panel with the two real maintenance labels: "AEC Integrations maintained" before, "Vendor maintained · Updated" and a date once the vendor saves a change or confirms a page is right (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `STAGE_2_PAID_TIERS_SPEC.md` §13.8). Both labels are drawn by the listing's own `shared/maintenance-marker` component, never retyped, so the page cannot show wording a listing does not. The example date is today, in UTC. A claim alone does not change the label, so the copy never says it does.
 3. **Find your product** (`id="find-your-product"`). §6.
 4. **What a free claim gets you.** Three outcomes: your listing in your words, your integrations owned by you, a complete listing at no cost. The seat and checklist links stay, in the lede and the first item.
-5. **What Managed adds.** The price and terms line first, from the shared constants. Then six lines in three jobs: explain what your product does on a project (how teams use it; trades, audiences and phases), back up your integrations (confirmed data flows; integrations page and API docs links; connector integrations), and answer buyers in public (review replies). Each bold lead-in links to the docs page that explains it. "Search engine notice" stays on the plan cards and the docs page, not in this list.
+5. **What Managed adds.** The price and terms line first, from the shared constants. Then five lines in three jobs: explain what your product does on a project (how teams use it; trades, audiences and phases), back up your integrations (more detailed information about integrations; connector integrations), and answer buyers in public (review replies). Each bold lead-in links to the docs page that explains it. Ruled 2026-10-12: the integrations page and API docs links line and the confirmed data flows line are one entry, "More detailed information about integrations (additional URLs, data flow, etc.).", which keeps both docs links. The plan cards merge the same two items into the same line. "Search engine notice" stays on the plan cards and the docs page, not in this list.
 6. **Plan cards.** Free and Managed side by side (§4, placement `card`). Reuse `DocsPlansComparisonComponent`'s cards. Do not copy them.
 7. **How listings are sorted.** "Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that." Link to `/docs/trust/how-ranking-works`. Write it as the reason buyers trust the directory, not as a disclaimer.
 8. **Coming soon.** Performance reporting for Managed, labelled as not available yet, framed as what it will let the vendor see. It keeps the sentence that it never changes where a listing ranks or appears.
-9. **FAQ.** Who can claim; how long approval takes (only once §12 confirms a time); several products; invoice or purchase order; what happens when a plan ends; whether paying affects reviews or ranking. Use a native `<details>` list.
+9. **FAQ.** Who can claim; how long approval takes (generally within 48 hours, §12); several products; invoice or purchase order; what happens when a plan ends; whether paying affects reviews or ranking. Use a native `<details>` list.
 10. **Closing panel.** §4, placement `bottom`.
 
 One `h1`, then `h2` per section, in this order. What Managed adds groups its lines under three `h3`s, above the plan cards' own `h3`s.
@@ -250,7 +250,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 |---|---|
 | $25 a month per product is the public list price | `MANAGED_LIST_PRICE_CENTS` |
 | $250 a year per product is the public annual price | Chris, then `MANAGED_ANNUAL_PRICE_CENTS` |
-| A claim approval time, if the FAQ states one | The admin claim queue's real turnaround |
+| A claim approval time: "Generally within 48 hours" | Confirmed by Chris 2026-10-12, "generally within 48 hours". Recheck against the admin claim queue's real turnaround |
 | What a confirmed data flow shows publicly | A pair page with a vendor attestation |
 | Any catalog count | The API, on the day |
 
@@ -261,7 +261,7 @@ The top button row, the full-width Managed card button, the closing panel, the r
 | # | Question | Default until decided |
 |---|---|---|
 | 1 | What proof may appear: checked catalog counts, or quotes used with permission? | None. |
-| 2 | A claim approval time in the FAQ? | The FAQ says we review each claim and email the result, with no time. |
+| 2 | A claim approval time in the FAQ? | **Settled 2026-10-12:** "Generally within 48 hours." The FAQ leads with that line, then says a person reads every claim and we email the result. |
 | 3 | A "For vendors" link in the header row? | Footer only. A header link needs a `DESIGN.md` change and the AECI-669 re-measure. |
 | 4 | A `name` field on plan inquiries? | No. It is a schema, migration and email-template change. |
 | 5 | A "Submit your product" flow for a product not in the catalog? | **Settled 2026-10-12:** the contact path with a topic, `/contact?topic=add-product` (§6). A real submission flow remains a future option. |

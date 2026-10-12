@@ -402,32 +402,26 @@ const PLANS_PATH = '/docs/vendors/plans';
                 </h3>
                 <ul [class]="managedList" role="list">
                   <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.dataFlows">
-                      <a
-                        routerLink="/docs/vendors/attesting-an-integration"
-                        target="_blank"
-                        rel="noopener"
-                        [class]="inTextLinkStrong"
-                        >Confirmed data flows.<aec-new-tab-icon
-                      /></a>
-                      Say which data moves in each of your integrations. Buyers see your company's
-                      answer, and it counts the same as your partner's. The person relying on the
-                      integration knows what syncs before a project depends on it.
-                    </ng-container>
-                  </li>
-                  <li [class]="managedItem">
-                    <ng-container i18n="@@vendorProgram.managed.links">
+                    <ng-container i18n="@@vendorProgram.managed.integrationDetail">
                       <a
                         [routerLink]="plansPath"
                         fragment="what-managed-adds"
                         target="_blank"
                         rel="noopener"
                         [class]="inTextLinkStrong"
-                        >Integrations page and API docs links.<aec-new-tab-icon
+                        >More detailed information about integrations (additional URLs, data flow,
+                        etc.).<aec-new-tab-icon
                       /></a>
-                      Send evaluators straight from your listing to your docs. A technical evaluator
-                      is one click from the detail they need, and the person building against your
-                      API starts on the right page.
+                      Link evaluators straight to your integrations page and API docs, and say which
+                      data moves in each of your integrations. Your answer counts the same as your
+                      partner's. Buyers know what syncs before a project depends on it. See
+                      <a
+                        routerLink="/docs/vendors/attesting-an-integration"
+                        target="_blank"
+                        rel="noopener"
+                        [class]="inTextLink"
+                        >Attesting an integration<aec-new-tab-icon /></a
+                      >.
                     </ng-container>
                   </li>
                   <li [class]="managedItem">
@@ -592,8 +586,9 @@ const PLANS_PATH = '/docs/vendors/plans';
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.approval.a">
-                  A person at AEC Integrations reads every claim. Nothing is granted automatically.
-                  We review each claim and email the result to the address you gave.
+                  Generally within 48 hours. A person at AEC Integrations reads every claim. Nothing
+                  is granted automatically. We review each claim and email the result to the address
+                  you gave.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -605,8 +600,8 @@ const PLANS_PATH = '/docs/vendors/plans';
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.products.a">
                   No. One claim gives you a seat on your company's account, and it covers every
-                  product your company makes. Managed is priced per product, and today every product
-                  your company makes is on the same plan as your company.
+                  product your company makes. Plans are per product, so each product can be on the
+                  free plan or on Managed.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -617,8 +612,7 @@ const PLANS_PATH = '/docs/vendors/plans';
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.billing.a">
-                  Yes. We bill Managed by invoice or purchase order. There is no card payment and no
-                  online checkout. Free has nothing to pay.
+                  Yes. We bill paid plans by invoice or purchase order. Free plans require neither.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -629,9 +623,9 @@ const PLANS_PATH = '/docs/vendors/plans';
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.ends.a">
-                  Your company moves to Free. Your seats, sign-in and portal stay. Nothing you
-                  entered is removed, and your listings stay published. What Managed adds becomes
-                  read-only. See
+                  Your company moves to the free plan. Your seats, sign-in and portal stay. Nothing
+                  you entered is removed, and your listings stay published. What Managed adds
+                  becomes read-only. See
                   <a
                     [routerLink]="plansPath"
                     fragment="when-a-managed-plan-ends"

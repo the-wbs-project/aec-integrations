@@ -158,15 +158,24 @@ describe('VendorProgramPage', () => {
     it('links each Managed line to the page that explains it', async () => {
       const { host } = await setup({ plan: stub() });
       const items = [...host.querySelectorAll('#vp-managed li')];
-      expect(items).toHaveLength(6);
+      expect(items).toHaveLength(5);
       const hrefs = items.map((li) => li.querySelector('a')?.getAttribute('href'));
       expect(hrefs).toEqual([
         '/docs/vendors/plans#what-managed-adds',
         '/docs/getting-started/taxonomy',
-        '/docs/vendors/attesting-an-integration',
         '/docs/vendors/plans#what-managed-adds',
         '/docs/vendors/owning-an-integration',
         '/docs/vendors/replying-to-reviews',
+      ]);
+      // Ruling 2026-10-12: the links line and the data flows line are one entry,
+      // which keeps both docs links.
+      const detail = items[2];
+      expect(text(detail)).toContain(
+        'More detailed information about integrations (additional URLs, data flow, etc.).',
+      );
+      expect([...detail.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+        '/docs/vendors/plans#what-managed-adds',
+        '/docs/vendors/attesting-an-integration',
       ]);
       // The price leads the section, from the shared terms line.
       expect(text(host.querySelector('#vp-managed > div > p'))).toBe(
@@ -227,7 +236,7 @@ describe('VendorProgramPage', () => {
       expect(soon).toContain('never changes where you rank or appear');
     });
 
-    it('answers the FAQ in a native details list, with no approval time', async () => {
+    it('answers the FAQ in a native details list', async () => {
       const { host } = await setup({ plan: stub() });
       const faq = [...host.querySelectorAll('#vp-faq details')];
       expect(faq.map((d) => text(d.querySelector('summary')))).toEqual([
@@ -238,10 +247,20 @@ describe('VendorProgramPage', () => {
         'What happens when a Managed plan ends?',
         'Does paying affect our reviews or where we rank?',
       ]);
-      // Open decision 2: we review each claim and email the result, no time.
-      const approval = text(faq[1]);
-      expect(approval).toContain('We review each claim and email the result');
-      expect(approval).not.toMatch(/\d|day|week|hour/i);
+      // Open decision 2, settled 2026-10-12: generally within 48 hours.
+      // The visible answer, without the link's screen-reader-only new-tab note.
+      const answer = (d: Element) => text(d.querySelector('p')).replace('(opens in a new tab)', '');
+      expect(answer(faq[1])).toMatch(/^Generally within 48 hours\. A person at AEC Integrations/);
+      expect(answer(faq[1])).toContain('We review each claim and email the result');
+      expect(answer(faq[2])).toBe(
+        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Plans are per product, so each product can be on the free plan or on Managed.",
+      );
+      expect(answer(faq[3])).toBe(
+        'Yes. We bill paid plans by invoice or purchase order. Free plans require neither.',
+      );
+      expect(answer(faq[4])).toBe(
+        'Your company moves to the free plan. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. What Managed adds becomes read-only. See when a Managed plan ends.',
+      );
     });
 
     // Section 8: the firewall and the copy rules, checked across the whole page.

@@ -194,8 +194,7 @@ export class PlanCardsComponent {
   protected readonly managedHighlights: readonly string[] = [
     $localize`:@@app.docs.plans.managed.h1:"How teams use it", in your own words`,
     $localize`:@@app.docs.plans.managed.h2:The trades, audiences and phases you serve`,
-    $localize`:@@app.docs.plans.managed.h3:Links to your integrations page and API docs`,
-    $localize`:@@app.docs.plans.managed.h4:Your answer on every data flow`,
+    $localize`:@@app.docs.plans.managed.integrationDetail:More detailed information about integrations (additional URLs, data flow, etc.).`,
     $localize`:@@app.docs.plans.managed.h5:The integrations you deliver through a connector`,
     $localize`:@@app.docs.plans.managed.h6:Public answers to reviews`,
     $localize`:@@app.docs.plans.managed.h7:Search engines told when you update a page`,
