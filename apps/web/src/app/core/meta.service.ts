@@ -192,7 +192,8 @@ export class MetaService {
    * (`og:type=website`), the two home-specific JSON-LD items not covered by
    * AECI-51's product/vendor structured data: the §20.3 `WebSite` (with a
    * `SearchAction` for Google's sitelinks search box) and a publisher
-   * `Organization` (whose `logo` stays the square monogram, not the share card).
+   * `Organization` (whose `logo` is the square stacked logo, `SITE_LOGO`, not
+   * the share card).
    * Both are derived from the serving origin so they follow the self-referential
    * canonical (ADR 0011). No `aggregateRating`/`Review` LD: nothing is verified
    * and the launch corpus is not an honest basis for star ratings (§20.3).
