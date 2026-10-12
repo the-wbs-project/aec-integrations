@@ -30,7 +30,8 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
-import { isOperatorRequest, type OperatorSessionOptions } from '../lib/operator-session';
+import { resolveVisitorSession, type OperatorSessionOptions } from '../lib/operator-session';
+import { resolveOwnerVisit } from '../lib/owner-visit';
 
 /**
  * `POST /api/page-views` (AECI-177) — Drizzle/D1 (ADR 0016 / AECI-253).
@@ -359,18 +360,18 @@ async function capturePageView(
     // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
     // All four reads are independent, so they overlap rather than queue. The
-    // operator check short-circuits to `false` with no I/O when the request is
+    // session check short-circuits with no I/O when the request is
     // anonymous, which is nearly all of them, and the duplicate probe is a seek on
     // `page_views_dedupe_key_idx` that costs nothing when the key is null. The pair
     // lookup (AECI-929) likewise does no I/O unless the path is a pair page.
     const [
       { productId, vendorId, taxonomyKind, taxonomyId },
-      isOperator,
+      { isOperator, ownerVendorId },
       duplicate,
       [pairProductAId, pairProductBId],
     ] = await Promise.all([
       resolveEntity(db, payload),
-      isOperatorRequest(c, db, deps),
+      resolveVisitorSession(c, db, deps),
       findDuplicate(db, keys),
       resolvePairProducts(db, parsePairPagePath(concretePath)),
     ]);
@@ -382,6 +383,17 @@ async function capturePageView(
       submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:deduped']);
       return;
     }
+
+    // A vendor viewing its own listing (AECI-934 / §13 D26). Needs the resolved
+    // entity and pair ids, so it runs after the batch above. No I/O unless the
+    // session is a verified vendor_admin's.
+    const isOwnerVisit = await resolveOwnerVisit(db, ownerVendorId, {
+      productId,
+      vendorId,
+      pairProductAId,
+      pairProductBId,
+      concretePath,
+    });
 
     await db
       .insert(pageViews)
@@ -416,6 +428,9 @@ async function capturePageView(
         // dropped: the row stays available to any query that wants it, exactly as
         // the §9.6 path rows did, and the read side excludes it.
         isOperator,
+        // A vendor admin checking its own listing (§13 D26). Recorded, never
+        // dropped, for the same reason; `NOT_OWNER_VISIT` excludes it on read.
+        isOwnerVisit,
         referrer: referrerHost,
         referrerSource,
         // Request-shape annotation (AECI-658). Never read by the bot classifier.
@@ -461,7 +476,7 @@ async function capturePageView(
   }
 }
 
-/** Injectable seams. `getKey` is the offline-JWKS hook `isOperatorRequest` needs
+/** Injectable seams. `getKey` is the offline-JWKS hook `resolveVisitorSession` needs
  *  so specs can mint a verifiable admin session without a network round trip. */
 export type PageViewsDeps = OperatorSessionOptions;
 

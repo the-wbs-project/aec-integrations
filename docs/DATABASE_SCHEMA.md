@@ -2032,6 +2032,8 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/page-view-predicates.ts` — AECI-745 lifted it out of `analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
 
+**A vendor looking at its own listing is a fourth, separate exclusion (AECI-934, `ADMIN_PANEL_SPEC.md` §13 **D26**).** `is_owner_visit` is true when a verified `vendor_admin` session viewed a page whose vendor, product or pair endpoint belongs to that vendor. It is **not** part of `NOT_INTERNAL`: platform figures keep counting these rows. Only the vendor performance reader ANDs `NOT_OWNER_VISIT` (`page-view-predicates.ts`) with `NOT_INTERNAL`. A hand-written query for a vendor's numbers adds `and (is_owner_visit is null or is_owner_visit = 0)`. Never write `is_owner_visit = 0` alone, which drops every row from before migration `0068`. The column is `NULL` on those rows, is never backfilled, and signed-out self-visits stay unknowable.
+
 **One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
 
 The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus three writer-side refusals — speculative (`Sec-Purpose: prefetch`/`prerender`) loads, non-GET requests, and query-only SPA re-navigations. Full mechanism and the reasoning behind each: `API_CONTRACTS.md` §6.9, "One document load, one row".
@@ -2145,14 +2147,25 @@ create table page_views (
   -- Null = unknown and reads as NOT operator, so history is unchanged; not backfillable,
   -- since nothing stored on an older row implies a session.
   --
-  -- IT ALSO FAILS OPEN, AND THAT IS THE POINT OF §13 D15. isOperatorRequest resolves
-  -- every failure to false — including an EXPIRED access token — deliberately, so an
+  -- IT ALSO FAILS OPEN, AND THAT IS THE POINT OF §13 D15. resolveVisitorSession resolves
+  -- every failure to "not the operator" — including an EXPIRED access token — deliberately, so an
   -- auth hiccup costs a flag rather than the page-view row. The consequence is that an
   -- operator browsing across a token expiry writes flagged rows, then unflagged rows,
   -- then flagged rows again, and a 0 here is indistinguishable from a visitor.
   -- Do not read `is_operator = 0` as "not the operator": read NOT_INTERNAL, whose third
   -- half recovers those rows by (user_agent_hash, cf_asn) pair (AECI-683).
   is_operator integer,  -- 1 = verified admin session, 0 = not-or-unverifiable, null = pre-D13 (treated as visitor)
+
+  -- AECI-934 (§13 D26, migration 0068). 1 = a verified vendor_admin session viewed an
+  -- entity that vendor owns: the row's vendor_id, any product_vendors row (primary or
+  -- not) for product_id or either pair endpoint, or, for an SPA hop that stores no
+  -- entity id, the /products/:slug or /vendors/:slug in the path. Decided once at
+  -- ingest (lib/operator-session.ts + lib/owner-visit.ts), with the same expiry grace
+  -- as is_operator (D22). One boolean: the vendor id is never stored.
+  -- Null = unknown and reads as NOT an owner visit. Every row written before 0068 is null
+  -- and is never backfilled. New rows always store 1 or 0. Deliberately NOT part of
+  -- NOT_INTERNAL; the exclusion is NOT_OWNER_VISIT, read by the vendor performance report.
+  is_owner_visit integer,  -- 1 = vendor admin on its own listing, 0 = not, null = pre-0068 (treated as not)
 
   -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
   -- How browser-shaped the request was, written at ingest by
@@ -2233,9 +2246,9 @@ create table page_views (
   -- create a durable first-party identifier — precisely what makes this table's write
   -- defensible as consent-independent today. user_id was reachable on the browser POST but
   -- never on the SSR arrival path, so it would have been right half the time.
-  -- is_operator (above) is none of the three and does not reopen this: it stores one
-  -- boolean whose only consumer is an exclusion predicate — no id, no role string,
-  -- nothing that singles a visitor out — and D7's arrival-path objection is closed at
+  -- is_operator and is_owner_visit (above) are none of the three and do not reopen this:
+  -- each stores one boolean whose only consumer is an exclusion predicate — no id, no
+  -- role string, nothing that singles a visitor out — and D7's arrival-path objection is closed at
   -- the source, because firePageView now forwards the inbound Cookie.
   -- AECI-743 — the one-arrival-one-row guard. sha256(concrete_path | user_agent_hash |
   -- cf_asn | floor(now / PAGE_VIEW_DEDUPE_WINDOW_MS)), computed at ingest and protected

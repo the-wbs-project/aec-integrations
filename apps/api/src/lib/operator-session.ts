@@ -1,6 +1,15 @@
 /**
  * "Was this request made by the operator?" — the ingest-time half of the
- * internal-traffic exclusion (`ADMIN_PANEL_SPEC.md` §13 **D13**).
+ * internal-traffic exclusion (`ADMIN_PANEL_SPEC.md` §13 **D13**) — and, since
+ * AECI-934 (§13 **D26**), "which vendor's admin made it?", so ingest can flag a
+ * vendor viewing its own listing (`page_views.is_owner_visit`, decided in
+ * `lib/owner-visit.ts`).
+ *
+ * Both answers come from ONE token verification and ONE `profiles` read: the
+ * vendor half is the same session fact, read off the same row. It inherits all
+ * three properties below and the expiry grace window unchanged. The vendor id
+ * never leaves the ingest handler: what is stored is one boolean, the same
+ * D7-safe shape as `is_operator`.
  *
  * ─── Why this exists next to two filters that already sound like it ──────────
  *
@@ -104,8 +113,29 @@ import { extractBearer, verifySupabaseJwtWithinGrace } from './user-auth';
  * make anything safer; it just lets the defect back in. Tune it if the operator
  * ever reports their own traffic being excluded after a genuinely ended session
  * — which requires the browser to keep sending a cookie that sign-out clears.
+ *
+ * It applies to `vendor_admin` sessions too (§13 D26, AECI-934). The reasoning
+ * carries over word for word: `is_owner_visit` grants nothing, and a vendor
+ * browsing its own listing across an hourly expiry would otherwise be counted
+ * as a buyer in its own report.
  */
 export const OPERATOR_TOKEN_GRACE_SECONDS = 24 * 60 * 60;
+
+/**
+ * What a request's session says about the page view it is writing.
+ *
+ * `isOperator` — a verified `admin` session (§13 D13).
+ * `ownerVendorId` — the vendor a verified `vendor_admin` session administers
+ * (§13 D26), or `null` for every other case: anonymous, a reviewer, an admin
+ * (a site admin is not a vendor, as in `lib/authz.ts`), and a half-granted seat
+ * whose `profiles.vendor_id` is still NULL.
+ */
+export type VisitorSession = {
+  isOperator: boolean;
+  ownerVendorId: string | null;
+};
+
+const ANONYMOUS: VisitorSession = { isOperator: false, ownerVendorId: null };
 
 export type OperatorSessionOptions = {
   /** Test seam: local key resolver (jose `createLocalJWKSet`) so specs verify
@@ -117,7 +147,8 @@ export type OperatorSessionOptions = {
 };
 
 /**
- * Whether `request` carries a verified `profiles.role = 'admin'` session.
+ * Whether `request` carries a verified `profiles.role = 'admin'` session, and
+ * which vendor a verified `profiles.role = 'vendor_admin'` session belongs to.
  *
  * Token sources mirror `lib/authz.ts` exactly — `Authorization: Bearer` first
  * (the service-binding form), then the `sb-<ref>-auth-token` session cookie the
@@ -130,24 +161,24 @@ export type OperatorSessionOptions = {
  *   already using, so the role read joins that session rather than opening a
  *   second one
  */
-export async function isOperatorRequest(
+export async function resolveVisitorSession(
   c: Context<{ Bindings: Env }>,
   db: Db,
   options: OperatorSessionOptions = {},
-): Promise<boolean> {
+): Promise<VisitorSession> {
   const supabaseUrl = c.env.SUPABASE_URL;
-  if (!supabaseUrl) return false;
+  if (!supabaseUrl) return ANONYMOUS;
 
   // The fast path: no credentials at all. Returns before touching WebCrypto or
   // D1, which is what keeps this affordable on anonymous traffic.
   const token =
     extractBearer(c.req.header('Authorization')) ?? extractSessionCookieToken(getCookie(c));
-  if (!token) return false;
+  if (!token) return ANONYMOUS;
 
   try {
     // The ONLY caller of the grace-window verifier. Signature, issuer and
     // audience are checked exactly as `requireUserAuth` checks them; only `exp`
-    // is tolerated, and only for this analytics flag. See the module header.
+    // is tolerated, and only for these analytics flags. See the module header.
     const { userId } = await verifySupabaseJwtWithinGrace(
       token,
       supabaseUrl,
@@ -155,14 +186,17 @@ export async function isOperatorRequest(
       options.getKey,
     );
     const profile = await db.query.profiles.findFirst({
-      columns: { role: true },
+      columns: { role: true, vendorId: true },
       where: eq(profiles.id, userId),
     });
-    return profile?.role === 'admin';
+    return {
+      isOperator: profile?.role === 'admin',
+      ownerVendorId: profile?.role === 'vendor_admin' ? (profile.vendorId ?? null) : null,
+    };
   } catch {
     // Signature / issuer / JWKS-fetch failures, an expiry older than the grace
     // window, and D1 errors alike. An unverifiable session is not an operator
-    // session — AECI-689's note, unchanged.
-    return false;
+    // session — AECI-689's note, unchanged. Nor is it a vendor's.
+    return ANONYMOUS;
   }
 }
