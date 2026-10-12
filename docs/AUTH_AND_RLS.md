@@ -539,6 +539,8 @@ await db.batch([
 | `POST /api/reviews` | Hard-required | `reviewer`, not banned | `review.submitted` |
 | `DELETE /api/account` | Hard-required | Active user | `account.deleted`; on a vendor's last seat also the AECI-989 hand-back rows, and on a seat left with only banned colleagues the `integration.contest.rerouted` rows, all with a `null` actor and `metadata.source: 'account'` (AECI-1106) |
 | `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted` |
+| `POST /api/requests/listing` (AECI-1293) | None (anon form) | None | `listing_request.created`. A typed-in listing from the claim dialog, stored in `listing_requests`. Zone WAF Rule A only, sharing the `/api/requests/*` per-IP counter (`docs/waf-rate-limits.md` §6.2). `VENDOR_PROGRAM_PAGE_SPEC.md` §15 |
+| `PATCH /api/admin/listing-requests/:id` (AECI-1293) | Hard-required | `admin` | `listing_request.resolved` / `listing_request.rejected`, in the same `db.batch` as the status update. `ADMIN_PANEL_SPEC.md` |
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `POST /api/notifications/nudges/mute` (AECI-1204) | None (the opaque `mute_token` is the credential) | None. Acts on whichever seat owns the token. Behind `rateLimit('token', { by: 'ip' })`, never keyed by the token | `notification_preferences.updated`, actor = the seat that owns the token. An unknown token is `200 { ok: false }` and writes nothing |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
