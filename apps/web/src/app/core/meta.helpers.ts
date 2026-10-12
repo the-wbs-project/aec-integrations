@@ -49,6 +49,15 @@ export const SITE_LOGO = '/branding/stacked-logo-512.png';
  */
 export const HOME_OG_IMAGE = '/branding/home-og.png';
 
+/**
+ * The `/vendor-program` share card (AECI-1283): a 1200×630 PNG built for LinkedIn,
+ * where the vendor page is shared most. Same generator as the home card, with its
+ * own template (`apps/web/scripts/vendor-program-og-template.html`); regenerate
+ * with `pnpm --filter @aeci/web og:vendor-program`. The page passes it to
+ * `setStaticPageMeta` as `ogImage`, which emits it as an absolute URL.
+ */
+export const VENDOR_PROGRAM_OG_IMAGE = '/branding/vendor-program-og.png';
+
 /** Lightweight meta-tag shape; structurally compatible with Angular's `MetaDefinition`. */
 export type MetaTag = { name: string; content: string } | { property: string; content: string };
 

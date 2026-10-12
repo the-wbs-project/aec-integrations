@@ -41,7 +41,7 @@
  *     /phases/*, /trades/*                  → 5min  edge / 0     browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
- *   /about, /legal/*                        → 24hr edge / 1hr  browser
+ *   /about, /vendor-program, /legal/*       → 24hr edge / 1hr  browser
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
  *   /api/*       — forwarded raw to `env.API.fetch` (AECI-30 service binding);
@@ -427,6 +427,13 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // the whole query string (incl. UTM) is dropped from the cache key — the page
   // reads no query params at all. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/methodology', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-1283 — /vendor-program, the public vendor landing page
+  // (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2). Static and visitor-neutral (every
+  // signed-in variant is applied after hydration), so the /about TTL with no
+  // `...RESILIENCE`. No `cacheKeyParams`: LinkedIn and outreach links carry UTM,
+  // which PostHog reads from the browser URL, so the query string stays out of the
+  // cache key. Indexable and in `sitemap.xml`.
+  { match: (p) => p === '/vendor-program', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },

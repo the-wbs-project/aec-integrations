@@ -78,13 +78,22 @@ describe('SiteFooter', () => {
     // destination — how the directory works — and the footer is its only
     // site-wide entry too (the header is public-directory-only by the DESIGN.md
     // Overflow Rule, and `site-header.component.spec.ts` asserts its absence).
+    // "For vendors" (/vendor-program, AECI-1283) follows Methodology, per
+    // VENDOR_PROGRAM_PAGE_SPEC.md §2.4. The footer is its only site-wide entry.
     expect(column(render(), 'Company')).toEqual([
       '/about',
       '/methodology',
+      '/vendor-program',
       '/contact',
       '/updates',
       '/roadmap',
     ]);
+  });
+
+  it('labels the vendor landing page link "For vendors" (AECI-1283)', () => {
+    const company = render().querySelector('nav[aria-label="Company"]');
+    const link = company?.querySelector('a[href="/vendor-program"]');
+    expect(link?.textContent?.trim()).toBe('For vendors');
   });
 
   it('names every column for assistive tech and renders no role-gated link', () => {
@@ -94,7 +103,9 @@ describe('SiteFooter', () => {
 
     // The footer is inside cached, URL-keyed HTML — it must be visitor-neutral.
     expect(el.querySelectorAll('a[href^="/admin"]').length).toBe(0);
-    expect(el.querySelectorAll('a[href^="/vendor"]').length).toBe(0);
+    // The portal is `/vendor` and `/vendor/*`. The public `/vendor-program` landing
+    // page (AECI-1283) shares the prefix but is not role-gated, so match by segment.
+    expect(el.querySelectorAll('a[href="/vendor"], a[href^="/vendor/"]').length).toBe(0);
     expect(el.querySelectorAll('a[href^="/account"]').length).toBe(0);
   });
 });

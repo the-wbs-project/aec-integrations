@@ -484,6 +484,18 @@ import { RoleBadge } from './role-badge';
                 >
               </a>
             </div>
+            <!-- AECI-1283: the vendor landing page, beside "Claim this listing"
+                 (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). Visitor-neutral, so it stays in
+                 the cached HTML. -->
+            <a
+              routerLink="/vendor-program"
+              class="inline-block text-sm font-medium text-(--accent-primary) underline-offset-4
+                hover:text-(--accent-primary-hover) hover:underline focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
+                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+              i18n="@@products.detail.metadata.vendorProgram"
+              >Is this your product?</a
+            >
           </section>
         </div>
 

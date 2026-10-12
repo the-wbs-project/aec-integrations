@@ -126,6 +126,9 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   // AECI-804 — /methodology. Static content page with no §2 entity, so the
   // route-class tag only, like /about and /updates. Never an ad-hoc namespace.
   if (path === '/methodology') return { route: 'index' };
+  // AECI-1283 — /vendor-program, the vendor landing page. Static, no §2 entity,
+  // route-class tag only (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2).
+  if (path === '/vendor-program') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
   // AECI-1104, AECI-1248 — the product docs: the `/docs` home, the section
   // indexes and the articles. Static content, route-class tag only.

@@ -321,6 +321,18 @@ describe('resolveSitemapEntries', () => {
     }
   });
 
+  it('includes /vendor-program right after /methodology (AECI-1283)', async () => {
+    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const locs = entries.map((e) => e.loc);
+    const at = locs.indexOf('https://aecintegrations.com/vendor-program');
+    expect(at).toBeGreaterThan(-1);
+    expect(locs[at - 1]).toBe('https://aecintegrations.com/methodology');
+    const entry = entries[at];
+    expect(entry?.changefreq).toBe('monthly');
+    expect(entry?.priority).toBe(0.5);
+    expect(entry?.lastmod).toBeUndefined();
+  });
+
   it('lists the indexable docs from the manifest, with no lastmod (AECI-1248)', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const docs = entries.filter((e) => e.loc.startsWith('https://aecintegrations.com/docs'));

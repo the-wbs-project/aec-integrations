@@ -168,6 +168,8 @@ describe('cacheControlForRoute', () => {
     // AECI-804 — /methodology is static + indexable, on the same TTL and with
     // the same deliberate absence of the resilience pair.
     ['/methodology', { edge: 86_400, browser: 3_600 }],
+    // AECI-1283 — the vendor landing page takes the /about TTL exactly.
+    ['/vendor-program', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     // AECI-1104, AECI-1248 — the product docs are static build-inlined content:
     // the bare `/docs` home, a section index and an article share one TTL.
@@ -2599,6 +2601,8 @@ describe('isVendorPath (AECI-520)', () => {
 
   it('does not match look-alike paths', () => {
     expect(isVendorPath('/vendor-portal')).toBe(false);
+    // AECI-1283 — the public vendor landing page must stay cacheable and anon-open.
+    expect(isVendorPath('/vendor-program')).toBe(false);
     expect(isVendorPath('/products/vendor')).toBe(false);
     expect(isVendorPath('/')).toBe(false);
   });

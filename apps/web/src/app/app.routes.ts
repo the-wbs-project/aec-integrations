@@ -505,6 +505,16 @@ export const routes: Routes = [
     path: 'methodology',
     loadComponent: () => import('./methodology/methodology').then((m) => m.MethodologyPage),
   },
+  // AECI-1283 — the public vendor landing page (`docs/VENDOR_PROGRAM_PAGE_SPEC.md`
+  // §2). Static + indexable + CACHEABLE on the /about static-page TTL, pre-wired in
+  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`, and in `sitemap.xml`. No
+  // resolver: the body needs no API data at SSR time, and every signed-in variant
+  // (§5) is applied after hydration. Not `/vendors`, which stays a 301 to
+  // `/products` (AECI-165).
+  {
+    path: 'vendor-program',
+    loadComponent: () => import('./vendor-program/vendor-program').then((m) => m.VendorProgramPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),

@@ -251,12 +251,22 @@ export class MetaService {
    * not be indexed — e.g. the tokenized `/unsubscribe` page (AECI-537), whose URL
    * carries a per-subscriber token (contrast `/about` / `/legal`, which stay
    * indexable). Default is indexable (no `robots` tag), matching `setHomeMeta`.
+   *
+   * `ogImage` and `ogImageAlt` (AECI-1283) give a static page its own share card,
+   * the way `setHomeMeta` does for `/`. The image is emitted as an ABSOLUTE URL: a
+   * site-relative path is resolved against the canonical's origin. The alt text
+   * goes out as an `og:image:alt` / `twitter:image:alt` pair. `/vendor-program` is
+   * the first caller. Without them the page keeps the `DEFAULT_OG_IMAGE` monogram,
+   * and any image-alt pair a previous page set is removed, so a client nav cannot
+   * carry a stale one.
    */
   setStaticPageMeta(input: {
     title: string;
     description: string;
     canonical: string;
     noindex?: boolean;
+    ogImage?: string;
+    ogImageAlt?: string;
   }): void {
     this.clearJsonLd();
 
@@ -273,14 +283,27 @@ export class MetaService {
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
 
+    // A site-relative card resolves to an absolute URL: older LinkedIn and Slack
+    // scrapers are flaky with relative paths (the `DEFAULT_OG_IMAGE` note).
+    const ogImage = input.ogImage?.startsWith('/')
+      ? `${originOf(canonical)}${input.ogImage}`
+      : input.ogImage;
     const tags = buildOgTags({
       title: input.title,
       description: input.description,
       url: canonical,
       type: 'website',
-      image: DEFAULT_OG_IMAGE,
+      image: ogImage ?? DEFAULT_OG_IMAGE,
     });
     for (const tag of tags) this.meta.updateTag(tag);
+
+    if (ogImage && input.ogImageAlt) {
+      this.meta.updateTag({ property: 'og:image:alt', content: input.ogImageAlt });
+      this.meta.updateTag({ name: 'twitter:image:alt', content: input.ogImageAlt });
+    } else {
+      this.meta.removeTag('property="og:image:alt"');
+      this.meta.removeTag('name="twitter:image:alt"');
+    }
   }
 
   setProductJsonLd(product: ProductDetail, canonical: string): void {

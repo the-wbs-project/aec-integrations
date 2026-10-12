@@ -850,12 +850,28 @@ export function sendClaimApprovedEmail(
     note: accountStatus,
   });
 
+  // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line pointing at the public
+  // vendor page. An approved claimant is on a plan and can act on it. It stays an
+  // inline link, so the portal remains the email's one button. Omitted with no host.
+  const program = vendorProgramUrl(c.env);
+  const render = (link: LinkTagger): EmailContent => {
+    const text = [opening, capabilities, signIn];
+    const html = [openingHtml, capabilities, signIn];
+    if (program) {
+      const tagged = link(program);
+      text.push(`See what each plan includes on our page for software vendors: ${tagged}`);
+      html.push(
+        `See what each plan includes on <a href="${escapeHtml(tagged)}" style="color:#1e3a2f;text-decoration:underline">our page for software vendors</a>.`,
+      );
+    }
+    return houseBody(shared(link), text, html);
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-approved',
     subject: `Your claim for ${name} is approved`,
-    render: (link) =>
-      houseBody(shared(link), [opening, capabilities, signIn], [openingHtml, capabilities, signIn]),
+    render,
   });
 }
 
@@ -2873,6 +2889,13 @@ function productUrl(env: Env, slug: string): string | null {
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/** The public vendor landing page (`/vendor-program`, AECI-1283) or `null` when
+ *  `PUBLIC_SITE_URL` is unset. The claim-approved email then omits the line. */
+function vendorProgramUrl(env: Env): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor-program` : null;
 }
 
 /** A product's Reviews screen in the portal
