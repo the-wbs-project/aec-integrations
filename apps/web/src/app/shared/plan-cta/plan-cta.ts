@@ -105,7 +105,6 @@ export function managedTermsLine(locale: string): string {
 @Directive()
 abstract class PlanCta {
   private readonly analytics = inject(Analytics);
-  protected readonly contactHref = MANAGED_CONTACT_HREF;
   /** Every claim dialog control's no-JS and new-tab destination (§15.1). */
   protected readonly claimHref = CLAIM_DIALOG_FALLBACK_HREF;
   /** "Go to your portal" carries no click handler: a portal click is not a plan click. */

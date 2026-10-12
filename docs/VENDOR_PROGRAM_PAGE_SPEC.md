@@ -302,7 +302,7 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | Hero (`top`), closing panel (`bottom`), Free plan card (`card`) | "Claim your listing" | The dialog at step 1. The Free card preselects Free. |
 | Managed plan card (`card`) | "Start with Managed" | The dialog at step 1, Managed preselected. |
 | Phone bar (`mobile_bar`), docs rail (`rail`) | "Start with Managed" | The same as the Managed card. Both are Managed-labelled surfaces: the bar's region is "Managed plan" and it already hides for a Managed company (§5). |
-| Under the hero pair, under the Managed card, in the closing panel | "Questions about pricing? Talk to us" (text link) | The plan inquiry dialog (§7), unchanged. Its `href` stays `MANAGED_CONTACT_HREF`. |
+| Beside the hero's "Claim your listing", under the Managed card's button, beside the closing panel's button | "Questions about pricing? Talk to us" (text link) | The plan inquiry dialog (§7), unchanged. Its `href` stays `MANAGED_CONTACT_HREF`. |
 | Find your product, a chosen result (`search_result`) | "Claim this listing" | The dialog at step 2 with that listing filled in. |
 | Find your product, "Ask us to add it" | (unchanged copy) | The dialog at the typed-in step. `/contact?topic=add-product` keeps working for every other entry point. |
 
@@ -391,7 +391,7 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 
 | Event | Properties | When |
 |---|---|---|
-| `claim_dialog_step` (new) | `step` (`find`, `you`, `plan`, `comments`, `done`), `page` (`vendor_program`, `docs_plans`), `entry` (the `PlanCtaPlacement` that opened it), `path` (`found`, `typed`; absent on `find`) | Once each time a step is shown, including the first. |
+| `claim_dialog_step` (new) | `step` (`find`, `you`, `plan`, `comments`, `done`), `page` (`vendor_program`, `docs_plans`), `entry` (the `PlanCtaPlacement` that opened it, or `ask_to_add`), `path` (`found`, `typed`; absent on `find`) | Once each time a step is shown, including the first. |
 | `claim_requested` | adds `plan_interest` (`free`, `managed`, `not_sure`, `none`) | A found-listing claim the API accepted, from the dialog, a claim page or the drawer. |
 | `listing_requested` (new) | `plan_interest`, `page` | A typed-in request the API accepted. |
 | `plan_cta_clicked` | unchanged shape. `plan: 'free'` now means a "Claim your listing" click and `plan: 'managed'` a "Start with Managed" click. Both open the claim dialog, so it counts opens. | Every plan call to action. |
