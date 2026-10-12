@@ -17,6 +17,15 @@ section, or when the page does not end in a `## Related` list linking its neighb
 says "AEC Integrations", never the internal shorthand "AECi", and describes only what the product
 can do today (`STAGE_2_PRODUCT_DOCS_SPEC.md`, the AECI-1261 note).
 
+**A docs edit re-pushes the search index (AECI-1270).** The docs search box reads one Algolia index
+per tier, built from this same manifest: one record per page lede and per `h2`, `## Related`
+skipped. The staging deploy and the production promote rebuild it with
+`scripts/algolia/push-docs.mjs`, so a new page, a renamed heading or a removed page reaches search
+on the next deploy with no extra step. A Markdown-only edit here does deploy staging: `deploy.yml`
+re-includes `apps/web/src/content/**` in its push trigger. Renaming a heading changes its anchor,
+so the old search record is deleted and a new one saved. Preview the records with
+`pnpm algolia:push-docs --env staging --dry-run` (no network, no credentials).
+
 **Adding a section.** The six sections (`getting-started`, `trust`, `reviewers`, `account`,
 `vendors`, `faq`) are already declared in `SECTION_META`, each with a `$localize` label
 and summary, an audience and an order. A declared section with no pages is invisible: no home entry, no sidebar item, no route (so it 404s), no

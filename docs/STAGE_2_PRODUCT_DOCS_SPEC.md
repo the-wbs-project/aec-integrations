@@ -14,6 +14,10 @@
 > guide. The manifest throws on a new one unless it is on `GENERAL_TO_VENDOR_LINK_ALLOWLIST`, which
 > ships empty. The `urlSegment` and `home` section features went with For vendors, their only user.
 > The note below is the history this one supersedes in part.
+>
+> **Same day, docs search (AECI-1270).** Each guide now has a search box under the toggle, on one
+> Algolia index per tier (`staging_docs`, `production_docs`; demo reads production). §3 "Search" is
+> the contract. It left §6.
 
 > **2026-10-09, the vendor guide split out and the help center tightened (AECI-1265, marketing
 > review B2 to B7, B9, B10).** Chris's rulings, applied in one pass.
@@ -79,8 +83,9 @@
 > slug id, built at manifest time by `docs-markdown.ts`. The template renders those headings itself,
 > because Angular's `[innerHTML]` sanitizer strips `id` and the repo never bypasses it. The home and
 > the section indexes drop their cards for divided lists, and the pager drops its cards for text
-> links. Content, routes, URLs, indexing, caching and the sitemap are unchanged. There is still no
-> docs search and no "Ask" box (§3). The layout contract is `DESIGN.md` "Product docs".
+> links. Content, routes, URLs, indexing, caching and the sitemap are unchanged. There was still no
+> docs search and no "Ask" box. *(AECI-1270 added docs search, §3 "Search". There is still no "Ask"
+> box.)* The layout contract is `DESIGN.md` "Product docs".
 
 > **2026-10-08 — reviewer and account pages shipped (AECI-1250).** Three pages, indexable and in
 > `sitemap.xml`: `reviewers/writing-a-review` (order 1, ahead of `requests-and-corrections`), and
@@ -183,7 +188,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list. A prefix covers the path itself and everything below it, so `/docs/vendors` covers the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
 | Sitemap | `/docs`, every indexable section index and every indexable page, built from the manifest. **No `<lastmod>`**, the same as `/legal/*`: `last_updated` is a display string, and parsing it would add a second date format |
 | Re-crawl pings | **None.** IndexNow is not part of docs publishing (Chris, 2026-10-08). Its producers are catalog promotes and vendor portal writes. Nothing submits a build-inlined static page, and `/methodology` and `/legal/*` rely on the sitemap too |
-| Search | **None at v0.** Navigation and browser find. The deferred path is an Algolia `docs_{env}` index on the existing app, not a new search system |
+| Search | **One search box per guide (AECI-1270).** It sits under the guide toggle and searches only the current guide. Records live in one Algolia index per tier on the existing app: `staging_docs` and `production_docs`, named `<prefix>_docs` like the entity indexes (this replaced the `docs_{env}` sketch). Demo reads `production_docs` and never writes it. Records are built from the manifest by `buildDocsSearchRecords` (`docs-search-records.ts`): one per page lede, one per `h2` with its `h3`s folded in, `## Related` skipped, the vendor guide's landing intro included. Each carries `guide` (`help` or `vendor`), and the box filters on it. Anchors are the ids `renderDocsBody` renders. `scripts/algolia/push-docs.mjs` pushes them on every staging deploy and production promote, after the settings step: save every record, then delete ids no longer built, never a full replace. The box renders in the browser only, after hydration, and is absent when the inline config carries no `docsIndex`. It is an Angular Aria combobox on the lite client, loaded only in the lazy `/docs` chunk. Settings: `SEARCH_RANKING.md` §3.5. Keys and CI: `CICD_PLAN.md` §7.5 |
 | i18n | The body is content, not UI strings (the legal rule, not extracted to `messages.xlf`). Page chrome is `i18n` / `$localize`-wrapped. Per-locale `.md` files are the later mechanism |
 | Analytics | PostHog page events, standard. No new instrumentation concept |
 
@@ -269,7 +274,6 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 
 ## 6. Deliberately deferred (not in this epic)
 
-- Docs search (Algolia `docs_{env}` is the path when wanted)
 - A changelog / what's-new page
 - Per-locale content files
 - Any versioned-docs mechanism

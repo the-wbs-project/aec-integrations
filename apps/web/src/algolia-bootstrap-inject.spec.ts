@@ -37,7 +37,19 @@ describe('buildAlgoliaPublicConfig', () => {
         vendors: 'staging_vendors',
         integrations: 'staging_integrations',
       },
+      docsIndex: 'staging_docs',
     });
+  });
+
+  // AECI-1270: the docs index each tier READS. Demo reads production_docs.
+  it.each([
+    ['staging', 'staging_docs'],
+    ['demo', 'production_docs'],
+    ['production', 'production_docs'],
+    ['development', 'staging_docs'],
+    [undefined, 'staging_docs'],
+  ] as const)('carries docsIndex for ENV=%s', (env, docsIndex) => {
+    expect(buildAlgoliaPublicConfig(makeEnv({ ENV: env }))?.docsIndex).toBe(docsIndex);
   });
 
   it('folds an absent ENV (local dev) onto the staging index set (AECI-1268)', () => {
@@ -55,7 +67,7 @@ describe('buildAlgoliaBootstrapScript', () => {
   it('emits a script tag assigning the config to window.__AECI_ALGOLIA__', () => {
     expect(buildAlgoliaBootstrapScript(makeEnv())).toBe(
       '<script>window.__AECI_ALGOLIA__={"appId":"app-abc","searchKey":"search-only-key-123",' +
-        '"indexes":{"products":"staging_products","vendors":"staging_vendors","integrations":"staging_integrations"}};</script>',
+        '"indexes":{"products":"staging_products","vendors":"staging_vendors","integrations":"staging_integrations"},"docsIndex":"staging_docs"};</script>',
     );
   });
 
@@ -103,7 +115,7 @@ describe('injectAlgoliaBootstrap', () => {
     expect(await out.text()).toBe(
       '<html><head><title>x</title>' +
         '<script>window.__AECI_ALGOLIA__={"appId":"app-abc","searchKey":"search-only-key-123",' +
-        '"indexes":{"products":"staging_products","vendors":"staging_vendors","integrations":"staging_integrations"}};</script>' +
+        '"indexes":{"products":"staging_products","vendors":"staging_vendors","integrations":"staging_integrations"},"docsIndex":"staging_docs"};</script>' +
         '</head><body>hi</body></html>',
     );
   });

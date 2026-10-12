@@ -38,6 +38,8 @@ It is idempotent, prints no secrets, and per run issues **5 `setSettings` calls*
 | `demo` | CI — `.github/workflows/promote-to-demo.yml` |
 | `production` | CI — `.github/workflows/promote-to-prod.yml` |
 
+**The docs indexes are the exception (AECI-1270).** `apply-settings.mjs` never touches `staging_docs` or `production_docs`. `scripts/algolia/push-docs.mjs` applies `DOCS_INDEX_SETTINGS` and then syncs the records, in `deploy.yml` (staging) and `promote-to-prod.yml` (production), right after the settings step. Demo has no push: it reads `production_docs`. See §3.5.
+
 There is no `preview` environment. *(Amendment 2026-10-10, AECI-1268: the preview tier is retired. Local dev and `lighthouse.yml` now search the `staging_*` indexes, so the staging apply covers them. `indexPrefixForEnv` folds `development` and any unknown label onto `staging`.)*
 
 > **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
@@ -248,6 +250,34 @@ shape are recorded here now (per AECI-298) to keep the decision in one place.
   Stage 2 decision (they depend on whether pairs *replace* or *supplement* the per-integration index) and must be
   codified in `INDEX_SETTINGS` + asserted in `algolia.spec.ts` per §1 when the index is actually built.
 
+### 3.5 `docs` (AECI-1270)
+
+The help-center search box searches its own index, one per tier: **`staging_docs`** and
+**`production_docs`**. Demo reads `production_docs` (`docsIndexNameFor`); there is no `demo_docs`.
+The index is **not** an `INDEX_ENTITIES` member, so `apply-settings.mjs`, the D1 sync, the drift
+check and the orphan sweep never touch it. Its settings and records go through
+`scripts/algolia/push-docs.mjs` alone (§1.1).
+
+**Record.** One per page lede and one per `h2` (with its `h3`s), built from the docs manifest by
+`buildDocsSearchRecords` (`apps/web/src/app/docs/docs-search-records.ts`). `## Related` is skipped.
+Fields: `objectID` (the url), `guide` (`help` or `vendor`), `section`, `page_title`, `heading`,
+`url` (`/docs/<section>/<slug>` plus `#<anchor>` for a section), `content` (plain text, capped at
+8,000 UTF-8 bytes) and `order` (reading order). About 140 records today.
+
+**Settings** (`DOCS_INDEX_SETTINGS`, asserted in `algolia.spec.ts`):
+
+| Setting | Value | Why |
+|---|---|---|
+| `searchableAttributes` | `heading`, `page_title`, `content` | A heading match is the strongest signal that a section answers the query |
+| `attributesForFaceting` | `filterOnly(guide)` | The box always filters to the current guide. It is never shown as a facet |
+| `attributesToSnippet` | `content:24` | A one-line excerpt under each row |
+| `snippetEllipsisText` | `…` | |
+| `customRanking` | `asc(order)` | Ties keep reading order, so a page's lede outranks its own sections |
+
+The box queries with `filters: 'guide:help'` or `'guide:vendor'`, eight hits, and its own highlight
+markers, which it renders as text (`docs-search-hits.ts`). No signal here can be a function of
+payment: the docs carry no vendor data.
+
 ---
 
 ## 4. Integration mechanism-kind priority
@@ -368,11 +398,12 @@ The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `re
 
 | Step | Indexes |
 |---|---|
-| Now (24 against a cap of 20) | 24 = 3 `preview_*` + 6 detached `*_integration_count_desc` replicas + 15 live |
+| Was (24 against a cap of 20) | 24 = 3 `preview_*` + 6 detached `*_integration_count_desc` replicas + 15 live |
 | After deleting the three `preview_*` indexes | 21 |
 | After deleting the six detached replicas | 15 of a 20 cap |
+| With the two docs indexes (AECI-1270) | 17 of a 20 cap |
 
-That leaves five indexes of headroom. The three prefixes in use are `staging`, `demo` and `production`, each with 3 primaries and 2 `name_asc` replicas.
+That leaves three indexes of headroom. The three prefixes in use are `staging`, `demo` and `production`, each with 3 primaries and 2 `name_asc` replicas, plus `staging_docs` and `production_docs`. *(2026-10-12: the 15-live state is the one AECI-1270 was planned against. Count the indexes in the dashboard before `provision.mjs --shared` creates the docs pair. At the cap Algolia refuses to create them and the first push fails.)*
 
 **Rollback is a forward fix, never a plain revert.** Reverting PR-B would put the two replicas back in each primary's `replicas` list. That asks Algolia to create or relink them. At the index cap Algolia refuses, and the CI settings step fails. So a rollback PR restores only the old `customRanking` values and leaves `REPLICA_SORTS` retired. Records still carry `integration_count`, `review_count` and `product_count`, so no reindex is needed.
 

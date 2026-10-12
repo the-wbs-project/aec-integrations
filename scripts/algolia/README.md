@@ -1,9 +1,10 @@
 # Algolia scripts
 
-Two scripts manage AECi's Algolia search infrastructure as code:
+Three scripts manage AECi's Algolia search infrastructure as code:
 
-- **`provision.mjs`** (AECI-134 / Phase 3.1) — operator-run; creates an env's three indexes and mints its scoped API keys. **Prints secrets — local only, never CI.**
+- **`provision.mjs`** (AECI-134 / Phase 3.1) — operator-run; creates an env's three indexes and mints its scoped API keys, or with `--shared` (AECI-1270) the two docs indexes and the shared keys every tier uses. **Prints secrets — local only, never CI.**
 - **`apply-settings.mjs`** (AECI-137 / Phase 3.2) — operator + CI-safe; applies the per-index settings (searchable attributes, facets, ranking) idempotently. **Prints no secrets.**
+- **`push-docs.mjs`** (AECI-1270) — CI-safe; builds the docs search records from the docs manifest and syncs them into `staging_docs` or `production_docs`. **Prints no secrets.**
 
 Both read the single source of truth in `packages/shared/src/algolia.ts` (index names, key topology, and — for `apply-settings` — `indexSettingsFor()` / `applyIndexSettings()`).
 
@@ -55,6 +56,16 @@ For each env the script prints the live `ALGOLIA_SEARCH_KEY` and `ALGOLIA_ADMIN_
 
 - `gh secret set ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_KEY`, `ALGOLIA_ADMIN_KEY` — all **single shared** secrets now (one value across every env; no per-env suffix). The shared search key must cover every env's indexes it serves.
 - `wrangler secret put` for the web Worker (`ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`) and the API Worker (`ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`).
+
+## Shared mode (`--shared`, AECI-1270)
+
+GitHub holds one `ALGOLIA_SEARCH_KEY` and one `ALGOLIA_ADMIN_KEY` for every tier. A per-env key set as one of those secrets breaks the other tiers, so the GitHub secrets hold the **shared** keys:
+
+```bash
+node scripts/algolia/provision.mjs --shared --rotate
+```
+
+It ensures `staging_docs` and `production_docs` exist, then mints or reuses `aeci:search:shared` (ACL `search`) and `aeci:management:shared` (the management ACLs). Both list every tier's indexes, replicas and both docs indexes by name, never `*` (`sharedSearchKeyParams` / `sharedManagementKeyParams`). `--shared` and `--env` are exclusive, and `--rotate` works the same way. It prints the `gh secret set` lines and the `wrangler secret put` lines for every tier. Run it before the first deploy that pushes the docs index. The order is in `docs/environments.md` §6b.
 
 ## Idempotency & rotation
 
@@ -134,8 +145,33 @@ quota. The management key has no `deleteIndex` ACL, so this script cannot delete
 Delete `<env>_products_integration_count_desc` and `<env>_vendors_integration_count_desc` by hand,
 in the Algolia dashboard or with the root admin key. Do staging and demo after verification, and
 production after a 7-day soak. The operator also deletes the three retired `preview_*` indexes
-(AECI-1268). Algolia is at 24 indexes against a cap of 20 today. It lands at 15 of 20 after the three
-`preview_*` indexes and the six detached replicas are gone. Full runbook: `docs/SEARCH_RANKING.md` §5a.
+(AECI-1268). Algolia was at 24 indexes against a cap of 20 on 2026-10-10. It lands at 15 of 20 after
+the three `preview_*` indexes and the six detached replicas are gone, and at 17 of 20 with the two
+docs indexes (AECI-1270). Full runbook: `docs/SEARCH_RANKING.md` §5a.
+
+---
+
+# Docs search (`push-docs.mjs`, AECI-1270)
+
+Builds the docs search records and syncs them into one tier's docs index. Runs in CI after the
+settings step: `deploy.yml` (staging) and `promote-to-prod.yml` (production).
+
+```bash
+pnpm algolia:push-docs --env staging --dry-run
+```
+
+- **Tiers.** `--env staging` writes `staging_docs`, `--env production` writes `production_docs`.
+  Anything else exits 1, `demo` included: demo reads `production_docs` and never writes it. The name
+  comes from `docsIndexWriterFor`, which throws for demo and development.
+- **Records.** esbuild bundles `apps/web/scripts/docs-search-records.entry.ts` in memory, with `.md`
+  as text and `@angular/localize/init` first, and the script calls `buildDocsSearchRecords` on the
+  real manifest. The anchors are the heading ids the pages render. `--dry-run` prints every
+  objectID, a sample record and the count, and makes no network call.
+- **Sync.** `syncDocsIndex`: apply `DOCS_INDEX_SETTINGS`, save every record, browse the index, then
+  delete the ids the build no longer has. Save before delete, never `replaceAllObjects` (its
+  temporary index needs a quota slot and is outside the scoped key).
+- **Skip.** Missing `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` warns and exits 0, like
+  `apply-settings.mjs`. The key must reach the docs index: the shared management key does.
 
 ## Verify (in the Algolia dashboard, after a run)
 

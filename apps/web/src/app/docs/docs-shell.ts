@@ -18,6 +18,10 @@
  * Mobbin anchor: DeepWiki screen 470ef8ee, whose sidebar puts its top-level
  * destinations above a hairline and the scoped page tree below it.
  *
+ * **The docs search box** (AECI-1270, `docs-search.ts`) sits under the toggle
+ * and searches the current guide only. It renders in the browser alone, so the
+ * SSR HTML holds just its fixed-height slot.
+ *
  * **The tree** under it shows one of two guides, picked from the URL alone
  * (AECI-1265). On the General guide it lists "Help center", then every General
  * section in manifest order, each with its pages indented under a guide line.
@@ -50,6 +54,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map } from 'rxjs';
 
 import { DOCS_SECTIONS, type DocsGuide, type DocsPage, type DocsSection } from './docs-content';
+import { DocsSearchComponent } from './docs-search';
 
 export interface Crumb {
   readonly label: string;
@@ -98,7 +103,7 @@ const GUIDE_LINK =
 
 @Component({
   selector: 'app-docs-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [DocsSearchComponent, RouterLink, RouterLinkActive, RouterOutlet],
   host: {
     class: 'block border-t border-(--border-default)',
     // On the host, not the panel: a key handler on a non-focusable element fails
@@ -189,7 +194,8 @@ const GUIDE_LINK =
               }
             </ul>
           </nav>
-          <!-- Reserved: the per-guide docs search box goes here (AECI-1270). -->
+          <!-- The per-guide docs search box (AECI-1270). Client only, filtered to the current guide. -->
+          <aec-docs-search [guide]="location().guide" />
 
           <!-- Two trees, one per guide, picked from the URL alone (AECI-1265), so
                the SSR HTML is the same for every visitor of a page. -->

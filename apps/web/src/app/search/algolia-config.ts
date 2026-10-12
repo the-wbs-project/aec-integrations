@@ -16,6 +16,8 @@
  * provisioned) or malformed. The caller renders the search shell with a
  * "temporarily unavailable" notice and never constructs the controller.
  */
+import type { DocsIndexName } from '@aeci/shared/algolia';
+
 import type { AlgoliaPublicConfig } from '../../env';
 
 export type { AlgoliaPublicConfig };
@@ -49,4 +51,32 @@ function isValidConfig(value: unknown): value is AlgoliaPublicConfig {
 export function readAlgoliaConfig(): AlgoliaPublicConfig | null {
   const raw = (globalThis as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__;
   return isValidConfig(raw) ? raw : null;
+}
+
+/**
+ * What the docs search box needs (AECI-1270): the app, the query-only key and
+ * the one docs index this tier reads. Nothing about the entity indexes.
+ */
+export interface DocsSearchConfig {
+  readonly appId: string;
+  readonly searchKey: string;
+  readonly docsIndex: DocsIndexName;
+}
+
+/**
+ * Returns the docs search config, or `null` when the global is absent, has no
+ * credentials, or carries no known `docsIndex` (HTML rendered before
+ * AECI-1270). `null` means the docs search box renders nothing.
+ *
+ * Separate from `readAlgoliaConfig` on purpose: `/search` keeps its own
+ * validator unchanged, and the docs box does not need the entity indexes.
+ */
+export function readDocsSearchConfig(): DocsSearchConfig | null {
+  const raw = (globalThis as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__;
+  if (typeof raw !== 'object' || raw === null) return null;
+  const cfg = raw as Partial<AlgoliaPublicConfig>;
+  if (typeof cfg.appId !== 'string' || cfg.appId.length === 0) return null;
+  if (typeof cfg.searchKey !== 'string' || cfg.searchKey.length === 0) return null;
+  if (cfg.docsIndex !== 'staging_docs' && cfg.docsIndex !== 'production_docs') return null;
+  return { appId: cfg.appId, searchKey: cfg.searchKey, docsIndex: cfg.docsIndex };
 }

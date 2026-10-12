@@ -49,12 +49,14 @@
     "skills:update": "npx skills add coreyhaines31/marketingskills",
     "algolia:provision": "node scripts/algolia/provision.mjs",
     "algolia:apply-settings": "node scripts/algolia/apply-settings.mjs",
-    "algolia:bulk-sync": "pnpm --filter @aeci/api db:algolia-bulk-sync"
+    "algolia:bulk-sync": "pnpm --filter @aeci/api db:algolia-bulk-sync",
+    "algolia:push-docs": "node scripts/algolia/push-docs.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "algoliasearch": "5.52.0",
     "angular-eslint": "^22.0.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.4.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
