@@ -17,15 +17,19 @@
 #
 #   1. pre-promotion-checks (unattended)
 #      - Refuses a run dispatched from any ref but `main` (`github.ref`).
-#      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
-#        confirmation — there is no typed-word gate; AECI-879).
+#      - Picks the commit (`scripts/resolve-promote-sha.sh`). `commit_sha` is
+#        optional: blank ships whatever staging runs, read from staging's
+#        /api/version + /_version (both must agree). A pasted SHA must be full
+#        40-char lowercase hex. The dispatch is the confirmation; there is no
+#        typed-word gate (AECI-879). Later jobs read the chosen SHA from this
+#        job's `sha` output, never from the input.
 #      - Validates the Lighthouse override: `override_lighthouse: true` needs a
 #        non-empty `override_reason`.
-#      - Checks out the repo at `inputs.commit_sha`.
+#      - Checks out the repo at the chosen SHA.
 #      - `scripts/require-secrets.sh` over the demo secrets (REQUIRED fail-fast,
 #        RECOMMENDED warn) BEFORE anything is deployed.
 #      - Hits `staging.aecintegrations.com/api/version` + `/_version` and asserts
-#        BOTH report `inputs.commit_sha` (staging is the immediate upstream tier).
+#        BOTH report the chosen SHA (staging is the immediate upstream tier).
 #        Staging sits behind Cloudflare Access; verify-version.sh attaches the
 #        service-token headers when CF_ACCESS_* are set.
 #
@@ -98,14 +102,16 @@
 # Required GH Actions repo variables: none (demo touches no Supabase Postgres).
 
 name: promote-to-demo
+run-name: promote-to-demo ${{ inputs.commit_sha || '(what staging runs)' }}
 
 on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Full 40-char commit SHA already verified on staging (lowercase hex)'
-        required: true
+        description: 'Leave blank to promote whatever staging is running. Or a full 40-char SHA already on staging (lowercase hex).'
+        required: false
         type: string
+        default: ''
       override_lighthouse:
         description: 'Skip the Lighthouse gate. Needs a reason below. Logged in the run summary.'
         required: false
@@ -139,6 +145,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # The commit this run ships. Every later job reads it from here, never from
+    # inputs.commit_sha, because that input may be blank.
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       # Dispatch from `main` only. GitHub runs the copy of this file at the
       # dispatched ref, so a run from another branch could carry an old or edited
@@ -151,25 +161,31 @@ jobs:
           REF: ${{ github.ref }}
         run: |
           if [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::promote-to-demo must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha still picks the commit."
+            echo "::error::promote-to-demo must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha (or staging, when blank) still picks the commit."
             exit 1
           fi
 
-      # The SHA *is* the confirmation (AECI-879). There is no typed-word gate:
-      # pasting a 40-char commit you verified on staging is a deliberate act, and
-      # a second "type PROMOTE" box only trains the operator to type past it.
-      # What protects the tier is this shape check plus the staging version
-      # assert below. `workflow_dispatch` inputs have no server-side pattern
-      # validation, so this runs first and fails fast in the run log.
-      - name: Validate commit_sha input
+      # Pick the commit. The dispatch itself is the confirmation (AECI-879 removed
+      # the typed-word gate). `commit_sha` is optional: blank means "whatever
+      # staging is running now", read from staging's /api/version + /_version,
+      # which must agree. A pasted SHA is shape-checked here, since
+      # `workflow_dispatch` inputs have no server-side pattern validation. The
+      # staging version assert below then runs on the chosen SHA either way.
+      # Checkout has not happened yet, so the script is fetched from the
+      # dispatched ref (main) by sparse checkout.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/resolve-promote-sha.sh
+          sparse-checkout-cone-mode: false
+          path: resolve
+      - name: Resolve the commit to promote
+        id: sha
         env:
-          COMMIT_SHA: ${{ inputs.commit_sha }}
-        run: |
-          if ! printf '%s' "$COMMIT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::commit_sha must be a full 40-char lowercase hex SHA (received: '$COMMIT_SHA')"
-            exit 1
-          fi
-          echo "commit_sha=$COMMIT_SHA accepted"
+          HOST: https://staging.aecintegrations.com
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: bash resolve/scripts/resolve-promote-sha.sh
 
       # An override without a reason is refused before anything else runs. The
       # reason goes to the job summary and the run log in lighthouse-lookup.
@@ -186,7 +202,7 @@ jobs:
 
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ steps.sha.outputs.sha }}
 
       # THE RULE — refuse to promote if demo is missing a required secret. Demo
       # is a showcase, so only the secrets it cannot function without are REQUIRED
@@ -253,10 +269,10 @@ jobs:
       # Worker (/api/version) and the SSR Worker (/_version, AECI-92). Staging sits
       # behind Cloudflare Access (docs/access.md §1); verify-version.sh attaches the
       # service-token headers when CF_ACCESS_* are set.
-      - name: Verify staging is at inputs.commit_sha (API + SSR)
+      - name: Verify staging is at the chosen SHA (API + SSR)
         env:
           HOST: https://staging.aecintegrations.com
-          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_SHA: ${{ steps.sha.outputs.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
@@ -299,7 +315,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ inputs.commit_sha }}
+          SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           OVERRIDE: ${{ inputs.override_lighthouse }}
           REASON: ${{ inputs.override_reason }}
           ACTOR: ${{ github.actor }}
@@ -389,14 +405,14 @@ jobs:
   # run. The nested jobs ask for `statuses: write`, so grant it here.
   lighthouse-measure:
     name: Lighthouse gate (measure)
-    needs: lighthouse-lookup
+    needs: [pre-promotion-checks, lighthouse-lookup]
     if: needs.lighthouse-lookup.outputs.decision == 'measure'
     permissions:
       contents: read
       statuses: write
     uses: ./.github/workflows/lighthouse.yml
     with:
-      commit_sha: ${{ inputs.commit_sha }}
+      commit_sha: ${{ needs.pre-promotion-checks.outputs.sha }}
     secrets: inherit
 
   # ===========================================================================
@@ -407,7 +423,7 @@ jobs:
   # else would stop a deploy after a failed or cancelled measurement.
   lighthouse-gate:
     name: Lighthouse gate
-    needs: [lighthouse-lookup, lighthouse-measure]
+    needs: [pre-promotion-checks, lighthouse-lookup, lighthouse-measure]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -418,7 +434,7 @@ jobs:
           LOOKUP_RESULT: ${{ needs.lighthouse-lookup.result }}
           DECISION: ${{ needs.lighthouse-lookup.outputs.decision }}
           MEASURE_RESULT: ${{ needs.lighthouse-measure.result }}
-          SHA: ${{ inputs.commit_sha }}
+          SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$LOOKUP_RESULT" != "success" ]; then
@@ -474,7 +490,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ needs.pre-promotion-checks.outputs.sha }}
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -549,7 +565,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/api
-        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # (No DATABASE_URL push — the demo app DB is Cloudflare D1 `aeci-app-demo`
       # (ADR 0016), reached via the `DB` binding and applied with `wrangler d1
@@ -785,7 +801,7 @@ jobs:
         env:
           POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
           POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
-          PH_SM_RELEASE_VERSION: ${{ inputs.commit_sha }}
+          PH_SM_RELEASE_VERSION: ${{ needs.pre-promotion-checks.outputs.sha }}
           PH_SM_RELEASE_NAME: aeci-web
         run: bash scripts/ci/posthog-sourcemaps.sh
 
@@ -795,7 +811,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/web
-        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # Push the Supabase anon (publishable) key to the demo WEB Worker — the
       # SINGLE shared auth project (ADR 0017). Warn-and-skip: absent → demo auth
@@ -881,7 +897,7 @@ jobs:
         id: smoke
         env:
           HOST: https://demo.aecintegrations.com
-          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -917,7 +933,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
         run: |
           set -uo pipefail
           rc=0
@@ -935,7 +951,7 @@ jobs:
       - name: Failure runbook
         if: failure()
         env:
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
           ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
         run: |
@@ -980,7 +996,7 @@ jobs:
         env:
           PH_EVENT_ENV: demo
           PH_SERVICE: both
-          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_VERSION: ${{ needs.pre-promotion-checks.outputs.sha }}
           PH_DEPLOY_KIND: promote
           PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
           PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
@@ -990,7 +1006,7 @@ jobs:
       - name: Summary
         if: always()
         env:
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
         run: |
           {
             echo "## promote-to-demo summary"

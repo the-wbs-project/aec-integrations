@@ -10,19 +10,27 @@
 #
 #   1. pre-promotion-checks (unattended)
 #      - Refuses a run dispatched from any ref but `main` (`github.ref`).
-#      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
-#        confirmation — there is no typed-word gate; AECI-879).
+#      - Picks the commit (`scripts/resolve-promote-sha.sh`). `commit_sha` is
+#        optional: blank ships whatever demo runs, read from demo's
+#        /api/version + /_version (both must agree). A pasted SHA must be full
+#        40-char lowercase hex. deploy-prod-workers reads the chosen SHA from
+#        this job's `sha` output, never from the input.
+#      - Validates `confirm == PROMOTE`. AECI-879 dropped this box when the
+#        pasted SHA was the confirmation. A blank SHA is no longer a deliberate
+#        act, and the `production` environment has no required reviewer
+#        (AECI-1239), so the typed word is the one human step.
 #      - `scripts/require-secrets.sh` over the prod secrets (REQUIRED fail-fast,
 #        BEFORE the approval gate, so a misconfigured prod never half-deploys).
-#      - Checks out the repo at `inputs.commit_sha`.
+#      - Checks out the repo at the chosen SHA.
 #      - Hits `demo.aecintegrations.com/api/version` (+ the SSR `/_version`) and
-#        asserts the SHA matches `inputs.commit_sha`. The verbatim failure
-#        message — `demo is not at <input>, refusing to promote` — gates the
+#        asserts demo reports the chosen SHA. The verbatim failure
+#        message — `demo is not at <sha>, refusing to promote` — gates the
 #        promote on the immediate upstream tier (demo).
 #
 #   2. deploy-prod-workers  (gated by GH Environment `production`)
-#      - Approval pause: the run blocks here until Chris (the required reviewer
-#        per docs/environments.md §4) clicks Approve before ANY mutation.
+#      - Approval pause, once a required reviewer is set on the `production`
+#        environment (docs/environments.md §4). None is set today (AECI-1239),
+#        so the job starts as soon as pre-promotion-checks passes.
 #      - Provisions the prod scheduled-job queues (idempotent).
 #      - Applies the prod app DB migrations to Cloudflare D1 (aeci-app-production)
 #        via `wrangler d1 migrations apply` and reconciles the D1 taxonomy seed
@@ -37,7 +45,7 @@
 #        both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
 #      - Polls `www.aecintegrations.com` — the canonical served host — until BOTH
-#        Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`. It polled
+#        Workers report the chosen SHA AND `/api/health` is `db:ok`. It polled
 #        the internal `prod.aecintegrations.com` until AECI-807 retired that
 #        hostname. The smoke step still passes the `aeci-gh-actions`
 #        service-token headers; they are a no-op on a public host, and keeping
@@ -96,12 +104,18 @@
 #                            and vendor-claim resolution reports 'unavailable'.
 
 name: promote-to-prod
+run-name: promote-to-prod ${{ inputs.commit_sha || '(what demo runs)' }}
 
 on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Full 40-char commit SHA already verified on demo (lowercase hex)'
+        description: 'Leave blank to promote whatever demo is running. Or a full 40-char SHA already on demo (lowercase hex).'
+        required: false
+        type: string
+        default: ''
+      confirm:
+        description: 'Type PROMOTE to ship to production'
         required: true
         type: string
 
@@ -129,6 +143,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # The commit this run ships. deploy-prod-workers reads it from here, never
+    # from inputs.commit_sha, because that input may be blank.
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       # -----------------------------------------------------------------------
       # Step 0: Dispatch from `main` only.
@@ -144,40 +162,59 @@ jobs:
           REF: ${{ github.ref }}
         run: |
           if [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::promote-to-prod must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha still picks the commit."
+            echo "::error::promote-to-prod must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha (or demo, when blank) still picks the commit."
             exit 1
           fi
 
       # -----------------------------------------------------------------------
-      # Step 1: Validate `commit_sha` input.
-      #   The SHA *is* the confirmation (AECI-879). There is no typed-word gate:
-      #   pasting a 40-char commit you verified on demo is a deliberate act, and
-      #   a second "type PROMOTE" box only trains the operator to type past it.
-      #   What actually protects production is this shape check, the demo
-      #   version assert below, and the `production` GH Environment approval
-      #   that blocks the deploy job before any mutation.
-      #   GH Actions workflow_dispatch inputs don't support pattern validation
-      #   server-side, so check it as the very first step. Fails fast with a
-      #   message that surfaces in the run log.
+      # Step 1a: Require the typed confirmation.
+      #   AECI-879 removed this box because pasting a 40-char SHA was already a
+      #   deliberate act. A blank SHA is not, and the `production` environment
+      #   has no required reviewer (AECI-1239), so without this a bare dispatch
+      #   ships demo's commit to prod with nobody choosing it. Exact match only.
       # -----------------------------------------------------------------------
-      - name: Validate commit_sha input
+      - name: Validate confirm input
         env:
-          COMMIT_SHA: ${{ inputs.commit_sha }}
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if ! printf '%s' "$COMMIT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::commit_sha must be a full 40-char lowercase hex SHA (received: '$COMMIT_SHA')"
+          if [ "$CONFIRM" != "PROMOTE" ]; then
+            echo "::error::confirm must equal PROMOTE (received: '$CONFIRM')"
             exit 1
           fi
-          echo "commit_sha=$COMMIT_SHA accepted"
+          echo "confirm=PROMOTE accepted"
 
       # -----------------------------------------------------------------------
-      # Step 2: Checkout at the input SHA (NOT main).
-      #   Promotes must be against an explicit commit. Checking out main would
-      #   defeat the purpose of the explicit-sha gate.
+      # Step 1b: Pick the commit.
+      #   `commit_sha` is optional: blank means "whatever demo is running now",
+      #   read from demo's /api/version + /_version, which must agree. A pasted
+      #   SHA is shape-checked here, since workflow_dispatch inputs have no
+      #   server-side pattern validation. The demo version assert below then
+      #   runs on the chosen SHA either way.
+      #   Checkout has not happened yet, so the script is fetched from the
+      #   dispatched ref (main) by sparse checkout.
       # -----------------------------------------------------------------------
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.commit_sha }}
+          sparse-checkout: scripts/resolve-promote-sha.sh
+          sparse-checkout-cone-mode: false
+          path: resolve
+      - name: Resolve the commit to promote
+        id: sha
+        env:
+          HOST: https://demo.aecintegrations.com
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: bash resolve/scripts/resolve-promote-sha.sh
+
+      # -----------------------------------------------------------------------
+      # Step 2: Checkout at the chosen SHA (NOT main).
+      #   Promotes must be against an explicit commit. Checking out main would
+      #   ship code the upstream tier never ran.
+      # -----------------------------------------------------------------------
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
 
       # -----------------------------------------------------------------------
       # Step 2b: THE RULE — refuse to promote if prod is missing a required
@@ -302,10 +339,10 @@ jobs:
       #         harmless (the public host ignores them) and kept so
       #         verify-version.sh stays host-agnostic.
       # -----------------------------------------------------------------------
-      - name: Verify demo is at inputs.commit_sha (API + SSR)
+      - name: Verify demo is at the chosen SHA (API + SSR)
         env:
           HOST: https://demo.aecintegrations.com
-          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_SHA: ${{ steps.sha.outputs.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
@@ -324,10 +361,11 @@ jobs:
     needs: pre-promotion-checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The `production` GH Environment has chrisw@thewbsproject.com as a required
-    # reviewer (docs/environments.md §4). The run blocks here — before ANY
-    # mutation (queue/D1/deploy) — until he clicks Approve in the GitHub Actions
-    # UI. This is the single approval gate for the promote.
+    # The `production` GH Environment is meant to list chrisw@thewbsproject.com
+    # as a required reviewer (docs/environments.md §4), which would block the run
+    # here before ANY mutation (queue/D1/deploy). None is set today (AECI-1239):
+    # the environment carries only the main-only branch rule, so the typed
+    # `confirm=PROMOTE` in pre-promotion-checks is the human step.
     environment:
       name: production
       url: https://www.aecintegrations.com
@@ -336,7 +374,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ needs.pre-promotion-checks.outputs.sha }}
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -437,7 +475,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/api
-        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # Push REVIEW_APP_TOKEN to the prod API Worker (idempotent `secret put` on
       # every promote). It gates `POST /api/promote` (the review-app → Supabase
@@ -798,7 +836,7 @@ jobs:
         env:
           POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
           POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
-          PH_SM_RELEASE_VERSION: ${{ inputs.commit_sha }}
+          PH_SM_RELEASE_VERSION: ${{ needs.pre-promotion-checks.outputs.sha }}
           PH_SM_RELEASE_NAME: aeci-web
         run: bash scripts/ci/posthog-sourcemaps.sh
 
@@ -830,7 +868,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/web
-        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # AECI-193: push the Supabase anon (publishable) key to the prod WEB
       # Worker — web only; the API Worker verifies user JWTs with public JWKS
@@ -983,7 +1021,7 @@ jobs:
         id: smoke
         env:
           HOST: https://www.aecintegrations.com
-          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
@@ -1057,7 +1095,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
         run: |
           set -uo pipefail
           rc=0
@@ -1077,7 +1115,7 @@ jobs:
         env:
           PH_EVENT_ENV: production
           PH_SERVICE: both
-          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_VERSION: ${{ needs.pre-promotion-checks.outputs.sha }}
           PH_DEPLOY_KIND: auto_rollback
           PH_PROJECT_KEY: phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ
           PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
@@ -1099,7 +1137,7 @@ jobs:
       - name: Failure runbook
         if: failure()
         env:
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
           ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
           ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
         run: |
@@ -1159,7 +1197,7 @@ jobs:
         env:
           PH_EVENT_ENV: production
           PH_SERVICE: both
-          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_VERSION: ${{ needs.pre-promotion-checks.outputs.sha }}
           PH_DEPLOY_KIND: promote
           PH_PROJECT_KEY: phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ
           PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
@@ -1169,7 +1207,7 @@ jobs:
       - name: Summary
         if: always()
         env:
-          INPUT_SHA: ${{ inputs.commit_sha }}
+          INPUT_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
         run: |
           {
             echo "## promote-to-prod summary"
