@@ -518,10 +518,12 @@
           @for (seat of seats(); track seat.user_id) {
           <tr class="border-b border-(--border-default) align-top">
             <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
-              {{ seatName(seat) }}
+              <span>{{ seatName(seat) }}</span>
+              @if (seatHasName(seat)) {
               <span class="block text-xs font-normal text-(--text-tertiary)">
                 {{ seatEmail(seat) }}
               </span>
+              }
             </th>
 
             <td class="py-2.5 pe-4 text-(--text-secondary)">{{ seat.role }}</td>

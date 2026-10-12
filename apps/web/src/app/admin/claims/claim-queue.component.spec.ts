@@ -65,6 +65,7 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     resolved_by: over.resolved_by ?? null,
     duplicate_of_request_id: over.duplicate_of_request_id ?? null,
     existing_seats: 'existing_seats' in over ? over.existing_seats! : [],
+    seat_emails_available: over.seat_emails_available ?? true,
     related_requests: 'related_requests' in over ? over.related_requests! : [],
     // AECI-532: the resolved target vendor + its entitlement, so the queue can render
     // the entitlement column and address the set/renew/clear control.
@@ -314,6 +315,7 @@ describe('ClaimQueue', () => {
           existing_seats: [
             {
               display_name: 'Existing Admin',
+              email: 'admin@autodesk.com',
               work_email_verified: true,
               created_at: '2026-05-01T00:00:00.000Z',
             },
@@ -330,6 +332,48 @@ describe('ClaimQueue', () => {
 
     const degraded = await setup(makeApiMock([makeClaim({ id: 'c3', existing_seats: null })]));
     expect(degraded.el.textContent).toContain('Unavailable');
+  });
+
+  it('labels a seat by its email when it has no display name, never "Unnamed seat" (AECI-1277)', async () => {
+    const seat = { work_email_verified: false, created_at: '2026-05-01T00:00:00.000Z' };
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          existing_seats: [
+            { ...seat, display_name: 'Named Admin', email: 'named@autodesk.com' },
+            { ...seat, display_name: null, email: 'holder@gmail.com' },
+            { ...seat, display_name: '   ', email: 'blank@gmail.com' },
+          ],
+        }),
+      ]),
+    );
+    const text = el.textContent ?? '';
+    expect(text).toContain('Named Admin');
+    // The name wins; the email is the fallback, not a second line.
+    expect(text).not.toContain('named@autodesk.com');
+    expect(text).toContain('holder@gmail.com');
+    expect(text).toContain('blank@gmail.com');
+    expect(text).not.toContain('Unnamed seat');
+  });
+
+  it('says why a nameless seat has no email: seam down vs. none on file (AECI-1277)', async () => {
+    const seat = {
+      display_name: null,
+      email: null,
+      work_email_verified: false,
+      created_at: '2026-05-01T00:00:00.000Z',
+    };
+    const down = await setup(
+      makeApiMock([makeClaim({ id: 'c1', existing_seats: [seat], seat_emails_available: false })]),
+    );
+    expect(down.el.textContent).toContain('Email unavailable');
+
+    const none = await setup(
+      makeApiMock([makeClaim({ id: 'c2', existing_seats: [seat], seat_emails_available: true })]),
+    );
+    expect(none.el.textContent).toContain('No email on file');
+    expect(none.el.textContent).not.toContain('Email unavailable');
   });
 
   it('renders the product-role breakdown, the no-products state, and the unavailable state', async () => {

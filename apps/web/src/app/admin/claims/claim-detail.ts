@@ -21,6 +21,7 @@ import { claimantAccountLabel } from './claimant-account-label';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 /**
@@ -266,9 +267,8 @@ export class ClaimDetail {
       : ['/vendors', claim.target.slug];
   }
 
-  protected seatDisplayName(name: string | null): string {
-    return name?.trim() ? name : $localize`:@@admin.claims.detail.seat.unnamed:Unnamed seat`;
-  }
+  /** Display name, else email (AECI-1277) — the rule shared with the roster. */
+  protected readonly seatLabel = seatLabel;
 
   /**
    * FALLBACK person link (AECI-847): a pre-built LinkedIn people-search URL from
