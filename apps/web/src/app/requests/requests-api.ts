@@ -17,6 +17,7 @@ import { firstValueFrom } from 'rxjs';
 import type {
   ClaimFormInput,
   CorrectionForm,
+  ListingRequestInput,
   RequestSubmitResponse,
   RequestTargetType,
 } from '@aeci/shared';
@@ -53,6 +54,13 @@ export class RequestsApi {
         target_type: target.targetType,
         slug: target.slug,
       }),
+    );
+  }
+
+  /** `POST /api/requests/listing` (AECI-1293): a typed-in listing from the claim dialog. */
+  submitListing(formValue: ListingRequestInput): Promise<RequestSubmitResponse> {
+    return firstValueFrom(
+      this.http.post<RequestSubmitResponse>('/api/requests/listing', formValue),
     );
   }
 }

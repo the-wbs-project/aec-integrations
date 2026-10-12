@@ -10,6 +10,7 @@ import { provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../../analytics/analytics';
+import { ClaimDialogService } from '../claim-dialog/claim-dialog.service';
 import { PlanInquiryService } from '../plan-inquiry/plan-inquiry.service';
 import { PlanCardsComponent } from './plan-cards';
 
@@ -24,12 +25,14 @@ function render(inputs: Record<string, unknown>) {
   });
   const inquiry = TestBed.inject(PlanInquiryService);
   inquiry.attachHost();
+  const claimDialog = TestBed.inject(ClaimDialogService);
+  claimDialog.attachHost();
   const fixture = TestBed.createComponent(PlanCardsComponent);
   for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
   fixture.detectChanges();
   const host = fixture.nativeElement as HTMLElement;
   const cards = host.querySelectorAll('.aec-plan-card');
-  return { host, cards, planCtaClicked, inquiry };
+  return { host, cards, planCtaClicked, inquiry, claimDialog };
 }
 
 describe('PlanCardsComponent', () => {
@@ -47,25 +50,34 @@ describe('PlanCardsComponent', () => {
     );
   });
 
-  // VENDOR_PROGRAM_PAGE_SPEC.md §4.1: "Claim your listing free" on Free, pointed at
-  // the page's own Find your product section, tracked with the page.
-  it('on the vendor program page: the free wording, the section target and the page', () => {
-    const { cards, planCtaClicked, inquiry } = render({
-      page: 'vendor_program',
-      claimPath: '/vendor-program',
-      claimFragment: 'find-your-product',
-      claimLabel: 'free',
-    });
-    const claim = cards[0].querySelector('a')!;
-    expect(claim.textContent?.trim()).toBe('Claim your listing free');
-    expect(claim.getAttribute('href')).toBe('/vendor-program#find-your-product');
-    claim.addEventListener('click', (e) => e.preventDefault());
-    claim.click();
-
-    const managed = cards[1].querySelector('a')!;
+  const click = (link: HTMLElement): boolean => {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    managed.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(true);
+    link.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+
+  // AECI-1293 (spec §15.1): both cards open the claim dialog, each preselecting its
+  // plan; the pricing question under Managed opens the inquiry dialog.
+  it('opens the claim dialog from both cards with the plan preselected', () => {
+    const { cards, planCtaClicked, claimDialog, inquiry } = render({ page: 'vendor_program' });
+    const claim = cards[0].querySelector('a')!;
+    expect(claim.textContent?.trim()).toBe('Claim your listing');
+    expect(claim.getAttribute('href')).toBe('/vendor-program#find-your-product');
+    expect(click(claim)).toBe(true);
+    expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card', plan: 'free' });
+
+    const [start, pricing] = [...cards[1].querySelectorAll('a')];
+    expect(start.textContent?.trim()).toBe('Start with Managed');
+    expect(click(start)).toBe(true);
+    expect(claimDialog.opening()).toEqual({
+      page: 'vendor_program',
+      entry: 'card',
+      plan: 'managed',
+    });
+
+    expect(pricing.textContent?.trim()).toBe('Talk to us');
+    expect(cards[1].textContent).toContain('Questions about pricing?');
+    expect(click(pricing)).toBe(true);
     expect(inquiry.placement()).toBe('card');
     expect(inquiry.page()).toBe('vendor_program');
 
@@ -75,14 +87,20 @@ describe('PlanCardsComponent', () => {
     ]);
   });
 
-  // Spec §5 hook: a signed-in vendor gets the portal on the Free card, untracked.
-  it('swaps the Free claim for "Go to your portal" when portal is set', () => {
-    const { cards, planCtaClicked } = render({ page: 'vendor_program', portal: true });
-    const link = cards[0].querySelector('a')!;
-    expect(link.textContent?.trim()).toBe('Go to your portal');
-    expect(link.getAttribute('href')).toBe('/vendor');
-    link.addEventListener('click', (e) => e.preventDefault());
-    link.click();
+  // Spec §5 hook: a signed-in vendor gets the portal on both cards, untracked.
+  it('swaps both dialog buttons for "Go to your portal" when portal is set', () => {
+    const { cards, planCtaClicked, claimDialog } = render({
+      page: 'vendor_program',
+      portal: true,
+    });
+    for (const card of [cards[0], cards[1]]) {
+      const link = card.querySelector('a')!;
+      expect(link.textContent?.trim()).toBe('Go to your portal');
+      expect(link.getAttribute('href')).toBe('/vendor');
+      link.addEventListener('click', (e) => e.preventDefault());
+      link.click();
+    }
     expect(planCtaClicked).not.toHaveBeenCalled();
+    expect(claimDialog.isOpen()).toBe(false);
   });
 });

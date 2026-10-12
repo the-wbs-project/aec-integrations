@@ -30,13 +30,16 @@
  * the tab: every claim link, the Managed inquiry, "Ask us to add it" and "Go to your
  * portal".
  *
- * **Calls to action (§4.1).** The hero pair (`top`), the plan cards (`card`), Find
- * your product (`search_result`), the phone bar (`mobile_bar`) and the closing panel
- * (`bottom`). No rail on this page: it would reserve an empty column beside every
- * section (2026-10-12). The docs Plans page keeps its rail.
- * Every claim link points at `#find-your-product` through `claimPath` +
- * `claimFragment`, never a bare `#id` (the `<base href>` trap). The plan cards carry
- * `data-plans-cta`, so the phone bar also hides while they are on screen. Exactly one
+ * **Calls to action (§4.1, §15).** The hero pair (`top`), the plan cards (`card`),
+ * Find your product (`search_result`), the phone bar (`mobile_bar`) and the closing
+ * panel (`bottom`). No rail on this page: it would reserve an empty column beside
+ * every section (2026-10-12). The docs Plans page keeps its rail. Every one of them
+ * opens the one claim dialog (AECI-1293): "Claim your listing", or "Start with
+ * Managed" with Managed preselected. Without JS they link to `#find-your-product`
+ * through an absolute `/vendor-program#find-your-product`, never a bare `#id` (the
+ * `<base href>` trap). "Questions about pricing? Talk to us" opens the plan inquiry
+ * dialog. The plan cards carry `data-plans-cta`, so the phone bar also hides while
+ * they are on screen. Exactly one `aec-claim-dialog-host` and one
  * `aec-plan-inquiry-host`.
  *
  * **Static + edge-cached + SSR-safe.** No data fetch and no per-visitor state in the
@@ -45,8 +48,8 @@
  * SSR, and are applied only after the first browser render (`hydrated`), so the
  * server HTML is the signed-out page for every visitor:
  *
- *  - a vendor seat: every "Claim your listing free" becomes "Go to your portal";
- *  - a Managed company: also no phone bar, no Managed button in the panel.
+ *  - a vendor seat: every claim dialog control becomes "Go to your portal";
+ *  - a Managed company: also no phone bar, no pricing link or Managed steps in the panel.
  *
  * **Full width at desktop (§11).** Every section uses the whole `max-w-7xl`
  * container from `lg`: a 12-column split (heading left, content right), a 3-column
@@ -87,11 +90,12 @@ import {
   PlanCtaPanelComponent,
   managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
+import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
 import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramFind } from './vendor-program-find';
 
-/** Where every claim link on this page goes: its own Find your product section. */
+/** The page and its Find your product section, the no-JS target of every claim dialog control. */
 export const VENDOR_PROGRAM_PATH = '/vendor-program';
 export const FIND_YOUR_PRODUCT = 'find-your-product';
 
@@ -109,6 +113,7 @@ const PLANS_PATH = '/docs/vendors/plans';
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
     PlanCtaPanelComponent,
+    ClaimDialogHost,
     PlanInquiryHost,
     VendorProgramFind,
   ],
@@ -135,13 +140,7 @@ const PLANS_PATH = '/docs/vendors/plans';
               your listing is free. Keep it current, and it reads "Vendor maintained" with the date
               you last updated it.
             </p>
-            <aec-plan-cta-actions
-              class="mt-6 md:mt-8"
-              page="vendor_program"
-              [claimPath]="claimPath"
-              [claimFragment]="claimFragment"
-              [portal]="portal()"
-            />
+            <aec-plan-cta-actions class="mt-6 md:mt-8" page="vendor_program" [portal]="portal()" />
           </div>
           <div
             class="hidden rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 lg:col-span-5 lg:block xl:p-8"
@@ -264,7 +263,7 @@ const PLANS_PATH = '/docs/vendors/plans';
             </ul>
           </section>
 
-          <!-- 3. Find your product (spec section 6). Every claim link lands here. -->
+          <!-- 3. Find your product (spec section 6). The claim controls land here without JS. -->
           <section id="find-your-product" aria-labelledby="vp-find-heading" class="scroll-mt-24">
             <aec-vendor-program-find />
           </section>
@@ -472,9 +471,6 @@ const PLANS_PATH = '/docs/vendors/plans';
               class="mt-6"
               data-plans-cta="card"
               page="vendor_program"
-              claimLabel="free"
-              [claimPath]="claimPath"
-              [claimFragment]="claimFragment"
               [portal]="portal()"
             />
             <p class="mt-4 text-sm text-(--text-secondary)">
@@ -664,17 +660,20 @@ const PLANS_PATH = '/docs/vendors/plans';
             page="vendor_program"
             [headingLevel]="2"
             [split]="true"
-            [showClaim]="true"
-            [claimPath]="claimPath"
-            [claimFragment]="claimFragment"
             [portal]="portal()"
             [hideManaged]="hideManaged()"
           />
         </div>
       </div>
 
-      <aec-plan-cta-mobile-bar page="vendor_program" [hideManaged]="hideManaged()" />
-      <!-- One inquiry dialog for every Managed button on the page (AECI-1279). -->
+      <aec-plan-cta-mobile-bar
+        page="vendor_program"
+        [portal]="portal()"
+        [hideManaged]="hideManaged()"
+      />
+      <!-- One claim dialog for every claim control on the page (AECI-1293), and one
+           inquiry dialog for the pricing links (AECI-1279). -->
+      <aec-claim-dialog-host />
       <aec-plan-inquiry-host />
     </div>
 
@@ -699,8 +698,6 @@ export class VendorProgramPage {
   private readonly planStatus = inject(VendorPlanStatus);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
-  protected readonly claimPath = VENDOR_PROGRAM_PATH;
-  protected readonly claimFragment = FIND_YOUR_PRODUCT;
   protected readonly plansPath = PLANS_PATH;
 
   /**

@@ -8,6 +8,7 @@ import { Analytics } from '../analytics/analytics';
 import type { AutocompleteResult, AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from '../search/autocomplete-search.factory';
 import { SearchAutocomplete } from '../search/search-autocomplete';
+import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { VendorProgramFind } from './vendor-program-find';
 
 /**
@@ -226,5 +227,67 @@ describe('VendorProgramFind', () => {
       .componentInstance as SearchAutocomplete;
     box.querySubmitted.emit('acme');
     expect(navigate).toHaveBeenCalledWith(['/search'], { queryParams: { q: 'acme' } });
+  });
+
+  // AECI-1293 (spec §15.1): with the page's claim dialog mounted, a result opens it at
+  // step 2 with the listing, and "Ask us to add it" opens it at the typed-in step.
+  describe('claim dialog (AECI-1293)', () => {
+    const plainClick = (link: Element, init: MouseEventInit = {}): boolean => {
+      const event = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ...init,
+      });
+      link.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    it('"Claim this listing" opens the dialog with that listing', async () => {
+      const { host, choose, planCtaClicked } = await setup(() => hits(VENDOR));
+      const dialog = TestBed.inject(ClaimDialogService);
+      dialog.attachHost();
+      choose(VENDOR);
+      const claim = host.querySelector('[data-testid="vp-find-result"] a')!;
+      expect(plainClick(claim)).toBe(true);
+      expect(dialog.opening()).toEqual({
+        page: 'vendor_program',
+        entry: 'search_result',
+        listing: { targetType: 'vendor', slug: 'acme-software', name: 'Acme Software' },
+      });
+      expect(planCtaClicked).toHaveBeenCalledWith({
+        plan: 'free',
+        placement: 'search_result',
+        page: 'vendor_program',
+      });
+    });
+
+    it('"Ask us to add it" opens the dialog at the typed-in step, untracked as a plan click', async () => {
+      const { host, planCtaClicked } = await setup(none);
+      const dialog = TestBed.inject(ClaimDialogService);
+      dialog.attachHost();
+      const ask = host.querySelector('[data-testid="vp-find-ask"] a')!;
+      expect(ask.getAttribute('href')).toBe('/contact?topic=add-product');
+      expect(plainClick(ask)).toBe(true);
+      expect(dialog.opening()).toEqual({
+        page: 'vendor_program',
+        entry: 'ask_to_add',
+        typed: true,
+      });
+      expect(planCtaClicked).not.toHaveBeenCalled();
+    });
+
+    it('a modified click, or no dialog host, follows the link', async () => {
+      const { host } = await setup(none);
+      const dialog = TestBed.inject(ClaimDialogService);
+      const ask = host.querySelector('[data-testid="vp-find-ask"] a')!;
+      ask.addEventListener('click', (e) => e.preventDefault(), { once: false });
+      // No host: the dialog stays closed.
+      plainClick(ask);
+      expect(dialog.isOpen()).toBe(false);
+      dialog.attachHost();
+      plainClick(ask, { metaKey: true });
+      expect(dialog.isOpen()).toBe(false);
+    });
   });
 });

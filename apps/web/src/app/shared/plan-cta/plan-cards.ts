@@ -13,10 +13,11 @@
  * portal's plan panel. Managed copy must never suggest it changes where a
  * listing ranks or appears (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
  *
- * Inputs, as on the other plan calls to action (`plan-cta.ts`): `page`, the
- * claim target (`claimPath`, `claimFragment`) and the signed-in `portal` swap.
- * `claimLabel` keeps the docs card's shipped "Claim your listing" (`short`); the
- * vendor program page passes `free` for "Claim your listing free" (spec §4.1).
+ * Inputs, as on the other plan calls to action (`plan-cta.ts`): `page` and the
+ * signed-in `portal` swap. Both buttons open the claim dialog (AECI-1293, spec
+ * §15.1): "Claim your listing" with Free preselected, "Start with Managed" with
+ * Managed preselected. Under the Managed button, "Questions about pricing? Talk to us"
+ * opens the plan inquiry dialog. A vendor seat sees "Go to your portal" on both.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Every string is `$localize`d or
@@ -30,12 +31,13 @@ import { MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
 import { Analytics, type PlanCtaPage } from '../../analytics/analytics';
 import { formatPlanPrice, planLabel } from '../../vendor/vendor-plan';
-import { PlanInquiryTrigger } from '../plan-inquiry/plan-inquiry-trigger';
-import { CLAIM_PATH, MANAGED_CONTACT_HREF, PORTAL_PATH } from './plan-cta';
+import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
+import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
+import { PORTAL_PATH, PlanPricingLinkComponent } from './plan-cta';
 
 @Component({
   selector: 'aec-plan-cards',
-  imports: [RouterLink, PlanInquiryTrigger],
+  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2">
@@ -61,19 +63,15 @@ import { CLAIM_PATH, MANAGED_CONTACT_HREF, PORTAL_PATH } from './plan-cta';
           >
         } @else {
           <a
-            [routerLink]="claimPath()"
-            [fragment]="claimFragment()"
+            [href]="claimHref"
+            aecClaimDialogTrigger="card"
+            [aecClaimDialogPage]="page()"
+            aecClaimDialogPlan="free"
             (click)="track('free')"
-            class="mt-4 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-center text-sm font-medium text-(--text-primary) hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="mt-4 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-center text-sm font-medium text-(--text-primary) no-underline hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@planCta.claim"
+            >Claim your listing</a
           >
-            @if (claimLabel() === 'free') {
-              <ng-container i18n="@@app.docs.plans.cta.claimFree"
-                >Claim your listing free</ng-container
-              >
-            } @else {
-              <ng-container i18n="@@app.docs.plans.free.cta">Claim your listing</ng-container>
-            }
-          </a>
         }
         <p
           class="mt-5 text-xs font-medium text-(--text-secondary)"
@@ -118,17 +116,25 @@ import { CLAIM_PATH, MANAGED_CONTACT_HREF, PORTAL_PATH } from './plan-cta';
             >a month per product</span
           >
         </p>
-        <a
-          [href]="contactHref"
-          aecPlanInquiryTrigger="card"
-          [aecPlanInquiryPage]="page()"
-          (click)="track('managed')"
-          class="mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@app.docs.plans.managed.cta"
-          >Talk to us about Managed</a
-        >
+        @if (portal()) {
+          <a [routerLink]="portalPath" [class]="managedButtonClass" i18n="@@planCta.portal"
+            >Go to your portal</a
+          >
+        } @else {
+          <a
+            [href]="claimHref"
+            aecClaimDialogTrigger="card"
+            [aecClaimDialogPage]="page()"
+            aecClaimDialogPlan="managed"
+            (click)="track('managed')"
+            [class]="managedButtonClass"
+            i18n="@@planCta.startManaged"
+            >Start with Managed</a
+          >
+        }
+        <aec-plan-pricing-link class="mt-3 text-center" [page]="page()" placement="card" />
         <p
-          class="mt-2 text-center text-xs text-(--text-secondary)"
+          class="mt-1 text-center text-xs text-(--text-secondary)"
           i18n="@@app.docs.plans.managed.reply"
         >
           We reply to most messages within a couple of business days.
@@ -165,17 +171,13 @@ import { CLAIM_PATH, MANAGED_CONTACT_HREF, PORTAL_PATH } from './plan-cta';
 export class PlanCardsComponent {
   private readonly locale = inject(LOCALE_ID);
   private readonly analytics = inject(Analytics);
-  protected readonly contactHref = MANAGED_CONTACT_HREF;
+  protected readonly claimHref = CLAIM_DIALOG_FALLBACK_HREF;
   protected readonly portalPath = PORTAL_PATH;
+  protected readonly managedButtonClass =
+    'mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   /** Which page the cards sit on, for `plan_cta_clicked` and the inquiry dialog. */
   readonly page = input.required<PlanCtaPage>();
-  /** Where the Free card's claim link goes. The docs page keeps `CLAIM_PATH`. */
-  readonly claimPath = input(CLAIM_PATH);
-  /** A fragment on `claimPath`, such as `find-your-product`. */
-  readonly claimFragment = input<string | undefined>(undefined);
-  /** `short` is the docs card's "Claim your listing", `free` adds "free" (spec §4.1). */
-  readonly claimLabel = input<'short' | 'free'>('short');
   /** A signed-in vendor: the claim link becomes "Go to your portal" (spec §5). */
   readonly portal = input(false);
 

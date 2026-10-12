@@ -114,12 +114,25 @@
           <dd>{{ c.resolved_at | date: 'medium' }}</dd>
         </div>
         }
+        <!-- AECI-1293: the claimant's plan answer. Informational only. -->
+        <div class="flex gap-1.5" data-testid="claim-detail-plan-interest">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.planInterest">Plan interest</dt>
+          <dd>{{ planInterestLabel(c.plan_interest) }}</dd>
+        </div>
       </dl>
 
       @if (c.body) {
-      <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
-        {{ c.body }}
-      </p>
+      <div class="mt-4" data-testid="claim-detail-comments">
+        <p
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.claims.comments"
+        >
+          Comments
+        </p>
+        <p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
+          {{ c.body }}
+        </p>
+      </div>
       }
 
       <div class="mt-4 flex flex-wrap gap-2">

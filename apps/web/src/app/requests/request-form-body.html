@@ -284,147 +284,25 @@
   novalidate
   (submit)="$event.preventDefault(); onSubmit()"
 >
-  <!-- Name -->
-  <div class="space-y-1.5">
-    <label
-      for="claim-name"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.name.label"
-    >
-      Your name
-    </label>
-    <input
-      id="claim-name"
-      type="text"
-      autocomplete="name"
-      [formField]="form.submitter_name"
-      [attr.aria-invalid]="form.submitter_name().touched() && form.submitter_name().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.submitter_name().touched() && form.submitter_name().getError('standardSchema') ? 'claim-name-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    @if (form.submitter_name().touched() && form.submitter_name().getError('standardSchema')) {
-    <p
-      id="claim-name-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.claim.name.error"
-    >
-      Your name is required.
-    </p>
-    }
-  </div>
+  <!-- Name, role, LinkedIn, work email: shared with the claim dialog (AECI-1293). -->
+  <aec-claimant-fields
+    [name]="form.submitter_name"
+    [role]="form.submitter_role"
+    [linkedin]="form.submitter_linkedin_url"
+    [email]="form.submitter_email"
+  />
 
-  <!-- Role -->
-  <div class="space-y-1.5">
-    <label
-      for="claim-role"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.role.label"
-    >
-      Your role at the company
-    </label>
-    <input
-      id="claim-role"
-      type="text"
-      autocomplete="organization-title"
-      [formField]="form.submitter_role"
-      [attr.aria-invalid]="form.submitter_role().touched() && form.submitter_role().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.submitter_role().touched() && form.submitter_role().getError('standardSchema') ? 'claim-role-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    @if (form.submitter_role().touched() && form.submitter_role().getError('standardSchema')) {
-    <p
-      id="claim-role-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.claim.role.error"
-    >
-      Your role is required.
-    </p>
-    }
-  </div>
+  <!-- AECI-1293: the plan question, optional (VENDOR_PROGRAM_PAGE_SPEC.md §15.6). -->
+  <aec-plan-interest-field [field]="form.plan_interest" />
 
-  <!-- LinkedIn profile (optional; AECI-847 identity signal) -->
-  <div class="space-y-1.5">
-    <label
-      for="claim-linkedin"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.linkedin.label"
-    >
-      LinkedIn profile
-      <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
-    </label>
-    <input
-      id="claim-linkedin"
-      type="url"
-      inputmode="url"
-      autocomplete="url"
-      i18n-placeholder="@@requests.claim.linkedin.placeholder"
-      placeholder="https://www.linkedin.com/in/your-profile"
-      [formField]="form.submitter_linkedin_url"
-      [attr.aria-invalid]="form.submitter_linkedin_url().touched() && form.submitter_linkedin_url().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.submitter_linkedin_url().touched() && form.submitter_linkedin_url().getError('standardSchema') ? 'claim-linkedin-hint claim-linkedin-error' : 'claim-linkedin-hint'"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    <p
-      id="claim-linkedin-hint"
-      class="text-xs text-(--text-secondary)"
-      i18n="@@requests.claim.linkedin.hint"
-    >
-      Adding your profile is the fastest way for us to confirm you work here.
-    </p>
-    @if (form.submitter_linkedin_url().touched() &&
-    form.submitter_linkedin_url().getError('standardSchema')) {
-    <p
-      id="claim-linkedin-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.claim.linkedin.error"
-    >
-      Enter a LinkedIn profile URL, starting with https://www.linkedin.com/in/
-    </p>
-    }
-  </div>
-
-  <!-- Work email -->
-  <div class="space-y-1.5">
-    <label
-      for="claim-email"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.email.label"
-    >
-      Your work email
-    </label>
-    <input
-      id="claim-email"
-      type="email"
-      inputmode="email"
-      autocomplete="email"
-      [formField]="form.submitter_email"
-      [attr.aria-invalid]="form.submitter_email().touched() && form.submitter_email().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.submitter_email().touched() && form.submitter_email().getError('standardSchema') ? 'claim-email-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    @if (form.submitter_email().touched() && form.submitter_email().getError('standardSchema')) {
-    <p
-      id="claim-email-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.email.invalid"
-    >
-      Enter a valid email address.
-    </p>
-    }
-  </div>
-
-  <!-- Anything we should know -->
+  <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->
   <div class="space-y-1.5">
     <label
       for="claim-body"
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.body.label"
+      i18n="@@requests.claim.comments.label"
     >
-      Anything we should know?
+      Additional comments
       <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
     </label>
     <textarea

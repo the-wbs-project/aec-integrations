@@ -8,15 +8,19 @@
  *   searches in the browser only, so the cached HTML holds the empty box and
  *   nothing else.
  * - **A hit.** Choosing a product or vendor suggestion does not navigate. It shows
- *   a result card with the name, "Claim this listing" (the listing's own claim
- *   form, `/products/:slug/claim` or `/vendors/:slug/claim`, same tab) and "View
- *   the listing", which opens in a new tab with the house cue (`aec-new-tab-icon`)
- *   so the claim stays one click away (ruling 2026-10-12). The claim click fires `plan_cta_clicked` with plan `free`,
+ *   a result card with the name, "Claim this listing" and "View the listing", which
+ *   opens in a new tab with the house cue (`aec-new-tab-icon`) so the claim stays one
+ *   click away (ruling 2026-10-12). "Claim this listing" opens the claim dialog at
+ *   step 2 with that listing filled in (AECI-1293, §15.1). Its `href` stays the
+ *   listing's own claim form (`/products/:slug/claim` or `/vendors/:slug/claim`) for
+ *   no-JS and new-tab clicks. The click fires `plan_cta_clicked` with plan `free`,
  *   placement `search_result`, page `vendor_program` (§9).
  * - **Ask us to add it.** Under the box, always: "Can't find your product? Ask us
- *   to add it." The link goes to `/contact?topic=add-product` (`ADD_PRODUCT_TOPIC`),
- *   where the contact page offers an email with the subject and the prompt filled
- *   in (§6, settled 2026-10-12). It fires no analytics event.
+ *   to add it." It opens the claim dialog at the typed-in step (§15.1). Its `href`
+ *   stays `/contact?topic=add-product` (`ADD_PRODUCT_TOPIC`) for no-JS and new-tab
+ *   clicks, where the contact page offers an email with the subject and the prompt
+ *   filled in. It fires no `plan_cta_clicked`; the dialog's `claim_dialog_step`
+ *   records it with entry `ask_to_add`.
  * - **A miss.** A settled query with no suggestion shows the "may already be
  *   listed" line, ending in the same "ask us to add it" link. Never "are already
  *   listed" (§8). A search that failed is not a miss and shows nothing.
@@ -35,6 +39,7 @@ import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
 import { Analytics } from '../analytics/analytics';
+import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { ADD_PRODUCT_TOPIC } from '../contact/contact-topics';
 import { navigateToSearchQuery } from '../layout/search-submit';
 import type { AutocompleteSettled } from '../search/autocomplete-controller';
@@ -74,9 +79,9 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
         <span i18n="@@vendorProgram.find.askLead">Can't find your product?</span>
         {{ ' ' }}
         <a
-          routerLink="/contact"
-          [queryParams]="askQuery"
+          [href]="askHref"
           [class]="askLink"
+          (click)="askToAdd($event)"
           i18n="@@vendorProgram.find.ask"
           >Ask us to add it.</a
         >
@@ -97,8 +102,8 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
             }
             <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
               <a
-                [routerLink]="claimLink(hit)"
-                (click)="trackClaim()"
+                [href]="claimHref(hit)"
+                (click)="claim($event, hit)"
                 class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-2.5 text-sm font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendorProgram.find.claim"
                 >Claim this listing</a
@@ -121,8 +126,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
             i18n="@@vendorProgram.find.missAsk"
           >
             Your products may already be listed, under a different name. If you cannot find yours,
-            <a routerLink="/contact" [queryParams]="askQuery" [class]="askLink">ask us to add it</a
-            >.
+            <a [href]="askHref" [class]="askLink" (click)="askToAdd($event)">ask us to add it</a>.
           </p>
         }
       </div>
@@ -132,14 +136,19 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 export class VendorProgramFind {
   private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
+  private readonly dialog = inject(ClaimDialogService);
 
   protected readonly label = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly placeholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
   protected readonly productTag = $localize`:@@vendorProgram.find.kind.product:Product`;
   protected readonly vendorTag = $localize`:@@vendorProgram.find.kind.vendor:Company`;
 
-  /** `/contact?topic=add-product`: the contact page's "add your product" email. */
-  protected readonly askQuery = { topic: ADD_PRODUCT_TOPIC };
+  /**
+   * `/contact?topic=add-product`: the contact page's "add your product" email, the
+   * no-JS and new-tab target of "Ask us to add it". A plain `href`, not `routerLink`:
+   * `RouterLink` navigates even when the dialog open prevented the click.
+   */
+  protected readonly askHref = `/contact?topic=${ADD_PRODUCT_TOPIC}`;
   /** An in-text link (DESIGN.md, the Link Treatment Rule). */
   protected readonly askLink =
     'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
@@ -181,15 +190,48 @@ export class VendorProgramFind {
     }
   }
 
-  protected claimLink(hit: AutocompleteSuggestion): readonly string[] {
-    return [...hit.routerLink, 'claim'];
+  /** The listing's own claim form, the no-JS and new-tab target of "Claim this listing". */
+  protected claimHref(hit: AutocompleteSuggestion): string {
+    return [...hit.routerLink, 'claim'].join('/').replace(/^\/*/, '/');
   }
 
-  protected trackClaim(): void {
+  /**
+   * "Claim this listing": the claim dialog at step 2 with this listing (§15.1). The
+   * link is a plain `href`, so preventing the click is enough; with no dialog host, or
+   * on a modified click, the link wins.
+   */
+  protected claim(event: MouseEvent, hit: AutocompleteSuggestion): void {
     this.analytics.planCtaClicked({
       plan: 'free',
       placement: 'search_result',
       page: 'vendor_program',
     });
+    const slug = hit.routerLink.at(-1);
+    if (!slug || !this.opensDialog(event)) return;
+    event.preventDefault();
+    this.dialog.open({
+      page: 'vendor_program',
+      entry: 'search_result',
+      listing: { targetType: hit.kind, slug, name: hit.title },
+    });
+  }
+
+  /** "Ask us to add it": the claim dialog at the typed-in step (§15.1). */
+  protected askToAdd(event: MouseEvent): void {
+    if (!this.opensDialog(event)) return;
+    event.preventDefault();
+    this.dialog.open({ page: 'vendor_program', entry: 'ask_to_add', typed: true });
+  }
+
+  /** A plain primary click, with a dialog host on the page. */
+  private opensDialog(event: MouseEvent): boolean {
+    if (!this.dialog.hosted()) return false;
+    return !(
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    );
   }
 }

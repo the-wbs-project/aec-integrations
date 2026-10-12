@@ -277,27 +277,34 @@ describe('VendorProgramPage', () => {
   });
 
   describe('calls to action (AECI-1285 placements)', () => {
-    it('mounts the hero pair, the cards, the phone bar, the panel and one inquiry host', async () => {
+    it('mounts the hero pair, the cards, the phone bar, the panel and one host of each dialog', async () => {
       const { host } = await setup({ plan: stub() });
       const hero = host.querySelector('section')!;
       expect(hero.querySelector('aec-plan-cta-actions')).not.toBeNull();
       for (const tag of ['aec-plan-cards', 'aec-plan-cta-mobile-bar', 'aec-plan-cta-panel']) {
         expect(host.querySelectorAll(tag), tag).toHaveLength(1);
       }
+      expect(host.querySelectorAll('aec-claim-dialog-host')).toHaveLength(1);
       expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
       // The cards count as a full call to action for the phone bar.
       expect(host.querySelector('aec-plan-cards')?.getAttribute('data-plans-cta')).toBe('card');
     });
 
-    it('points every "Claim your listing free" at Find your product on this page', async () => {
+    // AECI-1293 (spec §15.1): every main control reads "Claim your listing" and opens
+    // the one claim dialog; without JS it lands on Find your product.
+    it('labels every claim control "Claim your listing", with Find your product as the no-JS target', async () => {
       const { host, planCtaClicked } = await setup({ plan: stub() });
-      const claims = links(host, 'Claim your listing free');
+      expect(links(host, 'Claim your listing free')).toHaveLength(0);
+      expect(links(host, 'Talk to us about Managed')).toHaveLength(0);
+      const claims = links(host, 'Claim your listing');
       // Hero, Free card, closing panel.
       expect(claims).toHaveLength(3);
       for (const a of claims)
         expect(a.getAttribute('href')).toBe('/vendor-program#find-your-product');
+      const managed = links(host, 'Start with Managed');
+      expect(managed).toHaveLength(1);
 
-      for (const a of claims) {
+      for (const a of [...claims, ...managed]) {
         a.addEventListener('click', (e) => e.preventDefault());
         a.click();
       }
@@ -305,15 +312,19 @@ describe('VendorProgramPage', () => {
         { plan: 'free', placement: 'top', page: 'vendor_program' },
         { plan: 'free', placement: 'card', page: 'vendor_program' },
         { plan: 'free', placement: 'bottom', page: 'vendor_program' },
+        { plan: 'managed', placement: 'card', page: 'vendor_program' },
       ]);
     });
 
-    it('opens every Managed ask as the vendor program page', async () => {
+    it('asks the pricing question as a text link to the inquiry, three times', async () => {
       const { host } = await setup({ plan: stub() });
-      const managed = links(host, 'Talk to us about Managed');
-      // Hero, Managed card, closing panel. The phone bar says "Talk to us".
-      expect(managed).toHaveLength(3);
-      for (const a of managed) expect(a.getAttribute('href')).toBe('/contact?topic=managed');
+      const pricing = links(host, 'Talk to us');
+      // Hero, Managed card, closing panel. The phone bar is hidden until scrolled.
+      expect(pricing).toHaveLength(3);
+      for (const a of pricing) {
+        expect(a.getAttribute('href')).toBe('/contact?topic=managed');
+        expect(text(a.parentElement)).toContain('Questions about pricing?');
+      }
     });
 
     // Full width at desktop (spec section 11, 2026-10-12): no rail, so no column is
@@ -338,28 +349,30 @@ describe('VendorProgramPage', () => {
   });
 
   describe('signed-in variants (AECI-1286)', () => {
-    it('signed out: claim links stay, every Managed ask shows', async () => {
+    it('signed out: claim controls stay, every pricing link shows', async () => {
       const { host } = await setup({ plan: stub('signed-out') });
       expect(links(host, 'Go to your portal')).toHaveLength(0);
-      expect(links(host, 'Claim your listing free')).toHaveLength(3);
+      expect(links(host, 'Claim your listing')).toHaveLength(3);
+      expect(links(host, 'Start with Managed')).toHaveLength(1);
     });
 
-    it('a Free vendor seat: claim links become "Go to your portal", Managed asks stay', async () => {
+    it('a Free vendor seat: every dialog control becomes "Go to your portal", pricing links stay', async () => {
       const { host } = await setup({ plan: stub('free') });
-      expect(links(host, 'Claim your listing free')).toHaveLength(0);
+      expect(links(host, 'Claim your listing')).toHaveLength(0);
+      expect(links(host, 'Start with Managed')).toHaveLength(0);
       const portal = links(host, 'Go to your portal');
-      expect(portal).toHaveLength(3);
+      // Hero, Free card, Managed card, closing panel.
+      expect(portal).toHaveLength(4);
       for (const a of portal) expect(a.getAttribute('href')).toBe('/vendor');
-      expect(links(host, 'Talk to us about Managed')).toHaveLength(3);
+      expect(links(host, 'Talk to us')).toHaveLength(3);
     });
 
-    it('a Managed vendor seat: also no Managed button in the panel', async () => {
+    it('a Managed vendor seat: also no pricing link in the panel', async () => {
       const { host } = await setup({ plan: stub('managed') });
-      expect(links(host, 'Go to your portal')).toHaveLength(3);
+      expect(links(host, 'Go to your portal')).toHaveLength(4);
       const panel = host.querySelector('aec-plan-cta-panel')!;
-      expect(links(panel as HTMLElement, 'Talk to us about Managed')).toHaveLength(0);
-      // The hero and the Managed card keep theirs (spec section 5 lists only three).
-      expect(links(host, 'Talk to us about Managed')).toHaveLength(2);
+      expect(links(panel as HTMLElement, 'Talk to us')).toHaveLength(0);
+      expect(links(host, 'Talk to us')).toHaveLength(2);
     });
 
     it('a failed vendor probe leaves the signed-out page, with no error', async () => {
@@ -378,7 +391,7 @@ describe('VendorProgramPage', () => {
       fixture.detectChanges();
       expect(getMe).toHaveBeenCalledTimes(1);
       expect(links(host, 'Go to your portal')).toHaveLength(0);
-      expect(links(host, 'Claim your listing free')).toHaveLength(3);
+      expect(links(host, 'Claim your listing')).toHaveLength(3);
       expect(host.querySelector('[role="alert"]')).toBeNull();
     });
 
@@ -388,7 +401,7 @@ describe('VendorProgramPage', () => {
       const managed = await setup({ plan: stub('managed'), platform: 'server' });
       const managedHtml = managed.host.innerHTML;
       expect(links(managed.host, 'Go to your portal')).toHaveLength(0);
-      expect(links(managed.host, 'Claim your listing free')).toHaveLength(3);
+      expect(links(managed.host, 'Claim your listing')).toHaveLength(3);
 
       TestBed.resetTestingModule();
       const signedOut = await setup({ plan: stub('signed-out'), platform: 'server' });

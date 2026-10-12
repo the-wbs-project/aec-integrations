@@ -63,6 +63,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',
     submitter_linkedin_url: null,
+    plan_interest: null,
     domain_match: 'match',
     body: 'We build this product and would like to claim the listing.',
     source_url: null,
@@ -255,6 +256,19 @@ describe('ClaimDetail', () => {
       );
       expect(linkedInHrefs(el)[0]).toContain(encodeURIComponent('submitter@vendor.test'));
     });
+  });
+
+  // AECI-1293: the plan answer and the claimant's comments, labelled.
+  it('shows the plan interest and the comments (AECI-1293)', async () => {
+    const { el } = await setup(
+      makeApiMock(makeDetail({ plan_interest: 'not_sure', body: 'We make four products.' })),
+    );
+    expect(el.querySelector('[data-testid="claim-detail-plan-interest"]')?.textContent).toContain(
+      'Not sure yet',
+    );
+    const comments = el.querySelector('[data-testid="claim-detail-comments"]')!;
+    expect(comments.textContent).toContain('Comments');
+    expect(comments.textContent).toContain('We make four products.');
   });
 
   it('shows the owned-integration count beside the role breakdown (AECI-1041)', async () => {

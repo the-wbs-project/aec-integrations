@@ -145,6 +145,11 @@
             <dt class="font-bold" i18n="@@admin.claims.meta.submitted">Submitted</dt>
             <dd>{{ r.created_at | date: 'medium' }}</dd>
           </div>
+          <!-- AECI-1293: the claimant's plan answer. Informational only. -->
+          <div class="flex gap-1.5" data-testid="claim-plan-interest">
+            <dt class="font-bold" i18n="@@admin.claims.meta.planInterest">Plan interest</dt>
+            <dd>{{ planInterestLabel(r.plan_interest) }}</dd>
+          </div>
         </dl>
 
         <!-- Verification signals -->
@@ -462,11 +467,19 @@
         </div>
         }
 
-        <!-- Body -->
+        <!-- The claimant's comments (the claim body; "Additional comments" since AECI-1293) -->
         @if (r.body) {
-        <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
-          {{ r.body }}
-        </p>
+        <div class="mt-4">
+          <p
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.comments"
+          >
+            Comments
+          </p>
+          <p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
+            {{ r.body }}
+          </p>
+        </div>
         }
 
         <!-- §5.2: on a pure-connector vendor that owns NO integrations, BOTH
@@ -584,6 +597,15 @@
             >
               Free grants the seat only. Managed also opens the paid entitlement and the verified
               badge.
+            </p>
+            <!-- AECI-1293: what the claimant said, beside the radios. The radios stay
+                 unselected whatever it says (STAGE_2_PAID_TIERS_SPEC.md 13.6). -->
+            <p
+              class="text-xs font-medium text-(--text-primary)"
+              data-testid="claim-plan-asked"
+              i18n="@@admin.claims.approve.plan.asked"
+            >
+              They asked about: {{ planInterestLabel(r.plan_interest) }}
             </p>
             <div class="flex flex-wrap gap-x-6 gap-y-2">
               <label

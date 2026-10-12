@@ -53,6 +53,7 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
     submitter_linkedin_url: over.submitter_linkedin_url ?? null,
+    plan_interest: over.plan_interest ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,
@@ -626,6 +627,35 @@ describe('ClaimQueue', () => {
     expect(new Set(radios.map((r) => r.name)).size).toBe(1);
     expect(fieldset.textContent).toContain('Free');
     expect(fieldset.textContent).toContain('Managed');
+  });
+
+  // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.5): the claimant's answer sits beside
+  // the radios, which stay unselected whatever it says (§13.6).
+  it('shows the claimant asked about Managed beside unselected radios', async () => {
+    const { el, fixture } = await setup(
+      makeApiMock([makeClaim({ id: 'c1', plan_interest: 'managed', body: 'Four products.' })]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.querySelector('[data-testid="claim-plan-interest"]')?.textContent).toContain(
+      'Managed',
+    );
+    expect(card.textContent).toContain('Comments');
+    expect(card.textContent).toContain('Four products.');
+    buttonByText(card, 'Grant vendor account').click();
+    fixture.detectChanges();
+    const fieldset = card.querySelector('fieldset') as HTMLFieldSetElement;
+    expect(fieldset.querySelector('[data-testid="claim-plan-asked"]')?.textContent?.trim()).toBe(
+      'They asked about: Managed',
+    );
+    const radios = [...fieldset.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios.every((r) => !r.checked)).toBe(true);
+  });
+
+  it('says "Not answered" when the claimant gave no plan', async () => {
+    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', plan_interest: null })]));
+    expect(
+      cardFor(el, 'Procore').querySelector('[data-testid="claim-plan-interest"]')?.textContent,
+    ).toContain('Not answered');
   });
 
   it('keeps Confirm grant disabled until a plan is picked', async () => {

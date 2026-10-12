@@ -26,6 +26,7 @@ import {
   Analytics,
   INTERNAL_PERSON_PROPERTY,
   VENDOR_GROUP_TYPE,
+  planInterestProperty,
   type PlanCtaPage,
   type PlanCtaPlacement,
 } from './analytics';
@@ -102,7 +103,12 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     analytics.productViewed('prod-1');
     analytics.integrationViewed('int-1');
     analytics.reviewSubmitted('prod-1');
-    analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
+    analytics.claimRequested({
+      target_type: 'vendor',
+      slug: 'autodesk',
+      request_id: 'req-1',
+      plan_interest: 'none',
+    });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
       destination: 'https://x.com',
@@ -294,6 +300,53 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     )![1] as Record<string, unknown>;
     expect(Object.keys(props)).not.toContain('query');
     expect(Object.keys(props)).not.toContain('q');
+  });
+
+  // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.7): a step, never typed text.
+  it('fires claim_dialog_step with step, page, entry and path only', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.claimDialogStep({
+      step: 'you',
+      page: 'vendor_program',
+      entry: 'card',
+      path: 'typed',
+    });
+    analytics.claimDialogStep({ step: 'find', page: 'docs_plans', entry: 'top' });
+    await flush();
+    const calls = client.capture.mock.calls.filter((call) => call[0] === 'claim_dialog_step');
+    expect(calls[0]![1]).toEqual(
+      expect.objectContaining({
+        step: 'you',
+        page: 'vendor_program',
+        entry: 'card',
+        path: 'typed',
+      }),
+    );
+    // `find` has no path yet: the key is absent, not empty.
+    expect(Object.keys(calls[1]![1] as object)).not.toContain('path');
+  });
+
+  it('fires listing_requested with the plan answer and page only', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.listingRequested({ plan_interest: 'managed', page: 'vendor_program' });
+    await flush();
+    const props = client.capture.mock.calls.find(
+      (call) => call[0] === 'listing_requested',
+    )![1] as Record<string, unknown>;
+    expect(props).toEqual(
+      expect.objectContaining({ plan_interest: 'managed', page: 'vendor_program' }),
+    );
+    for (const key of ['listing_name', 'website', 'email', 'name']) {
+      expect(Object.keys(props)).not.toContain(key);
+    }
+  });
+
+  it('maps a form plan answer to its event property', () => {
+    expect(planInterestProperty('')).toBe('none');
+    expect(planInterestProperty('not_sure')).toBe('not_sure');
+    expect(planInterestProperty('bogus')).toBe('none');
   });
 
   it('does not fire vendor_product_search before consent is granted', async () => {
@@ -800,7 +853,12 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     analytics.searchPerformed(SEARCH_INPUT);
     analytics.productViewed('prod-1');
     analytics.reviewSubmitted('prod-1');
-    analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
+    analytics.claimRequested({
+      target_type: 'vendor',
+      slug: 'autodesk',
+      request_id: 'req-1',
+      plan_interest: 'none',
+    });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
       destination: 'https://autodesk.com',

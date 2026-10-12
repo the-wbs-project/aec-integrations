@@ -150,6 +150,24 @@ export type PlanCtaPage = 'docs_plans' | 'vendor_program';
  */
 export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
 
+/**
+ * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement, or
+ * `ask_to_add`, "Ask us to add it" in Find your product.
+ */
+export type ClaimDialogEntry = PlanCtaPlacement | 'ask_to_add';
+
+/** A claim dialog step (`claim_dialog_step.step`). */
+export type ClaimDialogStep = 'find' | 'you' | 'plan' | 'comments' | 'done';
+
+/** The plan answer as an event property: `none` when not answered (§15.7). */
+export type PlanInterestProperty = 'free' | 'managed' | 'not_sure' | 'none';
+
+/** Map a form's `plan_interest` (`''` or an answer) to its event property. */
+export function planInterestProperty(value: string): PlanInterestProperty {
+  return value === 'free' || value === 'managed' || value === 'not_sure' ? value : 'none';
+}
+
 @Injectable({ providedIn: 'root' })
 export class Analytics {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
@@ -285,8 +303,44 @@ export class Analytics {
   /** §14.1 names `vendor_id`, but the request form holds only `(target_type,
    *  slug)` and the response returns only `request_id` — so we record the
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
-  claimRequested(input: { target_type: string; slug: string; request_id: string }): void {
+  claimRequested(input: {
+    target_type: string;
+    slug: string;
+    request_id: string;
+    /** AECI-1293: the claimant's plan answer, `none` when not answered. */
+    plan_interest: PlanInterestProperty;
+  }): void {
     this.capture('claim_requested', { ...input });
+  }
+
+  /**
+   * A claim dialog step was shown (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7),
+   * once per showing, including the first. `path` is `found` (a catalog listing) or
+   * `typed` (not listed), absent on `find`. Never the search text, a typed name, a
+   * website or an email. Consent-gated like every event.
+   */
+  claimDialogStep(input: {
+    step: ClaimDialogStep;
+    page: PlanCtaPage;
+    entry: ClaimDialogEntry;
+    path?: 'found' | 'typed';
+  }): void {
+    this.capture('claim_dialog_step', {
+      step: input.step,
+      page: input.page,
+      entry: input.entry,
+      ...(input.path ? { path: input.path } : {}),
+    });
+  }
+
+  /**
+   * A typed-in listing request the API accepted (`POST /api/requests/listing` → 201,
+   * AECI-1293). Only the plan answer and the page: the name, website and email the
+   * visitor typed never leave the form. The `listing_requests` table stays the
+   * authoritative count.
+   */
+  listingRequested(input: { plan_interest: PlanInterestProperty; page: PlanCtaPage }): void {
+    this.capture('listing_requested', { plan_interest: input.plan_interest, page: input.page });
   }
 
   correctionRequested(input: { target_type: string; slug: string; request_id: string }): void {

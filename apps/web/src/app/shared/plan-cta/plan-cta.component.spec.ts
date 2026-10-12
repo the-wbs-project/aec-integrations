@@ -1,5 +1,6 @@
 /**
- * The shared plan calls to action (`plan-cta.ts`, AECI-1285). Their placement on
+ * The shared plan calls to action (`plan-cta.ts`, AECI-1285; the one claim workflow,
+ * AECI-1293). Their placement on
  * the docs Plans page is pinned in `docs/docs-page.component.spec.ts`.
  */
 import { ApplicationRef, type Type } from '@angular/core';
@@ -8,6 +9,7 @@ import { provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../../analytics/analytics';
+import { ClaimDialogService } from '../claim-dialog/claim-dialog.service';
 import { PlanInquiryService } from '../plan-inquiry/plan-inquiry.service';
 import {
   PlanCtaActionsComponent,
@@ -30,14 +32,18 @@ function render<T>(
       { provide: Analytics, useValue: { planCtaClicked } },
     ],
   });
-  // A mounted host, as on the Plans page, so a Managed click opens the dialog in
-  // place rather than following its link.
+  // Mounted hosts, as on the Plans page, so a click opens a dialog in place rather
+  // than following its link.
   const inquiry = TestBed.inject(PlanInquiryService);
-  if (hosted) inquiry.attachHost();
+  const claim = TestBed.inject(ClaimDialogService);
+  if (hosted) {
+    inquiry.attachHost();
+    claim.attachHost();
+  }
   const fixture = TestBed.createComponent(component);
   for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, planCtaClicked, inquiry, fixture };
+  return { host: fixture.nativeElement as HTMLElement, planCtaClicked, inquiry, claim, fixture };
 }
 
 /** Clicks like a mouse and reports whether the link's navigation was prevented. */
@@ -48,97 +54,85 @@ function click(link: HTMLElement, init: MouseEventInit = {}): boolean {
 }
 
 const MANAGED_HREF = '/contact?topic=managed';
+const CLAIM_HREF = '/vendor-program#find-your-product';
+
+const linkTexts = (host: HTMLElement) =>
+  [...host.querySelectorAll('a')].map((a) => a.textContent?.replace(/\s+/g, ' ').trim());
 
 describe('Plans calls to action', () => {
-  // Wording is the ask, not a checkout: there is no checkout to start.
-  it('top row: Managed first, then claiming free, each tracked by placement', () => {
-    const { host, planCtaClicked } = render(PlanCtaActionsComponent);
-    const links = [...host.querySelectorAll('a')];
-    expect(links.map((a) => a.textContent?.trim())).toEqual([
-      'Talk to us about Managed',
-      'Claim your listing free',
-    ]);
-    expect(links[0].getAttribute('href')).toBe(MANAGED_HREF);
-    expect(links[1].getAttribute('href')).toBe('/docs/vendors/claiming-your-listing');
-    expect(host.getAttribute('data-plans-cta')).toBe('top');
-    links[1].addEventListener('click', (e) => e.preventDefault());
-    expect(click(links[0])).toBe(true);
-    links[1].click();
-    expect(planCtaClicked.mock.calls).toEqual([
-      [{ plan: 'managed', placement: 'top', page: 'docs_plans' }],
-      [{ plan: 'free', placement: 'top', page: 'docs_plans' }],
-    ]);
-  });
-
-  // AECI-1279: a plain click opens the one inquiry dialog, carrying its placement
-  // and, since AECI-1288, its page.
-  it('a Managed click opens the inquiry dialog with its placement and page', () => {
-    const { host, inquiry } = render(PlanCtaActionsComponent, true, { page: 'vendor_program' });
-    expect(click(host.querySelector('a')!)).toBe(true);
-    expect(inquiry.placement()).toBe('top');
-    expect(inquiry.page()).toBe('vendor_program');
-  });
-
-  // VENDOR_PROGRAM_PAGE_SPEC.md §4: the vendor program page points the claim at its
-  // own Find your product section, as a path plus fragment.
-  it('points the claim at a page section when given a path and fragment', () => {
-    const { host, planCtaClicked } = render(PlanCtaActionsComponent, true, {
+  // AECI-1293 (spec §15.1): one claim control, then the pricing question as a text link.
+  it('top row: "Claim your listing" opens the claim dialog, the pricing link the inquiry', () => {
+    const { host, planCtaClicked, claim, inquiry } = render(PlanCtaActionsComponent, true, {
       page: 'vendor_program',
-      claimPath: '/vendor-program',
-      claimFragment: 'find-your-product',
     });
-    const claim = host.querySelectorAll('a')[1];
-    expect(claim.getAttribute('href')).toBe('/vendor-program#find-your-product');
-    claim.addEventListener('click', (e) => e.preventDefault());
-    claim.click();
+    expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
+    expect(host.textContent).toContain('Questions about pricing?');
+    const [claimLink, pricing] = [...host.querySelectorAll('a')];
+    expect(claimLink.getAttribute('href')).toBe(CLAIM_HREF);
+    expect(pricing.getAttribute('href')).toBe(MANAGED_HREF);
+    expect(host.getAttribute('data-plans-cta')).toBe('top');
+
+    expect(click(claimLink)).toBe(true);
+    expect(claim.opening()).toEqual({ page: 'vendor_program', entry: 'top', plan: null });
     expect(planCtaClicked).toHaveBeenCalledWith({
       plan: 'free',
       placement: 'top',
       page: 'vendor_program',
     });
+
+    expect(click(pricing)).toBe(true);
+    expect(inquiry.placement()).toBe('top');
+    expect(inquiry.page()).toBe('vendor_program');
   });
 
-  // Spec §5 hook: a signed-in vendor gets the portal instead of the claim, untracked.
+  it('never says "Talk to us about Managed" or "Claim your listing free" any more', () => {
+    for (const c of [PlanCtaActionsComponent, PlanCtaPanelComponent, PlanCtaRailComponent]) {
+      const { host } = render(c);
+      expect(host.textContent).not.toContain('Talk to us about Managed');
+      expect(host.textContent).not.toContain('Claim your listing free');
+    }
+  });
+
+  // Spec §5 hook: a signed-in vendor gets the portal instead of the dialog, untracked.
   it('swaps the claim for "Go to your portal" when portal is set', () => {
-    const { host, planCtaClicked } = render(PlanCtaActionsComponent, true, {
+    const { host, planCtaClicked, claim } = render(PlanCtaActionsComponent, true, {
       page: 'vendor_program',
       portal: true,
     });
-    const portal = host.querySelectorAll('a')[1];
+    const portal = host.querySelector('a')!;
     expect(portal.textContent?.trim()).toBe('Go to your portal');
     expect(portal.getAttribute('href')).toBe('/vendor');
     portal.addEventListener('click', (e) => e.preventDefault());
     portal.click();
     expect(planCtaClicked).not.toHaveBeenCalled();
+    expect(claim.isOpen()).toBe(false);
+    // The pricing question stays: a Free company asking about Managed is the inquiry's job.
+    expect(linkTexts(host)).toContain('Talk to us');
   });
 
-  // With no dialog on the page the link is left alone, so it reaches the contact form.
-  it('follows the link when no inquiry host is mounted', () => {
-    const { host, inquiry } = render(PlanCtaActionsComponent, false);
+  // With no dialog on the page the link is left alone, so it reaches Find your product.
+  it('follows the link when no claim dialog host is mounted', () => {
+    const { host, claim } = render(PlanCtaActionsComponent, false);
     const link = host.querySelector('a')!;
     let prevented: boolean | null = null;
-    // Read the verdict after the trigger ran, then stop jsdom navigating.
     link.addEventListener('click', (e) => {
       prevented = e.defaultPrevented;
       e.preventDefault();
     });
     link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     expect(prevented).toBe(false);
-    expect(inquiry.isOpen()).toBe(false);
+    expect(claim.isOpen()).toBe(false);
   });
 
-  // A new-tab click keeps the link, so the visitor gets the contact page form.
+  // A new-tab click keeps the link.
   it('a modified click follows the link instead', () => {
-    const { host, inquiry, planCtaClicked } = render(PlanCtaActionsComponent);
+    const { host, claim, planCtaClicked } = render(PlanCtaActionsComponent);
     const link = host.querySelector('a')!;
     link.addEventListener('click', (e) => e.preventDefault());
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
-    // The listener above stops jsdom navigating. Read the trigger's verdict from the
-    // service instead: it must not have opened.
-    link.dispatchEvent(event);
-    expect(inquiry.isOpen()).toBe(false);
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+    expect(claim.isOpen()).toBe(false);
     expect(planCtaClicked).toHaveBeenCalledWith({
-      plan: 'managed',
+      plan: 'free',
       placement: 'top',
       page: 'docs_plans',
     });
@@ -151,8 +145,8 @@ describe('Plans calls to action', () => {
     );
   });
 
-  it('bottom panel: headline, both prices, safety line, button and next steps', () => {
-    const { host, planCtaClicked } = render(PlanCtaPanelComponent);
+  it('bottom panel: headline, both prices, safety line, the claim button and next steps', () => {
+    const { host, planCtaClicked, claim } = render(PlanCtaPanelComponent);
     const text = host.textContent?.replace(/\s+/g, ' ') ?? '';
     expect(host.querySelector('h3')?.textContent?.trim()).toBe(
       'Tell the full story of your product',
@@ -161,66 +155,49 @@ describe('Plans calls to action', () => {
       '$25 a month per product, or $250 a year, billed by invoice or purchase order. If a plan ends, nothing you entered is removed.',
     );
     expect(host.querySelectorAll('ol li')).toHaveLength(2);
-    // The docs panel carries the Managed ask alone.
-    expect(host.querySelectorAll('a')).toHaveLength(1);
+    expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
     const link = host.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe(MANAGED_HREF);
+    expect(link.getAttribute('href')).toBe(CLAIM_HREF);
     expect(click(link)).toBe(true);
+    expect(claim.opening()?.entry).toBe('bottom');
     expect(planCtaClicked).toHaveBeenCalledWith({
-      plan: 'managed',
+      plan: 'free',
       placement: 'bottom',
       page: 'docs_plans',
     });
   });
 
-  // Spec §4.1: its own section on the vendor program page, with the claim beside it.
-  it('bottom panel as a section: an h2 and the claim as a text link', () => {
-    const { host, planCtaClicked } = render(PlanCtaPanelComponent, true, {
+  it('bottom panel as a section: an h2', () => {
+    const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',
       headingLevel: 2,
-      showClaim: true,
-      claimPath: '/vendor-program',
-      claimFragment: 'find-your-product',
     });
     expect(host.querySelector('h2')?.textContent?.trim()).toBe(
       'Tell the full story of your product',
     );
     expect(host.querySelector('h3')).toBeNull();
-    const links = [...host.querySelectorAll('a')];
-    expect(links.map((a) => a.textContent?.trim())).toEqual([
-      'Talk to us about Managed',
-      'Claim your listing free',
-    ]);
-    expect(links[1].getAttribute('href')).toBe('/vendor-program#find-your-product');
-    links[1].addEventListener('click', (e) => e.preventDefault());
-    links[1].click();
-    expect(planCtaClicked).toHaveBeenCalledWith({
-      plan: 'free',
-      placement: 'bottom',
-      page: 'vendor_program',
-    });
   });
 
-  // Spec §5 hook: a Managed company sees no Managed ask in the panel.
-  it('bottom panel drops the Managed button and its steps when hideManaged is set', () => {
+  // Spec §5 hook: a Managed company sees no pricing question and no Managed steps.
+  it('bottom panel drops the pricing link and the steps when hideManaged is set', () => {
     const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',
-      showClaim: true,
       portal: true,
       hideManaged: true,
     });
-    const links = [...host.querySelectorAll('a')];
-    expect(links.map((a) => a.textContent?.trim())).toEqual(['Go to your portal']);
+    expect(linkTexts(host)).toEqual(['Go to your portal']);
     expect(host.querySelector('ol')).toBeNull();
   });
 
-  it('rail card: plan, price and a short button', () => {
-    const { host, planCtaClicked } = render(PlanCtaRailComponent);
+  it('rail card: plan, price and "Start with Managed" with Managed preselected', () => {
+    const { host, planCtaClicked, claim } = render(PlanCtaRailComponent);
     expect(host.textContent).toContain('Managed');
     expect(host.textContent).toContain('$25 a month per product');
     const link = host.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe(MANAGED_HREF);
+    expect(link.textContent?.trim()).toBe('Start with Managed');
+    expect(link.getAttribute('href')).toBe(CLAIM_HREF);
     expect(click(link)).toBe(true);
+    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'rail', plan: 'managed' });
     expect(planCtaClicked).toHaveBeenCalledWith({
       plan: 'managed',
       placement: 'rail',
