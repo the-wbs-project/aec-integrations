@@ -17,6 +17,7 @@ import { AdminClaimsApi } from './admin-claims-api';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
+import { seatLabel } from '../seat-label';
 import {
   connectorPayerState,
   ownedIntegrationsLabel,
@@ -271,9 +272,8 @@ export class ClaimQueue {
     return connectorPayerState(r.is_pure_connector_vendor, r.owned_integrations);
   }
 
-  protected seatDisplayName(name: string | null): string {
-    return name?.trim() ? name : $localize`:@@admin.claims.seat.unnamed:Unnamed seat`;
-  }
+  /** Display name, else email (AECI-1277) — the rule shared with the roster. */
+  protected readonly seatLabel = seatLabel;
 
   /**
    * A pre-built LinkedIn people-search URL from the claimant's name (falling back

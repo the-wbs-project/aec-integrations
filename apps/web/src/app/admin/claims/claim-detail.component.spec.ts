@@ -67,6 +67,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     resolved_by: null,
     duplicate_of_request_id: null,
     existing_seats: [],
+    seat_emails_available: true,
     related_requests: [],
     entitlement_vendor: { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
     entitlement: null,
@@ -222,6 +223,28 @@ describe('ClaimDetail', () => {
     const { el } = await setup(makeApiMock(makeDetail()));
     expect(el.textContent).toContain('Integrations owned');
     expect(el.textContent).toContain('2 (via a connector)');
+  });
+
+  it('labels a seat by name, else by email, never "Unnamed seat" (AECI-1277)', async () => {
+    const seat = { work_email_verified: false, created_at: '2026-05-01T00:00:00.000Z' };
+    const { el } = await setup(
+      makeApiMock(
+        makeDetail({
+          existing_seats: [
+            { ...seat, display_name: 'Named Admin', email: 'named@procore.com' },
+            { ...seat, display_name: null, email: 'holder@gmail.com' },
+            { ...seat, display_name: null, email: null },
+          ],
+          seat_emails_available: false,
+        }),
+      ),
+    );
+    const text = el.textContent ?? '';
+    expect(text).toContain('Named Admin');
+    expect(text).not.toContain('named@procore.com');
+    expect(text).toContain('holder@gmail.com');
+    expect(text).toContain('Email unavailable');
+    expect(text).not.toContain('Unnamed seat');
   });
 
   it('loads the claim by its route param', async () => {

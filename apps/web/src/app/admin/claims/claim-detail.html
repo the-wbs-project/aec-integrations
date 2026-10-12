@@ -288,7 +288,9 @@
             } @else {
             <ul role="list" class="space-y-0.5">
               @for (seat of c.existing_seats; track $index) {
-              <li class="text-(--text-secondary)">{{ seatDisplayName(seat.display_name) }}</li>
+              <li class="text-(--text-secondary)">
+                {{ seatLabel(seat, c.seat_emails_available) }}
+              </li>
               }
             </ul>
             }

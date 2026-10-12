@@ -278,7 +278,7 @@
                 <ul class="mt-1 space-y-0.5">
                   @for (seat of r.existing_seats; track $index) {
                   <li class="flex flex-wrap items-center gap-1.5 text-(--text-secondary)">
-                    <span>{{ seatDisplayName(seat.display_name) }}</span>
+                    <span>{{ seatLabel(seat, r.seat_emails_available) }}</span>
                     @if (seat.work_email_verified) {
                     <span
                       class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium"
