@@ -424,7 +424,7 @@ One drizzle-kit migration, additive only. The generated SQL must be exactly `CRE
 
 ### 15.11 Not changed
 
-- The "What Managed adds" list and the FAQ copy (other rulings pending). On 2026-10-12 the list's structure changed (§3, Free and Managed one pattern). Its wording did not. Later 2026-10-12 rulings removed its connector integrations line and reworded the integration detail body (§3 item 4). One more reworded the several-products FAQ answer (§13 row 6).
+- The "What Managed adds" list and the FAQ copy (other rulings pending). On 2026-10-12 the list's structure changed (§3, Free and Managed one pattern). Its wording did not. Later 2026-10-12 rulings removed its connector integrations line and reworded the integration detail body (§3 item 4). On 2026-10-13 the same line came off the help center's Plans page, its comparison table and the vendor-guide overview (`STAGE_2_PRODUCT_DOCS_SPEC.md`). The API gate it described is still in place. AECI-1323 decides it. One more reworded the several-products FAQ answer (§13 row 6).
 - `POST /api/plan-inquiries` and the inquiry dialog (§7).
 - The claim approval flow, the plan radios' rule and the grant emails.
 - The full-width layout rule (§3, §11).

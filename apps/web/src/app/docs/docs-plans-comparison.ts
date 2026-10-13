@@ -14,8 +14,9 @@
  * **Every capability cell comes from `TIER_CAPABILITIES`.** A row that one or
  * more capabilities gate names them, and the cell reads the registry, so the
  * table cannot promise what the API will refuse. Rows with no capability (seat
- * rights, search-engine notice, connector integrations) state their values here
- * and follow `STAGE_2_PAID_TIERS_SPEC.md` §13.
+ * rights, search-engine notice) state their values here and follow
+ * `STAGE_2_PAID_TIERS_SPEC.md` §13. Connector-delivered integrations are not a
+ * plan benefit and have no row (Chris, 2026-10-13).
  *
  * **Copy is benefit-first (marketing review, 2026-10-12).** Labels say what a
  * vendor gets, not what the portal calls the control. Portal how-tos
@@ -116,11 +117,6 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
           $localize`:@@app.docs.plans.row.dataFlows:Confirm which data each integration moves`,
           'attestation.author',
         ),
-        {
-          label: $localize`:@@app.docs.plans.row.connector:Claim the integrations you deliver through a connector`,
-          free: false,
-          managed: true,
-        },
       ],
     },
     {

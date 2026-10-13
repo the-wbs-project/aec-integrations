@@ -19,7 +19,7 @@ With a seat you can edit your company and product details, claim the integration
 Every company with a seat is on one of two plans.
 
 - **Free** costs nothing. You can edit your company details and each product's description, website, logo and categories. You can mark details as checked, claim and edit the integrations your company owns, add your own links, and add a new integration.
-- **Managed** is a paid plan, arranged by invoice or purchase order. It adds the rest of each product's details, confirming data flows, integrations delivered through a connector, public replies to reviews, and telling search engines about your changes.
+- **Managed** is a paid plan, arranged by invoice or purchase order. It adds the rest of each product's details, confirming data flows, public replies to reviews, and telling search engines about your changes.
 
 Confirming data flows means answering Yes or No for each type of data an integration page lists. The portal calls each of those rows a data flow.
 

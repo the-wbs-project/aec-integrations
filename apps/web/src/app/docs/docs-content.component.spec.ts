@@ -650,6 +650,24 @@ describe('docs manifest', () => {
     expect(text).not.toContain('what we verify');
   });
 
+  // Chris, 2026-10-13: connector-delivered integrations are not sold as part of Managed.
+  it('never lists connector integrations among what Managed adds', () => {
+    const page = getDocsPage('vendors', 'plans')!;
+    const doc = new DOMParser().parseFromString(page.html, 'text/html');
+    const heading = doc.getElementById('what-managed-adds')!;
+    const list = heading.nextElementSibling!;
+    expect(list.tagName).toBe('UL');
+    expect(list.textContent).not.toMatch(/connector/i);
+    const overview = new DOMParser().parseFromString(
+      getDocsPage('vendors', 'overview')!.html,
+      'text/html',
+    );
+    const managedLine = [...overview.querySelectorAll('li')].find((li) =>
+      li.textContent?.startsWith('Managed'),
+    )!;
+    expect(managedLine.textContent).not.toMatch(/connector/i);
+  });
+
   // AECI-1265 B4: the buying page quotes the four labels as the badge renders them.
   it('quotes the agreement labels exactly on Checking an integration before you buy', () => {
     const page = getDocsPage('getting-started', 'checking-before-you-buy')!;
