@@ -13,8 +13,15 @@ import { z } from 'zod';
  * make an import cycle.
  */
 
-/** "Where do you work?" One answer. `software_vendor` routes the user to the
- *  vendor claim flow and hides the company questions. */
+/**
+ * The explicit "I'd rather not say" answer on the profile's single choices. It is
+ * a stored answer, not the absence of one: `null` means the question was never
+ * answered. Review pre-fill treats it as empty.
+ */
+export const UNDISCLOSED = 'undisclosed';
+
+/** "Where do you work?" One answer. `software_vendor` hides the company
+ *  questions. */
 export const COMPANY_TYPES = [
   'general_contractor',
   'trade_contractor',
@@ -25,12 +32,21 @@ export const COMPANY_TYPES = [
   'consultant',
   'software_vendor',
   'other',
+  'undisclosed',
 ] as const;
 export const CompanyTypeSchema = z.enum(COMPANY_TYPES);
 export type CompanyType = z.infer<typeof CompanyTypeSchema>;
 
 /** Head-count bands. Never asked of a software vendor. */
-export const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-1000', '1001-5000', '5000+'] as const;
+export const COMPANY_SIZES = [
+  '1-10',
+  '11-50',
+  '51-200',
+  '201-1000',
+  '1001-5000',
+  '5000+',
+  'undisclosed',
+] as const;
 export const CompanySizeSchema = z.enum(COMPANY_SIZES);
 export type CompanySize = z.infer<typeof CompanySizeSchema>;
 
@@ -42,6 +58,15 @@ export type CompanySize = z.infer<typeof CompanySizeSchema>;
 export const PRIMARY_ROLES = ['practitioner', 'manager', 'IT', 'exec', 'other'] as const;
 export const PrimaryRoleSchema = z.enum(PRIMARY_ROLES);
 export type PrimaryRole = z.infer<typeof PrimaryRoleSchema>;
+
+/**
+ * The profile's role answer: the shared role list plus `undisclosed`. Profile
+ * only. `reviews.role_at_company` keeps `PrimaryRoleSchema`, so a review can
+ * never carry `undisclosed`.
+ */
+export const PROFILE_PRIMARY_ROLES = [...PRIMARY_ROLES, UNDISCLOSED] as const;
+export const ProfilePrimaryRoleSchema = z.enum(PROFILE_PRIMARY_ROLES);
+export type ProfilePrimaryRole = z.infer<typeof ProfilePrimaryRoleSchema>;
 
 /** Most audience terms one person may pick. Mirrors the per-facet cap vendors
  *  get on a product. */

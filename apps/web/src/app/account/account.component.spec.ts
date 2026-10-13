@@ -10,6 +10,7 @@ import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { AccountApi } from './account-api';
 import { AccountPage } from './account';
+import { ProfileDetailsForm } from './profile-details/profile-details-form';
 
 const PROFILE: AccountProfileResponse = {
   user_id: 'user-uuid-1',
@@ -429,5 +430,20 @@ describe('AccountPage', () => {
       expect.objectContaining({ source: 'account', company_type: 'engineer' }),
     );
     expect(el.querySelector('[data-testid="onboarding-card"]')).toBeNull();
+  });
+
+  it('announces the vendor branch in the About you live region', async () => {
+    const { fixture, el } = await setup();
+    const status = el.querySelector('[data-testid="about-status"]')!;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent?.trim()).toBe('');
+    const form = fixture.debugElement.query(
+      (d) => d.componentInstance instanceof ProfileDetailsForm,
+    ).componentInstance as unknown as { setCompanyType(v: string | null): void };
+    form.setCompanyType('software_vendor');
+    fixture.detectChanges();
+    expect(status.textContent?.trim()).toBe(
+      'Company size, audiences and firm name were removed from the form.',
+    );
   });
 });

@@ -14,8 +14,11 @@ serve two purposes:
 - **Segmenting users later.** Who signs up, what kind of firm, what role.
 - **Pre-filling the review form.** Role and firm fill in for the reviewer, who can still change them.
 
-There is also a vendor tie. A user who says they work for a software vendor is shown the way to the
-claim dialog on `/vendor-program`. That is the vendor-activation hook that places this work in 2.1.
+There is also a vendor tie. A user who says they work for a software vendor is recorded as one
+(`company_type = 'software_vendor'`). The form shows them no claim prompt. The in-form note and its
+link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. Reaching those users with
+the claim offer is a separate follow-up: a later marketing email to `software_vendor` profiles that
+hold no claim (AECI-1305). That follow-up is not built here.
 
 ## 2. The questions
 
@@ -31,7 +34,10 @@ One screen. Only the display name is required. "Skip for now" is always availabl
 | 6 | Firm name | Text, at most 100 characters, private | Not a software vendor | `profile_details.firm_name` |
 | 7 | LinkedIn profile | URL, optional, private | Everyone | `profile_details.linkedin_url` |
 
-Every single choice has a "Prefer not to say" row, so an answer can be taken back.
+Every single choice ends with an "I'd rather not say" row, after "Other". It is a stored answer
+(`undisclosed`), not the absence of one. An unanswered question shows the "Choose one" placeholder
+and no row is selected. Once a question has an answer, a "Clear answer" row leads its list, so the
+answer can be taken back to unanswered.
 
 ### 2.1 Stored values
 
@@ -39,21 +45,26 @@ The values are stable slugs. The labels live in the Angular form and are `$local
 
 | Field | Values |
 |---|---|
-| `company_type` | `general_contractor`, `trade_contractor`, `architect`, `engineer`, `owner_developer`, `construction_manager`, `consultant`, `software_vendor`, `other` |
-| `company_size` | `1-10`, `11-50`, `51-200`, `201-1000`, `1001-5000`, `5000+` |
-| `primary_role` | `practitioner`, `manager`, `IT`, `exec`, `other` |
+| `company_type` | `general_contractor`, `trade_contractor`, `architect`, `engineer`, `owner_developer`, `construction_manager`, `consultant`, `software_vendor`, `other`, `undisclosed` |
+| `company_size` | `1-10`, `11-50`, `51-200`, `201-1000`, `1001-5000`, `5000+`, `undisclosed` |
+| `primary_role` | `practitioner`, `manager`, `IT`, `exec`, `other`, `undisclosed` |
 
-`primary_role` is the same list as `reviews.role_at_company`. `PrimaryRoleSchema` in
-`packages/shared/src/api/profile-details.ts` defines it once, and `SubmitReviewSchema` reuses it.
-The two lists cannot drift. The form shows plain labels such as "Hands-on user" and "Manager or
-team lead".
+`undisclosed` is the "I'd rather not say" answer. `null` means the question was never answered.
 
-The form lists the company types and the roles in alphabetical order by label, with "Other" last.
+`primary_role` is the `reviews.role_at_company` list plus `undisclosed`. `PrimaryRoleSchema` in
+`packages/shared/src/api/profile-details.ts` defines the review list once, and `SubmitReviewSchema`
+reuses it. `ProfilePrimaryRoleSchema` extends it with `undisclosed` for the profile only, so a review
+can never carry `undisclosed`. The two lists cannot drift. The form shows plain labels such as
+"Hands-on user" and "Manager or team lead".
+
+The form lists the company types and the roles in alphabetical order by label, then "Other", then
+"I'd rather not say". The sizes run small to large, then "I'd rather not say".
 
 ### 2.2 The software vendor branch
 
-Picking "Software vendor" hides questions 4 to 6. It shows a short note with a link to
-`/vendor-program`, where the claim dialog lives. Role and LinkedIn are still asked.
+Picking "Software vendor" hides questions 4 to 6. Nothing is shown in their place: no note and no
+claim link. Role and LinkedIn are still asked. The live region on `/welcome` (§7.1) says which fields
+were removed, and says so again when they come back.
 
 A save with "Software vendor" clears `company_size`, `firm_name` and the audience set. An answer
 given under a different company type must not linger out of sight.
@@ -172,9 +183,23 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - **Behaviour.** SSR paints a loading state only. After hydration the page reads
   `GET /api/account`. If `onboarding` is not `pending`, it goes straight to `next`. Otherwise the
   display name is the stored name, else the suggested name, else empty.
-- **Save** sends the answers with `onboarding: 'completed'`, then goes to `next`.
+- **Save** sends the answers with `onboarding: 'completed'`, then goes to `next`. Save is disabled
+  only while a write is in flight, so Enter in any field submits. A Save with an invalid display
+  name or LinkedIn link writes nothing. It shows each error, gives the field a `--status-error`
+  border, and moves focus to the first bad field, top to bottom.
 - **Skip** sends `onboarding: 'skipped'`, then goes to `next`. A failed skip still leaves. Skip
-  must never trap the user.
+  must never trap the user. Starting a skip clears a shown save failure.
+- **Leaving.** The client navigation to `next` falls back to a full page load when it resolves
+  `false` or throws. If the user is still on the page after that, Skip and Save are enabled again.
+  For a user who is not `pending`, a started full load keeps the loading state. The "couldn't load"
+  alert and its Continue button show only when both navigations failed.
+- **Announcements.** One polite live region (`role="status"`, visually hidden) is in the SSR HTML and
+  stays for the page's life. It announces "Loading…", the form being ready, the fields a software
+  vendor is not asked (and their return), and each audience count change. When the form appears,
+  focus moves to the `h1`.
+- **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
+  filled in from this. You can change any of it on your account page." It works for a vendor and a
+  reviewer alike.
 
 ### 7.2 `/account`
 
@@ -192,17 +217,29 @@ Single choices use `AecSelect` (Angular Aria, ADR 0010). Audiences are a filtera
 in a `fieldset`, sorted with `compareText`. At 10 picks the unchosen boxes are disabled. A chosen
 term stays visible under any filter.
 
+A filter that matches no unchosen term shows "No audience matches that filter.", even while chosen
+terms stay listed. The list scrolls inside a box with a bottom hairline and an always-drawn thin
+scrollbar, so a clipped last row reads as scrollable.
+
 Layout follows the claim dialog (`apps/web/src/app/shared/form-field/form-field-classes.ts`).
 Each field stacks label, control, then hint, and fields sit `space-y-6` apart. Audiences render as
-the claim dialog's choice cards. `/welcome` ends in the dialog's footer row: "Skip for now" at the
-start, "Save and continue" at the end.
+the claim dialog's choice cards. Control borders use `--border-input` (3:1), and an invalid field
+takes a `--status-error` border (`DESIGN.md` "Inputs / Fields"). `/welcome` ends in the dialog's
+footer row: "Skip for now" at the start, "Save and continue" at the end. Below `sm` the two stack
+full width with "Save and continue" on top.
+
+The `/account` "About you" Save follows the same rule as `/welcome`: enabled except while saving, and
+an invalid LinkedIn link shows its error and takes focus. `/account` carries its own persistent polite live region
+under the form, which announces the software vendor fields leaving and returning and each audience
+count change, as on `/welcome`.
 
 ## 8. Review form pre-fill
 
 `reviews/review-form.ts` reads `GET /api/account` after hydration, beside the already-reviewed
 check.
 
-- Role takes `primary_role` while the role control is empty.
+- Role takes `primary_role` while the role control is empty. `undisclosed` is not a review role
+  and reads as empty: the role control stays unanswered.
 - Firm takes `firm_name` while the firm field is empty.
 - Both stay editable. Stage 1 spec §4.8: pre-fill, never lock.
 - It runs only in the browser. Cached HTML never carries a person's answers (Phase 5 spec §5.5).
@@ -224,7 +261,7 @@ Two PostHog events, both consent-gated like every other product event. `ANALYTIC
 
 | Event | When | Properties |
 |---|---|---|
-| `onboarding_completed` | A save that completes onboarding, on `/welcome` or `/account` | `source`, `company_type`, `company_size`, `primary_role`, `audience_count` |
+| `onboarding_completed` | A save that completes onboarding, on `/welcome` or `/account` | `source`, `company_type`, `company_size`, `primary_role`, `audience_count`. `undisclosed` is a legal answer value |
 | `onboarding_skipped` | Skip on `/welcome`, or "Not now" on the `/account` card | Same keys. The answers are `null` and the count is 0 |
 
 The firm name and LinkedIn URL are never sent. `Analytics.onboardingCompleted` copies the allowed

@@ -1134,9 +1134,9 @@ Migration `0071` adds both tables and touches nothing else.
 ```sql
 create table profile_details (
   profile_id text primary key references profiles(id) on delete cascade,
-  company_type text,             -- CompanyTypeSchema slug, or null
-  company_size text,             -- CompanySizeSchema slug, or null
-  primary_role text,             -- PrimaryRoleSchema, the reviews.role_at_company list
+  company_type text,             -- CompanyTypeSchema slug ('undisclosed' = rather not say), or null
+  company_size text,             -- CompanySizeSchema slug ('undisclosed' = rather not say), or null
+  primary_role text,             -- ProfilePrimaryRoleSchema: reviews.role_at_company list + 'undisclosed'
   firm_name text,                -- private, at most 100 characters
   linkedin_url text,             -- private, normalized https://www.linkedin.com/in/<handle>
   onboarding_completed_at text,  -- set by a save

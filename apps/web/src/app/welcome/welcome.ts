@@ -1,4 +1,13 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 
@@ -26,6 +35,9 @@ import {
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
 
+/** How `WelcomePage.leave()` went. */
+type LeaveResult = 'client' | 'hard' | 'failed';
+
 /**
  * Where `/welcome` sends the user afterwards: the `?next=` path, narrowed to a
  * same-origin path. A `next` that points back at `/welcome` collapses to `/`,
@@ -42,9 +54,17 @@ export function welcomeNextPath(raw: string | null): string {
  * only when the profile-ensure just created their profile.
  *
  * Only the display name is required, and "Skip for now" is always there. Save
- * records `onboarding: 'completed'`, skip records `'skipped'`; both then go to
- * `next`. A user who is not `pending` (they answered, or skipped, on another
- * tab) goes straight to `next` without seeing the form.
+ * records `onboarding: 'completed'`, skip records `'skipped'`. Both then go to
+ * `next`, falling back to a full page load when the client navigation fails, so
+ * the user is never trapped here. A user who is not `pending` (they answered,
+ * or skipped, on another tab) goes straight to `next` without seeing the form.
+ *
+ * Save is never disabled except while saving, so Enter in any field submits.
+ * An invalid name or LinkedIn link shows its error and takes focus instead.
+ *
+ * One polite live region sits in the SSR shell and stays for the page's life.
+ * It announces the loading state, the form appearing (focus also moves to the
+ * `h1`), the fields a software vendor is not asked, and audience count changes.
  *
  * Auth and caching: the SSR Worker bounces a signed-out visitor to login
  * (`isWelcomePath`), and the route is `no-store` by the fail-closed classifier.
@@ -66,8 +86,10 @@ export function welcomeNextPath(raw: string | null): string {
         Welcome
       </p>
       <h1
+        #title
         id="welcome-title"
-        class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
+        tabindex="-1"
+        class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
         i18n="@@welcome.title"
       >
         Tell us about yourself
@@ -76,8 +98,14 @@ export function welcomeNextPath(raw: string | null): string {
         class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
         i18n="@@welcome.lede"
       >
-        It takes a minute. Your answers fill in your reviews for you, and you can change them any
-        time on your account page.
+        A few questions about where you work. Reviewers get their review forms filled in from this.
+        You can change any of it on your account page.
+      </p>
+
+      <!-- The page's one polite live region. Rendered by SSR and never removed,
+           so a screen reader is already watching it when the first message lands. -->
+      <p class="sr-only" role="status" aria-live="polite" data-testid="welcome-status">
+        {{ status() }}
       </p>
 
       @if (loading()) {
@@ -116,6 +144,7 @@ export function welcomeNextPath(raw: string | null): string {
                 Display name
               </label>
               <input
+                #nameInput
                 id="welcome-display-name"
                 type="text"
                 autocomplete="nickname"
@@ -151,7 +180,11 @@ export function welcomeNextPath(raw: string | null): string {
               }
             </div>
 
-            <aec-profile-details-form idPrefix="welcome" [(draft)]="draft" />
+            <aec-profile-details-form
+              idPrefix="welcome"
+              [(draft)]="draft"
+              (announce)="status.set($event)"
+            />
 
             @if (saveFailed()) {
               <p
@@ -170,12 +203,19 @@ export function welcomeNextPath(raw: string | null): string {
               (click)="onSkip()"
               [disabled]="saving()"
               data-testid="welcome-skip"
-              [class]="secondaryClass + ' me-auto disabled:cursor-not-allowed disabled:opacity-50'"
+              [class]="
+                secondaryClass + ' sm:me-auto disabled:cursor-not-allowed disabled:opacity-50'
+              "
               i18n="@@welcome.skip"
             >
               Skip for now
             </button>
-            <button type="submit" [disabled]="!canSave()" [class]="primaryClass">
+            <button
+              type="submit"
+              [disabled]="saving()"
+              data-testid="welcome-save"
+              [class]="primaryClass"
+            >
               @if (saving()) {
                 <span i18n="@@welcome.saving">Saving…</span>
               } @else {
@@ -190,11 +230,16 @@ export function welcomeNextPath(raw: string | null): string {
 })
 export class WelcomePage {
   private readonly api = inject(AccountApi);
+  private readonly injector = inject(Injector);
   private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+
+  private readonly titleEl = viewChild<ElementRef<HTMLElement>>('title');
+  private readonly nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
+  private readonly detailsForm = viewChild(ProfileDetailsForm);
 
   /** Where the user goes after saving or skipping. */
   protected readonly next = welcomeNextPath(this.route.snapshot.queryParamMap.get('next'));
@@ -217,21 +262,23 @@ export class WelcomePage {
   protected readonly displayName = signal('');
   protected readonly nameTouched = signal(false);
   protected readonly draft = signal<ProfileDetailsDraft>(EMPTY_DRAFT);
+  /** The live region's text. Empty in the SSR HTML. */
+  protected readonly status = signal('');
 
   private readonly nameValid = computed(() => {
     const name = this.displayName().trim();
     return name.length >= 1 && name.length <= DISPLAY_NAME_MAX;
   });
   protected readonly showNameError = computed(() => this.nameTouched() && !this.nameValid());
-  protected readonly canSave = computed(
-    () => this.nameValid() && !linkedInInvalid(this.draft()) && !this.saving(),
-  );
 
   constructor() {
     this.titleSvc.setTitle($localize`:@@welcome.metaTitle:Welcome · AEC Integrations`);
     // User-specific utility page. Never indexed.
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
-    afterNextRender(() => void this.load());
+    afterNextRender(() => {
+      this.status.set($localize`:@@welcome.status.loading:Loading…`);
+      void this.load();
+    });
   }
 
   private async load(): Promise<void> {
@@ -239,6 +286,9 @@ export class WelcomePage {
     try {
       profile = await this.api.getProfile();
     } catch {
+      // The failure line carries role="alert". Clear "Loading…" so the status
+      // region does not keep stale text.
+      this.status.set('');
       this.loadFailed.set(true);
       this.loading.set(false);
       return;
@@ -247,21 +297,41 @@ export class WelcomePage {
     // API that does not report the state: do not ask again. The loading state
     // stays up, so the form never flashes on the way out.
     if (profile.onboarding !== 'pending') {
-      await this.leave();
+      // Only when both navigations failed: show the Continue button rather
+      // than spin. A started full load keeps the spinner, so no false alert
+      // is announced while the page unloads.
+      if ((await this.leave()) === 'failed') {
+        this.loadFailed.set(true);
+        this.loading.set(false);
+      }
       return;
     }
     this.displayName.set(profile.display_name ?? profile.suggested_display_name ?? '');
     this.draft.set(draftFromDetails(profile.details));
     this.loading.set(false);
+    this.status.set(
+      $localize`:@@welcome.status.ready:The form is ready. Only the display name is required.`,
+    );
+    // The form renders on the next change detection. Focus the heading after
+    // it, so a keyboard or screen reader user starts at the top of the form.
+    afterNextRender(() => this.titleEl()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected onDisplayName(event: Event): void {
     this.displayName.set((event.target as HTMLInputElement).value);
   }
 
+  /**
+   * Save is always pressable. An invalid answer shows its error and focuses the
+   * first bad field, top to bottom: the display name, then the LinkedIn link.
+   */
   protected async onSave(): Promise<void> {
+    if (this.saving()) return;
     this.nameTouched.set(true);
-    if (!this.canSave()) return;
+    const nameBad = !this.nameValid();
+    if (nameBad) this.nameInput()?.nativeElement.focus();
+    const detailsBad = this.detailsForm()?.revealErrors({ focus: !nameBad }) ?? false;
+    if (nameBad || detailsBad || linkedInInvalid(this.draft())) return;
     this.saving.set(true);
     this.saveFailed.set(false);
     const patch = draftToPatch(this.draft());
@@ -283,7 +353,7 @@ export class WelcomePage {
       primary_role: patch.primary_role ?? null,
       audience_count: patch.audience_ids?.length ?? 0,
     });
-    await this.leave();
+    if ((await this.leave()) !== 'client') this.saving.set(false);
   }
 
   /**
@@ -291,7 +361,9 @@ export class WelcomePage {
    * never trap the user here, and the `/account` card asks again later.
    */
   protected async onSkip(): Promise<void> {
+    if (this.saving()) return;
     this.saving.set(true);
+    this.saveFailed.set(false);
     try {
       await this.api.updateProfile({ onboarding: 'skipped' });
       this.analytics.onboardingSkipped({
@@ -304,12 +376,32 @@ export class WelcomePage {
     } catch {
       // Leave anyway. See above.
     }
-    await this.leave();
+    if ((await this.leave()) !== 'client') this.saving.set(false);
   }
 
-  /** Go to `next`. A refused client navigation falls back to a full load. */
-  protected async leave(): Promise<void> {
-    if (await this.router.navigateByUrl(this.next)) return;
-    globalThis.location.assign(this.next);
+  /**
+   * Go to `next`. A client navigation that resolves `false` or throws falls back
+   * to a full page load. Resolves `'client'` when the client navigation landed,
+   * `'hard'` when the full load was started, and `'failed'` when both threw.
+   * Save and Skip re-enable their buttons on anything but `'client'`, so a
+   * fallback that never unloads the page still leaves the user a way out.
+   */
+  protected async leave(): Promise<LeaveResult> {
+    try {
+      if (await this.router.navigateByUrl(this.next)) return 'client';
+    } catch {
+      // Fall through to the full load.
+    }
+    try {
+      this.hardNavigate(this.next);
+      return 'hard';
+    } catch {
+      return 'failed';
+    }
+  }
+
+  /** The full-page fallback. A method so a test can stand in for it. */
+  protected hardNavigate(url: string): void {
+    globalThis.location.assign(url);
   }
 }

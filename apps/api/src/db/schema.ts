@@ -2807,11 +2807,13 @@ export const profileDetails = sqliteTable('profile_details', {
   profileId: text('profile_id')
     .primaryKey()
     .references(() => profiles.id, { onDelete: 'cascade' }),
-  /** `CompanyTypeSchema` value, or null when unanswered. */
+  /** `CompanyTypeSchema` value, or null when unanswered. `undisclosed` is the
+   *  explicit "I'd rather not say" answer. */
   companyType: text('company_type'),
   /** `CompanySizeSchema` value, or null. Never asked of a software vendor. */
   companySize: text('company_size'),
-  /** `PrimaryRoleSchema` value: the same list as `reviews.role_at_company`. */
+  /** `ProfilePrimaryRoleSchema` value: the `reviews.role_at_company` list plus
+   *  `undisclosed`, which a review never takes. */
   primaryRole: text('primary_role'),
   /** Free text, up to 100 characters. Private. Pre-fills the review form. */
   firmName: text('firm_name'),

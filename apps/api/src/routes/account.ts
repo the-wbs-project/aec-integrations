@@ -58,7 +58,7 @@ import {
   ApiErrorCode,
   CompanySizeSchema,
   CompanyTypeSchema,
-  PrimaryRoleSchema,
+  ProfilePrimaryRoleSchema,
   UpdateAccountSchema,
 } from '@aeci/shared';
 import type {
@@ -176,7 +176,7 @@ async function readAccountState(db: DbContext['db'], userId: string): Promise<Ac
     details: {
       company_type: CompanyTypeSchema.safeParse(row?.companyType).data ?? null,
       company_size: CompanySizeSchema.safeParse(row?.companySize).data ?? null,
-      primary_role: PrimaryRoleSchema.safeParse(row?.primaryRole).data ?? null,
+      primary_role: ProfilePrimaryRoleSchema.safeParse(row?.primaryRole).data ?? null,
       firm_name: row?.firmName ?? null,
       linkedin_url: row?.linkedinUrl ?? null,
       audience_ids: audienceRows.map((a) => a.audienceId),

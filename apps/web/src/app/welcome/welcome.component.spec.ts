@@ -40,7 +40,11 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(profile: Partial<AccountProfileResponse> = {}, next = '/products/acme') {
+async function setup(
+  profile: Partial<AccountProfileResponse> = {},
+  next = '/products/acme',
+  navResult = true,
+) {
   const api = {
     getProfile: vi.fn(async () => ({ ...PROFILE, ...profile })),
     updateProfile: vi.fn(async () => ({ ...PROFILE, onboarding: 'completed' })),
@@ -59,7 +63,7 @@ async function setup(profile: Partial<AccountProfileResponse> = {}, next = '/pro
       },
     ],
   });
-  const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+  const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(navResult);
   const fixture = TestBed.createComponent(WelcomePage);
   fixture.detectChanges();
   await fixture.whenStable();
@@ -94,9 +98,8 @@ describe('WelcomePage', () => {
     expect(el.querySelector('#welcome-company-size-trigger')).toBeNull();
     expect(el.querySelector('[data-testid="audiences"]')).toBeNull();
     expect(el.querySelector('#welcome-firm')).toBeNull();
-    expect(el.querySelector('[data-testid="vendor-note"] a')?.getAttribute('href')).toBe(
-      '/vendor-program',
-    );
+    // No claim note or link replaces them.
+    expect(el.querySelector('form a')).toBeNull();
   });
 
   it('saves with onboarding completed, then goes to next', async () => {
@@ -135,13 +138,57 @@ describe('WelcomePage', () => {
     expect(JSON.stringify(props)).not.toContain('linkedin');
   });
 
-  it('blocks save on an empty display name', async () => {
+  it('keeps Save enabled and, on an empty display name, shows the error and focuses it', async () => {
     const { fixture, el, api } = await setup({ suggested_display_name: null });
+    const save = el.querySelector<HTMLButtonElement>('[data-testid="welcome-save"]')!;
+    expect(save.disabled).toBe(false);
     (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
     await settle();
     fixture.detectChanges();
     expect(api.updateProfile).not.toHaveBeenCalled();
     expect(el.querySelector('#welcome-display-name-error')).not.toBeNull();
+    const name = el.querySelector('#welcome-display-name')!;
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(name);
+  });
+
+  it('on a bad LinkedIn link, shows its error and focuses it instead of saving', async () => {
+    const { fixture, el, api } = await setup({
+      details: { ...PROFILE.details!, linkedin_url: 'example.com/me' },
+    });
+    expect(el.querySelector<HTMLButtonElement>('[data-testid="welcome-save"]')!.disabled).toBe(
+      false,
+    );
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(el.querySelector('#welcome-linkedin-error')).not.toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('#welcome-linkedin'));
+  });
+
+  it('has one persistent polite status region and focuses the heading when the form shows', async () => {
+    const { el } = await setup();
+    const regions = el.querySelectorAll('[role="status"]');
+    expect(regions).toHaveLength(1);
+    const status = el.querySelector('[data-testid="welcome-status"]')!;
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.textContent?.trim()).toBe(
+      'The form is ready. Only the display name is required.',
+    );
+    expect(document.activeElement).toBe(el.querySelector('#welcome-title'));
+  });
+
+  it('carries the new lede and stacks the footer below sm with Save on top', async () => {
+    const { el } = await setup();
+    expect(el.textContent).toContain('A few questions about where you work.');
+    expect(el.textContent).not.toContain('It takes a minute');
+    const save = el.querySelector('[data-testid="welcome-save"]')!;
+    const footer = save.parentElement!;
+    expect(footer.classList).toContain('flex-col-reverse');
+    expect(footer.classList).toContain('sm:flex-row');
+    // DOM order stays Skip, then Save, so the keyboard order matches the row.
+    expect(footer.firstElementChild?.getAttribute('data-testid')).toBe('welcome-skip');
   });
 
   it('skips with onboarding skipped, then goes to next', async () => {
@@ -151,6 +198,48 @@ describe('WelcomePage', () => {
     expect(api.updateProfile).toHaveBeenCalledWith({ onboarding: 'skipped' });
     expect(analytics.onboardingSkipped).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith('/products/acme');
+  });
+
+  it('falls back to a full load when the client navigation throws, and re-enables Skip', async () => {
+    const { fixture, el, navigate } = await setup();
+    navigate.mockRejectedValueOnce(new Error('nav failed'));
+    const assign = vi
+      .spyOn(
+        fixture.componentInstance as unknown as { hardNavigate(u: string): void },
+        'hardNavigate',
+      )
+      .mockImplementation(() => undefined);
+    (el.querySelector('[data-testid="welcome-skip"]') as HTMLButtonElement).click();
+    await settle();
+    fixture.detectChanges();
+    expect(assign).toHaveBeenCalledWith('/products/acme');
+    expect((el.querySelector('[data-testid="welcome-skip"]') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('keeps the spinner, not the load-failed alert, when an answered user leaves by full load', async () => {
+    const hard = vi
+      .spyOn(WelcomePage.prototype as unknown as { hardNavigate(u: string): void }, 'hardNavigate')
+      .mockImplementation(() => undefined);
+    const { el } = await setup({ onboarding: 'completed' }, '/products/acme', false);
+    expect(hard).toHaveBeenCalledWith('/products/acme');
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+    hard.mockRestore();
+  });
+
+  it('clears a save failure when Skip starts', async () => {
+    const { fixture, el, api, navigate } = await setup();
+    api.updateProfile.mockRejectedValueOnce(new Error('offline'));
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+    expect(el.textContent).toContain('Something went wrong');
+    navigate.mockReturnValueOnce(new Promise(() => undefined));
+    (el.querySelector('[data-testid="welcome-skip"]') as HTMLButtonElement).click();
+    await settle();
+    fixture.detectChanges();
+    expect(el.textContent).not.toContain('Something went wrong');
   });
 
   it('still leaves when the skip write fails', async () => {

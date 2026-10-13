@@ -193,10 +193,20 @@
           </p>
         </div>
 
-        <aec-profile-details-form idPrefix="account-about" [(draft)]="draft" />
+        <aec-profile-details-form
+          idPrefix="account-about"
+          [(draft)]="draft"
+          (announce)="aboutStatus.set($event)"
+        />
+        <!-- The form's one polite live region: the fields a software vendor is
+             not asked, and audience count changes. Always rendered, so a screen
+             reader is already watching it when the first message lands. -->
+        <p class="sr-only" role="status" aria-live="polite" data-testid="about-status">
+          {{ aboutStatus() }}
+        </p>
 
         <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-6">
-          <button type="submit" [disabled]="aboutSaving() || aboutInvalid()" [class]="primaryClass">
+          <button type="submit" [disabled]="aboutSaving()" [class]="primaryClass">
             @if (aboutSaving()) {
             <span i18n="@@account.about.saving">Saving…</span>
             } @else {

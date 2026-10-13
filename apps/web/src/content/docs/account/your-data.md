@@ -18,9 +18,9 @@ Published reviews never show your display name, your email address or your firm.
 
 ## About you
 
-**About you** holds your answers to the questions we ask after your first sign-in. They are where you work, your role, your company size, the audiences that describe you, your firm's name and your LinkedIn profile. Every answer is optional. Change any of them and choose **Save answers**.
+**About you** holds your answers to the questions we ask after your first sign-in. They are where you work, your role, your company size, the audiences that describe you, your firm's name and your LinkedIn profile. Every answer is optional. Each single choice has an **I'd rather not say** answer, and **Clear answer** takes a question back to unanswered. Change any of them and choose **Save answers**.
 
-If you work for a software company, choose **Software vendor** under "Where do you work?". The size, audience and firm questions go away, and a link takes you to claim your company's listing.
+If you work for a software company, choose **Software vendor** under "Where do you work?". The size, audience and firm questions go away.
 
 Your role and firm fill in the review form for you. You can still change them on each review. Your firm and LinkedIn link are private. Only you and our team can see them.
 

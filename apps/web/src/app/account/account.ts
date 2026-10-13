@@ -1,6 +1,6 @@
 import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
@@ -119,6 +119,9 @@ export class AccountPage {
   protected readonly aboutSaved = signal(false);
   protected readonly aboutFailed = signal(false);
   protected readonly aboutInvalid = computed(() => linkedInInvalid(this.draft()));
+  /** Text for the About you form's polite live region. */
+  protected readonly aboutStatus = signal('');
+  private readonly aboutForm = viewChild(ProfileDetailsForm);
   /** Show the onboarding card while the server still reports `pending`. */
   // The claim dialog's button recipe (`shared/form-field/form-field-classes.ts`).
   protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
@@ -249,7 +252,9 @@ export class AccountPage {
 
   /** Save the "About you" answers. A first save also completes onboarding. */
   protected async onSaveAbout(): Promise<void> {
-    if (this.aboutSaving() || this.aboutInvalid()) return;
+    if (this.aboutSaving()) return;
+    // Save stays pressable. An invalid answer shows its error and takes focus.
+    if (this.aboutForm()?.revealErrors() || this.aboutInvalid()) return;
     this.aboutSaving.set(true);
     this.aboutSaved.set(false);
     this.aboutFailed.set(false);

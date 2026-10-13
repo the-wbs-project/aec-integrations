@@ -760,6 +760,30 @@ describe('PATCH /api/account: About you (AECI-1296)', () => {
     expect(await save.json()).toMatchObject({ onboarding: 'completed' });
   });
 
+  it('stores and reads back undisclosed on all three single choices', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      company_type: 'undisclosed',
+      company_size: 'undisclosed',
+      primary_role: 'undisclosed',
+    });
+    expect(res.status).toBe(200);
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({
+      companyType: 'undisclosed',
+      companySize: 'undisclosed',
+      primaryRole: 'undisclosed',
+    });
+    const read = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await read.json()).toMatchObject({
+      details: {
+        company_type: 'undisclosed',
+        company_size: 'undisclosed',
+        primary_role: 'undisclosed',
+      },
+    });
+  });
+
   it('clears firm_name and linkedin_url on a blank string', async () => {
     await t.db.insert(profiles).values({ id: USER });
     await t.db.insert(profileDetails).values({

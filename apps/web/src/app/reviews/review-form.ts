@@ -270,6 +270,8 @@ export class ReviewForm {
    * the user's onboarding answers only while still empty, so a choice made
    * before the read lands is never overwritten. Both stay editable. The role
    * values are one list (`PrimaryRoleSchema`), so the mapping is one to one.
+   * The profile's "I'd rather not say" (`undisclosed`) is not a review role and
+   * reads as empty: the role control is left for the reviewer to choose.
    * Browser-only (called from the post-hydration gate), so cached HTML never
    * carries a person's answers. Any failure leaves the form as it was.
    */
@@ -279,7 +281,8 @@ export class ReviewForm {
       () => undefined,
     );
     if (!details) return;
-    const role = this.roleOptions.find((o) => o.value === details.primary_role);
+    const stored = details.primary_role === 'undisclosed' ? null : details.primary_role;
+    const role = this.roleOptions.find((o) => o.value === stored);
     if (role && this.roleSel().length === 0) this.roleSel.set([role]);
     if (details.firm_name && this.firm().trim() === '') this.firm.set(details.firm_name);
   }

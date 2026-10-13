@@ -1,5 +1,15 @@
-import { Component, afterNextRender, computed, inject, input, model, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import {
+  Component,
+  ElementRef,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  model,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import {
   MAX_FIRM_NAME_LENGTH,
@@ -7,7 +17,7 @@ import {
   type CompanySize,
   type CompanyType,
   type LinkRef,
-  type PrimaryRole,
+  type ProfilePrimaryRole,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
@@ -31,14 +41,26 @@ import {
   type ProfileDetailsDraft,
 } from './profile-details-model';
 
-/** The "no answer" row every single-choice question carries, so an answer can
- *  be taken back and not only changed. */
-function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption[] {
-  return [
-    { value: null, label: $localize`:@@profileDetails.noAnswer:Prefer not to say` },
-    ...options,
-  ];
+const CLEAR_ANSWER_LABEL = $localize`:@@profileDetails.clearAnswer:Clear answer`;
+
+/**
+ * The options for one single choice. Unanswered (`null`) shows the "Choose one"
+ * placeholder and no row is selected, because no option carries `null`. Once
+ * there is an answer, a "Clear answer" row leads the list so the question can go
+ * back to unanswered. That row is the only `null`-valued option, and it exists
+ * only while the value is not `null`, so `AecSelect` never renders it as chosen.
+ * "I'd rather not say" is a separate, stored answer (`undisclosed`).
+ */
+function choiceOptions(
+  options: ReadonlyArray<Labelled<string>>,
+  current: string | null,
+): AecSelectOption[] {
+  return current === null ? [...options] : [{ value: null, label: CLEAR_ANSWER_LABEL }, ...options];
 }
+
+/** The fields a software vendor is not asked, named for the live region. */
+const VENDOR_HIDDEN = $localize`:@@profileDetails.vendor.hidden:Company size, audiences and firm name were removed from the form.`;
+const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audiences and firm name were added back to the form.`;
 
 /**
  * The "About you" questions 2 to 7 (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`):
@@ -47,8 +69,10 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
  *
  * Presentational over a two-way `draft` model. The parent owns saving, so the
  * same questions serve the first-sign-in page and the account page. Picking
- * "Software vendor" hides size, audiences and firm, and shows the way into the
- * vendor claim flow on `/vendor-program`. Role and LinkedIn stay for everyone.
+ * "Software vendor" hides size, audiences and firm, with nothing in their place.
+ * Role and LinkedIn stay for everyone. Status changes a screen reader should
+ * hear (fields removed or restored, the audience count) go out on `announce`
+ * for the host's one polite live region.
  *
  * The audience vocabulary loads after hydration (`GET /api/audiences`). Both
  * hosting pages are `no-store` and render answers in the browser only, so no
@@ -65,7 +89,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
  */
 @Component({
   selector: 'aec-profile-details-form',
-  imports: [AecSelect, RouterLink],
+  imports: [AecSelect],
   host: { class: 'block' },
   template: `
     <div class="space-y-6">
@@ -77,29 +101,10 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
         label="Where do you work?"
         i18n-placeholder="@@profileDetails.choose"
         placeholder="Choose one"
-        [options]="companyTypeOptions"
+        [options]="companyTypeOptions()"
         [value]="draft().company_type"
         (changed)="setCompanyType($event)"
       />
-
-      @if (vendor()) {
-        <p
-          class="-mt-3 rounded-(--radius-md) bg-(--surface-sunken) px-3 py-2 text-sm leading-relaxed text-(--text-secondary)"
-          data-testid="vendor-note"
-        >
-          <span i18n="@@profileDetails.vendor.note"
-            >Work for a software company? Claim your listing to manage how your products
-            appear.</span
-          >
-          {{ ' ' }}
-          <a
-            routerLink="/vendor-program"
-            class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@profileDetails.vendor.link"
-            >Claim your listing</a
-          >
-        </p>
-      }
 
       <aec-select
         class="block"
@@ -109,7 +114,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
         label="Your role"
         i18n-placeholder="@@profileDetails.choose"
         placeholder="Choose one"
-        [options]="roleOptions"
+        [options]="roleOptions()"
         [value]="draft().primary_role"
         (changed)="setRole($event)"
       />
@@ -123,7 +128,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           label="Company size"
           i18n-placeholder="@@profileDetails.choose"
           placeholder="Choose one"
-          [options]="companySizeOptions"
+          [options]="companySizeOptions()"
           [value]="draft().company_size"
           (changed)="setSize($event)"
         />
@@ -174,7 +179,12 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
               class="mt-3"
               [class]="inputClass"
             />
-            <ul class="mt-3 grid max-h-80 grid-cols-1 gap-2 overflow-y-auto p-0.5 sm:grid-cols-2">
+            <!-- The bottom hairline and the always-drawn thin scrollbar
+                 (.aec-scroll-box) tell the reader a clipped last row scrolls. -->
+            <ul
+              class="aec-scroll-box mt-3 grid max-h-80 grid-cols-1 gap-2 overflow-y-auto border-b p-0.5 pb-2 sm:grid-cols-2"
+              data-testid="audience-list"
+            >
               @for (term of visibleAudiences(); track term.id) {
                 <li>
                   <label [class]="choiceCardClass">
@@ -188,9 +198,11 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
                     <span>{{ term.name }}</span>
                   </label>
                 </li>
-              } @empty {
+              }
+              @if (noMatch()) {
                 <li
                   class="px-3 py-2 text-sm text-(--text-secondary) sm:col-span-2"
+                  data-testid="audience-no-match"
                   i18n="@@profileDetails.audiences.none"
                 >
                   No audience matches that filter.
@@ -234,11 +246,12 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           LinkedIn profile
         </label>
         <input
+          #linkedin
           [id]="idPrefix() + '-linkedin'"
           type="url"
           inputmode="url"
           autocomplete="url"
-          placeholder="https://www.linkedin.com/in/…"
+          placeholder="linkedin.com/in/your-name"
           [value]="draft().linkedin_url"
           (input)="onLinkedIn($event)"
           (blur)="linkedInTouched.set(true)"
@@ -279,6 +292,10 @@ export class ProfileDetailsForm {
   readonly draft = model.required<ProfileDetailsDraft>();
   /** Id stem, so two instances on one page never collide. */
   readonly idPrefix = input('profile-details');
+  /** Text for the host's single polite live region. */
+  readonly announce = output<string>();
+
+  private readonly linkedInInput = viewChild<ElementRef<HTMLInputElement>>('linkedin');
 
   protected readonly maxAudiences = MAX_PROFILE_AUDIENCES;
 
@@ -293,9 +310,15 @@ export class ProfileDetailsForm {
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
   protected readonly maxFirm = MAX_FIRM_NAME_LENGTH;
 
-  protected readonly companyTypeOptions = withNoAnswer(COMPANY_TYPE_OPTIONS);
-  protected readonly companySizeOptions = withNoAnswer(COMPANY_SIZE_OPTIONS);
-  protected readonly roleOptions = withNoAnswer(PRIMARY_ROLE_OPTIONS);
+  protected readonly companyTypeOptions = computed(() =>
+    choiceOptions(COMPANY_TYPE_OPTIONS, this.draft().company_type),
+  );
+  protected readonly companySizeOptions = computed(() =>
+    choiceOptions(COMPANY_SIZE_OPTIONS, this.draft().company_size),
+  );
+  protected readonly roleOptions = computed(() =>
+    choiceOptions(PRIMARY_ROLE_OPTIONS, this.draft().primary_role),
+  );
 
   /** `null` until the vocabulary loads. Sorted A to Z, case never deciding. */
   protected readonly audiences = signal<readonly LinkRef[] | null>(null);
@@ -311,14 +334,26 @@ export class ProfileDetailsForm {
     () => this.linkedInTouched() && linkedInInvalid(this.draft()),
   );
 
+  private readonly needle = computed(() => this.filter().trim().toLowerCase());
+
   /** The filtered list. A chosen term always stays visible, so a filter can
    *  never hide a pick the user may want to undo. */
   protected readonly visibleAudiences = computed(() => {
     const all = this.audiences() ?? [];
-    const needle = this.filter().trim().toLowerCase();
+    const needle = this.needle();
     if (!needle) return all;
     const chosen = new Set(this.draft().audience_ids);
     return all.filter((t) => chosen.has(t.id) || t.name.toLowerCase().includes(needle));
+  });
+
+  /** True when the filter matches no UNCHOSEN term. Chosen terms stay listed
+   *  under any filter, so an empty list is not the test. */
+  protected readonly noMatch = computed(() => {
+    const all = this.audiences() ?? [];
+    const needle = this.needle();
+    if (!needle) return all.length === 0;
+    const chosen = new Set(this.draft().audience_ids);
+    return !all.some((t) => !chosen.has(t.id) && t.name.toLowerCase().includes(needle));
   });
 
   constructor() {
@@ -334,16 +369,32 @@ export class ProfileDetailsForm {
     }
   }
 
+  /**
+   * Show every error this form holds and focus the first bad field. The host
+   * calls it when Save is pressed. Returns true when there was an error. Pass
+   * `focus: false` when the host already focused an earlier bad field. Today
+   * the only check here is the LinkedIn link.
+   */
+  revealErrors(options: { readonly focus?: boolean } = {}): boolean {
+    this.linkedInTouched.set(true);
+    if (!linkedInInvalid(this.draft())) return false;
+    if (options.focus !== false) this.linkedInInput()?.nativeElement.focus();
+    return true;
+  }
+
   protected isChosen(id: string): boolean {
     return this.draft().audience_ids.includes(id);
   }
 
   protected setCompanyType(value: string | null): void {
+    const wasVendor = this.vendor();
     this.draft.update((d) => ({ ...d, company_type: value as CompanyType | null }));
+    const isVendor = this.vendor();
+    if (isVendor !== wasVendor) this.announce.emit(isVendor ? VENDOR_HIDDEN : VENDOR_SHOWN);
   }
 
   protected setRole(value: string | null): void {
-    this.draft.update((d) => ({ ...d, primary_role: value as PrimaryRole | null }));
+    this.draft.update((d) => ({ ...d, primary_role: value as ProfilePrimaryRole | null }));
   }
 
   protected setSize(value: string | null): void {
@@ -358,6 +409,10 @@ export class ProfileDetailsForm {
       if (rest.length >= MAX_PROFILE_AUDIENCES) return d;
       return { ...d, audience_ids: [...rest, id] };
     });
+    const count = this.draft().audience_ids.length;
+    this.announce.emit(
+      $localize`:@@profileDetails.audiences.countStatus:${count}:count: of ${MAX_PROFILE_AUDIENCES}:max: chosen.`,
+    );
   }
 
   protected onFilter(event: Event): void {

@@ -545,6 +545,21 @@ describe('ReviewForm', () => {
     httpMock.verify();
   });
 
+  it('treats an "I\'d rather not say" role as empty and still fills the firm', async () => {
+    const account = makeAccountMock(null, {
+      primary_role: 'undisclosed',
+      firm_name: 'Turner Build',
+    });
+    const { fixture, el } = setup(product(), makeApiMock(), account);
+    await showForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    const trigger = el.querySelector('#role-trigger') as HTMLElement;
+    expect(trigger.textContent).not.toContain('rather not say');
+    expect(trigger.querySelector('span')?.getAttribute('style')).toContain('--text-secondary');
+    expect((el.querySelector('#reviewer-firm') as HTMLInputElement).value).toBe('Turner Build');
+  });
+
   it('leaves the fields empty when the profile has no answers or the read fails', async () => {
     const account = makeAccountMock(null);
     account.getProfile.mockRejectedValueOnce(new Error('offline'));

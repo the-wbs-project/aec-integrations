@@ -74,6 +74,7 @@ let nextAecSelectId = 0;
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId() + ' ' + triggerId()"
           [attr.aria-describedby]="describedBy() || null"
+          [attr.aria-invalid]="invalid() ? 'true' : null"
           [class]="triggerClass()"
         >
           <span>{{ triggerLabel() }}</span>
@@ -158,6 +159,9 @@ export class AecSelect {
   readonly layout = input<'inline' | 'stacked'>('inline');
   /** Id of an error/hint element to associate with the trigger. */
   readonly describedBy = input('');
+  /** Sets `aria-invalid` on the trigger, which paints the error border
+   *  (`.aec-field-control` in `styles.css`). */
+  readonly invalid = input(false);
   readonly changed = output<string | null>();
 
   /** `@for` track key for the null-valued "any" row. */
@@ -186,9 +190,12 @@ export class AecSelect {
     // ever taking the native attribute the `disabled:` variant keys off. That is
     // the better accessible behaviour (a disabled control stays discoverable),
     // but it means the obvious Tailwind variant silently never fires.
+    // The border colour (3:1 `--border-input`, red when invalid) comes from the
+    // unlayered `.aec-field-control` rule in `styles.css`: a border-colour
+    // utility never applies in this app.
     const base =
-      'flex items-center justify-between gap-2 rounded-(--radius-md) border' +
-      ' border-(--border-default) bg-(--surface-base) text-sm text-(--text-primary)' +
+      'aec-field-control flex items-center justify-between gap-2 rounded-(--radius-md) border' +
+      ' bg-(--surface-base) text-sm text-(--text-primary)' +
       ' focus-visible:outline-2 focus-visible:outline-offset-2' +
       ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed' +
       ' aria-disabled:opacity-50';

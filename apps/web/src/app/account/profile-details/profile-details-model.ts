@@ -10,7 +10,7 @@ import {
   type AccountProfileDetails,
   type CompanySize,
   type CompanyType,
-  type PrimaryRole,
+  type ProfilePrimaryRole,
   type UpdateAccountInput,
 } from '@aeci/shared';
 
@@ -18,7 +18,7 @@ import {
 export interface ProfileDetailsDraft {
   readonly company_type: CompanyType | null;
   readonly company_size: CompanySize | null;
-  readonly primary_role: PrimaryRole | null;
+  readonly primary_role: ProfilePrimaryRole | null;
   readonly firm_name: string;
   readonly linkedin_url: string;
   readonly audience_ids: readonly string[];
@@ -29,7 +29,14 @@ export interface Labelled<V extends string> {
   readonly label: string;
 }
 
-/** Alphabetical by label, with "Other" last. */
+/**
+ * The explicit "I'd rather not say" row. It is a stored answer (`undisclosed`),
+ * not the unanswered state: an unanswered question shows the "Choose one"
+ * placeholder. It sits last in every list, after "Other".
+ */
+const UNDISCLOSED_LABEL = $localize`:@@profileDetails.undisclosed:I'd rather not say`;
+
+/** Alphabetical by label, then "Other", then "I'd rather not say". */
 export const COMPANY_TYPE_OPTIONS: ReadonlyArray<Labelled<CompanyType>> = [
   { value: 'architect', label: $localize`:@@profileDetails.companyType.architect:Architect` },
   {
@@ -55,6 +62,7 @@ export const COMPANY_TYPE_OPTIONS: ReadonlyArray<Labelled<CompanyType>> = [
     label: $localize`:@@profileDetails.companyType.tradeContractor:Trade contractor`,
   },
   { value: 'other', label: $localize`:@@profileDetails.companyType.other:Other` },
+  { value: 'undisclosed', label: UNDISCLOSED_LABEL },
 ];
 
 export const COMPANY_SIZE_OPTIONS: ReadonlyArray<Labelled<CompanySize>> = [
@@ -73,11 +81,13 @@ export const COMPANY_SIZE_OPTIONS: ReadonlyArray<Labelled<CompanySize>> = [
     value: '5000+',
     label: $localize`:@@profileDetails.companySize.over5000:More than 5,000 people`,
   },
+  { value: 'undisclosed', label: UNDISCLOSED_LABEL },
 ];
 
-/** Plain-word labels for the shared role list, alphabetical with "Other" last. The stored values match the
- *  review form's `role_at_company`, so pre-fill maps one to one. */
-export const PRIMARY_ROLE_OPTIONS: ReadonlyArray<Labelled<PrimaryRole>> = [
+/** Plain-word labels for the role list, alphabetical, then "Other", then "I'd
+ *  rather not say". Every value but `undisclosed` matches the review form's
+ *  `role_at_company`, so pre-fill maps one to one and skips `undisclosed`. */
+export const PRIMARY_ROLE_OPTIONS: ReadonlyArray<Labelled<ProfilePrimaryRole>> = [
   { value: 'exec', label: $localize`:@@profileDetails.role.exec:Executive` },
   {
     value: 'practitioner',
@@ -86,6 +96,7 @@ export const PRIMARY_ROLE_OPTIONS: ReadonlyArray<Labelled<PrimaryRole>> = [
   { value: 'IT', label: $localize`:@@profileDetails.role.it:IT or systems` },
   { value: 'manager', label: $localize`:@@profileDetails.role.manager:Manager or team lead` },
   { value: 'other', label: $localize`:@@profileDetails.role.other:Other` },
+  { value: 'undisclosed', label: UNDISCLOSED_LABEL },
 ];
 
 /** The label for a stored value, or the raw value when this build does not

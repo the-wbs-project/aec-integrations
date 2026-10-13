@@ -21,9 +21,14 @@ export const FIELD_LABEL_CLASS =
 /** The "(optional)" marker inside a label. */
 export const FIELD_OPTIONAL_CLASS = 'font-normal normal-case text-(--text-tertiary)';
 
-/** A text input or textarea. */
+/**
+ * A text input or textarea. `aec-field-control` (unlayered, `styles.css`) draws
+ * the border: `--border-input` at rest (3:1, WCAG 1.4.11) and `--status-error`
+ * when `aria-invalid="true"`. A border-colour utility here would never apply,
+ * because the unlayered `* { border-color }` rule beats every layered utility.
+ */
 export const FIELD_INPUT_CLASS =
-  'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-field-control w-full rounded-(--radius-md) border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
 /** Persistent help text, directly under the control. */
 export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
@@ -50,6 +55,12 @@ export const BUTTON_PRIMARY_CLASS =
 export const BUTTON_SECONDARY_CLASS =
   'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
-/** The action row under a form: secondary at the start, primary at the end. */
+/**
+ * The action row under a form: secondary at the start, primary at the end.
+ * Below `sm` the buttons stack full width with the primary on top. The DOM
+ * keeps secondary then primary, so the keyboard order matches the row from
+ * `sm` up. The secondary takes `sm:me-auto`, never a bare `me-auto`, which
+ * would stop it stretching in the stacked column.
+ */
 export const FORM_FOOTER_CLASS =
-  'flex flex-wrap items-center justify-end gap-3 border-t border-(--border-default)';
+  'flex flex-col-reverse gap-3 border-t sm:flex-row sm:flex-wrap sm:items-center sm:justify-end';

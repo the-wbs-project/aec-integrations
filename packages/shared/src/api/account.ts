@@ -7,11 +7,11 @@ import {
   LinkedInProfileUrlSchema,
   MAX_FIRM_NAME_LENGTH,
   MAX_PROFILE_AUDIENCES,
-  PrimaryRoleSchema,
+  ProfilePrimaryRoleSchema,
   type CompanySize,
   type CompanyType,
   type OnboardingState,
-  type PrimaryRole,
+  type ProfilePrimaryRole,
 } from './profile-details';
 import { ReviewStatusSchema } from './reviews';
 
@@ -65,7 +65,7 @@ export const UpdateAccountSchema = z
     listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
     company_type: CompanyTypeSchema.nullable().optional(),
     company_size: CompanySizeSchema.nullable().optional(),
-    primary_role: PrimaryRoleSchema.nullable().optional(),
+    primary_role: ProfilePrimaryRoleSchema.nullable().optional(),
     firm_name: z
       .string()
       .trim()
@@ -154,7 +154,7 @@ export interface AccountProfileResponse {
 export interface AccountProfileDetails {
   company_type: CompanyType | null;
   company_size: CompanySize | null;
-  primary_role: PrimaryRole | null;
+  primary_role: ProfilePrimaryRole | null;
   firm_name: string | null;
   linkedin_url: string | null;
   /** `taxonomy_audiences.id` values. Empty when none are chosen. */
