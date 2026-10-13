@@ -239,11 +239,8 @@ added_by: claude (AECI-734)
 id: EX-004
 scope:
   paths:
-    - apps/web/src/app/vendor/components/vendor-views-tile.ts
     - apps/web/src/app/vendor/components/vendor-plan-panel.ts
   finding_matches:
-    - "nested-cards"
-    - "Card inside card"
     - "text-occlusion"
     - "\"An active vendor account\" is"
 severity: any
@@ -253,7 +250,7 @@ added: 2026-09-24
 added_by: claude (AECI-1116)
 ```
 
-**Justification.** `npx impeccable detect` on `/preview/vendor-dashboard/overview` reports two findings that are not defects. **`nested-cards`** is the Views tile's period toggle: a sunken, bordered, rounded segmented track inside the glance-band card. It is a control, not a card, and DESIGN.md "Vendor portal (Stage 2)" specifies that sunken track. The detector's card test is only "border plus radius or background", so any segmented control inside a card trips it. **`text-occlusion`** is the framing sentence inside the compact access strip's closed `<details>` ("What an active account covers"). While the disclosure is closed the text is not rendered (`checkVisibility()` is false), but the detector still reads its layout box, which sits over the glance band below. Opened, the sentence is in flow and nothing covers it, measured at 1280px and 375px. Both match only on these two files and only on those finding names. A `nested-cards` or `text-occlusion` finding on any other vendor surface is still in scope. Impeccable's inline-ignore comments cannot carry this: Angular strips template comments, so a URL scan never sees them.
+**Justification.** `npx impeccable detect` on `/preview/vendor-dashboard/overview` reported two findings that are not defects. The `nested-cards` half covered the Views tile's period toggle. It was dropped on 2026-10-13 when the Views tile was removed. If AECI-941 rebuilds the toggle, re-add it with the new file path. **`text-occlusion`** is the framing sentence inside the compact access strip's closed `<details>` ("What an active account covers"). While the disclosure is closed the text is not rendered (`checkVisibility()` is false), but the detector still reads its layout box, which sits over the glance band below. Opened, the sentence is in flow and nothing covers it, measured at 1280px and 375px. It matches only on this file and only on that finding name. A `text-occlusion` finding on any other vendor surface is still in scope. Impeccable's inline-ignore comments cannot carry this: Angular strips template comments, so a URL scan never sees them.
 
 ---
 

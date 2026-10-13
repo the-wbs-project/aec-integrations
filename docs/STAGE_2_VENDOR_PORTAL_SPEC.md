@@ -1702,7 +1702,7 @@ Every attribute asserted here fails **silently** if it regresses — a dropped
 The overview (`/vendor/:vendorSlug/overview`) was the plan panel plus three bare
 counts (Products, Seats, Open requests) that linked nowhere. It reported inventory
 and never said what needed attention. It is now a landing page: a one-line access
-strip, a three-tile glance band, and a prioritised **"What needs you"** list whose
+strip, a glance band (three tiles at launch, two since 2026-10-13), and a prioritised **"What needs you"** list whose
 rows link straight to the work. The direction was chosen from the mock-up at
 `docs/design/vendor-overview-concepts.html` (concept A, with the views band and a
 1d / 1w / 1m toggle). The baseline critique of the old page scored it 23/40.
@@ -1764,12 +1764,11 @@ comment on the listing, so it is never a row here.
 
 **The glance band** (`components/vendor-glance-band.ts`, presentational):
 
-- **Views** (`components/vendor-views-tile.ts`) is a **placeholder**. It shows the
-  sentence "Coming soon", no number, no period toggle, and makes no server
-  read. It never shows 0: nothing is counted yet, so a zero would claim a
-  measurement that was never made. AECI-941 binds the figure and restores the
-  1d / 1w / 1m toggle (default 1w) with its `periodChange` output. The windows
-  are complete UTC days (`VENDOR_PERFORMANCE_SPEC.md` §5.2).
+- **Views** was a placeholder that read "Coming soon" with no number and no server
+  read. **Removed 2026-10-13 (Chris)**, with its component `vendor-views-tile.ts`:
+  it promised performance reporting before its plan was ruled. The band is now two
+  tiles, two columns from `md`. AECI-941 builds the tile again when the figure ships
+  (`VENDOR_PERFORMANCE_SPEC.md` §5.6).
 - **In conflict** is the deduped conflict total. Its line reads "On {product}" or
   "Across N products". At zero it is a plain card with a green check badge and
   no link. With conflicts it is a link with a red X badge: one conflicted product
@@ -1815,7 +1814,6 @@ heading outline is unchanged.
 | Seat invites | `seats`, which has no cursor | Loads on entry only, the same accepted posture as the Seats tab |
 | Contests to decide | `contests` scope (AECI-1008) | Yes |
 | Reviews with no reply | `reviews` scope (AECI-1179, §11c.16). One `reply_status=none&perPage=1` read per product whose plan holds `review.reply` | Yes |
-| Views | none | Placeholder |
 
 **The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
 renders every section on one page, so a list of links to other routes has nowhere
@@ -1827,8 +1825,7 @@ and never calls `markDirty`.
 
 **Tests.** `vendor-overview-model.spec.ts` (dedupe, connector-powered edges never
 waiting, empty trades never a gap, claims excluded, ordering, the top-3 cap,
-capability gating), `vendor-glance-band.component.spec.ts`,
-`vendor-views-tile.component.spec.ts`, the compact cases in
+capability gating), `vendor-glance-band.component.spec.ts`, the compact cases in
 `vendor-plan-panel.component.spec.ts`, and an overview block in
 `vendor-dashboard-tabbed.component.spec.ts` (compact vs full, row hrefs under
 `/vendor/:slug`, the live entitlement flip, the all-clear state and its suppression while the

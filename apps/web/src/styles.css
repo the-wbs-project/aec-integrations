@@ -773,13 +773,6 @@ html {
   border: 2px solid var(--accent-primary);
 }
 
-/* The "Not available yet" badge on /vendor-program's Coming soon section. Unlayered
-   for the same reason as `.aec-plan-card`: `border-(--border-strong)` would lose to
-   the `*` rule and render the default border. */
-.aec-badge-strong {
-  border: 1px solid var(--border-strong);
-}
-
 /* A card's plan name: serif at 20px, above the Serif-Floor Rule's 18px. A class
    beats the unlayered `h3` rule; a `text-*` utility would not. */
 .aec-plan-card-name {

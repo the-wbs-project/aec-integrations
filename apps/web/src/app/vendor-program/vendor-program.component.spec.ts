@@ -143,7 +143,6 @@ describe('VendorProgramPage', () => {
         'H2:What Managed adds',
         'H2:Free and Managed',
         'H2:How listings are sorted',
-        'H2:Coming soon',
         'H2:Questions vendors ask',
         'H2:Tell the full story of your product',
       ]);
@@ -319,13 +318,6 @@ describe('VendorProgramPage', () => {
       expect(sorting?.querySelector('a')?.getAttribute('href')).toBe(
         '/docs/trust/how-ranking-works',
       );
-    });
-
-    it('labels Coming soon as not available yet', async () => {
-      const { host } = await setup({ plan: stub() });
-      const soon = text(host.querySelector('#vp-coming-soon'));
-      expect(soon).toContain('Not available yet');
-      expect(soon).toContain('never changes where you rank or appear');
     });
 
     it('answers the FAQ in a native details list', async () => {

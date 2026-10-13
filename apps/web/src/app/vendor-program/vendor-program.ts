@@ -7,7 +7,7 @@
  *
  * **Sections, in the §3 order.** One `h1` in the hero, then one `h2` per section:
  * what changes when you claim, what a free claim gets you, what Managed adds, the
- * plan cards, how listings are sorted, coming soon, the FAQ, and the closing panel.
+ * plan cards, how listings are sorted, the FAQ, and the closing panel.
  *
  * **Free and Managed share one pattern (ruling 2026-10-12).** The same split and
  * the same item, `li[aec-vendor-program-benefit]` (`vendor-program-benefit.ts`): a plain
@@ -461,31 +461,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
             </div>
           </section>
 
-          <!-- 7. Coming soon: the one labelled exception to "only what ships". -->
-          <section id="vp-coming-soon" aria-labelledby="vp-coming-soon-heading" [class]="split">
-            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2 lg:col-span-5">
-              <h2 id="vp-coming-soon-heading" i18n="@@vendorProgram.comingSoon.heading">
-                Coming soon
-              </h2>
-              <span
-                class="aec-badge-strong rounded-full px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                i18n="@@vendorProgram.comingSoon.badge"
-                >Not available yet</span
-              >
-            </div>
-            <p
-              class="max-w-[56ch] leading-relaxed text-(--text-secondary) lg:col-span-7 lg:max-w-none"
-              i18n="@@vendorProgram.comingSoon.body"
-            >
-              Is the listing working for you? Performance reporting is coming to Managed. It will
-              show how many people view your product and integration pages, how many click through
-              to your website and docs, and how often search engines and AI assistants visit, with a
-              monthly report you can download and share with your team. It reports attention only,
-              and never changes where you rank or appear.
-            </p>
-          </section>
-
-          <!-- 8. FAQ, a native details list (no JS, indexable answers). -->
+          <!-- 7. FAQ, a native details list (no JS, indexable answers). -->
           <section id="vp-faq" aria-labelledby="vp-faq-heading" [class]="split">
             <h2 id="vp-faq-heading" class="lg:col-span-5" i18n="@@vendorProgram.faq.heading">
               Questions vendors ask
@@ -602,7 +578,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
             </div>
           </section>
 
-          <!-- 9. The closing panel, its own section (h2). -->
+          <!-- 8. The closing panel, its own section (h2). -->
           <aec-plan-cta-panel
             page="vendor_program"
             [headingLevel]="2"

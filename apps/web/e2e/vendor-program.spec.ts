@@ -106,7 +106,6 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       'H2:What Managed adds',
       'H2:Free and Managed',
       'H2:How listings are sorted',
-      'H2:Coming soon',
       'H2:Questions vendors ask',
       'H2:Tell the full story of your product',
     ]);
@@ -196,7 +195,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
         const sections = [
           hero,
           ...document.querySelectorAll(
-            '#vp-what-changes, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-coming-soon, #vp-faq, aec-plan-cta-panel section',
+            '#vp-what-changes, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-faq, aec-plan-cta-panel section',
           ),
         ];
         const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();

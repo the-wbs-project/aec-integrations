@@ -29,9 +29,8 @@ The overview has three parts.
 
 ### At a glance
 
-Three tiles sit across the top:
+Two tiles sit across the top:
 
-- **Views** reads "Coming soon". Performance reporting is not available yet. [Plans](/docs/vendors/plans) says what it will show.
 - **In conflict** counts the data flows on your products where the companies' answers disagree. It reads "No conflicts" when there are none. When there are some, the tile links to that product's integrations, or to **Products** when more than one product is affected.
 - **Suggestions about your listing** counts the open corrections that anyone has suggested from your public pages. It reads "None open" when there are none. When there are some, it shows when the newest was filed and links to **Messages**.
 

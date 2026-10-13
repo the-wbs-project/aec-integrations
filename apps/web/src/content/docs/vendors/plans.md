@@ -57,10 +57,6 @@ Your plan also never decides:
 
 Each plan panel in your portal says the same: "No plan changes where you rank or appear, or whether a review is published." [How ranking works](/docs/trust/how-ranking-works) sets out the full rule and how we check it.
 
-## Coming soon
-
-Performance reporting is coming to Managed. It will show how many people view your product and integration pages, how many click through to your website and docs, how often search engines and AI assistants visit, and a monthly report you can download. It reports attention only, and never changes where you rank or appear. It is not available yet. This page will say when it is.
-
 ## When a Managed plan ends
 
 This applies to a pilot too.

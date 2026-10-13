@@ -12,17 +12,17 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductClaimCount } from '../overview/vendor-overview-model';
 
-import { VendorViewsTile, type VendorViewsPeriod } from './vendor-views-tile';
-
 /**
- * The overview's glance band (AECI-983): Views, In conflict, and Suggestions
- * about your listing. A two-second read above the "What needs you" list.
+ * The overview's glance band (AECI-983): In conflict, and Suggestions about
+ * your listing. A two-second read above the "What needs you" list. The Views
+ * tile was removed on 2026-10-13 (Chris): performance reporting has not shipped,
+ * so the band shows only the two tiles that carry a figure.
  *
  * Presentational. The section computes every figure from `VendorPortalStore`
  * through `vendor-overview-model.ts` and passes it in, and owns the retry.
  *
  * ── VOCABULARY ──────────────────────────────────────────────────────────────
- * `home/home-stats-cards.ts`, the sanctioned three-up figure row: bordered
+ * `home/home-stats-cards.ts`, the sanctioned figure row: bordered
  * `--surface-raised` cards, a large Source Serif numeral, a quiet line beneath.
  * Not the admin `StatTile`, whose chart hues DESIGN.md keeps inside `/admin`.
  *
@@ -40,17 +40,15 @@ import { VendorViewsTile, type VendorViewsPeriod } from './vendor-views-tile';
  *  - **Hover moves the surface, not the border.** A border-colour utility never
  *    applies here (the unlayered `*` rule in `styles.css`).
  *
- * Every label row is `min-h-9` (the Views toggle's height), and `md:min-h-12` so
+ * Every label row is `min-h-9`, and `md:min-h-12` so
  * a label that wraps to two lines at `md` does not push its figure below the rest.
  */
 @Component({
   selector: 'aec-vendor-glance-band',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, VendorViewsTile],
+  imports: [RouterLink],
   template: `
-    <section class="grid grid-cols-1 gap-4 md:grid-cols-3" [attr.aria-label]="regionLabel">
-      <aec-vendor-views-tile (periodChange)="viewsPeriodChange.emit($event)" />
-
+    <section class="grid grid-cols-1 gap-4 md:grid-cols-2" [attr.aria-label]="regionLabel">
       <!-- In conflict. aria-busy while the integrations read settles; no
            role="status", the shell owns the one announcement channel. -->
       <div [attr.aria-busy]="conflictsLoading()">
@@ -217,7 +215,6 @@ export class VendorGlanceBand {
   readonly newestCorrectionAt = input<string | null>(null);
 
   readonly retry = output<void>();
-  readonly viewsPeriodChange = output<VendorViewsPeriod>();
 
   protected readonly regionLabel = $localize`:@@vendor.overview.glance.aria:Your account at a glance`;
 
