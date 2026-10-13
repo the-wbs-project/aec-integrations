@@ -16,9 +16,10 @@
  * `ngListbox` and `ngOption` give the roles, `aria-expanded`,
  * `aria-activedescendant` and the Arrow / Home / End / Escape model, and an outer
  * `cdkConnectedOverlay` with `usePopover: 'inline'` is the floating layer
- * (ADR 0010). The listbox renders only when there is a hit. A query with none
- * keeps the combobox collapsed and shows "No matching sections" as plain text
- * under the input. A polite live region announces the count either way. A real `label` names the input.
+ * (ADR 0010). The listbox renders only when there is a hit. With none, settled
+ * or still in flight, the combobox collapses, so `aria-expanded` never points
+ * at a listbox that does not exist (AECI-1308). A settled query with no hit shows
+ * "No matching sections" as plain text under the input. A polite live region announces the count either way. A real `label` names the input.
  *
  * **Choosing a row** navigates to its page and heading anchor with an absolute
  * path, then clears the box. Enter with no row active takes the first row.
@@ -40,6 +41,7 @@ import {
   input,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
@@ -200,6 +202,8 @@ export class DocsSearchComponent {
   protected readonly state = signal<State>('pending');
   protected readonly queryModel = signal('');
   protected readonly expanded = signal(false);
+  /** The `ngCombobox` directive, so an empty collapse can write its model. */
+  private readonly combobox = viewChild(Combobox);
   protected readonly selected = signal<DocsSearchHit[]>([]);
   protected readonly focused = signal(false);
 
@@ -272,8 +276,16 @@ export class DocsSearchComponent {
     // Re-open when results land while the input still has focus.
     effect(() => {
       if (this.results().length > 0 && this.focused()) this.expanded.set(true);
-      // Nothing matched: collapse, so aria-expanded never points at no listbox.
-      if (this.showEmpty()) this.expanded.set(false);
+    });
+
+    // Expanded with no row, before results land or after none matched: collapse,
+    // so aria-expanded never points at no listbox (AECI-1308). Aria re-expands on
+    // every keystroke, hence tracking `expanded()`. Writes the directive's own
+    // model: the binding would not re-push a value it already sent.
+    effect(() => {
+      if (this.expanded() && this.results().length === 0) {
+        this.combobox()?.expanded.set(false);
+      }
     });
 
     this.destroyRef.onDestroy(() => {

@@ -151,7 +151,7 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 
 **Refuted candidates** — each was a plausible defect that the evidence disproved:
 
-- **Combobox missing `aria-controls`.** Present only in the collapsed state, which is correct per ARIA 1.2. On typing, `aria-expanded` flips to `true`, `aria-controls` resolves to a real `role="listbox"` with 10 `role="option"` children, and `aria-activedescendant` is set. Escape collapses it and keeps focus on the input.
+- **Combobox missing `aria-controls`.** Present only in the collapsed state, which is correct per ARIA 1.2. *(2026-10-13: true of a query with hits. A zero-hit query was a real defect, fixed by AECI-1308, §5.)* On typing, `aria-expanded` flips to `true`, `aria-controls` resolves to a real `role="listbox"` with 10 `role="option"` children, and `aria-activedescendant` is set. Escape collapses it and keeps focus on the input.
 - **Placeholder used as label.** Both search inputs have a real `<label class="sr-only">`.
 - **Dangling `aria-labelledby` / `aria-describedby`.** Zero on any surface, including the Spartan `brn-dialog-title-undefined` failure mode that the optional chaining in `BrnDialogTitle` makes possible.
 - **Interactive elements with no accessible name.** Zero on home and product detail. Icon-only buttons carry `aria-label` ("Open menu", "Open search", "Account menu").
@@ -176,6 +176,7 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 | Admin queue `/admin/reviews` | ✅ | not walked | ✅ | ✅ | ✅ reference-good |
 | Admin overview `/admin/overview` | ✅ (bonus) | not walked | ✅ | ✅ | ✅ reference-good |
 | Onboarding `/welcome` (local, 2026-10-13, AECI-1296 working tree) | ✅ | DOM order only (harness dropped keys) | ✅ | ✅ | ✅ one persistent `role=status` |
+| Help center and vendor guide `/docs/**` (local, 2026-10-13, AECI-1308) | ✅ all 30 URLs | not walked | ✅ | ✅ | ✅ docs search live region |
 
 **2026-10-13 `/welcome` run (local 8790 pair, AECI-1296).** Two passes on the same day. The first, on
 the initial build, found: field borders at 1.25:1 (1.4.11, serious); Save natively `disabled` with no
@@ -186,6 +187,27 @@ chosen, errors showing, 10-of-10 cap). Measured: resting border `#8A8A93` at 3.4
 3.28:1 on the raised card; error border `--status-error` at 6.54:1. Not covered: real keyboard and
 focus ring (the hidden tab drops keys), VoiceOver/NVDA, a true 390px viewport (an iframe stood in).
 Minor, unfiled: the "Clear answer" row is exposed as a `role=option`.
+
+**2026-10-13 docs close-out run (local 8790 pair, `main` at `0416c17a`, AECI-1308).** axe with the
+`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa` tags, Chromium, at 1280px and 390px. Every docs
+template was covered: the `/docs` home, the four help-center section indexes, the vendor guide landing page
+(`/docs/vendors`), and all 24 article pages. That is 30 URLs at each width, and every one scanned clean.
+Also scanned clean: the open "Docs menu" panel at 390px, and the docs search box with hits and with
+none, in both guides and at both widths.
+
+One defect was found, and it was critical. A search combobox with no rows kept `aria-expanded="true"`
+with no `aria-controls`, which axe reports as `aria-required-attr`. It hit two places:
+
+| Where | When | Reach |
+|---|---|---|
+| Header search (`search-autocomplete.ts`) | Any zero-hit query | Every page with the inline header box, not only `/docs` |
+| Docs search (`docs-search.ts`) | While the first query is in flight | `/docs/**` only; a settled zero-hit query already collapsed |
+
+Both now collapse whenever they have no row, and re-expand when hits land. Re-scanned clean after the fix,
+including zero-hit and in-flight states on `/docs`, `/docs/vendors/overview` and `/products`. ADR 0010
+point 2 had called the gated-empty state axe-clean, and is corrected. The e2e gate missed it because
+`docs.spec.ts` scans the default render and never types. Not covered: a real keyboard walk, VoiceOver
+or NVDA, and the compact header search at 1024px to 1279px (it mounts the same component).
 
 ---
 

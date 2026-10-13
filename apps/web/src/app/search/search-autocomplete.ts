@@ -40,9 +40,12 @@
  *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a
- * zero-hit query therefore shows no listbox (kept strictly `role=option`-only
- * and axe-clean, with no empty floating panel). Enter still routes to `/search`,
- * which owns the "no results" empty state (§4.6).
+ * zero-hit query therefore shows no listbox (kept strictly `role=option`-only,
+ * with no empty floating panel). A second effect then collapses the combobox,
+ * because `aria-expanded="true"` with no listbox has no `aria-controls`, which
+ * axe reports as a critical `aria-required-attr` (AECI-1308; `docs-search.ts`
+ * follows the same rule). Enter still routes to `/search`, which owns the
+ * "no results" empty state (§4.6).
  */
 import {
   afterNextRender,
@@ -54,6 +57,7 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
@@ -194,6 +198,8 @@ export class SearchAutocomplete {
   protected readonly queryModel = signal('');
   /** Popup open state (two-way with `ngCombobox`; Aria closes on Escape/blur). */
   protected readonly expanded = signal(false);
+  /** The `ngCombobox` directive, so a zero-hit collapse can write its model. */
+  private readonly combobox = viewChild(Combobox);
   /** Listbox selection (two-way with `ngListbox`); reset after each commit. */
   protected readonly selected = signal<AutocompleteSuggestion[]>([]);
   /** Whether the input currently holds focus — gates opening on late responses. */
@@ -223,12 +229,22 @@ export class SearchAutocomplete {
     // — covers results that arrive after the popup was dismissed (Escape) while
     // still focused. Aria already expands on input, so this is not the only opener;
     // the empty case is handled by gating the listbox's *rendering* on a non-empty
-    // result set (see template), not by withholding expansion. Only ever OPENS
+    // result set (see template) and by the collapse effect below. Only ever OPENS
     // here — Escape/blur close via the two-way `expanded` model, and the effect
     // won't re-fire on those (it tracks `suggestions()`/`focused()`, which they
     // don't change), so Escape sticks until the result set next changes.
     effect(() => {
       if (this.suggestions().length > 0 && this.focused()) this.expanded.set(true);
+    });
+
+    // Expanded with nothing to show: collapse, so aria-expanded never points at
+    // no listbox. Tracks `expanded()` because Aria re-expands on every keystroke.
+    // Writes the directive's own model: setting only `this.expanded` back to the
+    // value the binding last pushed (false) would never reach the combobox.
+    effect(() => {
+      if (this.expanded() && this.suggestions().length === 0) {
+        this.combobox()?.expanded.set(false);
+      }
     });
 
     // Browser-only: read the injected public config, load the lite SDK, start the
