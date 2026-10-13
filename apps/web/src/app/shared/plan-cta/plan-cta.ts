@@ -82,20 +82,39 @@ export const PORTAL_PATH = '/vendor';
  */
 export const PLANS_CTA_ATTR = 'data-plans-cta';
 
-/** `$25 a month per product`, from the list price. */
+/** `$25 USD a month per product`, from the list price. */
 export function managedPriceLine(locale: string): string {
   const amount = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
-  return $localize`:@@app.docs.plans.cta.priceLine:${amount}:AMOUNT: a month per product`;
+  return $localize`:@@app.docs.plans.cta.priceLine:${amount}:AMOUNT: USD a month per product`;
 }
 
 /**
- * `$25 a month per product, or $250 a year, billed by invoice or purchase order.`,
- * the closing panel's terms (spec §4.1), from the two price constants.
+ * `$25 USD a month or $250 USD a year per product, billed by invoice or purchase
+ * order.`, the closing panel's terms (spec §4.1), from the two price constants.
+ * USD stays on each amount: vendors outside the US read these pages.
  */
 export function managedTermsLine(locale: string): string {
-  const monthly = managedPriceLine(locale);
+  const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
   const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return $localize`:@@planCta.terms:${monthly}:MONTHLY:, or ${annual}:ANNUAL: a year, billed by invoice or purchase order.`;
+  return $localize`:@@planCta.terms:${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product, billed by invoice or purchase order.`;
+}
+
+/**
+ * The term, beside the price on both pages (closing panel, spec §4.1, 2026-10-13): one year
+ * per product however it is billed. Monthly billing is not month to month.
+ */
+export function managedTermLine(): string {
+  return $localize`:@@planCta.term:Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.`;
+}
+
+/**
+ * Renewal, under the price on `/vendor-program` (spec §3 item 4, 2026-10-13). The
+ * docs Plans page says it in Markdown; `vendor-program-copy.component.spec.ts` pins
+ * the two together. Refund,
+ * early-termination and nonpayment terms are not decided, so nothing here says them.
+ */
+export function managedRenewalLine(): string {
+  return $localize`:@@planCta.renewal:The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.`;
 }
 
 /**
@@ -229,6 +248,8 @@ export class PlanCtaActionsComponent extends PlanCta {}
         <p class="mt-2 max-w-[34rem] leading-relaxed">
           <span>{{ terms }}</span>
           {{ ' ' }}
+          <span>{{ term }}</span>
+          {{ ' ' }}
           <span i18n="@@app.docs.plans.cta.safety"
             >If a plan ends, nothing you entered is removed.</span
           >
@@ -284,6 +305,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
 })
 export class PlanCtaPanelComponent extends PlanCta {
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
+  protected readonly term = managedTermLine();
   protected readonly panelButtonClass =
     'inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto';
   /** `h3` under a page section (the docs page), `h2` as its own section. */

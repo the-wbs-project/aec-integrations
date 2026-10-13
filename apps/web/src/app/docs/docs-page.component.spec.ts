@@ -166,10 +166,13 @@ describe('DocsPageComponent', () => {
     expect(host.querySelector('aec-plan-cta-mobile-bar')).not.toBeNull();
     // Exactly one inquiry dialog host for every Managed button on the page.
     expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
-    // The closing panel shows the annual price beside the monthly one.
-    expect(host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ')).toContain(
-      '$25 a month per product, or $250 a year',
-    );
+    // The closing panel shows the annual price beside the monthly one, then the
+    // one-year term. The Markdown above it does not repeat either (2026-10-13).
+    const panelText = host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ');
+    expect(panelText).toContain('$25 USD a month or $250 USD a year per product');
+    expect(panelText).toContain('Each product on Managed is on a one-year term');
+    const prose = [...host.querySelectorAll('.aec-prose')].map((el) => el.textContent).join(' ');
+    expect(prose).not.toContain('one-year term');
 
     const other = render('vendors', 'your-seat').host;
     for (const tag of [
