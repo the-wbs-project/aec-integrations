@@ -77,15 +77,13 @@ This applies to a pilot too.
 
 ## Getting Managed
 
-Managed is $25 USD a month or $250 USD a year per product, billed by invoice or purchase order. Free plans require neither. Tell us which products you want on Managed, and we set it up with you. The plan panel in your portal shows your company's price.
-
-Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.
-
-The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.
+Managed is priced per product. Tell us which products you want on Managed, and we set it up with you. The plan panel in your portal shows your company's price. We bill paid plans by invoice or purchase order. Free plans require neither.
 
 <!-- docs:plans-cta -->
 
 To start, claim your listing. The claim form asks which plan you are interested in, Free, Managed or not sure yet, and we confirm the plan with you before anything is billed. When we approve a claim, we put your company on Free or on Managed, and the approval email tells you which. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing). If your company is already on Managed, a new seat does not change that.
+
+The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.
 
 The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal, or to change anything about billing, [contact us](/contact).
 
