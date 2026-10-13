@@ -12,10 +12,15 @@
  * This tracker closes that gap. It skips the FIRST `NavigationEnd` — the
  * hydration of the Worker-rendered landing page, already counted server-side —
  * and posts a minimal `{ route }` payload (path only) for each subsequent
- * navigation, matching the payload the Worker synthesizes on a cache HIT. The
- * richer `{ entity_type, entity_id }` enrichment stays SSR-only (only the
- * server resolver branch knows the entity id); that mirrors the existing
- * cache-HIT behavior and is acceptable for a view counter.
+ * navigation. The richer `{ entity_type, entity_id }` enrichment stays SSR-only
+ * (only the server resolver branch knows the entity id), which is acceptable
+ * for a view counter.
+ *
+ * Known gap under native Workers Cache (WC-3): the server-side arrival is
+ * written inside the cached `Renderer`, so a cache HIT writes none, and the
+ * skip below means this tracker does not count it either. A landing page served
+ * from cache is therefore uncounted. Live on staging only (demo and production
+ * run uncached). Fix options: `docs/design/edge-log-and-page-views.md` §3 (AECI-1297).
  *
  * Operator-only surfaces are excluded (AECI-575 / ADMIN_PANEL_SPEC §9.6): an
  * admin SPA navigation would otherwise write a `page_views` row into the very

@@ -16,6 +16,9 @@ The third surface is the `page_views` D1 table + `/admin` (§14.2), which is
 **consent-independent** and sees the Cloudflare request context PostHog cannot.
 When the two disagree on a count, `page_views` is the authoritative number and
 PostHog is the authoritative *funnel* — see "Consent shapes every number" below.
+How `page_views` will sit beside the planned Cloudflare edge log (Logpush,
+AECI-1196), joined on the Ray ID and stored by consent tier, is proposed in
+[`design/edge-log-and-page-views.md`](./design/edge-log-and-page-views.md).
 
 ---
 
