@@ -292,7 +292,7 @@ Issues marked "filed" were created on 2026-10-01. The rest are still proposals.
 | 17  | Compatibility questions and leads (section 7)                                | app  | R      | Large    |
 | 18  | Rename the `verified` plan flag and tier id                                  | app  | B      | Medium   |
 | 19  | Spec update: move Performance from Verified to Insights in `VENDOR_PERFORMANCE_SPEC.md` | app | I | Small |
-| 20  | ADR and build: Logpush to an R2 Iceberg table, daily rollup into D1 by cron and queue (G0). Fold into AECI-1169 (filed AECI-1196) | app | I | Medium |
+| 20  | ADR and build: Logpush to an R2 Iceberg table, daily rollup into D1 by cron and queue (G0). Fold into AECI-1169 (filed AECI-1196). Join and consent design: `docs/design/edge-log-and-page-views.md` | app | I | Medium |
 | 21  | Vendor-facing assistant-fetch line on Performance, fed by the D1 rollup (`VENDOR_PERFORMANCE_SPEC.md` §2.3 item 3) | app | I | Medium |
 
 Existing issues that already cover gaps: AECI-1169 (G0), AECI-934 (G1), AECI-935 (G4), AECI-933 (G5), AECI-762
