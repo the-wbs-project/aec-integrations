@@ -3,7 +3,7 @@ title: Agreement states
 description: The four labels on each type of data on an integration page, what each one tells you, and how to act on it.
 section: trust
 order: 2
-last_updated: 9 October 2026
+last_updated: October 9, 2026
 ---
 
 On an integration page, each type of data carries a label. The label says which of the two companies at the ends of the integration has confirmed it. You see the labels in the Detailed view, which is the default. [Reading an integration page](/docs/getting-started/reading-an-integration-page) shows where they sit.

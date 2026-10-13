@@ -108,7 +108,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
           managed: true,
         },
         {
-          label: $localize`:@@app.docs.plans.row.contest:Contest a detail on an integration you do not own`,
+          label: $localize`:@@app.docs.plans.row.contest:Request a change to an integration you do not own`,
           free: true,
           managed: true,
         },

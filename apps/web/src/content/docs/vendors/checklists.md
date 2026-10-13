@@ -3,7 +3,7 @@ title: Your checklists
 description: The company and product checklists in your portal, how a product's checklist counts on each plan, and how "Looks right" records that you checked a listing.
 section: vendors
 order: 12
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 Your portal keeps a checklist for your company and one for each product. Each shows what is left to check, so your listings stay accurate without anyone keeping a list by hand. The checklists work on every plan.

@@ -2259,7 +2259,7 @@ export function sendContestProtestReplyReminderEmail(
   const field = contestFieldLabel(opts.field);
   const due = formatDeadline(opts.replyDueAt);
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
-  const lead = `${opts.submitterVendorName} asked AEC Integrations to review a contest on the "${field}" detail of ${opts.integrationName}. ${company} has not replied yet.`;
+  const lead = `${opts.submitterVendorName} asked AEC Integrations to review a change request on the "${field}" detail of ${opts.integrationName}. ${company} has not replied yet.`;
   const reply = `You can reply once, until ${due}. After that the reply closes, and AEC Integrations decides on what it has.`;
   const shared = (link: LinkTagger) => ({
     preheader: `The reply closes ${due}.`,

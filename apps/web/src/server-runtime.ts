@@ -1516,8 +1516,9 @@ export function createApp(options: {
   //
   // The redirects that remain in this file are whole route CLASSES with immutable
   // mappings (`/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id`)
-  // plus one taxonomy term and one renamed docs page (AECI-1264), below. Those are
-  // not per-entity retirements and do not belong in the table as it stands.
+  // plus one taxonomy term and three renamed docs pages (AECI-1264, AECI-1267),
+  // below. Those are not per-entity retirements and do not belong in the table as
+  // it stands.
 
   // AECI-926 — the one per-entity 301 still hard-coded, and the reason is a seam,
   // not a policy: `slug_redirects` is wired to `createDetailResolver`, which serves
@@ -1577,6 +1578,27 @@ export function createApp(options: {
       },
     });
   });
+
+  // AECI-1267 — two more renamed vendor-guide pages, with plainer names. The old
+  // slugs were live in production and linked from the portal's "Learn more"
+  // links, so each answers a permanent redirect. Same shape as the plans redirect
+  // above: standalone, edge-cacheable, no `Cache-Tag`, query string dropped.
+  const RENAMED_VENDOR_DOCS: ReadonlyArray<readonly [from: string, to: string]> = [
+    ['/docs/vendors/contests-and-protests', '/docs/vendors/requesting-changes-and-appeals'],
+    ['/docs/vendors/attesting-an-integration', '/docs/vendors/confirming-integration-data'],
+  ];
+  for (const [from, to] of RENAMED_VENDOR_DOCS) {
+    app.get(from, (c) => {
+      const url = new URL(c.req.url);
+      return new Response(null, {
+        status: 301,
+        headers: {
+          Location: `${url.origin}${to}`,
+          'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+        },
+      });
+    });
+  }
 
   // AECI-294 (Stage 1.5) — the standalone `/integrations/:id` detail page was
   // consolidated into the product-PAIR page. Any legacy link 301-redirects to the

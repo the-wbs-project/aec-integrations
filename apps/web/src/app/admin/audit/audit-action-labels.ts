@@ -116,18 +116,18 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Integration field contests (AECI-1008). `entity_type` on these rows is
   //    `integration_field_challenge`. An accept by AECi writes no catalog data,
   //    so its label says the decision was recorded, not that the field changed.
-  'integration.contest.submitted': $localize`:@@admin.audit.action.contestSubmitted:Field contest filed`,
-  'integration.contest.withdrawn': $localize`:@@admin.audit.action.contestWithdrawn:Field contest withdrawn`,
-  'integration.contest.accepted': $localize`:@@admin.audit.action.contestAccepted:Field contest accepted`,
-  'integration.contest.declined': $localize`:@@admin.audit.action.contestDeclined:Field contest declined`,
+  'integration.contest.submitted': $localize`:@@admin.audit.action.contestSubmitted:Change request filed`,
+  'integration.contest.withdrawn': $localize`:@@admin.audit.action.contestWithdrawn:Change request withdrawn`,
+  'integration.contest.accepted': $localize`:@@admin.audit.action.contestAccepted:Change request accepted`,
+  'integration.contest.declined': $localize`:@@admin.audit.action.contestDeclined:Change request declined`,
   // AECI-1009. `lapsed` is a contest the owner left unanswered for 30 days, turned
   // into a decline by the protest that followed. The protest decisions are advice.
-  'integration.contest.lapsed': $localize`:@@admin.audit.action.contestLapsed:Field contest unanswered for 30 days`,
-  'integration.contest.protested': $localize`:@@admin.audit.action.contestProtested:Field contest sent to AECi for review`,
-  'integration.contest.protest_replied': $localize`:@@admin.audit.action.contestProtestReplied:Owner replied to a contest review`,
-  'integration.contest.protest_withdrawn': $localize`:@@admin.audit.action.contestProtestWithdrawn:Contest review request withdrawn`,
-  'integration.contest.protest_upheld': $localize`:@@admin.audit.action.contestProtestUpheld:Contest review: AECi agreed with the submitter`,
-  'integration.contest.protest_rejected': $localize`:@@admin.audit.action.contestProtestRejected:Contest review: AECi agreed with the owner`,
+  'integration.contest.lapsed': $localize`:@@admin.audit.action.contestLapsed:Change request unanswered for 30 days`,
+  'integration.contest.protested': $localize`:@@admin.audit.action.contestProtested:Change request appealed to AEC Integrations`,
+  'integration.contest.protest_replied': $localize`:@@admin.audit.action.contestProtestReplied:Owner replied to an appeal`,
+  'integration.contest.protest_withdrawn': $localize`:@@admin.audit.action.contestProtestWithdrawn:Appeal withdrawn`,
+  'integration.contest.protest_upheld': $localize`:@@admin.audit.action.contestProtestUpheld:Appeal: AEC Integrations agreed with the submitter`,
+  'integration.contest.protest_rejected': $localize`:@@admin.audit.action.contestProtestRejected:Appeal: AEC Integrations agreed with the owner`,
 
   // ── Entitlements. `entity_id` on these rows is the VENDOR id, not the
   //    entitlement row id, so the whole trail shares one index key. ──────────

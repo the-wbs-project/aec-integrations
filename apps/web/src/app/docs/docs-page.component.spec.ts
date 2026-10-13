@@ -66,7 +66,7 @@ describe('DocsPageComponent', () => {
       h.textContent?.trim(),
     ]);
     expect(h2s).toEqual([...page.headings.map((h) => [h.id, h.text]), ['related', 'Related']]);
-    // The in-content deep link from contests-and-protests lands here.
+    // The in-content deep link from requesting-changes-and-appeals lands here.
     expect(host.querySelector('#if-aec-integrations-changes-something-you-hold')?.tagName).toBe(
       'H2',
     );

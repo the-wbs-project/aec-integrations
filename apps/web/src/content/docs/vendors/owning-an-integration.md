@@ -3,10 +3,10 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: 9 October 2026
+last_updated: October 13, 2026
 ---
 
-An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the company that owns one.
+An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
 
 Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming, editing, retiring or restoring an integration delivered through a connector, and deciding change requests on one, need the Managed plan ([For connector vendors](/docs/vendors/connector-vendors)). Everything else here works on Free too.
 
@@ -30,7 +30,7 @@ Open the Owner row on the integration's page and choose **Claim this integration
 
 Once you claim it:
 
-- AEC Integrations' catalogue updates stop reaching the integration. That covers its details, its owner, and the data shared under it.
+- AEC Integrations' catalog updates stop reaching the integration. That covers its details, its owner, and the data shared under it.
 - You can edit its details, and your edits go live.
 - The company that makes the other product is told that you claimed it.
 - Change requests sent after the claim about its details come to you, on the integration's own page under Change requests. Ones sent before the claim stay with AEC Integrations. On an integration delivered through a connector, new change requests come to you only while your company is on Managed.
@@ -96,16 +96,16 @@ If your company offers an integration that is not listed, choose **Add an integr
 
 The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
 
-If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or request a change on it if a detail is wrong. AEC Integrations' catalogue updates will not add a second copy of an integration you hold.
+If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
 
 ## Change requests you receive
 
-A company at either end that does not own the integration can ask to change one of its details. Once you have claimed the integration, those requests come to you on that integration's own page, under **Change requests**, where you **Accept** or **Decline** each one. You can also see every open one across your products in **Messages**, under **Field contests**: the two never disagree, because they use the same rules. A request about who owns the integration never comes to you. It always goes to AEC Integrations. On an integration delivered through a connector, deciding a request needs Managed. [Contests and protests](/docs/vendors/contests-and-protests) covers both sides, including what happens if you decline one.
+A company at either end that does not own the integration can ask to change one of its details. Once you have claimed the integration, those requests come to you on that integration's own page, under **Change requests**, where you **Accept** or **Decline** each one. You can also see every open one across your products in **Messages**, under **Change requests**: the two never disagree, because they use the same rules. A request about who owns the integration never comes to you. It always goes to AEC Integrations. On an integration delivered through a connector, deciding a request needs Managed. [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals) covers both sides, including what happens if you decline one.
 
 ## Related
 
-- Previous: [Attesting an integration](/docs/vendors/attesting-an-integration).
-- Next: [Contests and protests](/docs/vendors/contests-and-protests).
+- Previous: [Confirming integration data](/docs/vendors/confirming-integration-data).
+- Next: [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals).
 - [How we research and verify listings](/methodology) explains ownership for readers.
 - [For connector vendors](/docs/vendors/connector-vendors), for integrations delivered through a connector.
-- The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the contest and correction routes.
+- The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the change request and correction routes.

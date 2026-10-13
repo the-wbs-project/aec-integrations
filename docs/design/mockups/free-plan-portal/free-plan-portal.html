@@ -1720,7 +1720,7 @@
           if (f) parts.push(f + ' on Free');
           var sum = ps.length + ' products: ' + parts.join(', ');
           var label = m
-            ? '<span class="chip">Active on AECi</span>'
+            ? '<span class="chip">Active on AEC Integrations</span>'
             : '<span class="chip">' + (f === ps.length ? 'Free plan' : 'Managed') + '</span>';
           var note = hadPilot()
             ? '<p class="small muted" style="margin-top:.5rem">Your pilot ended on ' +
@@ -1855,7 +1855,7 @@
             '</strong> ' +
             lockTag() +
             '</p>' +
-            '<p class="help" style="margin-top:.25rem">Spot something wrong? <button type="button" class="linkbtn" data-act="flash" data-k="correction" data-msg="Correction form opened. The AECi team fixes it, usually within two working days.">Request a correction</button> and the AECi team fixes it.' +
+            '<p class="help" style="margin-top:.25rem">Spot something wrong? <button type="button" class="linkbtn" data-act="flash" data-k="correction" data-msg="Correction form opened. The AEC Integrations team fixes it, usually within two working days.">Request a correction</button> and the AEC Integrations team fixes it.' +
             (S.flash.correction ? ' <span class="flash">' + S.flash.correction + '</span>' : '') +
             '</p></div></div>'
           );
@@ -1953,7 +1953,7 @@
         function renderProductPlan(pid) {
           var m = isManaged(pid);
           var managedAdds =
-            '<ul><li>Edit "How teams use it", the integrations page and API docs links</li><li>Edit trades, audiences and phases</li><li>Confirm or deny the data flows on its integrations</li><li>Manage its integrations delivered through a connector</li><li>Counts toward the "Active on AECi" label on your vendor page</li></ul>';
+            '<ul><li>Edit "How teams use it", the integrations page and API docs links</li><li>Edit trades, audiences and phases</li><li>Confirm or deny the data flows on its integrations</li><li>Manage its integrations delivered through a connector</li><li>Counts toward the "Active on AEC Integrations" label on your vendor page</li></ul>';
           var freeIncl =
             '<ul><li>The product listing, published as it is</li><li>Edit its description, website, logo and categories</li><li>Looks right on its details and its integration list</li><li>Claim its integrations, add links, request corrections</li><li>Add a new integration</li></ul>';
           var body;
@@ -2178,7 +2178,9 @@
           var meta = [];
           if (row.connector) meta.push('Delivered through ' + esc(row.connector));
           meta.push(
-            nFlows ? nFlows + ' data flow' + (nFlows === 1 ? '' : 's') : 'Waiting for AECi review',
+            nFlows
+              ? nFlows + ' data flow' + (nFlows === 1 ? '' : 's')
+              : 'Waiting for AEC Integrations review',
           );
           var connNote =
             row.connector && !managed && o === 'none'
@@ -2206,7 +2208,7 @@
                 esc(row.other.toLowerCase().replace(/[^a-z0-9]+/g, '-')) +
                 '"><p><button type="button" class="btn btn-primary btn-sm" data-act="send" data-msg="Link added. It shows on the integration page.">Add link</button> <button type="button" class="btn btn-quiet btn-sm" data-act="close-inline">Cancel</button></p></div></div>';
             } else {
-              var to = o === 'other' ? row.ownerName : 'the AECi team';
+              var to = o === 'other' ? row.ownerName : 'the AEC Integrations team';
               inline =
                 '<div class="int-inline"><div class="box"><label class="small" style="font-weight:600" for="fx-' +
                 row.id +
@@ -2328,7 +2330,7 @@
                 pid +
                 '" placeholder="For example: Bluebeam Revu"><button type="button" class="btn btn-primary" data-act="add-int" data-pid="' +
                 pid +
-                '">Add</button><button type="button" class="btn btn-quiet" data-act="close-inline">Cancel</button></div><p class="help" style="margin-top:.375rem">You own what you add. The AECi team reviews it before it shows publicly.</p></div>';
+                '">Add</button><button type="button" class="btn btn-quiet" data-act="close-inline">Cancel</button></div><p class="help" style="margin-top:.375rem">You own what you add. The AEC Integrations team reviews it before it shows publicly.</p></div>';
           }
           var rows = rowsFor(pid)
             .map(function (r) {
@@ -2575,7 +2577,7 @@
           if (act === 'notours') {
             S.owner[id] = 'notours';
             render();
-            announce('Noted. The AECi team will check who owns it.');
+            announce('Noted. The AEC Integrations team will check who owns it.');
             focusSel('unowner-' + id);
             return;
           }
@@ -2639,7 +2641,9 @@
             S.inline = {
               id: 'add-' + pid2,
               mode: 'add',
-              sent: name + ' added. You own it. The AECi team reviews it before it shows publicly.',
+              sent:
+                name +
+                ' added. You own it. The AEC Integrations team reviews it before it shows publicly.',
             };
             render();
             announce(name + ' added');

@@ -242,7 +242,7 @@ describe('VendorContestForm — validation', () => {
     const fixture = await createForm();
     await open(fixture);
     await submit(fixture);
-    expect(el(fixture).textContent).toContain('Choose the field you want to contest');
+    expect(el(fixture).textContent).toContain('Choose the field you want to change');
 
     await chooseField(fixture, 'maturity');
     await typeInto(fixture, valueControl(fixture), 'Beta');
@@ -295,11 +295,11 @@ describe('VendorContestForm — submitting', () => {
   });
 
   it.each([
-    ['CONTEST_DUPLICATE', 409, 'already have an open contest on this field'],
-    ['CONTEST_NO_CHANGE', 422, 'nothing to contest'],
+    ['CONTEST_DUPLICATE', 409, 'already have an open change request on this field'],
+    ['CONTEST_NO_CHANGE', 422, 'nothing to change'],
     ['CONTEST_INVALID_VALUE', 422, 'not valid for this field'],
     ['CONTEST_OWN_INTEGRATION', 403, 'recorded as the owner'],
-    ['INTERNAL_ERROR', 500, 'Could not send your contest'],
+    ['INTERNAL_ERROR', 500, 'Could not send your change request'],
   ])('maps %s to plain copy in an alert, and keeps the form open', async (code, status, copy) => {
     api.submitContest.mockRejectedValue(apiError(status, code));
     const fixture = await createForm();
@@ -369,9 +369,9 @@ describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
 });
 
 describe('VendorContestForm: the guide link (AECI-1253)', () => {
-  it('links Contests and protests from the open form', async () => {
+  it('links Requesting changes and appeals from the open form', async () => {
     const fixture = await createForm();
     await open(fixture);
-    expectVendorDocsLink(el(fixture), 'contests-and-protests');
+    expectVendorDocsLink(el(fixture), 'requesting-changes-and-appeals');
   });
 });

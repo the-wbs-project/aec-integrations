@@ -92,7 +92,7 @@ describe('VendorContestsList — rendering', () => {
     const fixture = await create();
     expect(el(fixture).textContent).toContain('Nothing to decide');
     expect(el(fixture).textContent).toContain('Once you claim an integration');
-    expect(el(fixture).textContent).toContain('You have not contested anything');
+    expect(el(fixture).textContent).toContain('You have not sent any change requests');
     // AECI-1255: name the control most integrations show, not only the connector one.
     expect(el(fixture).textContent).toContain('choose Request a change beside a detail');
   });
@@ -100,12 +100,12 @@ describe('VendorContestsList — rendering', () => {
   it('offers a retry when the read fails', async () => {
     api.getContests.mockRejectedValueOnce(new Error('offline'));
     const fixture = await create();
-    expect(el(fixture).textContent).toContain('Could not load your contests');
+    expect(el(fixture).textContent).toContain('Could not load your change requests');
 
     button(el(fixture), 'Try again').click();
     await settle(fixture);
     expect(row(fixture, RECEIVED.id)).not.toBeNull();
-    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Contests updated');
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Change requests updated');
   });
 });
 
@@ -206,7 +206,7 @@ describe('VendorContestsList — withdrawing', () => {
 });
 
 describe('VendorContestsList: the guide link (AECI-1253)', () => {
-  it('links Contests and protests under the intro', async () => {
-    expectVendorDocsLink(el(await create()), 'contests-and-protests');
+  it('links Requesting changes and appeals under the intro', async () => {
+    expectVendorDocsLink(el(await create()), 'requesting-changes-and-appeals');
   });
 });

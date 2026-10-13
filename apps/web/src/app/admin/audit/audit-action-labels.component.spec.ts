@@ -133,7 +133,7 @@ describe('describeAuditAction', () => {
       describeAuditAction(`integration.contest.${status}`),
     );
     expect(new Set(labels).size).toBe(4);
-    expect(describeAuditAction('integration.contest.accepted')).toBe('Field contest accepted');
+    expect(describeAuditAction('integration.contest.accepted')).toBe('Change request accepted');
   });
 
   it('humanises an action this build has never heard of', () => {

@@ -201,7 +201,7 @@ describe('the guide links (AECI-1253)', () => {
       `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}`,
     );
     expectVendorDocsLink(root.querySelector('#overview')!, 'owning-an-integration');
-    expectVendorDocsLink(root.querySelector('#data-shared')!, 'attesting-an-integration');
-    expectVendorDocsLink(root.querySelector('#change-requests')!, 'contests-and-protests');
+    expectVendorDocsLink(root.querySelector('#data-shared')!, 'confirming-integration-data');
+    expectVendorDocsLink(root.querySelector('#change-requests')!, 'requesting-changes-and-appeals');
   });
 });

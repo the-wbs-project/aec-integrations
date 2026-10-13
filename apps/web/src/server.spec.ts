@@ -1077,6 +1077,60 @@ describe('createApp renamed docs page 301 (AECI-1264)', () => {
   });
 });
 
+describe('createApp renamed vendor-guide pages 301 (AECI-1267)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  const RENAMED = [
+    ['/docs/vendors/contests-and-protests', '/docs/vendors/requesting-changes-and-appeals'],
+    ['/docs/vendors/attesting-an-integration', '/docs/vendors/confirming-integration-data'],
+  ] as const;
+
+  it.each(RENAMED)('301-redirects %s to %s without invoking SSR', async (from, to) => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request(`https://www.aecintegrations.com${from}`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(`https://www.aecintegrations.com${to}`);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it.each(RENAMED)('drops the query when redirecting %s', async (from, to) => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request(`https://www.aecintegrations.com${from}?x=1`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(`https://www.aecintegrations.com${to}`);
+  });
+
+  it.each(RENAMED)('leaves the new URL for %s on the SSR pipeline', async (_from, to) => {
+    // The target must not itself redirect, which would be a loop.
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request(`https://www.aecintegrations.com${to}`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    expect(ssrRenderer).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
   const integrationResponse = () =>
     new Response(

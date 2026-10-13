@@ -3,7 +3,7 @@ title: Checking an integration before you buy
 description: How to use the agreement labels on an integration page when you choose software, what to ask each vendor, and what "Listed by AEC Integrations" does and does not tell you.
 section: getting-started
 order: 3
-last_updated: 9 October 2026
+last_updated: October 9, 2026
 ---
 
 An integration page shows what we know about how two products connect, and which company stands behind each part of it. Use it to narrow your shortlist and to prepare your questions. It does not replace asking the vendors.

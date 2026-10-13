@@ -3,7 +3,7 @@ title: Your account and your data
 description: What your account page shows, what you can change there, and what happens to your reviews when you delete your account.
 section: account
 order: 2
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 Your account page shows your email address, your display name and your reviews. It is also where you delete your account. To open it, choose **Account** in the account menu at the top right of any page (on a phone, in the menu at the top left), or go to [/account](/account). For what we collect, why, how long we keep it, and your rights over it, the [Privacy Policy](/legal/privacy) is the full statement. This page does not repeat it.

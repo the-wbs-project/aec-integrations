@@ -3,7 +3,7 @@ title: Signing in
 description: How to sign in with an emailed link or with Google, what to do when sign-in does not work, and how to sign out.
 section: account
 order: 1
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 You need an account to write a review. Vendors need one to use the vendor portal. Browsing the directory needs no account. There is no password. You sign in with a link we email you, or with your Google account.

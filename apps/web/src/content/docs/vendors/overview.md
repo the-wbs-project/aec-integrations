@@ -3,7 +3,7 @@ title: For vendors
 description: What claiming your listing means, what the Free and Managed plans include, and where this guide goes next.
 section: vendors
 order: 1
-last_updated: 12 October 2026
+last_updated: October 13, 2026
 ---
 
 AEC Integrations lists software products, the companies that make them, and the integrations between them. We compile every listing from public sources. If your company is listed, someone who works there can claim the listing and keep it accurate.
@@ -31,7 +31,7 @@ No plan changes where you rank or appear, or whether a review is published. Sear
 
 ## Where to go next
 
-Start with [Claiming your vendor listing](/docs/vendors/claiming-your-listing). Once you have a seat, the pages after it cover the rest: [your seat and your colleagues](/docs/vendors/your-seat), confirming data flows, the integrations you own, contests, replies to reviews, plans, your change history, and connector products.
+Start with [Claiming your vendor listing](/docs/vendors/claiming-your-listing). Once you have a seat, the pages after it cover the rest: [your seat and your colleagues](/docs/vendors/your-seat), confirming data flows, the integrations you own, change requests and appeals, replies to reviews, plans, your change history, and connector products.
 
 ## Related
 

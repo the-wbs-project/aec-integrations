@@ -142,7 +142,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       // beside Vendor claims because both are a vendor asking AECi to decide.
       {
         path: '/admin/contests',
-        label: $localize`:@@admin.shell.nav.contests:Field contests`,
+        label: $localize`:@@admin.shell.nav.contests:Change requests`,
         badge: 'contests',
       },
       // AECI-946. The fourth badged queue, and the first that counts rows in a

@@ -65,20 +65,20 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
         class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
         i18n="@@vendor.contests.intro"
       >
-        A contest says one detail of an integration is wrong and proposes the right value. You can
-        contest a field from any integration under your products.
+        A change request says one detail of an integration is wrong and proposes the right value.
+        You can request a change from any integration under your products.
       </p>
-      <p class="mt-1"><aec-vendor-docs-link page="contests-and-protests" /></p>
+      <p class="mt-1"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
 
       <div class="mt-4" [attr.aria-busy]="loading() ? 'true' : null">
         @if (loading()) {
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.contests.loading">
-            Loading contests…
+            Loading change requests…
           </p>
         } @else if (failed()) {
           <div class="flex flex-wrap items-center gap-3">
             <p class="text-sm text-(--text-primary)" i18n="@@vendor.contests.failed">
-              Could not load your contests.
+              Could not load your change requests.
             </p>
             <button
               type="button"
@@ -103,10 +103,10 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                   class="mt-2 max-w-prose text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.received.emptyOwner"
                 >
-                  Nothing to decide. Once you claim an integration your company owns, contests other
-                  vendors send about it arrive here for you to accept or decline. Until then AEC
-                  Integrations reviews them. A contest about who owns an integration always goes to
-                  AEC Integrations.
+                  Nothing to decide. Once you claim an integration your company owns, change
+                  requests other vendors send about it arrive here for you to accept or decline.
+                  Until then AEC Integrations reviews them. A change request about who owns an
+                  integration always goes to AEC Integrations.
                 </p>
               } @else {
                 <ul
@@ -205,9 +205,9 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                   class="mt-2 max-w-prose text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.submitted.empty"
                 >
-                  You have not contested anything. Open an integration under one of your products
-                  and choose Request a change beside a detail. For an integration delivered through
-                  a connector, choose Request a change in your product's Connectors section.
+                  You have not sent any change requests. Open an integration under one of your
+                  products and choose Request a change beside a detail. For an integration delivered
+                  through a connector, choose Request a change in your product's Connectors section.
                 </p>
               } @else {
                 <ul
@@ -239,7 +239,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               class="text-sm text-(--text-primary)"
                               i18n="@@vendor.contests.withdraw.confirm"
                             >
-                              Withdraw this contest? It cannot be reopened.
+                              Withdraw this change request? It cannot be reopened.
                             </p>
                             <button
                               type="button"
@@ -339,8 +339,8 @@ export class VendorContestsList {
     void this.store.reload('contests').then(() => {
       this.announcer.announce(
         this.failed()
-          ? $localize`:@@vendor.contests.live.failed:Your contests could not be loaded.`
-          : $localize`:@@vendor.contests.live.reloaded:Contests updated.`,
+          ? $localize`:@@vendor.contests.live.failed:Your change requests could not be loaded.`
+          : $localize`:@@vendor.contests.live.reloaded:Change requests updated.`,
       );
     });
   }
@@ -407,7 +407,7 @@ export class VendorContestsList {
       await this.failWrite(
         contest,
         err,
-        $localize`:@@vendor.contests.withdraw.error:Could not withdraw that contest. Try again.`,
+        $localize`:@@vendor.contests.withdraw.error:Could not withdraw that change request. Try again.`,
       );
     } finally {
       this.busy.set(null);
@@ -421,7 +421,7 @@ export class VendorContestsList {
     if (info?.code === 'CONTEST_NOT_OPEN') {
       this.rowError.set({
         id: contest.id,
-        message: $localize`:@@vendor.contests.error.notOpen:This contest was already decided or withdrawn. The list now shows where it stands.`,
+        message: $localize`:@@vendor.contests.error.notOpen:This change request was already decided or withdrawn. The list now shows where it stands.`,
       });
       await this.store.reload('contests');
       return;
@@ -431,7 +431,7 @@ export class VendorContestsList {
     if (info?.code === 'INTEGRATION_ENTITLEMENT_REQUIRED') {
       this.rowError.set({
         id: contest.id,
-        message: $localize`:@@vendor.contests.error.entitlement:Deciding a contest on an integration delivered through a connector product needs an active plan. Contact AEC Integrations to activate or renew it.`,
+        message: $localize`:@@vendor.contests.error.entitlement:Deciding a change request on an integration delivered through a connector product needs an active plan. Contact AEC Integrations to activate or renew it.`,
       });
       return;
     }
@@ -439,7 +439,7 @@ export class VendorContestsList {
     if (info?.code === 'FIELD_LOCKED_BY_AECI') {
       this.rowError.set({
         id: contest.id,
-        message: $localize`:@@vendor.contests.error.locked:AEC Integrations corrected this field and locked it, so this contest cannot be accepted. You can still decline it.`,
+        message: $localize`:@@vendor.contests.error.locked:AEC Integrations corrected this field and locked it, so this change request cannot be accepted. You can still decline it.`,
       });
       return;
     }
@@ -447,7 +447,7 @@ export class VendorContestsList {
     if (info?.code === 'CONTEST_INTEGRATION_CHANGED') {
       this.rowError.set({
         id: contest.id,
-        message: $localize`:@@vendor.contests.error.rerouted:AEC Integrations now decides this contest. The list now shows where it stands.`,
+        message: $localize`:@@vendor.contests.error.rerouted:AEC Integrations now decides this change request. The list now shows where it stands.`,
       });
       await this.store.reload('contests');
       return;

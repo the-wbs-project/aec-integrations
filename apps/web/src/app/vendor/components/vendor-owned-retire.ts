@@ -236,9 +236,9 @@ export class VendorOwnedRetire implements OnInit {
     const b = row.product_b.name;
     if (row.anchor === 'evidenced_pair' && row.connector) {
       const via = row.connector.name;
-      return $localize`:@@vendor.ownedRetire.confirm.bodyPair:It leaves the public site and search, and stops counting on ${a}:a:, ${b}:b: and ${via}:via:. The vendors of ${a}:a: and ${b}:b: are told. Open contests on it close as withdrawn, and restoring it does not reopen them. Its data flows and confirmations are kept, and you can restore it at any time.`;
+      return $localize`:@@vendor.ownedRetire.confirm.bodyPair:It leaves the public site and search, and stops counting on ${a}:a:, ${b}:b: and ${via}:via:. The vendors of ${a}:a: and ${b}:b: are told. Open change requests on it close as withdrawn, and restoring it does not reopen them. Its data flows and confirmations are kept, and you can restore it at any time.`;
     }
-    return $localize`:@@vendor.ownedRetire.confirm.body:It leaves the public site and search, and stops counting on ${a}:a: and ${b}:b:. Their vendors are told. Open contests on it close as withdrawn, and restoring it does not reopen them. Its data flows and confirmations are kept, and you can restore it at any time.`;
+    return $localize`:@@vendor.ownedRetire.confirm.body:It leaves the public site and search, and stops counting on ${a}:a: and ${b}:b:. Their vendors are told. Open change requests on it close as withdrawn, and restoring it does not reopen them. Its data flows and confirmations are kept, and you can restore it at any time.`;
   });
 
   protected openConfirm(): void {

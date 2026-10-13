@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.

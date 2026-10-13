@@ -410,6 +410,10 @@ describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
     const res = await edit(AUTH_A, I_MAIN, { name: 'x' });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    // AECI-1267: the wording a vendor reads.
+    expect(res.body.error.message).toBe(
+      'Another company is recorded as the owner of this integration. Request a change if something on it is wrong.',
+    );
     expect((await row(I_MAIN)).name).toBe('Revit for MicroStation');
   });
 
@@ -417,6 +421,9 @@ describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
     const res = await edit(AUTH_A, I_NO_OWNER, { name: 'x' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('INTEGRATION_OWNER_UNKNOWN');
+    expect(res.body.error.message).toBe(
+      'No owner is on file for this integration. Request a change to the owner field to ask AEC Integrations to record you as the owner.',
+    );
   });
 
   it('answers 403 INTEGRATION_ENTITLEMENT_REQUIRED to an unentitled owner of a connector-powered row (AECI-1090)', async () => {
@@ -438,6 +445,9 @@ describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
     const res = await edit(AUTH_B, I_UNCLAIMED, { name: 'x' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
+    expect(res.body.error.message).toBe(
+      'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it over from AEC Integrations.',
+    );
     expect((await row(I_UNCLAIMED)).name).toBe('Unclaimed');
     expect(await auditRows()).toHaveLength(0);
   });

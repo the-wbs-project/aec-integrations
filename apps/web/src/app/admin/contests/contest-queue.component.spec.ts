@@ -578,12 +578,12 @@ describe('ContestQueue', () => {
     buttonByText(el, 'Try again').click();
     await flush(fixture);
     expect(api.listContests).toHaveBeenCalledTimes(2);
-    expect(el.textContent).toContain('No contests match these filters.');
+    expect(el.textContent).toContain('No change requests match these filters.');
   });
 
   it('notes a capped list when the server reports more rows than were loaded', async () => {
     const { el } = await setup(makeApiMock([makeContest({ id: 'k1' })], 140));
-    expect(el.textContent).toContain('Showing the first 1 of 140 contests');
+    expect(el.textContent).toContain('Showing the first 1 of 140 change requests');
   });
 
   it('keeps the structure axe relies on: one h2, named groups, one live region', async () => {
@@ -618,7 +618,7 @@ describe('ContestQueue', () => {
     decided_at: null,
   };
 
-  it('switches to the Protests view and loads by protest status', async () => {
+  it('switches to the Appeals view and loads by protest status', async () => {
     const api = makeApiMock([]);
     const { fixture, el } = await setup(api);
     api.listContests.mockResolvedValueOnce({
@@ -629,7 +629,7 @@ describe('ContestQueue', () => {
       perPage: 100,
       total: 1,
     });
-    buttonByText(el, 'Protests').click();
+    buttonByText(el, 'Appeals').click();
     await flush(fixture);
     expect(api.listContests).toHaveBeenLastCalledWith({
       protest_status: 'open',
@@ -651,7 +651,7 @@ describe('ContestQueue', () => {
     ]);
     const { fixture, el, store } = await setup(api);
     const decrement = vi.spyOn(store, 'decrement');
-    buttonByText(el, 'Protests').click();
+    buttonByText(el, 'Appeals').click();
     await flush(fixture);
     buttonByText(el, 'Agree with the owner').click();
     await flush(fixture);
@@ -680,7 +680,7 @@ describe('ContestQueue', () => {
     api.decideProtest.mockRejectedValueOnce(apiError(409, 'PROTEST_NOT_OPEN'));
     const { fixture, el, store } = await setup(api);
     const decrement = vi.spyOn(store, 'decrement');
-    buttonByText(el, 'Protests').click();
+    buttonByText(el, 'Appeals').click();
     await flush(fixture);
     buttonByText(el, 'Agree with the submitter').click();
     await flush(fixture);

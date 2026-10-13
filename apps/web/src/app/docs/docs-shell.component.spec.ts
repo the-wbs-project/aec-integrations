@@ -299,7 +299,7 @@ describe('DocsShellComponent', () => {
       'description: d',
       'section: faq',
       'order: 1',
-      'last_updated: 9 October 2026',
+      'last_updated: October 9, 2026',
       '---',
       '',
       '## Related',
@@ -308,7 +308,7 @@ describe('DocsShellComponent', () => {
     const { sections } = buildDocsManifest(meta, { faq: [{ slug: 'faq', source }] });
     const located = locate('/docs/faq', sections);
     expect(located.crumbs).toEqual([{ label: 'Help center', path: '/docs' }, { label: 'FAQ' }]);
-    expect(located.page?.lastUpdated).toBe('9 October 2026');
+    expect(located.page?.lastUpdated).toBe('October 9, 2026');
     // An unknown path falls back to the home crumb rather than throwing.
     expect(locate('/docs/nope', sections).crumbs).toEqual([{ label: 'Help center' }]);
   });

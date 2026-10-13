@@ -183,7 +183,7 @@ describe('VendorContestProtest — the submitter', () => {
     submit(r);
     await settle(fixture);
     expect(row(fixture, PROTESTABLE.id).textContent).toContain(
-      'You have an open contest on this field',
+      'You have an open change request on this field',
     );
   });
 
@@ -239,7 +239,7 @@ describe('VendorContestProtest — the submitter', () => {
     expect(r.textContent).toContain('With AEC Integrations');
     button(r, 'Withdraw review request').click();
     await settle(fixture);
-    expect(r.textContent).toContain('You cannot ask again for this contest');
+    expect(r.textContent).toContain('You cannot ask again for this change request');
     expect(document.activeElement?.id).toBe(`vendor-protest-withdraw-${open.id}`);
     button(r, 'Withdraw request').click();
     await settle(fixture);

@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on your company's plan, Free or Managed, set out below.
@@ -47,7 +47,7 @@ Owners remove a seat with **Remove** on the **Seats** tab. The person loses acce
 
 You cannot remove your own seat from the portal. If you are leaving your company, ask an owner to remove you. If you are the last owner, contact us first so the account is not left without one.
 
-If AEC Integrations removes the last seat on your company's account, your listing goes back to us to maintain. The integrations your company claimed become unclaimed, and your data flows and attestations stay on them. When your company has a seat again, claim the integrations again.
+If AEC Integrations removes the last seat on your company's account, your listing goes back to us to maintain. The integrations your company claimed become unclaimed. The data flows you added, and your answers on them, stay on those integrations. When your company has a seat again, claim the integrations again.
 
 ## Your account and your seat
 
@@ -67,14 +67,14 @@ On every plan, including Free, you can:
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
 - see the reviews of your products, and withdraw your company's reply to one ([Replying to reviews](/docs/vendors/replying-to-reviews)),
-- contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)),
-- maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([For connector vendors](/docs/vendors/connector-vendors)).
+- request a change to a detail on an integration your company does not own ([Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals)),
+- maintain the catalog of a connector product your company makes, on that product's **Catalog** tab, once we have handed the catalog to you ([For connector vendors](/docs/vendors/connector-vendors)).
 
 On Managed, you can also:
 
 - edit a product's integrations page URL, API docs URL, trades, audiences, phases and "How teams use it",
-- confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)),
-- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
+- confirm or deny data flows ([Confirming integration data](/docs/vendors/confirming-integration-data)),
+- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide change requests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
 - reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
 
 Where your company and products appear in search is worked out from how well each listing matches the search and how complete it is. See [How ranking works](/docs/trust/how-ranking-works).
