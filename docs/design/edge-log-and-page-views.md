@@ -221,7 +221,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | Id | Issue | Why now |
 |---|---|---|
 | N1 | AECI-1300: Bot Management entitlement, cost, Logpush account | Blocks the Logpush spike and any purchase decision |
-| N2 | AECI-1302: verify retention, refresh history pulls before 2026-10-31 | Old Pro retention would drop data after that date |
+| N2 | AECI-1302: verify retention, refresh history pulls before 2026-10-31 | Done 2026-10-13. New zone keeps 90 days of requests, 31 of firewall events. Pulls refreshed across the zone move |
 | N3 | AECI-1301: Ray ID and verified-bot fields on `page_views` | Additive. Unblocks AECI-1298 diagnosis and the join. |
 | N4 | Freeze, recorded on AECI-1299 | No new hand-built heuristics. Nothing reads `cf_bot_score`. |
 

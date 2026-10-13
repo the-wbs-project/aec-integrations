@@ -5,7 +5,8 @@
 > `fe0055a6`. See "Copy in R2" below for the bucket and a download command.
 
 Everything Cloudflare still held about traffic to the `aecintegrations.com` zone on
-2026-10-01, saved before its retention window drops it. Logpush only captures traffic from the
+2026-10-01, saved before its retention window drops it. A second pull on 2026-10-13 covers the
+days after it, across the zone move; see "Refresh 2026-10-13" below. Logpush only captures traffic from the
 day it is switched on, so these files are the only source for anything earlier.
 
 **This is staging, not a home.** The plan is to parse these files into the R2 Iceberg table
@@ -15,8 +16,8 @@ No client IP addresses were requested. User agents, networks (ASN) and countries
 
 | Dataset | Source (GraphQL) | Covers | Grain | What it is |
 |---|---|---|---|---|
-| `http-requests/` | `httpRequestsAdaptiveGroups` | 31 days | Hour | Every request at the edge, all hosts, all content types. Path, query, status, user agent, verified bot, network, country, device, referrer host, cache status, WAF action, timing |
-| `firewall-events/` | `firewallEventsAdaptiveGroups` | 3 days | Hour | WAF and bot actions: which rule, which request |
+| `http-requests/` | `httpRequestsAdaptiveGroups` | 31 days (90 on the new zone) | Hour | Every request at the edge, all hosts, all content types. Path, query, status, user agent, verified bot, network, country, device, referrer host, cache status, WAF action, timing |
+| `firewall-events/` | `firewallEventsAdaptiveGroups` | 3 days (31 on the new zone) | Hour | WAF and bot actions: which rule, which request |
 | `daily-rollup/` | `httpRequests1dGroups` | 2026-04-08 on | Day | Per-zone totals: requests, page views, uniques, bytes, threats. Country, status, browser, content-type and IP-class breakdowns as JSON |
 | `rum-pageloads/` | `rumPageloadEventsAdaptiveGroups` | 184 days | Hour | Cloudflare Web Analytics beacon. Real browsers only, because it needs JavaScript. Path, referrer, country, device, browser, OS |
 | `rum-web-vitals/` | `rumWebVitalsEventsAdaptiveGroups` | 184 days | Day | Core Web Vitals per path (LCP, INP, CLS, TTFB): good / needs-improvement / poor counts and p75. FCP is in `rum-performance`, because account queries cap at 30 fields |
@@ -53,11 +54,17 @@ day of each dataset are partial.
 
 ## Re-run
 
-Needs `CF_READONLY_API_TOKEN` with zone and account Analytics: Read. It is read-only.
+Needs `CF_READONLY_API_TOKEN` with zone and account Analytics: Read. It is read-only. The token
+in Conductor's environment reads the live zone on The WBS Project account.
 
 ```bash
 node scripts/ops/2026-10-traffic-history/pull.mjs
 ```
+
+The script defaults to the live zone (`2246ff6d…`). It reads each dataset's reach from
+Cloudflare's own `notOlderThan` setting at run time, so it pulls 90 days of requests on the
+Enterprise zone, and skips a dataset whose setting is 0. `CF_ZONE_TAG`, `CF_ACCOUNT_TAG` and
+`OUT_DIR` point it at another zone and output directory.
 
 Pass dataset names to pull only those. A re-run never overwrites an existing month file. It
 writes `<YYYY-MM>.pulled-<date>.csv.gz` beside it, because the older file may hold days the new
@@ -67,9 +74,49 @@ until they don't.
 
 The AI-assistant subset from the same day is in `../2026-10-ai-assistant-fetch-history/`.
 
+## Refresh 2026-10-13 (AECI-1302)
+
+The zone moved to The WBS Project account on 2026-10-04 and got a new zone id. Cloudflare
+analytics do not follow a moved zone, so the record is split:
+
+| Zone | Status | Holds requests from | Retention seen on 2026-10-13 |
+|---|---|---|---|
+| `32f7aec29792163c443b6c40f5fb9a56` (AEC Integrations account) | `moved` | up to 2026-10-04T04:30Z | Requests 31 days. Firewall events 0. Daily rollup 365 days |
+| `2246ff6dadcf91ea2d8a0160427b23ac` (The WBS Project account) | `active`, Enterprise | 2026-10-04T04:00Z on | Requests 90 days. Firewall events 31 days. Daily rollup 365 days |
+
+The two overlap for half an hour and leave no gap. The old zone's history ends on its own about
+2026-11-03, when its 31 days run out and ADR 0036 deletes what is left on the old account.
+
+**The old zone answers with a reduced field set.** It refuses `datetimeHour`, host, query
+string, ASN, referrer host and `securityAction`. `pull-moved-zone.mjs` pulls what it still gives,
+at 15-minute grain, one host at a time. Its daily totals matched the unfiltered API count exactly
+for every day from 2026-09-30 to 2026-10-04. Query string and network are lost
+from the end of the 2026-10-01 backfill to 2026-10-04T04:00Z. Only the wrangler OAuth login could read the old
+zone on 2026-10-13; the Conductor token reads only the new account.
+
+**Cloudflare Web Analytics stopped on 2026-10-03.** The beacon's last page load on the old
+account is that day. The new account has no `aecintegrations.com` page loads. The old account's
+184 days were pulled in this refresh, before ADR 0036's deletion.
+
+What was pulled, under `cloudflare-backfill-2026-10-13/`:
+
+| Prefix | Contents |
+|---|---|
+| `old-zone-32f7aec2/2026-10-traffic-history/http-requests/` | `2026-09.moved-zone.csv.gz`, `2026-10.moved-zone.csv.gz`: 2026-09-30 to 2026-10-04T06:00Z, reduced fields |
+| `old-zone-32f7aec2/2026-10-traffic-history/{daily-rollup,rum-*}/` | Daily rollup since 2026-04-08 and Web Analytics from the old account, full fields |
+| `new-zone-2246ff6d/2026-10-traffic-history/` | All six datasets from the new zone, full fields. The `rum-*` files hold other WBS sites only |
+| `new-zone-2246ff6d/2026-10-ai-assistant-fetch-history/fetches-new-zone.csv` | 571 rows, 1,487 requests, 222 verified |
+| `old-zone-32f7aec2/2026-10-ai-assistant-fetch-history/` | Empty. The AI query needs fields the old zone refuses. Filter the old-zone `http-requests` on user agent instead |
+
+**Next deadlines, until Logpush runs (AECI-1196):**
+
+- Firewall events keep 31 days. Re-run `pull.mjs firewall-events` before 2026-11-12.
+- Requests keep 90 days. Re-run `pull.mjs` and the AI pull before 2027-01-01.
+
 ## Copy in R2
 
-Uploaded on 2026-10-01 to the temporary bucket `aeci-views-temp` on **The WBS Project** account
+The 2026-10-13 refresh sits under `cloudflare-backfill-2026-10-13/`, same bucket. Uploaded on
+2026-10-01 to the temporary bucket `aeci-views-temp` on **The WBS Project** account
 (`004dc1af737b22a8aa83b3550fa9b9d3`), under the prefix `cloudflare-backfill-2026-10-01/<this directory>/`.
 Download with your wrangler OAuth login and the target account set, run from a directory with no
 `wrangler.jsonc` (the repo's configs pin the AEC Integrations account and override the variable):
