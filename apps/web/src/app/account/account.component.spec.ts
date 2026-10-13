@@ -67,6 +67,7 @@ interface ApiMock {
   updateProfile: ReturnType<typeof vi.fn>;
   deleteAccount: ReturnType<typeof vi.fn>;
   listReviews: ReturnType<typeof vi.fn>;
+  listAudiences: ReturnType<typeof vi.fn>;
 }
 
 interface AuthMock {
@@ -75,6 +76,8 @@ interface AuthMock {
 
 /** The identity reset both exit paths must perform (AECI-649 / ANALYTICS.md §8). */
 let resetIdentitySpy: ReturnType<typeof vi.fn>;
+let onboardingCompletedSpy: ReturnType<typeof vi.fn>;
+let onboardingSkippedSpy: ReturnType<typeof vi.fn>;
 
 function makeApiMock(): ApiMock {
   return {
@@ -85,6 +88,7 @@ function makeApiMock(): ApiMock {
     })),
     deleteAccount: vi.fn(async () => ({ message: 'gone' })),
     listReviews: vi.fn(async () => reviewsPage([...REVIEWS])),
+    listAudiences: vi.fn(async () => []),
   };
 }
 
@@ -100,7 +104,14 @@ async function setup(
       provideRouter([]),
       { provide: AccountApi, useValue: api },
       { provide: AuthService, useValue: auth },
-      { provide: Analytics, useValue: { resetIdentity: resetIdentitySpy } },
+      {
+        provide: Analytics,
+        useValue: {
+          resetIdentity: resetIdentitySpy,
+          onboardingCompleted: onboardingCompletedSpy,
+          onboardingSkipped: onboardingSkippedSpy,
+        },
+      },
     ],
   });
   const fixture = TestBed.createComponent(AccountPage);
@@ -148,6 +159,8 @@ describe('AccountPage', () => {
     }
     assignSpy = vi.fn();
     resetIdentitySpy = vi.fn(async () => undefined);
+    onboardingCompletedSpy = vi.fn();
+    onboardingSkippedSpy = vi.fn();
     try {
       vi.spyOn(globalThis.location, 'assign').mockImplementation(assignSpy as () => void);
     } catch {
@@ -353,5 +366,68 @@ describe('AccountPage', () => {
     const headings = Array.from(el.querySelectorAll('h1, h2')).map((h) => h.tagName);
     expect(headings[0]).toBe('H1');
     expect(headings.slice(1).every((t) => t === 'H2')).toBe(true);
+  });
+
+  // ── AECI-1296: About you + the onboarding card ─────────────────────────
+  it('shows the onboarding card only while onboarding is pending', async () => {
+    const pendingApi = makeApiMock();
+    pendingApi.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'pending' });
+    const pending = await setup(pendingApi);
+    expect(pending.el.querySelector('[data-testid="onboarding-card"]')).not.toBeNull();
+    TestBed.resetTestingModule();
+
+    const doneApi = makeApiMock();
+    doneApi.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'completed' });
+    const done = await setup(doneApi);
+    expect(done.el.querySelector('[data-testid="onboarding-card"]')).toBeNull();
+    // The About you section is always there.
+    expect(done.el.querySelector('[data-testid="about-you"]')).not.toBeNull();
+  });
+
+  it('"Not now" records a skip and hides the card', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'pending' });
+    const { fixture, el } = await setup(api);
+    (el.querySelector('[data-testid="onboarding-dismiss"]') as HTMLButtonElement).click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.updateProfile).toHaveBeenCalledWith({ onboarding: 'skipped' });
+    expect(onboardingSkippedSpy).toHaveBeenCalledTimes(1);
+    expect(el.querySelector('[data-testid="onboarding-card"]')).toBeNull();
+  });
+
+  it('saving About you while pending completes onboarding', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockResolvedValue({
+      ...PROFILE,
+      onboarding: 'pending',
+      details: {
+        company_type: 'engineer',
+        company_size: null,
+        primary_role: 'IT',
+        firm_name: 'Acme',
+        linkedin_url: null,
+        audience_ids: [],
+      },
+    });
+    api.updateProfile.mockImplementation(async () => ({ ...PROFILE, onboarding: 'completed' }));
+    const { fixture, el } = await setup(api);
+    (el.querySelector('[data-testid="about-you"]') as HTMLFormElement).dispatchEvent(
+      new Event('submit'),
+    );
+    await settle();
+    fixture.detectChanges();
+    expect(api.updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        company_type: 'engineer',
+        primary_role: 'IT',
+        firm_name: 'Acme',
+        onboarding: 'completed',
+      }),
+    );
+    expect(onboardingCompletedSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'account', company_type: 'engineer' }),
+    );
+    expect(el.querySelector('[data-testid="onboarding-card"]')).toBeNull();
   });
 });

@@ -31,6 +31,11 @@
  * `/auth/login?error=profile_unavailable`. A 4xx is not retried: the answer would
  * not change. `GET /api/account` self-heals any user who got past this anyway.
  *
+ * First sign-in goes through `/welcome` (AECI-1296). When the ensure reports
+ * `created: true`, the callback sends the user to `/welcome?next=<return>`, the
+ * "About you" form (`docs/ACCOUNT_ONBOARDING_SPEC.md`). A seat invitee is not
+ * diverted: a `/vendor/invite/…` return goes straight to the accept page.
+ *
  * Error contract for the Phase 5.3 login UI: failures land on
  * `/auth/login?error=<code>[&return=<path>]` with codes
  * `link_invalid` (provider error / failed code exchange — expired or reused
@@ -86,6 +91,24 @@ export function signInReturnPath(url: URL): string {
 }
 
 const NO_STORE = 'private, no-store';
+
+/** The onboarding page a first sign-in lands on (AECI-1296). */
+export const WELCOME_PATH = '/welcome';
+
+/**
+ * Where a completed sign-in redirects. A profile created by THIS sign-in goes to
+ * `/welcome?next=<returnPath>` so the user can tell us about themselves first.
+ * Two returns are never diverted: a seat-invite accept page, which an invitee
+ * must reach first, and `/welcome` itself. `returnPath` is already narrowed by
+ * {@link sanitizeReturnPath}; `/welcome` re-narrows `next` before using it.
+ */
+export function postSignInPath(returnPath: string, created: boolean): string {
+  if (!created) return returnPath;
+  if (returnPath.startsWith('/vendor/invite/')) return returnPath;
+  if (returnPath === WELCOME_PATH || returnPath.startsWith(`${WELCOME_PATH}?`)) return returnPath;
+  if (returnPath === '/') return WELCOME_PATH;
+  return `${WELCOME_PATH}?${new URLSearchParams({ next: returnPath }).toString()}`;
+}
 
 /** Profile-ensure attempts before the callback gives up and signs out (AECI-770). */
 export const PROFILE_ENSURE_ATTEMPTS = 3;
@@ -198,14 +221,17 @@ export function createAuthCallbackHandler(
     const api = apiFor(c.env);
     let attempts = 0;
     let lastError: unknown = null;
+    let created = false;
     while (attempts < PROFILE_ENSURE_ATTEMPTS) {
       if (attempts > 0) await sleep(PROFILE_ENSURE_BACKOFF_MS[attempts - 1] ?? 0);
       attempts += 1;
       try {
-        await api.request<{ created: boolean }>('/api/auth/profile/ensure', {
+        const ensured = await api.request<{ created: boolean }>('/api/auth/profile/ensure', {
           method: 'POST',
           headers: { Authorization: `Bearer ${data.session.access_token}` },
         });
+        // Strictly `true`: an older API without the field must not divert anyone.
+        created = ensured?.created === true;
         lastError = null;
         break;
       } catch (ensureError) {
@@ -240,6 +266,6 @@ export function createAuthCallbackHandler(
     emitSignin(c, method, 'success');
 
     c.header('Cache-Control', NO_STORE);
-    return c.redirect(returnPath, 303);
+    return c.redirect(postSignInPath(returnPath, created), 303);
   };
 }

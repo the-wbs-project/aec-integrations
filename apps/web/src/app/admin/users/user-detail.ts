@@ -19,6 +19,12 @@ import { isStatus } from '../http-status';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
+import {
+  COMPANY_SIZE_OPTIONS,
+  COMPANY_TYPE_OPTIONS,
+  PRIMARY_ROLE_OPTIONS,
+  labelFor,
+} from '../../account/profile-details/profile-details-model';
 
 /**
  * `/admin/users/:id` — the operator's user page (AECI-692 /
@@ -80,6 +86,22 @@ export class UserDetail {
   );
 
   protected readonly user = signal<AdminUserDetail | null>(null);
+
+  /** The "About you" answers as labels (AECI-1296). A value this build does not
+   *  know shows raw rather than disappearing. */
+  protected readonly about = computed(() => {
+    const about = this.user()?.about;
+    if (!about) return null;
+    return {
+      companyType: labelFor(COMPANY_TYPE_OPTIONS, about.company_type),
+      companySize: labelFor(COMPANY_SIZE_OPTIONS, about.company_size),
+      primaryRole: labelFor(PRIMARY_ROLE_OPTIONS, about.primary_role),
+      firmName: about.firm_name,
+      linkedinUrl: about.linkedin_url,
+      audiences: about.audiences.map((a) => a.name).join(', '),
+      onboarding: about.onboarding,
+    };
+  });
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
   protected readonly notFound = signal(false);

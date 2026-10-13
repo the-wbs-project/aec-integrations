@@ -61,6 +61,15 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
       requests_by_email: 2,
     },
     repeat_offender: false,
+    about: {
+      company_type: null,
+      company_size: null,
+      primary_role: null,
+      firm_name: null,
+      linkedin_url: null,
+      audiences: [],
+      onboarding: 'pending',
+    },
     ...over,
   };
 }
@@ -440,5 +449,34 @@ describe('UserDetail', () => {
     const text = el.textContent ?? '';
     expect(text).not.toContain('Page views');
     expect(text).not.toContain('Pages viewed');
+  });
+
+  // AECI-1296: the onboarding answers, LinkedIn included, on the detail only.
+  it('renders the About them answers as labels with the LinkedIn link', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeUser({
+          about: {
+            company_type: 'general_contractor',
+            company_size: '201-1000',
+            primary_role: 'practitioner',
+            firm_name: 'Turner Build',
+            linkedin_url: 'https://www.linkedin.com/in/rita',
+            audiences: [{ id: USER_ID, name: 'Estimator', slug: 'estimator' }],
+            onboarding: 'completed',
+          },
+        }),
+      ),
+    );
+    const about = el.querySelector('[data-testid="admin-user-about"]') as HTMLElement;
+    expect(about.textContent).toContain('General contractor');
+    expect(about.textContent).toContain('201 to 1,000 people');
+    expect(about.textContent).toContain('Hands-on user');
+    expect(about.textContent).toContain('Turner Build');
+    expect(about.textContent).toContain('Estimator');
+    expect(about.textContent).toContain('Answered');
+    const link = about.querySelector('a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://www.linkedin.com/in/rita');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 });

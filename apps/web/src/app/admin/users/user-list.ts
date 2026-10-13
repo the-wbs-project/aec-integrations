@@ -14,6 +14,11 @@ import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
+import {
+  COMPANY_SIZE_OPTIONS,
+  COMPANY_TYPE_OPTIONS,
+  labelFor,
+} from '../../account/profile-details/profile-details-model';
 
 /** Every boolean filter is a TRI-state, never a toggle: an operator needs "show
  *  me the banned ones", "show me the rest", and "don't filter" as three separate
@@ -293,6 +298,16 @@ export class UserList {
    *  the branch. */
   protected hasAuthValue(row: AdminUserRow): boolean {
     return this.authAvailable() && row.auth !== null;
+  }
+
+  /** "Works at" cell (AECI-1296): the company type label, or `null` when the
+   *  person has not answered. */
+  protected companyTypeLabel(row: AdminUserRow): string | null {
+    return labelFor(COMPANY_TYPE_OPTIONS, row.company_type);
+  }
+
+  protected companySizeLabel(row: AdminUserRow): string | null {
+    return labelFor(COMPANY_SIZE_OPTIONS, row.company_size);
   }
 
   protected roleLabel(row: AdminUserRow): string {

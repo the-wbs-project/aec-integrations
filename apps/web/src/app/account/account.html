@@ -50,6 +50,50 @@
   </div>
   } @else if (profile(); as p) {
   <div class="mt-10 space-y-10">
+    @if (showOnboardingCard()) {
+    <!-- ── Onboarding prompt (AECI-1296) ───────────────────────────────────── -->
+    <div
+      class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-6"
+      role="region"
+      aria-labelledby="account-onboarding-heading"
+      data-testid="onboarding-card"
+    >
+      <h2
+        id="account-onboarding-heading"
+        class="text-lg font-semibold tracking-tight"
+        i18n="@@account.onboarding.heading"
+      >
+        Tell us about yourself
+      </h2>
+      <p
+        class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@account.onboarding.body"
+      >
+        A few questions about where you work and what you do. Your answers fill in your reviews for
+        you.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          (click)="focusAbout()"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@account.onboarding.answer"
+        >
+          Answer now
+        </button>
+        <button
+          type="button"
+          (click)="onDismissOnboarding()"
+          data-testid="onboarding-dismiss"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@account.onboarding.dismiss"
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+    }
+
     <!-- ── Profile ─────────────────────────────────────────────────────────── -->
     <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6">
       <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.profile.heading">Profile</h2>
@@ -125,6 +169,62 @@
           Something went wrong. Please try again.
         </p>
         }
+      </form>
+
+      <!-- About you (AECI-1296) -->
+      <form
+        class="mt-10 space-y-6 border-t border-(--border-default) pt-6"
+        novalidate
+        (submit)="$event.preventDefault(); onSaveAbout()"
+        data-testid="about-you"
+      >
+        <div>
+          <h3
+            id="account-about-heading"
+            tabindex="-1"
+            class="text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@account.about.heading"
+          >
+            About you
+          </h3>
+          <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@account.about.help">
+            Private. We use these answers to fill in your reviews and to understand who uses the
+            site.
+          </p>
+        </div>
+
+        <aec-profile-details-form idPrefix="account-about" [(draft)]="draft" />
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            [disabled]="aboutSaving() || aboutInvalid()"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            @if (aboutSaving()) {
+            <span i18n="@@account.about.saving">Saving…</span>
+            } @else {
+            <span i18n="@@account.about.save">Save answers</span>
+            }
+          </button>
+          @if (aboutSaved()) {
+          <p
+            class="text-xs font-medium text-(--accent-primary)"
+            role="status"
+            i18n="@@account.about.saved"
+          >
+            Your answers are saved.
+          </p>
+          } @if (aboutFailed()) {
+          <p
+            class="text-xs font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@account.about.saveFailed"
+          >
+            Something went wrong. Please try again.
+          </p>
+          }
+        </div>
       </form>
     </div>
 
