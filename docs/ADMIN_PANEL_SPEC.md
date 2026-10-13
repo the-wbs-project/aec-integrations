@@ -783,6 +783,8 @@ The same rule governs the two address-keyed reads: `pending_invites` and `counts
 
 **Email search is exact, never partial.** GoTrue's `?filter=` is a case-**sensitive** substring over email *or* display name, and `findAuthUserByEmail` narrows it to an exact lowercased equality client-side — without which `jane@acme.com` would match `jane@acme.com.evil.io`. So `?search=@acme.com` finds nothing by email, the leg only runs when the term contains `@`, and the UI says so. **Last sign-in is not sortable**, and will not become so: it is fetched per-id *after* the ORDER BY has chosen the page, so a sort control would reorder 24 arbitrary rows and call it a ranking.
 
+**The "About you" answers (AECI-1296).** The list gains a **Works at** column: the company type label, with the size beneath it, or a dash when the person has not answered. The detail gains an **About them** block: onboarding state, company type, size, role, firm, LinkedIn link and audiences. Both read `profile_details` and `profile_audiences` (`ACCOUNT_ONBOARDING_SPEC.md`). The firm and the LinkedIn link are private to the person. This detail page is the only admin surface that shows them. Nothing here can edit them. No list filter reads them.
+
 Three IA notes, in §5.7's voice:
 
 - **Operations, not Insights.** What this screen does is account administration. It takes the slot "Reviewer bans" held, between `/admin/vendors` and `/admin/system` — claims → vendors → people is the escalation order an operator walks.

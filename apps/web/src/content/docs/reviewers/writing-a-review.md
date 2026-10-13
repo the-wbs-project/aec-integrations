@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: 12 October 2026
+last_updated: 13 October 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -31,6 +31,8 @@ Four more are optional:
 - **Your firm**, up to 100 characters. It is never shown on your review.
 - **Years using this product**, a whole number from 0 to 50.
 - **Would you recommend it?**: Yes, No or Maybe.
+
+If you answered the About you questions on your account, your role and firm are filled in for you. You can change them before you submit.
 
 Choose **Submit review** when you are done. You can send at most three reviews in any hour. If a submission fails after that, wait an hour and try again.
 
