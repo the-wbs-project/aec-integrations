@@ -7,6 +7,13 @@
 // READ-ONLY. It calls the Cloudflare GraphQL Analytics API, which runs queries and writes
 // nothing. It needs CF_READONLY_API_TOKEN with zone Analytics: Read and account Analytics: Read.
 //
+// The zone moved to The WBS Project account on 2026-10-04 and got a new zone id. The default
+// is the live zone. Set CF_ZONE_TAG and CF_ACCOUNT_TAG to read the old, `moved` zone, which
+// holds everything before 2026-10-04T04:30Z for as long as Cloudflare keeps it. There only
+// `daily-rollup` and the `rum-*` datasets work: the moved zone refuses `http-requests` fields,
+// so use `pull-moved-zone.mjs` for those. OUT_DIR (default: beside this script) keeps the two
+// zones' month files apart.
+//
 // Client IP addresses are never requested. Everything else each dataset offers that is
 // useful for page-view analysis is kept.
 //
@@ -18,6 +25,9 @@
 //
 //   node pull.mjs [dataset ...]      (default: every dataset)
 //
+// Each dataset's reach is the zone's or account's own `notOlderThan` setting, read at run
+// time. A dataset whose setting is 0 is skipped: the old zone lost firewall events on the move.
+//
 // A window that returns the 10,000-row page limit is split in half and re-queried, down to
 // five minutes. Below that the script throws rather than keep a truncated window.
 
@@ -26,23 +36,23 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
-const ZONE = '32f7aec29792163c443b6c40f5fb9a56';
-const ACCOUNT = 'e62ec9d8012c3e0c225f8e4dbab76b79';
+// Live zone and account since 2026-10-04. The old pair is 32f7aec2… on e62ec9d8….
+const ZONE = process.env.CF_ZONE_TAG ?? '2246ff6dadcf91ea2d8a0160427b23ac';
+const ACCOUNT = process.env.CF_ACCOUNT_TAG ?? '004dc1af737b22a8aa83b3550fa9b9d3';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const LIMIT = 10_000;
-const HERE = dirname(fileURLToPath(import.meta.url));
+const HERE = process.env.OUT_DIR ?? dirname(fileURLToPath(import.meta.url));
 
 const token = process.env.CF_READONLY_API_TOKEN;
 if (!token) throw new Error('Set CF_READONLY_API_TOKEN (zone + account Analytics: Read)');
 
-// `retentionDays` is the dataset's `notOlderThan`, read from the GraphQL settings query on
-// 2026-10-01 for the Pro plan. `window` is the first query size; it shrinks on demand.
+// `window` is the first query size; it shrinks on demand. `filter: 'date'` datasets are keyed
+// by whole UTC days.
 const DATASETS = {
   'http-requests': {
     scope: 'zone',
     field: 'httpRequestsAdaptiveGroups',
-    retentionDays: 31,
     window: 6 * HOUR,
     filter: 'datetime',
     select: `count
@@ -56,7 +66,6 @@ const DATASETS = {
   'firewall-events': {
     scope: 'zone',
     field: 'firewallEventsAdaptiveGroups',
-    retentionDays: 3,
     window: 6 * HOUR,
     filter: 'datetime',
     select: `count
@@ -68,7 +77,6 @@ const DATASETS = {
   'daily-rollup': {
     scope: 'zone',
     field: 'httpRequests1dGroups',
-    retentionDays: 365,
     window: 120 * DAY,
     filter: 'date',
     select: `dimensions { date }
@@ -83,7 +91,6 @@ const DATASETS = {
   'rum-pageloads': {
     scope: 'account',
     field: 'rumPageloadEventsAdaptiveGroups',
-    retentionDays: 184,
     window: 7 * DAY,
     filter: 'datetime',
     select: `count
@@ -95,7 +102,6 @@ const DATASETS = {
   'rum-web-vitals': {
     scope: 'account',
     field: 'rumWebVitalsEventsAdaptiveGroups',
-    retentionDays: 184,
     window: 7 * DAY,
     filter: 'datetime',
     select: `count
@@ -108,7 +114,6 @@ const DATASETS = {
   'rum-performance': {
     scope: 'account',
     field: 'rumPerformanceEventsAdaptiveGroups',
-    retentionDays: 184,
     window: 7 * DAY,
     filter: 'datetime',
     select: `count
@@ -137,6 +142,19 @@ async function graphql(query) {
   }
 }
 
+const scopeOf = (ds) =>
+  ds.scope === 'zone'
+    ? `zones(filter: { zoneTag: "${ZONE}" })`
+    : `accounts(filter: { accountTag: "${ACCOUNT}" })`;
+
+// The dataset's retention in seconds, from the GraphQL settings node. 0 means no access.
+async function retentionSeconds(ds) {
+  const data = await graphql(
+    `{ viewer { ${scopeOf(ds)} { settings { ${ds.field} { notOlderThan } } } } }`,
+  );
+  return Object.values(data.viewer)[0][0].settings[ds.field]?.notOlderThan ?? 0;
+}
+
 function range(ds, from, to) {
   if (ds.filter === 'date') {
     const day = (t) => new Date(t).toISOString().slice(0, 10);
@@ -146,12 +164,8 @@ function range(ds, from, to) {
 }
 
 async function fetchWindow(ds, from, to) {
-  const scope =
-    ds.scope === 'zone'
-      ? `zones(filter: { zoneTag: "${ZONE}" })`
-      : `accounts(filter: { accountTag: "${ACCOUNT}" })`;
   const data = await graphql(
-    `{ viewer { ${scope} { ${ds.field}(limit: ${LIMIT}, filter: { ${range(ds, from, to)} }) { ${ds.select} } } } }`,
+    `{ viewer { ${scopeOf(ds)} { ${ds.field}(limit: ${LIMIT}, filter: { ${range(ds, from, to)} }) { ${ds.select} } } } }`,
   );
   const rows = Object.values(data.viewer)[0][0][ds.field];
   if (rows.length < LIMIT) return rows;
@@ -179,8 +193,10 @@ const cell = (v) => {
 async function pull(name) {
   const ds = DATASETS[name];
   const now = Date.now();
+  const retention = await retentionSeconds(ds);
+  if (!retention) return console.error(`${name}: no retention on this zone or account, skipped`);
   // Daily data is keyed by whole UTC days; start at a day boundary inside retention.
-  let from = now - ds.retentionDays * DAY + HOUR;
+  let from = now - retention * 1000 + HOUR;
   if (ds.filter === 'date') from = Math.ceil(from / DAY) * DAY;
   const rows = [];
   for (let start = from; start < now; start += ds.window) {
