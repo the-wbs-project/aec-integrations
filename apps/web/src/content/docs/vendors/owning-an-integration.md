@@ -2,7 +2,7 @@
 title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
-order: 5
+order: 8
 last_updated: 9 October 2026
 ---
 

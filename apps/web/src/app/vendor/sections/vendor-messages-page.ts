@@ -79,6 +79,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
             requests you have sent or received, and the reminders we have sent you about your
             integrations.
           </p>
+          <p class="mt-1"><aec-vendor-docs-link page="notifications-and-messages" /></p>
         </div>
 
         <div>

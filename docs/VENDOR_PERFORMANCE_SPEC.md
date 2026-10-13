@@ -144,6 +144,7 @@ Owner per surface:
 | Surface (`source`) | Link | `owner_vendor_id` | `link_origin` | `link_purpose` |
 |---|---|---|---|---|
 | `product_detail` | the product website | the product's primary vendor, else `null` | `vendor` | `website` |
+| `product_detail` | the integrations page and API docs links under Resources (AECI-1309) | the product's primary vendor, else `null` | `vendor` | `listing` (integrations page) or `docs` (API docs) |
 | `vendor_detail` | the vendor website | this vendor | `vendor` | `website` |
 | `vendor_detail_social` | a social profile | this vendor | `vendor` | `social` |
 | `pair_detail` | a side's own listing or docs link | that side's product's primary vendor, else `null` | `vendor` | `listing` or `docs` |
@@ -289,7 +290,7 @@ Every visible string through `i18n` / `$localize`. The chart has a table alterna
 
 ### 5.6 Overview tile (added 2026-09-17, AECI-983)
 
-The vendor overview carries a **Views** tile in its glance band (`vendor/components/vendor-views-tile.ts`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). AECI-983 shipped it as a **placeholder**: a working 1d / 1w / 1m toggle, a sentence that followed it, no number, and no server read. Since 2026-10-08 the toggle is hidden and the tile says only "Coming soon", because there is no figure to window. It never shows 0, because nothing is counted yet. AECI-941 wires it and restores the toggle with its `periodChange` output.
+The vendor overview carries a **Views** tile in its glance band (`vendor/components/vendor-views-tile.ts`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). AECI-983 shipped it as a **placeholder**: a working 1d / 1w / 1m toggle, a sentence that followed it, no number, and no server read. Since 2026-10-08 the toggle is hidden and the tile says only "Coming soon", because there is no figure to window. It never shows 0, because nothing is counted yet. AECI-941 wires it and restores the toggle with its `periodChange` output. The vendor guide describes the tile as it is today: `docs/vendors/your-dashboard` says it reads "Coming soon", and `docs/vendors/plans` carries the "Coming soon" note (AECI-1251). AECI-941 updates both pages in the same PR and adds the performance page `STAGE_2_PRODUCT_DOCS_SPEC.md` §6 defers.
 
 - **Windows.** 1d = the last complete UTC day. 1w = the last 7 complete UTC days. 1m = the last 30 complete UTC days. The overview defaults to **1w**. The page keeps its own 30-day default (§5.2 item 1).
 - **Comparison.** Each window shows the previous same-length window as an absolute count. §2.3 rule 8 is unchanged: never a percentage, and never across a classifier version boundary.

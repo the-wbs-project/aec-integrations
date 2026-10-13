@@ -410,6 +410,56 @@ import { RoleBadge } from './role-badge';
             </section>
           }
 
+          <!-- AECI-1309: the two Managed doc links. Shown on every plan when the
+               product has a value; Managed is what lets the vendor edit them. -->
+          @if (p.tool_integrations_url || p.api_docs_url) {
+            <section aria-labelledby="resources-label" class="space-y-3">
+              <h2
+                id="resources-label"
+                class="aec-overline text-(--text-secondary)"
+                i18n="@@products.detail.metadata.resources"
+              >
+                Resources
+              </h2>
+              <ul class="m-0 list-none space-y-2 p-0">
+                @if (p.tool_integrations_url) {
+                  <li>
+                    <a
+                      [href]="p.tool_integrations_url"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      aecTrackExternalLink="product_detail"
+                      [aecLinkContext]="docsLinkContext('listing')!"
+                      [class]="resourceLinkClass"
+                    >
+                      <ng-container i18n="@@products.detail.metadata.integrationsPage"
+                        >Integrations page</ng-container
+                      >
+                      <aec-new-tab-icon />
+                    </a>
+                  </li>
+                }
+                @if (p.api_docs_url) {
+                  <li>
+                    <a
+                      [href]="p.api_docs_url"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      aecTrackExternalLink="product_detail"
+                      [aecLinkContext]="docsLinkContext('docs')!"
+                      [class]="resourceLinkClass"
+                    >
+                      <ng-container i18n="@@products.detail.metadata.apiDocs"
+                        >API documentation</ng-container
+                      >
+                      <aec-new-tab-icon />
+                    </a>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
           <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 lg:col-span-1">
             <h2
               id="actions-label"
@@ -662,6 +712,23 @@ export class ProductDetailPage {
       link_purpose: 'website',
     };
   });
+
+  /**
+   * The "Resources" links (AECI-1309): the integrations page is `listing`, the API
+   * docs are `docs`, with the same owner rule as the website click
+   * (`VENDOR_PERFORMANCE_SPEC.md` §3.2).
+   */
+  protected docsLinkContext(purpose: 'listing' | 'docs'): ExternalLinkContext | null {
+    const website = this.websiteLinkContext();
+    return website ? { ...website, link_purpose: purpose } : null;
+  }
+
+  protected readonly resourceLinkClass =
+    'inline-flex items-center gap-1.5 text-sm font-medium text-(--accent-primary) ' +
+    'underline-offset-4 hover:text-(--accent-primary-hover) hover:underline ' +
+    'focus-visible:outline-none focus-visible:rounded-(--radius-sm) focus-visible:ring-2 ' +
+    'focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 ' +
+    'focus-visible:ring-offset-(--surface-base)';
 
   /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
   protected decimal(value: number): string {

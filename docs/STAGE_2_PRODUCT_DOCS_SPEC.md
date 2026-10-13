@@ -2,8 +2,22 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built (AECI-1104) and, since AECI-1253, indexable, in the sitemap, in the footer Help column and linked from the vendor portal (§7 question 1). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The FAQ waits for the AECI-1105 pilot questions. The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built (AECI-1104) and, since AECI-1253, indexable, in the sitemap, in the footer Help column and linked from the vendor portal (§7 question 1). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The rest of the vendor guide is built (AECI-1251): `your-dashboard`, `editing-profile-and-products` and `notifications-and-messages`. The FAQ waits for the AECI-1105 pilot questions. A performance page waits for `analytics.view`, and `product-versions` waits for AECI-1263.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-13, the rest of the vendor guide (AECI-1251, T4).** Three pages, indexable and in
+> `sitemap.xml` like the rest of the guide: `your-dashboard` (order 4), `editing-profile-and-products`
+> (5) and `notifications-and-messages` (6). The eight pages after `your-seat` moved down three places
+> in `order`, so the guide reads sign in, dashboard, editing, messages, then the integration work.
+> Every sentence was checked against the portal components and `docs/NOTIFICATIONS.md` on the day.
+> Copy no seat can reach is left out ("Editing is paused.", the read-only form notices). The editing
+> page says which saved company fields no public page shows: contact email and phone are for us to
+> reach the vendor, and parent company and ownership are on record only (Chris, 2026-10-13). The two
+> product doc URLs now render under "Resources" on the product page (AECI-1309), on every plan. The portal gained four "Learn more" links to the
+> new pages (§7 question 1). Two pages the issue named are **not** written. Performance waits for
+> `analytics.view`, which has no consumer: the overview's Views tile reads "Coming soon".
+> `product-versions` waits for AECI-1263 (§6). The issue's "noindex until T5b" was overtaken by
+> AECI-1253.
 
 > **2026-10-12, the vendor guide is published (AECI-1253, items 1, 2 and 4).** Chris ruled that no
 > help page or landing page is noindex. `NOINDEX_PATH_PREFIXES` is now empty, so `/docs/vendors` and
@@ -252,6 +266,9 @@ on neither the General home nor its sidebar):
 ├─ overview                          — "For vendors": what claiming is, Free and Managed at a glance, what no plan changes, where to go next (moved from the help center, AECI-1271)
 ├─ claiming-your-listing             — what buyers see, the claim form, what we check, outcomes (moved from the help center, AECI-1271)
 ├─ your-seat                         — sign-in, portal tabs, owners vs members, invites, removal, your account and your seat
+├─ your-dashboard                    — the company and product tabs, the Vendor Overview (glance band, Getting started, What needs you), a product's overview, the plan-ended banner, live updates (AECI-1251)
+├─ editing-profile-and-products      — company profile fields, logos, product Profile tab by plan, the four facet tabs, "How teams use it", when an edit shows, the company fields no public page shows, AECi locks (AECI-1251)
+├─ notifications-and-messages        — the Messages tab's four parts, every email a seat can get, the daily reminder switch (AECI-1251)
 ├─ attesting-an-integration          — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 ├─ contests-and-protests             — sending and receiving contests and change requests, the protest to AECi (§11b)
@@ -260,8 +277,7 @@ on neither the General home nor its sidebar):
 ├─ checklists                        — the company and product checklists and "Looks right", moved off `plans` on 2026-10-12
 ├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 ├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
-└─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products,
-   notifications-and-messages; performance only if analytics.view has shipped; product-versions waits until a vendor can create a release (AECI-1263)
+└─ (deferred, §6) performance, until analytics.view has a consumer; product-versions, until a vendor can create a release (AECI-1263)
 ```
 
 Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is indexable and in the sitemap since AECI-1253, like the General guide.
@@ -291,6 +307,7 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 - A changelog / what's-new page
 - Per-locale content files
 - Any versioned-docs mechanism
+- A vendor performance page, until `analytics.view` has a consumer (`VENDOR_PERFORMANCE_SPEC.md`). The overview's Views tile reads "Coming soon", and `plans` carries the one "Coming soon" note (AECI-1251)
 - A `product-versions` vendor page, until a vendor can create a release. The version comparison is not reachable today and the docs must not describe it (AECI-1263)
 - Screenshots / recorded walkthroughs
 - An embedded support widget (the feedback endpoint and mailing-list band already exist)
@@ -304,6 +321,9 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
    |---|---|---|
    | Claim outcome: the "Claim & correction status" block on Messages | `vendor/sections/vendor-messages-page.ts` | `claiming-your-listing` (in the vendor guide since AECI-1271; URL unchanged). Until 2026-10-12 this row named `vendor-claim-outcome.ts`. That file is the attestation lane's "what happens next" line about a data-flow claim, not a listing claim, so the link went to where a listing claim's status shows |
    | Seats page | `vendor/sections/vendor-seats-page.ts` | `your-seat` |
+   | Vendor Overview, under "What needs you" (the page has no heading of its own above the glance band) | `vendor/sections/vendor-overview-section.ts` | `your-dashboard` (AECI-1251) |
+   | Company profile, under "Vendor profile"; a product's Profile tab, above the form | `vendor/sections/vendor-profile-section.ts`; `vendor/sections/vendor-product-profile-page.ts` | `editing-profile-and-products` (AECI-1251) |
+   | Messages, under the page intro. The claim-status block keeps its own `claiming-your-listing` link and the change-requests block its own, one link per block | `vendor/sections/vendor-messages-page.ts` | `notifications-and-messages` (AECI-1251) |
    | Attestation lane: "Data that's shared" on the integration page | `vendor/integration-detail/integration-shared-data.ts` | `attesting-an-integration` |
    | Integration edit, create, retire | The integration page's Overview section (`vendor-integration-detail-page.ts`), "Add an integration" (`vendor-integration-create.ts`), "Integrations your company offers" (`vendor-owned-integrations.ts`, which holds the edit form and Retire) | `owning-an-integration` |
    | Contest form and protest | The open "Request a change" form (`vendor-contest-form.ts`), the Change requests block on Messages (`vendor-contests-list.ts`) and on the integration page (`integration-change-requests.ts`). The protest renders inside the last two | `contests-and-protests` |
@@ -326,7 +346,7 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T1 | AECI-1248 | `/docs` home, section index pages, prev/next, linked breadcrumbs, noindex by path, `/docs` cache matchers, sitemap entries, import `requests-and-corrections` | T0 |
 | T2 | AECI-1249 | Getting-started and trust pages; `how-ranking-works` discharges `STAGE_2_5_SPEC.md` §2 step 3 | T1 |
 | T3 | AECI-1250 | Reviewer and account pages | T1 |
-| T4 | AECI-1251 | The rest of the vendor guide | T1, the AECI-1103 rehearsal |
+| T4 | AECI-1251 | The rest of the vendor guide. **Shipped 2026-10-13:** `your-dashboard`, `editing-profile-and-products`, `notifications-and-messages` and their portal links. Performance and `product-versions` stay deferred (§6) | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
 | T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links. **All three shipped 2026-10-12** by Chris's rulings, ahead of AECI-1105: the first two, then the portal links ("we are going live today") | T1 |
 | T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |

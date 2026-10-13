@@ -1,6 +1,7 @@
 import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorProductsSection } from '../components/vendor-products-section';
 import {
   VendorReviewStrip,
@@ -24,9 +25,12 @@ import { vendorProductContext } from './vendor-product-context';
  */
 @Component({
   selector: 'aec-vendor-product-profile-page',
-  imports: [VendorProductsSection, VendorReviewStrip],
+  imports: [VendorProductsSection, VendorReviewStrip, VendorDocsLink],
   template: `
     @if (me(); as m) {
+      <!-- AECI-1251: the guide link sits above the page, once, not in the
+           per-product form. -->
+      <p class="mb-4"><aec-vendor-docs-link page="editing-profile-and-products" /></p>
       <!-- AECI-1218: "Looks right" on this product's details (section 13.8).
            AECI-1241: only while the step is not done at load. -->
       @if (ctx.product(); as p) {

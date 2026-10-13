@@ -57,6 +57,9 @@ import checklistsMd from '../../content/docs/vendors/checklists.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import connectorVendorsMd from '../../content/docs/vendors/connector-vendors.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
+import dashboardMd from '../../content/docs/vendors/your-dashboard.md';
+import editingMd from '../../content/docs/vendors/editing-profile-and-products.md';
+import notificationsMd from '../../content/docs/vendors/notifications-and-messages.md';
 import vendorOverviewMd from '../../content/docs/vendors/overview.md';
 import owningMd from '../../content/docs/vendors/owning-an-integration.md';
 import plansMd from '../../content/docs/vendors/plans.md';
@@ -225,7 +228,7 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
       return $localize`:@@app.docs.section.vendors:Vendor guide`;
     },
     get summary() {
-      return $localize`:@@app.docs.section.vendors.summary:For vendors: claiming your listing, then the portal, data flows, the integrations you own, plans and your change history.`;
+      return $localize`:@@app.docs.section.vendors.summary:For vendors: claiming your listing, then the portal, editing your listings, notifications, data flows, the integrations you own, plans and your change history.`;
     },
     audience: 'vendor',
     order: 5,
@@ -268,6 +271,9 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'overview', source: vendorOverviewMd },
     { slug: 'claiming-your-listing', source: claimingMd },
     { slug: 'your-seat', source: seatMd },
+    { slug: 'your-dashboard', source: dashboardMd },
+    { slug: 'editing-profile-and-products', source: editingMd },
+    { slug: 'notifications-and-messages', source: notificationsMd },
     { slug: 'attesting-an-integration', source: attestingMd },
     { slug: 'owning-an-integration', source: owningMd },
     { slug: 'contests-and-protests', source: contestsMd },

@@ -15,6 +15,11 @@ export const VENDOR_GUIDE_PAGES = {
   'claiming-your-listing': () =>
     $localize`:@@vendor.docsLink.page.claiming:Claiming your vendor listing`,
   'your-seat': () => $localize`:@@vendor.docsLink.page.seat:Your seat`,
+  'your-dashboard': () => $localize`:@@vendor.docsLink.page.dashboard:Your dashboard`,
+  'editing-profile-and-products': () =>
+    $localize`:@@vendor.docsLink.page.editing:Editing your profile and products`,
+  'notifications-and-messages': () =>
+    $localize`:@@vendor.docsLink.page.notifications:Notifications and messages`,
   'attesting-an-integration': () =>
     $localize`:@@vendor.docsLink.page.attesting:Attesting an integration`,
   'owning-an-integration': () => $localize`:@@vendor.docsLink.page.owning:Owning an integration`,
