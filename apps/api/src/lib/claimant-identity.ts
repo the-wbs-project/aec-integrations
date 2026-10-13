@@ -38,6 +38,10 @@ export interface ClaimantProfileSnapshot {
   /** Surfaced so AECI-519 can decide about granting a seat to a banned account
    *  (§7 / AECI-524 owns ban policy). NOT treated as a conflict here. */
   bannedAt: string | null;
+  /** The name the account holds now. The grant fills it from the claim only when
+   *  it is null or blank, and this snapshot is what its audit row reports
+   *  (AECI-1280). */
+  displayName: string | null;
 }
 
 /** Role/vendor exclusivity verdicts (`docs/STAGE_2_SPEC.md` §8.3(3)). */
@@ -130,7 +134,7 @@ async function readProfileSnapshot(
   userId: string,
 ): Promise<ClaimantProfileSnapshot | null> {
   const row = await db.query.profiles.findFirst({
-    columns: { id: true, role: true, vendorId: true, bannedAt: true },
+    columns: { id: true, role: true, vendorId: true, bannedAt: true, displayName: true },
     where: eq(profiles.id, userId),
   });
   return row ?? null;

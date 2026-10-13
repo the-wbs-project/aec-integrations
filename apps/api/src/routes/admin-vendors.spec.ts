@@ -1700,7 +1700,13 @@ describe('POST /api/admin/vendors/:id/seats', () => {
         outcome: 'linked',
         userId: SEAT_A,
         email: CLAIMANT_EMAIL,
-        profile: { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, bannedAt: null },
+        profile: {
+          id: SEAT_A,
+          role: 'vendor_admin',
+          vendorId: VENDOR,
+          bannedAt: null,
+          displayName: null,
+        },
       }),
     );
 
@@ -1723,7 +1729,13 @@ describe('POST /api/admin/vendors/:id/seats', () => {
         outcome: 'linked',
         userId: SEAT_A,
         email: CLAIMANT_EMAIL,
-        profile: { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, bannedAt: null },
+        profile: {
+          id: SEAT_A,
+          role: 'vendor_admin',
+          vendorId: VENDOR,
+          bannedAt: null,
+          displayName: null,
+        },
       }),
     );
 
@@ -1741,7 +1753,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
         reason,
         userId: SEAT_B,
         email: CLAIMANT_EMAIL,
-        profile: { id: SEAT_B, role: 'admin', vendorId: null, bannedAt: null },
+        profile: { id: SEAT_B, role: 'admin', vendorId: null, bannedAt: null, displayName: null },
       });
 
     expect((await provision(VENDOR, conflict('already_admin'))).status).toBe(409);
@@ -1825,6 +1837,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
           role: 'reviewer',
           vendorId: null,
           bannedAt: '2026-01-01T00:00:00.000Z',
+          displayName: null,
         },
       }),
     );

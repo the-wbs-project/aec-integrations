@@ -21,6 +21,11 @@ import { ReviewStatusSchema } from './reviews';
 
 // ─── Profile read / update ──────────────────────────────────────────────────
 
+/** The longest `profiles.display_name` the API writes. `UpdateAccountSchema`
+ *  enforces it on the user's own edit, and the claim grant (AECI-1280) skips a
+ *  claimant name longer than this rather than truncating it. */
+export const DISPLAY_NAME_MAX_LENGTH = 80;
+
 /**
  * Mutable profile fields for `PATCH /api/account`. Only `display_name` is
  * editable today; it is nullable so the user can clear it back to the "Verified
@@ -33,7 +38,7 @@ export const UpdateAccountSchema = z
       .string()
       .trim()
       .min(1, 'Display name must be at least 1 character.')
-      .max(80, 'Keep your display name under 80 characters.')
+      .max(DISPLAY_NAME_MAX_LENGTH, 'Keep your display name under 80 characters.')
       .nullable()
       .optional(),
     /** The remembered Cards/Table listing preference (`?view=` on `/products` +

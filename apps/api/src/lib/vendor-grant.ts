@@ -34,6 +34,7 @@
  */
 
 import {
+  DISPLAY_NAME_MAX_LENGTH,
   vendorVisibleReasonMetadata,
   type ClaimEntitlement,
   type ClaimGrantPlan,
@@ -41,7 +42,7 @@ import {
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles, vendorRequests, workflowInstances } from '../db/schema';
@@ -77,6 +78,9 @@ export const CLAIM_TERMINAL_OUTCOME = {
 export interface SeatProfileBefore {
   role: string;
   vendorId: string | null;
+  /** The account's current name. Read by the grant only, to report whether it
+   *  filled an empty name (AECI-1280); the revoke never looks at it. */
+  displayName?: string | null;
 }
 
 /** The statements + forwarding entries a claim moderation batch produces. */
@@ -117,6 +121,9 @@ export interface GrantSeatParams {
   seatCreated: boolean;
   /** The seat profile before the write (audit before-state); `null` if none. */
   profileBefore: SeatProfileBefore | null;
+  /** The claim's `submitter_name`. Fills the seat's `display_name` only when that
+   *  is null or blank (AECI-1280). */
+  submitterName: string | null;
   /** The offline PO/invoice arrangement — the launch entitlement record (§3). */
   entitlement?: ClaimEntitlement;
   /**
@@ -201,11 +208,22 @@ function claimMetadata(
  * (2) guarded request resolve, (3) `vendor_claim` workflow completion +
  * transition, (4) audit. **FIVE statements, none of them on `vendors`.**
  *
- * The seat upsert sets ONLY `role`/`vendor_id` (+ `updated_at`) on conflict, so a
- * grant landing before the claimant's first sign-in — or after — never clobbers
- * `display_name`, `theme_preference`, `work_email_verified`, `trust_tier` (a
+ * The seat upsert sets ONLY `role`/`vendor_id`/`seat_owner` (+ `updated_at`) on
+ * conflict, so a grant landing before the claimant's first sign-in — or after —
+ * never clobbers `theme_preference`, `work_email_verified`, `trust_tier` (a
  * REVIEWER concept whose CHECK vocabulary happens to contain `'verified'` — not
  * this epic's entitlement tier, R4), or the ban columns (§2 no-clobber contract).
+ *
+ * ── THE ONE EXCEPTION: AN EMPTY `display_name` (AECI-1280) ──────────────────
+ * The claim carries the claimant's name, so the grant fills `display_name` from
+ * `submitter_name` when the column is null or blank. It never overwrites a name:
+ * the set is `COALESCE(NULLIF(trim(display_name), ''), excluded.display_name)`,
+ * so the SQL keeps whatever non-blank name the row holds at commit time. A name
+ * that is blank or longer than `DISPLAY_NAME_MAX_LENGTH` (the account form's own
+ * cap) is not filled and not truncated; the column is then absent from the set
+ * list entirely. The audit row's `display_name_filled` is computed from the
+ * `profileBefore` snapshot, so a user who sets a name between that read and this
+ * batch keeps it while the row over-reports a fill. That window is accepted.
  *
  * The `vendors.verified` flip that used to be statement (2) moved to
  * `activateEntitlementStatements` (AECI-612 / §6 step 1), which the caller
@@ -221,6 +239,9 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   const verifiedFlipped = managed && !p.vendorWasVerified;
   const verifiedAfter = managed || p.vendorWasVerified;
   const hasEntitlement = p.entitlement && Object.keys(p.entitlement).length > 0;
+  const fillName = usableSubmitterName(p.submitterName);
+  const nameBefore = p.profileBefore?.displayName ?? null;
+  const nameFilled = fillName !== null && !nameBefore?.trim();
   const metadata = claimMetadata(p, {
     vendorId: p.vendorId,
     seat_user_id: p.userId,
@@ -228,6 +249,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     seat_created: p.seatCreated,
     plan: p.plan,
     verified_flipped: verifiedFlipped,
+    display_name_filled: nameFilled,
     ...(hasEntitlement ? { entitlement: p.entitlement } : {}),
   });
 
@@ -244,12 +266,14 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
       vendor_verified: p.vendorWasVerified,
       seat_role: p.profileBefore?.role ?? null,
       seat_vendor_id: p.profileBefore?.vendorId ?? null,
+      seat_display_name: nameBefore,
     },
     afterState: {
       status: 'resolved',
       vendor_verified: verifiedAfter,
       seat_role: VENDOR_ADMIN_ROLE,
       seat_vendor_id: p.vendorId,
+      seat_display_name: nameFilled ? fillName : nameBefore,
     },
     metadata,
   };
@@ -271,13 +295,26 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     // (`lib/vendor-seat-invites.ts`), which is what bounds the invite chain.
     db
       .insert(profiles)
-      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, seatOwner: true })
+      .values({
+        id: p.userId,
+        role: VENDOR_ADMIN_ROLE,
+        vendorId: p.vendorId,
+        seatOwner: true,
+        ...(fillName !== null ? { displayName: fillName } : {}),
+      })
       .onConflictDoUpdate({
         target: profiles.id,
         set: {
           role: VENDOR_ADMIN_ROLE,
           vendorId: p.vendorId,
           seatOwner: true,
+          // Fill-if-empty, never overwrite (AECI-1280). Absent when there is no
+          // usable name, so the statement is then exactly the pre-AECI-1280 one.
+          ...(fillName !== null
+            ? {
+                displayName: sql`COALESCE(NULLIF(trim(${profiles.displayName}), ''), excluded.display_name)`,
+              }
+            : {}),
           updatedAt: p.resolvedAt,
         },
       }),
@@ -312,6 +349,13 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   ];
 
   return { stmts, auditEntry, workflowEntry };
+}
+
+/** The claim's name as the grant may write it: trimmed, non-empty, and within the
+ *  account form's own cap. Anything else is `null` — not filled, never truncated. */
+function usableSubmitterName(name: string | null): string | null {
+  const trimmed = name?.trim() ?? '';
+  return trimmed.length > 0 && trimmed.length <= DISPLAY_NAME_MAX_LENGTH ? trimmed : null;
 }
 
 /**
@@ -487,7 +531,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * is also what makes the shipped `/api/vendor/seats/invites` flow usable by the
  * connector vendor without a second admin action every time a colleague joins.
  *
- * The upsert's `set` list is copied from `grantSeatStatements` verbatim, so a
+ * The upsert's `set` list is `grantSeatStatements`' minus its empty-name fill
+ * (AECI-1280), which needs a claim's `submitter_name` this path does not have. So a
  * provision landing before the holder's first sign-in — or after — never clobbers
  * `display_name`, `theme_preference`, `work_email_verified`, `trust_tier`, or the
  * ban columns (§2 no-clobber contract).
