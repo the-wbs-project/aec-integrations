@@ -505,6 +505,13 @@
       "when": 1791852618769,
       "tag": "0071_green_lilith",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1791868155425,
+      "tag": "0072_goofy_surge",
+      "breakpoints": true
     }
   ]
 }

@@ -1613,7 +1613,7 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 
 **Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged at `warn` and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
-**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
+**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score`, `cf_verified_bot`, `cf_verified_bot_category` from Cloudflare request context; `cf_ray` from the eyeball request's `cf-ray` header (AECI-1301); `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
 
 **AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened what a row records**, and every part of it is write-time-only — nothing here is recoverable from a row that lacks it:
 
@@ -1652,9 +1652,14 @@ Every other case stores `false`: anonymous, any non-vendor role, a site admin, a
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
 | `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
 | `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+| `x-aeci-cf-ray` | *(the inbound `cf-ray` header, not `request.cf`)* | `cf_ray` |
+| `x-aeci-cf-verified-bot` | `cf.botManagement.verifiedBot` (`1` / `0`) | `cf_verified_bot` |
+| `x-aeci-cf-verified-bot-category` | `cf.verifiedBotCategory` | `cf_verified_bot_category` |
 | `x-aeci-writer` | *(not `request.cf` — see below)* | `writer_provenance` |
 
 `x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
+
+`x-aeci-cf-ray` / `x-aeci-cf-verified-bot` / `x-aeci-cf-verified-bot-category` (AECI-1301) carry the Ray ID and Cloudflare's verified-bot verdict. The ray is the `cf-ray` header of the request the SSR Worker handled. That is the page load for an arrival row and the beacon POST for an in-app row. It joins a row to Cloudflare's own logs. The API validates the ray format (16 hex digits, optional `-COLO` suffix) and stores null otherwise. It stores the verdict only for `1` or `0`, and the category only when it is 1 to 64 characters.
 
 **Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and **no single one of them is trusted on its own** — they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
 
@@ -1674,7 +1679,7 @@ Three behaviours are contractual, and they mirror `is_operator`'s:
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
-The SSR Worker is the **sole writer** of these headers — the `x-aeci-cf-*` set and `x-aeci-writer` alike: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting fresh values. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
+The SSR Worker is the **sole writer** of these headers — the `x-aeci-cf-*` set and `x-aeci-writer` alike: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting fresh values. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs. The three AECI-1301 headers have **no fallback**: the API Worker's own `cf-ray` and `request.cf` describe the service-binding hop, not the visitor, so a missing header stores null.
 
 **Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. The client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
 

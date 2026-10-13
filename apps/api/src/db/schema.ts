@@ -2193,6 +2193,13 @@ export const pageViews = sqliteTable(
     // list". READ-side signal only: it never feeds `is_bot` at ingest.
     cfAsOrganization: text('cf_as_organization'),
     cfBotScore: integer('cf_bot_score'),
+    // AECI-1301. The eyeball request's Ray ID (the join key to Cloudflare's own
+    // logs) and Cloudflare's verified-bot verdict + category. Forwarded by the SSR
+    // Worker over trusted headers only, never read off the API's own hop. Nothing
+    // reads them yet, so no index (an index ships with the read that needs it).
+    cfRay: text('cf_ray'),
+    cfVerifiedBot: integer('cf_verified_bot', { mode: 'boolean' }),
+    cfVerifiedBotCategory: text('cf_verified_bot_category'),
 
     userAgentHash: text('user_agent_hash'),
     locale: text('locale'),

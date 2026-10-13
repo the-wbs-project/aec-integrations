@@ -79,6 +79,9 @@ type CfContext = {
   botScore: number | null;
   tlsVersion: string | null;
   httpProtocol: string | null;
+  ray: string | null;
+  verifiedBot: boolean | null;
+  verifiedBotCategory: string | null;
 };
 
 const DEFAULT_LOCALE = 'en-US';
@@ -88,6 +91,27 @@ function intOrNull(value: string | null): number | null {
   if (value === null || value.trim() === '') return null;
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? n : null;
+}
+
+/** A Cloudflare Ray ID: 16 hex digits, optionally `-COLO` (AECI-1301). */
+const CF_RAY_RE = /^[0-9a-f]{16}(-[A-Z]{3,4})?$/i;
+const VERIFIED_BOT_CATEGORY_MAX = 64;
+
+function rayOrNull(value: string | null): string | null {
+  const trimmed = value?.trim() ?? '';
+  return CF_RAY_RE.test(trimmed) ? trimmed : null;
+}
+
+function verifiedBotOrNull(value: string | null): boolean | null {
+  if (value === '1') return true;
+  if (value === '0') return false;
+  return null;
+}
+
+function verifiedBotCategoryOrNull(value: string | null): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed === '' || trimmed.length > VERIFIED_BOT_CATEGORY_MAX) return null;
+  return trimmed;
 }
 
 function readCfContext(req: Request): CfContext {
@@ -105,6 +129,17 @@ function readCfContext(req: Request): CfContext {
   // AECI-658. Corroboration for `client_verdict`, never a fingerprint on their own.
   const tlsVersion = h.get(PAGE_VIEW_CF_HEADERS.tlsVersion) ?? cf?.tlsVersion ?? null;
   const httpProtocol = h.get(PAGE_VIEW_CF_HEADERS.httpProtocol) ?? cf?.httpProtocol ?? null;
+  // AECI-1301. Header ONLY, unlike every field above. Their `request.cf` fallback
+  // exists for local runs, where the API is hit directly. Here a fallback would be
+  // wrong in production: this Worker's own `cf-ray` and `request.cf` describe the
+  // service-binding hop from the SSR Worker, not the visitor. Reading the hop
+  // instead of the visitor is one suspected cause of AECI-1298 (the constant
+  // stored bot score), so these fields must not copy that pattern.
+  const ray = rayOrNull(h.get(PAGE_VIEW_CF_HEADERS.ray));
+  const verifiedBot = verifiedBotOrNull(h.get(PAGE_VIEW_CF_HEADERS.verifiedBot));
+  const verifiedBotCategory = verifiedBotCategoryOrNull(
+    h.get(PAGE_VIEW_CF_HEADERS.verifiedBotCategory),
+  );
   return {
     country: country || null,
     colo: colo || null,
@@ -113,6 +148,9 @@ function readCfContext(req: Request): CfContext {
     botScore,
     tlsVersion: tlsVersion || null,
     httpProtocol: httpProtocol || null,
+    ray,
+    verifiedBot,
+    verifiedBotCategory,
   };
 }
 
@@ -420,6 +458,9 @@ async function capturePageView(
         cfAsn: cf.asn,
         cfAsOrganization: cf.asOrganization,
         cfBotScore: cf.botScore,
+        cfRay: cf.ray,
+        cfVerifiedBot: cf.verifiedBot,
+        cfVerifiedBotCategory: cf.verifiedBotCategory,
         userAgentHash,
         locale: localeFromRoute(payload.route),
         isBot,

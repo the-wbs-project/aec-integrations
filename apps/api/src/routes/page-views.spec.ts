@@ -398,6 +398,100 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
     });
   });
 
+  // AECI-1301. The Ray ID and Cloudflare's verified-bot verdict reach the API on
+  // trusted SSR headers only. Unlike the fields above there is no `request.cf`
+  // fallback, because the API's own `cf` describes the service-binding hop.
+  describe('cf_ray + cf_verified_bot + cf_verified_bot_category (AECI-1301)', () => {
+    it('stores all three from the trusted SSR headers', async () => {
+      const { res, settle } = post(
+        { route: '/' },
+        {
+          'x-aeci-cf-ray': '8f1e2d3c4b5a6978-SJC',
+          'x-aeci-cf-verified-bot': '1',
+          'x-aeci-cf-verified-bot-category': 'Search Engine Crawler',
+        },
+      );
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.cfRay).toBe('8f1e2d3c4b5a6978-SJC');
+      expect(rows[0]!.cfVerifiedBot).toBe(true);
+      expect(rows[0]!.cfVerifiedBotCategory).toBe('Search Engine Crawler');
+    });
+
+    it('stores verified bot 0 as false', async () => {
+      const { res, settle } = post({ route: '/' }, { 'x-aeci-cf-verified-bot': '0' });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.cfVerifiedBot).toBe(false);
+    });
+
+    it('leaves all three null when the headers are absent', async () => {
+      const { res, settle } = post({ route: '/' });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.cfRay).toBeNull();
+      expect(rows[0]!.cfVerifiedBot).toBeNull();
+      expect(rows[0]!.cfVerifiedBotCategory).toBeNull();
+    });
+
+    it('stores null for a malformed ray, an unknown verdict and an oversized category', async () => {
+      const { res, settle } = post(
+        { route: '/' },
+        {
+          'x-aeci-cf-ray': 'not-a-ray-id',
+          'x-aeci-cf-verified-bot': 'true',
+          'x-aeci-cf-verified-bot-category': 'x'.repeat(65),
+        },
+      );
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.cfRay).toBeNull();
+      expect(rows[0]!.cfVerifiedBot).toBeNull();
+      expect(rows[0]!.cfVerifiedBotCategory).toBeNull();
+    });
+
+    it("never falls back to the API Worker's own cf-ray or request.cf", async () => {
+      const app = buildAppWithHandler({
+        method: 'post',
+        path: '/api/page-views',
+        handler: createPageViewsHandler(t.factory),
+      });
+      const { ctx, settle } = settlingCtx();
+      // The hop's own context: a `cf-ray` header and a `request.cf` carrying the
+      // verified-bot fields, with none of the trusted `x-aeci-cf-*` headers.
+      const request = new Request('http://localhost/api/page-views', {
+        method: 'POST',
+        body: JSON.stringify({ route: '/' }),
+        headers: { 'content-type': 'application/json', 'cf-ray': '1a2b3c4d5e6f7081-IAD' },
+      });
+      Object.defineProperty(request, 'cf', {
+        value: {
+          country: 'US',
+          botManagement: { verifiedBot: true },
+          verifiedBotCategory: 'Search Engine Crawler',
+        },
+      });
+      const res = await app.request(request, undefined, TEST_ENV, ctx);
+      expect(res.status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      // Proves `request.cf` reached the handler: the older field still falls back.
+      expect(rows[0]!.cfCountry).toBe('US');
+      expect(rows[0]!.cfRay).toBeNull();
+      expect(rows[0]!.cfVerifiedBot).toBeNull();
+      expect(rows[0]!.cfVerifiedBotCategory).toBeNull();
+    });
+  });
+
   describe('is_operator (§13 D13)', () => {
     const ADMIN_ID = '00000000-0000-4000-8000-00000000ad11';
     const SUPABASE_URL = 'https://test-project.supabase.co';

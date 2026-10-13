@@ -2075,6 +2075,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
   it('maps request.cf onto the trusted x-aeci-cf-* headers', () => {
     const headers = new Headers();
     applyCfContextHeaders(headers, {
+      headers: new Headers(),
       cf: {
         country: 'US',
         colo: 'SJC',
@@ -2114,6 +2115,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     const headers = new Headers();
     // bot score 0 is a real value and must still be forwarded.
     applyCfContextHeaders(headers, {
+      headers: new Headers(),
       cf: { country: 'GB', botManagement: { score: 0 } },
     } as unknown as Request);
 
@@ -2121,6 +2123,60 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     expect(headers.get('x-aeci-cf-bot-score')).toBe('0');
     expect(headers.get('x-aeci-cf-colo')).toBeNull();
     expect(headers.get('x-aeci-cf-asn')).toBeNull();
+  });
+
+  // AECI-1301 — the Ray ID and Cloudflare's verified-bot verdict + category.
+  it('maps cf-ray, verifiedBot and verifiedBotCategory onto the trusted headers', () => {
+    const request = new Request('https://www.aecintegrations.com/products', {
+      headers: { 'cf-ray': '8f1e2d3c4b5a6978-SJC' },
+    });
+    Object.defineProperty(request, 'cf', {
+      value: {
+        botManagement: { score: 1, verifiedBot: true },
+        verifiedBotCategory: 'Search Engine Crawler',
+      },
+    });
+    const headers = new Headers();
+    applyCfContextHeaders(headers, request);
+
+    expect(headers.get('x-aeci-cf-ray')).toBe('8f1e2d3c4b5a6978-SJC');
+    expect(headers.get('x-aeci-cf-verified-bot')).toBe('1');
+    expect(headers.get('x-aeci-cf-verified-bot-category')).toBe('Search Engine Crawler');
+  });
+
+  it('forwards verifiedBot false as 0, not as an absent header', () => {
+    const headers = new Headers();
+    applyCfContextHeaders(headers, {
+      headers: new Headers(),
+      cf: { botManagement: { verifiedBot: false } },
+    } as unknown as Request);
+
+    expect(headers.get('x-aeci-cf-verified-bot')).toBe('0');
+  });
+
+  it('sets none of the AECI-1301 headers when the fields are absent or empty', () => {
+    const headers = new Headers();
+    applyCfContextHeaders(headers, {
+      headers: new Headers(),
+      cf: { country: 'GB', botManagement: { score: 30 }, verifiedBotCategory: '' },
+    } as unknown as Request);
+
+    expect(headers.get('x-aeci-cf-ray')).toBeNull();
+    expect(headers.get('x-aeci-cf-verified-bot')).toBeNull();
+    expect(headers.get('x-aeci-cf-verified-bot-category')).toBeNull();
+  });
+
+  it('copies cf-ray even when request.cf is absent', () => {
+    // The ray is a header, so a `.cf`-less request must not lose it to the
+    // early return that guards the `request.cf` fields.
+    const headers = new Headers();
+    applyCfContextHeaders(
+      headers,
+      new Request('https://www.aecintegrations.com/products', {
+        headers: { 'cf-ray': '8f1e2d3c4b5a6978-SJC' },
+      }),
+    );
+    expect([...headers.entries()]).toEqual([['x-aeci-cf-ray', '8f1e2d3c4b5a6978-SJC']]);
   });
 
   it('is a no-op when request.cf is absent (local dev / non-CF runtime)', () => {
@@ -2142,6 +2198,9 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
           'x-aeci-cf-country': 'SPOOF',
           'x-aeci-cf-bot-score': '99',
           'x-aeci-cf-as-organization': 'Definitely Not A Bot Inc.',
+          'x-aeci-cf-ray': '0000000000000000-FAK',
+          'x-aeci-cf-verified-bot': '1',
+          'x-aeci-cf-verified-bot-category': 'Search Engine Crawler',
         },
         body: JSON.stringify({ route: '/products/procore' }),
       }),
@@ -2156,10 +2215,38 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     expect(pv[0]!.headers.get('x-aeci-cf-country')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-bot-score')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-as-organization')).toBeNull();
+    // AECI-1301 — the forged Ray ID and verified-bot claim go the same way.
+    expect(pv[0]!.headers.get('x-aeci-cf-ray')).toBeNull();
+    expect(pv[0]!.headers.get('x-aeci-cf-verified-bot')).toBeNull();
+    expect(pv[0]!.headers.get('x-aeci-cf-verified-bot-category')).toBeNull();
     // Body and method pass through unchanged — the browser POST is proxied, not
     // rebuilt, so the tracker's own `navigation: 'spa'` survives untouched.
     expect(pv[0]!.method).toBe('POST');
     expect(await pv[0]!.clone().json()).toEqual({ route: '/products/procore' });
+  });
+
+  it("carries the beacon POST's own cf-ray on the proxied POST /api/page-views (AECI-1301)", async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    const beacon = new Request('https://www.aecintegrations.com/api/page-views', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-ray': '1a2b3c4d5e6f7081-LHR',
+        'x-aeci-cf-ray': '0000000000000000-FAK',
+      },
+      body: JSON.stringify({ route: '/products/procore', navigation: 'spa' }),
+    });
+    Object.defineProperty(beacon, 'cf', {
+      value: { botManagement: { verifiedBot: false } },
+    });
+    await app.fetch(beacon, binding as unknown as Bindings, fakeExecutionContext());
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('x-aeci-cf-ray')).toBe('1a2b3c4d5e6f7081-LHR');
+    expect(pv[0]!.headers.get('x-aeci-cf-verified-bot')).toBe('0');
   });
 
   it('forwards a non-page-views /api/* request byte-for-byte (no CF rebuild)', async () => {
@@ -2229,6 +2316,9 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
           'x-aeci-cf-colo': 'SPOOF',
           'x-aeci-cf-tls-version': 'TLSv9.9',
           'x-aeci-cf-http-protocol': 'HTTP/9',
+          'x-aeci-cf-ray': '0000000000000000-FAK',
+          'x-aeci-cf-verified-bot': '1',
+          'x-aeci-cf-verified-bot-category': 'Search Engine Crawler',
         },
       }),
     );
@@ -2244,6 +2334,31 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
     expect(write.headers.get('x-aeci-cf-colo')).toBeNull();
     expect(write.headers.get('x-aeci-cf-tls-version')).toBeNull();
     expect(write.headers.get('x-aeci-cf-http-protocol')).toBeNull();
+    // AECI-1301 — no `cf-ray` and no verified-bot fields on the edge request, so
+    // the forged copies are dropped rather than carried.
+    expect(write.headers.get('x-aeci-cf-ray')).toBeNull();
+    expect(write.headers.get('x-aeci-cf-verified-bot')).toBeNull();
+    expect(write.headers.get('x-aeci-cf-verified-bot-category')).toBeNull();
+  });
+
+  it("carries the page load's cf-ray and verified-bot verdict on the arrival write (AECI-1301)", async () => {
+    const write = await arrivalWrite(
+      documentGet('https://www.aecintegrations.com/products', {
+        cf: {
+          asn: 15169,
+          botManagement: { verifiedBot: true },
+          verifiedBotCategory: 'Search Engine Crawler',
+        },
+        headers: {
+          'cf-ray': '8f1e2d3c4b5a6978-SJC',
+          'x-aeci-cf-ray': '0000000000000000-FAK',
+        },
+      }),
+    );
+
+    expect(write.headers.get('x-aeci-cf-ray')).toBe('8f1e2d3c4b5a6978-SJC');
+    expect(write.headers.get('x-aeci-cf-verified-bot')).toBe('1');
+    expect(write.headers.get('x-aeci-cf-verified-bot-category')).toBe('Search Engine Crawler');
   });
 
   it('drops a forged x-aeci-cf-* entirely when there is no request.cf to replace it', async () => {

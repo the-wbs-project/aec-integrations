@@ -805,7 +805,11 @@ interface CfLike {
   asn?: number | null;
   /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
   asOrganization?: string | null;
-  botManagement?: { score?: number | null } | null;
+  /** `verifiedBot` is Cloudflare's verified-bot verdict (AECI-1301). */
+  botManagement?: { score?: number | null; verifiedBot?: boolean | null } | null;
+  /** Verified-bot category (AECI-1301). Absent from the generated
+   *  `worker-configuration.d.ts`, which is one reason this type is structural. */
+  verifiedBotCategory?: string | null;
   /** Negotiated TLS version / protocol (AECI-658). Available on Pro, unlike the
    *  bot score; low-entropy corroboration only, never a fingerprint. */
   tlsVersion?: string | null;
@@ -813,11 +817,18 @@ interface CfLike {
 }
 
 /**
- * Set the trusted `x-aeci-cf-*` headers from `request.cf`. Only fields that are
- * actually present are set, so the API Worker sees a header exactly when the
- * value exists. No-op when `request.cf` is absent.
+ * Set the trusted `x-aeci-cf-*` headers from `request.cf` and the inbound
+ * `cf-ray` header. Only fields that are actually present are set, so the API
+ * Worker sees a header exactly when the value exists. A request with neither
+ * `request.cf` nor `cf-ray` (Node tests, local dev) is a clean no-op.
  */
 export function applyCfContextHeaders(headers: Headers, request: Request): void {
+  // AECI-1301. The Ray ID is a request HEADER, not a `request.cf` field, so it is
+  // copied before the `cf` guard below. `request` is always the eyeball request
+  // this Worker received (the page load, or the beacon POST), so this is the ray
+  // Cloudflare logs for the visitor. The API's own `cf-ray` would be the hop's.
+  const ray = request.headers.get('cf-ray');
+  if (ray) headers.set(PAGE_VIEW_CF_HEADERS.ray, ray);
   const cf = (request as { cf?: CfLike }).cf;
   if (!cf) return;
   if (cf.country) headers.set(PAGE_VIEW_CF_HEADERS.country, cf.country);
@@ -833,14 +844,24 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   // binding, so the value has to be copied onto a header or it is lost.
   if (cf.tlsVersion) headers.set(PAGE_VIEW_CF_HEADERS.tlsVersion, String(cf.tlsVersion));
   if (cf.httpProtocol) headers.set(PAGE_VIEW_CF_HEADERS.httpProtocol, String(cf.httpProtocol));
+  // AECI-1301. Cloudflare's verified-bot verdict and category. Only a real boolean
+  // is forwarded, as '1' / '0', so a missing verdict stays NULL rather than false.
+  const verifiedBot = cf.botManagement?.verifiedBot;
+  if (typeof verifiedBot === 'boolean') {
+    headers.set(PAGE_VIEW_CF_HEADERS.verifiedBot, verifiedBot ? '1' : '0');
+  }
+  if (typeof cf.verifiedBotCategory === 'string' && cf.verifiedBotCategory !== '') {
+    headers.set(PAGE_VIEW_CF_HEADERS.verifiedBotCategory, cf.verifiedBotCategory);
+  }
 }
 
 /**
  * Rebuild a proxied `POST /api/page-views` request carrying trusted CF context.
  * The SSR Worker is the sole writer of `PAGE_VIEW_CF_HEADERS`, so any
  * client-supplied copies are stripped first (anti-spoof) before we set fresh
- * values from `request.cf`. Body / method / other headers (incl. `user-agent`,
- * which the API hashes) pass through unchanged.
+ * values from `request.cf` and the beacon's own `cf-ray` (AECI-1301). Body /
+ * method / other headers (incl. `user-agent`, which the API hashes) pass through
+ * unchanged.
  *
  * AECI-871 adds a second trusted header on exactly the same footing:
  * `PAGE_VIEW_WRITER_HEADER`, stamped `browser-spa` because reaching this function

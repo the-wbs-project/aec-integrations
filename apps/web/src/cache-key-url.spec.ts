@@ -430,7 +430,9 @@ describe('cacheGateway — preserves the original request.cf alongside the cache
     asOrganization: 'Biznet Networks',
     tlsVersion: 'TLSv1.3',
     httpProtocol: 'HTTP/2',
-    botManagement: { score: 88 },
+    // AECI-1301 — the verified-bot verdict + category ride the same merge.
+    botManagement: { score: 88, verifiedBot: true },
+    verifiedBotCategory: 'Search Engine Crawler',
   };
 
   function requestWithCf(url: string, method: 'GET' | 'HEAD' = 'GET'): Request {
@@ -463,10 +465,29 @@ describe('cacheGateway — preserves the original request.cf alongside the cache
       expect(cf['asOrganization']).toBe('Biznet Networks');
       expect(cf['tlsVersion']).toBe('TLSv1.3');
       expect(cf['httpProtocol']).toBe('HTTP/2');
-      expect(cf['botManagement']).toEqual({ score: 88 });
+      expect(cf['botManagement']).toEqual({ score: 88, verifiedBot: true });
+      expect(cf['verifiedBotCategory']).toBe('Search Engine Crawler');
       expect(cf['cacheKey']).toBe('/products?category_id=x');
     },
   );
+
+  // AECI-1301 — `cf_ray` is the inbound `cf-ray` HEADER, not a `cf` field. The
+  // loopback hands `Renderer` the same `Request` object, so its headers (and the
+  // ray among them) arrive untouched. Whether the runtime rewrites `cf-ray` on a
+  // `ctx.exports` loopback is not observable here; only a deployed env can say.
+  it('hands Renderer the same request, so the inbound cf-ray header survives', async () => {
+    const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+    const request = new Request('https://aeci.test/products', {
+      headers: { 'cf-ray': '8f1e2d3c4b5a6978-SIN' },
+    });
+    Object.defineProperty(request, 'cf', { value: EYEBALL_CF });
+
+    await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+    const [forwarded] = rendererFetch.mock.calls[0];
+    expect(forwarded).toBe(request);
+    expect((forwarded as Request).headers.get('cf-ray')).toBe('8f1e2d3c4b5a6978-SIN');
+  });
 
   it('lets the normalized cacheKey win over a cacheKey already on request.cf', async () => {
     const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
