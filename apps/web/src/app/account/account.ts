@@ -32,6 +32,10 @@ import {
   type ProfileDetailsDraft,
 } from './profile-details/profile-details-model';
 import { ReviewStatusBadge } from './review-status-badge';
+import {
+  BUTTON_PRIMARY_CLASS,
+  BUTTON_SECONDARY_CLASS,
+} from '../shared/form-field/form-field-classes';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -116,6 +120,10 @@ export class AccountPage {
   protected readonly aboutFailed = signal(false);
   protected readonly aboutInvalid = computed(() => linkedInInvalid(this.draft()));
   /** Show the onboarding card while the server still reports `pending`. */
+  // The claim dialog's button recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
+  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+
   protected readonly showOnboardingCard = computed(() => this.profile()?.onboarding === 'pending');
 
   /** Delete-account flow state. */

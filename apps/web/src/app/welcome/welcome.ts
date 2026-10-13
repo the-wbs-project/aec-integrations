@@ -13,6 +13,15 @@ import {
   type ProfileDetailsDraft,
 } from '../account/profile-details/profile-details-model';
 import { safeReturnPath } from '../auth/return-path';
+import {
+  BUTTON_PRIMARY_CLASS,
+  BUTTON_SECONDARY_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FORM_FOOTER_CLASS,
+} from '../shared/form-field/form-field-classes';
 
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
@@ -85,7 +94,7 @@ export function welcomeNextPath(raw: string | null): string {
           <button
             type="button"
             (click)="leave()"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="secondaryClass"
             i18n="@@welcome.continue"
           >
             Continue
@@ -93,87 +102,85 @@ export function welcomeNextPath(raw: string | null): string {
         </div>
       } @else {
         <form
-          class="mt-10 space-y-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+          class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
           novalidate
           (submit)="$event.preventDefault(); onSave()"
         >
-          <div class="space-y-1.5">
-            <label
-              for="welcome-display-name"
-              class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-              i18n="@@welcome.displayName.label"
-            >
-              Display name
-            </label>
-            <p
-              id="welcome-display-name-hint"
-              class="text-xs text-(--text-secondary)"
-              i18n="@@welcome.displayName.hint"
-            >
-              Shown on the reviews you publish.
-            </p>
-            <input
-              id="welcome-display-name"
-              type="text"
-              autocomplete="nickname"
-              required
-              [attr.maxlength]="displayNameMax"
-              [value]="displayName()"
-              (input)="onDisplayName($event)"
-              (blur)="nameTouched.set(true)"
-              [attr.aria-invalid]="showNameError() ? 'true' : null"
-              [attr.aria-describedby]="
-                showNameError()
-                  ? 'welcome-display-name-hint welcome-display-name-error'
-                  : 'welcome-display-name-hint'
-              "
-              class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            />
-            @if (showNameError()) {
-              <p
-                id="welcome-display-name-error"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-                i18n="@@welcome.displayName.error"
+          <div class="space-y-6 p-6 sm:p-8">
+            <div class="space-y-1.5">
+              <label
+                for="welcome-display-name"
+                [class]="labelClass"
+                i18n="@@welcome.displayName.label"
               >
-                Enter a display name between 1 and 80 characters.
+                Display name
+              </label>
+              <input
+                id="welcome-display-name"
+                type="text"
+                autocomplete="nickname"
+                required
+                [attr.maxlength]="displayNameMax"
+                [value]="displayName()"
+                (input)="onDisplayName($event)"
+                (blur)="nameTouched.set(true)"
+                [attr.aria-invalid]="showNameError() ? 'true' : null"
+                [attr.aria-describedby]="
+                  showNameError()
+                    ? 'welcome-display-name-hint welcome-display-name-error'
+                    : 'welcome-display-name-hint'
+                "
+                [class]="inputClass"
+              />
+              <p
+                id="welcome-display-name-hint"
+                [class]="hintClass"
+                i18n="@@welcome.displayName.hint"
+              >
+                Shown on the reviews you publish.
+              </p>
+              @if (showNameError()) {
+                <p
+                  id="welcome-display-name-error"
+                  [class]="errorClass"
+                  role="alert"
+                  i18n="@@welcome.displayName.error"
+                >
+                  Enter a display name between 1 and 80 characters.
+                </p>
+              }
+            </div>
+
+            <aec-profile-details-form idPrefix="welcome" [(draft)]="draft" />
+
+            @if (saveFailed()) {
+              <p
+                class="text-sm font-medium text-(--text-primary)"
+                role="alert"
+                i18n="@@welcome.saveFailed"
+              >
+                Something went wrong. Please try again.
               </p>
             }
           </div>
 
-          <aec-profile-details-form idPrefix="welcome" [(draft)]="draft" />
-
-          @if (saveFailed()) {
-            <p
-              class="text-sm font-medium text-(--text-primary)"
-              role="alert"
-              i18n="@@welcome.saveFailed"
-            >
-              Something went wrong. Please try again.
-            </p>
-          }
-
-          <div class="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              type="submit"
-              [disabled]="!canSave()"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (saving()) {
-                <span i18n="@@welcome.saving">Saving…</span>
-              } @else {
-                <span i18n="@@welcome.save">Save and continue</span>
-              }
-            </button>
+          <div class="px-6 py-4 sm:px-8" [class]="footerClass">
             <button
               type="button"
               (click)="onSkip()"
               [disabled]="saving()"
               data-testid="welcome-skip"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              [class]="secondaryClass + ' me-auto disabled:cursor-not-allowed disabled:opacity-50'"
               i18n="@@welcome.skip"
             >
               Skip for now
+            </button>
+            <button type="submit" [disabled]="!canSave()" [class]="primaryClass">
+              @if (saving()) {
+                <span i18n="@@welcome.saving">Saving…</span>
+              } @else {
+                <span i18n="@@welcome.save">Save and continue</span>
+              }
             </button>
           </div>
         </form>
@@ -192,6 +199,15 @@ export class WelcomePage {
   /** Where the user goes after saving or skipping. */
   protected readonly next = welcomeNextPath(this.route.snapshot.queryParamMap.get('next'));
   protected readonly displayNameMax = DISPLAY_NAME_MAX;
+
+  // The claim dialog's field and button recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
+  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+  protected readonly footerClass = FORM_FOOTER_CLASS;
 
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);

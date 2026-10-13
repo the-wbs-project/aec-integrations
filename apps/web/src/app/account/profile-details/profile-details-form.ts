@@ -12,6 +12,14 @@ import {
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import {
+  CHOICE_CARD_CLASS,
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { AccountApi } from '../account-api';
 import {
   COMPANY_SIZE_OPTIONS,
@@ -47,15 +55,22 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
  * personal data reaches a cached render.
  *
  * Single choices use the shared `AecSelect` (Angular Aria combobox, ADR 0010).
+ * Layout follows the claim dialog (`shared/form-field/form-field-classes.ts`):
+ * label, control, then hint, fields `space-y-6` apart, and audiences as the
+ * plan question's choice cards. The host and every `aec-select` are `block`,
+ * because an inline host takes no `space-y` margin.
+ *
  * Audiences are a filterable checkbox list in a `fieldset`: 36 terms is too many
  * for a listbox popup and native checkboxes give the multi-select semantics free.
  */
 @Component({
   selector: 'aec-profile-details-form',
   imports: [AecSelect, RouterLink],
+  host: { class: 'block' },
   template: `
     <div class="space-y-6">
       <aec-select
+        class="block"
         layout="stacked"
         [idPrefix]="idPrefix() + '-company-type'"
         i18n-label="@@profileDetails.companyType.label"
@@ -69,7 +84,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
 
       @if (vendor()) {
         <p
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4 text-sm leading-relaxed text-(--text-secondary)"
+          class="-mt-3 rounded-(--radius-md) bg-(--surface-sunken) px-3 py-2 text-sm leading-relaxed text-(--text-secondary)"
           data-testid="vendor-note"
         >
           <span i18n="@@profileDetails.vendor.note"
@@ -79,7 +94,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           {{ ' ' }}
           <a
             routerLink="/vendor-program"
-            class="font-medium text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@profileDetails.vendor.link"
             >Claim your listing</a
           >
@@ -87,6 +102,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
       }
 
       <aec-select
+        class="block"
         layout="stacked"
         [idPrefix]="idPrefix() + '-role'"
         i18n-label="@@profileDetails.role.label"
@@ -100,6 +116,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
 
       @if (!vendor()) {
         <aec-select
+          class="block"
           layout="stacked"
           [idPrefix]="idPrefix() + '-company-size'"
           i18n-label="@@profileDetails.companySize.label"
@@ -111,14 +128,11 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           (changed)="setSize($event)"
         />
 
-        <fieldset class="space-y-2" data-testid="audiences">
-          <legend
-            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-            i18n="@@profileDetails.audiences.label"
-          >
+        <fieldset data-testid="audiences" [attr.aria-describedby]="idPrefix() + '-audiences-hint'">
+          <legend [class]="labelClass" i18n="@@profileDetails.audiences.label">
             Which audiences describe you?
           </legend>
-          <p [id]="idPrefix() + '-audiences-hint'" class="text-xs text-(--text-secondary)">
+          <p [id]="idPrefix() + '-audiences-hint'" class="mt-1.5" [class]="hintClass">
             <span i18n="@@profileDetails.audiences.hint"
               >Pick up to {{ maxAudiences }} that fit.</span
             >
@@ -129,14 +143,17 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           </p>
           @if (audiencesFailed()) {
             <p
-              class="text-sm text-(--text-primary)"
+              class="mt-3 text-sm font-medium text-(--text-primary)"
               role="alert"
               i18n="@@profileDetails.audiences.failed"
             >
               We couldn't load the audience list. You can still save your other answers.
             </p>
           } @else if (audiences() === null) {
-            <p class="text-sm text-(--text-secondary)" i18n="@@profileDetails.audiences.loading">
+            <p
+              class="mt-3 text-sm text-(--text-secondary)"
+              i18n="@@profileDetails.audiences.loading"
+            >
               Loading audiences…
             </p>
           } @else {
@@ -154,20 +171,16 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
               placeholder="Filter, e.g. estimator"
               [value]="filter()"
               (input)="onFilter($event)"
-              class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-3"
+              [class]="inputClass"
             />
-            <ul
-              class="grid max-h-72 grid-cols-1 gap-x-4 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-2 sm:grid-cols-2"
-              [attr.aria-describedby]="idPrefix() + '-audiences-hint'"
-            >
+            <ul class="mt-3 grid max-h-80 grid-cols-1 gap-2 overflow-y-auto p-0.5 sm:grid-cols-2">
               @for (term of visibleAudiences(); track term.id) {
                 <li>
-                  <label
-                    class="flex cursor-pointer items-center gap-2.5 rounded-(--radius-sm) px-2 py-1.5 text-sm text-(--text-primary) hover:bg-(--surface-sunken)"
-                  >
+                  <label [class]="choiceCardClass">
                     <input
                       type="checkbox"
-                      class="h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      [class]="choiceInputClass"
                       [checked]="isChosen(term.id)"
                       [disabled]="!isChosen(term.id) && atCap()"
                       (change)="toggleAudience(term.id, $event)"
@@ -177,7 +190,7 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
                 </li>
               } @empty {
                 <li
-                  class="px-2 py-1.5 text-sm text-(--text-secondary)"
+                  class="px-3 py-2 text-sm text-(--text-secondary) sm:col-span-2"
                   i18n="@@profileDetails.audiences.none"
                 >
                   No audience matches that filter.
@@ -190,18 +203,11 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
         <div class="space-y-1.5">
           <label
             [for]="idPrefix() + '-firm'"
-            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+            [class]="labelClass"
             i18n="@@profileDetails.firm.label"
           >
             Firm name
           </label>
-          <p
-            [id]="idPrefix() + '-firm-hint'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@profileDetails.firm.hint"
-          >
-            Private. We use it to fill in your reviews, and you can change it there.
-          </p>
           <input
             [id]="idPrefix() + '-firm'"
             type="text"
@@ -210,26 +216,22 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
             [attr.aria-describedby]="idPrefix() + '-firm-hint'"
             [value]="draft().firm_name"
             (input)="onFirm($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="inputClass"
           />
+          <p [id]="idPrefix() + '-firm-hint'" [class]="hintClass" i18n="@@profileDetails.firm.hint">
+            Private. We use it to fill in your reviews, and you can change it there.
+          </p>
         </div>
       }
 
       <div class="space-y-1.5">
         <label
           [for]="idPrefix() + '-linkedin'"
-          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          [class]="labelClass"
           i18n="@@profileDetails.linkedin.label"
         >
           LinkedIn profile
         </label>
-        <p
-          [id]="idPrefix() + '-linkedin-hint'"
-          class="text-xs text-(--text-secondary)"
-          i18n="@@profileDetails.linkedin.hint"
-        >
-          Optional and private. Only our team sees it.
-        </p>
         <input
           [id]="idPrefix() + '-linkedin'"
           type="url"
@@ -245,12 +247,19 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
             '-linkedin-hint' +
             (showLinkedInError() ? ' ' + idPrefix() + '-linkedin-error' : '')
           "
-          class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
         />
+        <p
+          [id]="idPrefix() + '-linkedin-hint'"
+          [class]="hintClass"
+          i18n="@@profileDetails.linkedin.hint"
+        >
+          Optional and private. Only our team sees it.
+        </p>
         @if (showLinkedInError()) {
           <p
             [id]="idPrefix() + '-linkedin-error'"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@profileDetails.linkedin.error"
           >
@@ -270,6 +279,16 @@ export class ProfileDetailsForm {
   readonly idPrefix = input('profile-details');
 
   protected readonly maxAudiences = MAX_PROFILE_AUDIENCES;
+
+  // The claim dialog's field recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  /** A choice card. A term disabled at the cap greys out with the token
+   *  pair `DESIGN.md` uses for disabled fields, never by opacity. */
+  protected readonly choiceCardClass = `${CHOICE_CARD_CLASS} has-[:disabled]:cursor-not-allowed has-[:disabled]:bg-(--surface-sunken) has-[:disabled]:text-(--text-secondary)`;
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
   protected readonly maxFirm = MAX_FIRM_NAME_LENGTH;
 
   protected readonly companyTypeOptions = withNoAnswer(COMPANY_TYPE_OPTIONS);

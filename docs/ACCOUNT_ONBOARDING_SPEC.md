@@ -181,6 +181,11 @@ Single choices use `AecSelect` (Angular Aria, ADR 0010). Audiences are a filtera
 in a `fieldset`, sorted with `compareText`. At 10 picks the unchosen boxes are disabled. A chosen
 term stays visible under any filter.
 
+Layout follows the claim dialog (`apps/web/src/app/shared/form-field/form-field-classes.ts`).
+Each field stacks label, control, then hint, and fields sit `space-y-6` apart. Audiences render as
+the claim dialog's choice cards. `/welcome` ends in the dialog's footer row: "Skip for now" at the
+start, "Save and continue" at the end.
+
 ## 8. Review form pre-fill
 
 `reviews/review-form.ts` reads `GET /api/account` after hydration, beside the already-reviewed
