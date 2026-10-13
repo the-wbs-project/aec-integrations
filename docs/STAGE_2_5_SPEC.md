@@ -153,7 +153,7 @@ The build contract is **`docs/VENDOR_PERFORMANCE_SPEC.md`**; its §1.1 records t
 
 Two rules carried from the contract, restated here because they are the ones a later editor is most likely to bend: the page reads the **same population definition** as the digest and `/admin/overview` (the AECI-872 classification record once agreed; the shared predicates until then) and adds no predicate of its own; and it is a **read**, outside the AECI-516 freshness cursor, with no audit row and no rate limit.
 
-The admitted metric has a **second placement**: the Views tile on the vendor overview (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). It shipped in Stage 2.1 with AECI-983 as a placeholder with no figure and no server read, and AECI-941 wires it under the same gate (`VENDOR_PERFORMANCE_SPEC.md` §5.6). It is not a third surface exception.
+The admitted metric has a **second placement**: the Views tile on the vendor overview (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). It shipped in Stage 2.1 with AECI-983 as a placeholder with no figure and no server read. The placeholder was removed on 2026-10-13 (Chris), and AECI-941 builds the tile again under the same gate (`VENDOR_PERFORMANCE_SPEC.md` §5.6). It is not a third surface exception.
 
 ## 11. Vendor and product logos (AECI-955)
 

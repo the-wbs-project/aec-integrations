@@ -15,7 +15,7 @@ import { VendorProgramPage } from './vendor-program';
  *
  * Since the 2026-10-12 ruling this page carries its own benefit copy, and the Plans
  * page (`src/content/docs/vendors/plans.md`) stays the feature reference. So the
- * Free, Managed and Coming soon lines are NOT checked against the docs here: the
+ * Free and Managed lines are NOT checked against the docs here: the
  * facts stay aligned, the sentences do not. Three things are still genuinely shared,
  * and this spec pins only those:
  *

@@ -20,8 +20,8 @@
  * **Copy is benefit-first (marketing review, 2026-10-12).** Labels say what a
  * vendor gets, not what the portal calls the control. Portal how-tos
  * ("Looks right", checklist counts) live on `vendors/checklists`, and work not
- * yet shipped is a short "Coming soon" section in the Markdown, never a table
- * row. Managed copy must never suggest it changes where a listing ranks or
+ * yet shipped appears nowhere: not as a table row and not as a teaser in the
+ * Markdown (Chris, 2026-10-13). Managed copy must never suggest it changes where a listing ranks or
  * appears (decision 10, §3.2): the note under the cards states the sort rule
  * instead.
  *

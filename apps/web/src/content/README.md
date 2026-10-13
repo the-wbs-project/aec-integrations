@@ -103,10 +103,7 @@ Managed" panel). The first and last mount the shared plan call-to-action compone
 `app/shared/plan-cta/`, which `/vendor-program` also uses. A page whose frontmatter says
 `cta: managed` also gets the Managed card in its rail and a sticky bar on phones; only Plans does,
 and any other `cta` value throws. A widget's text is not in the search index, so put a searchable sentence above it
-and keep the full prose below it. The Plans page's `## Coming soon` section is the one ruled exception to "describes only what the
-product can do today" (Chris, 2026-10-12). It lists only work with a build contract: today,
-performance reporting (`docs/VENDOR_PERFORMANCE_SPEC.md`). Unshipped work never goes in the
-comparison table. When that reporting ships, add its rows to the table and rewrite the section.
+and keep the full prose below it. Docs describe only what the product can do today, with no exception. The Plans page's `## Coming soon` section was removed on 2026-10-13 (Chris) because it promised performance reporting to Managed before its tier was ruled. Unshipped work never goes in the comparison table or in a teaser. When that reporting ships, add its rows to the table under the ruled plan.
 
 The sanitizer also strips `id`, so a heading inside `[innerHTML]` cannot be a fragment target. The
 docs work around it without a bypass (AECI-1259): `src/app/docs/docs-markdown.ts` cuts each body at

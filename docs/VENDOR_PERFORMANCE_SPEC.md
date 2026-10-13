@@ -55,7 +55,7 @@ Three epics. Each sub-issue opens with `**Spec section:** §X.Y (docs/VENDOR_PER
 | **C — The Performance page** | §4, §5, §7 | **AECI-932** | The vendor-facing surface. Blocked by A. |
 | C | §5.4 | AECI-939 | Wireframes via Mobbin (blocks the page build) |
 | C | §4 | AECI-940 | `GET /api/vendor/performance` + caveat codes + CSV export |
-| C | §5 | AECI-941 | The page: route, nav, sections, states, fixtures; wiring the overview Views tile (§5.6) |
+| C | §5 | AECI-941 | The page: route, nav, sections, states, fixtures; rebuilding the overview Views tile, removed 2026-10-13 (§5.6) |
 | C | §7 | AECI-942 | Public disclosures: privacy policy sentence + `/methodology` update |
 
 **Build order.**
@@ -264,7 +264,7 @@ A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admi
 6. **Crawlers and discovery.** Crawls by purpose with the §2.3(2) disclaimer; referrer sources with the small-group floor; the search-console block (§6) or its not-connected state; at most three suggestions, each an evidence-attached gap (an unconfirmed claim on a viewed pair, a missing docs URL on a clicked mechanism, an empty rich field on a viewed product), linking to the existing editor and promising nothing about traffic or ranking.
 7. **Download and definitions.** CSV export; print view; inline definitions naming every rule in §2 in plain words, including the crawl disclaimer and the pre-claim label.
 
-> **Docs hook (2026-10-12).** The vendor guide's Plans page lists this reporting in its `## Coming soon` section (`apps/web/src/content/docs/vendors/plans.md`). The PR that ships the page rewrites that section and adds the reporting to the comparison table (`apps/web/src/app/docs/docs-plans-comparison.ts`) as `analytics.view` rows.
+> **Docs hook (2026-10-13).** No public page promises this reporting. The "Coming soon" sections on `/vendor-program` and `/docs/vendors/plans` were removed on 2026-10-13 (Chris) because they said it was "coming to Managed" before its tier was ruled. The PR that ships the page adds the reporting to the comparison table (`apps/web/src/app/docs/docs-plans-comparison.ts`) as `analytics.view` rows and to the Plans page's feature lists, under whichever plan the ruling picks. Until then, no page names a plan for it.
 
 ### 5.3 States
 
@@ -290,12 +290,12 @@ Every visible string through `i18n` / `$localize`. The chart has a table alterna
 
 ### 5.6 Overview tile (added 2026-09-17, AECI-983)
 
-The vendor overview carries a **Views** tile in its glance band (`vendor/components/vendor-views-tile.ts`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). AECI-983 shipped it as a **placeholder**: a working 1d / 1w / 1m toggle, a sentence that followed it, no number, and no server read. Since 2026-10-08 the toggle is hidden and the tile says only "Coming soon", because there is no figure to window. It never shows 0, because nothing is counted yet. AECI-941 wires it and restores the toggle with its `periodChange` output. The vendor guide describes the tile as it is today: `docs/vendors/your-dashboard` says it reads "Coming soon", and `docs/vendors/plans` carries the "Coming soon" note (AECI-1251). AECI-941 updates both pages in the same PR and adds the performance page `STAGE_2_PRODUCT_DOCS_SPEC.md` §6 defers.
+The vendor overview carried a **Views** tile in its glance band (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). AECI-983 shipped it as a placeholder with no number and no server read. From 2026-10-08 it said only "Coming soon". **Removed 2026-10-13 (Chris).** The tile and its component (`vendor-views-tile.ts`) are deleted, and the band shows two tiles: In conflict and Suggestions about your listing. A "Coming soon" tile promised a feature whose plan was not yet ruled. AECI-941 builds the tile again when the figure ships, as a third tile in the band, to the rules below. It also updates `docs/vendors/your-dashboard` and adds the performance page `STAGE_2_PRODUCT_DOCS_SPEC.md` §6 defers, in the same PR.
 
 - **Windows.** 1d = the last complete UTC day. 1w = the last 7 complete UTC days. 1m = the last 30 complete UTC days. The overview defaults to **1w**. The page keeps its own 30-day default (§5.2 item 1).
 - **Comparison.** Each window shows the previous same-length window as an absolute count. §2.3 rule 8 is unchanged: never a percentage, and never across a classifier version boundary.
 - **Source and gate.** The tile reads the same §4.1 endpoint the page reads, gated by `analytics.view` exactly as the page is. It is a read outside the AECI-516 cursor, like the page, so it is the one tile in the band that does not live-update.
-- **Binding.** The tile exposes a `periodChange` output. AECI-941 binds the figure and fetches on that output without changing the toggle markup.
+- **Binding.** The tile emits the chosen period, and the overview section fetches on it. The toggle is an `aria-pressed` button set (`DESIGN.md`, Views period toggle).
 - **Disclosure.** The tile going live is a vendor-facing count, so it ships in the same release as the AECI-942 privacy sentence, never before it.
 
 ---
