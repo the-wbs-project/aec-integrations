@@ -498,6 +498,13 @@
       "when": 1791794747165,
       "tag": "0070_peaceful_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1791866857996,
+      "tag": "0071_real_amazoness",
+      "breakpoints": true
     }
   ]
 }

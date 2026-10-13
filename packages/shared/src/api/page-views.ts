@@ -79,6 +79,14 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
  * server's choice and the version set is tiny, so this is nothing like JA3/JA4
  * (which needs Enterprise Bot Management). The discriminating signals in that issue
  * are the request HEADERS, which ride through on their own and need no entry here.
+ *
+ * `ray` / `verifiedBot` / `verifiedBotCategory` (AECI-1301) are the join key to
+ * Cloudflare's own logs and Cloudflare's verified-bot verdict. `ray` is the
+ * `cf-ray` HEADER of the request the SSR Worker handles (the page load for an
+ * arrival row, the beacon POST for an in-app row), not a `request.cf` field. The
+ * API Worker reads all three from these headers ONLY. It never falls back to its
+ * own `cf-ray` or `request.cf`, because those describe the service-binding hop,
+ * not the visitor.
  */
 export const PAGE_VIEW_CF_HEADERS = {
   country: 'x-aeci-cf-country',
@@ -88,6 +96,9 @@ export const PAGE_VIEW_CF_HEADERS = {
   botScore: 'x-aeci-cf-bot-score',
   tlsVersion: 'x-aeci-cf-tls-version',
   httpProtocol: 'x-aeci-cf-http-protocol',
+  ray: 'x-aeci-cf-ray',
+  verifiedBot: 'x-aeci-cf-verified-bot',
+  verifiedBotCategory: 'x-aeci-cf-verified-bot-category',
 } as const;
 
 /**
