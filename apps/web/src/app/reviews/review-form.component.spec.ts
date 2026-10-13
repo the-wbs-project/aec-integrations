@@ -560,6 +560,16 @@ describe('ReviewForm', () => {
     expect((el.querySelector('#reviewer-firm') as HTMLInputElement).value).toBe('Turner Build');
   });
 
+  it('treats a software company role as empty', async () => {
+    const account = makeAccountMock(null, { primary_role: 'vendor_sales' });
+    const { fixture, el } = setup(product(), makeApiMock(), account);
+    await showForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    const trigger = el.querySelector('#role-trigger') as HTMLElement;
+    expect(trigger.querySelector('span')?.getAttribute('style')).toContain('--text-secondary');
+  });
+
   it('leaves the fields empty when the profile has no answers or the read fails', async () => {
     const account = makeAccountMock(null);
     account.getProfile.mockRejectedValueOnce(new Error('offline'));

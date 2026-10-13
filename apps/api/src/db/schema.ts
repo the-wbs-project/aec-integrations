@@ -2817,10 +2817,11 @@ export const profileDetails = sqliteTable('profile_details', {
   /** `CompanyTypeSchema` value, or null when unanswered. `undisclosed` is the
    *  explicit "I'd rather not say" answer. */
   companyType: text('company_type'),
-  /** `CompanySizeSchema` value, or null. Never asked of a software vendor. */
+  /** `CompanySizeSchema` value, or null. Never asked of a software company. */
   companySize: text('company_size'),
-  /** `ProfilePrimaryRoleSchema` value: the `reviews.role_at_company` list plus
-   *  `undisclosed`, which a review never takes. */
+  /** `ProfilePrimaryRoleSchema` value: the `reviews.role_at_company` list, the
+   *  `vendor_*` software company roles and `undisclosed`. A review never takes
+   *  the last two. */
   primaryRole: text('primary_role'),
   /** Free text, up to 100 characters. Private. Pre-fills the review form. */
   firmName: text('firm_name'),

@@ -1136,7 +1136,7 @@ create table profile_details (
   profile_id text primary key references profiles(id) on delete cascade,
   company_type text,             -- CompanyTypeSchema slug ('undisclosed' = rather not say), or null
   company_size text,             -- CompanySizeSchema slug ('undisclosed' = rather not say), or null
-  primary_role text,             -- ProfilePrimaryRoleSchema: reviews.role_at_company list + 'undisclosed'
+  primary_role text,             -- ProfilePrimaryRoleSchema: reviews.role_at_company list + vendor_* software company roles + 'undisclosed'
   firm_name text,                -- private, at most 100 characters
   linkedin_url text,             -- private, normalized https://www.linkedin.com/in/<handle>
   onboarding_completed_at text,  -- set by a save

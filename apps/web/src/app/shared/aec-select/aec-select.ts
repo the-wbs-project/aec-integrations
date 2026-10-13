@@ -19,6 +19,15 @@ import {
 export interface AecSelectOption {
   readonly value: string | null;
   readonly label: string;
+  /** Group heading. Consecutive options with the same `group` render under one
+   *  heading as an ARIA `group`. Omit it for an ungrouped row. */
+  readonly group?: string;
+}
+
+/** A run of consecutive options sharing one `group` (or none). */
+interface OptionSection {
+  readonly heading: string | null;
+  readonly options: readonly AecSelectOption[];
 }
 
 /** Per-instance id seed, used only when the caller supplies no `idPrefix`.
@@ -56,6 +65,10 @@ let nextAecSelectId = 0;
  *  - `layout` — `inline` is the admin filter-bar row ("Source: [▾]"); `stacked`
  *    is the standard form-field block (label above, full-width trigger, popup
  *    width-matched to the field).
+ *
+ * An option may carry a `group` heading (AECI-1296 "Where do you work?"). Runs
+ * of options sharing a heading render as an ARIA `group` named by it. Options
+ * register with the listbox by DOM order, so keyboard order follows the groups.
  */
 @Component({
   selector: 'aec-select',
@@ -120,19 +133,40 @@ let nextAecSelectId = 0;
                 overflow-y-auto rounded-(--radius-md) border border-(--border-default)
                 bg-(--surface-raised) p-1.5 shadow-lg"
             >
-              @for (opt of options(); track opt.value ?? ANY) {
-                <li
-                  ngOption
-                  [value]="opt"
-                  [label]="opt.label"
-                  class="flex cursor-pointer items-start justify-between gap-3 rounded-(--radius-sm)
-                    px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
-                >
-                  <span>{{ opt.label }}</span>
-                  @if (value() === opt.value) {
-                    <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+              @for (section of sections(); track $index) {
+                @if (section.heading === null) {
+                  @for (opt of section.options; track opt.value ?? ANY) {
+                    <li ngOption [value]="opt" [label]="opt.label" [class]="optionClass">
+                      <span>{{ opt.label }}</span>
+                      @if (value() === opt.value) {
+                        <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+                      }
+                    </li>
                   }
-                </li>
+                } @else {
+                  <!-- A group heading is not an option: the group takes its
+                       name from it, and the heading itself is hidden from the
+                       accessibility tree so it is not read twice. -->
+                  <li role="group" [attr.aria-labelledby]="groupId($index)" class="list-none">
+                    <span
+                      [id]="groupId($index)"
+                      aria-hidden="true"
+                      class="block px-3 pt-2 pb-1 text-xs font-bold tracking-[0.08em]
+                        text-(--text-secondary) uppercase"
+                      >{{ section.heading }}</span
+                    >
+                    <ul role="none" class="m-0 flex list-none flex-col gap-0.5 p-0">
+                      @for (opt of section.options; track opt.value ?? ANY) {
+                        <li ngOption [value]="opt" [label]="opt.label" [class]="optionClass">
+                          <span>{{ opt.label }}</span>
+                          @if (value() === opt.value) {
+                            <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  </li>
+                }
               }
             </ul>
           </ng-template>
@@ -166,6 +200,27 @@ export class AecSelect {
 
   /** `@for` track key for the null-valued "any" row. */
   protected readonly ANY = ' any';
+
+  protected readonly optionClass =
+    'flex cursor-pointer items-start justify-between gap-3 rounded-(--radius-sm) px-3 py-2' +
+    ' text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)';
+
+  /** The options split into runs that share a `group`. A list with no groups is
+   *  one ungrouped run, so every existing caller renders exactly as before. */
+  protected readonly sections = computed<OptionSection[]>(() => {
+    const sections: { heading: string | null; options: AecSelectOption[] }[] = [];
+    for (const opt of this.options()) {
+      const heading = opt.group ?? null;
+      const last = sections.at(-1);
+      if (last && last.heading === heading) last.options.push(opt);
+      else sections.push({ heading, options: [opt] });
+    }
+    return sections;
+  });
+
+  protected groupId(index: number): string {
+    return `${this.idBase()}-group-${index}`;
+  }
 
   private readonly uid = nextAecSelectId++;
   private readonly idBase = computed(() => this.idPrefix() ?? `aec-select-${this.uid}`);

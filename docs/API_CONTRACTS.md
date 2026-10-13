@@ -1380,7 +1380,7 @@ export interface AccountProfileResponse {
 export interface AccountProfileDetails {
   company_type: CompanyType | null;          // includes 'undisclosed'
   company_size: CompanySize | null;          // includes 'undisclosed'
-  primary_role: ProfilePrimaryRole | null;   // PrimaryRole plus 'undisclosed'
+  primary_role: ProfilePrimaryRole | null;   // PrimaryRole plus vendor_* roles and 'undisclosed'
   firm_name: string | null;
   linkedin_url: string | null;
   audience_ids: string[];   // taxonomy_audiences ids, [] when none
@@ -1392,8 +1392,10 @@ answers from `profile_details` and `profile_audiences`, read in the same batch a
 Every field is `null` until answered. A stored value outside the current enum reads as `null`.
 `undisclosed` is the explicit "I'd rather not say" answer on `company_type`, `company_size` and
 `primary_role`. It is a value, not a clear. The role field uses `ProfilePrimaryRoleSchema`, which is
-`PrimaryRoleSchema` plus `undisclosed`. `SubmitReviewSchema.role_at_company` keeps
-`PrimaryRoleSchema`, so a review submitted with `undisclosed` is a 400.
+`PrimaryRoleSchema` plus the software company roles (`vendor_*`) and `undisclosed`.
+`SubmitReviewSchema.role_at_company` keeps `PrimaryRoleSchema`, so a review submitted with either is
+a 400. `company_type` includes the software company types (`SOFTWARE_COMPANY_TYPES`,
+`ACCOUNT_ONBOARDING_SPEC.md` §2.1). The API does not cross-check the role against the company type.
 `onboarding` is derived: `completed` when `onboarding_completed_at` is set, else `skipped` when
 `onboarding_skipped_at` is set, else `pending`. `suggested_display_name` is the provider name from
 the verified JWT (`user_metadata.full_name`, else `name`). It is `null` when the token carries
@@ -1479,7 +1481,7 @@ export const UpdateAccountSchema = z
     // AECI-1296, "About you":
     company_type: CompanyTypeSchema.nullable().optional(),
     company_size: CompanySizeSchema.nullable().optional(),
-    primary_role: PrimaryRoleSchema.nullable().optional(),
+    primary_role: ProfilePrimaryRoleSchema.nullable().optional(),
     firm_name: z.string().trim().max(100).nullable().optional(),   // '' clears
     linkedin_url: LinkedInProfileUrlSchema.nullable().optional(),  // '' clears; normalized
     audience_ids: z.array(z.string().uuid()).max(10).optional(),   // replace-set

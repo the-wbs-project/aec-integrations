@@ -14,11 +14,12 @@ serve two purposes:
 - **Segmenting users later.** Who signs up, what kind of firm, what role.
 - **Pre-filling the review form.** Role and firm fill in for the reviewer, who can still change them.
 
-There is also a vendor tie. A user who says they work for a software vendor is recorded as one
-(`company_type = 'software_vendor'`). The form shows them no claim prompt. The in-form note and its
+There is also a vendor tie. A user who says they work for a software company is recorded as one
+(`company_type` in `SOFTWARE_COMPANY_TYPES`, §2.1). The form shows them no claim prompt. The in-form note and its
 link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. Reaching those users with
-the claim offer is a separate follow-up: a later marketing email to `software_vendor` profiles that
-hold no claim (AECI-1305). That follow-up is not built here.
+the claim offer is a separate follow-up: a later marketing email to software company profiles that
+hold no claim (AECI-1305). `software_vendor` (AEC software) is the closest fit for that email. The
+other software types are not AEC vendors as a rule. That follow-up is not built here.
 
 ## 2. The questions
 
@@ -27,11 +28,11 @@ One screen. Only the display name is required. "Skip for now" is always availabl
 | # | Question | Input | Shown to | Stored in |
 |---|---|---|---|---|
 | 1 | Display name | Text, 1 to 80 characters, pre-filled from the Google name | Everyone | `profiles.display_name` |
-| 2 | Where do you work? | Single choice (§2.1) | Everyone | `profile_details.company_type` |
-| 3 | Your role | Single choice, the review-form role list | Everyone | `profile_details.primary_role` |
-| 4 | Company size | Single choice (§2.1) | Not a software vendor | `profile_details.company_size` |
-| 5 | Which audiences describe you? | Multi-select from `taxonomy_audiences`, at most 10 | Not a software vendor | `profile_audiences` |
-| 6 | Firm name | Text, at most 100 characters, private | Not a software vendor | `profile_details.firm_name` |
+| 2 | Where do you work? | Single choice in three groups (§2.1) | Everyone | `profile_details.company_type` |
+| 3 | Your role | Single choice. The review-form role list, or the software company role list (§2.2) | Everyone | `profile_details.primary_role` |
+| 4 | Company size | Single choice (§2.1) | Not a software company | `profile_details.company_size` |
+| 5 | Which audiences describe you? | Multi-select from `taxonomy_audiences`, at most 10 | Not a software company | `profile_audiences` |
+| 6 | Firm name | Text, at most 100 characters, private | Not a software company | `profile_details.firm_name` |
 | 7 | LinkedIn profile | URL, optional, private | Everyone | `profile_details.linkedin_url` |
 
 Every single choice ends with an "I'd rather not say" row, after "Other". It is a stored answer
@@ -45,29 +46,47 @@ The values are stable slugs. The labels live in the Angular form and are `$local
 
 | Field | Values |
 |---|---|
-| `company_type` | `general_contractor`, `trade_contractor`, `architect`, `engineer`, `owner_developer`, `construction_manager`, `consultant`, `software_vendor`, `other`, `undisclosed` |
+| `company_type`, AEC firms | `general_contractor`, `trade_contractor`, `architect`, `engineer`, `owner_developer`, `construction_manager`, `consultant` |
+| `company_type`, software companies | `software_vendor` (AEC software), `backoffice_software`, `integration_platform`, `other_software`, `software_partner` |
+| `company_type`, other options | `other`, `undisclosed` |
 | `company_size` | `1-10`, `11-50`, `51-200`, `201-1000`, `1001-5000`, `5000+`, `undisclosed` |
-| `primary_role` | `practitioner`, `manager`, `IT`, `exec`, `other`, `undisclosed` |
+| `primary_role`, AEC roles | `practitioner`, `manager`, `IT`, `exec`, `other`, `undisclosed` |
+| `primary_role`, software company roles | `vendor_exec`, `vendor_product`, `vendor_engineering`, `vendor_partnerships`, `vendor_sales`, `vendor_marketing`, `vendor_customer_success`, `vendor_services`, `other`, `undisclosed` |
+
+`software_vendor` is the AEC software answer. It keeps the slug it shipped with, so stored answers
+needed no migration. The form labels it "AEC software". `SOFTWARE_COMPANY_TYPES` and
+`SOFTWARE_COMPANY_ROLES` in `packages/shared/src/api/profile-details.ts` are the group lists.
 
 `undisclosed` is the "I'd rather not say" answer. `null` means the question was never answered.
 
 `primary_role` is the `reviews.role_at_company` list plus `undisclosed`. `PrimaryRoleSchema` in
 `packages/shared/src/api/profile-details.ts` defines the review list once, and `SubmitReviewSchema`
-reuses it. `ProfilePrimaryRoleSchema` extends it with `undisclosed` for the profile only, so a review
-can never carry `undisclosed`. The two lists cannot drift. The form shows plain labels such as
+reuses it. `ProfilePrimaryRoleSchema` extends it with the software company roles and `undisclosed`
+for the profile only, so a review can never carry either. The two lists cannot drift. The form shows plain labels such as
 "Hands-on user" and "Manager or team lead".
 
-The form lists the company types and the roles in alphabetical order by label, then "Other", then
-"I'd rather not say". The sizes run small to large, then "I'd rather not say".
+"Where do you work?" shows three headed groups: "AEC firms", "Software companies", then "Other
+options" holding "Other" and "I'd rather not say". Each heading names an ARIA `group` in the listbox
+(`AecSelect`'s optional `group` field). The first two groups and both role lists are alphabetical
+by label. Each role list ends with "Other", then "I'd rather not say". The sizes run small to large,
+then "I'd rather not say".
 
-### 2.2 The software vendor branch
+### 2.2 The software company branch
 
-Picking "Software vendor" hides questions 4 to 6. Nothing is shown in their place: no note and no
-claim link. Role and LinkedIn are still asked. The live region on `/welcome` (§7.1) says which fields
-were removed, and says so again when they come back.
+Picking any software company type hides questions 4 to 6. Nothing is shown in their place: no note
+and no claim link. Role and LinkedIn are still asked, but the role list becomes the software company
+roles: customer success or support, engineering, founder or executive, implementation or
+professional services, marketing, partnerships or integrations, product management, sales or
+business development. The live region on `/welcome` (§7.1) says which fields were removed and that
+the role list changed, and says so again when they come back.
 
-A save with "Software vendor" clears `company_size`, `firm_name` and the audience set. An answer
-given under a different company type must not linger out of sight.
+Switching between an AEC firm and a software company clears a role that is not on the new list.
+"Other" and "I'd rather not say" are on both lists, so they survive the switch.
+
+A save with a software company type clears `company_size`, `firm_name` and the audience set. A save
+also clears a role that is not on the list for the saved company type. An answer given under a
+different company type must not linger out of sight. The API does not cross-check the role
+against the company type. The form is the only writer that pairs them.
 
 ### 2.3 LinkedIn
 
@@ -230,7 +249,7 @@ full width with "Save and continue" on top.
 
 The `/account` "About you" Save follows the same rule as `/welcome`: enabled except while saving, and
 an invalid LinkedIn link shows its error and takes focus. `/account` carries its own persistent polite live region
-under the form, which announces the software vendor fields leaving and returning and each audience
+under the form, which announces the software company fields leaving and returning and each audience
 count change, as on `/welcome`.
 
 ## 8. Review form pre-fill
@@ -238,8 +257,8 @@ count change, as on `/welcome`.
 `reviews/review-form.ts` reads `GET /api/account` after hydration, beside the already-reviewed
 check.
 
-- Role takes `primary_role` while the role control is empty. `undisclosed` is not a review role
-  and reads as empty: the role control stays unanswered.
+- Role takes `primary_role` while the role control is empty. `undisclosed` and the software company
+  roles are not review roles and read as empty: the role control stays unanswered.
 - Firm takes `firm_name` while the firm field is empty.
 - Both stay editable. Stage 1 spec §4.8: pre-fill, never lock.
 - It runs only in the browser. Cached HTML never carries a person's answers (Phase 5 spec §5.5).

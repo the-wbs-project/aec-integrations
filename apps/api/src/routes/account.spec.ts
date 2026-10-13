@@ -784,6 +784,19 @@ describe('PATCH /api/account: About you (AECI-1296)', () => {
     });
   });
 
+  it('stores and reads back a software company type and role', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      company_type: 'integration_platform',
+      primary_role: 'vendor_partnerships',
+    });
+    expect(res.status).toBe(200);
+    const read = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await read.json()).toMatchObject({
+      details: { company_type: 'integration_platform', primary_role: 'vendor_partnerships' },
+    });
+  });
+
   it('clears firm_name and linkedin_url on a blank string', async () => {
     await t.db.insert(profiles).values({ id: USER });
     await t.db.insert(profileDetails).values({

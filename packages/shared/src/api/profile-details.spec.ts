@@ -11,9 +11,34 @@ import {
   PRIMARY_ROLES,
   PrimaryRoleSchema,
   ProfilePrimaryRoleSchema,
+  SOFTWARE_COMPANY_ROLES,
+  SOFTWARE_COMPANY_TYPES,
+  isSoftwareCompanyType,
   normalizeLinkedInProfileUrl,
 } from './profile-details';
 import { SubmitReviewSchema } from './reviews';
+
+describe('software companies', () => {
+  it('keeps the shipped software_vendor slug and adds the other software types', () => {
+    for (const type of SOFTWARE_COMPANY_TYPES) {
+      expect(CompanyTypeSchema.parse(type)).toBe(type);
+      expect(isSoftwareCompanyType(type)).toBe(true);
+    }
+    expect(SOFTWARE_COMPANY_TYPES).toContain('software_vendor');
+    expect(isSoftwareCompanyType('architect')).toBe(false);
+    expect(isSoftwareCompanyType('other')).toBe(false);
+    expect(isSoftwareCompanyType(null)).toBe(false);
+  });
+
+  it('stores a software company role on the profile, never on a review', () => {
+    const roleField = SubmitReviewSchema.shape.role_at_company;
+    for (const role of SOFTWARE_COMPANY_ROLES) {
+      expect(ProfilePrimaryRoleSchema.parse(role)).toBe(role);
+      expect(PrimaryRoleSchema.safeParse(role).success).toBe(false);
+      expect(roleField.safeParse(role).success).toBe(false);
+    }
+  });
+});
 
 describe('undisclosed', () => {
   it('is a stored answer for company type, size and the profile role', () => {
