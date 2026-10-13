@@ -38,6 +38,7 @@ import {
   provisionSeatStatements,
   rejectClaimStatements,
   revokeSeatStatements,
+  type GrantSeatParams,
   type ProvisionProfileBefore,
 } from './vendor-grant';
 
@@ -70,7 +71,11 @@ function vendorsStatements(stmts: BatchStmt[]): string[] {
   return stmts.map(sqlOf).filter((sql) => /"vendors"/.test(sql));
 }
 
-const grantArgs = (vendorWasVerified: boolean, plan: 'free' | 'managed' = 'managed') => ({
+const grantArgs = (
+  vendorWasVerified: boolean,
+  plan: 'free' | 'managed' = 'managed',
+  over: Partial<GrantSeatParams> = {},
+): GrantSeatParams => ({
   plan,
   userId: CLAIMANT_ID,
   vendorId: VENDOR_ID,
@@ -86,9 +91,11 @@ const grantArgs = (vendorWasVerified: boolean, plan: 'free' | 'managed' = 'manag
   identityOutcome: 'linked' as const,
   seatCreated: true,
   profileBefore: null,
+  submitterName: null,
   reason: null,
   targetType: 'vendor',
   targetId: VENDOR_ID,
+  ...over,
 });
 
 async function seed(verified: boolean) {
@@ -233,6 +240,118 @@ describe('the claim audit row still records the verification outcome', () => {
     const { auditEntry } = grantSeatStatements(t.db, grantArgs(true, 'free'));
     expect(auditEntry.afterState).toMatchObject({ vendor_verified: true });
     expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
+  });
+});
+
+// ─── AECI-1280: the grant fills an EMPTY display_name, never a set one ───────
+
+describe('grantSeatStatements fills an empty display_name from the claim (AECI-1280)', () => {
+  /** The `ON CONFLICT … DO UPDATE SET` half of the seat upsert. */
+  const conflictSet = (p: GrantSeatParams): string =>
+    sqlOf(grantSeatStatements(t.db, p).stmts[0]!).split(/on conflict/i)[1] ?? '';
+
+  const seatName = async () =>
+    (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0]!.displayName;
+
+  it('sets display_name only through the fill-if-empty COALESCE, and no other owned column', () => {
+    const conflict = conflictSet(grantArgs(false, 'managed', { submitterName: 'Sam Submitter' }));
+
+    expect(conflict).toMatch(/"display_name" = COALESCE\(NULLIF\(trim\(/);
+    for (const forbidden of [
+      '"banned_at"',
+      '"ban_reason"',
+      '"work_email_verified"',
+      '"trust_tier"',
+      '"theme_preference"',
+    ]) {
+      expect(conflict).not.toContain(forbidden);
+    }
+  });
+
+  it.each([
+    ['null', null],
+    ['blank', '   '],
+    ['over the account cap', 'x'.repeat(81)],
+  ])('leaves display_name out of the set list when the name is %s', (_label, submitterName) => {
+    const p = grantArgs(false, 'managed', { submitterName });
+    expect(conflictSet(p)).not.toContain('"display_name"');
+    expect(grantSeatStatements(t.db, p).auditEntry.metadata).toMatchObject({
+      display_name_filled: false,
+    });
+  });
+
+  it.each([
+    ['null', null],
+    ['blank', '  '],
+  ])('fills an existing %s name and says so in the audit row', async (_label, before) => {
+    await seed(false);
+    await t.db.insert(profiles).values({ id: CLAIMANT_ID, role: 'reviewer', displayName: before });
+    const { stmts, auditEntry } = grantSeatStatements(
+      t.db,
+      grantArgs(false, 'managed', {
+        seatCreated: false,
+        profileBefore: { role: 'reviewer', vendorId: null, displayName: before },
+        submitterName: '  Sam Submitter ',
+      }),
+    );
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await seatName()).toBe('Sam Submitter');
+    expect(auditEntry.metadata).toMatchObject({ display_name_filled: true });
+    expect(auditEntry.beforeState).toMatchObject({ seat_display_name: before });
+    expect(auditEntry.afterState).toMatchObject({ seat_display_name: 'Sam Submitter' });
+  });
+
+  it('never overwrites a name the user set', async () => {
+    await seed(false);
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'reviewer', displayName: 'Jane Doe' });
+    const { stmts, auditEntry } = grantSeatStatements(
+      t.db,
+      grantArgs(false, 'managed', {
+        seatCreated: false,
+        profileBefore: { role: 'reviewer', vendorId: null, displayName: 'Jane Doe' },
+        submitterName: 'Sam Submitter',
+      }),
+    );
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await seatName()).toBe('Jane Doe');
+    expect(auditEntry.metadata).toMatchObject({ display_name_filled: false });
+    expect(auditEntry.afterState).toMatchObject({ seat_display_name: 'Jane Doe' });
+  });
+
+  it('keeps a name set after the snapshot was read (the SQL guard, not the snapshot, decides)', async () => {
+    await seed(false);
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'reviewer', displayName: 'Set Mid-Flight' });
+    const { stmts } = grantSeatStatements(
+      t.db,
+      grantArgs(false, 'managed', {
+        seatCreated: false,
+        // A stale snapshot: the account had no name when the handler read it.
+        profileBefore: { role: 'reviewer', vendorId: null, displayName: null },
+        submitterName: 'Sam Submitter',
+      }),
+    );
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await seatName()).toBe('Set Mid-Flight');
+  });
+
+  it('writes the name on a brand-new seat (grant before first sign-in)', async () => {
+    await seed(false);
+    const { stmts, auditEntry } = grantSeatStatements(
+      t.db,
+      grantArgs(false, 'managed', { submitterName: 'Sam Submitter' }),
+    );
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await seatName()).toBe('Sam Submitter');
+    expect(auditEntry.metadata).toMatchObject({ display_name_filled: true });
+    expect(auditEntry.beforeState).toMatchObject({ seat_display_name: null });
   });
 });
 

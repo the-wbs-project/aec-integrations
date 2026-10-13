@@ -5,7 +5,12 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AccountReview, ProductDetail, SubmitReviewResponse } from '@aeci/shared';
+import type {
+  AccountProfileDetails,
+  AccountReview,
+  ProductDetail,
+  SubmitReviewResponse,
+} from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
 import { AuthService } from '../auth/auth.service';
@@ -43,12 +48,30 @@ function makeApiMock(impl?: () => Promise<SubmitReviewResponse>): ApiMock {
 
 interface AccountMock {
   findMyReviewForProduct: ReturnType<typeof vi.fn>;
+  getProfile: ReturnType<typeof vi.fn>;
 }
 
 /** Mock `AccountApi` — the already-reviewed guard resolves to `review`
- *  (default `null` → the form renders normally). */
-function makeAccountMock(review: AccountReview | null = null): AccountMock {
-  return { findMyReviewForProduct: vi.fn(async () => review) };
+ *  (default `null` → the form renders normally). `getProfile` feeds the
+ *  AECI-1296 pre-fill; `details` defaults to absent, so nothing is filled. */
+function makeAccountMock(
+  review: AccountReview | null = null,
+  details?: Partial<AccountProfileDetails>,
+): AccountMock {
+  return {
+    findMyReviewForProduct: vi.fn(async () => review),
+    getProfile: vi.fn(async () => ({
+      details: details && {
+        company_type: null,
+        company_size: null,
+        primary_role: null,
+        firm_name: null,
+        linkedin_url: null,
+        audience_ids: [],
+        ...details,
+      },
+    })),
+  };
 }
 
 interface AuthMock {
@@ -482,5 +505,69 @@ describe('ReviewForm', () => {
     expect(auth.hasSessionCookie).not.toHaveBeenCalled();
     expect(el.querySelector('form')).not.toBeNull();
     expect(el.textContent).not.toContain('Sign in to leave a review');
+  });
+
+  // ── AECI-1296: pre-fill from the "About you" answers ────────────────────
+  it('pre-fills role and firm from the profile, and both stay editable', async () => {
+    const api = makeApiMock();
+    const account = makeAccountMock(null, { primary_role: 'manager', firm_name: 'Turner Build' });
+    const { fixture, el, httpMock } = setup(product(), api, account);
+    await showForm(fixture);
+    await settle();
+    fixture.detectChanges();
+
+    expect(account.getProfile).toHaveBeenCalledTimes(1);
+    expect((el.querySelector('#role-trigger') as HTMLElement).textContent).toContain('Manager');
+    const firm = el.querySelector('#reviewer-firm') as HTMLInputElement;
+    expect(firm.value).toBe('Turner Build');
+    expect(firm.disabled).toBe(false);
+    expect(firm.readOnly).toBe(false);
+
+    // Editable: the user's own edit is what gets submitted.
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 5);
+    setValue(fixture, '#review-title-input', 'Solid revit connector');
+    setValue(
+      fixture,
+      '#review-body',
+      'We rolled this out across three offices and the sync held up under heavy model loads.',
+    );
+    setValue(fixture, '#reviewer-firm', 'Acme Architects');
+    await settle();
+    fixture.detectChanges();
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+
+    expect(api.submitReview.mock.calls[0][0]).toMatchObject({
+      role_at_company: 'manager',
+      reviewer_firm: 'Acme Architects',
+    });
+    httpMock.verify();
+  });
+
+  it('treats an "I\'d rather not say" role as empty and still fills the firm', async () => {
+    const account = makeAccountMock(null, {
+      primary_role: 'undisclosed',
+      firm_name: 'Turner Build',
+    });
+    const { fixture, el } = setup(product(), makeApiMock(), account);
+    await showForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    const trigger = el.querySelector('#role-trigger') as HTMLElement;
+    expect(trigger.textContent).not.toContain('rather not say');
+    expect(trigger.querySelector('span')?.getAttribute('style')).toContain('--text-secondary');
+    expect((el.querySelector('#reviewer-firm') as HTMLInputElement).value).toBe('Turner Build');
+  });
+
+  it('leaves the fields empty when the profile has no answers or the read fails', async () => {
+    const account = makeAccountMock(null);
+    account.getProfile.mockRejectedValueOnce(new Error('offline'));
+    const { fixture, el } = setup(product(), makeApiMock(), account);
+    await showForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    expect((el.querySelector('#reviewer-firm') as HTMLInputElement).value).toBe('');
+    expect(el.querySelector('form')).not.toBeNull();
   });
 });

@@ -164,6 +164,16 @@ Chris moved AECI-1159 and AECI-1160 in from Stage 3 on 2026-10-01, under epic AE
 | **AECI-1159** | Moved from Stage 3. Tells the vendor about the overrides AECi already makes. Split three ways on 2026-10-04: the notice itself, an admin field correction with a lock, and a reversible takedown with the policy rewrite. The takedown waits on counsel. **Scope 1159a is built on `chris/aeci-1159-override-reasons-to-vendors`, not merged** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d): the notice, the vendor-visible reason and the internal note. The field correction is AECI-1237 and the takedown is AECI-1238. | **A named exception to §1** for the field correction and the takedown. |
 | **AECI-1160** | Moved from Stage 3. The receipt page in the portal. | **A named exception to §4.** |
 
+#### 3.3.6 Account onboarding AECI-1296 (admitted 2026-10-13)
+
+Chris placed the issue in Stage 2.1 on 2026-10-13 and ruled its decisions the same day. `ACCOUNT_ONBOARDING_SPEC.md` is the contract.
+
+**Why it passes §1.** It is a named exception to §1 and §4, admitted by operator decision on 2026-10-13, in the way AECI-710 and AECI-711 are admitted in §3.3.2. §1 admits no new features and no non-vendor work, and this is a new account feature. The vendor tie is narrow. A user who says they work for a software vendor is recorded as one. The form itself carries no claim prompt: the in-form note and link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. The claim offer reaches those users through a separate follow-up, a later marketing email to `software_vendor` profiles that hold no claim (AECI-1305). It ranks behind the seat-granting blockers.
+
+| Issue | What it does | Why it is admitted |
+|---|---|---|
+| **AECI-1296** | Adds the "About you" form on `/welcome` after first sign-in and on `/account`. Stores the answers in two new side tables (migration `0071`). Pre-fills role and firm on the review form. | **A named exception to §1 and §4.** Its vendor tie records self-identified vendors for the claim follow-up. |
+
 ### 3.4 Dark-window operations
 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).

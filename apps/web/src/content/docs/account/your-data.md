@@ -3,7 +3,7 @@ title: Your account and your data
 description: What your account page shows, what you can change there, and what happens to your reviews when you delete your account.
 section: account
 order: 2
-last_updated: 12 October 2026
+last_updated: 13 October 2026
 ---
 
 Your account page shows your email address, your display name and your reviews. It is also where you delete your account. To open it, choose **Account** in the account menu at the top right of any page (on a phone, in the menu at the top left), or go to [/account](/account). For what we collect, why, how long we keep it, and your rights over it, the [Privacy Policy](/legal/privacy) is the full statement. This page does not repeat it.
@@ -15,6 +15,16 @@ Your account page shows your email address, your display name and your reviews. 
 **Display name** is the name your account menu shows. Enter one between 1 and 80 characters and choose **Save**. If you have not set one and you signed in with Google, the menu shows your Google name.
 
 Published reviews never show your display name, your email address or your firm.
+
+## About you
+
+**About you** holds your answers to the questions we ask after your first sign-in. They are where you work, your role, your company size, the audiences that describe you, your firm's name and your LinkedIn profile. Every answer is optional. Each single choice has an **I'd rather not say** answer, and **Clear answer** takes a question back to unanswered. Change any of them and choose **Save answers**.
+
+If you work for a software company, choose **Software vendor** under "Where do you work?". The size, audience and firm questions go away.
+
+Your role and firm fill in the review form for you. You can still change them on each review. Your firm and LinkedIn link are private. Only you and our team can see them.
+
+If you skipped the questions, a **Tell us about yourself** card sits at the top of the page. Choose **Answer now** to go to the questions, or **Not now** to hide the card.
 
 ## Your reviews
 

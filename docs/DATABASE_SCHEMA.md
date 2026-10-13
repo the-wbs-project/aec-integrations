@@ -1126,6 +1126,46 @@ create index profiles_banned_idx on profiles(banned_at) where banned_at is not n
 > vendor-seat grant can never reset a reviewer's standing. See
 > `STAGE_2_PAID_TIERS_SPEC.md` §10 R4.
 
+#### 7.1a `profile_details` and `profile_audiences` (AECI-1296)
+
+The "About you" answers from the onboarding form. `ACCOUNT_ONBOARDING_SPEC.md` is the contract.
+Migration `0071` adds both tables and touches nothing else.
+
+```sql
+create table profile_details (
+  profile_id text primary key references profiles(id) on delete cascade,
+  company_type text,             -- CompanyTypeSchema slug ('undisclosed' = rather not say), or null
+  company_size text,             -- CompanySizeSchema slug ('undisclosed' = rather not say), or null
+  primary_role text,             -- ProfilePrimaryRoleSchema: reviews.role_at_company list + 'undisclosed'
+  firm_name text,                -- private, at most 100 characters
+  linkedin_url text,             -- private, normalized https://www.linkedin.com/in/<handle>
+  onboarding_completed_at text,  -- set by a save
+  onboarding_skipped_at text,    -- set by "Skip for now" or "Not now"
+  created_at text not null,
+  updated_at text not null
+);
+
+create table profile_audiences (
+  profile_id text not null references profiles(id) on delete cascade,
+  audience_id text not null references taxonomy_audiences(id) on delete cascade,
+  created_at text not null,
+  primary key (profile_id, audience_id)
+);
+create index profile_audiences_audience_idx on profile_audiences(audience_id);
+```
+
+- **Side tables on purpose.** A rule change on `profiles` forces a drizzle-kit recreate, and a
+  recreate of `profiles` cascades into its children (`migrations.md` §0). The same reasoning put
+  `notification_preferences` in its own table. The reverse hazard holds too: a future recreate of
+  `profiles` would wipe both tables, so statement order in such a migration is the control.
+- **No CHECK constraints.** The allowed values live in Zod
+  (`packages/shared/src/api/profile-details.ts`). A list changes without a migration.
+- **Domain state.** Every write goes through `PATCH /api/account` with its `profile.updated`
+  audit row in the same batch. `ensureProfileRow` never writes here.
+- **Private.** No search, ranking, Algolia or public read. The admin user detail is the one
+  reader besides the user's own `/account`.
+- **Erasure** is by cascade (`AUTH_AND_RLS.md` §8).
+
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
 ```sql
@@ -2168,7 +2208,7 @@ create table page_views (
   -- the durable fix: "not a longer list").
   cf_as_organization text,
   cf_bot_score integer,
-  -- ─── Ray ID + verified bot (AECI-1301, migration 0071) ─────────────────────────
+  -- ─── Ray ID + verified bot (AECI-1301, migration 0072) ─────────────────────────
   -- cf_ray is the cf-ray header of the request the SSR Worker handled: the page load
   -- for an arrival row, the beacon POST for an in-app row. It is the join key to
   -- Cloudflare's own logs (Logpush, AECI-1196) and lets a stored row be looked up in
@@ -2405,7 +2445,7 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
-**Migration `0071` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate.
+**Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate.
 
 ### 9.2 `stats_cache`
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import { PrimaryRoleSchema } from './profile-details';
 
 /**
  * The §5.5 ratings-visibility gate: a product's aggregate rating averages
@@ -44,7 +45,9 @@ export const SubmitReviewSchema = z.object({
   rating_onboarding: z.number().int().min(1).max(5),
   title: z.string().min(5).max(100),
   body: z.string().min(50).max(2000),
-  role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
+  // The same list as the onboarding `primary_role` (AECI-1296), so the review
+  // form's pre-fill maps one to one.
+  role_at_company: PrimaryRoleSchema.optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
   // Optional free-text firm/company (AECI-284). The handler trims it and stores

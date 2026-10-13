@@ -52,6 +52,8 @@
  *                  enforcement point.
  *   /auth/*      — login / magic-link / OAuth callback all read session state.
  *   /account*    — user-specific.
+ *   /welcome     — the first-sign-in "About you" form (AECI-1296); user-specific,
+ *                  anon GETs bounce to login like `/account`.
  *   /admin*      — admin-only; anon GETs bounce to login (AECI-203).
  *   /vendor*     — the Stage 2 vendor portal; vendor-specific, anon GETs bounce
  *                  to login (AECI-520). NOTE the singular prefix — the PUBLIC
@@ -202,6 +204,16 @@ export function isReviewPath(localePath: string): boolean {
  */
 export function isAccountPath(localePath: string): boolean {
   return /^\/account\/?$/.test(localePath);
+}
+
+/**
+ * Matches the first-sign-in onboarding route `/welcome` (AECI-1296, locale
+ * prefix already stripped). Gated exactly like `/account`: a signed-out visitor
+ * bounces to login, a signed-in one gets the session refresh. Non-cacheable by
+ * the fail-closed default (no `ROUTE_CACHE_PATTERNS` entry).
+ */
+export function isWelcomePath(localePath: string): boolean {
+  return /^\/welcome\/?$/.test(localePath);
 }
 
 /**
@@ -1635,7 +1647,8 @@ export function createApp(options: {
     }
 
     // AECI-200 / AECI-202 — auth-gate the review-submission form and the
-    // `/account` page. Both routes are already non-cacheable (no
+    // `/account` page, and since AECI-1296 the `/welcome` onboarding form. All
+    // three routes are already non-cacheable (no
     // `ROUTE_CACHE_PATTERNS` match), so this gate runs on a request that would
     // otherwise SSR. A logged-out visitor (no session cookie) is 303-redirected
     // to `/auth/login?return=<path>` so they bounce straight back after signing
@@ -1646,7 +1659,10 @@ export function createApp(options: {
     {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
-      if ((isReviewPath(path) || isAccountPath(path)) && !hasSessionCookie(c.req.raw)) {
+      if (
+        (isReviewPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
+        !hasSessionCookie(c.req.raw)
+      ) {
         const returnPath = signInReturnPath(url);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {
@@ -1699,12 +1715,12 @@ export function createApp(options: {
       // beside a live refresh token (the ordinary "back after an hour" state).
       // Trading it here lets the resolver's forwarded cookie authenticate on the
       // first try, instead of a 401 → `/auth/login` → "Restoring your session"
-      // → client navigation back. A fresh token costs no network. All three
+      // → client navigation back. A fresh token costs no network. All four
       // paths are non-cacheable, which is what makes the `Set-Cookie` safe —
       // see `server/auth/session-refresh.ts` for why this does not reopen
       // ADMIN_PANEL_SPEC.md §13 D22.
       if (
-        (isAdminPath(path) || isVendorPath(path) || isAccountPath(path)) &&
+        (isAdminPath(path) || isVendorPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
         hasSessionCookie(c.req.raw)
       ) {
         const refreshed = await refreshSessionCookies(c.req.raw, c.env);

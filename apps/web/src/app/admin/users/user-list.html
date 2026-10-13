@@ -172,6 +172,13 @@
           <th
             scope="col"
             class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.users.col.worksAt"
+          >
+            Works at
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
             i18n="@@admin.users.col.status"
           >
             Status
@@ -249,6 +256,20 @@
               class="text-(--text-tertiary)"
               i18n-aria-label="@@admin.users.seat.none"
               aria-label="No vendor seat"
+              >&ndash;</span
+            >
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (companyTypeLabel(person); as type) { {{ type }} @if (companySizeLabel(person); as
+            size) {
+            <span class="block text-xs text-(--text-tertiary)">{{ size }}</span>
+            } } @else {
+            <span
+              class="text-(--text-tertiary)"
+              i18n-aria-label="@@admin.users.worksAt.none"
+              aria-label="Not answered"
               >&ndash;</span
             >
             }

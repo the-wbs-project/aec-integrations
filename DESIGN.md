@@ -9,6 +9,7 @@ colors:
   surface-sunken:         "oklch(96.78% 0.0019 286.38)"
   border-default:         "oklch(91.97% 0.0036 286.32)"
   border-strong:          "oklch(87.20% 0.0055 286.32)"
+  border-input:           "oklch(63.63% 0.0133 286.02)"
   text-primary:           "oklch(14.48% 0 0)"
   text-secondary:         "oklch(43.86% 0.0145 285.94)"
   text-tertiary:          "oklch(55.17% 0.0138 285.94)"
@@ -201,6 +202,7 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 - **Surface muted** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
 - **Border default** (`#E4E4E7` / `oklch(91.97% 0.0036 286.32)`): standard separators (0.5px default, 1px emphasis).
 - **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
+- **Border input** (`#8A8A93` / `oklch(63.63% 0.0133 286.02)`): the boundary of a form control, the edge that tells the reader "type here" or "choose here". 3.42:1 on white, 3.28:1 on raised, 3.11:1 on sunken, so it meets WCAG 1.4.11's 3:1 for user-interface components. `border-default` measures about 1.25:1 and stays the separator token. Applied by the unlayered `.aec-field-control` class in `styles.css` (AECI-1296), which `FIELD_INPUT_CLASS` and the `aec-select` trigger carry. A border-colour utility would not apply.
 - **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
 - **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
 - **Text tertiary** (`#71717A` / `oklch(55.17% 0.0138 285.94)`): hints, placeholders, metadata. Re-pointed from `#A1A1AA` in AECI-230 — the old value measured 2.56:1 on white, failing even the 3:1 large-text floor. Now 4.83:1 on white, 4.63:1 on raised. **Never on sunken/muted surfaces** (4.40:1 there) — step up to text secondary.
@@ -681,9 +683,11 @@ Three surfaces, home → section → article (`apps/web/src/app/docs/`), all ins
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.
 
-- **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
+- **Style:** 1px solid `border-input`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role. The shared recipe (`shared/form-field/form-field-classes.ts`) and the `aec-select` trigger draw the colour through `.aec-field-control`, an unlayered class in `styles.css`. Do not reach for `border-(--token)` utilities on a control: the unlayered `* { border-color }` rule beats every layered utility, so they never apply.
 - **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
-- **Error:** border shifts to 1px solid `status-error` (`#B3261E`, 6.54:1 on white — see §2 → Status); accompanied by an inline label and an icon (color is never the sole error signal).
+- **Error:** border shifts to 1px solid `status-error` (`#B3261E`, 6.54:1 on white, see §2 → Status), accompanied by an inline label and an icon (color is never the sole error signal). The red edge is `.aec-field-control[aria-invalid='true']`, so the attribute that tells a screen reader is the one that paints the border. Set `aria-invalid="true"` (or `AecSelect`'s `invalid` input) and the border follows.
+- **Form footer** (`FORM_FOOTER_CLASS`): a hairline, then the secondary action at the start and the primary at the end. Below `sm` the two stack full width with the primary on top (`flex-col-reverse`). The DOM keeps secondary then primary, so the keyboard order matches the row from `sm` up. The secondary takes `sm:me-auto`. A bare `me-auto` would stop it stretching in the stacked column. First used by `/welcome` (AECI-1296).
+- **Submit stays enabled.** A form's primary action is disabled only while the request is in flight. Pressing it with a bad answer shows every error and moves focus to the first bad field. A disabled submit gives no reason, and it also swallows Enter in the form's text fields. `/welcome` and the `/account` "About you" save follow this (AECI-1296), as the claim dialog's Continue already did.
 - **Disabled:** background fades to `surface-sunken`, text-secondary text. Pointer events disabled. **Never via opacity** (AECI-982): `disabled:opacity-50` on the Logo URL field took `#0A0A0A` over white to ~3.7:1 — below the AA 4.5:1 floor — and no token review can pin an opacity's ratio because it composites against whatever sits behind the element. The token pair is measurable: text-secondary on surface-sunken is 7.0:1. Axe cannot catch this class of defect — it exempts disabled controls from color-contrast — so field text treatments are regression-tested as class assertions.
 - **Help text:** `text-xs text-(--text-secondary)`, directly under the control, always rendered. Optional-field marking (`(optional)` on the label) is unchanged — unmarked still means required.
 

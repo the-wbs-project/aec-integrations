@@ -1,8 +1,8 @@
 ---
 title: Privacy Policy
-version: 1.0
+version: 1.1
 effective_date:
-last_updated: October 10, 2026
+last_updated: October 13, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -19,6 +19,7 @@ This policy explains what personal data AEC Integrations (the "service") collect
 We collect only what we need to run the service:
 
 - **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
+- **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you, your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
@@ -52,7 +53,7 @@ Our use of information received from Google APIs adheres to the [Google API Serv
 We rely on the following lawful bases under the GDPR:
 
 - **Legitimate interests**: operating, securing, and improving the service, moderating content, and preventing abuse, balanced against your rights.
-- **Consent**: where required, for example for non-essential analytics cookies; you can withdraw consent at any time.
+- **Consent**: where required, for example for non-essential analytics cookies and the optional About you answers; you can withdraw consent at any time, including by clearing those answers on your account page.
 - **Contract / steps before a contract**: to provide a feature you have asked for, such as adding you to the waitlist or publishing a review you submit.
 - **Legal obligation**: where we must process data to comply with the law.
 
@@ -87,6 +88,7 @@ Reviews you submit are intended for **publication** and, once approved, are visi
 We keep personal data only as long as we need it for the purposes above:
 
 - **Waitlist and feedback emails**: until you ask us to remove them or they are no longer needed.
+- **About you answers**: for as long as your account exists. They are deleted when you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Analytics and monitoring data**: for a limited retention window in line with the relevant provider's settings, after which it is deleted or aggregated.

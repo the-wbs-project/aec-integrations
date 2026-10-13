@@ -279,8 +279,10 @@ enforced in `classifyClaimantConflict()` (`lib/claimant-identity.ts`), **not** b
 Conflicts surface as **`409 GRANT_CONFLICT`** (with `details.reason`); when the GoTrue
 service-role creds are absent, identity resolution reports `unavailable`/`error` and the grant
 returns **`503 DEPENDENCY_FAILURE`** — it refuses to half-grant. The seat upsert is
-**no-clobber**: on conflict it sets only `role` / `vendor_id` / `updated_at`, never touching
-`display_name`, `theme_preference`, trust tier, or the ban columns.
+**no-clobber**: on conflict it sets only `role` / `vendor_id` / `seat_owner` / `updated_at`, never
+touching `theme_preference`, trust tier, or the ban columns. The one exception is an empty
+`display_name`, which the grant fills from the claim's `submitter_name`. It never overwrites a set
+name (AECI-1280, `STAGE_2_VENDOR_PORTAL_SPEC.md` §3.1).
 
 **Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements`,
 `lib/vendor-grant.ts`) drops the seat back to `role = 'reviewer'` and nulls `vendor_id`,
@@ -969,7 +971,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **sixteen** inbound FKs to `profiles(id)` in D1 today. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the only one that is `ON DELETE CASCADE`, so the erasure batch nulls fifteen and the sixteenth row goes with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02.
+**The FK trap (AECI-202).** There are **eighteen** inbound FKs to `profiles(id)` in D1 today. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the first that is `ON DELETE CASCADE`. AECI-1296 added `profile_details.profile_id` and `profile_audiences.profile_id`, both `ON DELETE CASCADE` (`ACCOUNT_ONBOARDING_SPEC.md`). So the erasure batch nulls fifteen, and the three cascading rows go with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02.
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -993,6 +995,8 @@ full list:
 | `review_responses.author_profile_id` | SET NULL | nulled (explicit too; the **reply survives** its author's erasure, because it is the vendor's record, so only the writing seat's link is severed) — added by AECI-1175 |
 | `review_responses.moderated_by` | SET NULL | nulled (explicit too; the decision survives, only the deciding admin's link is severed) — added by AECI-1175 |
 | `notification_preferences.profile_id` | CASCADE | not nulled; the seat's preference row is deleted with the profile. It holds only the mute state and token, so nothing survives to anonymize — added by AECI-1204 |
+| `profile_details.profile_id` | CASCADE | not nulled. The "About you" answers, firm name and LinkedIn link included, are deleted with the profile. Added by AECI-1296 |
+| `profile_audiences.profile_id` | CASCADE | not nulled. The person's audience picks are deleted with the profile. The `taxonomy_audiences` terms survive. Added by AECI-1296 |
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
@@ -1018,7 +1022,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null every inbound reference above (fifteen; the cascading sixteenth needs no statement),
+   in order, null every inbound reference above (fifteen; the three cascading rows need no statement),
    delete the user's `user_activity_daily` rows, write the `account.deleted` audit row, then
    delete the `profiles` row. All commit or roll back as a unit.
    **When the profile is a `vendor_admin` seat (AECI-1106)**, the AECI-989 seat-loss

@@ -3,6 +3,7 @@ import type { FieldTree } from '@angular/forms/signals';
 
 import type { PlanInterest } from '@aeci/shared';
 
+import { CHOICE_CARD_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 import { planLabel } from '../vendor/vendor-plan';
 
 /** One radio. `value` is the wire value of `plan_interest`. */
@@ -31,10 +32,7 @@ interface PlanOption {
   host: { class: 'block' },
   template: `
     <fieldset [attr.aria-describedby]="idPrefix() + '-plan-hint'">
-      <legend
-        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@claimDialog.plan.legend"
-      >
+      <legend [class]="legendClass" i18n="@@claimDialog.plan.legend">
         Which plan are you interested in?
         <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
       </legend>
@@ -47,9 +45,7 @@ interface PlanOption {
       </p>
       <div class="mt-3 grid gap-2">
         @for (opt of options; track opt.value) {
-          <label
-            class="flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold"
-          >
+          <label [class]="cardClass">
             <input
               type="radio"
               [name]="idPrefix() + '-plan'"
@@ -69,6 +65,9 @@ export class PlanInterestField {
   /** The `plan_interest` field: `''` or a `PlanInterest`. */
   readonly field = input.required<FieldTree<'' | PlanInterest>>();
   readonly idPrefix = input('claim');
+
+  protected readonly legendClass = FIELD_LABEL_CLASS;
+  protected readonly cardClass = CHOICE_CARD_CLASS;
 
   protected readonly options: readonly PlanOption[] = [
     { value: 'free', label: planLabel('free') },

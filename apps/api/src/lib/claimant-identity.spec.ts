@@ -42,7 +42,14 @@ const ENV_WITH_CREDS: Env = {
 };
 
 function snapshot(over: Partial<ClaimantProfileSnapshot> = {}): ClaimantProfileSnapshot {
-  return { id: USER_ID, role: 'reviewer', vendorId: null, bannedAt: null, ...over };
+  return {
+    id: USER_ID,
+    role: 'reviewer',
+    vendorId: null,
+    bannedAt: null,
+    displayName: null,
+    ...over,
+  };
 }
 
 // ── Injected seam stubs ──────────────────────────────────────────────────────
@@ -149,7 +156,13 @@ describe('resolveClaimantIdentity', () => {
       outcome: 'linked',
       userId: USER_ID,
       email: EMAIL,
-      profile: { id: USER_ID, role: 'reviewer', vendorId: null, bannedAt: null },
+      profile: {
+        id: USER_ID,
+        role: 'reviewer',
+        vendorId: null,
+        bannedAt: null,
+        displayName: 'Jane',
+      },
     });
     expect(createUser).not.toHaveBeenCalled();
   });
@@ -230,7 +243,7 @@ describe('resolveClaimantIdentity', () => {
       reason: 'already_admin',
       userId: USER_ID,
       email: EMAIL,
-      profile: { id: USER_ID, role: 'admin', vendorId: null, bannedAt: null },
+      profile: { id: USER_ID, role: 'admin', vendorId: null, bannedAt: null, displayName: null },
     });
     expect(createUser).not.toHaveBeenCalled();
     expect(await t.db.select().from(auditLog)).toHaveLength(0);

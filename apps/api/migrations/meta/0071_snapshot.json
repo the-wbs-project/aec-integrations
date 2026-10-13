@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e57b15a7-6aa2-4f4e-bcd5-e834c38c779d",
+  "id": "0b67df0b-2bb2-4b89-bc5c-17d1fa530487",
   "prevId": "59262e4b-432b-4520-9af7-bceea4d1b86c",
   "tables": {
     "asn_registry": {
@@ -3854,27 +3854,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "cf_ray": {
-          "name": "cf_ray",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cf_verified_bot": {
-          "name": "cf_verified_bot",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cf_verified_bot_category": {
-          "name": "cf_verified_bot_category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "user_agent_hash": {
           "name": "user_agent_hash",
           "type": "text",
@@ -5108,6 +5087,174 @@
           "value": "\"google_trends_index\" BETWEEN 0 AND 100"
         }
       }
+    },
+    "profile_audiences": {
+      "name": "profile_audiences",
+      "columns": {
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "audience_id": {
+          "name": "audience_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "profile_audiences_audience_idx": {
+          "name": "profile_audiences_audience_idx",
+          "columns": [
+            "audience_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "profile_audiences_profile_id_profiles_id_fk": {
+          "name": "profile_audiences_profile_id_profiles_id_fk",
+          "tableFrom": "profile_audiences",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "profile_audiences_audience_id_taxonomy_audiences_id_fk": {
+          "name": "profile_audiences_audience_id_taxonomy_audiences_id_fk",
+          "tableFrom": "profile_audiences",
+          "tableTo": "taxonomy_audiences",
+          "columnsFrom": [
+            "audience_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "profile_audiences_profile_id_audience_id_pk": {
+          "columns": [
+            "profile_id",
+            "audience_id"
+          ],
+          "name": "profile_audiences_profile_id_audience_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "profile_details": {
+      "name": "profile_details",
+      "columns": {
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "company_type": {
+          "name": "company_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "company_size": {
+          "name": "company_size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "primary_role": {
+          "name": "primary_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "firm_name": {
+          "name": "firm_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "linkedin_url": {
+          "name": "linkedin_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "onboarding_completed_at": {
+          "name": "onboarding_completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "onboarding_skipped_at": {
+          "name": "onboarding_skipped_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profile_details_profile_id_profiles_id_fk": {
+          "name": "profile_details_profile_id_profiles_id_fk",
+          "tableFrom": "profile_details",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "profile_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "profiles": {
       "name": "profiles",

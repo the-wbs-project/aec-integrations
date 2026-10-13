@@ -3,7 +3,7 @@ title: Signing in
 description: How to sign in with an emailed link or with Google, what to do when sign-in does not work, and how to sign out.
 section: account
 order: 1
-last_updated: 12 October 2026
+last_updated: 13 October 2026
 ---
 
 You need an account to write a review. Vendors need one to use the vendor portal. Browsing the directory needs no account. There is no password. You sign in with a link we email you, or with your Google account.
@@ -20,6 +20,8 @@ Either way, you come back to the page you were on when you chose Sign in.
 ## Your first sign-in
 
 The first time you sign in with an address, we create your account. There is no separate sign-up step. If you used Google, your account menu shows your Google name and photo. If you used an emailed link, it shows your email address. You can set a display name on your [account page](/account).
+
+Straight after your first sign-in, a **Tell us about yourself** page asks a few questions: your display name, where you work, your role, and a few optional details. Only the display name is required. Choose **Save and continue** to keep your answers, or **Skip for now**. Either way, you then go on to the page you were heading for. If you were accepting a vendor seat invite, you go to the invite first and are not asked. See [Your account and your data](/docs/account/your-data) for what the answers do.
 
 Your account belongs to the email address you sign in with. If you sign in with Google using a different address, you are in a different account, with none of your reviews.
 

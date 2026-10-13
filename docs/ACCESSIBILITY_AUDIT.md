@@ -175,6 +175,17 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 | Account `/account` | ✅ | not walked | ✅ | ✅ | ❌ **A3** |
 | Admin queue `/admin/reviews` | ✅ | not walked | ✅ | ✅ | ✅ reference-good |
 | Admin overview `/admin/overview` | ✅ (bonus) | not walked | ✅ | ✅ | ✅ reference-good |
+| Onboarding `/welcome` (local, 2026-10-13, AECI-1296 working tree) | ✅ | DOM order only (harness dropped keys) | ✅ | ✅ | ✅ one persistent `role=status` |
+
+**2026-10-13 `/welcome` run (local 8790 pair, AECI-1296).** Two passes on the same day. The first, on
+the initial build, found: field borders at 1.25:1 (1.4.11, serious); Save natively `disabled` with no
+reason (3.3.1); "Loading…" and the vendor-branch field removal silent (4.1.3); the audience count and
+cap unannounced; "Prefer not to say" rendered as pre-selected (3.3.2). The second pass, after the
+fixes, found every one resolved and zero axe violations in five states (default, popup open, vendor
+chosen, errors showing, 10-of-10 cap). Measured: resting border `#8A8A93` at 3.42:1 on white and
+3.28:1 on the raised card; error border `--status-error` at 6.54:1. Not covered: real keyboard and
+focus ring (the hidden tab drops keys), VoiceOver/NVDA, a true 390px viewport (an iframe stood in).
+Minor, unfiled: the "Clear answer" row is exposed as a `role=option`.
 
 ---
 

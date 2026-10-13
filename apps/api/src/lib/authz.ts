@@ -88,6 +88,9 @@ export type AuthenticatedSession = {
    *  source for `reviewer_id` and audit `actorId`; never client-supplied. */
   userId: string;
   email?: string;
+  /** The provider's name for the user (`AuthenticatedUser.fullName`, AECI-1296).
+   *  Informational only, never an authorization input. */
+  fullName?: string;
   /** `profiles.role`, re-fetched from the DB this request. */
   role: string;
   /**
@@ -417,6 +420,7 @@ function createAuthzMiddleware(
     c.set('auth', {
       userId: user.userId,
       email: user.email,
+      ...(user.fullName ? { fullName: user.fullName } : {}),
       role: profile.role,
       vendorId: profile.vendorId,
       // Only the vendor branch ran the join, so only it can resolve to anything

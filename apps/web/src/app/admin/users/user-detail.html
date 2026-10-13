@@ -119,6 +119,65 @@
     </div>
   </dl>
 
+  <!-- ── About them (AECI-1296) ───────────────────────────────────────────── -->
+  @if (about(); as a) {
+  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.about">
+    About them
+  </h3>
+  <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.users.detail.aboutHelp">
+    What they told us on the onboarding form. Private: only this page and their own account show the
+    firm and LinkedIn link.
+  </p>
+  <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2" data-testid="admin-user-about">
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.onboarding">Onboarding</dt>
+      <dd class="font-medium text-(--text-primary)">
+        @switch (a.onboarding) { @case ('completed') {
+        <span i18n="@@admin.users.detail.onboarding.completed">Answered</span>
+        } @case ('skipped') {
+        <span i18n="@@admin.users.detail.onboarding.skipped">Skipped</span>
+        } @default {
+        <span i18n="@@admin.users.detail.onboarding.pending">Not yet</span>
+        } }
+      </dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.companyType">Works at</dt>
+      <dd class="font-medium text-(--text-primary)">{{ a.companyType ?? '–' }}</dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.companySize">Company size</dt>
+      <dd class="font-medium text-(--text-primary)">{{ a.companySize ?? '–' }}</dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.primaryRole">Role</dt>
+      <dd class="font-medium text-(--text-primary)">{{ a.primaryRole ?? '–' }}</dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.firm">Firm</dt>
+      <dd class="font-medium text-(--text-primary)">{{ a.firmName ?? '–' }}</dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.linkedin">LinkedIn</dt>
+      <dd class="min-w-0 font-medium break-all text-(--text-primary)">
+        @if (a.linkedinUrl) {
+        <a
+          [href]="a.linkedinUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ a.linkedinUrl }}</a
+        >
+        } @else { – }
+      </dd>
+    </div>
+    <div class="flex gap-2 sm:col-span-2">
+      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.audiences">Audiences</dt>
+      <dd class="font-medium text-(--text-primary)">{{ a.audiences || '–' }}</dd>
+    </div>
+  </dl>
+  }
+
   <!-- ── Vendor access ────────────────────────────────────────────────────── -->
   <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.access">
     Vendor access

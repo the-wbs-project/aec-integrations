@@ -44,6 +44,8 @@ function makeRow(over: Partial<AdminUserRow> = {}): AdminUserRow {
       email_confirmed_at: '2026-01-05T12:04:00.000Z',
     },
     banned_at: null,
+    company_type: null,
+    company_size: null,
     created_at: '2026-01-05T12:00:00.000Z',
     updated_at: '2026-01-05T12:00:00.000Z',
     ...over,

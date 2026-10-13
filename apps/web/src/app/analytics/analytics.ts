@@ -297,6 +297,22 @@ export class Analytics {
     this.capture('review_submitted', { product_id: productId });
   }
 
+  /**
+   * The "About you" onboarding form was saved (AECI-1296). Segment fields and a
+   * count only: the firm name and the LinkedIn URL are personal data and are
+   * never sent, so the input type cannot carry them. `source` is the surface:
+   * `'welcome'` (first sign-in) or `'account'` (the `/account` card).
+   */
+  onboardingCompleted(input: OnboardingEventInput): void {
+    this.capture('onboarding_completed', onboardingProperties(input));
+  }
+
+  /** The onboarding form was skipped or dismissed (AECI-1296). Same properties
+   *  as {@link onboardingCompleted}, so the two events compare directly. */
+  onboardingSkipped(input: OnboardingEventInput): void {
+    this.capture('onboarding_skipped', onboardingProperties(input));
+  }
+
   /** §14.1 names `vendor_id`, but the request form holds only `(target_type,
    *  slug)` and the response returns only `request_id` — so we record the
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
@@ -672,4 +688,25 @@ export class Analytics {
     if (segments.length === 1 && BROWSE_ROOTS.has(segments[0])) return 'browse';
     return 'direct';
   }
+}
+
+/** What the two onboarding events may carry (AECI-1296). No free text. */
+export interface OnboardingEventInput {
+  readonly source: 'welcome' | 'account';
+  readonly company_type: string | null;
+  readonly company_size: string | null;
+  readonly primary_role: string | null;
+  readonly audience_count: number;
+}
+
+/** Copy the allowed keys only, so an object that happens to carry `firm_name`
+ *  or `linkedin_url` can never leak them through a spread. */
+function onboardingProperties(input: OnboardingEventInput): Record<string, unknown> {
+  return {
+    source: input.source,
+    company_type: input.company_type,
+    company_size: input.company_size,
+    primary_role: input.primary_role,
+    audience_count: input.audience_count,
+  };
 }

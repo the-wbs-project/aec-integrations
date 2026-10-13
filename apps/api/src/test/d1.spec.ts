@@ -1014,10 +1014,12 @@ describe('connector lane (AECI-714)', () => {
   });
 
   it('pins the tables that cascade INTO profiles — the next recreate depends on it', async () => {
-    // `notification_preferences.profile_id` (AECI-1204, migration 0055) is the only
+    // `notification_preferences.profile_id` (AECI-1204, migration 0055) was the first
     // `ON DELETE CASCADE` child of `profiles`. A recreate of `profiles` in drizzle-kit's
     // generated order would fire that cascade and wipe every mute, and a wiped mute
-    // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). SQLite's
+    // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). AECI-1296
+    // (migration 0071) added `profile_details` and `profile_audiences`, the "About you"
+    // answers (`DATABASE_SCHEMA.md` §7.1a). The same recreate would wipe those. SQLite's
     // `DROP TABLE` fires foreign-key ACTIONS and `PRAGMA defer_foreign_keys` does not stop
     // them (`docs/migrations.md` §0). When this list grows, plan the carry tables first.
     //
@@ -1034,7 +1036,11 @@ describe('connector lane (AECI-714)', () => {
           ORDER BY m.name, f."from"`,
       )
       .all();
-    expect(inbound).toEqual([{ name: 'notification_preferences', col: 'profile_id' }]);
+    expect(inbound).toEqual([
+      { name: 'notification_preferences', col: 'profile_id' },
+      { name: 'profile_audiences', col: 'profile_id' },
+      { name: 'profile_details', col: 'profile_id' },
+    ]);
     t.dispose();
   });
 

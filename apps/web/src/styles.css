@@ -64,6 +64,10 @@
   --surface-muted: oklch(96.78% 0.0019 286.38); /* #F4F4F5 */
   --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
   --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
+  /* Form control boundary (inputs, select triggers). WCAG 1.4.11 needs 3:1 for
+     the edge that identifies a control: 3.42:1 on white, 3.28:1 on raised,
+     3.11:1 on sunken. --border-default (1.25:1) stays for separators. */
+  --border-input: oklch(63.63% 0.0133 286.02); /* #8A8A93 */
   --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
   --text-secondary: oklch(43.86% 0.0145 285.94); /* #52525B */
   /* 4.83:1 on white, 4.63:1 on raised (AECI-230; the prior #A1A1AA measured
@@ -250,6 +254,7 @@
   --color-surface-muted: var(--surface-muted);
   --color-border-default: var(--border-default);
   --color-border-strong: var(--border-strong);
+  --color-border-input: var(--border-input);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
@@ -400,6 +405,27 @@ h3 {
 
 .aec-pill-attention {
   border-color: var(--border-strong);
+}
+
+/* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
+   trigger). Unlayered for the reason `.aec-nav-tab` records: a border-colour
+   utility loses to the `*` rule. Rest is the 3:1 `--border-input`. Invalid is
+   `--status-error`, keyed off `aria-invalid` so the attribute that tells a
+   screen reader is the one that paints the edge. */
+.aec-field-control {
+  border-color: var(--border-input);
+}
+
+.aec-field-control[aria-invalid='true'] {
+  border-color: var(--status-error);
+}
+
+/* A scroll box whose last row may be clipped (the "About you" audience list).
+   A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
+   the overflow reads as scrollable where overlay scrollbars hide. */
+.aec-scroll-box {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-input) transparent;
 }
 
 hr {
