@@ -84,7 +84,7 @@ describe('SearchAutocomplete', () => {
     expect(input.getAttribute('type')).toBe('search');
   });
 
-  it('does not render an empty listbox when typing yields no suggestions', async () => {
+  it('renders no listbox and stays collapsed when typing yields no suggestions', async () => {
     // Aria's combobox expands the popup on EVERY input event, so the popup opens
     // before (or without) any results. The listbox must be gated on a non-empty
     // result set, otherwise an empty `role="listbox"` is rendered — an
@@ -103,10 +103,14 @@ describe('SearchAutocomplete', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     fixture.detectChanges();
     await fixture.whenStable();
+    fixture.detectChanges(); // render the collapse the effect wrote
 
-    // Aria opened the combobox on input...
-    expect(input.getAttribute('aria-expanded')).toBe('true');
-    // ...but no listbox is rendered because there are zero suggestions — neither in
+    // Aria opened the combobox on input, and the component collapsed it again:
+    // aria-expanded="true" with no listbox has no aria-controls, a critical axe
+    // `aria-required-attr` (AECI-1308).
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.hasAttribute('aria-controls')).toBe(false);
+    // No listbox is rendered because there are zero suggestions — neither in
     // the host nor in the CDK overlay container (the popup is portaled out now).
     expect(host.querySelector('[role="listbox"]')).toBeNull();
     expect(document.querySelector('[role="listbox"]')).toBeNull();

@@ -279,8 +279,14 @@ widget/keyboard/overlay. This is the reusable shape for "search box that jumps t
    *expansion* on a non-empty result set is impossible — the popup opens before results exist. Instead render
    the `ngListbox` itself only when there is ≥1 hit (`@if (suggestions().length > 0)`): a zero-hit query then
    mounts no widget, so there's no empty `role="listbox"` (an `aria-required-children` risk) and no empty
-   floating panel. The same omitted-`aria-controls` reasoning above applies to this gated-empty state, not
-   just the collapsed state.)
+   floating panel.)
+   **Corrected 2026-10-13 (AECI-1308).** The gated-empty state is *not* axe-clean. Aria leaves
+   `aria-expanded="true"` on the input while no listbox exists, so `aria-controls` is omitted on an expanded
+   combobox, and axe reports a critical `aria-required-attr`. The fix is a second effect: when the
+   combobox is expanded with zero rows, set the directive's own `expanded` model to `false` (through a
+   `viewChild(Combobox)`). Writing only the component's two-way signal is not enough, because the binding
+   does not re-push a value it already sent. The open effect re-expands when hits land.
+   `search-autocomplete.ts` and `docs-search.ts` both do this.
 3. **CDK Overlay positions the popup**, as the ADR predicted — no new infra (CDK is already a transitive
    dep) and no hand-rolled `top-full` positioning needed.
 4. **Token styling matched the tabs ergonomics:** highlight via the `data-[active=true]:` variant Aria sets

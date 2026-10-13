@@ -2,8 +2,15 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built (AECI-1104) and, since AECI-1253, indexable, in the sitemap, in the footer Help column and linked from the vendor portal (§7 question 1). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The internal link check is built (AECI-1254, part 2). The rest of the vendor guide is built (AECI-1251): `your-dashboard`, `editing-profile-and-products` and `notifications-and-messages`. The FAQ waits for the AECI-1105 pilot questions. A performance page waits for `analytics.view`, and `product-versions` waits for AECI-1263.
+**Status:** Built. The AECI-634 epic is complete: every sub-issue in §8 is closed except the close-out, AECI-1308, which this status records. The FAQ is not part of it. It moved to Stage 2.5 as AECI-1254 on 2026-10-13 and waits for the AECI-1105 pilot questions. The help center (getting started, trust, reviewer and account pages) and the vendor guide are built, indexable, in `sitemap.xml` and in the footer Help column. The vendor guide is linked from the portal (§7 question 1). The internal link check runs as an `ng test` case (§4). A vendor performance page waits for `analytics.view`, and `product-versions` waits for AECI-1263 (§6). The close-out axe pass is in `ACCESSIBILITY_AUDIT.md` §5.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-13, epic close-out (AECI-1308).** The FAQ left the epic: Chris ruled AECI-1254 back to
+> Backlog, detached from AECI-634 and moved to Stage 2.5. Its other two T6 items are done: the link
+> check shipped, and the close-out became AECI-1308. The close-out axe pass scanned the `/docs` home,
+> every section index, the vendor guide landing page and every article at 1280px and 390px. All 30
+> URLs were clean. It found one critical defect in both search boxes, a combobox left expanded with no
+> listbox, and fixed it (`ACCESSIBILITY_AUDIT.md` §5). `STAGE_2_SPEC.md` §2.6 is marked built.
 
 > **2026-10-13, the rest of the vendor guide (AECI-1251, T4).** Three pages, indexable and in
 > `sitemap.xml` like the rest of the guide: `your-dashboard` (order 4), `editing-profile-and-products`
@@ -257,7 +264,7 @@ sidebar toggle, with disjoint URL spaces.
 ├─ account/                          — SHIPPED (AECI-1250), indexable
 │  ├─ signing-in                     — magic link + Google, common failure modes, an expired session
 │  └─ your-data                      — links /legal/privacy; deletion/erasure path
-└─ faq                               — AECI-1254: seeded from real pilot-vendor questions, not invented
+└─ faq                               — AECI-1254 (Stage 2.5 since 2026-10-13): seeded from real pilot-vendor questions, not invented
 ```
 
 **For vendors**, the vendor guide (section `vendors`, its own landing page and sidebar tree, listed
@@ -338,11 +345,11 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
 3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "Vendor guide" (`/docs/vendors/overview`), shipped by AECI-1253 on 2026-10-12. It is not called "For vendors": that label is the Company column's link to `/vendor-program` (AECI-1283). Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`, the vendor guide's first page since AECI-1271. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
-4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
+4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that. It is Stage 2.5 work since 2026-10-13, outside this epic.
 
 ## 8. Epic decomposition (2026-10-08)
 
-One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Activation" project (Chris, 2026-10-08). Only AECI-1251 and AECI-1253 gate `STAGE_2_1_SPEC.md` §5. The rest is reader content riding in the same window.
+One PR per sub-issue, each into `main`. All except AECI-1254 sit in the "Stage 2.1 — Vendor Activation" project (Chris, 2026-10-08). Only AECI-1251 and AECI-1253 gate `STAGE_2_1_SPEC.md` §5. The rest is reader content riding in the same window.
 
 | # | Issue | Scope | Gated on |
 |---|---|---|---|
@@ -353,6 +360,7 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T4 | AECI-1251 | The rest of the vendor guide. **Shipped 2026-10-13:** `your-dashboard`, `editing-profile-and-products`, `notifications-and-messages` and their portal links. Performance and `product-versions` stay deferred (§6) | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
 | T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "Vendor guide" in the footer Help column, the §7 portal links. **All three shipped 2026-10-12** by Chris's rulings, ahead of AECI-1105: the first two, then the portal links ("we are going live today") | T1 |
-| T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |
+| T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out. **Split 2026-10-13:** the link check shipped under this issue. The FAQ moved to Stage 2.5, and AECI-1254 left the epic to carry it alone. The close-out became T7 | T5b, AECI-1105 |
+| T7 | AECI-1308 | Epic close-out: axe pass over every docs template, the final docs sweep, `STAGE_2_SPEC.md` §2.6 marked built. **Done 2026-10-13** (`ACCESSIBILITY_AUDIT.md` §5) | T4 |
 
-The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6).
+The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6). AECI-1254 is no longer a sub-issue, so the epic closes when AECI-1308 merges.

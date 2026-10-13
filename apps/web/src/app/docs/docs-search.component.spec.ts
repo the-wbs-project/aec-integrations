@@ -163,6 +163,31 @@ describe('DocsSearchComponent', () => {
     );
   });
 
+  it('stays collapsed while the first query is in flight (AECI-1308)', async () => {
+    // Aria expands on the keystroke, before any row exists. aria-expanded="true"
+    // with no listbox has no aria-controls, a critical axe aria-required-attr.
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: DOCS_SEARCH_FACTORY,
+          useValue: () => Promise.resolve(() => new Promise<never>(() => {})),
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(DocsSearchComponent);
+    fixture.componentRef.setInput('guide', 'help');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
+    await type(fixture, input, 'before');
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.hasAttribute('aria-controls')).toBe(false);
+  });
+
   it('moves with the arrow keys and opens the active row on Enter', async () => {
     (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
     const { fixture, host } = await render('help');
