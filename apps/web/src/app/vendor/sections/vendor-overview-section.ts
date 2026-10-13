@@ -13,6 +13,7 @@ import { RouterLink } from '@angular/router';
 
 import { VendorGlanceBand } from '../components/vendor-glance-band';
 import { VendorChecklist } from '../components/vendor-checklist';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { vendorChecklistRows } from '../checklist-rows';
 import {
   buildNeedsItems,
@@ -75,7 +76,7 @@ interface NeedsRow {
  */
 @Component({
   selector: 'aec-vendor-overview-section',
-  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist],
+  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist, VendorDocsLink],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
@@ -169,6 +170,7 @@ interface NeedsRow {
           <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             {{ lede() }}
           </p>
+          <p class="mt-1"><aec-vendor-docs-link page="your-dashboard" /></p>
 
           @if (needs().paused) {
             <div

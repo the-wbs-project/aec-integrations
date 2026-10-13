@@ -2,9 +2,9 @@
 title: Plans
 description: What the Free and Managed plans give your company on AEC Integrations, how listings are sorted on every plan, how to get Managed, and what happens when a plan ends.
 section: vendors
-order: 8
+order: 11
 cta: managed
-last_updated: 12 October 2026
+last_updated: 13 October 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -25,6 +25,8 @@ On Free and on Managed, anyone with a seat can:
 - invite colleagues and manage seats. See [Your seat](/docs/vendors/your-seat),
 - work through the company and product checklists. See [Your checklists](/docs/vendors/checklists).
 
+[Editing your profile and products](/docs/vendors/editing-profile-and-products) lists every field and how it saves.
+
 The company name and the product names are not edited in the portal.
 
 The product details on this list are the ones that feed search ranking. They are editable on Free for that reason. [How ranking works](/docs/trust/how-ranking-works) explains how they count.
@@ -33,7 +35,7 @@ The product details on this list are the ones that feed search ranking. They are
 
 - **How teams use it.** Show buyers, in your own words, what your product does on a real project.
 - **Trades, audiences and phases.** Set the trades, audiences and project phases each product serves, so its listing describes it accurately.
-- **Integrations page and API docs links.** Send evaluators straight from your listing to your docs.
+- **Integrations page and API docs links.** Send evaluators straight from your listing to your docs. They show under **Resources** on your product page.
 - **Confirmed data flows.** Say which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Attesting an integration](/docs/vendors/attesting-an-integration).
 - **Connector integrations.** Claim, edit, retire and restore the integrations you deliver through a connector, not only the ones you built directly. See [Owning an integration](/docs/vendors/owning-an-integration).
 - **Review replies.** Answer reviews of your products in public, so buyers see your side. We check each reply before it goes live. See [Replying to reviews](/docs/vendors/replying-to-reviews).

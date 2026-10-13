@@ -2,8 +2,8 @@
 title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
-order: 4
-last_updated: 9 October 2026
+order: 7
+last_updated: 13 October 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -87,7 +87,7 @@ The page tells you, on the integration's own page, what your answer sets in moti
 
 ## Related
 
-- Previous: [Your seat](/docs/vendors/your-seat).
+- Previous: [Notifications and messages](/docs/vendors/notifications-and-messages).
 - Next: [Owning an integration](/docs/vendors/owning-an-integration).
 - [Contests and protests](/docs/vendors/contests-and-protests), for asking to change an integration's other details.
 - [How we research and verify listings](/methodology).

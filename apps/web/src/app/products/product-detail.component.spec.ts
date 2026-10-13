@@ -144,6 +144,48 @@ describe('ProductDetailPage website click ownership (AECI-933)', () => {
   });
 });
 
+// AECI-1309: the two Managed doc links, public whenever the product has a value.
+describe('ProductDetailPage resources links (AECI-1309)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders no Resources group when the product has neither link', () => {
+    const { el } = setup(buildProduct());
+    expect(el.querySelector('#resources-label')).toBeNull();
+  });
+
+  it('renders both links, each in a new tab and tracked by purpose', () => {
+    const { el, analytics } = setup(
+      buildProduct({
+        tool_integrations_url: 'https://www.procore.com/integrations',
+        api_docs_url: 'https://developers.procore.com/docs',
+      }),
+    );
+    expect(el.querySelector('#resources-label')?.textContent?.trim()).toBe('Resources');
+    const integrations = el.querySelector<HTMLAnchorElement>(
+      'a[href="https://www.procore.com/integrations"]',
+    );
+    expect(integrations?.textContent).toContain('Integrations page');
+    expect(integrations?.getAttribute('target')).toBe('_blank');
+    expect(integrations?.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+
+    clickWebsite(el, 'https://developers.procore.com/docs');
+    expect(analytics.externalLinkClicked).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ source: 'product_detail', link_purpose: 'docs' }),
+    );
+    clickWebsite(el, 'https://www.procore.com/integrations');
+    expect(analytics.externalLinkClicked.mock.lastCall?.[0]).toHaveProperty(
+      'link_purpose',
+      'listing',
+    );
+  });
+
+  it('renders only the link the product has', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developers.procore.com/docs' }));
+    expect(el.textContent).toContain('API documentation');
+    expect(el.textContent).not.toContain('Integrations page');
+  });
+});
+
 describe('ProductDetailPage hero rating', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

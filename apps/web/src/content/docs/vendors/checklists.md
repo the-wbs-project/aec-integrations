@@ -2,8 +2,8 @@
 title: Your checklists
 description: The company and product checklists in your portal, how a product's checklist counts on each plan, and how "Looks right" records that you checked a listing.
 section: vendors
-order: 9
-last_updated: 12 October 2026
+order: 12
+last_updated: 13 October 2026
 ---
 
 Your portal keeps a checklist for your company and one for each product. Each shows what is left to check, so your listings stay accurate without anyone keeping a list by hand. The checklists work on every plan.
@@ -18,7 +18,7 @@ Your company's checklist has three steps:
 
 Each product's checklist has four steps:
 
-- **Check product details.** Edit the product, or choose "Looks right".
+- **Check product details.** Edit the product, or choose "Looks right". See [Editing your profile and products](/docs/vendors/editing-profile-and-products).
 - **Check the integration list.** Choose "Looks right" on the product's integrations. This step completes even when your company has claimed none of them yet.
 - **Claim or say "not ours".** Claim each integration your company is recorded as owning. If one is not yours, choose "Not ours?" on it and say who offers it, if you know. The step counts it as answered while AEC Integrations reviews it, and after it agrees. [Owning an integration](/docs/vendors/owning-an-integration) explains both.
 - **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations.
