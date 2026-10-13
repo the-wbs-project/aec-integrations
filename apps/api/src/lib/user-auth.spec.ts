@@ -49,6 +49,7 @@ type SignOptions = {
   audience?: string;
   expiresIn?: string;
   alg?: string;
+  userMetadata?: Record<string, unknown>;
 };
 
 async function mintToken(opts: SignOptions = {}): Promise<string> {
@@ -56,6 +57,7 @@ async function mintToken(opts: SignOptions = {}): Promise<string> {
   const payload: Record<string, unknown> = {};
   if (sub !== null) payload.sub = sub;
   if (email !== undefined) payload.email = email;
+  if (opts.userMetadata !== undefined) payload.user_metadata = opts.userMetadata;
   const jwt = new SignJWT(payload)
     .setProtectedHeader({ alg: opts.alg ?? 'ES256', kid: 'test-key' })
     .setIssuedAt()
@@ -178,6 +180,21 @@ describe('requireUserAuth', () => {
     expect(status).toBe(200);
     expect(body.userId).toBe('user-def');
     expect(body.email).toBeUndefined();
+  });
+
+  // AECI-1296: the provider name seeds the onboarding display-name suggestion.
+  it('reads fullName from user_metadata.full_name, falling back to name', async () => {
+    const both = await mintToken({ userMetadata: { full_name: ' Ada Lovelace ', name: 'Ada' } });
+    expect((await verifySupabaseJwt(both, SUPABASE_URL, getKey)).fullName).toBe('Ada Lovelace');
+    const nameOnly = await mintToken({ userMetadata: { name: 'Grace Hopper' } });
+    expect((await verifySupabaseJwt(nameOnly, SUPABASE_URL, getKey)).fullName).toBe('Grace Hopper');
+  });
+
+  it('omits fullName when user_metadata carries no usable name', async () => {
+    const blank = await mintToken({ userMetadata: { full_name: '   ', name: 42 } });
+    const user = await verifySupabaseJwt(blank, SUPABASE_URL, getKey);
+    expect(user).toEqual({ userId: 'user-123', email: undefined });
+    expect('fullName' in user).toBe(false);
   });
 });
 /**

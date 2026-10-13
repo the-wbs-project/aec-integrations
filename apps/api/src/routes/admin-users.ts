@@ -57,13 +57,29 @@ import {
   type AdminUserSeat,
   type AdminUsersListResponse,
 } from '@aeci/shared';
-import { and, count, desc, eq, gt, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import {
+  profileAudiences,
+  profileDetails,
   profiles,
   reviews,
+  taxonomyAudiences,
   vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
@@ -74,6 +90,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import type { AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { textAsc } from '../lib/collation';
 import { resolveAdminUserOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import {
@@ -235,11 +252,16 @@ export function createAdminUsersListHandler(
           updatedAt: profiles.updatedAt,
           vendorCompanyName: vendors.companyName,
           vendorSlug: vendors.slug,
+          companyType: profileDetails.companyType,
+          companySize: profileDetails.companySize,
         })
         .from(profiles)
         // Cannot multiply rows: `profiles.vendor_id` is single-valued, so this is
         // at most one vendor per profile (`AUTH_AND_RLS.md` §3.2 exclusivity).
         .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
+        // Cannot multiply rows either: `profile_details` is keyed by `profile_id`
+        // (AECI-1296). No filter reads it, so `count()` below needs no join.
+        .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
         .where(where)
         .orderBy(...resolveAdminUserOrderBy(query.sort, query.order))
         .limit(query.perPage)
@@ -265,6 +287,8 @@ export function createAdminUsersListHandler(
           banned_at: row.bannedAt,
           created_at: row.createdAt,
           updated_at: row.updatedAt,
+          company_type: row.companyType,
+          company_size: row.companySize,
         }),
       ),
       page: query.page,
@@ -315,43 +339,64 @@ export function createAdminUserDetailHandler(
     const userId = requiredParam(c, 'id');
     const { db } = dbFor(c.env);
 
-    const [profileRows, reviewRows, invitesSent, entitlementsGranted] = await db.batch([
-      db
-        .select({
-          id: profiles.id,
-          displayName: profiles.displayName,
-          role: profiles.role,
-          vendorId: profiles.vendorId,
-          trustTier: profiles.trustTier,
-          workEmailVerified: profiles.workEmailVerified,
-          seatOwner: profiles.seatOwner,
-          bannedAt: profiles.bannedAt,
-          banReason: profiles.banReason,
-          createdAt: profiles.createdAt,
-          updatedAt: profiles.updatedAt,
-          vendorCompanyName: vendors.companyName,
-          vendorSlug: vendors.slug,
-        })
-        .from(profiles)
-        .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
-        .where(eq(profiles.id, userId)),
-      // Grouped, not four scalar counts: one statement, and a status the CHECK
-      // gains later shows up as an unmapped key rather than silently vanishing.
-      db
-        .select({ status: reviews.status, value: count() })
-        .from(reviews)
-        .where(eq(reviews.reviewerId, userId))
-        .groupBy(reviews.status),
-      // All time, any state — a spent or revoked invite still happened.
-      db
-        .select({ value: count() })
-        .from(vendorSeatInvites)
-        .where(eq(vendorSeatInvites.invitedById, userId)),
-      db
-        .select({ value: count() })
-        .from(vendorEntitlements)
-        .where(eq(vendorEntitlements.grantedBy, userId)),
-    ]);
+    const [profileRows, reviewRows, invitesSent, entitlementsGranted, audienceRows] =
+      await db.batch([
+        db
+          .select({
+            id: profiles.id,
+            displayName: profiles.displayName,
+            role: profiles.role,
+            vendorId: profiles.vendorId,
+            trustTier: profiles.trustTier,
+            workEmailVerified: profiles.workEmailVerified,
+            seatOwner: profiles.seatOwner,
+            bannedAt: profiles.bannedAt,
+            banReason: profiles.banReason,
+            createdAt: profiles.createdAt,
+            updatedAt: profiles.updatedAt,
+            vendorCompanyName: vendors.companyName,
+            vendorSlug: vendors.slug,
+            companyType: profileDetails.companyType,
+            companySize: profileDetails.companySize,
+            primaryRole: profileDetails.primaryRole,
+            firmName: profileDetails.firmName,
+            linkedinUrl: profileDetails.linkedinUrl,
+            onboardingCompletedAt: profileDetails.onboardingCompletedAt,
+            onboardingSkippedAt: profileDetails.onboardingSkippedAt,
+          })
+          .from(profiles)
+          .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
+          // AECI-1296: the "About you" answers, at most one row per profile.
+          .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
+          .where(eq(profiles.id, userId)),
+        // Grouped, not four scalar counts: one statement, and a status the CHECK
+        // gains later shows up as an unmapped key rather than silently vanishing.
+        db
+          .select({ status: reviews.status, value: count() })
+          .from(reviews)
+          .where(eq(reviews.reviewerId, userId))
+          .groupBy(reviews.status),
+        // All time, any state — a spent or revoked invite still happened.
+        db
+          .select({ value: count() })
+          .from(vendorSeatInvites)
+          .where(eq(vendorSeatInvites.invitedById, userId)),
+        db
+          .select({ value: count() })
+          .from(vendorEntitlements)
+          .where(eq(vendorEntitlements.grantedBy, userId)),
+        // The audiences the person picked, A to Z with the `id` tiebreaker (AECI-1243).
+        db
+          .select({
+            id: taxonomyAudiences.id,
+            name: taxonomyAudiences.name,
+            slug: taxonomyAudiences.slug,
+          })
+          .from(profileAudiences)
+          .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, profileAudiences.audienceId))
+          .where(eq(profileAudiences.profileId, userId))
+          .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.id)),
+      ]);
 
     const profile = profileRows[0];
     // 404 before anything else is rendered: an unknown id must not come back as
@@ -453,6 +498,19 @@ export function createAdminUserDetailHandler(
       // Server-computed from the same constant the moderation queue uses, so the
       // two surfaces cannot label the same person differently.
       repeat_offender: reviewCounts.rejected >= REPEAT_OFFENDER_THRESHOLD,
+      about: {
+        company_type: profile.companyType,
+        company_size: profile.companySize,
+        primary_role: profile.primaryRole,
+        firm_name: profile.firmName,
+        linkedin_url: profile.linkedinUrl,
+        audiences: audienceRows,
+        onboarding: profile.onboardingCompletedAt
+          ? 'completed'
+          : profile.onboardingSkippedAt
+            ? 'skipped'
+            : 'pending',
+      },
     };
 
     validateResponseInDev(c.env, () => {

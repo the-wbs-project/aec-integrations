@@ -32,6 +32,12 @@ import { PlanInterestField } from '../../requests/plan-interest-field';
 import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
+import {
+  BUTTON_PRIMARY_CLASS,
+  BUTTON_SECONDARY_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../form-field/form-field-classes';
 
 import type { ClaimDialogOpening, ClaimListing } from './claim-dialog.service';
 
@@ -526,16 +532,12 @@ export class ClaimDialogFlow implements OnInit {
 
   protected readonly headingClass =
     'font-display text-xl font-normal text-(--text-primary) focus:outline-none';
-  protected readonly labelClass =
-    'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly textButtonClass =
     'font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass =
-    'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
+  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
 
   private prefilledEmail = false;
 

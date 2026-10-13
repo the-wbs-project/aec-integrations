@@ -1,6 +1,6 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
@@ -23,7 +23,19 @@ import {
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { AccountApi } from './account-api';
+import { ProfileDetailsForm } from './profile-details/profile-details-form';
+import {
+  EMPTY_DRAFT,
+  draftFromDetails,
+  draftToPatch,
+  linkedInInvalid,
+  type ProfileDetailsDraft,
+} from './profile-details/profile-details-model';
 import { ReviewStatusBadge } from './review-status-badge';
+import {
+  BUTTON_PRIMARY_CLASS,
+  BUTTON_SECONDARY_CLASS,
+} from '../shared/form-field/form-field-classes';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -46,6 +58,13 @@ const REVIEWS_PER_PAGE = 24;
  * (`GET /api/account/reviews`, all statuses, AECI-225) loads the same
  * browser-only way, in parallel with identity.
  *
+ * "About you" (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`): the shared
+ * `ProfileDetailsForm` sits under the display name and saves on its own button.
+ * While onboarding is `pending`, a "Tell us about yourself" card sits above the
+ * profile. It is how an existing user, or one whose profile the AECI-770
+ * self-heal created, is asked: nobody is ever redirected from here. "Not now"
+ * records a skip, so the card does not come back.
+ *
  * i18n / a11y: all copy is `i18n`/`$localize`; the delete confirmation uses
  * Spartan `BrnDialog` (focus trap + Escape + focus return).
  */
@@ -55,6 +74,7 @@ const REVIEWS_PER_PAGE = 24;
     DatePipe,
     FormField,
     RouterLink,
+    ProfileDetailsForm,
     ReviewStatusBadge,
     BrnDialog,
     BrnDialogClose,
@@ -71,6 +91,7 @@ export class AccountPage {
   private readonly analytics = inject(Analytics);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+  private readonly doc = inject(DOCUMENT);
 
   /** The fetched identity; null until the browser load resolves. */
   protected readonly profile = signal<AccountProfileResponse | null>(null);
@@ -91,6 +112,22 @@ export class AccountPage {
   /** Display-name save feedback. */
   protected readonly saved = signal(false);
   protected readonly saveFailed = signal(false);
+
+  /** "About you" answers and their save feedback (AECI-1296). */
+  protected readonly draft = signal<ProfileDetailsDraft>(EMPTY_DRAFT);
+  protected readonly aboutSaving = signal(false);
+  protected readonly aboutSaved = signal(false);
+  protected readonly aboutFailed = signal(false);
+  protected readonly aboutInvalid = computed(() => linkedInInvalid(this.draft()));
+  /** Text for the About you form's polite live region. */
+  protected readonly aboutStatus = signal('');
+  private readonly aboutForm = viewChild(ProfileDetailsForm);
+  /** Show the onboarding card while the server still reports `pending`. */
+  // The claim dialog's button recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
+  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+
+  protected readonly showOnboardingCard = computed(() => this.profile()?.onboarding === 'pending');
 
   /** Delete-account flow state. */
   protected readonly deleting = signal(false);
@@ -145,6 +182,7 @@ export class AccountPage {
       const profile = await this.api.getProfile();
       this.profile.set(profile);
       this.model.set({ display_name: profile.display_name ?? '' });
+      this.draft.set(draftFromDetails(profile.details));
       // `GET /api/account` may have just created the profile (the AECI-770
       // self-heal), and the reviews fetch that ran beside it would have 401'd.
       if (this.reviewsFailed()) void this.loadReviews();
@@ -210,6 +248,69 @@ export class AccountPage {
       }
       return undefined;
     });
+  }
+
+  /** Save the "About you" answers. A first save also completes onboarding. */
+  protected async onSaveAbout(): Promise<void> {
+    if (this.aboutSaving()) return;
+    // Save stays pressable. An invalid answer shows its error and takes focus.
+    if (this.aboutForm()?.revealErrors() || this.aboutInvalid()) return;
+    this.aboutSaving.set(true);
+    this.aboutSaved.set(false);
+    this.aboutFailed.set(false);
+    const patch = draftToPatch(this.draft());
+    const completing = this.profile()?.onboarding === 'pending';
+    try {
+      const updated = await this.api.updateProfile({
+        ...patch,
+        ...(completing ? { onboarding: 'completed' as const } : {}),
+      });
+      this.profile.set(updated);
+      this.draft.set(draftFromDetails(updated.details));
+      this.aboutSaved.set(true);
+      if (completing) {
+        this.analytics.onboardingCompleted({
+          source: 'account',
+          company_type: patch.company_type ?? null,
+          company_size: patch.company_size ?? null,
+          primary_role: patch.primary_role ?? null,
+          audience_count: patch.audience_ids?.length ?? 0,
+        });
+      }
+    } catch {
+      this.aboutFailed.set(true);
+    } finally {
+      this.aboutSaving.set(false);
+    }
+  }
+
+  /** "Not now" on the onboarding card: record the skip so it stays dismissed. */
+  protected async onDismissOnboarding(): Promise<void> {
+    const current = this.profile();
+    if (!current) return;
+    // Hide at once. The write is best effort: a failure only means the card
+    // shows again on the next visit.
+    this.profile.set({ ...current, onboarding: 'skipped' });
+    try {
+      await this.api.updateProfile({ onboarding: 'skipped' });
+      this.analytics.onboardingSkipped({
+        source: 'account',
+        company_type: null,
+        company_size: null,
+        primary_role: null,
+        audience_count: 0,
+      });
+    } catch {
+      /* best effort, see above */
+    }
+  }
+
+  /** "Answer now" on the card: move focus to the About you section. A focus
+   *  call, not a `#fragment` link, because `<base href>` breaks bare fragments. */
+  protected focusAbout(): void {
+    const heading = this.doc.getElementById('account-about-heading');
+    heading?.scrollIntoView({ block: 'start' });
+    heading?.focus();
   }
 
   /** Confirmed from the dialog. Deletes the account, signs out, redirects home. */

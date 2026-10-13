@@ -1126,6 +1126,46 @@ create index profiles_banned_idx on profiles(banned_at) where banned_at is not n
 > vendor-seat grant can never reset a reviewer's standing. See
 > `STAGE_2_PAID_TIERS_SPEC.md` §10 R4.
 
+#### 7.1a `profile_details` and `profile_audiences` (AECI-1296)
+
+The "About you" answers from the onboarding form. `ACCOUNT_ONBOARDING_SPEC.md` is the contract.
+Migration `0071` adds both tables and touches nothing else.
+
+```sql
+create table profile_details (
+  profile_id text primary key references profiles(id) on delete cascade,
+  company_type text,             -- CompanyTypeSchema slug ('undisclosed' = rather not say), or null
+  company_size text,             -- CompanySizeSchema slug ('undisclosed' = rather not say), or null
+  primary_role text,             -- ProfilePrimaryRoleSchema: reviews.role_at_company list + 'undisclosed'
+  firm_name text,                -- private, at most 100 characters
+  linkedin_url text,             -- private, normalized https://www.linkedin.com/in/<handle>
+  onboarding_completed_at text,  -- set by a save
+  onboarding_skipped_at text,    -- set by "Skip for now" or "Not now"
+  created_at text not null,
+  updated_at text not null
+);
+
+create table profile_audiences (
+  profile_id text not null references profiles(id) on delete cascade,
+  audience_id text not null references taxonomy_audiences(id) on delete cascade,
+  created_at text not null,
+  primary key (profile_id, audience_id)
+);
+create index profile_audiences_audience_idx on profile_audiences(audience_id);
+```
+
+- **Side tables on purpose.** A rule change on `profiles` forces a drizzle-kit recreate, and a
+  recreate of `profiles` cascades into its children (`migrations.md` §0). The same reasoning put
+  `notification_preferences` in its own table. The reverse hazard holds too: a future recreate of
+  `profiles` would wipe both tables, so statement order in such a migration is the control.
+- **No CHECK constraints.** The allowed values live in Zod
+  (`packages/shared/src/api/profile-details.ts`). A list changes without a migration.
+- **Domain state.** Every write goes through `PATCH /api/account` with its `profile.updated`
+  audit row in the same batch. `ensureProfileRow` never writes here.
+- **Private.** No search, ranking, Algolia or public read. The admin user detail is the one
+  reader besides the user's own `/account`.
+- **Erasure** is by cascade (`AUTH_AND_RLS.md` §8).
+
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
 ```sql

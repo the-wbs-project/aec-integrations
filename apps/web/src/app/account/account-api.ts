@@ -18,7 +18,9 @@ import type {
   AccountReview,
   AccountReviewsQuery,
   AccountReviewsResponse,
+  CategoriesListResponse,
   DeleteAccountResponse,
+  LinkRef,
   UpdateAccountInput,
 } from '@aeci/shared';
 
@@ -36,6 +38,14 @@ export class AccountApi {
    *  toggle patches `listing_view_preference` alone. */
   updateProfile(input: UpdateAccountInput): Promise<AccountProfileResponse> {
     return firstValueFrom(this.http.patch<AccountProfileResponse>('/api/account', input));
+  }
+
+  /** The audience vocabulary for the "About you" picker (AECI-1296): the public
+   *  `GET /api/audiences` list, narrowed to `{ id, name, slug }`. Browser-only,
+   *  like every other call here. */
+  async listAudiences(): Promise<LinkRef[]> {
+    const res = await firstValueFrom(this.http.get<CategoriesListResponse>('/api/audiences'));
+    return res.data.map(({ id, name, slug }) => ({ id, name, slug }));
   }
 
   /** Right-to-erasure: anonymizes the caller's reviews, deletes their profile +

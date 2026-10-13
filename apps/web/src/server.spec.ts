@@ -200,6 +200,8 @@ describe('cacheControlForRoute', () => {
     '/auth/login',
     '/account',
     '/account/settings',
+    // AECI-1296 — the onboarding form renders the user's own answers.
+    '/welcome',
     // AECI-203 — the admin surface is non-cacheable (fail-closed classifier).
     // AECI-576 / ADMIN_PANEL_SPEC §9.2 keeps that true for the console screens:
     // every `/admin/*` route must stay absent from ROUTE_CACHE_PATTERNS, because
@@ -2493,6 +2495,22 @@ describe('createApp review-route auth gate (AECI-200)', () => {
     expect(res.headers.get('location')).toBe(
       `/auth/login?return=${encodeURIComponent('/account?utm_source=email')}`,
     );
+  });
+
+  it('bounces a logged-out /welcome to login with the whole URL as return (AECI-1296)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+    const req = new Request('https://www.aecintegrations.com/welcome?next=%2Fproducts', {
+      headers: { cookie: 'theme=dark' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+    expect(res.status).toBe(303);
+    // `signInReturnPath` keeps only the arrival params, so `next` is dropped and
+    // the user lands on bare `/welcome` after signing in.
+    expect(res.headers.get('location')).toBe('/auth/login?return=%2Fwelcome');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
   });
 
   it('falls through to SSR when a session cookie is present', async () => {

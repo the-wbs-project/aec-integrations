@@ -1,11 +1,13 @@
 import { z } from 'zod';
 
 import {
+  LinkRefSchema,
   PageQuerySchema,
   SortOrderSchema,
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
+import { OnboardingStateSchema } from './profile-details';
 import { VendorSeatInviteSchema } from './vendor';
 
 /**
@@ -215,6 +217,11 @@ export const AdminUserRowSchema = z.object({
   banned_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  /** The person's onboarding answers (AECI-1296), `null` when unanswered. Plain
+   *  strings, not the enums, for the same reason as `role`: the columns carry no
+   *  CHECK and a list can change without this file. */
+  company_type: z.string().nullable(),
+  company_size: z.string().nullable(),
 });
 export type AdminUserRow = z.infer<typeof AdminUserRowSchema>;
 
@@ -307,6 +314,25 @@ export const AdminUserPendingInviteSchema = VendorSeatInviteSchema.extend({
 });
 export type AdminUserPendingInvite = z.infer<typeof AdminUserPendingInviteSchema>;
 
+/**
+ * The "About you" answers on the admin user detail (AECI-1296,
+ * `docs/ACCOUNT_ONBOARDING_SPEC.md`). This is the ONLY surface besides the user's
+ * own `/account` that shows `firm_name` and `linkedin_url`. Every field is
+ * `null` until answered; `audiences` is `[]` then. Enum fields are plain strings,
+ * like `role`.
+ */
+export const AdminUserAboutSchema = z.object({
+  company_type: z.string().nullable(),
+  company_size: z.string().nullable(),
+  primary_role: z.string().nullable(),
+  firm_name: z.string().nullable(),
+  linkedin_url: z.string().nullable(),
+  /** Picked audience terms, A to Z by name. */
+  audiences: LinkRefSchema.array(),
+  onboarding: OnboardingStateSchema,
+});
+export type AdminUserAbout = z.infer<typeof AdminUserAboutSchema>;
+
 export const AdminUserDetailSchema = z.object({
   id: z.string().uuid(),
   display_name: z.string().nullable(),
@@ -343,5 +369,6 @@ export const AdminUserDetailSchema = z.object({
    *  threshold the moderation queue raises after a reject (AECI-218), computed
    *  server-side so the two surfaces cannot label the same person differently. */
   repeat_offender: z.boolean(),
+  about: AdminUserAboutSchema,
 });
 export type AdminUserDetail = z.infer<typeof AdminUserDetailSchema>;

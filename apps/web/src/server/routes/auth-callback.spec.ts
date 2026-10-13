@@ -19,6 +19,7 @@ import {
   isTransientEnsureError,
   normalizeAuthMethod,
   PROFILE_ENSURE_ATTEMPTS,
+  postSignInPath,
   sanitizeReturnPath,
   signInReturnPath,
   type AuthCallbackDeps,
@@ -262,6 +263,55 @@ function ensureMetrics(): string[][] {
 const apiError = (status: number) =>
   new ServerApiError({ status, code: 'X', message: `status ${status}` });
 
+describe('first sign-in goes through /welcome (AECI-1296)', () => {
+  const created = () => vi.fn().mockResolvedValue({ created: true } as never as Promise<never>);
+
+  it('sends a just-created profile to /welcome with next=<return>', async () => {
+    const { request } = makeHarness({ ensure: created() });
+    const res = await request('?code=pkce-123&return=%2Fproducts%2Ffoo%3Fview%3Dtable');
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe('/welcome?next=%2Fproducts%2Ffoo%3Fview%3Dtable');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(res.headers.get('Set-Cookie')).toContain('sb-test-auth-token=session-value');
+  });
+
+  it('sends a just-created profile with no return to bare /welcome', async () => {
+    const { request } = makeHarness({ ensure: created() });
+    const res = await request('?code=pkce-123');
+    expect(res.headers.get('Location')).toBe('/welcome');
+  });
+
+  it('does not divert a seat invitee from the invite accept page', async () => {
+    const { request } = makeHarness({ ensure: created() });
+    const back = '/vendor/invite/tok-123?utm_source=email';
+    const res = await request(`?code=pkce-123&return=${encodeURIComponent(back)}`);
+    expect(res.headers.get('Location')).toBe(back);
+  });
+
+  it('cleans an open-redirect return before it becomes next', async () => {
+    const { request } = makeHarness({ ensure: created() });
+    const res = await request(`?code=pkce-123&return=${encodeURIComponent('//evil.com/')}`);
+    expect(res.headers.get('Location')).toBe('/welcome');
+  });
+
+  it('leaves a returning user on their return path', async () => {
+    const { request } = makeHarness({});
+    const res = await request('?code=pkce-123&return=%2Faccount');
+    expect(res.headers.get('Location')).toBe('/account');
+  });
+});
+
+describe('postSignInPath', () => {
+  it('is the identity for an existing profile', () => {
+    expect(postSignInPath('/vendor/acme', false)).toBe('/vendor/acme');
+  });
+
+  it('never wraps /welcome in itself', () => {
+    expect(postSignInPath('/welcome', true)).toBe('/welcome');
+    expect(postSignInPath('/welcome?next=%2Fx', true)).toBe('/welcome?next=%2Fx');
+  });
+});
+
 describe('profile-ensure is retried, then fatal (AECI-770)', () => {
   let error: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
@@ -274,7 +324,9 @@ describe('profile-ensure is retried, then fatal (AECI-770)', () => {
       .fn()
       .mockRejectedValueOnce(new Error('Worker "aeci-api" not found'))
       .mockRejectedValueOnce(apiError(503))
-      .mockResolvedValue({ created: true });
+      // `created: false` keeps this case about the retry. The first-sign-in
+      // diversion to /welcome (AECI-1296) has its own cases below.
+      .mockResolvedValue({ created: false });
     const { request, signOutCalls, sleeps } = makeHarness({ ensure });
     const res = await request('?code=pkce-123&method=magic_link&return=%2Fvendor');
 

@@ -251,6 +251,14 @@ export const routes: Routes = [
     path: 'account',
     loadComponent: () => import('./account/account').then((m) => m.AccountPage),
   },
+  // AECI-1296 — the first-sign-in "About you" form. `/auth/callback` sends a
+  // just-created profile here with `?next=<return>`. Gated like `/account`
+  // (`isWelcomePath` in `server-runtime.ts`), non-cacheable by the fail-closed
+  // default, no resolver; the component sets `robots: noindex`.
+  {
+    path: 'welcome',
+    loadComponent: () => import('./welcome/welcome').then((m) => m.WelcomePage),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker on the public tiers (production + demo, `isPublicSite`). See

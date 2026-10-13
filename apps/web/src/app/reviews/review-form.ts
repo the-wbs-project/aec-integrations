@@ -259,7 +259,32 @@ export class ReviewForm {
       this.signInDialog()?.open();
       return;
     }
+    // AECI-1296: pre-fill role and firm from the "About you" answers. Runs beside
+    // the already-reviewed check, never blocks it, and never during SSR.
+    void this.prefillFromProfile();
     await this.checkExisting();
+  }
+
+  /**
+   * Pre-fill, never lock (`STAGE_1_SPEC.md` §4.8, AECI-1296). Role and firm take
+   * the user's onboarding answers only while still empty, so a choice made
+   * before the read lands is never overwritten. Both stay editable. The role
+   * values are one list (`PrimaryRoleSchema`), so the mapping is one to one.
+   * The profile's "I'd rather not say" (`undisclosed`) is not a review role and
+   * reads as empty: the role control is left for the reviewer to choose.
+   * Browser-only (called from the post-hydration gate), so cached HTML never
+   * carries a person's answers. Any failure leaves the form as it was.
+   */
+  private async prefillFromProfile(): Promise<void> {
+    const details = await this.account.getProfile().then(
+      (profile) => profile.details,
+      () => undefined,
+    );
+    if (!details) return;
+    const stored = details.primary_role === 'undisclosed' ? null : details.primary_role;
+    const role = this.roleOptions.find((o) => o.value === stored);
+    if (role && this.roleSel().length === 0) this.roleSel.set([role]);
+    if (details.firm_name && this.firm().trim() === '') this.firm.set(details.firm_name);
   }
 
   /** Look up the caller's existing review for this product. On any failure the

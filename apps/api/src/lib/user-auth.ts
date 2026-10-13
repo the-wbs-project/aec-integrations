@@ -39,7 +39,25 @@ import { ApiError } from '../errors';
 export type AuthenticatedUser = {
   userId: string;
   email?: string;
+  /**
+   * The identity provider's name for the user: the token's
+   * `user_metadata.full_name`, else `user_metadata.name` (AECI-1296). Present
+   * only when one of them is a non-blank string. Google sign-ins carry it; a
+   * magic-link account usually does not. Informational: never an authorization
+   * input, and never written anywhere by the API. It only seeds a suggestion.
+   */
+  fullName?: string;
 };
+
+/** The provider name out of a verified payload's `user_metadata`, or undefined. */
+function metadataFullName(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  for (const key of ['full_name', 'name'] as const) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return undefined;
+}
 
 /** Hono `Variables` contributed by `requireUserAuth()`. */
 export type UserAuthVariables = {
@@ -140,6 +158,7 @@ async function verifyWithClockTolerance(
 ): Promise<AuthenticatedUser> {
   let sub: string | undefined;
   let email: string | undefined;
+  let fullName: string | undefined;
   try {
     const { payload } = await jwtVerify(token, getKey ?? remoteJwks(supabaseUrl), {
       issuer: `${supabaseUrl}/auth/v1`,
@@ -150,13 +169,16 @@ async function verifyWithClockTolerance(
     });
     sub = payload.sub;
     email = typeof payload['email'] === 'string' ? payload['email'] : undefined;
+    fullName = metadataFullName(payload['user_metadata']);
   } catch {
     // Signature, expiry, issuer, audience, malformed-token, and JWKS-fetch
     // failures all collapse to the same 401 — fail closed, leak nothing.
     throw unauthenticated();
   }
   if (!sub) throw unauthenticated();
-  return { userId: sub, email };
+  // `fullName` only when present, so a caller comparing the whole object (and
+  // every token without metadata) sees the exact shape it always did.
+  return fullName ? { userId: sub, email, fullName } : { userId: sub, email };
 }
 
 /**

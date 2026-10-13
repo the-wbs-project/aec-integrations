@@ -2781,6 +2781,71 @@ export const notificationPreferences = sqliteTable(
 );
 
 // ===========================================================================
+// Account onboarding: "About you" (AECI-1296, ACCOUNT_ONBOARDING_SPEC.md,
+// DATABASE_SCHEMA.md §7.1)
+//
+// DOMAIN state: the person told us these facts, so every change writes its
+// `audit_log` row in the same `db.batch` (`routes/account.ts`, `profile.updated`).
+// Side tables rather than columns on `profiles`, for the same reason as
+// `notification_preferences` above: a later change to `profiles` must not force
+// a drizzle-kit recreate (`docs/migrations.md` §0). The reverse hazard holds too.
+// A future recreate of `profiles` fires both tables' ON DELETE CASCADE, so
+// statement order in such a migration is the control.
+//
+// No CHECK constraints on purpose. The allowed values live in Zod
+// (`packages/shared/src/api/profile-details.ts`), so a list can change without
+// a migration. Written ONLY by `PATCH /api/account`. `ensureProfileRow` never
+// touches them (its no-clobber contract). Erased with the profile by cascade.
+// Private: never read by search, ranking, Algolia or any public surface. The
+// admin user detail is the one other reader.
+// ===========================================================================
+
+/** One row per profile that has answered, skipped, or edited "About you". No
+ *  row means onboarding is still pending. */
+export const profileDetails = sqliteTable('profile_details', {
+  /** The `profiles.id` (the Supabase auth uid). */
+  profileId: text('profile_id')
+    .primaryKey()
+    .references(() => profiles.id, { onDelete: 'cascade' }),
+  /** `CompanyTypeSchema` value, or null when unanswered. `undisclosed` is the
+   *  explicit "I'd rather not say" answer. */
+  companyType: text('company_type'),
+  /** `CompanySizeSchema` value, or null. Never asked of a software vendor. */
+  companySize: text('company_size'),
+  /** `ProfilePrimaryRoleSchema` value: the `reviews.role_at_company` list plus
+   *  `undisclosed`, which a review never takes. */
+  primaryRole: text('primary_role'),
+  /** Free text, up to 100 characters. Private. Pre-fills the review form. */
+  firmName: text('firm_name'),
+  /** Normalized `https://www.linkedin.com/in/<handle>`. Private. Admin detail only. */
+  linkedinUrl: text('linkedin_url'),
+  /** Set when the user saved the onboarding form. */
+  onboardingCompletedAt: text('onboarding_completed_at'),
+  /** Set when the user chose "Skip for now". */
+  onboardingSkippedAt: text('onboarding_skipped_at'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** The audience terms a person says describe them. Replace-set on write. */
+export const profileAudiences = sqliteTable(
+  'profile_audiences',
+  {
+    profileId: text('profile_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    audienceId: text('audience_id')
+      .notNull()
+      .references(() => taxonomyAudiences.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.profileId, t.audienceId] }),
+    index('profile_audiences_audience_idx').on(t.audienceId),
+  ],
+);
+
+// ===========================================================================
 // Per-user daily activity (AECI-1208, DATABASE_SCHEMA.md §9.11)
 //
 // A PER-USER SERVICE LOG (ADR 0022, 2026-10-02 amendment): it records that a

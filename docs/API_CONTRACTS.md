@@ -1372,8 +1372,32 @@ export interface AccountProfileResponse {
   pending_reindex: number | null;
   pending_contests?: number | null;   // AECI-1008; always sent, optional for deploy skew
   pending_review_responses?: number | null;   // AECI-1177; same skew rule
+  details?: AccountProfileDetails;            // AECI-1296; always sent, optional for deploy skew
+  onboarding?: 'pending' | 'completed' | 'skipped';   // AECI-1296; same skew rule
+  suggested_display_name?: string | null;     // AECI-1296; same skew rule
+}
+
+export interface AccountProfileDetails {
+  company_type: CompanyType | null;          // includes 'undisclosed'
+  company_size: CompanySize | null;          // includes 'undisclosed'
+  primary_role: ProfilePrimaryRole | null;   // PrimaryRole plus 'undisclosed'
+  firm_name: string | null;
+  linkedin_url: string | null;
+  audience_ids: string[];   // taxonomy_audiences ids, [] when none
 }
 ```
+
+**"About you" (AECI-1296, `ACCOUNT_ONBOARDING_SPEC.md`).** `details` holds the onboarding
+answers from `profile_details` and `profile_audiences`, read in the same batch as the profile.
+Every field is `null` until answered. A stored value outside the current enum reads as `null`.
+`undisclosed` is the explicit "I'd rather not say" answer on `company_type`, `company_size` and
+`primary_role`. It is a value, not a clear. The role field uses `ProfilePrimaryRoleSchema`, which is
+`PrimaryRoleSchema` plus `undisclosed`. `SubmitReviewSchema.role_at_company` keeps
+`PrimaryRoleSchema`, so a review submitted with `undisclosed` is a 400.
+`onboarding` is derived: `completed` when `onboarding_completed_at` is set, else `skipped` when
+`onboarding_skipped_at` is set, else `pending`. `suggested_display_name` is the provider name from
+the verified JWT (`user_metadata.full_name`, else `name`). It is `null` when the token carries
+neither. The API never writes it.
 
 `role` (AECI-259) is the caller's own `profiles.role`, re-read from D1 by
 `requireAuth()` on every request (AUTH_AND_RLS §4.5) — never a client claim. The
@@ -1452,9 +1476,27 @@ export const UpdateAccountSchema = z
   .object({
     display_name: z.string().trim().min(1).max(80).nullable().optional(),
     listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
+    // AECI-1296, "About you":
+    company_type: CompanyTypeSchema.nullable().optional(),
+    company_size: CompanySizeSchema.nullable().optional(),
+    primary_role: PrimaryRoleSchema.nullable().optional(),
+    firm_name: z.string().trim().max(100).nullable().optional(),   // '' clears
+    linkedin_url: LinkedInProfileUrlSchema.nullable().optional(),  // '' clears; normalized
+    audience_ids: z.array(z.string().uuid()).max(10).optional(),   // replace-set
+    onboarding: z.enum(['completed', 'skipped']).optional(),
   })
-  .refine((v) => v.display_name !== undefined || v.listing_view_preference !== undefined);
+  .refine((v) => Object.values(v).some((value) => value !== undefined));
 ```
+
+**"About you" fields (AECI-1296).** They write the `profile_details` upsert and the
+`profile_audiences` replace-set in the same `db.batch` as any `profiles` update and the one
+`profile.updated` audit row. `audience_ids` replaces the stored set, `[]` clears it, and repeats
+collapse. An id that names no `taxonomy_audiences` row is a 400 `VALIDATION_FAILED` with
+`field: 'audience_ids'` and `details.unknown`. It is found by a read before the batch, so nothing
+is written. `linkedin_url` must be `linkedin.com/in/<handle>` (scheme and `www.` optional) and is
+stored as `https://www.linkedin.com/in/<handle>`. `onboarding` stamps
+`onboarding_completed_at` or `onboarding_skipped_at`. The response is read back from D1 after the
+batch. Enum values and the full rules are in `ACCOUNT_ONBOARDING_SPEC.md` §2 and §5.
 
 Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
@@ -1462,8 +1504,9 @@ Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773
 
 Delete the authenticated user's account (GDPR right-to-erasure, `AUTH_AND_RLS.md`
 §8). In one D1 batch: anonymizes reviews (sets `reviewer_id = null`), nulls
-every other inbound reference to the profile, and deletes the profile. After the
-batch commits, the Supabase `auth.users` row is deleted over the GoTrue Admin API
+every other inbound reference to the profile, and deletes the profile. The
+"About you" rows (`profile_details`, `profile_audiences`, AECI-1296) go with it by
+cascade. After the batch commits, the Supabase `auth.users` row is deleted over the GoTrue Admin API
 (seam #3, `AUTH_AND_RLS.md` §8 step 4, including the AECI-531 skip when the
 service-role key is absent). Audited `account.deleted` (no PII).
 
@@ -3214,6 +3257,10 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 };
 ```
 
+`AdminUserRow` carries `company_type` and `company_size` (AECI-1296), each a plain string or
+`null` when unanswered. They come from a `leftJoin` on `profile_details`, which is keyed by
+`profile_id`, so the join cannot multiply rows and `count()` needs no join. No filter reads them.
+
 - **Every boolean filter is an enum-plus-transform, never `z.coerce.boolean()`.**
   `Boolean("false") === true` — the AECI-691 defect on the public vendors
   endpoint. That defect is no longer live, because AECI-1266 retired the public filter. Here it would mean `?banned=false` returning the *banned* users, on a
@@ -3274,9 +3321,21 @@ AdminUserDetail = {
     requests_by_email: number | null,                     // best effort — see below
   },
   repeat_offender: boolean,
+  about: {                             // AECI-1296, the onboarding answers
+    company_type: string | null,
+    company_size: string | null,
+    primary_role: string | null,
+    firm_name: string | null,          // private
+    linkedin_url: string | null,       // private
+    audiences: LinkRef[],              // A to Z by name, id tiebreak
+    onboarding: 'pending' | 'completed' | 'skipped',
+  },
 };
 ```
 
+- **`about` is the only surface besides the user's own `/account` that shows the firm name and
+  LinkedIn link** (`ACCOUNT_ONBOARDING_SPEC.md` §9). Enum fields are plain strings for the same
+  reason as `role`. The details row and the audience names are read in the first batch.
 - **The tri-state, spelled out.** `auth_available: false` ⇒ the seam was
   unreachable and every `auth` says nothing about the accounts. `true` with
   `auth: null` ⇒ there is no `auth.users` row: an **orphaned profile**, a real data
