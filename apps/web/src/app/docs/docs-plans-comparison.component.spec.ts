@@ -59,6 +59,11 @@ describe('planComparisonGroups', () => {
     expect(rows.some((entry) => /Looks right|checklist/i.test(entry.label))).toBe(false);
   });
 
+  // Chris, 2026-10-13: connector-delivered integrations are not a plan benefit.
+  it('sells no connector integrations', () => {
+    expect(rows.some((entry) => /connector/i.test(entry.label))).toBe(false);
+  });
+
   it('prints the list price', () => {
     expect(row('Price')).toMatchObject({ free: '$0', managed: '$25 USD a month per product' });
   });
