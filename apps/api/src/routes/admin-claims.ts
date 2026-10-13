@@ -536,6 +536,7 @@ async function approveClaim(
     identityOutcome,
     seatCreated,
     profileBefore,
+    submitterName: existing.submitterName,
     entitlement,
     plan,
     reason,

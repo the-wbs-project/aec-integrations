@@ -1538,7 +1538,7 @@ Idempotent profile-ensure called by the SSR `/auth/callback` handler after the P
 
 Under ADR 0016 the authoritative `profiles` row lives in **D1** and no database trigger provisions it, so this endpoint is the **primary** profile creator (split-identity seam #1 — `AUTH_AND_RLS.md` §3.1), not a backstop. `INSERT … ON CONFLICT DO NOTHING … RETURNING` makes it idempotent and race-correct: only the insert that actually created the row returns an id (`created: true`) and writes the `profile.created` audit row; a concurrent loser or a re-run returns `created: false` with no audit. All other columns take schema defaults, including `role='reviewer'`.
 
-**The conflict path never overwrites an existing row** — the insert supplies only `id`. That is the no-clobber guarantee the vendor-claim grant depends on (AECI-527/AECI-519, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2): a grant that lands *before* the claimant's first sign-in survives it, so `role='vendor_admin'`, `vendor_id`, `display_name`, and `theme_preference` are all preserved.
+**The conflict path never overwrites an existing row** — the insert supplies only `id`. That is the no-clobber guarantee the vendor-claim grant depends on (AECI-527/AECI-519, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2): a grant that lands *before* the claimant's first sign-in survives it, so `role='vendor_admin'`, `vendor_id`, `display_name`, and `theme_preference` are all preserved. That includes a `display_name` the grant itself filled from the claim's `submitter_name` (AECI-1280).
 
 ```typescript
 export type EnsureProfileResponse = {
@@ -2075,6 +2075,8 @@ The `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision email
 is injected into the post-commit seam at the route registration (`index.ts`),
 fail-open like every send.
 
+**The grant names a nameless seat (AECI-1280).** When the seat's `profiles.display_name` is null or blank, approve fills it from the claim's `submitter_name`, trimmed. It never overwrites a name the account holds: the upsert sets `COALESCE(NULLIF(trim(display_name), ''), excluded.display_name)`. A name that is blank or longer than 80 characters (`DISPLAY_NAME_MAX_LENGTH`, the `PATCH /api/account` cap) is not filled and not truncated. The `vendor_claim.granted` audit row records `metadata.display_name_filled` and `seat_display_name` in its before and after states. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3.1).
+
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
 ```typescript
@@ -2160,7 +2162,8 @@ idempotent re-grant echoes the requested `plan`, since it writes nothing.
 
 `approve` with `plan: 'managed'`: resolve the claimant's auth-user id (link or provision
 — AECI-527), then in one atomic `db.batch` upsert the `profiles` seat
-(`role='vendor_admin'`, `vendor_id`; no-clobber), **open the `vendor_entitlements` row
+(`role='vendor_admin'`, `vendor_id`; no-clobber, except that an empty `display_name` is
+filled from `submitter_name`, AECI-1280), **open the `vendor_entitlements` row
 and flip `vendors.verified=true`** (+ `updated_at`; guarded so a second seat doesn't
 re-flip), resolve the request, advance the `vendor_claim` workflow, and audit.
 Post-commit (best-effort): enqueue a Cache-Tag purge for the vendor **and its

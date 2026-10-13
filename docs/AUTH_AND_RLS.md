@@ -279,8 +279,10 @@ enforced in `classifyClaimantConflict()` (`lib/claimant-identity.ts`), **not** b
 Conflicts surface as **`409 GRANT_CONFLICT`** (with `details.reason`); when the GoTrue
 service-role creds are absent, identity resolution reports `unavailable`/`error` and the grant
 returns **`503 DEPENDENCY_FAILURE`** — it refuses to half-grant. The seat upsert is
-**no-clobber**: on conflict it sets only `role` / `vendor_id` / `updated_at`, never touching
-`display_name`, `theme_preference`, trust tier, or the ban columns.
+**no-clobber**: on conflict it sets only `role` / `vendor_id` / `seat_owner` / `updated_at`, never
+touching `theme_preference`, trust tier, or the ban columns. The one exception is an empty
+`display_name`, which the grant fills from the claim's `submitter_name`. It never overwrites a set
+name (AECI-1280, `STAGE_2_VENDOR_PORTAL_SPEC.md` §3.1).
 
 **Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements`,
 `lib/vendor-grant.ts`) drops the seat back to `role = 'reviewer'` and nulls `vendor_id`,

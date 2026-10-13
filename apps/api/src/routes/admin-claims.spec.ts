@@ -55,6 +55,7 @@ import type { FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
+import { ensureProfileRow } from '../lib/profile-provisioning';
 import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -184,10 +185,21 @@ const seedWorkflow = (entityId = REQUEST_ID, currentState = 'open') =>
 type Resolver = typeof resolveClaimantIdentity;
 
 const resolveLinked = (
-  profile: { id: string; role: string; vendorId: string | null; bannedAt: string | null } | null,
+  profile: {
+    id: string;
+    role: string;
+    vendorId: string | null;
+    bannedAt: string | null;
+    displayName?: string | null;
+  } | null,
   userId = CLAIMANT_ID,
 ): Resolver =>
-  vi.fn<Resolver>(async () => ({ outcome: 'linked', userId, email: CLAIMANT_EMAIL, profile }));
+  vi.fn<Resolver>(async () => ({
+    outcome: 'linked',
+    userId,
+    email: CLAIMANT_EMAIL,
+    profile: profile && { displayName: null, ...profile },
+  }));
 
 const resolveInvited = (userId = CLAIMANT_ID): Resolver =>
   vi.fn<Resolver>(async () => ({
@@ -208,6 +220,7 @@ const resolveConflict = (reason: 'already_admin' | 'other_vendor'): Resolver =>
       role: reason === 'already_admin' ? 'admin' : 'vendor_admin',
       vendorId: reason === 'other_vendor' ? OTHER_VENDOR_ID : null,
       bannedAt: null,
+      displayName: null,
     },
   }));
 
@@ -451,7 +464,13 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     });
     await seedRequest();
 
-    const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
+    const snapshot = {
+      id: CLAIMANT_ID,
+      role: 'reviewer',
+      vendorId: null,
+      bannedAt: null,
+      displayName: 'Jane Doe',
+    };
     const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
       plan: 'managed',
@@ -462,9 +481,66 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const seat = await profileOf(CLAIMANT_ID);
     expect(seat!.role).toBe('vendor_admin');
     expect(seat!.vendorId).toBe(VENDOR_ID);
-    // Owned columns preserved.
+    // Owned columns preserved. The claim's 'Sam Submitter' never replaces a set name.
     expect(seat!.displayName).toBe('Jane Doe');
     expect(seat!.themePreference).toBe('dark');
+    const grantAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_claim.granted',
+    )!;
+    expect(grantAudit.metadata).toMatchObject({ display_name_filled: false });
+  });
+
+  // AECI-1280: a seat with no name takes the claim's submitter_name.
+  it('fills an empty display_name from the claim on an existing profile', async () => {
+    await seedVendor();
+    await t.db.insert(profiles).values({ id: CLAIMANT_ID, role: 'reviewer', displayName: null });
+    await seedRequest();
+
+    const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
+    const { status } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
+      action: 'approve',
+      plan: 'free',
+    });
+
+    expect(status).toBe(200);
+    expect((await profileOf(CLAIMANT_ID))!.displayName).toBe('Sam Submitter');
+    const grantAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_claim.granted',
+    )!;
+    expect(grantAudit.metadata).toMatchObject({ display_name_filled: true });
+    expect(grantAudit.beforeState).toMatchObject({ seat_display_name: null });
+    expect(grantAudit.afterState).toMatchObject({ seat_display_name: 'Sam Submitter' });
+  });
+
+  it('names a provisioned seat, and the first sign-in keeps that name', async () => {
+    await seedVendor();
+    await seedRequest();
+    const { status } = await patchClaim(moderateApp(resolveInvited()), {
+      action: 'approve',
+      plan: 'free',
+    });
+    expect(status).toBe(200);
+    expect((await profileOf(CLAIMANT_ID))!.displayName).toBe('Sam Submitter');
+
+    // The claimant's first sign-in runs the profile-ensure insert (ON CONFLICT DO NOTHING).
+    const { created } = await ensureProfileRow(t.db, CLAIMANT_ID, 'auth-callback');
+    expect(created).toBe(false);
+    expect((await profileOf(CLAIMANT_ID))!.displayName).toBe('Sam Submitter');
+  });
+
+  it('does not fill or truncate a claim name longer than the account cap', async () => {
+    await seedVendor();
+    await seedRequest({ submitterName: 'N'.repeat(81) });
+    const { status } = await patchClaim(moderateApp(resolveInvited()), {
+      action: 'approve',
+      plan: 'free',
+    });
+    expect(status).toBe(200);
+    expect((await profileOf(CLAIMANT_ID))!.displayName).toBeNull();
+    const grantAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_claim.granted',
+    )!;
+    expect(grantAudit.metadata).toMatchObject({ display_name_filled: false });
   });
 
   it('grants a second seat without re-flipping verified or churning updated_at (multi-seat safe)', async () => {
