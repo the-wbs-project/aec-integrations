@@ -89,10 +89,10 @@ describe('VendorNotificationsList', () => {
   });
 
   it.each([
-    ['submitted', 'Another vendor contested a field on your integration'],
-    ['withdrawn', 'A contest on your integration was withdrawn'],
-    ['accepted', 'Your contest was accepted'],
-    ['declined', 'Your contest was declined'],
+    ['submitted', 'Another vendor requested a change on your integration'],
+    ['withdrawn', 'A change request on your integration was withdrawn'],
+    ['accepted', 'Your change request was accepted'],
+    ['declined', 'Your change request was declined'],
   ] as const)('renders a contest `%s` row with its own title (AECI-1008)', async (event, title) => {
     const withContest: readonly VendorNotification[] = [
       ...VENDOR_NOTIFICATIONS_FIXTURE,
@@ -134,7 +134,7 @@ describe('VendorNotificationsList', () => {
     [
       'protested',
       null,
-      'asked AEC Integrations to review a contest on your integration',
+      'asked AEC Integrations to review a change request on your integration',
       'reply once',
     ],
     ['protest_replied', null, 'The owner replied to your review request', null],
@@ -142,29 +142,29 @@ describe('VendorNotificationsList', () => {
     [
       'protest_upheld',
       'submitter',
-      'AEC Integrations agrees with your contest',
+      'AEC Integrations agrees with your change request',
       'Only the owner can change it',
     ],
     [
       'protest_upheld',
       'owner',
-      'AEC Integrations agrees with a contest on your integration',
+      'AEC Integrations agrees with a change request on your integration',
       'This is advice',
     ],
     [
       'protest_rejected',
       'submitter',
       'AEC Integrations agrees with the owner',
-      "can't contest this field again",
+      "can't request a change to this field again",
     ],
     ['protest_rejected', 'owner', 'AEC Integrations agrees with your decision', null],
     [
       'declined',
       null,
-      'Your contest was declined',
+      'Your change request was declined',
       'you can ask AEC Integrations to review it until',
     ],
-    ['brand_new_event', null, 'An update on a field contest', null],
+    ['brand_new_event', null, 'An update on a change request', null],
   ] as const)('renders `%s` (%s) with its title and note', async (event, role, title, note) => {
     const row: VendorNotification = {
       kind: 'contest',
@@ -212,7 +212,7 @@ describe('VendorNotificationsList', () => {
     expect(row!.textContent).toContain('Summit ↔ Procore');
     // AECI-1023: what the claim means for the other side, and its recourse.
     expect(row!.textContent).toContain('AEC Integrations no longer updates them');
-    expect(row!.textContent).toContain('contest the Owner field');
+    expect(row!.textContent).toContain('request a change to the Owner field');
     expect(row!.querySelector('a')?.getAttribute('href')).toBe(
       '/products/procore/integrations/summit',
     );
@@ -221,7 +221,7 @@ describe('VendorNotificationsList', () => {
 
   it.each([
     ['declined', 'The value on record stays as it is.'],
-    ['closed_by_retire', 'Restoring the integration does not reopen your contest.'],
+    ['closed_by_retire', 'Restoring the integration does not reopen your change request.'],
     ['submitted', 'Accept or decline it under Change requests in Messages.'],
   ] as const)('explains a contest `%s` row under its title (AECI-1023)', async (event, note) => {
     getNotifications.mockResolvedValue({
@@ -522,7 +522,7 @@ describe('VendorNotificationsList', () => {
     });
     const body = text(await create());
     expect(body).toContain(
-      'Your contest was closed because AEC Integrations retired the integration',
+      'Your change request was closed because AEC Integrations retired the integration',
     );
     expect(body).toContain('Only AEC Integrations can restore the integration');
     expect(body).not.toContain('the owner retired');
@@ -545,7 +545,7 @@ describe('VendorNotificationsList', () => {
       ],
     });
     expect(text(await create())).toContain(
-      'Your contest was closed because the owner retired the integration',
+      'Your change request was closed because the owner retired the integration',
     );
   });
 

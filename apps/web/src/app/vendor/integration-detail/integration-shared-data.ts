@@ -123,7 +123,7 @@ import { VendorTip } from './vendor-tip';
         </button>
       }
     </div>
-    <p class="mt-1"><aec-vendor-docs-link page="attesting-an-integration" /></p>
+    <p class="mt-1"><aec-vendor-docs-link page="confirming-integration-data" /></p>
 
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {

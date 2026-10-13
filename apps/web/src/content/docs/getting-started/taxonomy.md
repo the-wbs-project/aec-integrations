@@ -3,7 +3,7 @@ title: How listings are classified
 description: The four ways every product is classified, the kinds of integration, and the types of data an integration can carry.
 section: getting-started
 order: 4
-last_updated: 9 October 2026
+last_updated: October 9, 2026
 ---
 
 Every product on AEC Integrations is classified four ways. Each way uses a fixed list of terms that we maintain, not free-form tags. That keeps similar products comparable, whoever wrote their listing.

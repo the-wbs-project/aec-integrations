@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Some product fields need the Managed plan, and each one says so in the portal.

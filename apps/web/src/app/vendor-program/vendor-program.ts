@@ -313,7 +313,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   integration page, not a support ticket. Claim the integrations your company
                   builds, and add your setup guide to any integration with your product. Buyers see
                   who maintains each one. If a partner's listing describes your integration wrongly,
-                  you can contest it.
+                  you can request a change.
                 </ng-container>
               </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.complete">
@@ -376,11 +376,11 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   integration moves, and your answer counts the same as your partner's. Buyers can
                   check what an integration syncs before they rely on it for a project. See
                   <a
-                    routerLink="/docs/vendors/attesting-an-integration"
+                    routerLink="/docs/vendors/confirming-integration-data"
                     target="_blank"
                     rel="noopener"
                     [class]="inTextLink"
-                    >Attesting an integration<aec-new-tab-icon /></a
+                    >Confirming integration data<aec-new-tab-icon /></a
                   >.
                 </ng-container>
               </li>

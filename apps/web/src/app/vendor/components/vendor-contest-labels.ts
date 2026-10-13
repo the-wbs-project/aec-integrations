@@ -168,34 +168,34 @@ export function contestNotificationTitle(notification: ContestNotificationLike):
   const owner = notification.recipient_role === 'owner';
   switch (notification.event) {
     case 'submitted':
-      return $localize`:@@vendor.contest.notify.submitted:Another vendor contested a field on your integration`;
+      return $localize`:@@vendor.contest.notify.submitted:Another vendor requested a change on your integration`;
     case 'withdrawn':
-      return $localize`:@@vendor.contest.notify.withdrawn:A contest on your integration was withdrawn`;
+      return $localize`:@@vendor.contest.notify.withdrawn:A change request on your integration was withdrawn`;
     case 'accepted':
-      return $localize`:@@vendor.contest.notify.accepted:Your contest was accepted`;
+      return $localize`:@@vendor.contest.notify.accepted:Your change request was accepted`;
     case 'declined':
-      return $localize`:@@vendor.contest.notify.declined:Your contest was declined`;
+      return $localize`:@@vendor.contest.notify.declined:Your change request was declined`;
     case 'closed_by_retire':
       // AECI-1046: an admin retire names AEC Integrations, not the owner.
       return notification.retired_by === 'aeci'
-        ? $localize`:@@vendor.contest.notify.closedByAeciRetire:Your contest was closed because AEC Integrations retired the integration`
-        : $localize`:@@vendor.contest.notify.closedByRetire:Your contest was closed because the owner retired the integration`;
+        ? $localize`:@@vendor.contest.notify.closedByAeciRetire:Your change request was closed because AEC Integrations retired the integration`
+        : $localize`:@@vendor.contest.notify.closedByRetire:Your change request was closed because the owner retired the integration`;
     case 'protested':
-      return $localize`:@@vendor.contest.notify.protested:A vendor asked AEC Integrations to review a contest on your integration`;
+      return $localize`:@@vendor.contest.notify.protested:A vendor asked AEC Integrations to review a change request on your integration`;
     case 'protest_replied':
       return $localize`:@@vendor.contest.notify.protestReplied:The owner replied to your review request`;
     case 'protest_withdrawn':
       return $localize`:@@vendor.contest.notify.protestWithdrawn:A review request on your integration was withdrawn`;
     case 'protest_upheld':
       return owner
-        ? $localize`:@@vendor.contest.notify.protestUpheld.owner:AEC Integrations agrees with a contest on your integration`
-        : $localize`:@@vendor.contest.notify.protestUpheld.submitter:AEC Integrations agrees with your contest`;
+        ? $localize`:@@vendor.contest.notify.protestUpheld.owner:AEC Integrations agrees with a change request on your integration`
+        : $localize`:@@vendor.contest.notify.protestUpheld.submitter:AEC Integrations agrees with your change request`;
     case 'protest_rejected':
       return owner
         ? $localize`:@@vendor.contest.notify.protestRejected.owner:AEC Integrations agrees with your decision`
         : $localize`:@@vendor.contest.notify.protestRejected.submitter:AEC Integrations agrees with the owner`;
     default:
-      return $localize`:@@vendor.contest.notify.fallback:An update on a field contest`;
+      return $localize`:@@vendor.contest.notify.fallback:An update on a change request`;
   }
 }
 
@@ -231,9 +231,9 @@ export function contestNotificationNote(
     }
     case 'closed_by_retire':
       if (notification.retired_by === 'aeci') {
-        return $localize`:@@vendor.contest.notify.note.closedByAeciRetire:Only AEC Integrations can restore the integration, and restoring it does not reopen your contest. If it comes back and you still want the change, send a new one.`;
+        return $localize`:@@vendor.contest.notify.note.closedByAeciRetire:Only AEC Integrations can restore the integration, and restoring it does not reopen your change request. If it comes back and you still want the change, send a new one.`;
       }
-      return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your contest. If it comes back and you still want the change, send a new one.`;
+      return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your change request. If it comes back and you still want the change, send a new one.`;
     case 'protested': {
       const due = notification.reply_due_at;
       if (!due) {
@@ -251,7 +251,7 @@ export function contestNotificationNote(
       const until = notification.cooldown_until;
       if (!until) return null;
       const date = formatDate(until);
-      return $localize`:@@vendor.contest.notify.note.protestRejected:You can't contest this field again until ${date}:DATE:, unless its value changes.`;
+      return $localize`:@@vendor.contest.notify.note.protestRejected:You can't request a change to this field again until ${date}:DATE:, unless its value changes.`;
     }
     default:
       return null;
@@ -266,7 +266,7 @@ export function protestStatusLabel(status: ContestProtestStatus): string {
     case 'open':
       return $localize`:@@vendor.protest.status.open:With AEC Integrations`;
     case 'upheld':
-      return $localize`:@@vendor.protest.status.upheld:AEC Integrations agreed with the contest`;
+      return $localize`:@@vendor.protest.status.upheld:AEC Integrations agreed with the change request`;
     case 'rejected':
       return $localize`:@@vendor.protest.status.rejected:AEC Integrations agreed with the owner`;
     case 'withdrawn':
@@ -281,23 +281,23 @@ export function protestErrorMessage(err: unknown): string {
     case 'PROTEST_NOT_AVAILABLE': {
       const reason = info.details?.['reason'];
       if (reason === 'window_closed') {
-        return $localize`:@@vendor.protest.error.windowClosed:The 30 days to ask for a review of this contest have passed.`;
+        return $localize`:@@vendor.protest.error.windowClosed:The 30 days to ask for a review of this change request have passed.`;
       }
       if (reason === 'owner_not_silent_yet') {
-        return $localize`:@@vendor.protest.error.notYet:The owner still has time to answer this contest.`;
+        return $localize`:@@vendor.protest.error.notYet:The owner still has time to answer this change request.`;
       }
       if (reason === 'contest_open') {
-        return $localize`:@@vendor.protest.error.contestOpen:You have an open contest on this field of this integration. Withdraw it, or wait for its answer, before you ask for a review.`;
+        return $localize`:@@vendor.protest.error.contestOpen:You have an open change request on this field of this integration. Withdraw it, or wait for its answer, before you ask for a review.`;
       }
       if (reason === 'already_protested') {
-        return $localize`:@@vendor.protest.error.already:This contest already has a review request.`;
+        return $localize`:@@vendor.protest.error.already:This change request already has a review request.`;
       }
-      return $localize`:@@vendor.protest.error.changed:This contest changed, for example the owner answered it. The list now shows where it stands.`;
+      return $localize`:@@vendor.protest.error.changed:This change request changed, for example the owner answered it. The list now shows where it stands.`;
     }
     case 'CONTEST_VALUE_STALE':
-      return $localize`:@@vendor.protest.error.stale:The owner changed this field since. Contest the new value instead.`;
+      return $localize`:@@vendor.protest.error.stale:The owner changed this field since. Request a change to the new value instead.`;
     case 'CONTEST_INTEGRATION_CHANGED':
-      return $localize`:@@vendor.protest.error.newOwner:This integration has a new owner. Contest it again to reach them.`;
+      return $localize`:@@vendor.protest.error.newOwner:This integration has a new owner. Send your request again to reach them.`;
     case 'PROTEST_NOT_OPEN':
       return $localize`:@@vendor.protest.error.notOpen:This review request was already decided or withdrawn. The list now shows where it stands.`;
     case 'PROTEST_REPLY_EXISTS':
@@ -363,22 +363,22 @@ export function contestSubmitErrorMessage(err: unknown): string {
   switch (info?.code) {
     // AECI-1237 (§11d.5): AECi corrected and locked the field.
     case 'FIELD_LOCKED_BY_AECI':
-      return $localize`:@@vendor.contest.submit.error.locked:AEC Integrations corrected this field and locked it, so it cannot be contested. To dispute it, email support@aecintegrations.com.`;
+      return $localize`:@@vendor.contest.submit.error.locked:AEC Integrations corrected this field and locked it, so you cannot request a change to it. To dispute it, email support@aecintegrations.com.`;
     case 'CONTEST_DUPLICATE':
-      return $localize`:@@vendor.contest.submit.error.duplicate:You already have an open contest on this field. Withdraw it in Messages if you want to send a different value.`;
+      return $localize`:@@vendor.contest.submit.error.duplicate:You already have an open change request on this field. Withdraw it in Messages if you want to send a different value.`;
     case 'CONTEST_NO_CHANGE':
-      return $localize`:@@vendor.contest.submit.error.noChange:That is already the value on record, so there is nothing to contest.`;
+      return $localize`:@@vendor.contest.submit.error.noChange:That is already the value on record, so there is nothing to change.`;
     case 'CONTEST_INVALID_VALUE':
       return $localize`:@@vendor.contest.submit.error.invalid:That value is not valid for this field. Check it and try again.`;
     case 'CONTEST_OWN_INTEGRATION':
-      return $localize`:@@vendor.contest.submit.error.isOwner:Your company is recorded as the owner of this integration, so you cannot contest it.`;
+      return $localize`:@@vendor.contest.submit.error.isOwner:Your company is recorded as the owner of this integration, so you cannot request a change to it.`;
     case 'CONTEST_PROTEST_OPEN':
-      return $localize`:@@vendor.contest.submit.error.protestOpen:You asked AEC Integrations to review a contest on this field. Wait for its answer, or withdraw that request in Messages first.`;
+      return $localize`:@@vendor.contest.submit.error.protestOpen:You asked AEC Integrations to review a change request on this field. Wait for its answer, or withdraw that request in Messages first.`;
     case 'CONTEST_COOLDOWN':
-      return $localize`:@@vendor.contest.submit.error.cooldown:AEC Integrations agreed with the owner on this field, so you can't contest it again yet unless its value changes.`;
+      return $localize`:@@vendor.contest.submit.error.cooldown:AEC Integrations agreed with the owner on this field, so you can't request a change to it again yet unless its value changes.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.contest.submit.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:
-      return $localize`:@@vendor.contest.submit.error.generic:Could not send your contest. Try again.`;
+      return $localize`:@@vendor.contest.submit.error.generic:Could not send your change request. Try again.`;
   }
 }

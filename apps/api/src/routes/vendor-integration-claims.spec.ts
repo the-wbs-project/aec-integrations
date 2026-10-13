@@ -378,6 +378,10 @@ describe('POST /api/vendor/integrations/:id/claim — refusals', () => {
     const res = await claim(AUTH_A, I_MAIN);
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    // AECI-1267: the wording a vendor reads.
+    expect(res.body.error.message).toBe(
+      'Another company is recorded as the owner of this integration. Request a change to the owner field if that is wrong.',
+    );
     expect((await row(I_MAIN)).claimedAt).toBeNull();
     expect(await auditRows()).toHaveLength(0);
   });
@@ -386,6 +390,9 @@ describe('POST /api/vendor/integrations/:id/claim — refusals', () => {
     const res = await claim(AUTH_A, I_NO_OWNER);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('INTEGRATION_OWNER_UNKNOWN');
+    expect(res.body.error.message).toBe(
+      'No owner is on file for this integration. Request a change to the owner field to ask AEC Integrations to record you as the owner.',
+    );
     expect(await auditRows()).toHaveLength(0);
   });
 

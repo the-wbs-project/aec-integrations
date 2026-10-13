@@ -159,7 +159,7 @@ interface SelectOption {
               AEC Integrations reviews it. Nothing on the public page changes unless it is accepted.
               You can follow it in Messages.
             </p>
-            <p><aec-vendor-docs-link page="contests-and-protests" /></p>
+            <p><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
           </div>
 
           <div class="max-w-sm space-y-2">
@@ -308,8 +308,8 @@ interface SelectOption {
                   class="text-xs text-(--text-secondary)"
                   i18n="@@vendor.contest.form.ownerHintOffered"
                 >
-                  The vendor that owns and offers this integration. A contest about this field
-                  always goes to AEC Integrations.
+                  The vendor that owns and offers this integration. A change request about this
+                  field always goes to AEC Integrations.
                 </p>
               }
             </div>
@@ -360,7 +360,7 @@ interface SelectOption {
               @if (submitting()) {
                 <span i18n="@@vendor.contest.form.sending">Sending…</span>
               } @else {
-                <span i18n="@@vendor.contest.form.submit">Send contest</span>
+                <span i18n="@@vendor.contest.form.submit">Send request</span>
               }
             </button>
             <button
@@ -416,7 +416,7 @@ export class VendorContestForm {
 
   protected readonly fieldPlaceholder = $localize`:@@vendor.contest.form.field.placeholder:Choose a field`;
   protected readonly valuePlaceholder = $localize`:@@vendor.contest.form.value.placeholder:Choose a value`;
-  protected readonly fieldRequiredMessage = $localize`:@@vendor.contest.error.field:Choose the field you want to contest.`;
+  protected readonly fieldRequiredMessage = $localize`:@@vendor.contest.error.field:Choose the field you want to change.`;
   protected readonly reasonRequiredMessage = $localize`:@@vendor.contest.error.reason:Say why the value on record is wrong.`;
 
   constructor() {
@@ -442,7 +442,7 @@ export class VendorContestForm {
     const fields = this.fields().filter((f) => this.openFields().has(f));
     if (fields.length === 0) return null;
     const names = fields.map(contestFieldLabel).join(', ');
-    return $localize`:@@vendor.contest.openLine:You have an open contest on this integration: ${names}:FIELDS:. Follow it in Messages.`;
+    return $localize`:@@vendor.contest.openLine:You have an open change request on this integration: ${names}:FIELDS:. Follow it in Messages.`;
   });
 
   /**
@@ -486,7 +486,7 @@ export class VendorContestForm {
       return {
         value: f,
         label: busy
-          ? $localize`:@@vendor.contest.form.field.busy:${label}:FIELD: (you have an open contest)`
+          ? $localize`:@@vendor.contest.form.field.busy:${label}:FIELD: (you have an open request)`
           : label,
         disabled: busy,
       };
@@ -631,8 +631,8 @@ export class VendorContestForm {
       const label = contestFieldLabel(f);
       this.announcer.announce(
         contest.routed_to === 'owner'
-          ? $localize`:@@vendor.contest.live.sent.owner:Your contest on ${label}:FIELD: was sent to the integration’s owner. Follow it in Messages.`
-          : $localize`:@@vendor.contest.live.sent.aeci:Your contest on ${label}:FIELD: was sent to AEC Integrations. Follow it in Messages.`,
+          ? $localize`:@@vendor.contest.live.sent.owner:Your change request on ${label}:FIELD: was sent to the integration’s owner. Follow it in Messages.`
+          : $localize`:@@vendor.contest.live.sent.aeci:Your change request on ${label}:FIELD: was sent to AEC Integrations. Follow it in Messages.`,
       );
       this.submitting.set(false);
       this.close();

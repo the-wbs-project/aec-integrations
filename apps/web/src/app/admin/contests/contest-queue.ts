@@ -118,8 +118,8 @@ export class ContestQueue {
   protected readonly protestFilter = signal<ContestProtestStatus>('open');
 
   protected readonly viewOptions: ReadonlyArray<{ key: 'contests' | 'protests'; label: string }> = [
-    { key: 'contests', label: $localize`:@@admin.contests.view.contests:Contests` },
-    { key: 'protests', label: $localize`:@@admin.contests.view.protests:Protests` },
+    { key: 'contests', label: $localize`:@@admin.contests.view.contests:Change requests` },
+    { key: 'protests', label: $localize`:@@admin.contests.view.protests:Appeals` },
   ];
 
   protected readonly protestOptions: ReadonlyArray<{ key: ContestProtestStatus; label: string }> = [

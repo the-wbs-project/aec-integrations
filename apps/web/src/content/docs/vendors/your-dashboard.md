@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banner you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.

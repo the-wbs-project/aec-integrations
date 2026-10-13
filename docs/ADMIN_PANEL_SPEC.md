@@ -237,7 +237,7 @@ the **Operations trigger renders their SUM**.
 | Review queue | `pending_reviews` | `reviews.status = 'pending'` |
 | Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, plus `listing_requests.status = 'open'` (AECI-1293) |
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
-| Field contests | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
+| Field contests (nav: Change requests) | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
 | Review replies (AECI-1177) | `pending_review_responses` | `review_responses.status = 'pending'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c) |
 | Re-index queue | `pending_reindex` | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
 
@@ -1200,6 +1200,8 @@ Four IA notes, in §5.10's voice:
 
 ### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18; connector-powered rows and evidenced pairs AECI-1092, 2026-09-23)
 
+*(nav: Change requests. Since AECI-1267 the nav item, the queue heading and its Contests / Protests tabs read "Change requests" and "Appeals", and the audit labels say "Change request …" and "Appeal …". Code, routes and this section keep the internal name.)*
+
 The queue for integration field contests routed to AECi. `STAGE_2_VENDOR_PORTAL_SPEC.md`
 §11b owns the contract (§11b.11 is this screen as built) and `API_CONTRACTS.md` §6.10 the
 two endpoint shapes. Recorded here because the route, the IA, the badge and the write are
@@ -1315,7 +1317,7 @@ defaults:
   rows with no issue id. "Linear issue pending" that persists past a sweep is the signal to
   check `LINEAR_API_KEY` and the sweep's `job_runs` row.
 
-**Protests (AECI-1009, 2026-09-22).** A "Show" switch (Contests / Protests) sits before the
+**Protests (AECI-1009, 2026-09-22).** A "Show" switch (Contests / Protests, labeled "Change requests" / "Appeals" since AECI-1267) sits before the
 filters. Protests has its own status tabs (Open, Agreed with the submitter, Agreed with the
 owner, Withdrawn) over `protest_status`. A protest card shows both sides in full: why it came
 here (the owner declined, or did not answer within 30 days), the submitter's case and links,

@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -21,7 +21,7 @@ On Free and on Managed, anyone with a seat can:
 
 - keep your company details current: the description, website, headquarters, logo and contact links,
 - keep each product's description, website, logo and categories current,
-- claim and maintain the integrations your company builds, add your own links, and contest a detail on one you do not own,
+- claim and maintain the integrations your company builds, add your own links, and request a change to a detail on one you do not own,
 - invite colleagues and manage seats. See [Your seat](/docs/vendors/your-seat),
 - work through the company and product checklists. See [Your checklists](/docs/vendors/checklists).
 
@@ -36,7 +36,7 @@ The product details on this list are the ones that feed search ranking. They are
 - **How teams use it.** Show buyers, in your own words, what your product does on a real project.
 - **Trades, audiences and phases.** Set the trades, audiences and project phases each product serves, so its listing describes it accurately.
 - **Integrations page and API docs links.** Send evaluators straight from your listing to your docs. They show under **Resources** on your product page.
-- **Confirmed data flows.** Say which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Attesting an integration](/docs/vendors/attesting-an-integration).
+- **Confirmed data flows.** Say which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Confirming integration data](/docs/vendors/confirming-integration-data).
 - **Connector integrations.** Claim, edit, retire and restore the integrations you deliver through a connector, not only the ones you built directly. See [Owning an integration](/docs/vendors/owning-an-integration).
 - **Review replies.** Answer reviews of your products in public, so buyers see your side. We check each reply before it goes live. See [Replying to reviews](/docs/vendors/replying-to-reviews).
 - **Search engine notice.** We tell search engines each time you update a public page.

@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -18,7 +18,7 @@ Each claim on your listing, and each correction someone suggested to your compan
 
 ### Change requests
 
-The requests your company sent about integrations, and the ones other companies sent about integrations you own, with where each stands. [Contests and protests](/docs/vendors/contests-and-protests) covers them in full.
+The requests your company sent about integrations, and the ones other companies sent about integrations you own, with where each stands. [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals) covers them in full.
 
 ### Daily reminder email
 
@@ -65,6 +65,6 @@ The switch shows when you turned it off. Turn it back on the same way.
 ## Related
 
 - Previous: [Editing your profile and products](/docs/vendors/editing-profile-and-products).
-- Next: [Attesting an integration](/docs/vendors/attesting-an-integration).
-- [Contests and protests](/docs/vendors/contests-and-protests).
+- Next: [Confirming integration data](/docs/vendors/confirming-integration-data).
+- [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals).
 - [Your seat](/docs/vendors/your-seat).

@@ -3,7 +3,7 @@ title: Your change history
 description: Where to see every change to your company, products, integrations and seats, who made it, and why AEC Integrations changed something.
 section: vendors
 order: 13
-last_updated: 9 October 2026
+last_updated: October 13, 2026
 ---
 
 The vendor portal keeps a record of every change to your listing. It shows what changed, when, and who made the change. When AEC Integrations changes something you hold, it shows our reason.
@@ -19,7 +19,7 @@ Each row is one change, newest first. It shows:
 - **What happened,** in plain words. For example, "Product listing updated" or "Integration retired".
 - **What it was about.** The company, product or integration the change touched, by its current name.
 - **When.** The date and time of the change, in your own time zone. The zone is named after the time.
-- **By.** Who made it: **Your team**, **AEC Integrations**, or **System**. System means an automatic process, such as a plan reminder or a contest that closed with no answer.
+- **By.** Who made it: **Your team**, **AEC Integrations**, or **System**. System means an automatic process, such as a plan reminder or a change request that closed with no answer.
 - **Changed.** The names of the fields that changed, when there were any. The list shows which fields changed, not their old or new values.
 - **Plan at the time.** Your plan when the change was made, Free or Managed.
 
@@ -67,4 +67,4 @@ A change here is a change to your listing on AEC Integrations. "Submitted" and "
 - Previous: [Your checklists](/docs/vendors/checklists).
 - Next: [For connector vendors](/docs/vendors/connector-vendors).
 - Back to the start: [Your seat](/docs/vendors/your-seat).
-- [Contests and protests](/docs/vendors/contests-and-protests), for how to ask for a change to an integration you do not own.
+- [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals), for how to ask for a change to an integration you do not own.

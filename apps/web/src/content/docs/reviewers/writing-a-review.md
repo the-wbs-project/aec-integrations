@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: 13 October 2026
+last_updated: October 13, 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -67,7 +67,7 @@ You cannot edit or withdraw a review from your account. Your account page lists 
 
 ## When the vendor replies
 
-A company that owns the product can post one public reply to your review. We check every reply before it is published, the same way we check reviews. A reply sits under your review, labelled "Response from" and the company's name. It never changes your review, its rating, the product's scores, or where anything ranks. We do not tell you when a company replies.
+A company that owns the product can post one public reply to your review. We check every reply before it is published, the same way we check reviews. A reply sits under your review, labeled "Response from" and the company's name. It never changes your review, its rating, the product's scores, or where anything ranks. We do not tell you when a company replies.
 
 A company cannot ask you to change or remove your review in a reply, or offer you anything. The [Review Guidelines](/legal/review-guidelines) set the rules for replies too.
 

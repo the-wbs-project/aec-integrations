@@ -45,9 +45,9 @@ const VENDOR_SLUGS = [
   'your-dashboard',
   'editing-profile-and-products',
   'notifications-and-messages',
-  'attesting-an-integration',
+  'confirming-integration-data',
   'owning-an-integration',
-  'contests-and-protests',
+  'requesting-changes-and-appeals',
   'replying-to-reviews',
   'plans',
   'checklists',
@@ -90,7 +90,7 @@ function md(
     'description: A page.',
     `section: ${section}`,
     `order: ${order}`,
-    'last_updated: 8 October 2026',
+    'last_updated: October 8, 2026',
     '---',
     '',
     body,
@@ -434,7 +434,7 @@ describe('docs manifest', () => {
     for (const page of DOCS_PAGES) {
       expect(page.title, page.slug).not.toBe('');
       expect(page.description, page.slug).not.toBe('');
-      expect(page.lastUpdated, page.slug).toMatch(/^\d{1,2} \w+ \d{4}$/);
+      expect(page.lastUpdated, page.slug).toMatch(/^[A-Z][a-z]+ \d{1,2}, \d{4}$/);
       expect(Number.isInteger(page.order), page.slug).toBe(true);
     }
     for (const section of DOCS_SECTIONS) {
@@ -567,6 +567,9 @@ describe('docs manifest', () => {
       expect(page.html, page.slug).not.toMatch(/Active on AEC Integrations|account label/i);
       expect(page.html, page.slug).not.toContain('/docs/trust/the-account-label');
       expect(page.html, page.slug).not.toContain('/docs/vendors/plans-and-the-account-label');
+      // AECI-1267: the two renamed vendor pages 301 to their new slugs.
+      expect(page.html, page.slug).not.toContain('/docs/vendors/contests-and-protests');
+      expect(page.html, page.slug).not.toContain('/docs/vendors/attesting-an-integration');
     }
     expect(getDocsPage('trust', 'the-account-label')).toBeUndefined();
     expect(getDocsPage('vendors', 'plans')?.title).toBe('Plans');
@@ -601,11 +604,13 @@ describe('docs manifest', () => {
     // AECI-1265: the vendor route moved to the vendor guide. AECI-1271: one
     // sentence names it, in plain text.
     expect(requests).not.toContain('Request a change');
-    const contests = textOf('vendors', 'contests-and-protests');
-    // The integration page's buttons; Contest a field is the connector lane only.
+    const contests = textOf('vendors', 'requesting-changes-and-appeals');
+    // The integration page's buttons. AECI-1267: the connector lane says
+    // Request a change too, and Messages files them under Change requests.
     expect(contests).toContain('Request a change');
     expect(contests).toContain('Request a correction');
-    expect(contests).toContain('Contest a field');
+    expect(contests).not.toContain('Contest a field');
+    expect(contests).not.toContain('Field contests');
   });
 
   // AECI-1265 B3: vendor material lives in the vendor guide, not on buyer pages.
@@ -626,9 +631,9 @@ describe('docs manifest', () => {
       'Integrations your company offers',
     );
     expect(textOf('vendors', 'claiming-your-listing')).not.toContain(
-      'maintains your connector catalogue',
+      'maintains your connector catalog',
     );
-    expect(textOf('vendors', 'connector-vendors')).toContain('maintains your connector catalogue');
+    expect(textOf('vendors', 'connector-vendors')).toContain('maintains your connector catalog');
     expect(textOf('vendors', 'connector-vendors')).toContain('Integrations your company offers');
   });
 
@@ -695,21 +700,24 @@ describe('docs manifest', () => {
     const textOf = (section: string, slug: string): string =>
       new DOMParser().parseFromString(getDocsPage(section, slug)!.html, 'text/html').body
         .textContent ?? '';
-    const contests = textOf('vendors', 'contests-and-protests');
+    const contests = textOf('vendors', 'requesting-changes-and-appeals');
     for (const label of [
       'Name',
-      'Mechanism name',
+      'Connection name',
       'Direction',
       'Description',
       'Listing link',
       'Documentation link',
       'Pricing',
-      'Maturity',
+      'Release stage',
       'Owner',
     ]) {
       expect(contests, label).toContain(label);
     }
-    const attesting = textOf('vendors', 'attesting-an-integration');
+    // AECI-1267: the form now uses the integration page's labels.
+    expect(contests).not.toContain('Mechanism name');
+    expect(contests).not.toContain('Maturity');
+    const attesting = textOf('vendors', 'confirming-integration-data');
     expect(attesting).toContain("Data that's shared");
     expect(attesting).toContain('types of data');
     expect(attesting).not.toContain('only just opened');

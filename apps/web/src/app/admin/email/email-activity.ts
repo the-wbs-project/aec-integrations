@@ -392,7 +392,7 @@ export class EmailActivity {
       case 'review':
         return $localize`:@@admin.email.entity.review:Review`;
       case 'integration_field_challenge':
-        return $localize`:@@admin.email.entity.contest:Field contest`;
+        return $localize`:@@admin.email.entity.contest:Change request`;
       case 'mailing_list':
         return $localize`:@@admin.email.entity.subscriber:Subscriber`;
       default:

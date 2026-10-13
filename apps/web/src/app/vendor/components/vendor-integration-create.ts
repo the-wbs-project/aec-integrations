@@ -122,7 +122,7 @@ function emptyDraft(): Draft {
             <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.done.dupes">
               These integrations were already on record for the same two products. If one of them is
               the same integration, retire the one you just added. Then claim the existing one if
-              your company owns it, or contest it if a detail is wrong.
+              your company owns it, or request a change on it if a detail is wrong.
             </p>
             <ul class="space-y-1 text-sm text-(--text-primary)" data-testid="create-duplicates">
               @for (dup of created.duplicates; track dup.id) {

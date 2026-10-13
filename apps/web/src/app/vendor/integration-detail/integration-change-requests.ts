@@ -145,7 +145,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
       </h3>
       <aec-vendor-tip [label]="aboutLabel" [lines]="[aboutTip]" />
     </div>
-    <p class="mt-1"><aec-vendor-docs-link page="contests-and-protests" /></p>
+    <p class="mt-1"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
 
     <div class="mt-3 flex flex-wrap items-center gap-3">
       <div class="relative min-w-[14rem] flex-1 sm:max-w-sm">

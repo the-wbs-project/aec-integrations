@@ -235,7 +235,7 @@ describe('VendorProgramPage', () => {
       // which keeps both docs links.
       const detail = items[2]!;
       expect([...detail.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-        '/docs/vendors/attesting-an-integration',
+        '/docs/vendors/confirming-integration-data',
         '/docs/vendors/plans#what-managed-adds',
       ]);
       // Copy pass 2026-10-12: the section's own lede, then the shared terms line.

@@ -59,7 +59,8 @@
 >   lifted it on 2026-10-12.)*
 > - **Vendor material left the buyer pages** for the vendor guide: "If you are the vendor" on
 >   `agreement-states`, the vendor change-request section of `requests-and-corrections` (one
->   sentence now links to `contests-and-protests`), the seat-address rule on `signing-in`, and the
+>   sentence now links to `contests-and-protests`, renamed `requesting-changes-and-appeals` by
+>   AECI-1267), the seat-address rule on `signing-in`, and the
 >   seat notes on `your-data` (now on `your-seat`, with one sentence left before deletion). The
 >   connector sections of `owning-an-integration` and `claiming-your-listing` moved to a new
 >   `vendors/connector-vendors` page, "For connector vendors".
@@ -95,7 +96,8 @@
 > **No page describes version comparison or version stamps** until the product can create them.
 > The pair-page comparison is built (AECI-303, AECI-304) but dormant: no portal screen creates a
 > release or stamps an answer, and promote does not carry versions. So the Versions sections of
-> `reading-an-integration-page` and `attesting-an-integration` are gone, and so is the Managed
+> `reading-an-integration-page` and `attesting-an-integration` (now `confirming-integration-data`,
+> AECI-1267) are gone, and so is the Managed
 > paragraph about it on `plans-and-the-account-label`. The 12-month re-confirmation line now says
 > what `detectStaleVersion` does: any Yes older than 12 months gets a re-confirm ask, and it does
 > not expire.
@@ -208,7 +210,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Routes | `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404. The manifest throws if two pages share one path |
 | Navigation | A "General / For vendors" guide toggle tops the sidebar on every docs page (AECI-1271): two links, the current guide marked `aria-current="true"` from the URL alone. Under it, one of two sidebar trees, picked from the URL (AECI-1265): General lists its sections, For vendors lists the vendor guide. The `/docs` home lists General sections only |
 | Cross-guide links | No General page or intro links into the vendor guide (AECI-1271). The manifest collects every href from the `marked` tokens and throws at module init, naming the file, when a General href's path is or sits under a vendor-guide path. `GENERAL_TO_VENDOR_LINK_ALLOWLIST` in `docs-content.ts` ships empty. Vendor → General links are allowed |
-| Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string in US format, "Month D, YYYY": the legal rule. AECI-1262 set the format. Help-center pages still carry "D Month YYYY" until AECI-1267). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
+| Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string in US format, "Month D, YYYY": the legal rule. AECI-1262 set the format, and AECI-1267 moved the help-center pages to it. `docs-content.component.spec.ts` asserts it). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser), on both `/docs` and `/docs/*`. Freshness on deploy is automatic (§2.3). **`Cache-Tag: route:index`**, not the `docs docs:{slug}` first sketched here (AECI-1104): the content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
@@ -269,14 +271,14 @@ on neither the General home nor its sidebar):
 ├─ your-dashboard                    — the company and product tabs, the Vendor Overview (glance band, Getting started, What needs you), a product's overview, the plan-ended banner, live updates (AECI-1251)
 ├─ editing-profile-and-products      — company profile fields, logos, product Profile tab by plan, the four facet tabs, "How teams use it", when an edit shows, the company fields no public page shows, AECi locks (AECI-1251)
 ├─ notifications-and-messages        — the Messages tab's four parts, every email a seat can get, the daily reminder switch (AECI-1251)
-├─ attesting-an-integration          — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
+├─ confirming-integration-data       — "Confirming integration data": Yes/No/Change on a data flow, add a data flow, agreement states, what happens next (was `attesting-an-integration`, 301 since AECI-1267)
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
-├─ contests-and-protests             — sending and receiving contests and change requests, the protest to AECi (§11b)
+├─ requesting-changes-and-appeals    — "Requesting changes and appeals": sending and receiving change requests, the appeal to AEC Integrations (§11b; was `contests-and-protests`, 301 since AECI-1267)
 ├─ replying-to-reviews               — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
 ├─ plans                             — Free vs Managed, benefit-first (marketing review 2026-10-12): pricing cards (`shared/plan-cta/plan-cards.ts`) + comparison table (`docs-plans-comparison.ts`), an intro line linking to the public `/vendor-program` page, what every plan includes, what Managed adds, why buyers trust the order, a "Coming soon" teaser (the one ruled exception to "describe only what ships"), plan end, then "Getting Managed" last so the page closes on its call-to-action panel. Since AECI-1293 (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) every call to action opens the one claim dialog: "Claim your listing" under the intro, on the Free card and in the closing panel, and "Start with Managed" (Managed preselected) on the Managed card, in the rail from 90rem and in the phone bar. "Questions about Managed or pricing? Talk to us" sits under the intro, on the Managed card and in the panel, and opens the plan inquiry dialog. The page mounts one `aec-claim-dialog-host` and one `aec-plan-inquiry-host`. Since AECI-1285 these components live in `shared/plan-cta/` and are shared with `/vendor-program`. Each takes `page: 'docs_plans'` here, which `plan_cta_clicked` and `plan_inquiry_submitted` carry (`ANALYTICS.md` §4, AECI-1288). The closing panel's terms line shows the monthly and the annual price, both from `@aeci/shared/entitlements` (`MANAGED_LIST_PRICE_CENTS`, `MANAGED_ANNUAL_PRICE_CENTS`, AECI-1289). Since 2026-10-13 it reads "$25 USD a month or $250 USD a year per product, billed by invoice or purchase order.", followed by the one-year term. The Markdown does not repeat the price or the term. It states renewal and a "Can we cancel a Managed plan early?" answer in prose below the panel (`VENDOR_PROGRAM_PAGE_SPEC.md` §10 item 6). The pricing link opens the plan inquiry dialog in place, which saves the inquiry and emails the visitor and support (`POST /api/plan-inquiries`, AECI-1279); `/contact?topic=managed` carries the same form for no-JS clicks (AECI-1219; slug renamed by AECI-1264, old URL 301s). The public `/vendor-program` page shares these CTA components and links here, including to the `#what-managed-adds`, `#compare-plans` and `#when-a-managed-plan-ends` headings. Since the 2026-10-12 ruling that page carries its own benefit copy and this page stays the feature reference: an edit to a Free, Managed or "Coming soon" sentence here needs no matching edit there. Keep the facts aligned, so a feature that changes here is checked there too. Three things stay shared. The plan cards are one component. The sort rule is one i18n id (`@@app.docs.plans.sortRule`) in `docs-plans-comparison.ts` and on that page, and it must read the same as this page's "Why buyers trust the order". The Managed price and one-year term come from the shared closing panel on both pages. Renewal and the early-cancel answer (2026-10-13) must read the same as this page's "Getting Managed". `vendor-program/vendor-program-copy.component.spec.ts` fails when the sort rule, the Managed terms, or one of the three heading ids that page links to, changes on one side only. Its contract is `VENDOR_PROGRAM_PAGE_SPEC.md` §4, and the Plans-page deltas it made are §10
 ├─ checklists                        — the company and product checklists and "Looks right", moved off `plans` on 2026-10-12
-├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
-├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
+├─ change-history                    — the Changes page: every change, who made it, AEC Integrations' reasons (AECI-1160)
+├─ connector-vendors                 — "For connector vendors": the catalog seat, the Catalog tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
 └─ (deferred, §6) performance, until analytics.view has a consumer; product-versions, until a vendor can create a release (AECI-1263)
 ```
 
@@ -290,17 +292,19 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
 > `/methodology` is what we assert, `/docs/trust/*` is how to act on it. Same split for
 > `getting-started/about-aec-integrations`. See `STAGE_2_5_SPEC.md` §7.2, which owns this boundary.
 >
-> Reader pages that overlap a vendor page (`agreement-states` with `attesting-an-integration`)
+> Reader pages that overlap a vendor page (`agreement-states` with `confirming-integration-data`)
 > explain what a reader sees and link across for what a vendor does. No paragraph appears in both.
 
 > **`requests-and-corrections` was drafted ahead of the epic (AECI-1023, 2026-09-22)** and imported
 > by AECI-1248, which re-verified it against the shipped request form and the vendor portal. Three
 > sentences were wrong and were fixed. A public correction is not forwarded to an integration's owner
 > by any code, so the page now says we ask the owner. The vendor route on an integration's own page is
-> **Request a change** or **Request a correction**; **Contest a field** is the connector lane only.
+> **Request a change** or **Request a correction**. The connector lane says **Request a change** too
+> (it said **Contest a field** until AECI-1262).
 > A contest can move to AEC Integrations after it is sent, and the owner of a connector-delivered
 > integration decides only on Managed. *(AECI-1265: the vendor change-request section left this
-> page for `contests-and-protests`, which already covered all of it. One sentence links there.)*
+> page for `contests-and-protests`, now `requesting-changes-and-appeals`, which already covered all
+> of it. One sentence links there.)*
 
 ## 6. Deliberately deferred (not in this epic)
 
@@ -324,9 +328,9 @@ Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alon
    | Vendor Overview, under "What needs you" (the page has no heading of its own above the glance band) | `vendor/sections/vendor-overview-section.ts` | `your-dashboard` (AECI-1251) |
    | Company profile, under "Vendor profile"; a product's Profile tab, above the form | `vendor/sections/vendor-profile-section.ts`; `vendor/sections/vendor-product-profile-page.ts` | `editing-profile-and-products` (AECI-1251) |
    | Messages, under the page intro. The claim-status block keeps its own `claiming-your-listing` link and the change-requests block its own, one link per block | `vendor/sections/vendor-messages-page.ts` | `notifications-and-messages` (AECI-1251) |
-   | Attestation lane: "Data that's shared" on the integration page | `vendor/integration-detail/integration-shared-data.ts` | `attesting-an-integration` |
+   | Attestation lane: "Data that's shared" on the integration page | `vendor/integration-detail/integration-shared-data.ts` | `confirming-integration-data` |
    | Integration edit, create, retire | The integration page's Overview section (`vendor-integration-detail-page.ts`), "Add an integration" (`vendor-integration-create.ts`), "Integrations your company offers" (`vendor-owned-integrations.ts`, which holds the edit form and Retire) | `owning-an-integration` |
-   | Contest form and protest | The open "Request a change" form (`vendor-contest-form.ts`), the Change requests block on Messages (`vendor-contests-list.ts`) and on the integration page (`integration-change-requests.ts`). The protest renders inside the last two | `contests-and-protests` |
+   | Contest form and protest | The open "Request a change" form (`vendor-contest-form.ts`), the Change requests block on Messages (`vendor-contests-list.ts`) and on the integration page (`integration-change-requests.ts`). The protest renders inside the last two | `requesting-changes-and-appeals` |
    | Review reply | `vendor/components/vendor-reviews-list.ts` | `replying-to-reviews` |
    | Plan panel and checklist | `vendor/components/vendor-plan-panel.ts`; `vendor/components/vendor-checklist.ts`, so the company and the product checklist both carry it | `plans`, `checklists`. The issue named `plans-and-the-account-label`, which AECI-1264 renamed to `plans`; the checklist text moved to `checklists` on 2026-10-12 |
    | Capability registry and plan price | `@aeci/shared/entitlements` (`TIER_CAPABILITIES`, `MANAGED_LIST_PRICE_CENTS`, `MANAGED_ANNUAL_PRICE_CENTS`) | `plans`. The comparison table's capability rows, the list price and the closing panel's annual price read the registry, so they follow it. Its other rows (seat rights, search-engine notice, connector integrations) are literals in `docs/docs-plans-comparison.ts` and must be edited by hand |

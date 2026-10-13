@@ -5,7 +5,7 @@
       class="text-lg font-bold text-(--text-primary)"
       i18n="@@admin.contests.heading"
     >
-      Field contests
+      Change requests
     </h2>
 
     <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -41,7 +41,7 @@
           id="admin-contests-protest-label"
           class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
           i18n="@@admin.contests.protest.filter.label"
-          >Protest</span
+          >Appeal</span
         >
         <div
           role="group"
@@ -141,7 +141,7 @@
 
   @if (loading()) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.contests.loading">
-    Loading field contests…
+    Loading change requests…
   </p>
   } @else if (loadFailed()) {
   <div class="mt-8 space-y-3">
@@ -150,7 +150,7 @@
       role="alert"
       i18n="@@admin.contests.loadFailed"
     >
-      We couldn't load field contests. Your session may have expired.
+      We couldn't load change requests. Your session may have expired.
     </p>
     <button
       type="button"
@@ -163,11 +163,12 @@
   </div>
   } @else if (visibleContests().length === 0) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.contests.empty">
-    No contests match these filters.
+    No change requests match these filters.
   </p>
   } @else { @if (truncated()) {
   <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.contests.cappedNote">
-    Showing the first {{ loadedCount() }} of {{ total() }} contests. Decide these to see the rest.
+    Showing the first {{ loadedCount() }} of {{ total() }} change requests. Decide these to see the
+    rest.
   </p>
   }
 
@@ -360,7 +361,7 @@
               class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@admin.contests.protest.heading"
             >
-              Protest to AEC Integrations
+              Appeal to AEC Integrations
             </h4>
             <span
               class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"

@@ -202,7 +202,7 @@ class PreviewAdminContestsApi extends AdminContestsApi {
         class="mb-6 text-2xl font-bold text-(--text-primary)"
         i18n="@@preview.adminContests.heading"
       >
-        Admin: field contests (preview)
+        Admin: change requests (preview)
       </h1>
       <aec-contest-queue />
     </div>

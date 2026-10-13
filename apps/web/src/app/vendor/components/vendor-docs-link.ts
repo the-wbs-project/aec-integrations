@@ -20,10 +20,11 @@ export const VENDOR_GUIDE_PAGES = {
     $localize`:@@vendor.docsLink.page.editing:Editing your profile and products`,
   'notifications-and-messages': () =>
     $localize`:@@vendor.docsLink.page.notifications:Notifications and messages`,
-  'attesting-an-integration': () =>
-    $localize`:@@vendor.docsLink.page.attesting:Attesting an integration`,
+  'confirming-integration-data': () =>
+    $localize`:@@vendor.docsLink.page.attesting:Confirming integration data`,
   'owning-an-integration': () => $localize`:@@vendor.docsLink.page.owning:Owning an integration`,
-  'contests-and-protests': () => $localize`:@@vendor.docsLink.page.contests:Contests and protests`,
+  'requesting-changes-and-appeals': () =>
+    $localize`:@@vendor.docsLink.page.contests:Requesting changes and appeals`,
   'replying-to-reviews': () => $localize`:@@vendor.docsLink.page.replying:Replying to reviews`,
   plans: () => $localize`:@@vendor.docsLink.page.plans:Plans`,
   checklists: () => $localize`:@@vendor.docsLink.page.checklists:Your checklists`,

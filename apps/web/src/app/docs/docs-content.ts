@@ -51,12 +51,12 @@ import writingReviewMd from '../../content/docs/reviewers/writing-a-review.md';
 import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
 import rankingMd from '../../content/docs/trust/how-ranking-works.md';
 import vendorGuideIntroMd from '../../content/docs/vendors/_index.md';
-import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
+import attestingMd from '../../content/docs/vendors/confirming-integration-data.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
 import checklistsMd from '../../content/docs/vendors/checklists.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import connectorVendorsMd from '../../content/docs/vendors/connector-vendors.md';
-import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
+import contestsMd from '../../content/docs/vendors/requesting-changes-and-appeals.md';
 import dashboardMd from '../../content/docs/vendors/your-dashboard.md';
 import editingMd from '../../content/docs/vendors/editing-profile-and-products.md';
 import notificationsMd from '../../content/docs/vendors/notifications-and-messages.md';
@@ -274,9 +274,9 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'your-dashboard', source: dashboardMd },
     { slug: 'editing-profile-and-products', source: editingMd },
     { slug: 'notifications-and-messages', source: notificationsMd },
-    { slug: 'attesting-an-integration', source: attestingMd },
+    { slug: 'confirming-integration-data', source: attestingMd },
     { slug: 'owning-an-integration', source: owningMd },
-    { slug: 'contests-and-protests', source: contestsMd },
+    { slug: 'requesting-changes-and-appeals', source: contestsMd },
     { slug: 'replying-to-reviews', source: replyingMd },
     { slug: 'plans', source: plansMd },
     { slug: 'checklists', source: checklistsMd },

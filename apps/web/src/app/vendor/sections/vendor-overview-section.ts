@@ -588,8 +588,8 @@ export class VendorOverviewSection {
           pill: $localize`:@@vendor.overview.item.protests.pill:Reply by the due date`,
           title:
             item.count === 1
-              ? $localize`:@@vendor.overview.item.protests.title.one:A vendor asked AEC Integrations to review one of your contest decisions`
-              : $localize`:@@vendor.overview.item.protests.title.many:${item.count}:COUNT: review requests on your contest decisions are open`,
+              ? $localize`:@@vendor.overview.item.protests.title.one:A vendor asked AEC Integrations to review one of your change request decisions`
+              : $localize`:@@vendor.overview.item.protests.title.many:${item.count}:COUNT: appeals on your change request decisions are open`,
           body: $localize`:@@vendor.overview.item.protests.body:You can reply once to each, in Messages. AEC Integrations says which side it agrees with. Its view is advice, and nothing about it is public.`,
         };
       case 'contests':
@@ -603,9 +603,9 @@ export class VendorOverviewSection {
           pill: $localize`:@@vendor.overview.item.contests.pill:To decide`,
           title:
             item.count === 1
-              ? $localize`:@@vendor.overview.item.contests.title.one:A vendor contested a field on an integration you built`
-              : $localize`:@@vendor.overview.item.contests.title.many:${item.count}:COUNT: field contests are waiting for your decision`,
-          body: $localize`:@@vendor.overview.item.contests.body:Accept or decline them in Messages. An accepted contest changes the public integration page.`,
+              ? $localize`:@@vendor.overview.item.contests.title.one:A vendor requested a change on an integration you built`
+              : $localize`:@@vendor.overview.item.contests.title.many:${item.count}:COUNT: change requests are waiting for your decision`,
+          body: $localize`:@@vendor.overview.item.contests.body:Accept or decline them in Messages. An accepted request changes the public integration page.`,
         };
       case 'addedRows':
         return {

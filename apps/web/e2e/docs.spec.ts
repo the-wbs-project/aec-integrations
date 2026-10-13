@@ -86,6 +86,34 @@ test.describe('/docs shell — AECI-1248', () => {
     expect(await target.text()).toMatch(/<h1[^>]*>\s*Plans\s*<\/h1>/);
   });
 
+  // AECI-1267 — two vendor-guide pages got plainer names. Each old URL 301s to
+  // the new one with the query dropped, and the new one renders its new title.
+  const RENAMED_VENDOR_PAGES = [
+    [
+      '/docs/vendors/contests-and-protests',
+      '/docs/vendors/requesting-changes-and-appeals',
+      'Requesting changes and appeals',
+    ],
+    [
+      '/docs/vendors/attesting-an-integration',
+      '/docs/vendors/confirming-integration-data',
+      'Confirming integration data',
+    ],
+  ] as const;
+
+  for (const [from, to, title] of RENAMED_VENDOR_PAGES) {
+    test(`the old URL ${from} 301s to ${to}`, async ({ request }) => {
+      const res = await request.get(`${from}?x=1`, { maxRedirects: 0 });
+      expect(res.status()).toBe(301);
+      const location = new URL(res.headers()['location'] ?? '', 'http://x');
+      expect(location.pathname).toBe(to);
+      expect(location.search).toBe('');
+      const target = await request.get(to, { maxRedirects: 0 });
+      expect(target.status()).toBe(200);
+      expect(await target.text()).toContain(title);
+    });
+  }
+
   // AECI-1249 — the reader pages. Indexable, so the page meta must not carry
   // noindex (the env-level X-Robots-Tag is a separate, per-tier gate).
   const READER_PAGES: readonly (readonly [string, string])[] = [

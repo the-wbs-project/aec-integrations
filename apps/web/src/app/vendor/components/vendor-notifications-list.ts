@@ -499,7 +499,7 @@ function noteOf(
   if (isAttestationNotification(notification)) return null;
   switch (notification.kind) {
     case 'integration_claim':
-      return $localize`:@@vendor.claim.notify.note:The owner now keeps this integration's details, and AEC Integrations no longer updates them. If the owner on file is wrong, contest the Owner field on the integration.`;
+      return $localize`:@@vendor.claim.notify.note:The owner now keeps this integration's details, and AEC Integrations no longer updates them. If the owner on file is wrong, request a change to the Owner field on the integration.`;
     case 'integration_retire':
       if (notification.retired_by === 'aeci') {
         const note =
@@ -514,9 +514,9 @@ function noteOf(
         ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`
         : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
     case 'integration_create':
-      return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, contest that field on the integration.`;
+      return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, request a change to that field on the integration.`;
     case 'integration_update':
-      return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
+      return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, request a change to that field on the integration.`;
     case 'claim_added':
       return $localize`:@@vendor.claimAdded.notify.note:Tell them whether it is right on the integration page.`;
     case 'review':

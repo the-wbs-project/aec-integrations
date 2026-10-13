@@ -152,7 +152,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           @if (confirmingWithdraw()) {
             <div class="flex flex-wrap items-center gap-2">
               <p class="text-sm text-(--text-primary)" i18n="@@vendor.protest.withdraw.confirm">
-                Withdraw this review request? You cannot ask again for this contest.
+                Withdraw this review request? You cannot ask again for this change request.
               </p>
               <button
                 type="button"
@@ -210,7 +210,8 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             <p [id]="ids.replyHint" class="max-w-prose text-xs text-(--text-secondary)">
               <ng-container i18n="@@vendor.protest.reply.hint"
                 >You can reply once, by {{ p.reply_due_at | date: 'medium' }}. AEC Integrations and
-                the vendor that sent the contest see it. Nothing about it is public.</ng-container
+                the vendor that sent the change request see it. Nothing about it is
+                public.</ng-container
               >
             </p>
             <ng-container [ngTemplateOutlet]="evidenceFields" />

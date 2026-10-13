@@ -206,13 +206,13 @@ async function refusalFor(
       return new ApiError(
         409,
         ApiErrorCode.INTEGRATION_OWNER_UNKNOWN,
-        'No owner is on file for this integration. Contest the owner field to ask AECi to record you as the owner.',
+        'No owner is on file for this integration. Request a change to the owner field to ask AEC Integrations to record you as the owner.',
       );
     }
     return new ApiError(
       403,
       ApiErrorCode.INTEGRATION_NOT_OWNER,
-      'Another company is recorded as the owner of this integration. Contest the owner field if that is wrong.',
+      'Another company is recorded as the owner of this integration. Request a change to the owner field if that is wrong.',
     );
   }
   // AECI-1040 ruling 2: the owner of a connector-powered row needs an active

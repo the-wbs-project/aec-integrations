@@ -3,7 +3,7 @@ title: Requests and corrections
 description: How to ask for a missing integration or correct a listing, at no charge and with no account.
 section: reviewers
 order: 2
-last_updated: 12 October 2026
+last_updated: October 13, 2026
 ---
 
 Anyone can ask us to add something or fix something. It is free. It needs no account, only an email address so we can reply.
@@ -22,9 +22,9 @@ Every product and vendor page has a **Suggest a correction** button. Tell us:
 
 We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify. You can also email [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
-**If the integration has been claimed by its owner,** the owner keeps its details and our catalogue updates no longer reach it. Send us the correction anyway. We check it against public sources. If it holds up, we ask the owner to change it. The owner decides.
+**If the integration has been claimed by its owner,** the owner keeps its details and our catalog updates no longer reach it. Send us the correction anyway. We check it against public sources. If it holds up, we ask the owner to change it. The owner decides.
 
-If you work at a vendor at one end of the integration, you ask to change a detail from the vendor portal. The For vendors guide covers it, under Contests and protests.
+If you work at a vendor at one end of the integration, you ask to change a detail from the vendor portal. The For vendors guide covers it, under Requesting changes and appeals.
 
 ## Reviews are separate
 

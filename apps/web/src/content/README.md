@@ -52,9 +52,7 @@ guide's Your seat page"). A deliberate exception goes on `GENERAL_TO_VENDOR_LINK
 
 **Copy rules (all three families).** Page copy says "AEC Integrations", never the internal
 shorthand "AECi". Body copy may say "we" and "us" instead. Copy is US English: "catalog",
-"labeled", "canceled", and `last_updated` written as "Month D, YYYY". The help-center pages under
-`docs/` lag this rule and the portal's renamed labels until their follow-up on the docs epic
-(`docs/CODE_REVIEW_EXEMPTIONS.md`, AECI-1262).
+"labeled", "canceled", and `last_updated` written as "Month D, YYYY" (AECI-1262, AECI-1267).
 
 The legal set has its own stricter workflow (versioning, counsel sign-off, frontmatter schema) in
 `legal/README.md`. **Read that one before touching anything under `legal/`.** This file covers the

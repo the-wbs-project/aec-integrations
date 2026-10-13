@@ -156,13 +156,13 @@ async function ownershipRefusal(
       return new ApiError(
         409,
         ApiErrorCode.INTEGRATION_OWNER_UNKNOWN,
-        'No owner is on file for this integration. Contest the owner field to ask AECi to record you as the owner.',
+        'No owner is on file for this integration. Request a change to the owner field to ask AEC Integrations to record you as the owner.',
       );
     }
     return new ApiError(
       403,
       ApiErrorCode.INTEGRATION_NOT_OWNER,
-      'Another company is recorded as the owner of this integration. Contest a field if something on it is wrong.',
+      'Another company is recorded as the owner of this integration. Request a change if something on it is wrong.',
     );
   }
   return null;
@@ -178,7 +178,7 @@ function claimedAndLiveRefusal(row: {
     return new ApiError(
       409,
       ApiErrorCode.INTEGRATION_NOT_CLAIMED,
-      'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it from AECi.',
+      'Claim this integration before you edit it. POST /api/vendor/integrations/:id/claim takes it over from AEC Integrations.',
     );
   }
   // AECI-1010: last. An owner retire requires a claim, so for this route's callers
