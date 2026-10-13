@@ -32,7 +32,7 @@ Four more are optional:
 - **Years using this product**, a whole number from 0 to 50.
 - **Would you recommend it?**: Yes, No or Maybe.
 
-If you answered the About you questions on your account, your role and firm are filled in for you. You can change them before you submit.
+If you answered the About you questions on your account, your role and firm are filled in for you. You can change them before you submit. To leave your firm off a review, clear the field.
 
 Choose **Submit review** when you are done. You can send at most three reviews in any hour. If a submission fails after that, wait an hour and try again.
 

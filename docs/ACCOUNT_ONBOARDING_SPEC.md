@@ -48,6 +48,8 @@ The values are stable slugs. The labels live in the Angular form and are `$local
 The two lists cannot drift. The form shows plain labels such as "Hands-on user" and "Manager or
 team lead".
 
+The form lists the company types and the roles in alphabetical order by label, with "Other" last.
+
 ### 2.2 The software vendor branch
 
 Picking "Software vendor" hides questions 4 to 6. It shows a short note with a link to
@@ -66,6 +68,15 @@ It is normalized on write to `https://www.linkedin.com/in/<handle>`. The host is
 handle keeps its case. A company page, another host or a lookalike host is a 400.
 
 It is never public. Only the user's own `/account` page and the admin user detail show it.
+
+The field's hint says why we ask: it helps us confirm that reviews come from real people working in
+the industry.
+
+### 2.4 Firm name
+
+The firm name is never shown on a published review. The hint on the About you form says so. It also
+says the review form is filled in from it, and that the reviewer can change or clear it there for
+any review. The review form's own firm field carries a matching hint.
 
 ## 3. Storage
 

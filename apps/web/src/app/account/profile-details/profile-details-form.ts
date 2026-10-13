@@ -219,7 +219,8 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
             [class]="inputClass"
           />
           <p [id]="idPrefix() + '-firm-hint'" [class]="hintClass" i18n="@@profileDetails.firm.hint">
-            Private. We use it to fill in your reviews, and you can change it there.
+            Private. It is never shown on your published reviews. We fill it in on each review form
+            for you, and you can change or clear it there for any review.
           </p>
         </div>
       }
@@ -254,7 +255,8 @@ function withNoAnswer(options: ReadonlyArray<Labelled<string>>): AecSelectOption
           [class]="hintClass"
           i18n="@@profileDetails.linkedin.hint"
         >
-          Optional and private. Only our team sees it.
+          Optional and private. Only our team sees it. It helps us confirm that reviews come from
+          real people working in the industry.
         </p>
         @if (showLinkedInError()) {
           <p

@@ -388,10 +388,14 @@
         type="text"
         maxlength="100"
         autocomplete="organization"
+        aria-describedby="reviewer-firm-hint"
         [value]="firm()"
         (input)="onFirmInput($event)"
         class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />
+      <p id="reviewer-firm-hint" class="text-xs text-(--text-secondary)" i18n="@@reviews.firm.hint">
+        Never shown on your published review. Clear it to leave your firm off this review.
+      </p>
     </div>
 
     <!-- Years using (optional) -->

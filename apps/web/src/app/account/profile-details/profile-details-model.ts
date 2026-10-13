@@ -29,29 +29,30 @@ export interface Labelled<V extends string> {
   readonly label: string;
 }
 
+/** Alphabetical by label, with "Other" last. */
 export const COMPANY_TYPE_OPTIONS: ReadonlyArray<Labelled<CompanyType>> = [
-  {
-    value: 'general_contractor',
-    label: $localize`:@@profileDetails.companyType.generalContractor:General contractor`,
-  },
-  {
-    value: 'trade_contractor',
-    label: $localize`:@@profileDetails.companyType.tradeContractor:Trade contractor`,
-  },
   { value: 'architect', label: $localize`:@@profileDetails.companyType.architect:Architect` },
-  { value: 'engineer', label: $localize`:@@profileDetails.companyType.engineer:Engineer` },
-  {
-    value: 'owner_developer',
-    label: $localize`:@@profileDetails.companyType.ownerDeveloper:Owner or developer`,
-  },
   {
     value: 'construction_manager',
     label: $localize`:@@profileDetails.companyType.constructionManager:Construction manager`,
   },
   { value: 'consultant', label: $localize`:@@profileDetails.companyType.consultant:Consultant` },
+  { value: 'engineer', label: $localize`:@@profileDetails.companyType.engineer:Engineer` },
+  {
+    value: 'general_contractor',
+    label: $localize`:@@profileDetails.companyType.generalContractor:General contractor`,
+  },
+  {
+    value: 'owner_developer',
+    label: $localize`:@@profileDetails.companyType.ownerDeveloper:Owner or developer`,
+  },
   {
     value: 'software_vendor',
     label: $localize`:@@profileDetails.companyType.softwareVendor:Software vendor`,
+  },
+  {
+    value: 'trade_contractor',
+    label: $localize`:@@profileDetails.companyType.tradeContractor:Trade contractor`,
   },
   { value: 'other', label: $localize`:@@profileDetails.companyType.other:Other` },
 ];
@@ -74,16 +75,16 @@ export const COMPANY_SIZE_OPTIONS: ReadonlyArray<Labelled<CompanySize>> = [
   },
 ];
 
-/** Plain-word labels for the shared role list. The stored values match the
+/** Plain-word labels for the shared role list, alphabetical with "Other" last. The stored values match the
  *  review form's `role_at_company`, so pre-fill maps one to one. */
 export const PRIMARY_ROLE_OPTIONS: ReadonlyArray<Labelled<PrimaryRole>> = [
+  { value: 'exec', label: $localize`:@@profileDetails.role.exec:Executive` },
   {
     value: 'practitioner',
     label: $localize`:@@profileDetails.role.practitioner:Hands-on user`,
   },
-  { value: 'manager', label: $localize`:@@profileDetails.role.manager:Manager or team lead` },
   { value: 'IT', label: $localize`:@@profileDetails.role.it:IT or systems` },
-  { value: 'exec', label: $localize`:@@profileDetails.role.exec:Executive` },
+  { value: 'manager', label: $localize`:@@profileDetails.role.manager:Manager or team lead` },
   { value: 'other', label: $localize`:@@profileDetails.role.other:Other` },
 ];
 
