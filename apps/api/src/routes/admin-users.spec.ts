@@ -28,8 +28,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   products,
+  profileAudiences,
+  profileDetails,
   profiles,
   reviews,
+  taxonomyAudiences,
   vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
@@ -687,5 +690,75 @@ describe('the reads write nothing (ADR 0022)', () => {
 
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
     expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+  });
+});
+
+// ─── AECI-1296: the "About you" answers ──────────────────────────────────────
+
+describe('GET /api/admin/users — About you (AECI-1296)', () => {
+  it('carries company type and size on the list, null when unanswered', async () => {
+    await seedPeople();
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: REVIEWER, companyType: 'architect', companySize: '51-200' });
+    const app = mount('/users', createAdminUsersListHandler(t.factory, recordSeam()));
+    const page = await readJson(await call(app, '/users'));
+    // The join must not multiply rows.
+    expect(page.total).toBe(5);
+    expect(page.data).toHaveLength(5);
+    const byId = new Map((page.data as Array<{ id: string }>).map((row) => [row.id, row] as const));
+    expect(byId.get(REVIEWER)).toMatchObject({ company_type: 'architect', company_size: '51-200' });
+    expect(byId.get(SEAT)).toMatchObject({ company_type: null, company_size: null });
+  });
+
+  it('returns every answer, LinkedIn included, and the audiences A to Z on the detail', async () => {
+    await seedPeople();
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(801), slug: 'superintendent', name: 'Superintendent' },
+      { id: u(802), slug: 'architecture', name: 'architecture' },
+    ]);
+    await t.db.insert(profileDetails).values({
+      profileId: REVIEWER,
+      companyType: 'general_contractor',
+      companySize: '201-1000',
+      primaryRole: 'manager',
+      firmName: 'Turner Build',
+      linkedinUrl: 'https://www.linkedin.com/in/rita',
+      onboardingSkippedAt: '2026-10-01T00:00:00.000Z',
+    });
+    await t.db.insert(profileAudiences).values([
+      { profileId: REVIEWER, audienceId: u(801) },
+      { profileId: REVIEWER, audienceId: u(802) },
+    ]);
+    const app = mount('/users/:id', createAdminUserDetailHandler(t.factory, recordSeam()));
+    const body = await readJson(await call(app, `/users/${REVIEWER}`));
+    expect(body.about).toEqual({
+      company_type: 'general_contractor',
+      company_size: '201-1000',
+      primary_role: 'manager',
+      firm_name: 'Turner Build',
+      linkedin_url: 'https://www.linkedin.com/in/rita',
+      // Case never decides the order.
+      audiences: [
+        { id: u(802), name: 'architecture', slug: 'architecture' },
+        { id: u(801), name: 'Superintendent', slug: 'superintendent' },
+      ],
+      onboarding: 'skipped',
+    });
+  });
+
+  it('reports an unanswered person as all-null and pending', async () => {
+    await seedPeople();
+    const app = mount('/users/:id', createAdminUserDetailHandler(t.factory, recordSeam()));
+    const body = await readJson(await call(app, `/users/${SEAT}`));
+    expect(body.about).toEqual({
+      company_type: null,
+      company_size: null,
+      primary_role: null,
+      firm_name: null,
+      linkedin_url: null,
+      audiences: [],
+      onboarding: 'pending',
+    });
   });
 });

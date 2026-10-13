@@ -35,6 +35,8 @@ function row(overrides: Record<string, unknown> = {}) {
     banned_at: null,
     created_at: '2026-01-05T12:00:00.000Z',
     updated_at: '2026-01-05T12:00:00.000Z',
+    company_type: null,
+    company_size: null,
     ...overrides,
   };
 }
@@ -55,6 +57,15 @@ function detail(overrides: Record<string, unknown> = {}) {
       requests_by_email: null,
     },
     repeat_offender: false,
+    about: {
+      company_type: null,
+      company_size: null,
+      primary_role: null,
+      firm_name: null,
+      linkedin_url: null,
+      audiences: [],
+      onboarding: 'pending',
+    },
     ...overrides,
   };
 }

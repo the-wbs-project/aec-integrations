@@ -22,12 +22,18 @@
  * so a signed-in page load makes a single request here however many role-gated
  * affordances the header carries.
  *
+ * ── "About you" (AECI-1296) ─────────────────────────────────────────────────────
+ * `GET` and `PATCH` also carry the onboarding answers from the `profile_details`
+ * and `profile_audiences` side tables (`docs/ACCOUNT_ONBOARDING_SPEC.md`). `PATCH`
+ * writes them in the same `db.batch` as the `profiles` update and the one
+ * `profile.updated` audit row. `ensureProfileRow` never writes them.
+ *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has sixteen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
- * so they must be nulled before the profile delete. One (`notification_preferences`)
- * cascades, so the batch nulls the other fifteen. Under D1 that erasure is ONE
- * atomic `db.batch([...])` (null all 15 refs + the PII-free `account.deleted` audit
- * + delete the profile).
+ * `profiles(id)` has eighteen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
+ * so they must be nulled before the profile delete. Three (`notification_preferences`,
+ * `profile_details`, `profile_audiences`) cascade, so the batch nulls the other
+ * fifteen. Under D1 that erasure is ONE atomic `db.batch([...])` (null all 15 refs
+ * + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -48,10 +54,22 @@
  * rather than failing the erasure.
  */
 
-import { UpdateAccountSchema } from '@aeci/shared';
-import type { AccountProfileResponse, DeleteAccountResponse } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  CompanySizeSchema,
+  CompanyTypeSchema,
+  PrimaryRoleSchema,
+  UpdateAccountSchema,
+} from '@aeci/shared';
+import type {
+  AccountProfileDetails,
+  AccountProfileResponse,
+  DeleteAccountResponse,
+  OnboardingState,
+  UpdateAccountInput,
+} from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -60,9 +78,12 @@ import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
   integrationFieldChallenges,
+  profileAudiences,
+  profileDetails,
   profiles,
   reviewResponses,
   reviews,
+  taxonomyAudiences,
   userActivityDaily,
   vendorEntitlements,
   vendorRequests,
@@ -105,6 +126,88 @@ async function parseJsonBody<T>(c: AuthContext, schema: ZodType<T>): Promise<T> 
   return schema.parse(raw);
 }
 
+// ─── Account state read (GET + PATCH) ──────────────────────────────────────────
+
+/** Everything the account read shapes report from D1 for one user. */
+interface AccountState {
+  displayName: string | null;
+  listingViewPreference: 'cards' | 'table' | null;
+  details: AccountProfileDetails;
+  onboarding: OnboardingState;
+}
+
+/**
+ * The profile, its "About you" row and its audience ids, in ONE batch. A
+ * missing `profile_details` row reads as all-null details and `pending`.
+ *
+ * A stored enum value the current build does not know reads as `null` rather
+ * than failing the read. The columns carry no CHECK (the lists live in Zod), so
+ * a value retired from a list must not break every later account read.
+ */
+async function readAccountState(db: DbContext['db'], userId: string): Promise<AccountState> {
+  const [profileRows, audienceRows] = await db.batch([
+    db
+      .select({
+        displayName: profiles.displayName,
+        listingViewPreference: profiles.listingViewPreference,
+        companyType: profileDetails.companyType,
+        companySize: profileDetails.companySize,
+        primaryRole: profileDetails.primaryRole,
+        firmName: profileDetails.firmName,
+        linkedinUrl: profileDetails.linkedinUrl,
+        onboardingCompletedAt: profileDetails.onboardingCompletedAt,
+        onboardingSkippedAt: profileDetails.onboardingSkippedAt,
+      })
+      .from(profiles)
+      .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
+      .where(eq(profiles.id, userId)),
+    db
+      .select({ audienceId: profileAudiences.audienceId })
+      .from(profileAudiences)
+      .where(eq(profileAudiences.profileId, userId))
+      // Id order: a stable wire order, not a display order. The client renders
+      // names from the audience list it already holds.
+      .orderBy(asc(profileAudiences.audienceId)),
+  ]);
+  const row = profileRows[0];
+  return {
+    displayName: row?.displayName ?? null,
+    listingViewPreference: row?.listingViewPreference ?? null,
+    details: {
+      company_type: CompanyTypeSchema.safeParse(row?.companyType).data ?? null,
+      company_size: CompanySizeSchema.safeParse(row?.companySize).data ?? null,
+      primary_role: PrimaryRoleSchema.safeParse(row?.primaryRole).data ?? null,
+      firm_name: row?.firmName ?? null,
+      linkedin_url: row?.linkedinUrl ?? null,
+      audience_ids: audienceRows.map((a) => a.audienceId),
+    },
+    onboarding: row?.onboardingCompletedAt
+      ? 'completed'
+      : row?.onboardingSkippedAt
+        ? 'skipped'
+        : 'pending',
+  };
+}
+
+/** The account read shape for a session and its D1 state. */
+async function accountBody(
+  db: DbContext['db'],
+  session: AuthzVariables['auth'],
+  state: AccountState,
+): Promise<AccountProfileResponse> {
+  return {
+    user_id: session.userId,
+    email: session.email ?? null,
+    display_name: state.displayName,
+    listing_view_preference: state.listingViewPreference,
+    role: session.role,
+    ...(await queueCountsForSession(db, session.role)),
+    details: state.details,
+    onboarding: state.onboarding,
+    suggested_display_name: session.fullName ?? null,
+  };
+}
+
 // ─── GET /api/account ─────────────────────────────────────────────────────────
 
 export function createGetAccountHandler(
@@ -113,21 +216,7 @@ export function createGetAccountHandler(
   return async (c) => {
     const session = c.get('auth');
     const { db } = dbFor(c.env);
-
-    const profile = await db.query.profiles.findFirst({
-      columns: { displayName: true, listingViewPreference: true },
-      where: eq(profiles.id, session.userId),
-    });
-
-    const body: AccountProfileResponse = {
-      user_id: session.userId,
-      email: session.email ?? null,
-      display_name: profile?.displayName ?? null,
-      listing_view_preference: profile?.listingViewPreference ?? null,
-      role: session.role,
-      ...(await queueCountsForSession(db, session.role)),
-    };
-    return json(body);
+    return json(await accountBody(db, session, await readAccountState(db, session.userId)));
   };
 }
 
@@ -171,6 +260,41 @@ async function queueCountsForSession(
 
 // ─── PATCH /api/account ────────────────────────────────────────────────────────
 
+/** The `profile_details` columns a PATCH may carry, wire key → Drizzle key. */
+const DETAIL_FIELDS = [
+  ['company_type', 'companyType'],
+  ['company_size', 'companySize'],
+  ['primary_role', 'primaryRole'],
+  ['firm_name', 'firmName'],
+  ['linkedin_url', 'linkedinUrl'],
+] as const satisfies ReadonlyArray<
+  readonly [
+    keyof AccountProfileDetails & keyof UpdateAccountInput,
+    keyof typeof profileDetails.$inferInsert,
+  ]
+>;
+
+/**
+ * 400 unless every id names a real `taxonomy_audiences` row. Read before the
+ * batch, so an unknown id fails with a clear error instead of an FK abort
+ * halfway through the write.
+ */
+async function assertAudiencesExist(db: DbContext['db'], ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const found = await db
+    .select({ id: taxonomyAudiences.id })
+    .from(taxonomyAudiences)
+    .where(inArray(taxonomyAudiences.id, [...ids]));
+  const known = new Set(found.map((row) => row.id));
+  const unknown = ids.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Unknown audience id', {
+      field: 'audience_ids',
+      details: { unknown },
+    });
+  }
+}
+
 export function createUpdateAccountHandler(
   dbFor: DbFactory = getDb,
 ): (c: AuthContext) => Promise<Response> {
@@ -180,10 +304,13 @@ export function createUpdateAccountHandler(
     const payload = await parseJsonBody(c, UpdateAccountSchema);
     const { db } = writeDb(c, dbFor);
 
-    const before = await db.query.profiles.findFirst({
-      columns: { displayName: true, listingViewPreference: true },
-      where: eq(profiles.id, userId),
-    });
+    // Replace-set semantics: a repeated id is one pick, not a PK conflict.
+    const audienceIds =
+      payload.audience_ids === undefined ? undefined : [...new Set(payload.audience_ids)];
+    if (audienceIds) await assertAudiencesExist(db, audienceIds);
+
+    const before = await readAccountState(db, userId);
+    const now = new Date().toISOString();
 
     // Present-key semantics (the schema guarantees at least one key): only the
     // fields the PATCH actually carries are written, so a listing-page toggle
@@ -204,12 +331,32 @@ export function createUpdateAccountHandler(
     const beforeState: Record<string, unknown> = {};
     const afterState: Record<string, unknown> = {};
     if (payload.display_name !== undefined) {
-      beforeState.display_name = before?.displayName ?? null;
+      beforeState.display_name = before.displayName;
       afterState.display_name = payload.display_name;
     }
     if (payload.listing_view_preference !== undefined) {
-      beforeState.listing_view_preference = before?.listingViewPreference ?? null;
+      beforeState.listing_view_preference = before.listingViewPreference;
       afterState.listing_view_preference = payload.listing_view_preference;
+    }
+
+    // "About you" (AECI-1296): the `profile_details` upsert, same present-key rule.
+    const detailUpdates: Partial<typeof profileDetails.$inferInsert> = {};
+    for (const [wire, column] of DETAIL_FIELDS) {
+      const value = payload[wire];
+      if (value === undefined) continue;
+      detailUpdates[column] = value;
+      beforeState[wire] = before.details[wire];
+      afterState[wire] = value;
+    }
+    if (payload.onboarding !== undefined) {
+      if (payload.onboarding === 'completed') detailUpdates.onboardingCompletedAt = now;
+      else detailUpdates.onboardingSkippedAt = now;
+      beforeState.onboarding = before.onboarding;
+      afterState.onboarding = payload.onboarding;
+    }
+    if (audienceIds !== undefined) {
+      beforeState.audience_ids = before.details.audience_ids;
+      afterState.audience_ids = audienceIds;
     }
 
     const auditEntry: AuditLogEntry = {
@@ -223,32 +370,41 @@ export function createUpdateAccountHandler(
       metadata: { source: 'account' },
     };
 
-    await db.batch([
-      db.update(profiles).set(updates).where(eq(profiles.id, userId)),
-      auditInsert(db, auditEntry),
-    ] as BatchTuple);
+    const stmts: BatchStmt[] = [];
+    if (Object.keys(updates).length > 0) {
+      stmts.push(db.update(profiles).set(updates).where(eq(profiles.id, userId)));
+    }
+    if (Object.keys(detailUpdates).length > 0) {
+      stmts.push(
+        db
+          .insert(profileDetails)
+          .values({ profileId: userId, ...detailUpdates })
+          .onConflictDoUpdate({
+            target: profileDetails.profileId,
+            // `$onUpdate` does not fire inside an upsert's SET, so stamp it here.
+            set: { ...detailUpdates, updatedAt: now },
+          }),
+      );
+    }
+    if (audienceIds !== undefined) {
+      stmts.push(db.delete(profileAudiences).where(eq(profileAudiences.profileId, userId)));
+      if (audienceIds.length > 0) {
+        stmts.push(
+          db
+            .insert(profileAudiences)
+            .values(audienceIds.map((audienceId) => ({ profileId: userId, audienceId }))),
+        );
+      }
+    }
+    stmts.push(auditInsert(db, auditEntry));
+
+    await db.batch(stmts as BatchTuple);
 
     forwardAuditBatch(c, [auditEntry], [], 'account');
 
-    const body: AccountProfileResponse = {
-      user_id: userId,
-      email: session.email ?? null,
-      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
-      // documented way to drop the name), and `??` would treat it as "absent"
-      // and echo back the name the row no longer holds.
-      // `!== undefined`, never `??`: an explicit `null` is a CLEAR (the schema's
-      // documented way to drop the name), and `??` would treat it as "absent"
-      // and echo back the name the row no longer holds.
-      display_name:
-        payload.display_name !== undefined ? payload.display_name : (before?.displayName ?? null),
-      listing_view_preference:
-        payload.listing_view_preference !== undefined
-          ? payload.listing_view_preference
-          : (before?.listingViewPreference ?? null),
-      role: session.role,
-      ...(await queueCountsForSession(db, session.role)),
-    };
-    return json(body);
+    // Read back rather than merge by hand: the response then reports what D1
+    // holds, including the derived onboarding state.
+    return json(await accountBody(db, session, await readAccountState(db, userId)));
   };
 }
 

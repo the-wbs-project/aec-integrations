@@ -13,9 +13,12 @@ import {
   integrationFieldChallenges,
   integrations,
   products,
+  profileAudiences,
+  profileDetails,
   profiles,
   reviewResponses,
   reviews,
+  taxonomyAudiences,
   userActivityDaily,
   vendorEntitlements,
   vendorRequests,
@@ -151,6 +154,17 @@ describe('GET /api/account', () => {
       pending_reindex: null,
       pending_contests: null,
       pending_review_responses: null,
+      // AECI-1296: no `profile_details` row yet → all-null answers, pending.
+      details: {
+        company_type: null,
+        company_size: null,
+        primary_role: null,
+        firm_name: null,
+        linkedin_url: null,
+        audience_ids: [],
+      },
+      onboarding: 'pending',
+      suggested_display_name: null,
     });
   });
 
@@ -531,7 +545,7 @@ describe('DELETE /api/account', () => {
     });
   });
 
-  it('pins the inbound FKs to profiles(id) at sixteen — AUTH_AND_RLS.md §8 is the register', () => {
+  it('pins the inbound FKs to profiles(id) at eighteen — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -551,6 +565,8 @@ describe('DELETE /api/account', () => {
       'integration_field_challenges.protested_by',
       'integration_field_challenges.submitted_by',
       'notification_preferences.profile_id',
+      'profile_audiences.profile_id',
+      'profile_details.profile_id',
       'review_responses.author_profile_id',
       'review_responses.moderated_by',
       'reviews.moderated_by',
@@ -569,5 +585,262 @@ describe('DELETE /api/account', () => {
     const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
     expect(res.status).toBe(200);
     expect(await t.db.select().from(profiles)).toHaveLength(0);
+  });
+});
+
+// ─── AECI-1296: "About you" onboarding answers ─────────────────────────────────
+
+const AUD_A = u(701);
+const AUD_B = u(702);
+const AUD_C = u(703);
+
+async function seedAudiences(): Promise<void> {
+  await t.db.insert(taxonomyAudiences).values([
+    { id: AUD_A, slug: 'architecture', name: 'Architecture' },
+    { id: AUD_B, slug: 'estimator', name: 'Estimator' },
+    { id: AUD_C, slug: 'superintendent', name: 'Superintendent' },
+  ]);
+}
+
+const asState = (v: unknown): Record<string, unknown> =>
+  typeof v === 'string'
+    ? (JSON.parse(v) as Record<string, unknown>)
+    : (v as Record<string, unknown>);
+
+describe('GET /api/account: onboarding state (AECI-1296)', () => {
+  it('reports completed and the stored answers', async () => {
+    await seedAudiences();
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await t.db.insert(profileDetails).values({
+      profileId: USER,
+      companyType: 'architect',
+      companySize: '11-50',
+      primaryRole: 'manager',
+      firmName: 'Acme Studio',
+      linkedinUrl: 'https://www.linkedin.com/in/ada',
+      onboardingSkippedAt: '2026-10-01T00:00:00.000Z',
+      onboardingCompletedAt: '2026-10-02T00:00:00.000Z',
+    });
+    await t.db.insert(profileAudiences).values([
+      { profileId: USER, audienceId: AUD_B },
+      { profileId: USER, audienceId: AUD_A },
+    ]);
+    const res = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await res.json()).toMatchObject({
+      onboarding: 'completed',
+      details: {
+        company_type: 'architect',
+        company_size: '11-50',
+        primary_role: 'manager',
+        firm_name: 'Acme Studio',
+        linkedin_url: 'https://www.linkedin.com/in/ada',
+        audience_ids: [AUD_A, AUD_B],
+      },
+    });
+  });
+
+  it('reports skipped when only the skip is stamped', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: USER, onboardingSkippedAt: '2026-10-01T00:00:00.000Z' });
+    const res = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await res.json()).toMatchObject({ onboarding: 'skipped' });
+  });
+
+  it('reads a stored value outside the current vocabulary as null', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await t.db.insert(profileDetails).values({ profileId: USER, companyType: 'retired_value' });
+    const res = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await res.json()).toMatchObject({ details: { company_type: null } });
+  });
+
+  it('suggests the provider name from the verified session', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', {
+        userId: USER,
+        email: 'me@example.com',
+        fullName: 'Ada Lovelace',
+        role: 'reviewer',
+        vendorId: null,
+        entitlementTier: 'unclaimed',
+        entitlement: null,
+      });
+      await next();
+    });
+    a.get('/api/account', createGetAccountHandler(t.factory) as never);
+    const res = await a.request('/api/account', {}, TEST_ENV, fakeExecutionContext());
+    expect(await res.json()).toMatchObject({
+      display_name: null,
+      suggested_display_name: 'Ada Lovelace',
+    });
+  });
+});
+
+describe('PATCH /api/account: About you (AECI-1296)', () => {
+  it('upserts the details, replaces the audiences and audits in one batch', async () => {
+    await seedAudiences();
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+
+    const first = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      company_type: 'general_contractor',
+      company_size: '201-1000',
+      primary_role: 'practitioner',
+      firm_name: '  Turner Build  ',
+      linkedin_url: 'HTTP://LinkedIn.com/in/ada-l/?trk=share#top',
+      audience_ids: [AUD_A, AUD_B, AUD_A],
+      onboarding: 'completed',
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      display_name: 'Ada',
+      onboarding: 'completed',
+      details: {
+        company_type: 'general_contractor',
+        company_size: '201-1000',
+        primary_role: 'practitioner',
+        firm_name: 'Turner Build',
+        linkedin_url: 'https://www.linkedin.com/in/ada-l',
+        audience_ids: [AUD_A, AUD_B],
+      },
+    });
+
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({
+      profileId: USER,
+      firmName: 'Turner Build',
+      linkedinUrl: 'https://www.linkedin.com/in/ada-l',
+    });
+    expect(details!.onboardingCompletedAt).not.toBeNull();
+
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.action).toBe('profile.updated');
+    expect(asState(audit!.beforeState)).toEqual({
+      company_type: null,
+      company_size: null,
+      primary_role: null,
+      firm_name: null,
+      linkedin_url: null,
+      onboarding: 'pending',
+      audience_ids: [],
+    });
+    expect(asState(audit!.afterState)).toMatchObject({
+      company_type: 'general_contractor',
+      onboarding: 'completed',
+      audience_ids: [AUD_A, AUD_B],
+    });
+
+    // A second PATCH replaces the set and leaves untouched answers alone.
+    const second = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      audience_ids: [AUD_C],
+    });
+    expect(await second.json()).toMatchObject({
+      details: { company_type: 'general_contractor', audience_ids: [AUD_C] },
+    });
+    expect(await t.db.select().from(profileAudiences)).toEqual([
+      expect.objectContaining({ profileId: USER, audienceId: AUD_C }),
+    ]);
+    expect(await t.db.select().from(profileDetails)).toHaveLength(1);
+    expect(await t.db.select().from(auditLog)).toHaveLength(2);
+  });
+
+  it('records a skip, and a later save still reads as completed', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const skip = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      onboarding: 'skipped',
+    });
+    expect(await skip.json()).toMatchObject({ onboarding: 'skipped' });
+    const save = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      primary_role: 'IT',
+      onboarding: 'completed',
+    });
+    expect(await save.json()).toMatchObject({ onboarding: 'completed' });
+  });
+
+  it('clears firm_name and linkedin_url on a blank string', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await t.db.insert(profileDetails).values({
+      profileId: USER,
+      firmName: 'Acme',
+      linkedinUrl: 'https://www.linkedin.com/in/ada',
+    });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      firm_name: '  ',
+      linkedin_url: '',
+    });
+    expect(res.status).toBe(200);
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({ firmName: null, linkedinUrl: null });
+  });
+
+  it('rejects a LinkedIn URL that is not a profile, and writes nothing', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    for (const bad of [
+      'https://evil.example/in/ada',
+      'https://www.linkedin.com/company/acme',
+      'https://linkedin.com.evil.io/in/ada',
+      'javascript:alert(1)',
+    ]) {
+      const res = await run(createUpdateAccountHandler(t.factory), 'patch', { linkedin_url: bad });
+      expect(res.status, bad).toBe(400);
+    }
+    expect(await t.db.select().from(profileDetails)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('rejects an unknown audience id with a 400, and writes nothing', async () => {
+    await seedAudiences();
+    await t.db.insert(profiles).values({ id: USER });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      audience_ids: [AUD_A, u(799)],
+      onboarding: 'completed',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: { code: 'VALIDATION_FAILED', field: 'audience_ids' },
+    });
+    expect(await t.db.select().from(profileAudiences)).toHaveLength(0);
+    expect(await t.db.select().from(profileDetails)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('rejects more than ten audiences and an out-of-vocabulary company type', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const many = Array.from({ length: 11 }, (_, i) => u(710 + i));
+    expect(
+      (await run(createUpdateAccountHandler(t.factory), 'patch', { audience_ids: many })).status,
+    ).toBe(400);
+    expect(
+      (await run(createUpdateAccountHandler(t.factory), 'patch', { company_type: 'bank' })).status,
+    ).toBe(400);
+  });
+});
+
+describe('DELETE /api/account: About you erasure (AECI-1296)', () => {
+  it('cascades profile_details and profile_audiences with the profile', async () => {
+    await seedAudiences();
+    await t.db.insert(profiles).values([{ id: USER }, { id: ADMIN_USER }]);
+    await t.db.insert(profileDetails).values([
+      { profileId: USER, firmName: 'Acme', linkedinUrl: 'https://www.linkedin.com/in/ada' },
+      { profileId: ADMIN_USER, firmName: 'Other' },
+    ]);
+    await t.db.insert(profileAudiences).values([
+      { profileId: USER, audienceId: AUD_A },
+      { profileId: ADMIN_USER, audienceId: AUD_A },
+    ]);
+    const deleteAuthUser = vi.fn(async () => ({ ok: true as const }));
+    const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser as never), 'delete');
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profileDetails)).toEqual([
+      expect.objectContaining({ profileId: ADMIN_USER }),
+    ]);
+    expect(await t.db.select().from(profileAudiences)).toEqual([
+      expect.objectContaining({ profileId: ADMIN_USER }),
+    ]);
+    // The taxonomy term itself survives a person's erasure.
+    expect(await t.db.select().from(taxonomyAudiences)).toHaveLength(3);
   });
 });

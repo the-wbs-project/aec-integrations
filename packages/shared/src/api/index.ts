@@ -31,6 +31,7 @@ export * from './plan-inquiry';
 export * from './product-facets';
 export * from './product-pairs';
 export * from './product-versions';
+export * from './profile-details';
 export * from './products';
 export * from './promote';
 export * from './promote-connector';

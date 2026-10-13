@@ -1,6 +1,18 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  CompanySizeSchema,
+  CompanyTypeSchema,
+  LinkedInProfileUrlSchema,
+  MAX_FIRM_NAME_LENGTH,
+  MAX_PROFILE_AUDIENCES,
+  PrimaryRoleSchema,
+  type CompanySize,
+  type CompanyType,
+  type OnboardingState,
+  type PrimaryRole,
+} from './profile-details';
 import { ReviewStatusSchema } from './reviews';
 
 /**
@@ -22,10 +34,20 @@ import { ReviewStatusSchema } from './reviews';
 // ─── Profile read / update ──────────────────────────────────────────────────
 
 /**
- * Mutable profile fields for `PATCH /api/account`. Only `display_name` is
- * editable today; it is nullable so the user can clear it back to the "Verified
- * reviewer" fallback. The server trims and stores `''`-after-trim as a rejected
- * value (min length 1) — pass an explicit `null` to clear.
+ * Mutable profile fields for `PATCH /api/account`. Present-key semantics
+ * throughout: an omitted key is left unchanged, so each caller sends only what
+ * it owns.
+ *
+ * `display_name` is nullable so the user can clear it back to the "Verified
+ * reviewer" fallback. The server trims and rejects `''`-after-trim (min length
+ * 1); pass an explicit `null` to clear.
+ *
+ * The "About you" fields (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`) land in
+ * the `profile_details` side table. Each is nullable so it can be cleared.
+ * `firm_name` and `linkedin_url` treat a blank string as a clear too, because
+ * that is what an emptied text input sends. `audience_ids` REPLACES the stored
+ * set; `[]` clears it. `onboarding` records the form's outcome and is sent once,
+ * by the save or the skip on `/welcome` or the `/account` card.
  */
 export const UpdateAccountSchema = z
   .object({
@@ -41,8 +63,24 @@ export const UpdateAccountSchema = z
      *  Present-key semantics: omitted = leave unchanged, so a toggle click
      *  PATCHes ONLY this field without having to re-send the display name. */
     listing_view_preference: z.enum(['cards', 'table']).nullable().optional(),
+    company_type: CompanyTypeSchema.nullable().optional(),
+    company_size: CompanySizeSchema.nullable().optional(),
+    primary_role: PrimaryRoleSchema.nullable().optional(),
+    firm_name: z
+      .string()
+      .trim()
+      .max(MAX_FIRM_NAME_LENGTH, 'Keep the firm name under 100 characters.')
+      .transform((value) => (value === '' ? null : value))
+      .nullable()
+      .optional(),
+    linkedin_url: LinkedInProfileUrlSchema.nullable().optional(),
+    audience_ids: z
+      .array(z.string().uuid())
+      .max(MAX_PROFILE_AUDIENCES, 'Pick at most 10 audiences.')
+      .optional(),
+    onboarding: z.enum(['completed', 'skipped']).optional(),
   })
-  .refine((v) => v.display_name !== undefined || v.listing_view_preference !== undefined, {
+  .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: 'Provide at least one updatable field.',
   });
 export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
@@ -97,6 +135,30 @@ export interface AccountProfileResponse {
   /** Pending vendor replies to reviews (AECI-1177). Optional for the same skew
    *  reason; `null` for a non-admin. */
   pending_review_responses?: number | null;
+  /** The "About you" answers (AECI-1296). Optional for deploy skew only: the
+   *  server always sends it. Every field is `null` until answered. Private to
+   *  the user and the admin user detail. */
+  details?: AccountProfileDetails;
+  /** Where the user stands with the onboarding form. `pending` until they save
+   *  or skip it. Optional for deploy skew; a reader treats absent as "do not
+   *  prompt". */
+  onboarding?: OnboardingState;
+  /** The identity provider's name for the user (`user_metadata.full_name`, else
+   *  `name`, from the verified session JWT), or `null`. Seeds the display-name
+   *  field on `/welcome` when `display_name` is empty. Never written by the API.
+   *  Optional for deploy skew. */
+  suggested_display_name?: string | null;
+}
+
+/** The "About you" answers on the account read shapes (AECI-1296). */
+export interface AccountProfileDetails {
+  company_type: CompanyType | null;
+  company_size: CompanySize | null;
+  primary_role: PrimaryRole | null;
+  firm_name: string | null;
+  linkedin_url: string | null;
+  /** `taxonomy_audiences.id` values. Empty when none are chosen. */
+  audience_ids: string[];
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────
