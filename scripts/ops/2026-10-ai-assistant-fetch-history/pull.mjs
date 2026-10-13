@@ -7,9 +7,15 @@
 // which runs a query and writes nothing. It needs CF_READONLY_API_TOKEN with zone
 // Analytics: Read.
 //
-// The Pro plan keeps 31 days and caps one query at 30, so it queries one day at a time.
-// That also keeps each result under the 10,000-row page limit, and it throws rather than
-// truncate if a day ever reaches it.
+// It reaches back as far as the zone's `notOlderThan` setting allows, read at run time (31
+// days on the old Pro zone, 90 on the Enterprise zone). It queries one day at a time, which
+// keeps each result under the 10,000-row page limit, and it throws rather than truncate if a
+// day ever reaches it.
+//
+// The zone moved to The WBS Project account on 2026-10-04 and got a new zone id. The default
+// is the live zone. CF_ZONE_TAG points it at another zone. The old, `moved` zone
+// (`32f7aec2…`) refuses this query's host, query and ASN fields, so it cannot be pulled here.
+// Filter that zone's `pull-moved-zone.mjs` output on user agent instead.
 //
 // Every row is one unique combination of the dimensions below, with its request count.
 // Counts are Cloudflare's sample-adjusted estimates. No IP addresses are requested.
@@ -24,9 +30,8 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ZONE = '32f7aec29792163c443b6c40f5fb9a56';
+const ZONE = process.env.CF_ZONE_TAG ?? '2246ff6dadcf91ea2d8a0160427b23ac';
 const DAY = 86_400_000;
-const RETENTION_DAYS = 31;
 
 // The on-demand assistant user agents (a person asked, the assistant fetched). Requests
 // Cloudflare files under the `AI Assistant` verified category are pulled too, so a new
@@ -52,27 +57,40 @@ const QUERY = `query($z:String!,$s:Time!,$e:Time!){viewer{zones(filter:{zoneTag:
       clientRequestHTTPMethodName edgeResponseStatus userAgent verifiedBotCategory
       clientAsn clientASNDescription clientCountryName securitySource}}}}}`;
 
-async function pull(from, to) {
+async function graphql(query, variables) {
   const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query: QUERY,
-      variables: { z: ZONE, s: new Date(from).toISOString(), e: new Date(to).toISOString() },
-    }),
+    body: JSON.stringify({ query, variables }),
   });
   const body = await res.json();
   if (body.errors) throw new Error(JSON.stringify(body.errors));
-  const groups = body.data.viewer.zones[0].httpRequestsAdaptiveGroups;
+  return body.data;
+}
+
+async function pull(from, to) {
+  const data = await graphql(QUERY, {
+    z: ZONE,
+    s: new Date(from).toISOString(),
+    e: new Date(to).toISOString(),
+  });
+  const groups = data.viewer.zones[0].httpRequestsAdaptiveGroups;
   if (groups.length >= 10_000)
     throw new Error(`Page limit reached for ${new Date(from).toISOString()}`);
   return groups;
 }
 
+const settings = await graphql(
+  'query($z:String!){viewer{zones(filter:{zoneTag:$z}){settings{httpRequestsAdaptiveGroups{notOlderThan}}}}}',
+  { z: ZONE },
+);
+const retentionMs =
+  settings.viewer.zones[0].settings.httpRequestsAdaptiveGroups.notOlderThan * 1000;
+
 // Start an hour inside the retention edge so the oldest query is never refused.
 const now = Date.now();
 const groups = [];
-for (let from = now - RETENTION_DAYS * DAY + 3_600_000; from < now; from += DAY) {
+for (let from = now - retentionMs + 3_600_000; from < now; from += DAY) {
   groups.push(...(await pull(from, Math.min(from + DAY, now))));
 }
 

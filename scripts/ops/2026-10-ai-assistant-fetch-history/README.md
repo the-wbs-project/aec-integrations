@@ -8,20 +8,24 @@ Saved history of on-demand AI-assistant requests to the `aecintegrations.com` zo
 Cloudflare. An on-demand fetch (`ChatGPT-User`, `Claude-User`, `Perplexity-User` and similar)
 means a person asked an assistant a question and the assistant fetched one of our pages.
 
-Cloudflare keeps this data for **31 days** on the Pro plan. These files are the only copy older
-than that. `page_views` cannot replace them: it discards the raw user agent, merges assistant
+Cloudflare kept this data for **31 days** on the Pro plan. Since the zone moved to The WBS
+Project account on 2026-10-04 it keeps **90 days**. These files are the only copy older than
+that. `page_views` cannot replace them: it discards the raw user agent, merges assistant
 fetches into crawler labels, and does not record Cloudflare's verified-bot flag. AECI-1169 builds
-the daily job that makes this directory obsolete. Until it ships, re-run the pull by hand at least
-every 30 days and commit the new file, or the history gets a gap.
+the daily job that makes this directory obsolete. Until it ships, re-run the pull by hand before
+the oldest unsaved day ages out (next: 2027-01-01) and upload the new file, or the history gets a
+gap. The 2026-10-13 refresh and the zone split are in `../2026-10-traffic-history/README.md`.
 
 | File | What it is | Touches Cloudflare? |
 |---|---|---|
-| `pull.mjs` | Pulls the last 31 days into a CSV, one day per query | Read only |
+| `pull.mjs` | Pulls everything the zone still holds into a CSV, one day per query. Reach comes from the zone's `notOlderThan` setting | Read only |
 | `fetches-2026-08-31_2026-10-01.csv` | First snapshot: 2,281 rows, 5,222 requests, 1,059 verified | No |
 
 ## Re-run
 
-Needs `CF_READONLY_API_TOKEN` with zone Analytics: Read. It is set in Conductor's environment.
+Needs `CF_READONLY_API_TOKEN` with zone Analytics: Read. It is set in Conductor's environment
+and reads the live zone. `CF_ZONE_TAG` points it at another zone. The old, moved zone refuses
+this query's host, query and ASN fields, so it cannot be pulled this way.
 
 ```bash
 node scripts/ops/2026-10-ai-assistant-fetch-history/pull.mjs
