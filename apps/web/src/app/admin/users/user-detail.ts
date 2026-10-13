@@ -20,9 +20,9 @@ import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
 import {
+  ALL_ROLE_OPTIONS,
   COMPANY_SIZE_OPTIONS,
   COMPANY_TYPE_OPTIONS,
-  PRIMARY_ROLE_OPTIONS,
   labelFor,
 } from '../../account/profile-details/profile-details-model';
 
@@ -95,7 +95,7 @@ export class UserDetail {
     return {
       companyType: labelFor(COMPANY_TYPE_OPTIONS, about.company_type),
       companySize: labelFor(COMPANY_SIZE_OPTIONS, about.company_size),
-      primaryRole: labelFor(PRIMARY_ROLE_OPTIONS, about.primary_role),
+      primaryRole: labelFor(ALL_ROLE_OPTIONS, about.primary_role),
       firmName: about.firm_name,
       linkedinUrl: about.linkedin_url,
       audiences: about.audiences.map((a) => a.name).join(', '),

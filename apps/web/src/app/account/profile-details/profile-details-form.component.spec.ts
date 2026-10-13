@@ -17,6 +17,8 @@ import {
   COMPANY_TYPE_OPTIONS,
   EMPTY_DRAFT,
   PRIMARY_ROLE_OPTIONS,
+  SOFTWARE_COMPANY_ROLE_OPTIONS,
+  ALL_ROLE_OPTIONS,
   draftFromDetails,
   draftToPatch,
   labelFor,
@@ -146,6 +148,66 @@ describe('ProfileDetailsForm', () => {
     expect(el.querySelector('#t-company-type-trigger')!.textContent?.trim()).toBe('Choose one');
   });
 
+  it('takes the software branch for every software company type', async () => {
+    for (const type of [
+      'backoffice_software',
+      'integration_platform',
+      'software_partner',
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { el } = await setup({ ...EMPTY_DRAFT, company_type: type });
+      expect(el.querySelector('#t-company-size-trigger'), type).toBeNull();
+      expect(el.querySelector('[data-testid="audiences"]'), type).toBeNull();
+    }
+  });
+
+  it('groups "Where do you work?" into AEC firms, software companies and other options', async () => {
+    const { fixture, el } = await setup();
+    el.querySelector<HTMLElement>('#t-company-type-trigger')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const groups = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="listbox"] [role="group"]'),
+    );
+    const names = groups.map((g) =>
+      document.getElementById(g.getAttribute('aria-labelledby')!)!.textContent?.trim(),
+    );
+    expect(names).toEqual(['AEC firms', 'Software companies', 'Other options']);
+    const software = Array.from(groups[1]!.querySelectorAll('[role="option"]')).map((o) =>
+      o.textContent?.replace('✓', '').trim(),
+    );
+    expect(software[0]).toBe('AEC software');
+    expect(software).toContain('Back-office software, like ERP, accounting or HR');
+  });
+
+  it('offers software company roles to a software company and clears an AEC role on the switch', async () => {
+    const { fixture, host } = await setup({
+      ...EMPTY_DRAFT,
+      company_type: 'architect',
+      primary_role: 'exec',
+    });
+    type Internals = {
+      roleOptions(): { value: string | null; label: string }[];
+      setCompanyType(v: string | null): void;
+    };
+    const form = host.form() as unknown as Internals;
+    expect(form.roleOptions().some((o) => o.value === 'practitioner')).toBe(true);
+
+    form.setCompanyType('software_vendor');
+    fixture.detectChanges();
+    expect(host.draft().primary_role).toBeNull();
+    const values = form.roleOptions().map((o) => o.value);
+    expect(values).toContain('vendor_partnerships');
+    expect(values).not.toContain('practitioner');
+
+    // "Other" is on both lists, so it survives the switch back.
+    host.draft.update((d) => ({ ...d, primary_role: 'other' }));
+    fixture.detectChanges();
+    form.setCompanyType('engineer');
+    fixture.detectChanges();
+    expect(host.draft().primary_role).toBe('other');
+  });
+
   it('announces the vendor branch removing and restoring fields', async () => {
     const { fixture, host } = await setup();
     const form = host.form() as unknown as { setCompanyType(v: string | null): void };
@@ -154,8 +216,8 @@ describe('ProfileDetailsForm', () => {
     form.setCompanyType('engineer');
     fixture.detectChanges();
     expect(host.said).toEqual([
-      'Company size, audiences and firm name were removed from the form.',
-      'Company size, audiences and firm name were added back to the form.',
+      'Company size, audiences and firm name were removed from the form. The role list now shows software company roles.',
+      'Company size, audiences and firm name were added back to the form. The role list now shows AEC roles.',
     ]);
   });
 
@@ -259,7 +321,7 @@ describe('profile-details-model', () => {
     const patch = draftToPatch({
       company_type: 'software_vendor',
       company_size: '11-50',
-      primary_role: 'exec',
+      primary_role: 'vendor_sales',
       firm_name: 'Old Firm',
       linkedin_url: ' linkedin.com/in/ada ',
       audience_ids: ['x'],
@@ -267,11 +329,30 @@ describe('profile-details-model', () => {
     expect(patch).toEqual({
       company_type: 'software_vendor',
       company_size: null,
-      primary_role: 'exec',
+      primary_role: 'vendor_sales',
       firm_name: null,
       linkedin_url: 'linkedin.com/in/ada',
       audience_ids: [],
     });
+  });
+
+  it("never saves a role from the other group's list", () => {
+    expect(
+      draftToPatch({ ...EMPTY_DRAFT, company_type: 'integration_platform', primary_role: 'exec' })
+        .primary_role,
+    ).toBeNull();
+    expect(
+      draftToPatch({ ...EMPTY_DRAFT, company_type: 'architect', primary_role: 'vendor_sales' })
+        .primary_role,
+    ).toBeNull();
+    // With no company type the AEC list applies.
+    expect(draftToPatch({ ...EMPTY_DRAFT, primary_role: 'manager' }).primary_role).toBe('manager');
+  });
+
+  it('labels every stored role for admin', () => {
+    expect(labelFor(ALL_ROLE_OPTIONS, 'vendor_product')).toBe('Product management');
+    expect(labelFor(ALL_ROLE_OPTIONS, 'practitioner')).toBe('Hands-on user');
+    expect(ALL_ROLE_OPTIONS.filter((o) => o.value === 'other')).toHaveLength(1);
   });
 
   it('sends undisclosed as a stored answer, never as a clear', () => {
@@ -307,11 +388,17 @@ describe('profile-details-model', () => {
   });
 
   it('lists "I\'d rather not say" last, after "Other", and labels it for admin', () => {
-    for (const options of [COMPANY_TYPE_OPTIONS, COMPANY_SIZE_OPTIONS, PRIMARY_ROLE_OPTIONS]) {
-      expect(options.at(-1)).toEqual({ value: 'undisclosed', label: "I'd rather not say" });
+    for (const options of [
+      COMPANY_TYPE_OPTIONS,
+      COMPANY_SIZE_OPTIONS,
+      PRIMARY_ROLE_OPTIONS,
+      SOFTWARE_COMPANY_ROLE_OPTIONS,
+    ]) {
+      expect(options.at(-1)).toMatchObject({ value: 'undisclosed', label: "I'd rather not say" });
     }
     expect(COMPANY_TYPE_OPTIONS.at(-2)?.value).toBe('other');
     expect(PRIMARY_ROLE_OPTIONS.at(-2)?.value).toBe('other');
+    expect(SOFTWARE_COMPANY_ROLE_OPTIONS.at(-2)?.value).toBe('other');
     expect(labelFor(COMPANY_TYPE_OPTIONS, 'undisclosed')).toBe("I'd rather not say");
   });
 

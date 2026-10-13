@@ -443,7 +443,7 @@ describe('AccountPage', () => {
     form.setCompanyType('software_vendor');
     fixture.detectChanges();
     expect(status.textContent?.trim()).toBe(
-      'Company size, audiences and firm name were removed from the form.',
+      'Company size, audiences and firm name were removed from the form. The role list now shows software company roles.',
     );
   });
 });

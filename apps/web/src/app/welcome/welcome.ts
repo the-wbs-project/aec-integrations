@@ -64,7 +64,7 @@ export function welcomeNextPath(raw: string | null): string {
  *
  * One polite live region sits in the SSR shell and stays for the page's life.
  * It announces the loading state, the form appearing (focus also moves to the
- * `h1`), the fields a software vendor is not asked, and audience count changes.
+ * `h1`), the fields a software company is not asked, and audience count changes.
  *
  * Auth and caching: the SSR Worker bounces a signed-out visitor to login
  * (`isWelcomePath`), and the route is `no-store` by the fail-closed classifier.

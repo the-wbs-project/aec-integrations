@@ -34,9 +34,10 @@ import { AccountApi } from '../account-api';
 import {
   COMPANY_SIZE_OPTIONS,
   COMPANY_TYPE_OPTIONS,
-  PRIMARY_ROLE_OPTIONS,
   isVendorDraft,
   linkedInInvalid,
+  roleForCompanyType,
+  roleOptionsFor,
   type Labelled,
   type ProfileDetailsDraft,
 } from './profile-details-model';
@@ -58,9 +59,10 @@ function choiceOptions(
   return current === null ? [...options] : [{ value: null, label: CLEAR_ANSWER_LABEL }, ...options];
 }
 
-/** The fields a software vendor is not asked, named for the live region. */
-const VENDOR_HIDDEN = $localize`:@@profileDetails.vendor.hidden:Company size, audiences and firm name were removed from the form.`;
-const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audiences and firm name were added back to the form.`;
+/** The fields a software company is not asked, and the role list swap, named
+ *  for the live region. */
+const VENDOR_HIDDEN = $localize`:@@profileDetails.vendor.hidden:Company size, audiences and firm name were removed from the form. The role list now shows software company roles.`;
+const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audiences and firm name were added back to the form. The role list now shows AEC roles.`;
 
 /**
  * The "About you" questions 2 to 7 (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`):
@@ -68,9 +70,11 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
  * Display name is NOT here: `/welcome` and `/account` each own that field.
  *
  * Presentational over a two-way `draft` model. The parent owns saving, so the
- * same questions serve the first-sign-in page and the account page. Picking
- * "Software vendor" hides size, audiences and firm, with nothing in their place.
- * Role and LinkedIn stay for everyone. Status changes a screen reader should
+ * same questions serve the first-sign-in page and the account page. "Where do
+ * you work?" is grouped: AEC firms, software companies, other options. Picking
+ * any software company hides size, audiences and firm, with nothing in their
+ * place, and swaps the role list for software company roles. Role and LinkedIn
+ * stay for everyone. Status changes a screen reader should
  * hear (fields removed or restored, the audience count) go out on `announce`
  * for the host's one polite live region.
  *
@@ -317,7 +321,7 @@ export class ProfileDetailsForm {
     choiceOptions(COMPANY_SIZE_OPTIONS, this.draft().company_size),
   );
   protected readonly roleOptions = computed(() =>
-    choiceOptions(PRIMARY_ROLE_OPTIONS, this.draft().primary_role),
+    choiceOptions(roleOptionsFor(this.draft().company_type), this.draft().primary_role),
   );
 
   /** `null` until the vocabulary loads. Sorted A to Z, case never deciding. */
@@ -388,7 +392,16 @@ export class ProfileDetailsForm {
 
   protected setCompanyType(value: string | null): void {
     const wasVendor = this.vendor();
-    this.draft.update((d) => ({ ...d, company_type: value as CompanyType | null }));
+    // A role from the other group's list is not on the new list, so it goes
+    // back to unanswered. "Other" and "I'd rather not say" are on both.
+    this.draft.update((d) => {
+      const companyType = value as CompanyType | null;
+      return {
+        ...d,
+        company_type: companyType,
+        primary_role: roleForCompanyType(d.primary_role, companyType),
+      };
+    });
     const isVendor = this.vendor();
     if (isVendor !== wasVendor) this.announce.emit(isVendor ? VENDOR_HIDDEN : VENDOR_SHOWN);
   }

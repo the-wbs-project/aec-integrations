@@ -20,9 +20,16 @@ import { z } from 'zod';
  */
 export const UNDISCLOSED = 'undisclosed';
 
-/** "Where do you work?" One answer. `software_vendor` hides the company
- *  questions. */
-export const COMPANY_TYPES = [
+/**
+ * "Where do you work?" One answer, shown in three groups: AEC firms, software
+ * companies, then "Other" and "I'd rather not say". Any software company type
+ * takes the software branch: the company questions are hidden and the role list
+ * is `SOFTWARE_COMPANY_ROLES`.
+ *
+ * `software_vendor` is the AEC software answer. It keeps the slug it shipped
+ * with, so stored answers need no migration. The form labels it "AEC software".
+ */
+export const AEC_FIRM_TYPES = [
   'general_contractor',
   'trade_contractor',
   'architect',
@@ -30,14 +37,30 @@ export const COMPANY_TYPES = [
   'owner_developer',
   'construction_manager',
   'consultant',
+] as const;
+export const SOFTWARE_COMPANY_TYPES = [
   'software_vendor',
+  'backoffice_software',
+  'integration_platform',
+  'other_software',
+  'software_partner',
+] as const;
+export const COMPANY_TYPES = [
+  ...AEC_FIRM_TYPES,
+  ...SOFTWARE_COMPANY_TYPES,
   'other',
   'undisclosed',
 ] as const;
 export const CompanyTypeSchema = z.enum(COMPANY_TYPES);
 export type CompanyType = z.infer<typeof CompanyTypeSchema>;
+export type SoftwareCompanyType = (typeof SOFTWARE_COMPANY_TYPES)[number];
 
-/** Head-count bands. Never asked of a software vendor. */
+/** True when the answer is one of the software company types. */
+export function isSoftwareCompanyType(value: string | null | undefined): boolean {
+  return (SOFTWARE_COMPANY_TYPES as readonly string[]).includes(value ?? '');
+}
+
+/** Head-count bands. Never asked of a software company (`SOFTWARE_COMPANY_TYPES`). */
 export const COMPANY_SIZES = [
   '1-10',
   '11-50',
@@ -60,11 +83,33 @@ export const PrimaryRoleSchema = z.enum(PRIMARY_ROLES);
 export type PrimaryRole = z.infer<typeof PrimaryRoleSchema>;
 
 /**
- * The profile's role answer: the shared role list plus `undisclosed`. Profile
- * only. `reviews.role_at_company` keeps `PrimaryRoleSchema`, so a review can
- * never carry `undisclosed`.
+ * The roles offered to someone at a software company. Profile only: a review
+ * is written by a software user, so `reviews.role_at_company` never takes these.
+ * Prefixed `vendor_` so none can collide with a review role.
  */
-export const PROFILE_PRIMARY_ROLES = [...PRIMARY_ROLES, UNDISCLOSED] as const;
+export const SOFTWARE_COMPANY_ROLES = [
+  'vendor_exec',
+  'vendor_product',
+  'vendor_engineering',
+  'vendor_partnerships',
+  'vendor_sales',
+  'vendor_marketing',
+  'vendor_customer_success',
+  'vendor_services',
+] as const;
+export type SoftwareCompanyRole = (typeof SOFTWARE_COMPANY_ROLES)[number];
+
+/**
+ * The profile's role answer: the shared role list, the software company roles,
+ * and `undisclosed`. Profile only. `reviews.role_at_company` keeps
+ * `PrimaryRoleSchema`, so a review can never carry a software company role or
+ * `undisclosed`. Which list the form offers follows the company type.
+ */
+export const PROFILE_PRIMARY_ROLES = [
+  ...PRIMARY_ROLES,
+  ...SOFTWARE_COMPANY_ROLES,
+  UNDISCLOSED,
+] as const;
 export const ProfilePrimaryRoleSchema = z.enum(PROFILE_PRIMARY_ROLES);
 export type ProfilePrimaryRole = z.infer<typeof ProfilePrimaryRoleSchema>;
 
