@@ -141,7 +141,7 @@ describe('Plans calls to action', () => {
   // Spec §4.1: the monthly and the annual price, both from the constants.
   it('formats the terms line from the monthly and annual price constants', () => {
     expect(managedTermsLine('en-US')).toBe(
-      '$25 a month per product, or $250 a year, billed by invoice or purchase order.',
+      '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order.',
     );
   });
 
@@ -152,7 +152,7 @@ describe('Plans calls to action', () => {
       'Tell the full story of your product',
     );
     expect(text).toContain(
-      '$25 a month per product, or $250 a year, billed by invoice or purchase order. If a plan ends, nothing you entered is removed.',
+      '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order. Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month. If a plan ends, nothing you entered is removed.',
     );
     // Ruled 2026-10-12 (spec §4.1): the steps describe the claim dialog.
     expect(
@@ -210,7 +210,7 @@ describe('Plans calls to action', () => {
   it('rail card: plan, price and "Start with Managed" with Managed preselected', () => {
     const { host, planCtaClicked, claim } = render(PlanCtaRailComponent);
     expect(host.textContent).toContain('Managed');
-    expect(host.textContent).toContain('$25 a month per product');
+    expect(host.textContent).toContain('$25 USD a month per product');
     const link = host.querySelector('a')!;
     expect(link.textContent?.trim()).toBe('Start with Managed');
     expect(link.getAttribute('href')).toBe(CLAIM_HREF);

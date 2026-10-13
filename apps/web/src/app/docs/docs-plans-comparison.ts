@@ -148,7 +148,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
         {
           label: $localize`:@@app.docs.plans.row.price:Price`,
           free: formatPlanPrice(0, locale),
-          managed: $localize`:@@app.docs.plans.row.priceManaged:${price}:AMOUNT: a month per product`,
+          managed: $localize`:@@app.docs.plans.row.priceManaged:${price}:AMOUNT: USD a month per product`,
         },
         {
           label: $localize`:@@app.docs.plans.row.billing:Billing`,

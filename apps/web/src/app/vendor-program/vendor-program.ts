@@ -27,7 +27,8 @@
  * Its lede says buyers read our account of your public pages until you claim.
  *
  * **What Managed adds** opens with its own lede (who Managed is for), then the
- * price and terms line in small text (copy pass 2026-10-12).
+ * price and terms line in small text (copy pass 2026-10-12), then the one-year term
+ * and renewal (2026-10-13).
  *
  * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*` carries `target="_blank" rel="noopener"`
  * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
@@ -94,6 +95,8 @@ import {
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
   PlanCtaPanelComponent,
+  managedRenewalLine,
+  managedTermLine,
   managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
@@ -334,7 +337,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 what the product does on a project, who it is for, and how its integrations move
                 data.
               </p>
-              <p class="mt-3 text-sm text-(--text-secondary)">{{ terms }}</p>
+              <p class="mt-3 text-sm text-(--text-secondary)">{{ terms }} {{ term }}</p>
+              <p class="mt-2 text-sm text-(--text-secondary)">{{ renewal }}</p>
             </div>
             <ul [class]="benefitList" role="list">
               <li
@@ -544,6 +548,18 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               </details>
               <details class="group border-t border-(--border-default)">
                 <summary [class]="summaryClass">
+                  <span i18n="@@vendorProgram.faq.cancel.q"
+                    >Can we cancel a Managed plan early?</span
+                  >
+                  <ng-container [ngTemplateOutlet]="chevron" />
+                </summary>
+                <p [class]="answerClass" i18n="@@vendorProgram.faq.cancel.a">
+                  The term runs to the end of the paid year. If you opt out of renewal, you keep
+                  Managed through the current year, and we issue no further invoices.
+                </p>
+              </details>
+              <details class="group border-t border-(--border-default)">
+                <summary [class]="summaryClass">
                   <span i18n="@@vendorProgram.faq.ends.q"
                     >What happens when a Managed plan ends?</span
                   >
@@ -660,8 +676,12 @@ export class VendorProgramPage {
     integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:Integration detail buyers can check`,
     replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
   };
-  /** `$25 a month per product, or $250 a year, billed by invoice or purchase order.` */
+  /** `$25 USD a month or $250 USD a year per product, billed by invoice or purchase order.` */
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
+  /** The one-year term, beside the price (2026-10-13). */
+  protected readonly term = managedTermLine();
+  /** Renewal and the 30-day written notice, under the price (2026-10-13). */
+  protected readonly renewal = managedRenewalLine();
   /**
    * The date on the "after" label in What changes when you claim: today, in UTC, so
    * the example reads as "if you updated it today". The marker formats it in UTC, so

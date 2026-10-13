@@ -60,7 +60,7 @@ describe('planComparisonGroups', () => {
   });
 
   it('prints the list price', () => {
-    expect(row('Price')).toMatchObject({ free: '$0', managed: '$25 a month per product' });
+    expect(row('Price')).toMatchObject({ free: '$0', managed: '$25 USD a month per product' });
   });
 });
 

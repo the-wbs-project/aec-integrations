@@ -168,7 +168,7 @@ describe('DocsPageComponent', () => {
     expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
     // The closing panel shows the annual price beside the monthly one.
     expect(host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ')).toContain(
-      '$25 a month per product, or $250 a year',
+      '$25 USD a month or $250 USD a year per product',
     );
 
     const other = render('vendors', 'your-seat').host;

@@ -239,12 +239,16 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/plans#what-managed-adds',
       ]);
       // Copy pass 2026-10-12: the section's own lede, then the shared terms line.
+      // 2026-10-13: the one-year term beside the price, then renewal.
       const intro = [...host.querySelectorAll('#vp-managed > div > p')];
       expect(text(intro[0])).toMatch(
         /^Managed is for products that need more than a corrected listing/,
       );
       expect(text(intro[1])).toBe(
-        '$25 a month per product, or $250 a year, billed by invoice or purchase order.',
+        '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order. Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.',
+      );
+      expect(text(intro[2])).toBe(
+        'The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.',
       );
     });
 
@@ -332,6 +336,7 @@ describe('VendorProgramPage', () => {
         'How long does approval take?',
         'We make several products. Do we claim each one?',
         'Can we pay by invoice or purchase order?',
+        'Can we cancel a Managed plan early?',
         'What happens when a Managed plan ends?',
         'Does paying affect our reviews or where we rank?',
       ]);
@@ -346,7 +351,12 @@ describe('VendorProgramPage', () => {
       expect(answer(faq[3])).toBe(
         'Yes. We bill paid plans by invoice or purchase order. Free plans require neither.',
       );
+      // No refund, early-termination or nonpayment terms: those are not decided.
       expect(answer(faq[4])).toBe(
+        'The term runs to the end of the paid year. If you opt out of renewal, you keep Managed through the current year, and we issue no further invoices.',
+      );
+      expect(answer(faq[4])).not.toMatch(/refund|early termination|nonpayment/i);
+      expect(answer(faq[5])).toBe(
         'Your company moves to the free plan. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. What Managed adds becomes read-only. See when a Managed plan ends.',
       );
     });

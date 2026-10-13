@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../analytics/analytics';
 import { getDocsPage } from '../docs/docs-content';
+import { managedRenewalLine, managedTermLine, managedTermsLine } from '../shared/plan-cta/plan-cta';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramPage } from './vendor-program';
 
@@ -20,7 +21,9 @@ import { VendorProgramPage } from './vendor-program';
  *
  * - the sort rule, one i18n id on both Angular pages (`@@app.docs.plans.sortRule`),
  *   which must also read the same as the Plans page's Markdown;
- * - the Plans page fragments this page links to, which must exist.
+ * - the Plans page fragments this page links to, which must exist;
+ * - the Managed terms (2026-10-13): the price, the one-year term, renewal and the
+ *   early-cancel answer, which must read the same on both pages.
  */
 function normalize(value: string): string {
   return value
@@ -89,5 +92,22 @@ describe('what the vendor program page shares with /docs/vendors/plans', () => {
       'when-a-managed-plan-ends',
     ]);
     for (const id of fragments) expect(plans.html, id).toContain(`id="${id}"`);
+  });
+
+  it('Managed terms: price, term, renewal and early cancel read the same on both pages', () => {
+    const host = render();
+    const cancel = [...host.querySelectorAll('#vp-faq details')].find((d) =>
+      d.querySelector('summary')?.textContent?.includes('cancel'),
+    );
+    expect(cancel).toBeDefined();
+    const shared = [
+      managedTermsLine('en-US'),
+      managedTermLine(),
+      managedRenewalLine(),
+      cancel!.querySelector('p')!.innerHTML,
+    ];
+    for (const sentence of shared.flatMap(sentences)) {
+      expect(docText, `Managed terms: "${sentence}"`).toContain(sentence);
+    }
   });
 });

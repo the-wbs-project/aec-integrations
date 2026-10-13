@@ -113,7 +113,7 @@ import { PORTAL_PATH, PlanPricingLinkComponent } from './plan-cta';
         <p class="mt-4 flex items-baseline gap-1.5">
           <span class="aec-plan-price text-(--text-primary)">{{ managedPrice }}</span>
           <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.managed.unit"
-            >a month per product</span
+            >USD a month per product</span
           >
         </p>
         @if (portal()) {
