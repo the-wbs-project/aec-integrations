@@ -581,6 +581,12 @@ export function createAdminVendorProductsHandler(
  * clear-and-re-grant does not fragment the trail a renewal dispute needs to read
  * (`STAGE_2_PAID_TIERS_SPEC.md` §2.1). That decision is what makes this leg work.
  */
+//
+// `billing_account` is deliberately NOT here (AECI-1352). Its `entity_id` is the
+// ACCOUNT id, so this leg would never match it. Every `billing_account.*` and
+// `license.*` row fills the `vendor_id` column instead (`lib/billing-account.ts`,
+// `lib/license.ts`), so leg 3 reaches it, with leg 3's seat exclusion: an owner's own
+// license assignment belongs to the actor scope, like every other seat write.
 const VENDOR_ENTITY_TYPES = ['vendor', 'vendor_entitlement'] as const;
 
 /**

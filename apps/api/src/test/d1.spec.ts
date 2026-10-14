@@ -1348,7 +1348,7 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
       const end = endLicensesStatements(t.db, {
         ...ctx,
         target: { licenseIds: ['l1'] },
-        ending: 'lapsed',
+        endReason: 'lapsed',
       });
       const grant = grantLicensesStatements(t.db, {
         ...ctx,
@@ -1380,12 +1380,12 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
       const endOne = endLicensesStatements(t.db, {
         ...ctx,
         target: { licenseIds: ['l1'] },
-        ending: 'lapsed',
+        endReason: 'lapsed',
       });
       const endTwo = endLicensesStatements(t.db, {
         ...ctx,
         target: { licenseIds: ['l2'] },
-        ending: 'released',
+        endReason: 'released',
       });
       // Each sees the other license still live, so neither predicts the flip.
       expect(endOne.verifiedFlipped).toBe(false);

@@ -63,10 +63,10 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import {
-  LICENSE_REVOKED_REASON,
+  LICENSE_END_REASONS,
   LICENSE_SOURCES,
   licensePlanSnapshot,
-  type LicenseEnding,
+  type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -96,8 +96,8 @@ export const LICENSE_ACTION = {
   revoked: 'license.revoked',
 } as const;
 
-/** The end action per ending. */
-const END_ACTION: Record<LicenseEnding, string> = {
+/** The end action per end reason. */
+const END_ACTION: Record<LicenseEndReason, string> = {
   lapsed: LICENSE_ACTION.lapsed,
   released: LICENSE_ACTION.released,
   revoked: LICENSE_ACTION.revoked,
@@ -114,6 +114,7 @@ export interface LicenseBefore {
   startsAt: string;
   endsAt: string | null;
   endedAt: string | null;
+  endReason: string | null;
   reference: string | null;
   stripeSubscriptionId: string | null;
   assignedProductId: string | null;
@@ -194,6 +195,7 @@ export async function loadVendorLicenses(db: Db, vendorId: string): Promise<Lice
       startsAt: licenses.startsAt,
       endsAt: licenses.endsAt,
       endedAt: licenses.endedAt,
+      endReason: licenses.endReason,
       reference: licenses.reference,
       stripeSubscriptionId: licenses.stripeSubscriptionId,
       assignedProductId: licenses.assignedProductId,
@@ -234,6 +236,7 @@ function licenseState(l: LicenseBefore) {
     starts_at: l.startsAt,
     ends_at: l.endsAt,
     ended_at: l.endedAt,
+    end_reason: l.endReason,
     reference: l.reference,
     stripe_subscription_id: l.stripeSubscriptionId,
     assigned_product_id: l.assignedProductId,
@@ -378,6 +381,7 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
       startsAt,
       endsAt,
       endedAt: null,
+      endReason: null,
       reference: p.reference ?? null,
       stripeSubscriptionId: p.stripeSubscriptionId ?? null,
       assignedProductId: productId,
@@ -558,22 +562,26 @@ export interface EndLicensesParams extends LicenseWriteContext {
    *  way the targets are selected from the pre-read `vendorLicenses`, so every
    *  license ended has its audit row. */
   target: EndLicensesTarget;
-  /** How they end: E6 lapse, E4.4 release, E4.2 revoke. Picks the default action, and
-   *  `revoked` stamps `cancel_reason` (see `LICENSE_ENDINGS`). */
-  ending: LicenseEnding;
+  /** Why they end (`LICENSE_END_REASONS`): E6 lapse, E4.4 release, E4.2 revoke.
+   *  Stored in `end_reason` and picks the default audit action. */
+  endReason: LicenseEndReason;
 }
 
 /**
- * End live licenses (terminal). Stamps `ended_at = now`. NEVER touches
+ * End live licenses (terminal). Stamps `ended_at = now` and `end_reason`. NEVER touches
  * `assigned_product_id`: an ended license keeps its product as history (decision 14),
- * and the product's edit right goes because the gate finds no live license. One
- * guarded `WHERE ended_at IS NULL` statement and one audit row per license, then the
+ * and the product's edit right goes because the gate finds no live license. Nor
+ * `cancel_reason`, which records why a live license was set not to renew. One guarded
+ * `WHERE ended_at IS NULL` statement and one audit row per license, then the
  * reconcile, which drops `verified` when the last live license ends.
  *
  * No live target: a no-op. Re-ending an ended license is never possible: there is no
  * un-end, a new license is a new grant.
  */
 export function endLicensesStatements(db: Db, p: EndLicensesParams): LicenseBatch {
+  if (!(LICENSE_END_REASONS as readonly string[]).includes(p.endReason)) {
+    throw new RangeError(`unknown license end reason: ${String(p.endReason)}`);
+  }
   const now = toIsoTimestamp(p.now);
   const wanted =
     'licenseIds' in p.target
@@ -586,28 +594,17 @@ export function endLicensesStatements(db: Db, p: EndLicensesParams): LicenseBatc
           return (l: LicenseBefore) => l.stripeSubscriptionId === sub;
         })();
   const targets = p.vendorLicenses.filter((l) => l.endedAt === null && wanted(l));
-  const revoked = p.ending === 'revoked';
 
   const changed: LicenseBefore[] = [];
   const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
   for (const before of targets) {
-    const after: LicenseBefore = {
-      ...before,
-      endedAt: now,
-      ...(revoked ? { cancelReason: LICENSE_REVOKED_REASON } : {}),
-    };
+    const after: LicenseBefore = { ...before, endedAt: now, endReason: p.endReason };
     changed.push(after);
     const stmt = db
       .update(licenses)
-      .set({
-        endedAt: now,
-        ...(revoked ? { cancelReason: LICENSE_REVOKED_REASON } : {}),
-        updatedAt: now,
-      })
+      .set({ endedAt: now, endReason: p.endReason, updatedAt: now })
       .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
-    const entry = licenseEntry(p, now, END_ACTION[p.ending], before, after);
-    (entry.metadata as Record<string, unknown>).ending = p.ending;
-    writes.push({ stmt, entry });
+    writes.push({ stmt, entry: licenseEntry(p, now, END_ACTION[p.endReason], before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
 }

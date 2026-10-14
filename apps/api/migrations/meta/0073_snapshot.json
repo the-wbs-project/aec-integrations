@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "37dd7dd8-4347-46e0-b920-ff484eae85fa",
+  "id": "0ae02935-0489-49f5-8027-939af4917405",
   "prevId": "a2a8c525-df5f-49eb-a02f-5f85096e32fa",
   "tables": {
     "asn_registry": {
@@ -3182,6 +3182,13 @@
         },
         "ended_at": {
           "name": "ended_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "end_reason": {
+          "name": "end_reason",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

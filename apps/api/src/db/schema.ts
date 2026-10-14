@@ -1655,6 +1655,10 @@ export const licenses = sqliteTable(
     endsAt: text('ends_at'),
     /** Stored end. NULL = live. */
     endedAt: text('ended_at'),
+    /** Why it ended, set with `ended_at`: `LICENSE_END_REASONS` (`lapsed` | `released` |
+     *  `revoked`) in `@aeci/shared/entitlements`. NULL while live. No CHECK, as `source`.
+     *  Separate from `cancel_reason`, which says why a LIVE license will not renew. */
+    endReason: text('end_reason'),
     /** Invoice number, PO or grant note for non-Stripe sources. */
     reference: text('reference'),
     stripeSubscriptionId: text('stripe_subscription_id'),

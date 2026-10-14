@@ -19,6 +19,7 @@ CREATE TABLE `licenses` (
 	`starts_at` text NOT NULL,
 	`ends_at` text,
 	`ended_at` text,
+	`end_reason` text,
 	`reference` text,
 	`stripe_subscription_id` text,
 	`assigned_product_id` text,

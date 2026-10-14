@@ -1836,13 +1836,14 @@ create table licenses (
   starts_at text not null,       -- ISO-8601
   ends_at text,                  -- scheduled end; null = monthly
   ended_at text,                 -- stored end; null = LIVE
+  end_reason text,               -- LICENSE_END_REASONS: 'lapsed' | 'released' | 'revoked'; set with ended_at; NO CHECK
   reference text,                -- invoice number, PO or grant note
   stripe_subscription_id text,
   assigned_product_id text references products(id) on delete set null,
   assigned_at text,
   release_at_renewal integer not null default 0, -- decision 11
   cancel_at_term_end integer not null default 0, -- decision 15
-  cancel_reason text,
+  cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
   terms_version text,            -- pointer only; the acceptance record is E2.4's table
   granted_by text,               -- a profiles.id; NO FK
   expiry_notice_sent_at text,    -- E6's term-end notice fence
@@ -1884,10 +1885,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   and add no second writer. Each takes the caller's pre-read (`loadVendorLicenses`) and
   `now`. A no-op returns one frozen empty batch. Every date is stored as
   `toISOString()`, so a date-only input lands as `…T00:00:00.000Z`.
-- **How a license ended.** There is no status column. `endLicensesStatements` takes an
-  ending (`LICENSE_ENDINGS` in `@aeci/shared/entitlements`: `lapsed`, `released`,
-  `revoked`) that picks the audit action. Only `revoked` is stored: it writes
-  `cancel_reason = 'revoked'`. The other endings leave `cancel_reason` as it was.
+- **How a license ended.** There is no status column. `end_reason` records why, written
+  with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
+  `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
+  action. It is NULL while the license is live. `cancel_reason` is a different question:
+  why a live license was set not to renew. Ending a license never touches it.
 - **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
   statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
@@ -1903,8 +1905,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   registered in `packages/shared/src/audit-vendor-actions.ts`, not vendor receipts yet).
   `vendor_tier` and `vendor_entitlement_status` record the plan before the write, from
   `licensePlanSnapshot`: any live license is `verified` / `active` (`expired` once every
-  live license is past its `ends_at`), else the latest ended license is `revoked` or
-  `expired`, and no license is `none` / `none`.
+  live license is past its `ends_at`), else the latest ended license is `revoked` when its
+  `end_reason` is `revoked` and `expired` otherwise, and no license is `none` / `none`.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 

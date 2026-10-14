@@ -412,12 +412,13 @@ describe('endLicensesStatements', () => {
     const batch = endLicensesStatements(t.db, {
       ...(await ctx()),
       target: { licenseIds: ['l-1'] },
-      ending: 'lapsed',
+      endReason: 'lapsed',
     });
     expect(batch.verifiedFlipped).toBe(true);
     await run(batch);
     expect(await licenseOf('l-1')).toMatchObject({
       endedAt: NOW,
+      endReason: 'lapsed',
       assignedProductId: P1,
       cancelReason: null,
     });
@@ -430,7 +431,8 @@ describe('endLicensesStatements', () => {
       vendorTier: 'verified',
       vendorEntitlementStatus: 'active',
     });
-    expect(row!.metadata).toMatchObject({ license_id: 'l-1', ending: 'lapsed' });
+    expect(row!.metadata).toMatchObject({ license_id: 'l-1' });
+    expect(row!.afterState).toMatchObject({ ended_at: NOW, end_reason: 'lapsed' });
   });
 
   it('ends every live license on a Stripe subscription, and only those', async () => {
@@ -441,7 +443,7 @@ describe('endLicensesStatements', () => {
     const batch = endLicensesStatements(t.db, {
       ...(await ctx()),
       target: { stripeSubscriptionId: 'sub_1' },
-      ending: 'lapsed',
+      endReason: 'lapsed',
     });
     expect(batch.auditEntries).toHaveLength(2);
     expect(batch.verifiedFlipped).toBe(false);
@@ -453,18 +455,22 @@ describe('endLicensesStatements', () => {
     expect(await vendorOf()).toMatchObject({ verified: true, updatedAt: OLD_TS });
   });
 
-  it('a revoke stamps the revoke marker the plan snapshot reads', async () => {
-    await seedLicense('l-1');
+  it('a revoke stores end_reason, leaves cancel_reason alone, and the snapshot reads it', async () => {
+    await seedLicense('l-1', { cancelAtTermEnd: true, cancelReason: 'ban' });
     await setVerified(true);
     await run(
       endLicensesStatements(t.db, {
         ...(await ctx()),
         target: { licenseIds: ['l-1'] },
-        ending: 'revoked',
+        endReason: 'revoked',
         reason: 'misrepresentation',
       }),
     );
-    expect(await licenseOf('l-1')).toMatchObject({ endedAt: NOW, cancelReason: 'revoked' });
+    expect(await licenseOf('l-1')).toMatchObject({
+      endedAt: NOW,
+      endReason: 'revoked',
+      cancelReason: 'ban',
+    });
     expect((await audits())[0]).toMatchObject({ action: 'license.revoked' });
 
     // The next write's snapshot now records the revoked plan.
@@ -479,18 +485,33 @@ describe('endLicensesStatements', () => {
     expect(later.auditEntries[0]!.vendorPlan).toEqual({ tier: 'verified', status: 'revoked' });
   });
 
+  it('throws on an end reason outside the vocabulary', async () => {
+    await seedLicense('l-1');
+    const c = await ctx();
+    expect(() =>
+      endLicensesStatements(t.db, {
+        ...c,
+        target: { licenseIds: ['l-1'] },
+        endReason: 'expired' as 'lapsed',
+      }),
+    ).toThrow(RangeError);
+  });
+
   it('is the frozen no-op when no target is live', async () => {
     await seedLicense('l-ended', { endedAt: OLD_TS });
     const c = await ctx();
     expect(
-      endLicensesStatements(t.db, { ...c, target: { licenseIds: ['l-ended'] }, ending: 'lapsed' })
-        .stmts,
+      endLicensesStatements(t.db, {
+        ...c,
+        target: { licenseIds: ['l-ended'] },
+        endReason: 'lapsed',
+      }).stmts,
     ).toHaveLength(0);
     expect(
       endLicensesStatements(t.db, {
         ...c,
         target: { stripeSubscriptionId: 'sub_none' },
-        ending: 'released',
+        endReason: 'released',
       }).stmts,
     ).toHaveLength(0);
   });
@@ -516,7 +537,11 @@ describe('the mirror reconcile', () => {
       unassignLicenseStatements(t.db, { ...c, licenseId: 'l-held' }),
       setReleaseAtRenewalStatements(t.db, { ...c, licenseId: 'l-held', release: true }),
       setCancelAtTermEndStatements(t.db, { ...c, licenseIds: ['l-held'], cancel: true }),
-      endLicensesStatements(t.db, { ...c, target: { licenseIds: ['l-held'] }, ending: 'lapsed' }),
+      endLicensesStatements(t.db, {
+        ...c,
+        target: { licenseIds: ['l-held'] },
+        endReason: 'lapsed',
+      }),
     ];
   }
 
@@ -559,7 +584,11 @@ describe('the mirror reconcile', () => {
       unassignLicenseStatements(t.db, { ...c, licenseId: 'l-ended' }),
       setReleaseAtRenewalStatements(t.db, { ...c, licenseId: 'l-ended', release: true }),
       setCancelAtTermEndStatements(t.db, { ...c, licenseIds: ['l-ended'], cancel: true }),
-      endLicensesStatements(t.db, { ...c, target: { licenseIds: ['l-ended'] }, ending: 'lapsed' }),
+      endLicensesStatements(t.db, {
+        ...c,
+        target: { licenseIds: ['l-ended'] },
+        endReason: 'lapsed',
+      }),
     ];
     for (const batch of noOps) {
       expect(batch).toBe(noOps[0]);

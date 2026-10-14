@@ -251,6 +251,23 @@ export const LICENSE_SOURCES = ['stripe', 'invoice', 'complimentary'] as const;
 export type LicenseSource = (typeof LICENSE_SOURCES)[number];
 
 /**
+ * The `licenses.end_reason` vocabulary (AECI-1352): why a license ended, written with
+ * `ended_at` by `endLicensesStatements` (`apps/api/src/lib/license.ts`), so E4.2
+ * (revoke), E4.4 (release) and E6 (lapse) share one builder. NULL while live. Like
+ * `source`, the column is UNCONSTRAINED at the DB layer; writers validate against this
+ * list. It is not `cancel_reason`, which says why a LIVE license will not renew
+ * (decision 15).
+ *
+ *  - `lapsed`   — the term ran out (E6's daily job), or Stripe cancelled the subscription
+ *  - `released` — AECi ended a license the vendor no longer wants (a reduction)
+ *  - `revoked`  — AECi pulled it for cause (abuse, misrepresentation)
+ */
+export const LICENSE_END_REASONS = ['lapsed', 'released', 'revoked'] as const;
+
+/** One license end reason. */
+export type LicenseEndReason = (typeof LICENSE_END_REASONS)[number];
+
+/**
  * The status a row must carry to grant anything. `tierFor` still takes a loose
  * `status: string` — a value outside the vocabulary above must fail closed like
  * any other non-`active` status, not throw.
@@ -361,27 +378,6 @@ export function vendorPlanSnapshot(
 }
 
 /**
- * How a license ended (AECI-1352). `endLicensesStatements` in `apps/api/src/lib/license.ts`
- * takes one, so E4.2 (revoke), E4.4 (release) and E6 (lapse) share one builder.
- *
- *  - `lapsed`   — the term ran out (E6's daily job), or Stripe cancelled the subscription
- *  - `released` — AECi ended a license the vendor no longer wants (a reduction)
- *  - `revoked`  — AECi pulled it for cause (abuse, misrepresentation)
- *
- * Only `revoked` is STORED on the row: `licenses` has no status column, so the end
- * builder writes `cancel_reason = 'revoked'` (`LICENSE_REVOKED_REASON`) and leaves
- * `cancel_reason` alone otherwise. That is what lets {@link licensePlanSnapshot} tell
- * a revoked plan from an expired one. The other two endings live in the audit action.
- */
-export const LICENSE_ENDINGS = ['lapsed', 'released', 'revoked'] as const;
-
-/** One license ending. */
-export type LicenseEnding = (typeof LICENSE_ENDINGS)[number];
-
-/** The `licenses.cancel_reason` a revoke stamps. See {@link LICENSE_ENDINGS}. */
-export const LICENSE_REVOKED_REASON = 'revoked';
-
-/**
  * The raw tier a license snapshot records. Licenses carry no tier: every live license
  * grants the one paid rung, which `vendor_entitlements.tier` called `verified`. Kept
  * as that word so audit rows before and after the switch-over read alike.
@@ -393,7 +389,7 @@ const LICENSE_SNAPSHOT_TIER = 'verified';
 export interface LicensePlanRow {
   endsAt: string | null;
   endedAt: string | null;
-  cancelReason?: string | null;
+  endReason?: string | null;
 }
 
 /**
@@ -408,7 +404,7 @@ export interface LicensePlanRow {
  *    That is the 2026-10-05 clock ruling carried over: E6's job turns `ends_at` into
  *    `ended_at`, and until it runs a write after the term must not read as a live plan;
  *  - every license ended → the most recently ended one decides: `revoked` when its
- *    `cancel_reason` is {@link LICENSE_REVOKED_REASON}, else `expired`.
+ *    `end_reason` is `revoked`, else `expired` (`lapsed`, `released`, or NULL).
  *
  * Record rule only, like `vendorPlanSnapshot`: authorization reads stored state.
  * Dates are compared by parsed instant, so date-only and full ISO spellings cannot
@@ -439,7 +435,7 @@ export function licensePlanSnapshot(
       latestMs = key;
     }
   }
-  const revoked = latest?.cancelReason === LICENSE_REVOKED_REASON;
+  const revoked = latest?.endReason === 'revoked';
   return { tier: LICENSE_SNAPSHOT_TIER, status: revoked ? 'revoked' : 'expired' };
 }
 

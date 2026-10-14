@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeTestDb, statementsForMigration } from './d1';
 
 /**
- * AECI-1350 — `0073_brown_moon_knight.sql`, the `billing_accounts` and `licenses`
+ * AECI-1350 — `0073_dazzling_the_hunter.sql`, the `billing_accounts` and `licenses`
  * tables (E1.1, `docs/VENDOR_SIGNUP_PROCESS.md` §5). This file is the tripwire on the
  * generated body.
  *
@@ -13,7 +13,7 @@ import { makeTestDb, statementsForMigration } from './d1';
  * If a later schema edit makes drizzle-kit regenerate this file as a recreate of an
  * existing table, the assertions below fail in that PR.
  */
-const MIGRATION = '0073_brown_moon_knight.sql';
+const MIGRATION = '0073_dazzling_the_hunter.sql';
 
 describe(`${MIGRATION} — additive, not a recreate`, () => {
   const statements = statementsForMigration(MIGRATION).map((s) =>
@@ -74,6 +74,22 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
           on_delete: 'NO ACTION',
         },
       ]);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('gives licenses its 19 columns, with end_reason beside ended_at (AECI-1352)', async () => {
+    const t = await makeTestDb();
+    try {
+      const cols = (
+        t.raw.prepare(`SELECT name, "notnull" FROM pragma_table_info('licenses')`).all() as {
+          name: string;
+          notnull: number;
+        }[]
+      ).map((c) => c.name);
+      expect(cols).toHaveLength(19);
+      expect(cols.indexOf('end_reason')).toBe(cols.indexOf('ended_at') + 1);
     } finally {
       t.dispose();
     }

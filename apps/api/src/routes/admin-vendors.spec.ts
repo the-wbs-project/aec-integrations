@@ -1150,6 +1150,50 @@ describe('GET /api/admin/vendors/:id/audit', () => {
     expect(ids).not.toContain(u(79));
   });
 
+  it('reaches billing account and license rows through the vendor_id column (AECI-1352)', async () => {
+    // These rows file under the ACCOUNT id, so the entity-type leg cannot match them.
+    // The `vendor_id` column is what brings them onto the vendor's tab.
+    await t.db.insert(auditLog).values([
+      audit({
+        action: 'billing_account.created',
+        entityType: 'billing_account',
+        entityId: u(91),
+        vendorId: VENDOR,
+      }),
+      audit({
+        action: 'license.granted',
+        entityType: 'billing_account',
+        entityId: u(92),
+        vendorId: VENDOR,
+        metadata: { license_id: u(93) },
+      }),
+      // Another vendor's account never leaks in.
+      audit({
+        action: 'license.granted',
+        entityType: 'billing_account',
+        entityId: u(94),
+        vendorId: u(999),
+      }),
+    ]);
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id/audit',
+        createAdminVendorAuditHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}/audit?scope=entity`,
+    );
+    const b = await body(res);
+    const rows = b.data.map((r: { entity_type: string; entity_id: string }) => [
+      r.entity_type,
+      r.entity_id,
+    ]);
+    expect(rows).toContainEqual(['billing_account', u(91)]);
+    expect(rows).toContainEqual(['billing_account', u(92)]);
+    expect(rows).not.toContainEqual(['billing_account', u(94)]);
+  });
+
   it("files a seat's own edit under actor scope, never entity scope (AECI-1192 review)", async () => {
     // `vendorAuditEntry` stamps the ACTING vendor on every seat write, so the column
     // alone would list the vendor's own edits as "done to this vendor". Leg 3 drops
