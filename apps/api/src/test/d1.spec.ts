@@ -28,6 +28,16 @@ import {
   vendors,
 } from '../db/schema';
 import { auditInsert, type BatchTuple } from '../lib/audit';
+import {
+  BILLING_ACCOUNT_BACKFILLED_ACTION,
+  buildOwnedProductsSql,
+  buildVendorStatements,
+  buildVendorsSql,
+  planLicenseBackfill,
+  type BackfillVendorRow,
+  type OwnedProductRow,
+} from '../lib/backfill-licenses';
+import { checkEntitlementMirrorDrift, checkLicenseMirrorDrift } from '../lib/data-quality';
 import { productListConfig } from '../lib/drizzle-helpers';
 import {
   endLicensesStatements,
@@ -1501,6 +1511,175 @@ describe('seed files: entitlements, billing accounts and licenses agree (AECI-13
         before.accounts.map((a) => a.id).sort(),
       );
       expect(after.rows.map((l) => l.id).sort()).toEqual(before.rows.map((l) => l.id).sort());
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+// AECI-1354 (E1.5): the back-fill, end to end, over the real migrated schema. One
+// vendor per entitlement status, a perpetual row, a zero-product vendor and a
+// seat-only vendor. The generated statements run as the CLI runs them (one execute per
+// vendor), a re-run writes nothing, and both drift checks read 0 afterwards.
+describe('license back-fill (AECI-1354)', () => {
+  const NOW = '2026-10-14T12:00:00.000Z';
+
+  function fixture(t: TestDb): void {
+    t.raw.exec(`
+      INSERT INTO vendors (id, slug, company_name, verified, promotion_status, created_at, updated_at) VALUES
+        ('v-act',  'act-co',  'Active Co',    1, 'promoted', '${NOW}', '${NOW}'),
+        ('v-perp', 'perp-co', 'Perpetual Co', 1, 'promoted', '${NOW}', '${NOW}'),
+        ('v-pend', 'pend-co', 'Pending Co',   0, 'promoted', '${NOW}', '${NOW}'),
+        ('v-exp',  'exp-co',  'Expired Co',   0, 'promoted', '${NOW}', '${NOW}'),
+        ('v-rev',  'rev-co',  'Revoked Co',   0, 'promoted', '${NOW}', '${NOW}'),
+        ('v-seat', 'seat-co', 'Seat Co',      0, 'promoted', '${NOW}', '${NOW}'),
+        ('v-none', 'none-co', 'Bystander Co', 0, 'promoted', '${NOW}', '${NOW}');
+      INSERT INTO products (id, slug, name, promotion_status, created_at, updated_at) VALUES
+        ('p-a1', 'a1', 'A1', 'promoted', '${NOW}', '${NOW}'),
+        ('p-a2', 'a2', 'A2', 'promoted', '${NOW}', '${NOW}'),
+        ('p-e1', 'e1', 'E1', 'promoted', '${NOW}', '${NOW}'),
+        ('p-r1', 'r1', 'R1', 'promoted', '${NOW}', '${NOW}');
+      INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES
+        ('p-a1', 'v-act', 1, '${NOW}'), ('p-a2', 'v-act', 1, '${NOW}'),
+        ('p-e1', 'v-exp', 1, '${NOW}'), ('p-r1', 'v-rev', 1, '${NOW}');
+      INSERT INTO vendor_entitlements
+        (id, vendor_id, tier, status, period_start, period_end, amount, invoice_ref, granted_at, ended_at, created_at, updated_at) VALUES
+        ('e-act',  'v-act',  'verified', 'active',  '2026-01-01', '2027-01-01', 'USD 5,000', 'INV-1', '${NOW}', NULL, '${NOW}', '${NOW}'),
+        ('e-perp', 'v-perp', 'verified', 'active',  NULL,         NULL,         NULL,        NULL,    '${NOW}', NULL, '${NOW}', '${NOW}'),
+        ('e-pend', 'v-pend', 'verified', 'pending', NULL,         '2027-06-01', NULL,        'PO-9',  '${NOW}', NULL, '${NOW}', '${NOW}'),
+        ('e-exp',  'v-exp',  'verified', 'expired', '2025-01-01', '2026-01-01', NULL,        NULL,    '${NOW}', '2026-01-02T00:00:00.000Z', '${NOW}', '${NOW}'),
+        ('e-rev',  'v-rev',  'verified', 'revoked', '2025-01-01', '2026-12-01', NULL,        'INV-2', '${NOW}', '2026-03-01T00:00:00.000Z', '${NOW}', '${NOW}');
+      INSERT INTO profiles (id, role, vendor_id, created_at, updated_at) VALUES ('u-seat', 'vendor_admin', 'v-seat', '${NOW}', '${NOW}');
+    `);
+  }
+
+  /** One back-fill run as the CLI performs it. Returns the rows changed. */
+  async function run(t: TestDb) {
+    const vendorRows = t.raw.prepare(buildVendorsSql()).all() as BackfillVendorRow[];
+    const owned = t.raw.prepare(buildOwnedProductsSql()).all() as OwnedProductRow[];
+    const plan = await planLicenseBackfill(vendorRows, owned, { now: NOW });
+    const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+    for (const p of plan.vendors) {
+      const stmts = buildVendorStatements(p, { now: NOW });
+      if (stmts.length > 0) t.raw.transaction(() => t.raw.exec(stmts.join('\n')))();
+    }
+    const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+    return { plan, changes: after.n - before.n };
+  }
+
+  it('maps every status, lists the perpetual and zero-product vendors, and is idempotent', async () => {
+    const t = await makeTestDb();
+    try {
+      fixture(t);
+      const first = await run(t);
+      // Bystander Co has no seat, no row and verified = 0: out of scope.
+      expect(first.plan.vendors.map((v) => v.slug)).toEqual([
+        'act-co',
+        'exp-co',
+        'pend-co',
+        'perp-co',
+        'rev-co',
+        'seat-co',
+      ]);
+      expect(first.plan.vendors.every((v) => v.outcome === 'write')).toBe(true);
+      expect(first.plan.vendors.filter((v) => v.perpetual).map((v) => v.slug)).toEqual(['perp-co']);
+
+      const rows = await t.db.select().from(licenses);
+      const accounts = await t.db.select().from(billingAccounts);
+      const accountOf = (vendorId: string) => accounts.find((a) => a.vendorId === vendorId)!.id;
+      const of = (vendorId: string) =>
+        rows.filter((l) => l.billingAccountId === accountOf(vendorId));
+
+      expect(accounts).toHaveLength(6);
+      expect(accounts.find((a) => a.vendorId === 'v-act')?.name).toBe('Active Co');
+      // active: one live license per owned product, invoice-sourced, dated.
+      expect(of('v-act').map((l) => [l.assignedProductId, l.endedAt, l.source, l.endsAt])).toEqual([
+        ['p-a1', null, 'invoice', '2027-01-01T00:00:00.000Z'],
+        ['p-a2', null, 'invoice', '2027-01-01T00:00:00.000Z'],
+      ]);
+      // perpetual, zero products: one unassigned complimentary license, no end date.
+      expect(of('v-perp')).toEqual([
+        expect.objectContaining({
+          source: 'complimentary',
+          endsAt: null,
+          endedAt: null,
+          assignedProductId: null,
+        }),
+      ]);
+      // pending and seat-only: the account, no license.
+      expect(of('v-pend')).toEqual([]);
+      expect(of('v-seat')).toEqual([]);
+      // expired and revoked: ended history that keeps the product.
+      expect(of('v-exp')).toEqual([
+        expect.objectContaining({
+          endedAt: '2026-01-02T00:00:00.000Z',
+          endReason: 'lapsed',
+          assignedProductId: 'p-e1',
+        }),
+      ]);
+      expect(of('v-rev')).toEqual([
+        expect.objectContaining({
+          endedAt: '2026-03-01T00:00:00.000Z',
+          endReason: 'revoked',
+          assignedProductId: 'p-r1',
+          reference: 'INV-2',
+        }),
+      ]);
+
+      // One audit row per vendor written, filed under its account.
+      const audits = await t.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, BILLING_ACCOUNT_BACKFILLED_ACTION));
+      expect(audits).toHaveLength(6);
+      const act = audits.find((a) => a.vendorId === 'v-act');
+      expect(act).toMatchObject({
+        actorType: 'system',
+        entityType: 'billing_account',
+        entityId: accountOf('v-act'),
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'active',
+      });
+      expect((act?.afterState as { licenses: unknown[] }).licenses).toHaveLength(2);
+
+      // Both halves of the mirror agree.
+      expect((await checkEntitlementMirrorDrift(t.db)).lines).toEqual([]);
+      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
+
+      // Re-running plans nothing and writes nothing.
+      const second = await run(t);
+      expect(second.changes).toBe(0);
+      expect(second.plan.vendors.filter((v) => v.outcome === 'write')).toEqual([]);
+
+      // Re-executing the FIRST run's statements (a half-landed tier re-run, or a read
+      // that raced the write) is a no-op too: every INSERT is guarded.
+      const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+      for (const p of first.plan.vendors)
+        t.raw.exec(buildVendorStatements(p, { now: NOW }).join('\n'));
+      const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+      expect(after.n - before.n).toBe(0);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('refuses mirror drift and writes nothing for that vendor', async () => {
+    const t = await makeTestDb();
+    try {
+      fixture(t);
+      // Reverse drift: an active row on a verified = 0 vendor.
+      t.raw.exec(`UPDATE vendors SET verified = 0 WHERE id = 'v-act'`);
+      const { plan } = await run(t);
+      expect(plan.vendors.find((v) => v.vendorId === 'v-act')).toMatchObject({
+        outcome: 'refused',
+      });
+      expect(
+        await t.db.select().from(billingAccounts).where(eq(billingAccounts.vendorId, 'v-act')),
+      ).toEqual([]);
+      // The entitlement check still sees it. The license check does not, because
+      // no license was written for it: the drift is reported, not moved.
+      expect((await checkEntitlementMirrorDrift(t.db)).lines).toHaveLength(1);
+      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
     } finally {
       t.dispose();
     }

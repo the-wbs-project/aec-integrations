@@ -106,6 +106,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   // decision 18). Created with the first owner seat. Not a receipt: decision 18 shows
   // nothing for it in the UI yet.
   'billing_account.created': { kind: 'aeci-override', receipt: false },
+  // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
+  // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
+  'billing_account.backfilled': { kind: 'system', receipt: false },
   // License changes (AECI-1352, `apps/api/src/lib/license.ts`). Filed under the
   // billing account, with `vendor_id` filled. Not receipts yet: E5 (the Billing tab)
   // decides what the vendor sees, and E1.4's dual-write would otherwise show every

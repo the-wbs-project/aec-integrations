@@ -141,6 +141,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_plan_pricing.cleared': $localize`:@@admin.audit.action.planPricingCleared:Plan price reset to default`,
   // The billing account (AECI-1351). `entity_id` is the ACCOUNT id; `vendor_id` names the vendor.
   'billing_account.created': $localize`:@@admin.audit.action.billingAccountCreated:Billing account created`,
+  // AECI-1354: the one-off back-fill wrote the account and its licenses (`after_state`).
+  'billing_account.backfilled': $localize`:@@admin.audit.action.billingAccountBackfilled:Billing account and licenses back-filled`,
   // Licenses (AECI-1352). Filed under the billing account; `metadata.license_id` names
   // the license, and `product_id` the product it is or was on.
   'license.granted': $localize`:@@admin.audit.action.licenseGranted:License granted`,

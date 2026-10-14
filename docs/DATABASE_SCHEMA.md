@@ -1772,9 +1772,9 @@ create table vendor_plan_pricing (
 
 The account Managed licenses are sold on: one bill, one term, one Stripe customer
 (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
-may add rows later, so one-per-vendor is a unique index, not the primary key. A back-fill
-will create one for every vendor with a seat or an entitlement row. No UI reads it yet
-(decision 18).
+may add rows later, so one-per-vendor is a unique index, not the primary key. The E1.5
+back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) creates one for every existing vendor
+with a seat or an entitlement row. No UI reads it yet (decision 18).
 
 ```sql
 create table billing_accounts (
@@ -1930,6 +1930,22 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `metadata.dual_write = 'vendor_entitlement'`. The local seeds (`catalog.sql`,
   `phase2-fixtures.sql`) carry matching accounts and licenses, idempotent on fixed ids.
   E1.5's back-fill (AECI-1354) covers the deployed environments.
+- **The back-fill (AECI-1354, E1.5).** `ops:backfill-licenses` (`apps/api/scripts/`,
+  core `apps/api/src/lib/backfill-licenses.ts`) brings a deployed tier to the state the
+  dual-write keeps. It reaches every vendor with a `vendor_admin` seat or an entitlement
+  row, and skips any vendor that already carries a license. Per vendor it writes the
+  missing billing account, then maps the entitlement row with `licenseTermsForEntitlement`:
+  `active` gives one live license per owned product (min 1, unassigned); `expired` and
+  `revoked` give the same set already ended (`end_reason` `lapsed` / `revoked`, `ended_at`
+  from the row's `ended_at`, else `period_end`), keeping their products as history;
+  `pending` gives none. `starts_at` is `period_start`, else `granted_at`. Ended licenses
+  keep the plan snapshot continuous after E1.6 and are invisible to both drift checks. One
+  `billing_account.backfilled` audit row per vendor lands in the same execute, its
+  `after_state` listing every license. Ids are UUIDv5 and every INSERT is guarded, so a
+  re-run writes nothing. It never writes `vendors.verified`: a vendor whose mirror
+  disagrees with its entitlement is refused and listed. Rows with `period_end` NULL are
+  listed for a date decision (ruling 2026-10-14). Proof it landed: the
+  `license_mirror_drift` data-quality check reads 0 beside `entitlement_mirror_drift`.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 

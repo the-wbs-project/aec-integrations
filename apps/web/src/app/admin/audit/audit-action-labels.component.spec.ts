@@ -97,6 +97,8 @@ const EMITTED_ACTIONS = [
   'vendor_plan_pricing.set',
   'vendor_plan_pricing.cleared',
   'billing_account.created',
+  // AECI-1354, `ops:backfill-licenses`.
+  'billing_account.backfilled',
   // AECI-1352, `LICENSE_ACTION` in lib/license.ts.
   'license.granted',
   'license.assigned',

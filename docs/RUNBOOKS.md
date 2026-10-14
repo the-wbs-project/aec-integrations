@@ -1029,7 +1029,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-609 `entitlement_mirror_drift` guard, and the two telemetry tripwires —
+Algolia drift, the AECI-609 `entitlement_mirror_drift` guard and its AECI-1354 license twin
+`license_mirror_drift`, and the two telemetry tripwires —
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
@@ -1046,6 +1047,17 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > first-promote timestamp (`ADMIN_PANEL_SPEC.md` §13 D6), and the `catalog.*_promoted` keys in
 > `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
+
+> **`license_mirror_drift` on its own means the licenses were never back-filled on that tier.** It
+> counts vendors whose `verified` disagrees with EXISTS(a live license). Until the E1.6 switch-over
+> `entitlement_mirror_drift` checks the same bit against the entitlement row. When only the license
+> check fails, run `ops:backfill-licenses` on the tier: dry run first, then `--apply`
+> (`--allow-production` on production). The script writes the missing billing accounts and licenses
+> and one `billing_account.backfilled` audit row per vendor, and a re-run writes nothing
+> (`apps/api/scripts/README.md`). It refuses any vendor whose entitlement check is also failing,
+> and lists it. Fix that vendor through the admin entitlement actions first, then re-run. When both
+> checks fail on the same vendor, start with the entitlement one: the back-fill does not touch
+> `verified`.
 
 > **`arrival_cf_coverage` is not a data-repair finding — do not triage it like one.** It fails when
 > full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, which
