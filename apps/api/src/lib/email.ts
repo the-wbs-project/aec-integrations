@@ -1457,7 +1457,9 @@ const LONG_DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
  * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
  * that someone has to actually perform. Operator format (`opsText`/`opsTable`),
  * and unlike the vendor copy it DOES carry the arrangement — this is the
- * admin-side surface where payer and PO reference belong (§8).
+ * admin-side surface where the license source and the invoice or PO reference
+ * belong (§8). Since AECI-1356 one notice covers one billing account's licenses on
+ * one end date, so it also names the license count.
  */
 export function sendEntitlementExpiringAdminEmail(
   c: EmailContext,
@@ -1465,11 +1467,14 @@ export function sendEntitlementExpiringAdminEmail(
     to: string;
     vendorName: string;
     vendorSlug: string;
-    tier: string;
     periodEndDay: string;
     daysRemaining: number;
-    payer: string | null;
-    invoiceRef: string | null;
+    /** How many licenses end on this date. */
+    licenseCount: number;
+    /** The licenses' `source` (`stripe`, `invoice`, `complimentary`), comma-joined. */
+    source: string | null;
+    /** The licenses' invoice number, PO or grant note, comma-joined. */
+    reference: string | null;
     /** Whether the vendor half of this notice reached anyone. */
     vendorNotice: EmailOutcome;
   },
@@ -1483,10 +1488,10 @@ export function sendEntitlementExpiringAdminEmail(
 
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['Vendor', `${name} (${opts.vendorSlug})`],
-    ['Tier', opts.tier],
+    ['Licenses', String(opts.licenseCount)],
     ['Term ends', `${opts.periodEndDay} (${phrase})`],
-    ['Payer', opts.payer?.trim() || '(none recorded)'],
-    ['Invoice ref', opts.invoiceRef?.trim() || '(none recorded)'],
+    ['Source', opts.source?.trim() || '(none recorded)'],
+    ['Reference', opts.reference?.trim() || '(none recorded)'],
     // Named explicitly so "the vendor was told" is never assumed. `skipped` here is
     // the normal local state (no SUPABASE_SERVICE_ROLE_KEY) and a real
     // misconfiguration on a deployed tier.

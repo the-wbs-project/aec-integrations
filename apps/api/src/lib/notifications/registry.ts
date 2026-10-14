@@ -559,7 +559,8 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: { kind: 'cron', ref: '0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts)' },
     envRule: 'production-external',
-    dedupe: 'expiry_notice_sent_at fence: one notice per term, 30 days out.',
+    dedupe:
+      'licenses.expiry_notice_sent_at fence: one notice per billing account and end date, 30 days out.',
     ledger: ['notification_sends', 'fence-column'],
     optOut: 'none',
     pausable: false,
@@ -577,7 +578,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
-    summary: 'Tells SUPPORT_EMAIL a vendor term ends soon, with payer and invoice ref.',
+    summary:
+      'Tells SUPPORT_EMAIL a vendor term ends soon, with the license count, source and reference.',
     note: 'Pausable: operator alert. The vendor notice alone stamps the fence.',
   },
 

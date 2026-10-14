@@ -128,11 +128,11 @@ Lands in the "Operations and workflow" block of `apps/api/src/db/schema.ts`, aft
 | `granted_by` | text → `profiles.id` **ON DELETE SET NULL** | See R6 in §10 — this is the **seventh** inbound FK to `profiles` |
 | `granted_at` | text NOT NULL | `$defaultFn` ISO now |
 | `ended_at` | text | stamped when `status` leaves `'active'` |
-| `expiry_notice_sent_at` | text | the §7 cron's idempotency fence |
+| `expiry_notice_sent_at` | text | the §7 cron's idempotency fence until AECI-1356. **Unused since then:** the sweep fences on `licenses.expiry_notice_sent_at` (§7.5). Renew and re-activation still null it; nothing reads it |
 | `source_request_id` | text → `vendor_requests.id` | the claim this came from, when it came from one |
 | `created_at`, `updated_at` | text NOT NULL | |
 
-Indexes: `vendor_entitlements_vendor_key` (unique, above); `vendor_entitlements_status_idx` on `status`; and the §7 cron's only scan — a **partial** index `vendor_entitlements_expiry_idx` on `period_end` `WHERE "period_end" IS NOT NULL AND "status" = 'active'`, so perpetual and backfilled rows are invisible to it.
+Indexes: `vendor_entitlements_vendor_key` (unique, above); `vendor_entitlements_status_idx` on `status`; and the §7 cron's only scan until AECI-1356 — a **partial** index `vendor_entitlements_expiry_idx` on `period_end` `WHERE "period_end" IS NOT NULL AND "status" = 'active'`, so perpetual and backfilled rows are invisible to it. Since AECI-1356 the cron scans `licenses_ends_idx` instead (§7.5) and this index has no reader.
 
 **Why `tier` is unconstrained and `status` is not.** `workflow_instances_type_check` is the cautionary precedent sitting three tables away: a closed CHECK there means every new workflow type costs a migration, and the schema comment records that the ban workflow would have CHECK-failed in prod. The §8.5 decision requires that **adding a tier rung be data-only**, so the closed tier vocabulary lives in the capability registry (§3) and the Zod enum derived from it — the same posture as `audit_log.entity_type`. An unknown tier resolves to `unclaimed`, the Free capabilities only (fail-closed, §3.1, AECI-1214), which is strictly safer than a write-time CHECK failure. `status`, by contrast, **is** CHECK-constrained: adding a status is a state-machine change and therefore a code change anyway.
 
@@ -744,7 +744,7 @@ The refactor landed as described — one statement deleted, the metadata kept, `
 
 The cron string **must stay byte-equal** to its constant, because `scheduled.ts` `switch`es on `controller.cron` and a mismatch silently stops dispatching the job (`cron-schedules.spec.ts` asserts all fourteen match `wrangler.jsonc`). `triggers` are declared on **staging, demo and production** — the base config carries none — so local dev never runs it. *(The `preview` block, and the PR previews that used it, were retired 2026-10-10, AECI-1268.)*
 
-**Queue-less and inline**, following the 06:00 moderation-snapshot precedent (`queueForJob` returns `undefined`) rather than the ADR 0013 cron→queue→consumer path. The job is one indexed read over `vendor_entitlements_expiry_idx` plus a handful of emails; going queue-less avoids a new `aeci-entitlements-{env}` queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues create` step in `deploy.yml` / `promote-to-prod.yml`.
+**Queue-less and inline**, following the 06:00 moderation-snapshot precedent (`queueForJob` returns `undefined`) rather than the ADR 0013 cron→queue→consumer path. The job is one indexed read (over `licenses_ends_idx` since AECI-1356, §7.5) plus a handful of emails; going queue-less avoids a new `aeci-entitlements-{env}` queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues create` step in `deploy.yml` / `promote-to-prod.yml`.
 
 ### 7.2 Templates, recipients, and the idempotency fence
 
@@ -757,11 +757,11 @@ Two new `EmailTemplate` ids (the id doubles as the `template:` tag on `aeci.emai
 
 Copy follows the house pattern (two parallel paragraph arrays, `escapeHtml` on every HTML interpolation, `toText()` / `toHtml()`, `sendTransactionalEmail` which never throws). Emails are deliberately not `$localize`d. Reuse the route-seam pattern (§1.3) so the job unit-tests without the email module.
 
-**Idempotency fence:** `expiry_notice_sent_at`. The scan selects `status = 'active' AND period_end IS NOT NULL AND period_end <= now + N days AND (expiry_notice_sent_at IS NULL OR expiry_notice_sent_at < period_end - <window>)`, so a vendor gets one notice per term, not one per night.
+**Idempotency fence:** `expiry_notice_sent_at`, on `licenses` since AECI-1356 (§7.5, which supersedes the predicate below). The original scan selected `status = 'active' AND period_end IS NOT NULL AND period_end <= now + N days AND (expiry_notice_sent_at IS NULL OR expiry_notice_sent_at < period_end - <window>)`, so a vendor gets one notice per term, not one per night.
 
 ### 7.3 The non-negotiable
 
-**The cron never writes `status`.** Ship a test asserting the job's batch contains no `status` mutation. It writes `expiry_notice_sent_at` and a `vendor_entitlement.expiry_warned` audit row with `actor_type: 'system'` — that row is audited (rather than following the `stats_cache` no-audit precedent) because "we warned them on date X" is precisely the fact an offline-invoice dispute needs, and writing it keeps §26.1 unqualified.
+**The cron never writes `status`.** Ship a test asserting the job's batch contains no `status` mutation. It writes `expiry_notice_sent_at` and an audit row with `actor_type: 'system'` (`vendor_entitlement.expiry_warned` until AECI-1356, `license.expiry_warned` since, §7.5) — that row is audited (rather than following the `stats_cache` no-audit precedent) because "we warned them on date X" is precisely the fact an offline-invoice dispute needs, and writing it keeps §26.1 unqualified.
 
 Metrics: `aeci.entitlement.expiry_notice` (`outcome`, `channel: vendor|admin`) plus a per-run heartbeat consistent with the other cron jobs (`OBSERVABILITY.md`).
 
@@ -785,6 +785,21 @@ Shipped queue-less and inline as specified, at **`0 11 * * *`** rather than 05:0
 Two supporting details: `EXPIRY_BATCH_CAP` (200/run) is a backstop against a first-adoption spike or a mis-entered bulk term, not a design limit. **The read that feeds it orders never-warned terms first** (`case when expiry_notice_sent_at is null then 0 else 1 end`, then `period_end asc`) — a correction to the original AECI-613 shape, which ordered by `period_end` alone. Point 4 above means lapsed-but-active terms are already-warned-and-suppressed yet never leave the scan, and their past `period_end` sorts them to the FRONT; ordered by `period_end` alone, ≥200 of them would fill the read window and **starve** a genuinely-due newer term out of the scan entirely (the fence alone does not prevent this — suppressed rows are re-selected from SQL every run). Never-warned-first defeats it: a due row is always unstamped (a renewal NULLs the stamp), so due rows read before the suppressed backlog, a warned row drops to the back of tomorrow's window, and the backlog drains across days rather than repeating. The dropped count is logged rather than truncated silently. And `aeci.entitlement.expiry_due` is emitted on **every** run including zero, because every §2.4 backfilled entitlement is perpetual and therefore structurally invisible to this job: **"0 due" is the healthy steady state for a long time, so no-data is the failure signal.**
 
 ⚠️ **A carve-out worth knowing about.** `scheduled.spec.ts`'s `AUDIT_EXEMPT_CRONS` list carves out `entitlement-expiry` alongside `retention-prune`. It is **not** genuinely ADR-0022-exempt — a delivered warning writes an `audit_log` row — and the sweep is mocked in that file, so the exemption assertion would pass vacuously twice over. The real obligation is asserted in `entitlement-expiry.spec.ts`. If that list grows, it needs a comment distinguishing "genuinely exempt" from "mocked here, asserted elsewhere" (`TESTING_STRATEGY.md` §3.6 records the general caveat).
+
+### 7.5 Re-pointed to licenses (AECI-1356, E1.7 — 2026-10-14)
+
+The sweep reads `licenses`, not `vendor_entitlements` (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 8, §5 E1). The cron, the two templates, the never-warned-first order, `EXPIRY_BATCH_CAP` and the metrics are unchanged. It still only warns; E6 adds the lapse and the price line.
+
+1. **The scan.** Live licenses with an end date inside the horizon: `ended_at IS NULL AND ends_at IS NOT NULL AND ends_at <= now + 30d`, which is exactly the predicate of the partial index `licenses_ends_idx`. Monthly licenses (`ends_at` null) and ended licenses are invisible to it by construction.
+2. **One notice per account per term.** A term is one billing account's live licenses that share one `ends_at`. The scan groups by `(billing_account_id, ends_at)`, so three licenses ending on one day get one notice naming the count. Two end dates on one account are two terms and two notices: the email names one date. E1.4's dual-write moves an account's licenses together, so today that is one notice per account.
+3. **The fence.** `licenses.expiry_notice_sent_at`. A term is due when any of its licenses is unstamped, or its oldest stamp predates `ends_at − 30d`. A delivered notice stamps every license it covered. `setLicensesTermStatements` clears the stamp when `ends_at` moves, so a renewed term earns its own notice. A license added to an already-warned term arrives unstamped, so the term is warned again with the new count. That is deliberate: the count is part of the notice. The comparison stays in TS (§7.4 point 1).
+4. **What the batch may write.** Only `expiry_notice_sent_at` and `updated_at` on `licenses` (`expiryNoticeStampStatements` in `lib/license.ts`, one statement per 50 ids for D1's bound-parameter cap), and the audit row. The stamp is guarded on the scanned `ends_at`, so a renewal between the scan and the write keeps its cleared stamp. The invariant test asserts against the generated SQL that no statement names `ended_at`, `assigned_product_id` or `vendors`, not even as a guard.
+5. **The audit row.** One per notice: `license.expiry_warned`, `entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` filled, `metadata.license_ids` naming the licenses covered. The plan snapshot is `licensePlanSnapshot` over the vendor's whole license set. It is a vendor receipt, like the `vendor_entitlement.expiry_warned` rows it replaces, which stay readable.
+6. **The operator copy.** `entitlement-expiring-admin` carries the license count, the licenses' `source` and their `reference` (invoice number, PO or grant note) in place of tier, payer and invoice ref. The vendor copy is unchanged.
+7. **Counts are terms.** `due`, `suppressed`, `capped`, `warned` and the `aeci.entitlement.expiry_due` gauge count terms, not licenses.
+8. **The cutover.** `ops:backfill-licenses` copies a live entitlement's `expiry_notice_sent_at` onto the licenses it writes for a term with an end date. Without it, the first license-based run would warn again every term the old sweep already warned.
+
+`vendor_entitlements.expiry_notice_sent_at` and `vendor_entitlements_expiry_idx` have no reader after this. E1.9 drops them with the table.
 
 ---
 

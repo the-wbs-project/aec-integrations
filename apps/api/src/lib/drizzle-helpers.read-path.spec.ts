@@ -143,7 +143,6 @@ const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
   'db/schema.ts': 'the table itself',
   // Retirement set: the old writers and checks E1.9 deletes with the table.
   'lib/vendor-entitlement.ts': 'the entitlement writer, dual-writing licenses (AECI-1353)',
-  'lib/entitlement-expiry.ts': 'the old expiry-warning cron, replaced by E6',
   'lib/backfill-entitlements.ts': 'the AECI-609 back-fill',
   'lib/backfill-licenses.ts': 'the AECI-1354 license back-fill (reads the old row to map it)',
   'lib/data-quality.ts': 'the entitlement_mirror_drift check',

@@ -1,43 +1,58 @@
 /**
- * The §7 term-expiry sweep (AECI-613 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §7).
+ * The §7 term-expiry sweep (AECI-613 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §7), re-pointed
+ * to `licenses` by AECI-1356 (E1.7, `docs/VENDOR_SIGNUP_PROCESS.md` §3 step 8).
  *
- * An entitlement carries a term. As `period_end` approaches, this job **warns**
- * the vendor's seats and the operator, and stamps `expiry_notice_sent_at` so a
- * term earns one notice rather than one per night. Run by the daily 11:00 UTC
- * cron (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline.
+ * A license carries a term (`ends_at`). As it approaches, this job **warns** the
+ * vendor's seats and the operator, and stamps `licenses.expiry_notice_sent_at` so a
+ * term earns one notice rather than one per night. Run by the daily 11:00 UTC cron
+ * (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline. E6 extends it with the price line
+ * and the lapse; until then it only warns.
+ *
+ * ── ONE NOTICE PER ACCOUNT PER TERM ─────────────────────────────────────────────
+ *
+ * A **term** is one billing account's live licenses that share one `ends_at`. The scan
+ * groups by `(billing_account_id, ends_at)`, so an account with three licenses ending on
+ * the same day gets ONE notice naming the count, not three. Licenses on one account with
+ * different end dates are different terms and each earns its own notice: the email
+ * names one date, and two dates are two decisions for the vendor. Today every
+ * account's licenses share a term (E1.4's dual-write moves them together), so in
+ * practice this is one notice per account.
  *
  * ── THE NON-NEGOTIABLE (§7.3) ───────────────────────────────────────────────────
  *
- * **This job never writes `status`, and never writes `vendors.verified`.** It warns;
- * it never lapses. Auto-lapse would strip Managed access from a paying customer over a
- * data-entry mistake, and un-verify stays a deliberate admin act (§5). The only
- * column this module mutates on `vendor_entitlements` is `expiry_notice_sent_at`
- * (plus the row's own `updated_at`); it emits no statement against `vendors` at
- * all. `expiryNoticeStatements` is exported as a pure builder precisely so
- * `entitlement-expiry.spec.ts` can assert that against the generated SQL rather
- * than against prose. `status` DOES appear in the update's `WHERE` — as a guard,
- * so a concurrent admin clear cannot be stamped — and a guard is a read, not a
- * write. That distinction is the one the invariant test has to make.
+ * **This job never ends a license, never moves an assignment, and never writes
+ * `vendors.verified`.** It warns; it never lapses (E6 adds the lapse). The only
+ * columns this module mutates on `licenses` are `expiry_notice_sent_at` and the row's
+ * own `updated_at` (`expiryNoticeStampStatements` in `lib/license.ts`); it emits no
+ * statement against `vendors` at all. {@link expiryNoticeStatements} is exported as a
+ * pure builder precisely so `entitlement-expiry.spec.ts` can assert that against the
+ * generated SQL: no statement in the batch names `ended_at`, `assigned_product_id` or
+ * `vendors`. The stamp's WHERE is guarded on `ends_at` as scanned, so a renewal
+ * between the scan and the write keeps its cleared stamp.
  *
  * ── WHAT IS STRUCTURALLY INVISIBLE ──────────────────────────────────────────────
  *
- * The scan rides `vendor_entitlements_expiry_idx`, which is PARTIAL
- * (`WHERE "period_end" IS NOT NULL AND "status" = 'active'`). So a **perpetual**
- * entitlement — `period_end IS NULL`, which is exactly what the §2.4 backfill
- * writes for every pre-entitlement Airtable/claim-era vendor — can never be
- * selected. That is by construction, not by a predicate someone must remember.
+ * The scan rides `licenses_ends_idx`, which is PARTIAL (`WHERE "ended_at" IS NULL AND
+ * "ends_at" IS NOT NULL`). So a **monthly** license (`ends_at IS NULL`, which renews
+ * until cancelled) and every ended license can never be selected. That is by
+ * construction, not by a predicate someone must remember.
  *
  * ── THE IDEMPOTENCY FENCE ───────────────────────────────────────────────────────
  *
- * A row is due when `expiry_notice_sent_at` is null, or predates
- * `period_end − EXPIRY_WARNING_DAYS` — i.e. the stamp belongs to an EARLIER term.
- * A renewal pushes `period_end` out, which moves that boundary forward and makes
- * the old stamp stale again, so the new term earns its own notice; the §2.3
- * re-activation path additionally clears the stamp outright. The comparison is
- * done in TS rather than SQL: it is a column-to-column comparison and therefore
- * unindexable either way, and SQLite's `datetime()` renders `YYYY-MM-DD HH:MM:SS`,
- * which does NOT order lexically against the `…THH:MM:SS.sssZ` form this schema
- * stores. Doing the date math in TS avoids that trap entirely.
+ * A term is due when ANY of its licenses has a null `expiry_notice_sent_at`, or a stamp
+ * that predates `ends_at − EXPIRY_WARNING_DAYS` (it belongs to an EARLIER term). The
+ * notice stamps EVERY license it covered. A renewal moves `ends_at` and clears the
+ * stamp (`setLicensesTermStatements`), so the new term earns its own notice. One
+ * consequence is deliberate: a license added to an already-warned term arrives
+ * unstamped, so the term is warned again with the new count. The count is part of the
+ * notice (§3 step 8), and a stale count is the worse failure.
+ *
+ * The comparison is done in TS rather than SQL: it is a column-to-column comparison
+ * and therefore unindexable either way, and SQLite's `datetime()` renders
+ * `YYYY-MM-DD HH:MM:SS`, which does NOT order lexically against the `…THH:MM:SS.sssZ`
+ * form this schema stores. The SQL hands back, per term, the count of unstamped
+ * licenses and the OLDEST stamp, which is all the fence needs: every license in a term
+ * shares `ends_at`, so the term is due iff any is unstamped or the oldest stamp is stale.
  *
  * ── FAIL-OPEN, AND WHY TWO TEMPLATES ────────────────────────────────────────────
  *
@@ -48,11 +63,12 @@
  * it on attempt would silently consume the notice during a Resend outage, and
  * requiring BOTH would re-nag the operator every night on any tier without the
  * service-role key. Nothing here throws — `sendTransactionalEmail` never does, and
- * a batch failure is logged and skipped so one bad row cannot end the sweep.
+ * a batch failure is logged and skipped so one bad term cannot end the sweep.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm';
+import { compareText } from '@aeci/shared/text-sort';
+import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import {
@@ -62,23 +78,20 @@ import {
   type ExpiryNoticeOutcome,
 } from './entitlement-expiry-metrics';
 import { parseRecipients, type EmailContext, type EmailOutcome } from './email';
+import { expiryNoticeStampStatements, LICENSE_ENTITY_TYPE } from './license';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
-import { ENTITLEMENT_ENTITY_TYPE } from './vendor-entitlement';
 import type { Db } from '../db/client';
-import { vendorEntitlements, vendors } from '../db/schema';
+import { billingAccounts, licenses, vendors } from '../db/schema';
 import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
 
-/** The one status the sweep looks at — and the only one it GUARDS on. */
-const ACTIVE = 'active';
-
 /**
  * How far ahead a term is warned about. Also the width of the idempotency fence:
- * a stamp inside `[period_end − EXPIRY_WARNING_DAYS, period_end]` belongs to the
+ * a stamp inside `[ends_at − EXPIRY_WARNING_DAYS, ends_at]` belongs to the
  * current term and suppresses; anything earlier belongs to a previous one.
  *
  * Re-exported from `@aeci/shared/entitlements` rather than declared here: the
@@ -87,18 +100,27 @@ const ACTIVE = 'active';
  * customer about a problem their own portal denies. One promise, one constant.
  */
 export { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
-import { EXPIRY_WARNING_DAYS, vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import {
+  EXPIRY_WARNING_DAYS,
+  licensePlanSnapshot,
+  type LicensePlanRow,
+} from '@aeci/shared/entitlements';
 
 /** `audit_log.action` for a delivered warning (§7.3). Audited — rather than
  *  following the `stats_cache` no-audit precedent — because "we warned them on
  *  date X" is precisely the fact an offline-invoice dispute needs, and writing it
- *  keeps §26.1 unqualified. `entity_type`/`entity_id` are the vendor-keyed pair
- *  `lib/vendor-entitlement.ts` established, so this row joins the same
- *  `audit_log_entity_idx` trail as every grant/renew/clear. */
-export const EXPIRY_WARNED_ACTION = 'vendor_entitlement.expiry_warned';
+ *  keeps §26.1 unqualified. `entity_type`/`entity_id` are the account-keyed pair
+ *  `lib/license.ts` established (`billing_account`, the account id), so this row
+ *  joins the same `audit_log_entity_idx` trail as every license grant and term
+ *  change. ONE row per notice; `metadata.license_ids` names the licenses it covered.
+ *  Rows written before AECI-1356 carry `vendor_entitlement.expiry_warned`. */
+export const EXPIRY_WARNED_ACTION = 'license.expiry_warned';
 
 /** `metadata.source` on those rows. */
 const EXPIRY_AUDIT_SOURCE = 'entitlement-expiry-cron';
+
+/** Vendor ids per plan-snapshot read. D1 caps bound parameters per query. */
+const PLAN_READ_CHUNK = 50;
 
 /**
  * Most terms warned per run. A backstop against a first-adoption spike or a
@@ -107,8 +129,9 @@ const EXPIRY_AUDIT_SOURCE = 'entitlement-expiry-cron';
  * stamped and drops to the back of the next run's window rather than
  * re-occupying it — the backlog drains across days instead of repeating, and a
  * genuinely-due term is never starved out of the window by the ever-growing set
- * of already-warned lapsed-but-active rows. The sweep logs the dropped count
- * instead of truncating silently.
+ * of already-warned past-term live licenses. The sweep logs the dropped count
+ * instead of truncating silently. Counted in terms (account and end date), not
+ * licenses.
  */
 export const EXPIRY_BATCH_CAP = 200;
 
@@ -138,11 +161,11 @@ export type SendEntitlementExpiringAdminEmail = (
     to: string;
     vendorName: string;
     vendorSlug: string;
-    tier: string;
     periodEndDay: string;
     daysRemaining: number;
-    payer: string | null;
-    invoiceRef: string | null;
+    licenseCount: number;
+    source: string | null;
+    reference: string | null;
     vendorNotice: EmailOutcome;
   },
 ) => Promise<EmailOutcome>;
@@ -161,7 +184,7 @@ export interface ExpiryDeps {
   /** Days of lookahead. Overridable so specs don't have to build 30-day fixtures. */
   warningDays?: number;
   /** Read/warn cap. Overridable so specs can exercise the cap + never-warned-first
-   *  ordering without a 200-row fixture; defaults to {@link EXPIRY_BATCH_CAP}. */
+   *  ordering without a 200-term fixture; defaults to {@link EXPIRY_BATCH_CAP}. */
   batchCap?: number;
   /** The privileged `auth.users` email seam. Injected so specs never touch it. */
   fetchSeatEmails?: FetchSeatEmails;
@@ -172,14 +195,14 @@ export interface ExpiryDeps {
 }
 
 export interface ExpiryResult {
-  /** Rows inside the horizon before the fence — the `aeci.entitlement.expiry_due`
-   *  gauge. */
+  /** Terms inside the horizon before the fence — the `aeci.entitlement.expiry_due`
+   *  gauge. A term is one account's live licenses on one `ends_at`. */
   due: number;
-  /** Rows the fence suppressed (already warned for this term). */
+  /** Terms the fence suppressed (already warned for this term). */
   suppressed: number;
-  /** Rows dropped by {@link EXPIRY_BATCH_CAP} this run. */
+  /** Terms dropped by {@link EXPIRY_BATCH_CAP} this run. */
   capped: number;
-  /** Rows whose stored timestamps could not be parsed, so nothing was sent. */
+  /** Terms whose stored `ends_at` could not be parsed, so nothing was sent. */
   malformed: number;
   /** Terms that got at least one delivered notice AND a stamped fence. */
   warned: number;
@@ -191,92 +214,185 @@ export interface ExpiryResult {
   batchFailures: number;
 }
 
-/** One `vendor_entitlements` row inside the horizon, joined to its vendor. */
-interface ExpiringRow {
-  entitlementId: string;
+/** One term inside the horizon: one billing account's live licenses on one `ends_at`. */
+interface ExpiringTerm {
+  billingAccountId: string;
   vendorId: string;
   vendorSlug: string;
   vendorName: string;
-  tier: string;
-  periodEnd: string;
-  expiryNoticeSentAt: string | null;
-  payer: string | null;
-  invoiceRef: string | null;
+  endsAt: string;
+  /** Every license in the term, sorted by id. */
+  licenseIds: string[];
+  /** The distinct `source` values, sorted. */
+  sources: string[];
+  /** The distinct non-blank `reference` values, in `compareText` order. */
+  references: string[];
+  /** Licenses in the term with no stamp at all. */
+  unstamped: number;
+  /** The oldest stamp in the term, or null when none is stamped. */
+  oldestStamp: string | null;
+}
+
+/** The raw grouped row, before the JSON arrays are parsed. */
+interface ExpiringTermRow {
+  billingAccountId: string;
+  vendorId: string;
+  vendorSlug: string;
+  vendorName: string;
+  endsAt: string;
+  licenseIds: string;
+  sources: string;
+  references: string;
+  unstamped: number;
+  oldestStamp: string | null;
 }
 
 // ─── The scan ────────────────────────────────────────────────────────────────
 
+/** Binary order. Ids and source tokens are not display text (`ANGULAR_STYLE_GUIDE.md` §20a). */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Parse a `json_group_array` result into its non-blank strings, distinct and sorted.
+ *  Binary order by default; free text (a reference) passes `compareText`. */
+function stringsOf(json: string, compare: (a: string, b: string) => number = byCodeUnit): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const values = parsed.filter((v): v is string => typeof v === 'string' && v.trim() !== '');
+  return [...new Set(values)].sort(compare);
+}
+
 /**
  * Terms at or inside the horizon, **never-warned first, then oldest**.
  *
- * Explicit `select` + `innerJoin`, NOT the relational query builder: §2.5 forbids
- * a `relations()` entry for `vendor_entitlements` (a relation is exactly what
- * would make joining it into a read path type-check), and this
- * is the same explicit-join shape the §4 gate and the `entitlement_mirror_drift`
- * check use.
+ * One grouped read: `licenses` filtered on exactly `licenses_ends_idx`'s predicate,
+ * joined to the account and its vendor, grouped by `(billing_account_id, ends_at)`. The
+ * vendor columns are in the GROUP BY for strictness only: an account belongs to one
+ * vendor (`billing_accounts_vendor_key`). `json_group_array` carries the license ids,
+ * sources and references out of the group; the fence inputs are an aggregate count of
+ * unstamped licenses and the oldest stamp.
  *
- * `period_end <= horizon` is a lexical string comparison, which is sound because
- * ISO-8601 is defined to sort lexically and every writer here stamps
- * `toISOString()`. There is deliberately NO lower bound: a term that has already
- * run out while `status` is still `active` — which is the steady state, since
- * nothing lapses automatically — is exactly the row an operator most needs to see,
- * and the fence still limits it to one notice.
+ * `ends_at <= horizon` is a lexical string comparison, which is sound because
+ * ISO-8601 is defined to sort lexically and every writer stamps `toISOString()`
+ * (`toIsoTimestamp` in `lib/license.ts`). There is deliberately NO lower bound: a
+ * live license already past its `ends_at` — the steady state until E6 adds the lapse —
+ * is exactly what an operator most needs to see, and the fence still limits it to one
+ * notice.
  *
- * ── WHY THE LEAD SORT KEY IS `expiry_notice_sent_at IS NULL` ─────────────────────
- * Those never-lapsing past-dated rows accumulate WITHOUT BOUND — each one is
- * already stamped, so the TS fence suppresses it, but it stays selectable every
- * night forever. Ordered by `period_end` alone they sort to the FRONT (oldest
- * first), so once ≥`EXPIRY_BATCH_CAP` of them exist they would fill the read
- * window and starve a genuinely-due newer term out of the scan entirely. Sorting
- * unstamped rows first defeats that: a due row is ALWAYS unstamped — a renewal
- * NULLs the stamp (`renewEntitlementStatements`) and re-activation clears it too —
- * so due rows are read before the suppressed backlog, and a warned row (now
- * stamped) drops to the back of tomorrow's window rather than re-occupying it.
- * The `period_end` key still orders within each group, so the operator's oldest
- * lapsed terms are still surfaced whenever the window has room after the due ones.
+ * ── WHY THE LEAD SORT KEY IS "ANY LICENSE UNSTAMPED" ─────────────────────────────
+ * Those past-term live licenses accumulate — each term is already stamped, so the TS
+ * fence suppresses it, but it stays selectable every night. Ordered by `ends_at` alone
+ * they sort to the FRONT (oldest first), so once ≥`EXPIRY_BATCH_CAP` of them exist
+ * they would fill the read window and starve a genuinely-due newer term out of the
+ * scan entirely. Sorting terms with an unstamped license first defeats that: a due
+ * term always holds one, because a renewal NULLs the stamp (`setLicensesTermStatements`)
+ * and a new license starts unstamped. So due terms are read before the suppressed
+ * backlog, and a warned term (now fully stamped) drops to the back of tomorrow's
+ * window. The `ends_at` key still orders within each group.
  */
-async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringRow[]> {
-  return db
+async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringTerm[]> {
+  const unstamped = sql<number>`sum(case when ${licenses.expiryNoticeSentAt} is null then 1 else 0 end)`;
+  const rows = (await db
     .select({
-      entitlementId: vendorEntitlements.id,
-      vendorId: vendorEntitlements.vendorId,
+      billingAccountId: licenses.billingAccountId,
+      vendorId: billingAccounts.vendorId,
       vendorSlug: vendors.slug,
       vendorName: vendors.companyName,
-      tier: vendorEntitlements.tier,
-      periodEnd: vendorEntitlements.periodEnd,
-      expiryNoticeSentAt: vendorEntitlements.expiryNoticeSentAt,
-      payer: vendorEntitlements.payer,
-      invoiceRef: vendorEntitlements.invoiceRef,
+      endsAt: licenses.endsAt,
+      licenseIds: sql<string>`json_group_array(${licenses.id})`,
+      sources: sql<string>`json_group_array(distinct ${licenses.source})`,
+      references: sql<string>`json_group_array(distinct ${licenses.reference})`,
+      unstamped: unstamped.mapWith(Number),
+      oldestStamp: sql<string | null>`min(${licenses.expiryNoticeSentAt})`,
     })
-    .from(vendorEntitlements)
-    .innerJoin(vendors, eq(vendors.id, vendorEntitlements.vendorId))
+    .from(licenses)
+    .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+    .innerJoin(vendors, eq(vendors.id, billingAccounts.vendorId))
     .where(
       and(
-        eq(vendorEntitlements.status, ACTIVE),
-        isNotNull(vendorEntitlements.periodEnd),
-        lte(vendorEntitlements.periodEnd, horizonIso),
+        // Exactly `licenses_ends_idx`'s predicate, so the planner can use it.
+        isNull(licenses.endedAt),
+        isNotNull(licenses.endsAt),
+        lte(licenses.endsAt, horizonIso),
       ),
     )
-    .orderBy(
-      // A plain NULL check — no SQLite date parsing, so none of the `datetime()`
-      // lexical-ordering traps the fence is written in TS to avoid.
-      sql`case when ${vendorEntitlements.expiryNoticeSentAt} is null then 0 else 1 end`,
-      asc(vendorEntitlements.periodEnd),
-      asc(vendorEntitlements.vendorId),
+    .groupBy(
+      licenses.billingAccountId,
+      licenses.endsAt,
+      billingAccounts.vendorId,
+      vendors.slug,
+      vendors.companyName,
     )
-    .limit(limit) as Promise<ExpiringRow[]>;
+    .orderBy(
+      // A plain NULL count — no SQLite date parsing, so none of the `datetime()`
+      // lexical-ordering traps the fence is written in TS to avoid.
+      sql`case when ${unstamped} > 0 then 0 else 1 end`,
+      asc(licenses.endsAt),
+      asc(licenses.billingAccountId),
+    )
+    .limit(limit)) as ExpiringTermRow[];
+
+  return rows.map((r) => ({
+    billingAccountId: r.billingAccountId,
+    vendorId: r.vendorId,
+    vendorSlug: r.vendorSlug,
+    vendorName: r.vendorName,
+    endsAt: r.endsAt,
+    licenseIds: stringsOf(r.licenseIds),
+    sources: stringsOf(r.sources),
+    references: stringsOf(r.references, compareText),
+    unstamped: Number(r.unstamped),
+    oldestStamp: r.oldestStamp,
+  }));
 }
 
-/** Whole days from `now` to `period_end`; negative once the term is past. Rounded
+/**
+ * Every license of the given vendors, for the audit row's plan snapshot
+ * (`licensePlanSnapshot`, which reads the vendor's WHOLE license set: a past-term
+ * annual license beside a live monthly one is still an `active` plan). One read per
+ * {@link PLAN_READ_CHUNK} vendors, so the snapshot costs a run one or a few reads, not
+ * one per notice.
+ */
+async function loadPlanRows(
+  db: Db,
+  vendorIds: readonly string[],
+): Promise<Map<string, LicensePlanRow[]>> {
+  const unique = [...new Set(vendorIds)];
+  const out = new Map<string, LicensePlanRow[]>();
+  for (let i = 0; i < unique.length; i += PLAN_READ_CHUNK) {
+    const rows = await db
+      .select({
+        vendorId: billingAccounts.vendorId,
+        endsAt: licenses.endsAt,
+        endedAt: licenses.endedAt,
+        endReason: licenses.endReason,
+      })
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+      .where(inArray(billingAccounts.vendorId, unique.slice(i, i + PLAN_READ_CHUNK)));
+    for (const { vendorId, ...row } of rows) {
+      const list = out.get(vendorId) ?? [];
+      list.push(row);
+      out.set(vendorId, list);
+    }
+  }
+  return out;
+}
+
+/** Whole days from `now` to `ends_at`; negative once the term is past. Rounded
  *  UP so "18 hours left" reads as "tomorrow" rather than "today". */
 export function daysUntil(nowMs: number, periodEndMs: number): number {
   return Math.ceil((periodEndMs - nowMs) / DAY_MS);
 }
 
 /**
- * Whether this term still owes a notice. `null` stamp → yes. A stamp at or after
- * `period_end − window` belongs to the CURRENT term → no. Anything earlier belongs
- * to a previous term (the row was renewed) → yes.
+ * Whether a stamp still owes a notice. `null` stamp → yes. A stamp at or after
+ * `ends_at − window` belongs to the CURRENT term → no. Anything earlier belongs
+ * to a previous term → yes.
  *
  * A present-but-unparseable stamp suppresses rather than notifies: it can only
  * come from hand-written SQL, and re-nagging nightly forever is a worse failure
@@ -293,16 +409,27 @@ export function noticeIsDue(
   return sentMs < periodEndMs - warningDays * DAY_MS;
 }
 
+/** Whether a TERM owes a notice: any license unstamped, or the oldest stamp stale.
+ *  Every license in a term shares `ends_at`, so the oldest stamp decides the rest. */
+function termIsDue(term: ExpiringTerm, endsAtMs: number, warningDays: number): boolean {
+  if (term.unstamped > 0) return true;
+  return noticeIsDue(term.oldestStamp, endsAtMs, warningDays);
+}
+
 // ─── The write ───────────────────────────────────────────────────────────────
 
 export interface ExpiryNoticeParams {
-  entitlementId: string;
+  billingAccountId: string;
   vendorId: string;
-  tier: string;
-  periodEnd: string;
+  /** The licenses the notice covered. All of them are stamped. */
+  licenseIds: readonly string[];
+  /** The term, exactly as scanned. Guards the stamp. */
+  endsAt: string;
   daysRemaining: number;
   /** ISO timestamp for the stamp — the sweep's `now`. */
   now: string;
+  /** The vendor's WHOLE license set, for the audit row's plan snapshot. */
+  vendorLicenses: readonly LicensePlanRow[];
   vendorNotice: EmailOutcome;
   adminNotice: EmailOutcome;
   /** How many seat addresses the vendor half reached. */
@@ -310,62 +437,56 @@ export interface ExpiryNoticeParams {
 }
 
 /**
- * The statements one delivered warning produces: the fence stamp and its
- * `audit_log` row, in ONE `db.batch` (§26.1 — D1 has no interactive transactions).
+ * The statements one delivered warning produces: the fence stamp on every license the
+ * notice covered and ONE `audit_log` row for the notice, in ONE `db.batch` (§26.1 — D1
+ * has no interactive transactions).
  *
  * Exported as a pure builder, executing nothing, so the §7.3 invariant test can
  * read the generated SQL directly. What that test asserts, and what this function
  * must never stop satisfying:
  *
- *   - exactly ONE statement targets `vendor_entitlements`, and its SET clause
- *     names only `expiry_notice_sent_at` and `updated_at`;
- *   - NO statement names `vendors` or `verified` anywhere;
- *   - `status` appears only inside the `WHERE`, as a concurrency guard.
+ *   - every statement against `licenses` SETs only `expiry_notice_sent_at` and
+ *     `updated_at`;
+ *   - NO statement names `ended_at`, `assigned_product_id`, `vendors` or `verified`
+ *     anywhere — not even as a guard.
  */
 export function expiryNoticeStatements(
   db: Db,
   p: ExpiryNoticeParams,
 ): { stmts: BatchStmt[]; auditEntry: AuditLogEntry } {
+  const licenseIds = [...new Set(p.licenseIds)].sort(byCodeUnit);
   const auditEntry: AuditLogEntry = {
     actorId: null,
     // The `audit_log_actor_type_check` value for a cron. `actor_id` stays null: it
     // is an FK to `profiles` and no profile did this.
     actorType: 'system',
     action: EXPIRY_WARNED_ACTION,
-    entityType: ENTITLEMENT_ENTITY_TYPE,
-    entityId: p.vendorId,
-    // AECI-1192 / AECI-1193. The scan only selects `active` rows, and the UPDATE is
-    // guarded on that, so the stored plan is this tier, active. A warning sent
-    // after `period_end` (nothing auto-lapses) records `expired`: the snapshot's
-    // clock rule (ruling 2026-10-05).
+    entityType: LICENSE_ENTITY_TYPE,
+    entityId: p.billingAccountId,
     vendorId: p.vendorId,
-    vendorPlan: vendorPlanSnapshot({ tier: p.tier, status: ACTIVE, periodEnd: p.periodEnd }, p.now),
+    // The plan as it stands: nothing in this batch changes it. A warning sent after
+    // every live license's `ends_at` records `expired` (the 2026-10-05 clock rule).
+    vendorPlan: licensePlanSnapshot(p.vendorLicenses, p.now),
     metadata: {
       source: EXPIRY_AUDIT_SOURCE,
       vendorId: p.vendorId,
-      tier: p.tier,
-      period_end: p.periodEnd,
+      billing_account_id: p.billingAccountId,
+      license_ids: licenseIds,
+      license_count: licenseIds.length,
+      ends_at: p.endsAt,
       days_remaining: p.daysRemaining,
       warning_days: EXPIRY_WARNING_DAYS,
       vendor_notice: p.vendorNotice,
       vendor_recipients: p.vendorRecipients,
       admin_notice: p.adminNotice,
       // Stated in the trail rather than left to be inferred: this row records a
-      // WARNING. No status moved, and `vendors.verified` did not move (§7.3).
-      status_unchanged: true,
+      // WARNING. No license ended and `vendors.verified` did not move (§7.3).
+      warning_only: true,
     },
   };
 
   const stmts: BatchStmt[] = [
-    db
-      .update(vendorEntitlements)
-      .set({ expiryNoticeSentAt: p.now, updatedAt: p.now })
-      // Guarded on the CURRENT state — a read, not a write. An admin who cleared
-      // the entitlement between this run's scan and its write must not have the
-      // dead row stamped.
-      .where(
-        and(eq(vendorEntitlements.id, p.entitlementId), eq(vendorEntitlements.status, ACTIVE)),
-      ),
+    ...expiryNoticeStampStatements(db, { licenseIds, endsAt: p.endsAt, now: p.now }),
     auditInsert(db, auditEntry),
   ];
 
@@ -459,25 +580,25 @@ export async function runEntitlementExpirySweep(
 
   const horizonIso = new Date(nowMs + warningDays * DAY_MS).toISOString();
   // One over the cap, so "there was more" is detectable without a second query.
-  const rows = await loadExpiring(db, horizonIso, cap + 1);
+  const terms = await loadExpiring(db, horizonIso, cap + 1);
 
-  const pending: Array<{ row: ExpiringRow; periodEndMs: number; daysRemaining: number }> = [];
-  for (const row of rows) {
-    const periodEndMs = Date.parse(row.periodEnd);
-    if (!Number.isFinite(periodEndMs)) {
+  const pending: Array<{ term: ExpiringTerm; daysRemaining: number }> = [];
+  for (const term of terms) {
+    const endsAtMs = Date.parse(term.endsAt);
+    if (!Number.isFinite(endsAtMs)) {
       result.malformed++;
       continue;
     }
     result.due++;
-    if (!noticeIsDue(row.expiryNoticeSentAt, periodEndMs, warningDays)) {
+    if (!termIsDue(term, endsAtMs, warningDays)) {
       result.suppressed++;
       continue;
     }
-    pending.push({ row, periodEndMs, daysRemaining: daysUntil(nowMs, periodEndMs) });
+    pending.push({ term, daysRemaining: daysUntil(nowMs, endsAtMs) });
   }
 
   // The gauge is emitted on EVERY run, zero included — it is this job's only
-  // liveness signal while every backfilled entitlement is perpetual (§2.4).
+  // liveness signal while most licenses are monthly or none are near their end.
   if (deps.metrics) emitExpiryDueMetric(deps.metrics, result.due);
   if (pending.length === 0) return result;
 
@@ -494,32 +615,29 @@ export async function runEntitlementExpirySweep(
     });
   }
 
+  const vendorIds = batch.map((b) => b.term.vendorId);
   const adminRecipients = parseRecipients(c.env.SUPPORT_EMAIL);
-  const seatEmails = await loadVendorSeatEmails(
-    db,
-    c.env,
-    batch.map((b) => b.row.vendorId),
-    fetchSeatEmails,
-  );
+  const seatEmails = await loadVendorSeatEmails(db, c.env, vendorIds, fetchSeatEmails);
+  const planRows = await loadPlanRows(db, vendorIds);
 
   const outcomes: ExpiryNoticeOutcome[] = [];
-  // Collected per row and sent ONCE after the loop (AECI-1112). One `logToPosthog`
-  // per warned row put one `fetch` per vendor into `waitUntil`, alongside the
+  // Collected per term and sent ONCE after the loop (AECI-1112). One `logToPosthog`
+  // per warned term put one `fetch` per vendor into `waitUntil`, alongside the
   // email sends, and a Worker invocation holds only about six open connections
   // (AECI-666). Nothing in the loop throws, so the flush below always runs.
   const forwarded: AuditLogEntry[] = [];
   const stampFailures: PosthogLogEvent[] = [];
 
-  for (const { row, daysRemaining } of batch) {
-    const periodEndDay = row.periodEnd.slice(0, 10);
-    const addresses = seatEmails.get(row.vendorId) ?? [];
+  for (const { term, daysRemaining } of batch) {
+    const periodEndDay = term.endsAt.slice(0, 10);
+    const addresses = seatEmails.get(term.vendorId) ?? [];
 
     const vendorSends: EmailOutcome[] = [];
     for (const to of addresses) {
       vendorSends.push(
         await sendVendorEmail(c, {
           to,
-          vendorName: row.vendorName,
+          vendorName: term.vendorName,
           periodEndDay,
           daysRemaining,
         }),
@@ -534,13 +652,13 @@ export async function runEntitlementExpirySweep(
       adminSends.push(
         await sendAdminEmail(c, {
           to,
-          vendorName: row.vendorName,
-          vendorSlug: row.vendorSlug,
-          tier: row.tier,
+          vendorName: term.vendorName,
+          vendorSlug: term.vendorSlug,
           periodEndDay,
           daysRemaining,
-          payer: row.payer,
-          invoiceRef: row.invoiceRef,
+          licenseCount: term.licenseIds.length,
+          source: term.sources.length > 0 ? term.sources.join(', ') : null,
+          reference: term.references.length > 0 ? term.references.join(', ') : null,
           vendorNotice,
         }),
       );
@@ -555,12 +673,13 @@ export async function runEntitlementExpirySweep(
     if (vendorNotice !== 'sent' && adminNotice !== 'sent') continue;
 
     const { stmts, auditEntry } = expiryNoticeStatements(db, {
-      entitlementId: row.entitlementId,
-      vendorId: row.vendorId,
-      tier: row.tier,
-      periodEnd: row.periodEnd,
+      billingAccountId: term.billingAccountId,
+      vendorId: term.vendorId,
+      licenseIds: term.licenseIds,
+      endsAt: term.endsAt,
       daysRemaining,
       now: nowIso,
+      vendorLicenses: planRows.get(term.vendorId) ?? [],
       vendorNotice,
       adminNotice,
       vendorRecipients: addresses.length,
@@ -569,15 +688,16 @@ export async function runEntitlementExpirySweep(
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
-      // The emails for THIS row are already out. Log and move on rather than
+      // The emails for THIS term are already out. Log and move on rather than
       // aborting: the cost is one duplicate warning in 24h, which is strictly
-      // better than losing every remaining row's notice to one D1 hiccup.
+      // better than losing every remaining term's notice to one D1 hiccup.
       result.batchFailures++;
       stampFailures.push({
         level: 'error',
         message: 'aeci.entitlement.expiry.stamp_failed',
         source: EXPIRY_AUDIT_SOURCE,
-        vendor_id: row.vendorId,
+        vendor_id: term.vendorId,
+        billing_account_id: term.billingAccountId,
         reason: error instanceof Error ? error.message : String(error),
       });
       continue;
@@ -587,7 +707,7 @@ export async function runEntitlementExpirySweep(
     forwarded.push(auditEntry);
   }
 
-  // Post-commit §26.5 forward: every stamped row's audit entry in ONE request.
+  // Post-commit §26.5 forward: every stamped term's audit entry in ONE request.
   forwardAuditBatch(c, forwarded, [], EXPIRY_AUDIT_SOURCE);
   if (stampFailures.length > 0) {
     logBatchToPosthog(c.executionCtx, c.env, c.req.raw, stampFailures);

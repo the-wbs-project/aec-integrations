@@ -113,6 +113,8 @@ const EMITTED_ACTIONS = [
   'license.term_changed',
   // AECI-1356 cutover, `ops:backfill-licenses` stamp reconcile.
   'license.expiry_stamp_reconciled',
+  // AECI-1356, lib/entitlement-expiry.ts.
+  'license.expiry_warned',
 ] as const;
 
 describe('describeAuditAction', () => {

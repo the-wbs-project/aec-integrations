@@ -1,29 +1,31 @@
 /**
- * The §7 term-expiry sweep (AECI-613 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §7).
+ * The §7 term-expiry sweep (AECI-613 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §7), over
+ * `licenses` since AECI-1356 (E1.7).
  *
  * The first describe block is an INVARIANT test (§10) — it encodes the §7.3
  * product decision, not behaviour, and must not be deleted without reopening the
  * spec:
  *
  *   **The cron warns; it never lapses.** Auto-lapse would strip Managed access from a
- *   paying customer over a data-entry mistake. So the job's batch may not mutate
- *   `status`, and may not touch `vendors` at all. That is asserted against the
- *   GENERATED SQL, because it is the only form of the claim that survives a
- *   refactor: an assertion on observed row values would still pass if a future
- *   edit wrote `status = 'active'` back over itself.
+ *   paying customer over a data-entry mistake. So the job's batch may not end a
+ *   license, may not move an assignment, and may not touch `vendors` at all: no
+ *   statement names `ended_at`, `assigned_product_id` or `vendors`. That is asserted
+ *   against the GENERATED SQL, because it is the only form of the claim that survives
+ *   a refactor: an assertion on observed row values would still pass if a future edit
+ *   wrote `ended_at = NULL` back over itself.
  *
  * The rest is asserted by OBSERVED EFFECT (run the sweep against the real
  * migrations in the in-memory harness, read the rows back), the way
- * `vendor-entitlement.spec.ts` does. Both email seams are stubbed — no spec here
- * may reach the Resend transport. The one exception is the AECI-1198 tier-policy
- * suite, which wires the REAL senders behind a stubbed global `fetch`, because the
- * policy lives in the transport and a stubbed seam would never reach it.
+ * `license.spec.ts` does. Both email seams are stubbed — no spec here may reach the
+ * Resend transport. The one exception is the AECI-1198 tier-policy suite, which
+ * wires the REAL senders behind a stubbed global `fetch`, because the policy lives in
+ * the transport and a stubbed seam would never reach it.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, profiles, vendorEntitlements, vendors } from '../db/schema';
+import { auditLog, billingAccounts, licenses, profiles, vendors } from '../db/schema';
 import type { BatchStmt } from './audit';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -45,11 +47,12 @@ import {
   sendEntitlementExpiringEmail,
   type EmailOutcome,
 } from './email';
+import { EXPIRY_STAMP_CHUNK } from './license';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const VENDOR_B_ID = '33333333-3333-4333-8333-333333333333';
 const SEAT_ID = '22222222-2222-4222-8222-222222222222';
-const ENTITLEMENT_ID = '44444444-4444-4444-8444-444444444444';
+const LICENSE_ID = '44444444-4444-4444-8444-444444444444';
 
 const DAY_MS = 86_400_000;
 const NOW = new Date('2026-08-19T11:00:00.000Z');
@@ -68,12 +71,22 @@ afterEach(() => t.dispose());
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
+/** The account id for a vendor: one account per vendor, as `billing_accounts_vendor_key` holds. */
+const accountFor = (vendorId: string) => `acct-${vendorId}`;
+
 async function seedVendor(id = VENDOR_ID, slug = 'autodesk', verified = true) {
   await t.db.insert(vendors).values({
     id,
     slug,
-    companyName: slug === 'autodesk' ? 'Autodesk' : 'Procore',
+    companyName: slug === 'autodesk' ? 'Autodesk' : slug === 'procore' ? 'Procore' : slug,
     verified,
+    updatedAt: OLD_TS,
+  });
+  await t.db.insert(billingAccounts).values({
+    id: accountFor(id),
+    vendorId: id,
+    name: slug,
+    createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
 }
@@ -82,33 +95,49 @@ async function seedSeat(vendorId = VENDOR_ID, id = SEAT_ID) {
   await t.db.insert(profiles).values({ id, role: 'vendor_admin', vendorId });
 }
 
-async function seedEntitlement(
+async function seedLicense(
   overrides: {
     id?: string;
     vendorId?: string;
-    status?: string;
-    periodEnd?: string | null;
+    endsAt?: string | null;
+    endedAt?: string | null;
     expiryNoticeSentAt?: string | null;
+    source?: string;
+    reference?: string | null;
   } = {},
 ) {
-  await t.db.insert(vendorEntitlements).values({
-    id: overrides.id ?? ENTITLEMENT_ID,
-    vendorId: overrides.vendorId ?? VENDOR_ID,
-    tier: 'verified',
-    status: overrides.status ?? 'active',
-    periodEnd: overrides.periodEnd === undefined ? SOON : overrides.periodEnd,
-    payer: 'Autodesk Inc.',
-    invoiceRef: 'PO-4471',
-    grantedAt: OLD_TS,
+  await t.db.insert(licenses).values({
+    id: overrides.id ?? LICENSE_ID,
+    billingAccountId: accountFor(overrides.vendorId ?? VENDOR_ID),
+    source: overrides.source ?? 'invoice',
+    startsAt: OLD_TS,
+    endsAt: overrides.endsAt === undefined ? SOON : overrides.endsAt,
+    endedAt: overrides.endedAt ?? null,
+    endReason: overrides.endedAt ? 'revoked' : null,
+    reference: overrides.reference === undefined ? 'PO-4471' : overrides.reference,
     expiryNoticeSentAt: overrides.expiryNoticeSentAt ?? null,
     createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
 }
 
+/** Vendor, one seat and one live license ending SOON: the common case. */
+async function seedTerm() {
+  await seedVendor();
+  await seedSeat();
+  await seedLicense();
+}
+
 interface Recorded {
   vendor: Array<{ to: string; daysRemaining: number; periodEndDay: string }>;
-  admin: Array<{ to: string; vendorSlug: string; vendorNotice: string }>;
+  admin: Array<{
+    to: string;
+    vendorSlug: string;
+    vendorNotice: string;
+    licenseCount: number;
+    source: string | null;
+    reference: string | null;
+  }>;
 }
 
 /** Stubbed seams. `vendorOutcome: 'skipped'` is not enough on its own to simulate
@@ -125,7 +154,14 @@ function seams(outcomes: { vendor?: EmailOutcome; admin?: EmailOutcome } = {}) {
     return outcomes.vendor ?? 'sent';
   }) as unknown as SendEntitlementExpiringEmail;
   const sendAdminEmail = vi.fn(async (_c, o) => {
-    recorded.admin.push({ to: o.to, vendorSlug: o.vendorSlug, vendorNotice: o.vendorNotice });
+    recorded.admin.push({
+      to: o.to,
+      vendorSlug: o.vendorSlug,
+      vendorNotice: o.vendorNotice,
+      licenseCount: o.licenseCount,
+      source: o.source,
+      reference: o.reference,
+    });
     return outcomes.admin ?? 'sent';
   }) as unknown as SendEntitlementExpiringAdminEmail;
   return { recorded, sendVendorEmail, sendAdminEmail };
@@ -172,11 +208,25 @@ const seatEmails = async (_env: Env, ids: readonly string[]) =>
 /** No address resolves — the "no `SUPABASE_SERVICE_ROLE_KEY`" state. */
 const noSeatEmails = async () => new Map<string, string>();
 
-const entitlementOf = async (id = ENTITLEMENT_ID) =>
-  (await t.db.select().from(vendorEntitlements).where(eq(vendorEntitlements.id, id)))[0];
+const licenseOf = async (id = LICENSE_ID) =>
+  (await t.db.select().from(licenses).where(eq(licenses.id, id)))[0];
 const vendorOf = async (id = VENDOR_ID) =>
   (await t.db.select().from(vendors).where(eq(vendors.id, id)))[0];
 const auditRows = async () => t.db.select().from(auditLog);
+
+/** Run the sweep at `now` with every seam stubbed. */
+function sweep(
+  s: ReturnType<typeof seams>,
+  extra: { now?: Date; batchCap?: number; fetchSeatEmails?: typeof seatEmails } = {},
+) {
+  return runEntitlementExpirySweep(ctx(), t.db, {
+    now: extra.now ?? NOW,
+    fetchSeatEmails: extra.fetchSeatEmails ?? seatEmails,
+    sendVendorEmail: s.sendVendorEmail,
+    sendAdminEmail: s.sendAdminEmail,
+    ...(extra.batchCap !== undefined ? { batchCap: extra.batchCap } : {}),
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -188,51 +238,42 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
     return (stmt as unknown as { toSQL(): { sql: string } }).toSQL().sql.toLowerCase();
   }
 
-  /** The SET clause of an UPDATE, i.e. everything the statement actually writes.
-   *  Split off the WHERE so a `status` GUARD is not mistaken for a `status` WRITE
-   *  — that distinction is the whole point of this block. */
+  /** The SET clause of an UPDATE, i.e. everything the statement actually writes. */
   function setClauseOf(sql: string): string {
     const where = sql.indexOf(' where ');
     return where === -1 ? sql : sql.slice(0, where);
   }
 
   const params = {
-    entitlementId: ENTITLEMENT_ID,
+    billingAccountId: accountFor(VENDOR_ID),
     vendorId: VENDOR_ID,
-    tier: 'verified',
-    periodEnd: SOON,
+    licenseIds: [LICENSE_ID, '55555555-5555-4555-8555-555555555555'],
+    endsAt: SOON,
     daysRemaining: 10,
     now: NOW.toISOString(),
+    vendorLicenses: [{ endsAt: SOON, endedAt: null }],
     vendorNotice: 'sent' as const,
     adminNotice: 'sent' as const,
     vendorRecipients: 1,
   };
 
-  it('emits no statement that mutates `status`', () => {
-    const { stmts } = expiryNoticeStatements(t.db, params);
-    for (const stmt of stmts) {
-      // The audit row's `vendor_entitlement_status` column (AECI-1193) RECORDS the
-      // status; it does not mutate it. Every other mention is still refused.
-      const clause = setClauseOf(sqlOf(stmt)).replaceAll('"vendor_entitlement_status"', '');
-      expect(clause).not.toContain('status');
-    }
-  });
-
-  it('emits no statement that touches `vendors` or `verified` at all', () => {
+  it('names no `ended_at`, `assigned_product_id` or `vendors` in any statement, not even as a guard', () => {
     const { stmts } = expiryNoticeStatements(t.db, params);
     for (const stmt of stmts) {
       const sql = sqlOf(stmt);
+      expect(sql).not.toContain('ended_at');
+      expect(sql).not.toContain('assigned_product_id');
       expect(sql).not.toContain('"vendors"');
       expect(sql).not.toContain('verified');
     }
   });
 
-  it('writes exactly `expiry_notice_sent_at` + `updated_at`, and audits in the same batch', () => {
+  it('writes only `expiry_notice_sent_at` + `updated_at` on `licenses`, and audits in the same batch', () => {
     const { stmts, auditEntry } = expiryNoticeStatements(t.db, params);
     expect(stmts).toHaveLength(2);
 
     const setClause = setClauseOf(sqlOf(stmts[0]!));
-    expect(setClause).toContain('update "vendor_entitlements"');
+    expect(setClause).toContain('update "licenses"');
     expect(setClause).toContain('"expiry_notice_sent_at"');
     expect(setClause).toContain('"updated_at"');
     // Nothing else. Column count in the SET clause is exactly two.
@@ -240,34 +281,41 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
 
     expect(sqlOf(stmts[1]!)).toContain('insert into "audit_log"');
     expect(auditEntry.action).toBe(EXPIRY_WARNED_ACTION);
-    expect(auditEntry.entityType).toBe('vendor_entitlement');
-    expect(auditEntry.entityId).toBe(VENDOR_ID);
+    expect(auditEntry.entityType).toBe('billing_account');
+    expect(auditEntry.entityId).toBe(accountFor(VENDOR_ID));
+    expect(auditEntry.vendorId).toBe(VENDOR_ID);
     expect(auditEntry.actorType).toBe('system');
     expect(auditEntry.actorId).toBeNull();
   });
 
-  it('guards the stamp on `status = active` — a read, not a write', () => {
-    const { stmts } = expiryNoticeStatements(t.db, params);
-    const sql = sqlOf(stmts[0]!);
-    expect(sql.slice(sql.indexOf(' where '))).toContain('status');
+  it('every statement in a large term still writes only the fence (one per chunk of ids)', () => {
+    const many = Array.from({ length: EXPIRY_STAMP_CHUNK + 1 }, (_, i) => `lic-${i}`);
+    const { stmts } = expiryNoticeStatements(t.db, { ...params, licenseIds: many });
+    // Two stamp statements, then the one audit row.
+    expect(stmts).toHaveLength(3);
+    for (const stmt of stmts.slice(0, 2)) {
+      expect(setClauseOf(sqlOf(stmt)).match(/"[a-z_]+" = /g)).toHaveLength(2);
+    }
   });
 
-  it('leaves `status`, `vendors.verified` and `vendors.updated_at` untouched end to end', async () => {
+  it('guards the stamp on the scanned `ends_at` — a read, not a write', () => {
+    const { stmts } = expiryNoticeStatements(t.db, params);
+    const sql = sqlOf(stmts[0]!);
+    expect(sql.slice(sql.indexOf(' where '))).toContain('"ends_at"');
+  });
+
+  it('leaves the license live, its product, `vendors.verified` and `vendors.updated_at` untouched end to end', async () => {
     await seedVendor();
     await seedSeat();
-    await seedEntitlement();
-    const { sendVendorEmail, sendAdminEmail } = seams();
+    await t.db.update(vendors).set({ updatedAt: OLD_TS });
+    await seedLicense();
 
-    await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    await sweep(seams());
 
-    const row = await entitlementOf();
-    expect(row?.status).toBe('active');
+    const row = await licenseOf();
     expect(row?.endedAt).toBeNull();
+    expect(row?.endReason).toBeNull();
+    expect(row?.endsAt).toBe(SOON);
     expect(row?.expiryNoticeSentAt).toBe(NOW.toISOString());
 
     // The Algolia watermark (R2) must not move: `verified` did not change.
@@ -278,277 +326,303 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
 });
 
 describe('the scan', () => {
-  it('never selects a perpetual entitlement (`period_end IS NULL`)', async () => {
+  it('never selects a monthly license (`ends_at IS NULL`)', async () => {
     await seedVendor();
     await seedSeat();
-    await seedEntitlement({ periodEnd: null });
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    await seedLicense({ endsAt: null });
+    const s = seams();
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(s);
 
     expect(result.due).toBe(0);
     expect(result.warned).toBe(0);
-    expect(recorded.vendor).toEqual([]);
-    expect(recorded.admin).toEqual([]);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
+    expect(s.recorded.vendor).toEqual([]);
+    expect(s.recorded.admin).toEqual([]);
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
+  });
+
+  it('never selects an ended license inside the horizon', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ endedAt: OLD_TS });
+    const s = seams();
+
+    const result = await sweep(s);
+
+    expect(result.due).toBe(0);
+    expect(s.recorded.admin).toEqual([]);
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
   });
 
   it('ignores a term beyond the horizon', async () => {
     await seedVendor();
     await seedSeat();
-    await seedEntitlement({ periodEnd: FAR });
-    const { sendVendorEmail, sendAdminEmail } = seams();
+    await seedLicense({ endsAt: FAR });
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(seams());
 
     expect(result.due).toBe(0);
     expect(result.warned).toBe(0);
   });
 
-  it.each(['pending', 'expired', 'revoked'])('ignores a `%s` row inside the horizon', async (s) => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement({ status: s });
-    const { sendVendorEmail, sendAdminEmail } = seams();
-
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
-
-    expect(result.due).toBe(0);
-  });
-
-  it('DOES select an active term already past its end date — the state nothing lapses', async () => {
+  it('DOES select a live license already past its end date — the state nothing lapses yet', async () => {
     await seedVendor();
     await seedSeat();
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();
-    await seedEntitlement({ periodEnd: past });
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    await seedLicense({ endsAt: past });
+    const s = seams();
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(s);
 
     expect(result.due).toBe(1);
     expect(result.warned).toBe(1);
-    expect(recorded.vendor[0]?.daysRemaining).toBe(-5);
-    expect((await entitlementOf())?.status).toBe('active');
+    expect(s.recorded.vendor[0]?.daysRemaining).toBe(-5);
+    expect((await licenseOf())?.endedAt).toBeNull();
+  });
+});
+
+describe('one notice per account per term, not per license', () => {
+  const IDS = [
+    'a1111111-1111-4111-8111-111111111111',
+    'a2222222-2222-4222-8222-222222222222',
+    'a3333333-3333-4333-8333-333333333333',
+  ];
+
+  it('sends ONE notice for three licenses on one account and end date, and stamps all three', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ id: IDS[0], reference: 'PO-1' });
+    await seedLicense({ id: IDS[1], reference: 'PO-1' });
+    await seedLicense({ id: IDS[2], reference: 'PO-2', source: 'complimentary' });
+    const s = seams();
+
+    const result = await sweep(s);
+
+    expect(result.due).toBe(1);
+    expect(result.warned).toBe(1);
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.admin).toHaveLength(1);
+    // The operator copy carries the term's count, sources and references.
+    expect(s.recorded.admin[0]).toMatchObject({
+      licenseCount: 3,
+      source: 'complimentary, invoice',
+      reference: 'PO-1, PO-2',
+    });
+
+    const stamped = await t.db.select().from(licenses).where(inArray(licenses.id, IDS));
+    expect(stamped.map((l) => l.expiryNoticeSentAt)).toEqual(IDS.map(() => NOW.toISOString()));
+
+    // One audit row for the notice, filed under the account, naming every license.
+    const rows = await auditRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.entityType).toBe('billing_account');
+    expect(rows[0]?.entityId).toBe(accountFor(VENDOR_ID));
+    const metadata = rows[0]?.metadata as Record<string, unknown>;
+    expect(metadata['license_ids']).toEqual([...IDS].sort());
+    expect(metadata['license_count']).toBe(3);
+  });
+
+  it('treats two end dates on one account as two terms', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ id: IDS[0] });
+    await seedLicense({ id: IDS[1], endsAt: new Date(NOW.getTime() + 20 * DAY_MS).toISOString() });
+    const s = seams();
+
+    const result = await sweep(s);
+
+    expect(result.due).toBe(2);
+    expect(result.warned).toBe(2);
+    expect(s.recorded.admin.map((a) => a.licenseCount)).toEqual([1, 1]);
+  });
+
+  it('leaves a monthly and an ended license on the same account out of the notice', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ id: IDS[0] });
+    await seedLicense({ id: IDS[1], endsAt: null });
+    await seedLicense({ id: IDS[2], endedAt: OLD_TS });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.admin[0]?.licenseCount).toBe(1);
+    expect((await licenseOf(IDS[0]))?.expiryNoticeSentAt).toBe(NOW.toISOString());
+    expect((await licenseOf(IDS[1]))?.expiryNoticeSentAt).toBeNull();
+    expect((await licenseOf(IDS[2]))?.expiryNoticeSentAt).toBeNull();
+    // The plan snapshot reads the whole set: a live monthly license keeps it active.
+    const [row] = await auditRows();
+    expect(row?.vendorTier).toBe('verified');
+    expect(row?.vendorEntitlementStatus).toBe('active');
+  });
+
+  it('re-warns an already-warned term when a license joins it, with the new count', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ id: IDS[0], expiryNoticeSentAt: NOW.toISOString() });
+    await seedLicense({ id: IDS[1] });
+    const s = seams();
+
+    const result = await sweep(s, { now: new Date(NOW.getTime() + DAY_MS) });
+
+    expect(result.warned).toBe(1);
+    expect(s.recorded.admin[0]?.licenseCount).toBe(2);
   });
 });
 
 describe('the `expiry_notice_sent_at` fence — one notice per term, not one per night', () => {
   it('sends on run 1 and sends nothing on run 2', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    await seedTerm();
+    const s = seams();
 
-    const first = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const first = await sweep(s);
     expect(first.warned).toBe(1);
     expect(first.suppressed).toBe(0);
-    expect(recorded.vendor).toHaveLength(1);
-    expect(recorded.admin).toHaveLength(1);
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.admin).toHaveLength(1);
 
-    const stampedAt = (await entitlementOf())?.expiryNoticeSentAt;
+    const stampedAt = (await licenseOf())?.expiryNoticeSentAt;
 
     // The next night's run, 24h later. Same term, still inside the horizon.
-    const tomorrow = new Date(NOW.getTime() + DAY_MS);
-    const second = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: tomorrow,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const second = await sweep(s, { now: new Date(NOW.getTime() + DAY_MS) });
 
     expect(second.due).toBe(1);
     expect(second.suppressed).toBe(1);
     expect(second.warned).toBe(0);
     // No second email of either kind, and the stamp did not move.
-    expect(recorded.vendor).toHaveLength(1);
-    expect(recorded.admin).toHaveLength(1);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBe(stampedAt);
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.admin).toHaveLength(1);
+    expect((await licenseOf())?.expiryNoticeSentAt).toBe(stampedAt);
     // And exactly one audit row for the whole two-run sequence.
     expect(await auditRows()).toHaveLength(1);
   });
 
-  it('re-arms when a renewal pushes `period_end` past the old stamp + window', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+  it('re-arms when a term change pushes `ends_at` past the old stamp + window', async () => {
+    await seedTerm();
+    const s = seams();
 
-    await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
-    expect(recorded.vendor).toHaveLength(1);
+    await sweep(s);
+    expect(s.recorded.vendor).toHaveLength(1);
 
-    // A renewal: the term moves out a year. The stamp stays (a renewal writes the
-    // term columns, not the fence) and is now older than `period_end − 30d`.
+    // The term moves out a year. Here the stamp stays (a hand edit); the real writer
+    // also clears it. Either way it is now older than `ends_at − 30d`.
     const renewedEnd = new Date(NOW.getTime() + 365 * DAY_MS).toISOString();
-    await t.db
-      .update(vendorEntitlements)
-      .set({ periodEnd: renewedEnd })
-      .where(eq(vendorEntitlements.id, ENTITLEMENT_ID));
+    await t.db.update(licenses).set({ endsAt: renewedEnd }).where(eq(licenses.id, LICENSE_ID));
 
     // A year on, the new term is inside the horizon again.
     const later = new Date(NOW.getTime() + 350 * DAY_MS);
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: later,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(s, { now: later });
 
     expect(result.suppressed).toBe(0);
     expect(result.warned).toBe(1);
-    expect(recorded.vendor).toHaveLength(2);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBe(later.toISOString());
+    expect(s.recorded.vendor).toHaveLength(2);
+    expect((await licenseOf())?.expiryNoticeSentAt).toBe(later.toISOString());
   });
 
   it('leaves the fence unstamped when NOTHING was delivered, so tomorrow retries', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { sendVendorEmail, sendAdminEmail } = seams({ vendor: 'failed', admin: 'failed' });
+    await seedTerm();
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(seams({ vendor: 'failed', admin: 'failed' }));
 
     expect(result.warned).toBe(0);
     expect(result.vendor.failed).toBe(1);
     expect(result.admin.failed).toBe(1);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
     expect(await auditRows()).toHaveLength(0);
   });
 
   it('counts a ledger duplicate as duplicate, not failed, and does not stamp (AECI-1202)', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { sendVendorEmail, sendAdminEmail } = seams({ vendor: 'duplicate', admin: 'duplicate' });
+    await seedTerm();
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const result = await sweep(seams({ vendor: 'duplicate', admin: 'duplicate' }));
 
     expect(result.warned).toBe(0);
     expect(result.vendor).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
     expect(result.admin).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
   });
 });
 
 describe('without SUPABASE_SERVICE_ROLE_KEY', () => {
   it('reports the vendor send `skipped`, still sends the admin copy, and never throws', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    await seedTerm();
+    const s = seams();
 
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      // The degraded seam: `fetchAuthUserEmails` returns an empty map without the
-      // key, so no vendor address is ever resolved.
-      fetchSeatEmails: noSeatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    // The degraded seam: `fetchAuthUserEmails` returns an empty map without the key,
+    // so no vendor address is ever resolved.
+    const result = await sweep(s, { fetchSeatEmails: noSeatEmails });
 
     expect(result.vendor.skipped).toBe(1);
     expect(result.vendor.sent).toBe(0);
     expect(result.admin.sent).toBe(1);
-    expect(recorded.vendor).toEqual([]);
-    expect(recorded.admin).toHaveLength(1);
+    expect(s.recorded.vendor).toEqual([]);
+    expect(s.recorded.admin).toHaveLength(1);
     // The admin copy names the vendor half's outcome, so "we warned them" is never
     // assumed from the operator alert alone.
-    expect(recorded.admin[0]?.vendorNotice).toBe('skipped');
+    expect(s.recorded.admin[0]?.vendorNotice).toBe('skipped');
 
     // The admin copy landed, so the term is fenced — the operator is not re-nagged
     // nightly on a tier that structurally cannot reach the vendor.
     expect(result.warned).toBe(1);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBe(NOW.toISOString());
+    expect((await licenseOf())?.expiryNoticeSentAt).toBe(NOW.toISOString());
   });
 
   it('does not stamp when there is no admin recipient either (the local state)', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    await seedTerm();
+    const s = seams();
 
     const result = await runEntitlementExpirySweep(ctx({ SUPPORT_EMAIL: undefined }), t.db, {
       now: NOW,
       fetchSeatEmails: noSeatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
+      sendVendorEmail: s.sendVendorEmail,
+      sendAdminEmail: s.sendAdminEmail,
     });
 
-    expect(recorded.admin).toEqual([]);
+    expect(s.recorded.admin).toEqual([]);
     expect(result.admin.skipped).toBe(1);
     expect(result.warned).toBe(0);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
   });
 });
 
 describe('the audit row', () => {
-  it('records the warning against the VENDOR id, as `system`, in the same batch', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
-    const { sendVendorEmail, sendAdminEmail } = seams();
+  it('records the warning against the ACCOUNT, with the vendor, as `system`, in the same batch', async () => {
+    await seedTerm();
 
-    await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    await sweep(seams());
 
     const rows = await auditRows();
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.action).toBe(EXPIRY_WARNED_ACTION);
-    expect(row.entityType).toBe('vendor_entitlement');
-    expect(row.entityId).toBe(VENDOR_ID);
+    expect(row.action).toBe('license.expiry_warned');
+    expect(row.entityType).toBe('billing_account');
+    expect(row.entityId).toBe(accountFor(VENDOR_ID));
+    expect(row.vendorId).toBe(VENDOR_ID);
     expect(row.actorType).toBe('system');
     expect(row.actorId).toBeNull();
+    expect(row.vendorTier).toBe('verified');
+    expect(row.vendorEntitlementStatus).toBe('active');
 
     const metadata = row.metadata as Record<string, unknown>;
+    expect(metadata['license_ids']).toEqual([LICENSE_ID]);
+    expect(metadata['ends_at']).toBe(SOON);
     expect(metadata['days_remaining']).toBe(10);
     expect(metadata['warning_days']).toBe(EXPIRY_WARNING_DAYS);
     expect(metadata['vendor_notice']).toBe('sent');
     expect(metadata['admin_notice']).toBe('sent');
-    expect(metadata['status_unchanged']).toBe(true);
+    expect(metadata['warning_only']).toBe(true);
+  });
+
+  it('records `expired` when the only live license is past its end date', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ endsAt: new Date(NOW.getTime() - DAY_MS).toISOString() });
+
+    await sweep(seams());
+
+    const [row] = await auditRows();
+    expect(row?.vendorEntitlementStatus).toBe('expired');
   });
 });
 
@@ -562,9 +636,7 @@ describe('metrics', () => {
     expect(calls.filter((c) => c.metric === EXPIRY_NOTICE_METRIC)).toEqual([]);
 
     // Run 2: one term due.
-    await seedVendor();
-    await seedSeat();
-    await seedEntitlement();
+    await seedTerm();
     calls.length = 0;
     const { sendVendorEmail, sendAdminEmail } = seams();
     await runEntitlementExpirySweep(ctx(), t.db, {
@@ -589,33 +661,38 @@ describe('metrics', () => {
       tags: ['channel:admin', 'outcome:sent'],
     });
   });
+
+  it('emits the due gauge as zero when only monthly licenses exist', async () => {
+    const { calls, sink } = metricSink();
+    await seedVendor();
+    await seedLicense({ endsAt: null });
+
+    await runEntitlementExpirySweep(ctx(), t.db, { now: NOW, metrics: sink });
+
+    expect(calls).toEqual([{ kind: 'gauge', metric: EXPIRY_DUE_METRIC, value: 0, tags: [] }]);
+  });
 });
 
 describe('multiple vendors', () => {
   it('warns each independently, oldest term first', async () => {
     await seedVendor(VENDOR_ID, 'autodesk');
     await seedSeat(VENDOR_ID, SEAT_ID);
-    await seedEntitlement({ periodEnd: new Date(NOW.getTime() + 20 * DAY_MS).toISOString() });
+    await seedLicense({ endsAt: new Date(NOW.getTime() + 20 * DAY_MS).toISOString() });
 
     await seedVendor(VENDOR_B_ID, 'procore');
     await seedSeat(VENDOR_B_ID, '55555555-5555-4555-8555-555555555555');
-    await seedEntitlement({
+    await seedLicense({
       id: '66666666-6666-4666-8666-666666666666',
       vendorId: VENDOR_B_ID,
-      periodEnd: new Date(NOW.getTime() + 2 * DAY_MS).toISOString(),
+      endsAt: new Date(NOW.getTime() + 2 * DAY_MS).toISOString(),
     });
 
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const s = seams();
+    const result = await sweep(s);
 
     expect(result.due).toBe(2);
     expect(result.warned).toBe(2);
-    expect(recorded.admin.map((a) => a.vendorSlug)).toEqual(['procore', 'autodesk']);
+    expect(s.recorded.admin.map((a) => a.vendorSlug)).toEqual(['procore', 'autodesk']);
     expect(await auditRows()).toHaveLength(2);
   });
 
@@ -628,64 +705,67 @@ describe('multiple vendors', () => {
       vendorId: VENDOR_ID,
       bannedAt: OLD_TS,
     });
-    await seedEntitlement();
+    await seedLicense();
 
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
-    await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const s = seams();
+    await sweep(s);
 
-    expect(recorded.vendor).toHaveLength(1);
-    expect(recorded.vendor[0]?.to).toBe(`seat-${SEAT_ID.slice(0, 4)}@vendor.example`);
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.vendor[0]?.to).toBe(`seat-${SEAT_ID.slice(0, 4)}@vendor.example`);
   });
 });
 
 describe('the batch cap — never-warned terms are read before the already-warned backlog', () => {
-  it('warns a due term even when the cap is filled by already-warned lapsed-active rows', async () => {
-    // The steady-state backlog: lapsed-but-active terms already warned for their
-    // (only) term. Nothing auto-lapses (§7.3), so they never leave the scan, they
-    // stay stamped-and-suppressed, and their past `period_end` sorts them to the
-    // FRONT of a `period_end`-only ordering.
+  it('warns a due term even when the cap is filled by already-warned past-term licenses', async () => {
+    // The steady-state backlog: past-term live licenses already warned for their
+    // (only) term. Nothing lapses yet, so they never leave the scan, they stay
+    // stamped-and-suppressed, and their past `ends_at` sorts them to the FRONT of an
+    // `ends_at`-only ordering.
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();
     await seedVendor(VENDOR_ID, 'autodesk');
     await seedSeat(VENDOR_ID, SEAT_ID);
-    await seedEntitlement({ periodEnd: past, expiryNoticeSentAt: past });
+    await seedLicense({ endsAt: past, expiryNoticeSentAt: past });
 
     await seedVendor(VENDOR_B_ID, 'procore');
     await seedSeat(VENDOR_B_ID, '55555555-5555-4555-8555-555555555555');
-    await seedEntitlement({
+    await seedLicense({
       id: '66666666-6666-4666-8666-666666666666',
       vendorId: VENDOR_B_ID,
-      periodEnd: past,
+      endsAt: past,
       expiryNoticeSentAt: past,
     });
 
-    // A genuinely-due term whose future `period_end` sorts AFTER the two lapsed
-    // ones, and whose stamp is null.
+    // A genuinely-due term whose future `ends_at` sorts AFTER the two past ones, and
+    // whose stamp is null.
     const DUE_VENDOR = '88888888-8888-4888-8888-888888888888';
-    const DUE_ENTITLEMENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const DUE_LICENSE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     await seedVendor(DUE_VENDOR, 'bluebeam');
     await seedSeat(DUE_VENDOR, '99999999-9999-4999-8999-999999999999');
-    await seedEntitlement({ id: DUE_ENTITLEMENT, vendorId: DUE_VENDOR, periodEnd: SOON });
+    await seedLicense({ id: DUE_LICENSE, vendorId: DUE_VENDOR, endsAt: SOON });
 
-    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
-    const result = await runEntitlementExpirySweep(ctx(), t.db, {
-      now: NOW,
-      // Cap of 1 → the read is `LIMIT 2`. Ordered by `period_end` alone the two
-      // past-dated suppressed rows would fill it and the due term would never load;
-      // never-warned-first puts the due term at the head of the window instead.
-      batchCap: 1,
-      fetchSeatEmails: seatEmails,
-      sendVendorEmail,
-      sendAdminEmail,
-    });
+    const s = seams();
+    // Cap of 1 → the read is `LIMIT 2`. Ordered by `ends_at` alone the two past-dated
+    // suppressed terms would fill it and the due term would never load;
+    // never-warned-first puts the due term at the head of the window instead.
+    const result = await sweep(s, { batchCap: 1 });
 
     expect(result.warned).toBe(1);
-    expect(recorded.admin.map((a) => a.vendorSlug)).toEqual(['bluebeam']);
-    expect((await entitlementOf(DUE_ENTITLEMENT))?.expiryNoticeSentAt).toBe(NOW.toISOString());
+    expect(s.recorded.admin.map((a) => a.vendorSlug)).toEqual(['bluebeam']);
+    expect((await licenseOf(DUE_LICENSE))?.expiryNoticeSentAt).toBe(NOW.toISOString());
+  });
+
+  it('counts the cap in terms, not licenses, and logs nothing silently', async () => {
+    await seedVendor(VENDOR_ID, 'autodesk');
+    await seedSeat(VENDOR_ID, SEAT_ID);
+    // Three licenses on one term: still ONE term against a cap of 1.
+    await seedLicense({ id: 'b1111111-1111-4111-8111-111111111111' });
+    await seedLicense({ id: 'b2222222-2222-4222-8222-222222222222' });
+    await seedLicense({ id: 'b3333333-3333-4333-8333-333333333333' });
+
+    const result = await sweep(seams(), { batchCap: 1 });
+
+    expect(result.capped).toBe(0);
+    expect(result.warned).toBe(1);
   });
 });
 
@@ -699,7 +779,7 @@ describe('the §26.5 forward — one request per sweep, not one per vendor (AECI
       const vendorId = idFor('a', i);
       await seedVendor(vendorId, `vendor-${i}`);
       await seedSeat(vendorId, idFor('b', i));
-      await seedEntitlement({ id: idFor('c', i), vendorId });
+      await seedLicense({ id: idFor('c', i), vendorId });
     }
   }
 
@@ -806,7 +886,7 @@ describe('tier delivery policy — the real senders on a demo config (AECI-1198)
   it('sends nothing to a vendor seat, and still sends the internal operator copy', async () => {
     await seedVendor();
     await seedSeat();
-    await seedEntitlement();
+    await seedLicense();
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
@@ -839,7 +919,7 @@ describe('tier delivery policy — the real senders on a demo config (AECI-1198)
   it('with an outside operator address too, makes no Resend call at all and stamps nothing', async () => {
     await seedVendor();
     await seedSeat();
-    await seedEntitlement();
+    await seedLicense();
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
@@ -857,6 +937,6 @@ describe('tier delivery policy — the real senders on a demo config (AECI-1198)
 
     expect(resendBodies(fetchSpy)).toHaveLength(0);
     expect(result.warned).toBe(0);
-    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
+    expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
   });
 });

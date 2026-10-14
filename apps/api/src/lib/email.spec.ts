@@ -2265,11 +2265,11 @@ describe('entitlement expiry templates', () => {
     to: 'ops@aecintegrations.com',
     vendorName: 'Autodesk',
     vendorSlug: 'autodesk',
-    tier: 'verified',
     periodEndDay: '2026-09-18',
     daysRemaining: 30,
-    payer: 'Autodesk Inc.',
-    invoiceRef: 'PO-4471',
+    licenseCount: 3,
+    source: 'invoice',
+    reference: 'PO-4471',
     vendorNotice: 'sent' as const,
   };
 
@@ -2283,7 +2283,9 @@ describe('entitlement expiry templates', () => {
     expect(String(body.subject)).toContain('[AECi]');
     expect(String(body.text)).toContain('Vendor: Autodesk (autodesk)');
     expect(String(body.text)).toContain('Term ends: 2026-09-18 (in 30 days)');
-    expect(String(body.text)).toContain('Invoice ref: PO-4471');
+    expect(String(body.text)).toContain('Licenses: 3');
+    expect(String(body.text)).toContain('Source: invoice');
+    expect(String(body.text)).toContain('Reference: PO-4471');
     // Says outright that nothing was changed — the operator must not read this as
     // a notification of an automatic action.
     expect(String(body.text)).toContain('warns and never lapses');
@@ -2309,13 +2311,13 @@ describe('entitlement expiry templates', () => {
 
     await sendEntitlementExpiringAdminEmail(fakeContext(), {
       ...ADMIN_SUBJECT,
-      payer: null,
-      invoiceRef: null,
+      source: null,
+      reference: null,
     });
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('Payer: (none recorded)');
-    expect(text).toContain('Invoice ref: (none recorded)');
+    expect(text).toContain('Source: (none recorded)');
+    expect(text).toContain('Reference: (none recorded)');
     expect(text).not.toContain('undefined');
   });
 

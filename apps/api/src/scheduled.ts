@@ -1526,9 +1526,10 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
 }
 
 /**
- * Run the daily §7 entitlement term-expiry sweep (AECI-613): scan
- * `vendor_entitlements` for active terms inside the 30-day horizon, warn the
- * vendor's seats and the operator, and stamp `expiry_notice_sent_at`.
+ * Run the daily §7 entitlement term-expiry sweep (AECI-613): scan live
+ * `licenses` with an end date inside the 30-day horizon (AECI-1356), warn the
+ * vendor's seats and the operator once per billing account and end date, and stamp
+ * `licenses.expiry_notice_sent_at`.
  *
  * The two email senders are injected here — the §1.3 route-seam pattern — so the
  * sweep module never reaches the Resend transport and its specs need no email

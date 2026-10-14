@@ -134,6 +134,10 @@ export const AUDIT_VENDOR_ACTIONS = {
   // with `vendor_id` filled when the caller knows it. Not a receipt: E5's Billing tab
   // shows the acceptance rows themselves.
   'agreement.accepted': { kind: 'vendor-edit', receipt: false },
+  // AECI-1356: the expiry sweep warned an account that its licenses end soon. One
+  // row per notice, filed under the account. A receipt, like the
+  // `vendor_entitlement.expiry_warned` it replaces: "we warned you on date X".
+  'license.expiry_warned': { kind: 'system', receipt: true },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the
