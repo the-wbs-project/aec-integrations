@@ -108,6 +108,7 @@ const EMITTED_ACTIONS = [
   'license.lapsed',
   'license.released',
   'license.revoked',
+  'license.term_changed',
 ] as const;
 
 describe('describeAuditAction', () => {

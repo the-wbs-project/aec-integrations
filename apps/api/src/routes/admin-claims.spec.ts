@@ -40,6 +40,7 @@ import {
   billingAccounts,
   connectorEvidencedPairs,
   integrations,
+  licenses,
   products,
   productVendors,
   profiles,
@@ -358,12 +359,13 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       sourceRequestId: REQUEST_ID,
     });
 
-    // THREE audit rows in the same batch: the claim decision and the entitlement it
-    // opened (AECI-612), and the billing account (AECI-1351). The claim row's shape is
-    // unchanged; the entitlement row is what makes `entity_type='vendor_entitlement'`
-    // the history ledger (§2.1).
+    // FOUR audit rows in the same batch: the claim decision and the entitlement it
+    // opened (AECI-612), the billing account (AECI-1351), and the one license the
+    // Managed dual-write grants a vendor with no products (AECI-1353). The claim row's
+    // shape is unchanged; the entitlement row is what makes
+    // `entity_type='vendor_entitlement'` the history ledger (§2.1).
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(3);
+    expect(audits).toHaveLength(4);
     const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
     expect(claimAudit.actorId).toBe(ADMIN_ID);
     // AECI-1192 / AECI-1193: the column, and the plan BEFORE the grant.
@@ -456,9 +458,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
     const messages = events.map((e) => e.message);
-    // The claim row, the entitlement row, the billing-account row and the workflow
-    // transition, in one request.
-    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(3);
+    // The claim row, the entitlement row, the billing-account row, the license row
+    // (AECI-1353) and the workflow transition, in one request.
+    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(4);
     expect(messages.filter((m) => m.startsWith('workflow '))).toHaveLength(1);
     // No per-row forward is left behind.
     expect(
@@ -707,8 +709,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(batchSpy).toHaveBeenCalledTimes(1);
     // 5 from `grantSeatStatements` (seat, request, workflow, transition, audit) +
     // 3 from `activateEntitlementStatements` (entitlement row, mirror flip, audit) +
-    // 2 from `ensureBillingAccountStatements` (account row, audit; AECI-1351).
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
+    // 2 for the billing account (account row, audit; AECI-1351), which the activate's
+    // dual-write now emits, so the route's own ensure is a no-op (AECI-1353) +
+    // 3 for the license (row, audit, mirror reconcile; AECI-1353).
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(13);
     batchSpy.mockRestore();
   });
 
@@ -965,13 +969,11 @@ describe('PATCH /api/admin/claims/:id — plan choice', () => {
     expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
     const audits = await t.db.select().from(auditLog);
     // The claim and entitlement rows carry the plan. The billing-account row is the
-    // same on both plans, so it carries none (AECI-1351).
-    expect(
-      audits.filter((a) => a.action !== 'billing_account.created').map((a) => a.metadata),
-    ).toEqual([
-      expect.objectContaining({ plan: 'managed' }),
-      expect.objectContaining({ plan: 'managed' }),
-    ]);
+    // same on both plans, so it carries none (AECI-1351). Nor do the license rows the
+    // dual-write files under the account (AECI-1353): a license is Managed by definition.
+    expect(audits.filter((a) => a.entityType !== 'billing_account').map((a) => a.metadata)).toEqual(
+      [expect.objectContaining({ plan: 'managed' }), expect.objectContaining({ plan: 'managed' })],
+    );
     expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
     expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
     expect(email.mock.calls[0]![1]).toMatchObject({ plan: 'managed' });
@@ -2330,5 +2332,84 @@ describe('GET /api/admin/claims/:id/audit — the claim trail (AECI-1276)', () =
     await seedClaimTrail();
     await getClaimAudit(REQUEST_ID);
     expect(await t.db.select().from(auditLog)).toHaveLength(AUDIT_IDS.length);
+  });
+});
+
+// ─── The Managed dual-write (AECI-1353, E1.4) ────────────────────────────────
+
+describe('PATCH /api/admin/claims/:id — the license dual-write', () => {
+  const P2 = '33333333-3333-4333-8333-333333333334';
+
+  async function seedOwnedProducts() {
+    await t.db.insert(products).values([
+      { id: PRODUCT_ID, slug: 'revit', name: 'Revit' },
+      { id: P2, slug: 'autocad', name: 'AutoCAD' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true },
+      { productId: P2, vendorId: VENDOR_ID, isPrimary: true },
+    ]);
+  }
+
+  it('Managed grants one license per owned product on ONE new billing account', async () => {
+    await seedVendor();
+    await seedOwnedProducts();
+    await seedRequest();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+      entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
+    });
+    expect(status).toBe(200);
+
+    // Exactly one account INSERT: the activate's dual-write made it, and the route's
+    // own ensure saw it as existing.
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(
+      (await t.db.select().from(auditLog)).filter((a) => a.action === 'billing_account.created'),
+    ).toHaveLength(1);
+
+    const rows = await t.db.select().from(licenses).orderBy(licenses.assignedProductId);
+    expect(rows.map((l) => l.assignedProductId)).toEqual([PRODUCT_ID, P2]);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        billingAccountId: accounts[0]!.id,
+        source: 'invoice',
+        endsAt: '2031-01-01T00:00:00.000Z',
+        endedAt: null,
+        reference: 'PO-4471',
+        grantedBy: ADMIN_ID,
+      });
+    }
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
+  });
+
+  it('Free grants no license, and a Managed second seat grants none either', async () => {
+    await seedVendor();
+    await seedOwnedProducts();
+    await seedRequest();
+    expect(
+      (await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve', plan: 'free' }))
+        .status,
+    ).toBe(200);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+  });
+
+  it('a Managed second seat on an active vendor writes no license and no account', async () => {
+    await seedVendor({ verified: true });
+    await seedEntitlement('active');
+    await seedBillingAccount();
+    await seedRequest();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+    });
+    expect(status).toBe(200);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
   });
 });

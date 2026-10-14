@@ -120,6 +120,8 @@ export const AUDIT_VENDOR_ACTIONS = {
   'license.lapsed': { kind: 'system', receipt: false },
   'license.released': { kind: 'aeci-override', receipt: false },
   'license.revoked': { kind: 'aeci-override', receipt: false },
+  // AECI-1353: a license's term moved (the entitlement renewal's dual-write).
+  'license.term_changed': { kind: 'aeci-override', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

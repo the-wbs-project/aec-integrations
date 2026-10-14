@@ -24,6 +24,7 @@ import {
   productVersions,
   taxonomyDataObjects,
   taxonomyTrades,
+  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { auditInsert, type BatchTuple } from '../lib/audit';
@@ -31,6 +32,7 @@ import { productListConfig } from '../lib/drizzle-helpers';
 import {
   endLicensesStatements,
   grantLicensesStatements,
+  licenseTermsForEntitlement,
   loadVendorLicenses,
   type LicenseBatch,
 } from '../lib/license';
@@ -1354,7 +1356,7 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
         ...ctx,
         billingAccountId: 'ba1',
         count: 1,
-        source: 'complimentary',
+        licenseSource: 'complimentary',
         endsAt: '2027-10-14',
       });
       // From the shared pre-read, the end predicts a flip and the grant none.
@@ -1398,6 +1400,107 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
       const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
       expect(vendor!.verified).toBe(false);
       expect(vendor!.updatedAt).toBe(NOW);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+// AECI-1353 (E1.4): the local seed carries the dual-write's state. Every
+// `vendor_entitlements` row in catalog.sql and phase2-fixtures.sql has a billing
+// account and matching licenses, so a fresh local D1 has no vendor whose `verified`
+// disagrees with EXISTS(live license), and re-seeding changes nothing.
+describe('seed files: entitlements, billing accounts and licenses agree (AECI-1353)', () => {
+  async function seeded(): Promise<TestDb> {
+    const t = await makeTestDb();
+    // The `db:seed:local` order, up to the two files that carry entitlements.
+    for (const file of [
+      'taxonomy.sql',
+      'data-objects.sql',
+      'trades.sql',
+      'catalog.sql',
+      'phase2-fixtures.sql',
+    ]) {
+      applySeedFile(t, file);
+    }
+    return t;
+  }
+
+  async function state(t: TestDb) {
+    const [allVendors, ents, accounts, rows] = await Promise.all([
+      t.db.select().from(vendors),
+      t.db.select().from(vendorEntitlements),
+      t.db.select().from(billingAccounts),
+      t.db.select().from(licenses),
+    ]);
+    return { allVendors, ents, accounts, rows };
+  }
+
+  it('gives every entitlement vendor an account and licenses mapped from its row', async () => {
+    const t = await seeded();
+    try {
+      const { ents, accounts, rows } = await state(t);
+      expect(ents.length).toBeGreaterThanOrEqual(5);
+      for (const ent of ents) {
+        const account = accounts.find((a) => a.vendorId === ent.vendorId);
+        expect(account, `no billing account for ${ent.vendorId}`).toBeDefined();
+        const mine = rows.filter((l) => l.billingAccountId === account!.id);
+        const owned = await t.db
+          .select({ productId: productVendors.productId })
+          .from(productVendors)
+          .where(eq(productVendors.vendorId, ent.vendorId));
+        // One per owned product, at least one.
+        expect(mine).toHaveLength(Math.max(1, owned.length));
+        const terms = licenseTermsForEntitlement(ent);
+        for (const l of mine) {
+          expect(l).toMatchObject({
+            source: terms.source,
+            startsAt: terms.startsAt ?? ent.grantedAt,
+            endsAt: terms.endsAt,
+            reference: terms.reference,
+          });
+          if (ent.status === 'active') {
+            expect(l.endedAt).toBeNull();
+          } else {
+            // The revoked row: ended, `revoked`, and it keeps its product (decision 14).
+            expect(l).toMatchObject({ endedAt: ent.endedAt, endReason: 'revoked' });
+            expect(l.assignedProductId).not.toBeNull();
+          }
+        }
+      }
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('leaves no vendor whose verified disagrees with EXISTS(live license)', async () => {
+    const t = await seeded();
+    try {
+      const drift = t.raw
+        .prepare(
+          `SELECT v.slug FROM vendors v
+            WHERE v.verified <> EXISTS (
+              SELECT 1 FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id
+               WHERE b.vendor_id = v.id AND l.ended_at IS NULL)`,
+        )
+        .all();
+      expect(drift).toEqual([]);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('re-applying the seeds is idempotent', async () => {
+    const t = await seeded();
+    try {
+      const before = await state(t);
+      applySeedFile(t, 'catalog.sql');
+      applySeedFile(t, 'phase2-fixtures.sql');
+      const after = await state(t);
+      expect(after.accounts.map((a) => a.id).sort()).toEqual(
+        before.accounts.map((a) => a.id).sort(),
+      );
+      expect(after.rows.map((l) => l.id).sort()).toEqual(before.rows.map((l) => l.id).sort());
     } finally {
       t.dispose();
     }

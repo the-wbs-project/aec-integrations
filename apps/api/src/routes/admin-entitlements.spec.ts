@@ -28,6 +28,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import {
   auditLog,
+  billingAccounts,
+  licenses,
   productVendors,
   products,
   profiles,
@@ -417,7 +419,13 @@ describe('no workflow_instances row', () => {
     // `workflow_instances_type_check` is a CLOSED CHECK; opening it on SQLite is a full
     // table rebuild. §2.1 settles that `audit_log` IS the entitlement ledger.
     expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
-    expect((await t.db.select().from(auditLog)).map((a) => a.action)).toEqual([
+    // AECI-1353: the entitlement ledger is the `vendor_entitlement` rows. The license
+    // dual-write files its own rows under `billing_account` (asserted below).
+    expect(
+      (await t.db.select().from(auditLog))
+        .filter((a) => a.entityType === 'vendor_entitlement')
+        .map((a) => a.action),
+    ).toEqual([
       'vendor_entitlement.set',
       'vendor_entitlement.renewed',
       'vendor_entitlement.cleared',
@@ -561,5 +569,115 @@ describe('authorization', () => {
     const token = await jwks.mintToken({ sub: ADMIN, supabaseUrl: SUPABASE_URL });
     expect((await call(token)).status).toBe(200);
     expect((await readVendor()).verified).toBe(true);
+  });
+});
+
+// ─── The license dual-write (AECI-1353, E1.4) ────────────────────────────────
+
+describe('the license dual-write', () => {
+  const readLicenses = () => t.db.select().from(licenses).orderBy(licenses.assignedProductId);
+
+  /** The issue's AC: after each action the licenses state equals the entitlement state. */
+  async function expectLicensesMatchEntitlement() {
+    const ent = (await readEntitlement())!;
+    const vendor = await readVendor();
+    const live = (await readLicenses()).filter((l) => l.endedAt === null);
+    expect(live.length > 0).toBe(ent.status === 'active');
+    expect(vendor.verified).toBe(live.length > 0);
+    for (const l of live) {
+      expect(l.endsAt).toBe(ent.periodEnd ? new Date(ent.periodEnd).toISOString() : null);
+    }
+  }
+
+  async function seedOwnedProducts() {
+    await t.db.insert(products).values([
+      { id: u(700), slug: 'revit', name: 'Revit' },
+      { id: u(701), slug: 'autocad', name: 'AutoCAD' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: u(700), vendorId: VENDOR, isPrimary: true },
+      { productId: u(701), vendorId: VENDOR, isPrimary: true },
+    ]);
+  }
+
+  it('set, renew and clear on a seeded vendor keep licenses equal to the entitlement', async () => {
+    await seedVendor();
+    await seedOwnedProducts();
+
+    expect(
+      (
+        await patch(VENDOR, {
+          action: 'set',
+          period_end: '2027-09-01',
+          invoice_ref: 'PO-4471',
+          reason: 'Pilot',
+        })
+      ).status,
+    ).toBe(200);
+    const [account] = await t.db.select().from(billingAccounts);
+    expect(account).toMatchObject({ vendorId: VENDOR, name: 'Autodesk, Inc.', createdBy: ADMIN });
+    let rows = await readLicenses();
+    expect(rows.map((l) => l.assignedProductId)).toEqual([u(700), u(701)]);
+    expect(rows[0]).toMatchObject({
+      source: 'invoice',
+      reference: 'PO-4471',
+      endsAt: '2027-09-01T00:00:00.000Z',
+      grantedBy: ADMIN,
+    });
+    await expectLicensesMatchEntitlement();
+
+    expect((await patch(VENDOR, { action: 'renew', period_end: '2028-09-01' })).status).toBe(200);
+    rows = await readLicenses();
+    expect(rows).toHaveLength(2);
+    expect(rows.every((l) => l.endsAt === '2028-09-01T00:00:00.000Z')).toBe(true);
+    await expectLicensesMatchEntitlement();
+
+    expect((await patch(VENDOR, { action: 'clear' })).status).toBe(200);
+    rows = await readLicenses();
+    expect(rows.every((l) => l.endedAt !== null && l.endReason === 'revoked')).toBe(true);
+    await expectLicensesMatchEntitlement();
+
+    // Each license move has its own row under the account (§26.1).
+    expect(
+      (await t.db.select().from(auditLog))
+        .filter((a) => a.entityType === 'billing_account')
+        .map((a) => a.action),
+    ).toEqual([
+      'billing_account.created',
+      'license.granted',
+      'license.granted',
+      'license.term_changed',
+      'license.term_changed',
+      'license.revoked',
+      'license.revoked',
+    ]);
+  });
+
+  it('a set on a vendor that already has an account reuses it', async () => {
+    await seedVendor();
+    await t.db.insert(billingAccounts).values({ id: 'ba-1', vendorId: VENDOR, name: 'Autodesk' });
+    expect((await patch(VENDOR, { action: 'set' })).status).toBe(200);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    const rows = await readLicenses();
+    // No products: one unassigned license. No period_end: open-ended complimentary.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      billingAccountId: 'ba-1',
+      assignedProductId: null,
+      source: 'complimentary',
+      endsAt: null,
+    });
+    await expectLicensesMatchEntitlement();
+  });
+
+  it('forwards the license rows in the same single request as the entitlement row', async () => {
+    const { logBatchToPosthog } = await import('../posthog');
+    vi.mocked(logBatchToPosthog).mockClear();
+    await seedVendor();
+    expect((await patch(VENDOR, { action: 'set' })).status).toBe(200);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
+    // Entitlement + billing account + one license.
+    expect(events.filter((e) => e.message.startsWith('audit '))).toHaveLength(3);
   });
 });

@@ -119,11 +119,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import {
-  ensureBillingAccountStatements,
-  loadBillingAccount,
-  type BillingAccountBefore,
-} from '../lib/billing-account';
+import { ensureBillingAccountStatements, type BillingAccountBefore } from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
@@ -157,7 +153,9 @@ import {
 import {
   activateEntitlementStatements,
   loadEntitlement,
+  loadLicenseDualWrite,
   type EntitlementBefore,
+  type LicenseDualWriteBefore,
 } from '../lib/vendor-entitlement';
 import {
   CLAIM_AUDIT_SOURCE,
@@ -264,6 +262,9 @@ interface ClaimTarget {
   /** Preloaded for the same reason (AECI-1351): a vendor that already has an
    *  account gets no statement and no audit row from `ensureBillingAccountStatements`. */
   billingAccount: BillingAccountBefore | null;
+  /** The license side of the Managed dual-write (AECI-1353). Its `billingAccount` is
+   *  the one above: one read, two consumers. */
+  licenses: LicenseDualWriteBefore;
 }
 
 /**
@@ -307,11 +308,11 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  const [entitlement, billingAccount] = await Promise.all([
+  const [entitlement, licenses] = await Promise.all([
     loadEntitlement(db, vendorId),
-    loadBillingAccount(db, vendorId),
+    loadLicenseDualWrite(db, vendorId),
   ]);
-  return { vendor, entitlement, billingAccount };
+  return { vendor, entitlement, billingAccount: licenses.billingAccount, licenses };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -450,6 +451,7 @@ async function approveClaim(
     vendor,
     entitlement: entitlementBefore,
     billingAccount,
+    licenses,
   } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
@@ -597,18 +599,26 @@ async function approveClaim(
         source: CLAIM_AUDIT_SOURCE,
         reason,
         extraMetadata: { plan },
+        licenses,
+        vendorName: vendor.companyName,
       });
 
   // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2), on Free and
   // Managed alike. A vendor that already has one gets the frozen no-op: no statement,
   // no audit row, and nothing that names `vendors`, so a second seat leaves
   // `vendors.updated_at` alone.
+  //
+  // AECI-1353: a Managed grant's dual-write already ensures the account (the license
+  // INSERTs need it first). The account it creates counts as existing here, so the
+  // batch carries exactly one account INSERT. When the activate is a no-op (second
+  // seat on an active vendor), this call still creates a missing account.
+  const createdByEntitlement = ent?.billingAccountCreatedId ?? null;
   const account = ensureBillingAccountStatements(db, {
     vendorId: vendor.id,
     name: vendor.companyName,
     createdBy: actorId,
     actorType,
-    existing: billingAccount,
+    existing: billingAccount ?? (createdByEntitlement ? { id: createdByEntitlement } : null),
     now: resolvedAt,
     vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
     source: CLAIM_AUDIT_SOURCE,
@@ -616,8 +626,8 @@ async function approveClaim(
   });
 
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
-  // the mirror flip, the billing account and every audit row commit or roll back
-  // together (§26.1).
+  // the mirror flip, the billing account, the Managed licenses (AECI-1353) and every
+  // audit row commit or roll back together (§26.1).
   // AECI-989: a new active seat returns the contests a ban moved to AECi.
   // A Managed grant activates the entitlement in this same batch, which the return's
   // pre-batch read cannot see (AECI-1092 reconciliation), so it says so. A Free grant
@@ -701,7 +711,14 @@ async function approveClaim(
   // `account.auditEntry`, null when the vendor already had a billing account.
   forwardAuditBatch(
     c,
-    [grant.auditEntry, ent?.auditEntry ?? null, account.auditEntry, ...(returned?.audits ?? [])],
+    [
+      grant.auditEntry,
+      ent?.auditEntry ?? null,
+      // AECI-1353: the Managed dual-write's account and license rows.
+      ...(ent?.licenseAuditEntries ?? []),
+      account.auditEntry,
+      ...(returned?.audits ?? []),
+    ],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
 

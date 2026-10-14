@@ -171,11 +171,22 @@ auditInsert(…)
 
 Row 2 is the critical one: emitting an INSERT there would violate `vendor_entitlements_vendor_key` and **roll back the entire seat grant**. Preloading and emitting nothing is what keeps the existing assertions passing byte-for-byte.
 
+**The license dual-write (AECI-1353, E1.4 of `docs/VENDOR_SIGNUP_PROCESS.md` §5).** Until E1.6 moves plan resolution onto licenses, `vendor_entitlements` stays the readers' truth and `billing_accounts` + `licenses` must match it. Each builder appends the matching `lib/license.ts` batch after its own statements and audit row, in the same `db.batch`:
+
+| Builder | License side |
+|---|---|
+| Activate | Ensure the billing account; grant one license per owned product, or one unassigned license when it owns none. A vendor that already holds live licenses has them re-termed instead; never a second grant. |
+| Renew | Re-term the live licenses: `ends_at`, `source` and `reference` from the row as it stands after the patch. |
+| Deactivate | End the live licenses: `revoked` → `end_reason = 'revoked'`, `expired` → `'lapsed'`. |
+| Second seat (row 2) | Nothing, on either side. |
+
+The term follows the 2026-10-14 mapping rule (`licenseTermsForEntitlement`). `period_end` NULL is `complimentary` and open-ended, whatever `invoice_ref` or `amount` say. Otherwise the source is `invoice` when `invoice_ref` or `amount` is set, else `complimentary`, and `ends_at = period_end`. A grant's `starts_at` is `period_start` when set, else the grant time; a re-term never moves it. The builders take a second pre-read, `loadLicenseDualWrite`. Every license batch ends with `reconcileVerifiedMirror` (`verified = EXISTS(live license)`). It runs after the guarded flip above, and both converge on the same value, so the reconcile matches no row and `updated_at` still moves once, with the bit. The license rows carry their own audit rows under `entity_type = 'billing_account'` (`DATABASE_SCHEMA.md` §8.6c), forwarded with the entitlement row. On the claim path the activate's dual-write creates the billing account, and the route's own `ensureBillingAccountStatements` treats it as existing, so one batch carries one account INSERT.
+
 ### 2.4 Backfill, seeds, and the pre-existing `verified = true` rows
 
 Rows already `verified = 1` from the Airtable/claim era violate the mirror the moment §2 lands. Three separate deliverables:
 
-1. **Seeds** (`apps/api/seed/phase2-fixtures.sql`, `catalog.sql`) gain matching `vendor_entitlements` rows. Seed **three states deliberately**: one `active` with a far-future `period_end`, one `active` with a near `period_end` (so the §7 cron has something to bite on locally), one `revoked` (so the §8 downgraded read-only dashboard is demoable without hand-editing D1). The `…0061` fixture vendor is the `/vendor` e2e persona's anchor and **must** get the far-future active row or `vendor-dashboard.spec.ts` breaks once §4 lands.
+1. **Seeds** (`apps/api/seed/phase2-fixtures.sql`, `catalog.sql`) gain matching `vendor_entitlements` rows. Seed **three states deliberately**: one `active` with a far-future `period_end`, one `active` with a near `period_end` (so the §7 cron has something to bite on locally), one `revoked` (so the §8 downgraded read-only dashboard is demoable without hand-editing D1). The `…0061` fixture vendor is the `/vendor` e2e persona's anchor and **must** get the far-future active row or `vendor-dashboard.spec.ts` breaks once §4 lands. Since AECI-1353 both files also seed a billing account and the matching licenses for every entitlement row (the revoked one as an ended license, `end_reason = 'revoked'`), so a fresh local D1 has no vendor whose `verified` disagrees with its live licenses (`d1.spec.ts`).
 2. **Backfill for staging / demo / production** — for every `vendors.verified = 1` with no entitlement row, insert `{ tier: 'verified', status: 'active', period_start: null, period_end: null, granted_by: null, notes: 'backfilled at AECI-515 §2 — pre-entitlement Airtable/claim-era verification' }`. Perpetual and termless, so the partial expiry index ignores them entirely. **This is a script under `apps/api/scripts/`, run explicitly per environment — not appended to the migration.** `docs/migrations.md` (~:128, ~:249) is explicit: keep migrations declarative; one-off data backfills are scripts.
 3. **The drift check is the proof it landed.** Do not ship §2 without Guard 2 — "the backfill ran on staging but not demo" is otherwise invisible until someone notices by hand. (This said "a missing badge" until AECI-1264 removed the badge on 2026-10-09.)
 

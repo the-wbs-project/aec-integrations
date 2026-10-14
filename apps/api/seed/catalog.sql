@@ -74,6 +74,23 @@ ON CONFLICT ("vendor_id") DO UPDATE SET
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- ---------------------------------------------------------------------------
+-- Billing accounts (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1)
+-- ---------------------------------------------------------------------------
+-- One per vendor with an entitlement row above (and so every vendor the local seat
+-- scripts seat: `db:grant-vendor:local` defaults to autodesk). Until the E1.6
+-- switch-over the licenses below must say what the entitlement rows say, because
+-- `vendors.verified` mirrors both. Idempotent: a vendor that already has an account
+-- (made by a local claim approval, with a random id) keeps it, and the licenses
+-- below find it by vendor, not by these ids. `created_by` is NULL for the same
+-- reason `granted_by` is: no `profiles` row exists yet.
+INSERT INTO "billing_accounts" ("id","vendor_id","name","billing_email","created_by","created_at","updated_at") VALUES
+  ('ba000000-0000-4000-8000-000000000001','a0000000-0000-4000-8000-000000000001','Autodesk',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ba000000-0000-4000-8000-000000000002','a0000000-0000-4000-8000-000000000002','Procore Technologies',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ba000000-0000-4000-8000-000000000003','a0000000-0000-4000-8000-000000000003','Bluebeam',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ba000000-0000-4000-8000-000000000004','a0000000-0000-4000-8000-000000000004','Trimble',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- Products (promoted)
 -- ---------------------------------------------------------------------------
 INSERT INTO "products" ("id","slug","name","description","website","product_role","has_api_docs","integration_count","review_count","research_status","promotion_status","created_at","updated_at") VALUES
@@ -106,6 +123,42 @@ INSERT INTO "product_vendors" ("product_id","vendor_id","is_primary","created_at
   ('b0000000-0000-4000-8000-000000000006','a0000000-0000-4000-8000-000000000004',1, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('b0000000-0000-4000-8000-000000000007','a0000000-0000-4000-8000-000000000005',1, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('b0000000-0000-4000-8000-000000000008','a0000000-0000-4000-8000-000000000006',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Licenses (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1)
+-- ---------------------------------------------------------------------------
+-- The entitlement rows above, as licenses: one per owned product (autodesk owns
+-- three), mapped by the 2026-10-14 rule (`licenseTermsForEntitlement`,
+-- `lib/license.ts`). Every row has a `period_end` and an `invoice_ref`, so every
+-- license is `invoice`, `ends_at` = `period_end`, `reference` = `invoice_ref`. The
+-- dates are read FROM the entitlement row, not recomputed, so the two cannot drift
+-- by the milliseconds between two `strftime('now')` calls. `starts_at` is the row's
+-- `period_start` (every row has one) and `assigned_at` its `granted_at`, as the
+-- dual-write stamps them. bluebeam's row is
+-- `revoked`, so its license is ended with `end_reason = 'revoked'` at the row's
+-- `ended_at`, and keeps its product (decision 14, the hand-back).
+--
+-- `vendors.verified` above already agrees: true IFF a live license exists here.
+-- Idempotent on the license id: a re-seed refreshes the term with the entitlement
+-- upsert. A license the local app already put on one of these products under
+-- another id makes the insert a no-op (the trailing DO NOTHING), never an error.
+INSERT INTO "licenses"
+  ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","created_at","updated_at") VALUES
+  ('ac000000-0000-4000-8000-000000000001',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000001',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000002',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000002',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000003',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000003',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000004',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),'b0000000-0000-4000-8000-000000000004',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000005',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),(SELECT "ended_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'revoked',(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'b0000000-0000-4000-8000-000000000005',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000006',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),'b0000000-0000-4000-8000-000000000006',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO UPDATE SET
+  "source" = excluded."source",
+  "starts_at" = excluded."starts_at",
+  "ends_at" = excluded."ends_at",
+  "ended_at" = excluded."ended_at",
+  "end_reason" = excluded."end_reason",
+  "reference" = excluded."reference",
+  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now')
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------

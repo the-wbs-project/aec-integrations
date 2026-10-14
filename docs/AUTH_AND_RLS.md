@@ -224,7 +224,8 @@ that also backs production. That is the accepted ADR-0017 cost, and it is why lo
 (`lib/vendor-grant.ts`) upserts the `profiles` seat, resolves the request, advances the
 `vendor_claim` workflow and writes its `audit_log` row, and — since AECI-612 —
 `activateEntitlementStatements` (`lib/vendor-entitlement.ts`) contributes the entitlement row
-and the `vendors.verified` flip into the **same** batch (§4.3).
+and the `vendors.verified` flip into the **same** batch (§4.3). Since AECI-1353 it also
+contributes the billing account and the vendor's licenses (`DATABASE_SCHEMA.md` §8.6c).
 
 **Since AECI-740 there is a SECOND grant path, and its defining property is what it omits.**
 `POST /api/admin/vendors/:id/seats` writes the seat — `role`, `vendor_id`, `seat_owner` — and

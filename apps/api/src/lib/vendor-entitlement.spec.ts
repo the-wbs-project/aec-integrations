@@ -23,15 +23,26 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, profiles, vendorEntitlements, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  licenses,
+  productVendors,
+  products,
+  profiles,
+  vendorEntitlements,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
 import {
   activateEntitlementStatements,
   deactivateEntitlementStatements,
   loadEntitlement,
+  loadLicenseDualWrite,
   renewEntitlementStatements,
   type EntitlementBefore,
+  type LicenseDualWriteBefore,
 } from './vendor-entitlement';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -82,8 +93,22 @@ const entitlementOf = async () =>
     await t.db.select().from(vendorEntitlements).where(eq(vendorEntitlements.vendorId, VENDOR_ID))
   )[0];
 const audits = async () => t.db.select().from(auditLog);
+/** The entitlement ledger only: the dual-write adds `billing_account` rows (AECI-1353). */
+const entitlementAudits = async () =>
+  (await audits()).filter((a) => a.entityType === 'vendor_entitlement');
 
-const activateArgs = (existing: EntitlementBefore | null, vendorWasVerified: boolean) => ({
+/** The license-side pre-read of a vendor with no account, no license, no product. */
+const NO_LICENSES: LicenseDualWriteBefore = {
+  billingAccount: null,
+  vendorLicenses: [],
+  ownedProducts: [],
+};
+
+const activateArgs = (
+  existing: EntitlementBefore | null,
+  vendorWasVerified: boolean,
+  licenses: LicenseDualWriteBefore = NO_LICENSES,
+) => ({
   vendorId: VENDOR_ID,
   tier: 'verified',
   now: NOW,
@@ -92,9 +117,15 @@ const activateArgs = (existing: EntitlementBefore | null, vendorWasVerified: boo
   existing,
   vendorWasVerified,
   grantedBy: ADMIN_ID,
+  licenses,
+  vendorName: 'Autodesk',
 });
 
-const deactivateArgs = (existing: EntitlementBefore | null, vendorWasVerified: boolean) => ({
+const deactivateArgs = (
+  existing: EntitlementBefore | null,
+  vendorWasVerified: boolean,
+  licenses: LicenseDualWriteBefore = NO_LICENSES,
+) => ({
   vendorId: VENDOR_ID,
   terminal: 'revoked' as const,
   now: NOW,
@@ -102,6 +133,7 @@ const deactivateArgs = (existing: EntitlementBefore | null, vendorWasVerified: b
   actorType: 'admin' as const,
   existing,
   vendorWasVerified,
+  licenses,
 });
 
 // ─── loadEntitlement ─────────────────────────────────────────────────────────
@@ -157,7 +189,7 @@ describe('activateEntitlementStatements — the §2.3 matrix', () => {
     expect(vendor!.verified).toBe(true);
     expect(vendor!.updatedAt).toBe(NOW);
 
-    const rows = await audits();
+    const rows = await entitlementAudits();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.action).toBe('vendor_entitlement.set');
     expect(rows[0]!.entityType).toBe('vendor_entitlement');
@@ -379,6 +411,9 @@ describe('R2 — vendors.updated_at moves iff vendors.verified moves', () => {
 
 describe('the mirror invariant — never one side of the iff without the other', () => {
   it('every non-empty batch carries an entitlement statement, a vendors statement, and an audit row', () => {
+    // AECI-1353: the three lead every batch; the dual-write's license statements follow.
+    const sqlOf = (stmt: BatchStmt) =>
+      (stmt as unknown as { toSQL(): { sql: string } }).toSQL().sql;
     for (const batch of [
       activateEntitlementStatements(t.db, activateArgs(null, false)),
       activateEntitlementStatements(
@@ -390,7 +425,10 @@ describe('the mirror invariant — never one side of the iff without the other',
         deactivateArgs({ id: 'e1', tier: 'verified', status: 'active', periodEnd: null }, true),
       ),
     ]) {
-      expect(batch.stmts).toHaveLength(3);
+      const [entitlement, mirror, audit] = batch.stmts.map(sqlOf);
+      expect(entitlement).toMatch(/^(insert into|update) "vendor_entitlements"/i);
+      expect(mirror).toMatch(/^update "vendors" set "verified" = \?/i);
+      expect(audit).toMatch(/^insert into "audit_log"/i);
       expect(batch.auditEntry).not.toBeNull();
     }
   });
@@ -417,12 +455,16 @@ describe('renewEntitlementStatements', () => {
     periodEnd: '2026-09-01',
   };
 
-  const renewArgs = (existing: EntitlementBefore | null) => ({
+  const renewArgs = (
+    existing: EntitlementBefore | null,
+    licenses: LicenseDualWriteBefore = NO_LICENSES,
+  ) => ({
     vendorId: VENDOR_ID,
     now: NOW,
     actorId: ADMIN_ID,
     actorType: 'admin' as const,
     existing,
+    licenses,
   });
 
   /** Patch columns the shared `seedEntitlement` helper does not take. */
@@ -510,3 +552,311 @@ describe('renewEntitlementStatements', () => {
     ).toBeNull();
   });
 });
+
+// ─── The dual-write (AECI-1353, E1.4) ────────────────────────────────────────
+
+describe('the license dual-write', () => {
+  const P1 = 'p-1';
+  const P2 = 'p-2';
+  const OTHER_VENDOR_ID = '33333333-3333-4333-8333-333333333333';
+
+  async function seedProducts(...ids: string[]) {
+    for (const id of ids) {
+      await t.db.insert(products).values({ id, slug: id, name: id, promotionStatus: 'promoted' });
+      await t.db.insert(productVendors).values({ productId: id, vendorId: VENDOR_ID });
+    }
+  }
+
+  const licensesOf = async () => t.db.select().from(licenses).orderBy(licenses.assignedProductId);
+  const preRead = () => loadLicenseDualWrite(t.db, VENDOR_ID);
+  const run = async (stmts: BatchStmt[]) => {
+    if (stmts.length > 0) await t.db.batch(stmts as BatchTuple);
+  };
+
+  /** AC 1: the licenses say what the entitlement row says. */
+  async function expectLicensesMatchEntitlement() {
+    const ent = (await entitlementOf())!;
+    const vendor = (await vendorOf())!;
+    const rows = await licensesOf();
+    const live = rows.filter((l) => l.endedAt === null);
+    expect(live.length > 0).toBe(ent.status === 'active');
+    expect(vendor.verified).toBe(live.length > 0);
+    for (const l of live) {
+      expect(l.endsAt).toBe(ent.periodEnd ? new Date(ent.periodEnd).toISOString() : null);
+    }
+  }
+
+  it('activate creates the account and one license per owned product, mapped from the row', async () => {
+    await seedVendor({ verified: false, updatedAt: OLD_TS });
+    await seedAdmin();
+    await seedProducts(P1, P2);
+
+    const batch = activateEntitlementStatements(t.db, {
+      ...activateArgs(null, false, await preRead()),
+      arrangement: { invoice_ref: 'PO-7', period_end: '2027-09-01' },
+    });
+    await run(batch.stmts);
+
+    const [account] = await t.db.select().from(billingAccounts);
+    expect(account).toMatchObject({ vendorId: VENDOR_ID, name: 'Autodesk', createdBy: ADMIN_ID });
+    expect(batch.billingAccountCreatedId).toBe(account!.id);
+
+    const rows = await licensesOf();
+    expect(rows).toHaveLength(2);
+    for (const [i, row] of rows.entries()) {
+      expect(row).toMatchObject({
+        billingAccountId: account!.id,
+        source: 'invoice',
+        startsAt: NOW,
+        endsAt: '2027-09-01T00:00:00.000Z',
+        endedAt: null,
+        reference: 'PO-7',
+        grantedBy: ADMIN_ID,
+        assignedProductId: [P1, P2][i],
+        assignedAt: NOW,
+      });
+    }
+
+    // The flip moved the bit and `updated_at` once; the reconcile agreed (R2).
+    expect(await vendorOf()).toMatchObject({ verified: true, updatedAt: NOW });
+
+    // Entitlement row first, then the account, then one row per license.
+    expect((await audits()).map((a) => a.action)).toEqual([
+      'vendor_entitlement.set',
+      'billing_account.created',
+      'license.granted',
+      'license.granted',
+    ]);
+    expect(batch.licenseAuditEntries.map((e) => e.action)).toEqual([
+      'billing_account.created',
+      'license.granted',
+      'license.granted',
+    ]);
+    // The grant rows carry the entitlement row's audit tag, not the license source.
+    expect(batch.licenseAuditEntries[1]!.metadata).toMatchObject({
+      dual_write: 'vendor_entitlement',
+      source: 'admin-entitlement',
+    });
+    expect(batch.licenseAuditEntries[0]!.metadata).toMatchObject({ source: 'admin-entitlement' });
+    await expectLicensesMatchEntitlement();
+  });
+
+  it('a vendor with no products gets one unassigned license; period_end NULL is open-ended complimentary', async () => {
+    await seedVendor();
+    await seedAdmin();
+    await t.db.insert(billingAccounts).values({ id: 'ba-1', vendorId: VENDOR_ID, name: 'A' });
+
+    const batch = activateEntitlementStatements(t.db, {
+      ...activateArgs(null, false, await preRead()),
+      // The 2026-10-14 ruling: no end date wins over the invoice fields.
+      arrangement: { invoice_ref: 'PO-1', amount: 'USD 5,000' },
+    });
+    await run(batch.stmts);
+
+    // The account already existed: no second INSERT, no account audit row.
+    expect(batch.billingAccountCreatedId).toBeNull();
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    const rows = await licensesOf();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      billingAccountId: 'ba-1',
+      source: 'complimentary',
+      endsAt: null,
+      reference: 'PO-1',
+      assignedProductId: null,
+    });
+    await expectLicensesMatchEntitlement();
+  });
+
+  it('a product another vendor already licenses stays unassigned instead of failing the batch', async () => {
+    await seedVendor();
+    await seedAdmin();
+    await seedProducts(P1);
+    await t.db.insert(vendors).values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'O' });
+    await t.db.insert(billingAccounts).values({ id: 'ba-x', vendorId: OTHER_VENDOR_ID, name: 'O' });
+    await t.db.insert(licenses).values({
+      id: 'l-x',
+      billingAccountId: 'ba-x',
+      source: 'complimentary',
+      startsAt: OLD_TS,
+      assignedProductId: P1,
+      assignedAt: OLD_TS,
+    });
+
+    await run(
+      activateEntitlementStatements(t.db, activateArgs(null, false, await preRead())).stmts,
+    );
+
+    const mine = (await licensesOf()).filter((l) => l.id !== 'l-x');
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.assignedProductId).toBeNull();
+    expect((await vendorOf())!.verified).toBe(true);
+  });
+
+  it('a reactivation over live licenses re-terms them and never grants a second set', async () => {
+    await seedVendor();
+    await seedAdmin();
+    await seedProducts(P1);
+    await seedEntitlement('revoked');
+    await t.db.insert(billingAccounts).values({ id: 'ba-1', vendorId: VENDOR_ID, name: 'A' });
+    await t.db.insert(licenses).values({
+      id: 'l-1',
+      billingAccountId: 'ba-1',
+      source: 'complimentary',
+      startsAt: OLD_TS,
+      endsAt: '2026-01-01T00:00:00.000Z',
+      assignedProductId: P1,
+      assignedAt: OLD_TS,
+    });
+
+    const batch = activateEntitlementStatements(t.db, {
+      ...activateArgs(await loadEntitlement(t.db, VENDOR_ID), false, await preRead()),
+      arrangement: { period_end: '2028-01-01', amount: 'USD 1' },
+    });
+    await run(batch.stmts);
+
+    const rows = await licensesOf();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'l-1',
+      source: 'invoice',
+      endsAt: '2028-01-01T00:00:00.000Z',
+    });
+    expect(batch.licenseAuditEntries.map((e) => e.action)).toEqual(['license.term_changed']);
+    await expectLicensesMatchEntitlement();
+  });
+
+  it('a grant starts at period_start when the row has one; a re-term never moves it', async () => {
+    await seedVendor();
+    await seedAdmin();
+    await run(
+      activateEntitlementStatements(t.db, {
+        ...activateArgs(null, false, await preRead()),
+        arrangement: { period_start: '2026-09-01', period_end: '2027-09-01' },
+      }).stmts,
+    );
+    expect((await licensesOf())[0]!.startsAt).toBe('2026-09-01T00:00:00.000Z');
+
+    await run(
+      renewEntitlementStatements(t.db, {
+        vendorId: VENDOR_ID,
+        now: LATER,
+        actorId: ADMIN_ID,
+        actorType: 'admin',
+        existing: await loadEntitlement(t.db, VENDOR_ID),
+        arrangement: { period_start: '2027-09-01', period_end: '2028-09-01' },
+        licenses: await preRead(),
+      }).stmts,
+    );
+    expect(await licensesOf()).toEqual([
+      expect.objectContaining({
+        startsAt: '2026-09-01T00:00:00.000Z',
+        endsAt: '2028-09-01T00:00:00.000Z',
+      }),
+    ]);
+  });
+
+  it('the second-seat no-op is a no-op on the license side too', async () => {
+    await seedVendor({ verified: true });
+    await seedEntitlement('active');
+    const batch = activateEntitlementStatements(
+      t.db,
+      activateArgs(await loadEntitlement(t.db, VENDOR_ID), true, await preRead()),
+    );
+    expect(batch.stmts).toHaveLength(0);
+    expect(batch.licenseAuditEntries).toHaveLength(0);
+    expect(batch.billingAccountCreatedId).toBeNull();
+  });
+
+  it('renew moves ends_at on the live licenses without moving vendors.updated_at', async () => {
+    await seedVendor();
+    await seedAdmin();
+    await seedProducts(P1);
+    await run(
+      activateEntitlementStatements(t.db, {
+        ...activateArgs(null, false, await preRead()),
+        arrangement: { invoice_ref: 'PO-1', period_end: '2027-01-01' },
+      }).stmts,
+    );
+    await t.db.update(vendors).set({ updatedAt: OLD_TS }).where(eq(vendors.id, VENDOR_ID));
+
+    const batch = renewEntitlementStatements(t.db, {
+      vendorId: VENDOR_ID,
+      now: LATER,
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      existing: await loadEntitlement(t.db, VENDOR_ID),
+      arrangement: { period_end: '2028-01-01' },
+      licenses: await preRead(),
+    });
+    await run(batch.stmts);
+
+    const [license] = await licensesOf();
+    // The invoice ref recorded at grant time still drives the source and reference.
+    expect(license).toMatchObject({
+      source: 'invoice',
+      reference: 'PO-1',
+      endsAt: '2028-01-01T00:00:00.000Z',
+      updatedAt: LATER,
+    });
+    expect(batch.licenseAuditEntries.map((e) => e.action)).toEqual(['license.term_changed']);
+    expect(batch.licenseAuditEntries[0]!.metadata).toMatchObject({
+      source: 'admin-entitlement',
+      dual_write: 'vendor_entitlement',
+    });
+    expect(await vendorOf()).toMatchObject({ verified: true, updatedAt: OLD_TS });
+    await expectLicensesMatchEntitlement();
+  });
+
+  it.each([
+    ['revoked', 'revoked'],
+    ['expired', 'lapsed'],
+  ] as const)(
+    'deactivate %s ends every live license as %s; flip and reconcile converge on false',
+    async (terminal, endReason) => {
+      await seedVendor();
+      await seedAdmin();
+      await seedProducts(P1, P2);
+      await run(
+        activateEntitlementStatements(t.db, activateArgs(null, false, await preRead())).stmts,
+      );
+      await t.db.update(vendors).set({ updatedAt: OLD_TS }).where(eq(vendors.id, VENDOR_ID));
+
+      const batch = deactivateEntitlementStatements(t.db, {
+        ...deactivateArgs(await loadEntitlement(t.db, VENDOR_ID), true, await preRead()),
+        terminal,
+        now: LATER,
+      });
+      await run(batch.stmts);
+
+      const rows = await licensesOf();
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        // Hand-back: an ended license keeps its product (decision 14).
+        expect(row).toMatchObject({ endedAt: LATER, endReason });
+        expect(row.assignedProductId).not.toBeNull();
+      }
+      expect(await vendorOf()).toMatchObject({ verified: false, updatedAt: LATER });
+      expect(batch.licenseAuditEntries.map((e) => e.action)).toEqual([
+        `license.${endReason}`,
+        `license.${endReason}`,
+      ]);
+      await expectLicensesMatchEntitlement();
+    },
+  );
+
+  it('the guarded flip runs before the reconcile in every builder', async () => {
+    await seedVendor();
+    await seedAdmin();
+    const sqlOf = (stmt: BatchStmt) =>
+      (stmt as unknown as { toSQL(): { sql: string } }).toSQL().sql;
+    const batch = activateEntitlementStatements(t.db, activateArgs(null, false));
+    const vendorStmts = batch.stmts.map(sqlOf).filter((q) => /^update "vendors"/i.test(q));
+    expect(vendorStmts).toHaveLength(2);
+    expect(vendorStmts[0]).toMatch(/"verified" = \?, "updated_at" = \?/i);
+    expect(vendorStmts[1]).toMatch(/"verified" = exists \(/i);
+    expect(sqlOf(batch.stmts.at(-1)!)).toBe(vendorStmts[1]);
+  });
+});
+
+const LATER = '2026-08-15T12:00:00.000Z';

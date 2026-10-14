@@ -101,6 +101,35 @@ INSERT INTO "product_vendors" ("product_id","vendor_id","is_primary","created_at
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
+-- Billing account + license (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1) — the
+-- entitlement row above, as a license. Until the E1.6 switch-over the license must
+-- say what the entitlement says, or `vendors.verified` (true here) disagrees with
+-- EXISTS(live license). The vendor owns one product, so one license, assigned to
+-- it. Mapped by the 2026-10-14 rule: a dated row with an invoice ref is `invoice`,
+-- `ends_at` = `period_end`, `starts_at` = `period_start`. Dates are read from the
+-- entitlement row so the two
+-- cannot drift. Idempotent: the account no-ops on its vendor, the license refreshes
+-- its term on its id, and a license the local app already put on the product makes
+-- the insert a no-op. `created_by` / `granted_by` are NULL: no `profiles` row yet.
+-- ---------------------------------------------------------------------------
+INSERT INTO "billing_accounts" ("id","vendor_id","name","billing_email","created_by","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000081','00000000-0000-4000-8000-000000000061','Fixture Procore Technologies',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT DO NOTHING;
+
+INSERT INTO "licenses"
+  ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000082',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),'00000000-0000-4000-8000-000000000062',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO UPDATE SET
+  "source" = excluded."source",
+  "starts_at" = excluded."starts_at",
+  "ends_at" = excluded."ends_at",
+  "ended_at" = excluded."ended_at",
+  "end_reason" = excluded."end_reason",
+  "reference" = excluded."reference",
+  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- Taxonomy links — primary product tagged with one existing term per facet, so
 -- the category / audience / phase BROWSE pages each render a product card. The
 -- SELECT form no-ops if a referenced term is missing (taxonomy not yet seeded).

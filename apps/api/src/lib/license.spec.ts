@@ -17,16 +17,27 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, products, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  licenses,
+  productVendors,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
 import {
   assignLicenseStatements,
   endLicensesStatements,
   grantLicensesStatements,
+  licenseTermsForEntitlement,
+  loadOwnedProductLicenseState,
   loadVendorLicenses,
   reconcileVerifiedMirror,
   setCancelAtTermEndStatements,
+  setLicensesTermStatements,
   setReleaseAtRenewalStatements,
   toIsoTimestamp,
   unassignLicenseStatements,
@@ -144,7 +155,7 @@ describe('grantLicensesStatements', () => {
       ...(await ctx()),
       billingAccountId: ACCOUNT_ID,
       count: 2,
-      source: 'invoice',
+      licenseSource: 'invoice',
       startsAt: '2026-10-14',
       endsAt: '2027-10-14',
       reference: 'PO-123',
@@ -203,7 +214,7 @@ describe('grantLicensesStatements', () => {
         ...(await ctx()),
         billingAccountId: ACCOUNT_ID,
         count: 1,
-        source: 'stripe',
+        licenseSource: 'stripe',
         endsAt: null,
         stripeSubscriptionId: 'sub_1',
         licenseIds: ['l-m'],
@@ -218,17 +229,22 @@ describe('grantLicensesStatements', () => {
 
   it('count 0 is the frozen no-op; a bad source or count throws', async () => {
     const base = { ...(await ctx()), billingAccountId: ACCOUNT_ID, endsAt: null };
-    expect(grantLicensesStatements(t.db, { ...base, count: 0, source: 'stripe' }).stmts).toEqual(
-      [],
-    );
+    expect(
+      grantLicensesStatements(t.db, { ...base, count: 0, licenseSource: 'stripe' }).stmts,
+    ).toEqual([]);
     expect(() =>
-      grantLicensesStatements(t.db, { ...base, count: 1, source: 'gift' as 'stripe' }),
+      grantLicensesStatements(t.db, { ...base, count: 1, licenseSource: 'gift' as 'stripe' }),
     ).toThrow(RangeError);
-    expect(() => grantLicensesStatements(t.db, { ...base, count: 1.5, source: 'stripe' })).toThrow(
-      RangeError,
-    );
     expect(() =>
-      grantLicensesStatements(t.db, { ...base, count: 1, source: 'stripe', productIds: [P1, P2] }),
+      grantLicensesStatements(t.db, { ...base, count: 1.5, licenseSource: 'stripe' }),
+    ).toThrow(RangeError);
+    expect(() =>
+      grantLicensesStatements(t.db, {
+        ...base,
+        count: 1,
+        licenseSource: 'stripe',
+        productIds: [P1, P2],
+      }),
     ).toThrow(RangeError);
   });
 
@@ -239,7 +255,7 @@ describe('grantLicensesStatements', () => {
       ...(await ctx()),
       billingAccountId: ACCOUNT_ID,
       count: 1,
-      source: 'complimentary',
+      licenseSource: 'complimentary',
       endsAt: '2027-01-31',
     });
     expect(batch.verifiedFlipped).toBe(false);
@@ -254,6 +270,36 @@ describe('grantLicensesStatements', () => {
 });
 
 // ─── Assign / unassign ───────────────────────────────────────────────────────
+
+describe('grantLicensesStatements — the audit tag', () => {
+  it("records the caller's `source` tag in metadata, apart from the license source", async () => {
+    const batch = grantLicensesStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      count: 1,
+      licenseSource: 'invoice',
+      endsAt: null,
+      source: 'admin-entitlement',
+    });
+    await run(batch);
+    const [row] = await audits();
+    expect(row!.metadata).toMatchObject({ source: 'admin-entitlement' });
+    expect((await t.db.select().from(licenses))[0]!.source).toBe('invoice');
+  });
+
+  it('defaults the audit tag to admin-license when the caller passes none', async () => {
+    await run(
+      grantLicensesStatements(t.db, {
+        ...(await ctx()),
+        billingAccountId: ACCOUNT_ID,
+        count: 1,
+        licenseSource: 'stripe',
+        endsAt: null,
+      }),
+    );
+    expect((await audits())[0]!.metadata).toMatchObject({ source: 'admin-license' });
+  });
+});
 
 describe('assignLicenseStatements', () => {
   it('puts a live unassigned license on a product and audits the product', async () => {
@@ -479,7 +525,7 @@ describe('endLicensesStatements', () => {
       ...next,
       billingAccountId: ACCOUNT_ID,
       count: 1,
-      source: 'complimentary',
+      licenseSource: 'complimentary',
       endsAt: null,
     });
     expect(later.auditEntries[0]!.vendorPlan).toEqual({ tier: 'verified', status: 'revoked' });
@@ -530,7 +576,7 @@ describe('the mirror reconcile', () => {
         ...c,
         billingAccountId: ACCOUNT_ID,
         count: 1,
-        source: 'complimentary',
+        licenseSource: 'complimentary',
         endsAt: null,
       }),
       assignLicenseStatements(t.db, { ...c, licenseId: 'l-free', productId: P2 }),
@@ -542,6 +588,8 @@ describe('the mirror reconcile', () => {
         target: { licenseIds: ['l-held'] },
         endReason: 'lapsed',
       }),
+      // AECI-1353.
+      setLicensesTermStatements(t.db, { ...c, licenseIds: ['l-held'], endsAt: '2028-01-01' }),
     ];
   }
 
@@ -577,7 +625,7 @@ describe('the mirror reconcile', () => {
         ...c,
         billingAccountId: ACCOUNT_ID,
         count: 0,
-        source: 'stripe',
+        licenseSource: 'stripe',
         endsAt: null,
       }),
       assignLicenseStatements(t.db, { ...c, licenseId: 'l-ended', productId: P1 }),
@@ -589,6 +637,8 @@ describe('the mirror reconcile', () => {
         target: { licenseIds: ['l-ended'] },
         endReason: 'lapsed',
       }),
+      // AECI-1353.
+      setLicensesTermStatements(t.db, { ...c, licenseIds: ['l-ended'], endsAt: null }),
     ];
     for (const batch of noOps) {
       expect(batch).toBe(noOps[0]);
@@ -624,11 +674,169 @@ describe('the mirror reconcile', () => {
         ...(await ctx()),
         billingAccountId: ACCOUNT_ID,
         count: 1,
-        source: 'complimentary',
+        licenseSource: 'complimentary',
         endsAt: null,
       }),
     );
     expect((await vendorOf(OTHER_VENDOR_ID)).verified).toBe(false);
+  });
+});
+
+// ─── Term (AECI-1353) ────────────────────────────────────────────────────────
+
+describe('setLicensesTermStatements', () => {
+  it('moves ends_at, source and reference on live licenses, one audit row each', async () => {
+    await setVerified(true);
+    await seedLicense('l-1', { expiryNoticeSentAt: OLD_TS, reference: 'PO-1' });
+    await seedLicense('l-2', { assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-ended', { endedAt: OLD_TS });
+
+    const batch = setLicensesTermStatements(t.db, {
+      ...(await ctx()),
+      licenseIds: ['l-1', 'l-2', 'l-ended', 'l-1'],
+      endsAt: '2028-01-31',
+      licenseSource: 'invoice',
+      reference: 'PO-2',
+      source: 'admin-entitlement',
+    });
+    await run(batch);
+
+    expect(batch.auditEntries).toHaveLength(2);
+    expect(batch.verifiedFlipped).toBe(false);
+    for (const id of ['l-1', 'l-2']) {
+      expect(await licenseOf(id)).toMatchObject({
+        endsAt: '2028-01-31T00:00:00.000Z',
+        source: 'invoice',
+        reference: 'PO-2',
+        updatedAt: NOW,
+        endedAt: null,
+      });
+    }
+    // A new term earns its own expiry notice.
+    expect((await licenseOf('l-1')).expiryNoticeSentAt).toBeNull();
+    // Ended licenses are history; no un-end, no re-term.
+    expect((await licenseOf('l-ended')).endsAt).toBe('2027-10-14T00:00:00.000Z');
+
+    const rows = await audits();
+    expect(rows.map((r) => r.action)).toEqual(['license.term_changed', 'license.term_changed']);
+    expect(rows[1]).toMatchObject({
+      entityType: 'billing_account',
+      entityId: ACCOUNT_ID,
+      vendorId: VENDOR_ID,
+      productId: P1,
+    });
+    // `licenseSource` is the license's; `source` stays the audit tag.
+    expect(rows[0]!.metadata).toMatchObject({ license_id: 'l-1', source: 'admin-entitlement' });
+    // The mirror was right, so `updated_at` stays put (R2).
+    expect(await vendorOf()).toMatchObject({ verified: true, updatedAt: OLD_TS });
+  });
+
+  it('leaves source and reference alone when absent, and keeps the fence when ends_at holds', async () => {
+    await seedLicense('l-1', { expiryNoticeSentAt: OLD_TS, reference: 'PO-1' });
+    await run(
+      setLicensesTermStatements(t.db, {
+        ...(await ctx()),
+        licenseIds: ['l-1'],
+        endsAt: '2027-10-14T00:00:00.000Z',
+        reference: 'PO-9',
+      }),
+    );
+    expect(await licenseOf('l-1')).toMatchObject({
+      source: 'complimentary',
+      reference: 'PO-9',
+      expiryNoticeSentAt: OLD_TS,
+    });
+  });
+
+  it('is the frozen no-op when nothing changes, and throws on an unknown source', async () => {
+    await seedLicense('l-1');
+    const c = await ctx();
+    const same = setLicensesTermStatements(t.db, {
+      ...c,
+      licenseIds: ['l-1'],
+      endsAt: '2027-10-14',
+    });
+    expect(same.stmts).toHaveLength(0);
+    expect(Object.isFrozen(same)).toBe(true);
+    expect(() =>
+      setLicensesTermStatements(t.db, {
+        ...c,
+        licenseIds: ['l-1'],
+        endsAt: null,
+        licenseSource: 'barter' as never,
+      }),
+    ).toThrow(RangeError);
+  });
+});
+
+// ─── The entitlement mapping (AECI-1353, ruling 2026-10-14) ─────────────────
+
+describe('licenseTermsForEntitlement', () => {
+  it('maps a dated row with an invoice ref or an amount to invoice, ends_at = period_end', () => {
+    expect(
+      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: 'PO-1', amount: null }),
+    ).toEqual({
+      source: 'invoice',
+      startsAt: null,
+      endsAt: '2027-09-01T00:00:00.000Z',
+      reference: 'PO-1',
+    });
+    expect(
+      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: null, amount: 'USD 1' }),
+    ).toEqual({
+      source: 'invoice',
+      startsAt: null,
+      endsAt: '2027-09-01T00:00:00.000Z',
+      reference: null,
+    });
+  });
+
+  it('maps a dated row with neither to complimentary; blank text counts as unset', () => {
+    expect(
+      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: '  ', amount: '' }),
+    ).toEqual({
+      source: 'complimentary',
+      startsAt: null,
+      endsAt: '2027-09-01T00:00:00.000Z',
+      reference: null,
+    });
+  });
+
+  it('starts at period_start when set, normalised; blank or absent means the grant time', () => {
+    expect(
+      licenseTermsForEntitlement({ periodStart: '2026-09-01', periodEnd: '2027-09-01' }).startsAt,
+    ).toBe('2026-09-01T00:00:00.000Z');
+    expect(licenseTermsForEntitlement({ periodStart: null, periodEnd: null }).startsAt).toBeNull();
+    expect(licenseTermsForEntitlement({ periodStart: ' ', periodEnd: null }).startsAt).toBeNull();
+  });
+
+  it('maps period_end NULL to complimentary and open-ended, whatever the invoice says', () => {
+    expect(
+      licenseTermsForEntitlement({ periodEnd: null, invoiceRef: 'PO-1', amount: 'USD 1' }),
+    ).toEqual({ source: 'complimentary', startsAt: null, endsAt: null, reference: 'PO-1' });
+  });
+});
+
+describe('loadOwnedProductLicenseState', () => {
+  it("lists the vendor's owned products and whether any live license holds each", async () => {
+    await t.db.insert(productVendors).values([
+      { productId: P2, vendorId: VENDOR_ID, isPrimary: true },
+      { productId: P1, vendorId: VENDOR_ID, isPrimary: true },
+      // Co-owned: another vendor's live license holds P1.
+      { productId: P1, vendorId: OTHER_VENDOR_ID, isPrimary: false },
+    ]);
+    await seedLicense('l-x', {
+      billingAccountId: OTHER_ACCOUNT_ID,
+      assignedProductId: P1,
+      assignedAt: OLD_TS,
+    });
+    // An ended license on P2 does not hold it.
+    await seedLicense('l-old', { assignedProductId: P2, assignedAt: OLD_TS, endedAt: OLD_TS });
+
+    expect(await loadOwnedProductLicenseState(t.db, VENDOR_ID)).toEqual([
+      { productId: P1, licensed: true },
+      { productId: P2, licensed: false },
+    ]);
   });
 });
 

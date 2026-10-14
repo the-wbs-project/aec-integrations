@@ -72,7 +72,7 @@ import {
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { billingAccounts, licenses, vendors } from '../db/schema';
+import { billingAccounts, licenses, productVendors, vendors } from '../db/schema';
 import { auditInsert, type BatchStmt } from './audit';
 
 /** `audit_log.entity_type` for every row this module writes. `entity_id` is the
@@ -94,6 +94,7 @@ export const LICENSE_ACTION = {
   lapsed: 'license.lapsed',
   released: 'license.released',
   revoked: 'license.revoked',
+  termChanged: 'license.term_changed',
 } as const;
 
 /** The end action per end reason. */
@@ -208,6 +209,38 @@ export async function loadVendorLicenses(db: Db, vendorId: string): Promise<Lice
     .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
     .where(eq(billingAccounts.vendorId, vendorId))
     .orderBy(licenses.createdAt, licenses.id);
+}
+
+/** One product the vendor owns, and whether a live license (any account's) holds it. */
+export interface OwnedProductLicenseState {
+  productId: string;
+  /** A live license is already assigned to it. The partial unique index
+   *  `licenses_live_product_idx` would reject a second, so a grant leaves it unassigned. */
+  licensed: boolean;
+}
+
+/**
+ * Pre-read the vendor's owned products (every `product_vendors` row, the same set
+ * `ownedProductIds` in `routes/vendor-shared.ts` scopes by) and whether each already
+ * holds a live license. "Any account's" matters for a co-owned product: another
+ * vendor's live license on it would otherwise fail the whole grant batch on the
+ * partial unique index. Ordered by product id so a grant assigns deterministically.
+ */
+export async function loadOwnedProductLicenseState(
+  db: Db,
+  vendorId: string,
+): Promise<OwnedProductLicenseState[]> {
+  return db
+    .select({
+      productId: productVendors.productId,
+      licensed:
+        sql<boolean>`exists (select 1 from ${licenses} where ${licenses.assignedProductId} = ${productVendors.productId} and ${licenses.endedAt} is null)`.mapWith(
+          Boolean,
+        ),
+    })
+    .from(productVendors)
+    .where(eq(productVendors.vendorId, vendorId))
+    .orderBy(productVendors.productId);
 }
 
 /** EXISTS(a live license on any billing account of the vendor). */
@@ -325,7 +358,9 @@ export interface GrantLicensesParams extends LicenseWriteContext {
   billingAccountId: string;
   /** How many licenses. 0 is a no-op. */
   count: number;
-  source: LicenseSource;
+  /** Where the licenses come from. Named apart from the context's `source`, which is
+   *  the AUDIT `metadata.source` tag. */
+  licenseSource: LicenseSource;
   /** Defaults to `now`. */
   startsAt?: string | Date;
   /** The scheduled end. `null` = monthly (renews until cancelled). */
@@ -352,8 +387,8 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
     throw new RangeError(`license count must be a non-negative integer: ${p.count}`);
   }
   if (p.count === 0) return NO_OP;
-  if (!(LICENSE_SOURCES as readonly string[]).includes(p.source)) {
-    throw new RangeError(`unknown license source: ${String(p.source)}`);
+  if (!(LICENSE_SOURCES as readonly string[]).includes(p.licenseSource)) {
+    throw new RangeError(`unknown license source: ${String(p.licenseSource)}`);
   }
   const productIds = p.productIds ?? [];
   if (productIds.length > p.count) {
@@ -377,7 +412,7 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
     const row: LicenseBefore = {
       id: p.licenseIds?.[i] ?? crypto.randomUUID(),
       billingAccountId: p.billingAccountId,
-      source: p.source,
+      source: p.licenseSource,
       startsAt,
       endsAt,
       endedAt: null,
@@ -401,6 +436,125 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.granted, null, row) });
   }
   return assemble(db, p, now, writes, [...p.vendorLicenses, ...created]);
+}
+
+// ─── Term ───────────────────────────────────────────────────────────────────
+
+export interface SetLicensesTermParams extends LicenseWriteContext {
+  /** The licenses to re-term. Ids not on this vendor, and ended licenses, are skipped. */
+  licenseIds: readonly string[];
+  /** The new scheduled end. `null` = monthly (renews until cancelled). */
+  endsAt: string | Date | null;
+  /** The new license source. Absent = leave each license's source alone. Named apart
+   *  from the context's `source`, which is the AUDIT `metadata.source`. */
+  licenseSource?: LicenseSource;
+  /** The new reference. Absent = leave alone; `null` clears it. */
+  reference?: string | null;
+}
+
+/**
+ * Move the term of live licenses: `ends_at`, and optionally `source` and `reference`
+ * (E1.4's dual-write of an entitlement renewal; E9's Stripe renewal later). One
+ * guarded `WHERE ended_at IS NULL` statement and one `license.term_changed` audit row
+ * per license that actually changes, then the reconcile. A license whose `ends_at`
+ * moves gets `expiry_notice_sent_at` cleared: the expiry-notice fence is per term,
+ * so a new term earns its own notice. Nothing changes: a no-op.
+ */
+export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): LicenseBatch {
+  if (
+    p.licenseSource !== undefined &&
+    !(LICENSE_SOURCES as readonly string[]).includes(p.licenseSource)
+  ) {
+    throw new RangeError(`unknown license source: ${String(p.licenseSource)}`);
+  }
+  const now = toIsoTimestamp(p.now);
+  const endsAt = toIsoOrNull(p.endsAt);
+
+  const changed: LicenseBefore[] = [];
+  const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
+  for (const id of new Set(p.licenseIds)) {
+    const before = findLicense(p, id);
+    if (!before || before.endedAt !== null) continue;
+    const after: LicenseBefore = {
+      ...before,
+      endsAt,
+      source: p.licenseSource ?? before.source,
+      reference: p.reference === undefined ? before.reference : p.reference,
+    };
+    const termMoved = after.endsAt !== before.endsAt;
+    if (!termMoved && after.source === before.source && after.reference === before.reference) {
+      continue;
+    }
+    changed.push(after);
+    const stmt = db
+      .update(licenses)
+      .set({
+        endsAt: after.endsAt,
+        source: after.source,
+        reference: after.reference,
+        ...(termMoved ? { expiryNoticeSentAt: null } : {}),
+        updatedAt: now,
+      })
+      .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
+    writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.termChanged, before, after) });
+  }
+  return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+// ─── The entitlement mapping (E1.4 dual-write, E1.5 back-fill) ──────────────
+
+/** The `vendor_entitlements` columns the mapping reads. */
+export interface EntitlementTermsInput {
+  periodStart?: string | null;
+  periodEnd: string | null;
+  invoiceRef?: string | null;
+  amount?: string | null;
+}
+
+/** A license's source, dates and reference, derived from an entitlement. */
+export interface LicenseTerms {
+  source: LicenseSource;
+  /** The entitlement's `period_start`, normalised with {@link toIsoTimestamp}. `null`
+   *  when it has none: the grant then starts at its own `now`. Only a grant reads it;
+   *  re-terming a live license never moves `starts_at`. */
+  startsAt: string | null;
+  /** Normalised with {@link toIsoTimestamp}. `null` = open-ended. */
+  endsAt: string | null;
+  /** The entitlement's `invoice_ref`, or `null` when it has none. */
+  reference: string | null;
+}
+
+/** A text column counts as set when it holds something other than whitespace. */
+function isSet(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * The one mapping from an entitlement row to the licenses that mirror it (ruling
+ * 2026-10-14, `docs/VENDOR_SIGNUP_PROCESS.md` §2):
+ *
+ *  - `period_end` NULL → `complimentary`, `ends_at` NULL, whatever `invoice_ref` or
+ *    `amount` say. A perpetual invoice row must not read as "invoice, monthly".
+ *  - otherwise → `invoice` when `invoice_ref` or `amount` is set, else
+ *    `complimentary`; `ends_at` = `period_end`.
+ *
+ * `starts_at` is `period_start` when set (ruling 2026-10-14, orchestrator), else the
+ * grant time. `reference` is the `invoice_ref` in both cases. E1.4's dual-write and E1.5's
+ * back-fill both call this, so the two cannot map one row two ways.
+ */
+export function licenseTermsForEntitlement(e: EntitlementTermsInput): LicenseTerms {
+  const reference = isSet(e.invoiceRef) ? e.invoiceRef : null;
+  const startsAt = isSet(e.periodStart) ? toIsoTimestamp(e.periodStart) : null;
+  if (e.periodEnd === null || e.periodEnd === undefined) {
+    return { source: 'complimentary', startsAt, endsAt: null, reference };
+  }
+  const invoiced = isSet(e.invoiceRef) || isSet(e.amount);
+  return {
+    source: invoiced ? 'invoice' : 'complimentary',
+    startsAt,
+    endsAt: toIsoTimestamp(e.periodEnd),
+    reference,
+  };
 }
 
 // ─── Assign / unassign ──────────────────────────────────────────────────────

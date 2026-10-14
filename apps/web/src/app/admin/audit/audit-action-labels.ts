@@ -153,6 +153,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'license.lapsed': $localize`:@@admin.audit.action.licenseLapsed:License ended at term end`,
   'license.released': $localize`:@@admin.audit.action.licenseReleased:License released`,
   'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:License revoked`,
+  'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:License term changed`,
 
   // ── Moderation. Role-aware since AECI-524: the same endpoint writes
   //    `reviewer.*` or `vendor_admin.*` depending on the target's role. ──────

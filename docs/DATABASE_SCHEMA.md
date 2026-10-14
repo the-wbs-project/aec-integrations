@@ -1825,8 +1825,9 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
 and 18). Licenses carry their own dates. There is no subscription table: a Stripe
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
-`apps/api/src/lib/license.ts` (AECI-1352). No route calls it yet; E1's later issues move
-plan resolution onto the table.
+`apps/api/src/lib/license.ts` (AECI-1352). Its only callers today are the entitlement
+builders' dual-write (AECI-1353, below). E1's later issues move plan resolution onto the
+table.
 
 ```sql
 create table licenses (
@@ -1881,7 +1882,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
   `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
   NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`,
-  `setCancelAtTermEndStatements` and `endLicensesStatements`. E4, E5, E6 and E9 call them
+  `setCancelAtTermEndStatements`, `endLicensesStatements` and `setLicensesTermStatements`
+  (moves `ends_at`, and optionally `source` and `reference`, on live licenses; clears
+  `expiry_notice_sent_at` when `ends_at` moves; AECI-1353). E4, E5, E6 and E9 call them
   and add no second writer. Each takes the caller's pre-read (`loadVendorLicenses`) and
   `now`. A no-op returns one frozen empty batch. Every date is stored as
   `toISOString()`, so a date-only input lands as `…T00:00:00.000Z`.
@@ -1907,6 +1910,26 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `licensePlanSnapshot`: any live license is `verified` / `active` (`expired` once every
   live license is past its `ends_at`), else the latest ended license is `revoked` when its
   `end_reason` is `revoked` and `expired` otherwise, and no license is `none` / `none`.
+- **The dual-write period (AECI-1353, E1.4).** Until E1.6 switches the readers over,
+  `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. The three builders
+  in `apps/api/src/lib/vendor-entitlement.ts` append the matching license batch to their
+  own, in the same `db.batch`, and take a second pre-read (`loadLicenseDualWrite`: the
+  account, the vendor's licenses, its owned products with their live-license state).
+  Activate ensures the billing account and grants one license per owned product (one
+  unassigned when it owns none; a product another account's live license holds stays
+  unassigned); a vendor that already holds live licenses has them re-termed, never a
+  second grant. Renew re-terms the live licenses. Deactivate ends them: `revoked` ends
+  them `revoked`, `expired` ends them `lapsed`. Source, `ends_at` and `reference` come
+  from `licenseTermsForEntitlement` in `lib/license.ts`, the 2026-10-14 mapping rule:
+  `period_end` NULL is `complimentary` with `ends_at` NULL whatever the invoice fields
+  say; otherwise `invoice` when `invoice_ref` or `amount` is set, else `complimentary`,
+  with `ends_at = period_end`. `reference` is `invoice_ref`. A grant's `starts_at` is
+  `period_start` when set, else the grant time; a re-term never moves it. The entitlement module's
+  guarded `vendors` flip runs before the license reconcile and both land on the same
+  value, so the reconcile matches no row. The license audit rows carry
+  `metadata.dual_write = 'vendor_entitlement'`. The local seeds (`catalog.sql`,
+  `phase2-fixtures.sql`) carry matching accounts and licenses, idempotent on fixed ids.
+  E1.5's back-fill (AECI-1354) covers the deployed environments.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
