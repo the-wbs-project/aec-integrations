@@ -71,6 +71,13 @@ A Ray ID is the id Cloudflare gives every request. It is in the `cf-ray` header 
 
 So the **gateway** adds `Server-Timing: cfray;desc="<ray>"` to every response, read from the inbound `cf-ray`. The gateway runs after the cache lookup, so the value is fresh per request and never stored in the cache. A zone Transform Rule was considered first. It is not needed, and Cloudflare documents that zone rules which modify a response before cache do not apply to Workers Cache.
 
+This was proven on staging on 2026-10-14 (AECI-1303). The results are in §8. They fix four details:
+
+- **Ray ID format.** The inbound `cf-ray` the gateway reads is the bare 16-hex id, for example `a4a350d8fbcde783`. The response `cf-ray` header adds a colo suffix (`a4a350d8fbcde783-CGK`). Logpush `RayID` has no suffix. So `desc` joins to Logpush as-is. Anything that compares against the response header strips everything from the dash.
+- **Cloudflare adds no `Server-Timing` of its own** on a normal response on this zone. The exception is a managed-challenge 403, which carries `chlray;desc="<ray>"`. A challenged load never runs the gateway, so it never reports a `cfray` and never joins. That is correct.
+- **What carries the stamp.** Every response that returns through gateway code: cached and uncached 200s, cached 404s, both kinds of redirect, HEAD, and POST. A Workers runtime exception (error 1101) never returns through gateway code, so it carries none. There is no 304 path today, because SSR responses send no `ETag` or `Last-Modified`.
+- **The browser cache can replay a stamp.** Document responses send `max-age=0` with `stale-while-revalidate=60`. Firefox 150 applies that to page loads. A second load within the window got the stored page and the first load's Ray, with `navigation.type` still `navigate`. Chromium 148, Chrome 154 and WebKit 26.4 fetched fresh each time. See the repeat-view rule and the background-revalidation rule below.
+
 The beacon then carries two Ray IDs:
 
 | Ray ID | Source | Trust |
@@ -99,7 +106,8 @@ Rules the rollup must follow:
 - Count only successful HTML documents. Exclude `/api/*`, beacon POSTs, assets and redirects.
 - Join on Ray ID plus date and path, as a cheap guard against a reused id.
 - **A dedupe-refused beacon must still record its Ray ID.** Otherwise the refused reload's log line matches nothing and becomes a phantom edge-only view. Either keep the refused Ray IDs or apply the same dedupe rule in the rollup.
-- **A repeated Ray ID is a repeat view, never a new arrival.** A back/forward restore or a browser-cached page replays the old `Server-Timing` entry. The tracker can also detect this, because the navigation entry type is `back_forward`.
+- **A repeated Ray ID is a repeat view, never a new arrival. So is a `back_forward` navigation.** Each signal catches a case the other misses (AECI-1303). A bfcache restore or a browser-cached page replays the old `Server-Timing` entry, and the Firefox replay arrives as type `navigate`. A back navigation without bfcache refetches the page, so it carries a new Ray ID but still has type `back_forward`. Apply both.
+- **A browser's background revalidation is not an edge-only view.** When Firefox serves a page under `stale-while-revalidate`, it refetches the page in the background. That refetch is a document line in Logpush with no beacon. Left alone it becomes a phantom edge-only view. Either the rollup excludes it, or document responses stop offering `stale-while-revalidate` to browsers. This is open question 7 in §7.
 - A beacon with no Ray ID (old browser, extension, proxy) does not join. Its log line counts as edge-only.
 - Some bots run JavaScript (Googlebot, headless scrapers). `page_views` still needs `is_bot`. The join improves it with Cloudflare's bot score.
 - `page_views` is live and Logpush is daily. Same-day numbers come from `page_views` alone.
@@ -195,12 +203,13 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
 5. Does the Enterprise contract include Bot Management? Scores started on 2026-10-12, but every stored score is a constant 99 (AECI-1298). The contract question is AECI-1300.
 6. Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)? If the reason was `page_views`, §3 removes it. If not, this design does not unblock caching.
+7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
 ## 8. Checks before relying on any of this
 
 | Check | How |
 |---|---|
-| Gateway stamp is fresh on a hit (AECI-1303) | On staging, request one product page twice. The second is a hit. Both responses carry `Server-Timing` with different Ray IDs, each equal to its own `cf-ray`. |
+| Gateway stamp is fresh on a hit (AECI-1303) | **Done 2026-10-14. Go.** A spike deployed to staging, then rolled back. Five requests to one `/products` URL (one MISS, four HITs) carried five different Ray IDs. Each `desc` equalled its own `cf-ray` without the colo suffix. HEAD, a cached 404, both redirect kinds and a POST carried the stamp too. Chromium 148, real Chrome 154, Firefox 150 and WebKit 26.4 (the Playwright builds) all read it through `serverTiming`. Real Safari was not tested, because Access blocked the automated session. The findings are in §4. |
 | Custom fields and AS holder name (AECI-1304) | Read the current `http_requests` field list and the custom-field plan limits |
 | Gateway coverage | A unit test that every gateway response, redirects and errors included, carries the header |
 | Stored bot score is the visitor's (AECI-1298) | Join a day of Logpush to `page_views` by Ray ID and compare `BotScore` with `cf_bot_score` (AECI-1304) |
@@ -230,7 +239,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | Id | Issue | Depends on |
 |---|---|---|
 | S1 | AECI-1298: why the stored score is a constant 99 | N3 helps |
-| S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit | none |
+| S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit. **Done 2026-10-14: go** (§8) | none |
 | S3 | AECI-1304: one day of Logpush through Basin, Ray ID join, score comparison | N1, N3 |
 | S4 | AECI-872: agree the classification procedure and shadow thresholds | none |
 | S5 | AECI-1196 ADR, with counsel on the privacy items | S2, S3 |

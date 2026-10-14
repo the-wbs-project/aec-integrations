@@ -820,7 +820,7 @@ Schema already supports `vendor_admin` role and `vendor_id` foreign key. Stage 2
 
 ### 9.1 SSR output caching at Cloudflare edge
 
-**Superseded (implementation) by `docs/CACHE_STRATEGY.md`.** The original hand-rolled pipeline this section described — the SSR Worker doing an explicit `caches.default.match()` / `.put()` against a hand-normalized `Request` key — was retired by the AECI-314 **Workers Cache migration** (ADR 0020). The SSR Worker now sits behind **native Cloudflare Workers Cache**: the platform stores and serves each response from its `Cache-Control` (a HIT skips the Worker), key normalization runs in a two-entrypoint gateway (`cacheKeyFor()` → `cf.cacheKey` on the cached `Renderer` entrypoint), and there is no `caches.default` match/put. See `CACHE_STRATEGY.md` §4a (key normalization) and §5 (invalidation) for the current model, and `apps/web/src/server-runtime.ts` for the gateway/`Renderer` split.
+**Superseded (implementation) by `docs/CACHE_STRATEGY.md`.** The original hand-rolled pipeline this section described — the SSR Worker doing an explicit `caches.default.match()` / `.put()` against a hand-normalized `Request` key — was retired by the AECI-314 **Workers Cache migration** (ADR 0020). The SSR Worker now sits behind **native Cloudflare Workers Cache**: the platform stores and serves each response from its `Cache-Control` (a HIT skips the `Renderer` render; the uncached gateway still runs), key normalization runs in a two-entrypoint gateway (`cacheKeyFor()` → `cf.cacheKey` on the cached `Renderer` entrypoint), and there is no `caches.default` match/put. See `CACHE_STRATEGY.md` §4a (key normalization) and §5 (invalidation) for the current model, and `apps/web/src/server-runtime.ts` for the gateway/`Renderer` split.
 
 The two non-obvious rules below — **§9.1a** (visitor-state-neutral HTML) and **§9.1b** (the pinned-404 trap) — **remain authoritative** and carry over unchanged to native Workers Cache.
 
@@ -1068,7 +1068,7 @@ dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
 
 **Dashboards:**
 - Requests per minute, error rate, p50/p95/p99 latency
-- Cache hit rate at the edge — *measured from `Cf-Cache-Status` on the Cloudflare dashboard, not from render metrics: since WC-8 a HIT skips the SSR Worker entirely, so it is unmeasurable from inside*
+- Cache hit rate at the edge — *measured from `Cf-Cache-Status` on the Cloudflare dashboard, not from render metrics: since WC-8 a HIT skips the SSR render (`Renderer`) entirely, so it is unmeasurable from inside*
 - Algolia query latency and error rate
 - D1 query latency per endpoint
 - Audit event volume by action type
