@@ -24,7 +24,7 @@ AECi spans three GitHub repos under `the-wbs-project`. Linear issues for all thr
 
 | Repo | What it holds | Linear routing |
 |---|---|---|
-| **`aec-integrations`** (this one) | The app: Angular SSR + Workers + D1, and the specs that govern it | Default. No prefix; project is the stage/epic |
+| **`aec-integrations`** (this one) | The app: Angular SSR + Workers + D1, and the specs that govern it | Default. No prefix; project per `docs/ROADMAP.md` |
 | **`aec-integrations-review`** | The curation/review app upstream of promote: catalog, connector catalogues/stubs/mappings, `docs/connector-vendors.md`. Read-only from here via the `aeci-review` MCP | Title prefixed **`REVIEW - `**, no project |
 | **`aec-integrations-marketing`** | All Markdown: positioning, strategy, content plan, outreach under `docs/outreach/`. Stricter copy rules (sentence case, no em dashes) | Project **"Marketing"**, no prefix |
 
@@ -72,10 +72,11 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the one claim dialog on it and `/docs/vendors/plans` (§15: find or type in, plan, comments; `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
-| Stage 2.1 vendor-activation interlude (dark launch → seat pilot vendors; proposal) | `docs/STAGE_2_1_SPEC.md` |
+| Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
+| Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
-| Stage 2.5 hardening interlude (search-ranking overhaul, §7 trust/answer-surface artifacts; proposal) | `docs/STAGE_2_5_SPEC.md` |
-| Stage 3 scope outline (trust ladder, pSEO, rebrand option survey §2.6; kickoff draft) | `docs/STAGE_3_SPEC.md` |
+| Stage 2.5: retired as a stage; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md` |
+| Stage 3 (trust ladder, pSEO, rebrand survey §2.6): retired as a stage; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
 | `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
@@ -303,20 +304,20 @@ by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
 - **Fanning out to sub-agent PRs?** Use a `batch/<name>` branch: lite CI per sub-PR, one full run
   for the batch → `main` PR. Procedure: `docs/CICD_PLAN.md` §10a.
 
-## Scope: which line does this work belong to?
+## Scope: which project does this work belong to?
 
-Stage 1 shipped; Phase 8 (post-launch operate-and-tune) is the one open Stage 1 phase. Stage 2
-shipped to `main` on 2026-09-03 as a **dark launch**: the vendor surface is inert until seats are
-granted. The current interlude is **Stage 2.1** (`docs/STAGE_2_1_SPEC.md`). Route by scope:
+Stages ended with Stage 2.1. Work runs in parallel Linear projects, each with an admission test in
+`docs/ROADMAP.md`:
 
-- Production fixes and prod-safe additive changes → ordinary `main` work.
-- Vendor-activation refinement / hardening → Stage 2.1 (§1 admission test).
-- Everything else finishable before Stage 3 → Stage 2.5.
-- Out of scope for now: rich media profiles (Stage 4), trust scoring beyond anti-abuse (Stage 3).
-- "Real-time" is scoped client revalidation, not sockets (ADR 0023).
+- **Pilot:** a pilot vendor, reviewer or operator notices it this quarter, it is on the path to
+  the first paid invoice, or it has a date before 2026-12-31.
+- **Managed:** a gap between what the paid plan is sold as and what the portal does.
+- **SEO:** justified by search or answer engines reaching and ranking our pages.
+- **Insights** (the rung above Managed) and **Enhanced** (richer profiles): plan rungs.
+- **Platform:** internal work with no date that no pilot vendor notices. Holds the parked Trust ladder.
+- Live defects go to **Bugs**. "Real-time" is scoped client revalidation, not sockets (ADR 0023).
 
-If the stage is unclear, check the issue's project/epic in Linear. Don't pull 2.5 work into the
-2.1 window, and don't flag assigned 2.1 work as out of scope because Stage 2 shipped.
+If the project is unclear, check Linear.
 
 ## When the spec is wrong
 
@@ -391,7 +392,7 @@ Put the explanation in prose above or below the block. Applies to every runnable
 
 This file is a pointer file and must stay under 30 KB (`scripts/check-claude-md-size.mjs`). When a
 lesson is learned, record it in the governing doc and, if needed, add a one-line pointer here.
-Never append narrative, issue history, or dated incident detail to this file. At each stage
-boundary, audit every line: name the failure it prevents or delete it.
+Never append narrative, issue history, or dated incident detail to this file. When a project
+closes, audit every line: name the failure it prevents or delete it.
 
 Last updated: see git log.

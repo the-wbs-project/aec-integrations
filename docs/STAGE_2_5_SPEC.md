@@ -1,5 +1,11 @@
 # AEC Integrations — Stage 2.5 Specification (Hardening Interlude)
 
+> **Retired as a stage (2026-10-14).** Stage 2.5 no longer runs as a stage. Its open work moved to the Pilot, Managed, SEO, Insights and Platform projects. `docs/ROADMAP.md` §4.1 maps each open section to its project.
+>
+> **Section numbers are frozen.** Open issues anchor to them, and `spec-anchor` resolves by path. No section is renumbered or moved.
+>
+> **Live contracts.** §7.1 (`/methodology`), §11 (logos), §12 ("How teams use it") and §14 (`/vendor-program`) govern shipped code. §2, §3, §4, §5, §6, §7, §10 and §13 govern their open issues. §1 (the admission test), §8 (exit criteria) and §9 (out of scope) no longer gate anything. The body below is unchanged.
+
 **Version:** 0.2. **Seeded into Linear** as the project "Stage 2.5 Hardening", held in Backlog. It opens when `STAGE_2_1_SPEC.md` §5 is green.
 **Date:** August 2026
 **Status:** Kickoff draft from the 2026-08-24 Stage 3 planning session. Stage 2.5 is a deliberately small, **finishable** interlude between **Stage 2.1** (vendor activation — `docs/STAGE_2_1_SPEC.md`, inserted 2026-08-31) and Stage 3 (growth & trust — `docs/STAGE_3_SPEC.md`). Nothing here is a new feature.

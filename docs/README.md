@@ -20,6 +20,9 @@ This directory holds the planning, architecture, and operational documentation f
 |---|---|---|
 | [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) | Active | Master specification for the Stage 1 launch. References every other document. |
 | [`STAGE_1_PHASE_2_SPEC.md`](./STAGE_1_PHASE_2_SPEC.md) | Active | Phase 2 scope and specification. Supersedes §16 Phase 2 of the Stage 1 spec. |
+| [`ROADMAP.md`](./ROADMAP.md) | Active | Index of the Linear projects that replaced the stages: Pilot, Managed, SEO, Insights, Enhanced, Platform, and the standing projects. Each project's admission test and exit criterion, the plan version convention, and the map of retired spec sections to projects. |
+| [`STAGE_2_5_SPEC.md`](./STAGE_2_5_SPEC.md) | Retired as a stage (2026-10-14) | Former Stage 2.5 hardening interlude. Section numbers are frozen. §7.1, §11, §12 and §14 govern shipped code. Other sections govern the open issues that cite them. `ROADMAP.md` §4.1 maps them. |
+| [`STAGE_3_SPEC.md`](./STAGE_3_SPEC.md) | Retired as a stage (2026-10-14) | Former Stage 3 scope outline: trust ladder, pSEO, the §2.6 rebrand survey and the §5 open decisions. Section numbers are frozen. `ROADMAP.md` §4.2 maps them. |
 | [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete application-database (Cloudflare D1) schema: all tables, columns, indexes, constraints, and the promote-side data migration. §12 is the app-layer authorization model — D1 has no RLS. |
 | [`migrations.md`](./migrations.md) | Active | Migration workflow — generating SQL via drizzle-kit and applying via `wrangler d1 migrations apply` (D1 app DB). The legacy Supabase-CLI body is retained as auth-project-only history. |
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |

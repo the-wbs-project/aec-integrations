@@ -103,7 +103,7 @@ routing signal is the title prefix and the project, not the team. This mirrors `
 
 | Repo | Title prefix | Project |
 |---|---|---|
-| `aec-integrations` (the app) | none | the stage or epic |
+| `aec-integrations` (the app) | none | the project its admission test picks (`docs/ROADMAP.md`) |
 | `aec-integrations-review` (curation upstream of promote) | **`REVIEW - `** | none |
 | `aec-integrations-marketing` (all Markdown, no code) | none | **"Marketing"** |
 
