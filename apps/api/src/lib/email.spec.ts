@@ -2123,44 +2123,105 @@ describe('entitlement expiry templates', () => {
 
     const body = lastBody(fetchSpy);
     expect(body.to).toBe('ops@vendor.test');
-    expect(String(body.subject)).toContain('in 30 days');
-    expect(String(body.text)).toContain('2026-09-18');
-    expect(String(body.text)).toContain('https://www.aecintegrations.com/vendor');
+    expect(body.subject).toBe('Your Autodesk plan runs until September 18, 2026');
+    expect(String(body.text)).toContain(
+      'Your Autodesk plan on AEC Integrations runs until September 18, 2026.',
+    );
+    expect(String(body.text)).toContain(
+      'See your plan in the vendor portal: https://www.aecintegrations.com/vendor',
+    );
   });
 
-  it('promises no automatic lapse — the §7.3 decision, stated in the copy', async () => {
+  it('sends replies to SUPPORT_EMAIL, because the ask is "reply to this email" (AECI-1325)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+    await sendEntitlementExpiringEmail(
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
+      SUBJECT,
+    );
+
+    const body = lastBody(fetchSpy);
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    expect(String(body.text)).toContain('reply to this email');
+  });
+
+  it('offers renewal first, then says what a vendor that does not renew keeps (AECI-1325)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      SUBJECT,
+    );
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('Nothing changes automatically');
-    expect(text).toContain("don't switch access off");
+    expect(text).toContain("If you'd like to continue past that date");
+    expect(text).toContain("If you don't renew, Autodesk moves to the Free plan");
+    expect(text).toContain("You keep your seats and everything you've entered.");
+    // A link to the plans page, not a feature list that would drift.
+    expect(text).toContain(
+      'See what the Free plan includes: https://www.aecintegrations.com/docs/vendors/plans',
+    );
+    // The renewal offer comes before what happens without one.
+    expect(text.indexOf('continue past that date')).toBeLessThan(
+      text.indexOf("If you don't renew"),
+    );
+    // A pilot term ends by an admin Clear, so the copy must not promise otherwise.
+    expect(text).not.toContain('Nothing changes automatically');
+    expect(text).not.toContain("don't switch access off");
     // Nothing that reads as a threat or a countdown to removal.
     expect(text.toLowerCase()).not.toContain('will be removed');
     expect(text.toLowerCase()).not.toContain('will expire');
   });
 
-  it('reads as past tense once the term is behind us', async () => {
+  it.each([30, 1, 0])(
+    'never leads with a day count before the end (%s days left)',
+    async (days) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+      await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: days });
+
+      const body = lastBody(fetchSpy);
+      for (const field of [String(body.subject), String(body.text)]) {
+        expect(field).not.toMatch(/in \d+ days|tomorrow|today/);
+        // One name for one thing: "plan", never "vendor access term".
+        expect(field).not.toContain('access term');
+        // The date reads as US English, not a database value.
+        expect(field).not.toContain('2026-09-18');
+      }
+    },
+  );
+
+  it('reads as past tense once the term is behind us, and names the fallback', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
     await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: -5 });
 
     const body = lastBody(fetchSpy);
-    expect(String(body.subject)).toContain('has reached its end date');
-    expect(String(body.text)).toContain('5 days ago');
+    expect(body.subject).toBe('Your Autodesk plan was due to end September 18, 2026');
+    const text = String(body.text);
+    expect(text).toContain('was due to end on September 18, 2026, 5 days ago.');
+    expect(text).toContain('It stays active for now.');
+    expect(text).toContain("If we don't hear from you, we'll move Autodesk to the Free plan.");
+    // The past copy carries its own consequence. It is not said twice.
+    expect(text).not.toContain("If you don't renew");
   });
 
-  it.each([
-    [1, 'tomorrow'],
-    [0, 'today'],
-    [-1, 'yesterday'],
-  ])('renders %s days remaining as "%s"', async (days, phrase) => {
+  it('reads "yesterday" one day after the end', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: days });
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: -1 });
 
-    expect(String(lastBody(fetchSpy).text)).toContain(phrase);
+    expect(String(lastBody(fetchSpy).text)).toContain('September 18, 2026, yesterday.');
+  });
+
+  it('reads cleanly when the vendor name is blank', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, vendorName: '  ' });
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your plan runs until September 18, 2026');
+    expect(String(body.text)).toContain("If you don't renew, your company moves to the Free plan");
   });
 
   it('never implies account access verifies quality or affects ranking', async () => {
