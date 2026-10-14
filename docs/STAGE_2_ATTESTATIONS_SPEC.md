@@ -300,6 +300,11 @@ Invariants:
 - **Provenance is not trust.** A vendor-created claim is *not* automatically more or less credible
   than an AECi-seeded one; it renders through the same §4 agreement states. `origin` exists for
   write arbitration (§3) and for the AECi ops view, not as a reader-facing badge.
+  One exception gates visibility, never a label (AECI-1314). A vendor-created claim with no live
+  `aeci` attestation and no live affirming vendor vote is withheld from every public read. Nobody
+  stands behind it, so no badge would be true. The predicate is `isClaimPubliclyBacked` in
+  `packages/shared/src/agreement.ts`. The claim returns once any company affirms it or AECi
+  seeds it. The vendor portal and the §7 detectors still read it.
 
 ### 2.3 The helper seam
 
@@ -582,6 +587,10 @@ makes it reachable.
 | ≥1, denying only | `unverified` — a denied-but-unconfirmed claim is not a conflict (`STAGE_1_5_SPEC.md` §3.4, preserved) |
 | ≥2 distinct, all affirming | `confirmed` — bilateral, the only state that earns the word |
 | ≥2 distinct, affirm **and** deny | `conflict` |
+
+A public reader meets the zero-voter and denying-only `unverified` rows only on claims AECi
+stands behind. Those rows read "Listed by AEC Integrations". An unbacked vendor-created claim never
+reaches a public reader (§2.2, AECI-1314), so that label is never a false attribution.
 
 `AgreementAttestation` widens to carry the voter identity and the retraction flag. The
 **AECi-never-red** rule is unchanged and now doubly true: AECi never votes, and `conflict` needs
@@ -1976,7 +1985,8 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
   `selected.sort_key < deprecated_version.sort_key`). **A claim with no version stamps is always
   present** — that is the Stage 1.5 baseline and it must not vanish from the default view.
 - Per-claim timeline from the append-only attestation rows (§2.1 retract-then-insert + the version
-  stamps).
+  stamps). It lists only the claims the pair read shows. An unbacked vendor-created claim (§2.2,
+  AECI-1314) has no public timeline until any company affirms it or AECi seeds it.
 
 ### 9.2 Two things that are easy to miss
 
@@ -2137,6 +2147,8 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   have a history too. Retracted rows are the point. Their doc comment says so loudly and
   forbids calling `computeAgreement` on its output — routing history through the vote engine is
   exactly how a withdrawn assertion finds its way back into a tally, the hazard §2.5 handed to §4.
+  The one allowed call is `isClaimPubliclyBacked` (AECI-1314). It hides the history of a claim the
+  pair read hides. It computes no agreement and counts only live rows.
 - **The seam clamps; it never 403s.** A 403 would make the gate a control-flow branch (§2.2 forbids
   that) and the SSR resolver treats a non-200 as the NotFound shell — so a shared historical link
   would cost the reader the **free** latest view, inverting §8.1(4). Gated ⇒ 200, selection clamped

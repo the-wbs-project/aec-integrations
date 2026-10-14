@@ -42,6 +42,8 @@ The box ends with two links:
 
 A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you. See [Current limits](/docs/vendors#current-limits).
 
+Readers do not see that row. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
+
 Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
@@ -66,7 +68,7 @@ The public integration page shows where each flow stands. It shows each company'
 | One confirms and the other says no | Companies disagree |
 | Only "no" answers | Listed by AEC Integrations |
 
-A flow reads "Listed by AEC Integrations" until a company confirms it. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+A flow reads "Listed by AEC Integrations" until a company confirms it. The one exception is a flow a company added and then took back its Yes on. AEC Integrations never listed it, so it does not show at all. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
 
 If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Confirmed by both companies".
 

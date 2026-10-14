@@ -930,6 +930,67 @@ describe('GET /api/products/:slug', () => {
     expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
   });
 
+  // AECI-1314: a vendor-added claim whose only Yes was cancelled has nobody behind
+  // it. The pair page withholds it, so the product row must not count it or let it
+  // steer the arrow (AECI-711: one rule for both).
+  it('ignores an unbacked vendor-added claim on BOTH delivered-tier arms', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(4), 'sage-intacct', 'Sage Intacct');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    // Stored direction null, so the claims are the only signal.
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    const [a, b] = [u(1), u(4)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      mechanismName: 'Agave ERP Sync',
+    });
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    const vendorAdded = { origin: 'vendor', createdByVendorId: u(91) } as const;
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      // Without the filter these two would add RFIs and turn the arrow to 'both'.
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'b_to_a', ...vendorAdded },
+      {
+        id: u(83),
+        connectorEvidencedPairId: u(52),
+        dataObjectId: u(72),
+        direction: 'b_to_a',
+        ...vendorAdded,
+      },
+    ]);
+    await t.db.insert(attestations).values(
+      [u(82), u(83)].map((claimId, i) => ({
+        id: u(85 + i),
+        claimId,
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: u(91),
+        retractedAt: '2026-10-14T00:00:00.000Z',
+      })),
+    );
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    const all = [...detail.integrations_as_source, ...detail.integrations_as_target];
+    const direct = all.find((i) => i.id === u(51));
+    const evidenced = all.find((i) => i.id === u(52));
+    expect(direct?.data_object_slugs).toEqual(['drawings']);
+    expect(direct?.context_direction).toBe('outbound');
+    expect(evidenced?.data_object_slugs).toEqual([]);
+  });
+
   it('withholds rating averages below the 5-review gate', async () => {
     await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 4, ratingOverallAvg: 4.2 });
     const detail = ProductDetailSchema.parse(

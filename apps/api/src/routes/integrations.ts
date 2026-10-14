@@ -18,6 +18,7 @@ import {
   RetiredIntegrationDetailSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
+  isClaimPubliclyBacked,
   PairTimelineResponseSchema,
   ProductPairResponseSchema,
   type IntegrationDetail,
@@ -557,12 +558,16 @@ export function createProductPairHandler(
     // can have releases while nothing on this pair varies by them, and selectors
     // that cannot change anything are worse than none — so this decides, with the
     // claims in hand, whether §9 applies at all.
-    // Both arms, since AECI-1035 gave evidenced pairs their claims.
+    // Both arms, since AECI-1035 gave evidenced pairs their claims. Public claims
+    // only (AECI-1314): a withheld claim's stamps must not open selectors that
+    // change nothing a reader can see.
     const hasVersionStamps = [...rows, ...evidencedRows].some((row) =>
-      row.claims.some((claim) =>
-        claim.attestations.some(
-          (a) => a.introducedVersionId !== null || a.deprecatedVersionId !== null,
-        ),
+      row.claims.some(
+        (claim) =>
+          isClaimPubliclyBacked(claim) &&
+          claim.attestations.some(
+            (a) => a.introducedVersionId !== null || a.deprecatedVersionId !== null,
+          ),
       ),
     );
 

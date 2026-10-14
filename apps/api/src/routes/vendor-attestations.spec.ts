@@ -1481,6 +1481,106 @@ describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {
 // real vendor write and then reads the SAME rows through every audience, so the
 // public half and the private half cannot drift apart unnoticed. The public reads'
 // own coverage is in `product-pair.spec.ts` and `pair-timeline.spec.ts`.
+describe('a cancelled vendor-added row leaves the public pair and timeline reads (AECI-1314)', () => {
+  /** The public pair read, with no session, as any browser calls it. */
+  async function publicPair(): Promise<JsonBody> {
+    const res = await buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug/integrations/:otherSlug',
+      handler: createProductPairHandler(t.factory),
+    }).request(
+      '/api/products/revit/integrations/microstation',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as JsonBody;
+  }
+  /** The public timeline read: every claim's history, retracted rows included. */
+  async function publicTimeline(): Promise<JsonBody> {
+    const res = await buildAppWithHandler({
+      method: 'get',
+      path: '/api/products/:slug/integrations/:otherSlug/timeline',
+      handler: createPairTimelineHandler(t.factory),
+    }).request(
+      '/api/products/revit/integrations/microstation/timeline',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as JsonBody;
+  }
+  const timelineClaimIds = (body: JsonBody) => body.claims.map((c: JsonBody) => c.claim_id);
+  const publicClaimIds = (body: JsonBody) =>
+    body.mechanisms.flatMap((m: JsonBody) => m.claims.map((c: JsonBody) => c.id));
+
+  /** Autodesk adds Submittals through the real POST, then presses Cancel. */
+  async function addThenCancel(): Promise<string> {
+    const added = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    expect(added.status).toBe(201);
+    const claimId = added.body.claim.id as string;
+    expect(publicClaimIds(await publicPair())).toContain(claimId);
+    expect((await call(attestationUrl(claimId), { method: 'DELETE' })).status).toBe(204);
+    return claimId;
+  }
+
+  beforeEach(async () => {
+    // The public reads serve promoted products only.
+    await t.db.update(products).set({ promotionStatus: 'promoted' });
+  });
+
+  it('drops the row and its data object from the public pair read', async () => {
+    const claimId = await addThenCancel();
+    const body = await publicPair();
+    expect(publicClaimIds(body)).toEqual([C_MAIN]);
+    expect(body.sync_headline.total).toBe(1);
+    // The claim itself is still on record. Only the public read withholds it.
+    expect((await claimRows()).map((c) => c.id)).toContain(claimId);
+  });
+
+  it('drops the row’s Yes and Cancel from the public timeline read', async () => {
+    const claimId = await addThenCancel();
+    const body = await publicTimeline();
+    // The read is open (Autodesk is entitled), so an empty answer is the filter.
+    expect(body.diff_access).toBe('full');
+    expect(timelineClaimIds(body)).toEqual([C_MAIN]);
+    expect(JSON.stringify(body)).not.toContain(claimId);
+  });
+
+  it('keeps the row on record in the author’s portal', async () => {
+    const claimId = await addThenCancel();
+    const portal = (await call('/api/vendor/integrations', {}, AUTH_A)).body;
+    const ids = portal.integrations.flatMap((i: JsonBody) => i.claims.map((c: JsonBody) => c.id));
+    expect(ids).toContain(claimId);
+  });
+
+  it('brings the row back when the other company answers Yes', async () => {
+    const claimId = await addThenCancel();
+    expect(
+      (await sendJson('PUT', attestationUrl(claimId), { asserted: true }, AUTH_B)).status,
+    ).toBe(200);
+    const body = await publicPair();
+    const claim = body.mechanisms[0].claims.find((c: JsonBody) => c.id === claimId);
+    expect(claim?.agreement).toBe('single_source');
+    expect(body.sync_headline.total).toBe(2);
+    // The timeline shows it again, with its whole history: Autodesk's withdrawn
+    // Yes and Bentley's live one.
+    const timeline = (await publicTimeline()).claims.find((c: JsonBody) => c.claim_id === claimId);
+    expect(
+      timeline?.entries.map((e: JsonBody) => [e.attestor, e.asserted, e.retracted_at !== null]),
+    ).toEqual([
+      ['context', true, true],
+      ['other', true, false],
+    ]);
+  });
+});
+
 describe('an attestation note reaches the two companies and AECi, never the public (AECI-1139)', () => {
   const DENY_NOTE = 'We receive RFIs, but nothing is sent back to Revit.';
   const AFFIRM_NOTE = 'RFI responses come back through the sync.';
