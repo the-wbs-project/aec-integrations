@@ -4,7 +4,7 @@
 >
 > **Section numbers are frozen.** Open issues anchor to them, and `spec-anchor` resolves by path. No section is renumbered or moved.
 >
-> **Live contracts.** §7.1 (`/methodology`), §11 (logos), §12 ("How teams use it") and §14 (`/vendor-program`) govern shipped code. §2, §3, §4, §5, §6, §7, §10 and §13 govern their open issues. §1 (the admission test), §8 (exit criteria) and §9 (out of scope) no longer gate anything. The body below is unchanged.
+> **Live contracts.** §7.1 (`/methodology`), §11 (logos), §12 ("How teams use it") and §14 (`/vendor-program`) govern shipped code. §2, §3, §4, §5, §6, §7, §10 and §13 govern their open issues. §1 (the admission test), §8 (exit criteria) and §9 (out of scope) no longer gate anything. The body below is edited only where a live contract changes or a cross-reference moves.
 
 **Version:** 0.2. **Seeded into Linear** as the project "Stage 2.5 Hardening", held in Backlog. It opens when `STAGE_2_1_SPEC.md` §5 is green.
 **Date:** August 2026

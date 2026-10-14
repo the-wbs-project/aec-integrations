@@ -73,6 +73,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Public vendor landing page (`/vendor-program`) and the one claim dialog on it and `/docs/vendors/plans` (§15: find or type in, plan, comments; `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
+| Vendor claim, licenses and billing: the agreed process (not built; epics E1 to E10) | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
 | Stage 2.5: retired as a stage; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md` |
