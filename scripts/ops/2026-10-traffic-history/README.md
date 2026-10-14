@@ -94,7 +94,7 @@ for every day from 2026-09-30 to 2026-10-04. Query string and network are lost
 from the end of the 2026-10-01 backfill to 2026-10-04T04:00Z. Only the wrangler OAuth login could read the old
 zone on 2026-10-13; the Conductor token reads only the new account.
 
-**Cloudflare Web Analytics has a gap from 2026-10-04 (AECI-1307).** The beacon's last page load
+**Cloudflare Web Analytics has a gap from 2026-10-04 to 2026-10-14 (AECI-1307).** The beacon's last page load
 on the old account is 2026-10-03. Web Analytics is a per-zone dashboard setting, and it did not
 follow the zone move. The new account recorded no `aecintegrations.com` page loads until automatic
 setup was turned on again for the new zone.
@@ -102,7 +102,7 @@ setup was turned on again for the new zone.
 | | |
 |---|---|
 | Gap starts | 2026-10-04 (UTC) |
-| Gap ends | Open. Record the re-enable date here when AECI-1307 closes |
+| Gap ends | 2026-10-14, when automatic setup was turned on again. That day is partial |
 | Cause | Web Analytics was not turned on again on the new zone after cutover |
 
 No `rum-*` data exists for the gap, and none can be recovered. `http-requests` still covers those
