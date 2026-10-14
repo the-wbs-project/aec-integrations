@@ -1,8 +1,8 @@
 ---
 title: Terms of Service
-version: 1.0
+version: 1.1
 effective_date:
-last_updated: October 10, 2026
+last_updated: October 14, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -54,7 +54,7 @@ The service is provided "as is" and "as available", without warranties of any ki
 
 If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines).
 
-These terms are governed by the laws of Pending, and the courts of Pending have exclusive jurisdiction over any dispute, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. The state courts located in Martin County, Florida, and the United States District Court for the Southern District of Florida have exclusive jurisdiction over any dispute arising from these terms or the service, and you consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
 
 ## Changes to these terms
 

@@ -56,12 +56,15 @@ policy at all. It also carries the "Signing in with Google" disclosure that revi
 `effective_date` stays blank until launch. The counsel review is a human gate tracked separately and verified at completion
 checkpoint 7.12; it does not block the page scaffolding.
 
-The counsel-specific details that must be filled before launch now carry a `Pending` marker in
-place of the former bracketed placeholders: governing law + venue in `terms-of-service.md`, and
-the controller legal entity + registered address in `privacy-policy.md`. The real values land via
-**AECI-306** (legal entity, registered address, governing law, venue); the Privacy Policy's
-US-primary rewrite (with GDPR deferred) lands via **AECI-309**. Both are separate open issues —
-until they merge, these files carry `Pending` / GDPR-primary text, not launch-final language.
+The governing law and venue in `terms-of-service.md` are filled with the **AECI-306** values
+(State of Florida; state courts of Martin County, Florida, plus the U.S. District Court for the
+Southern District of Florida), applied under **AECI-312** on October 14, 2026 (ToS v1.1). The
+controller legal entity + registered address in `privacy-policy.md` still carry a `Pending`
+marker; those values are recorded on AECI-306 and have not been committed. The Privacy Policy's
+US-primary rewrite (with GDPR deferred) lands via **AECI-309**.
+
+**Arbitration / class-action waiver: decided against** (AECI-312, October 14, 2026). Disputes go
+to the courts named above. Rationale is on the issue; revisit if user volume grows.
 
 ## Change / versioning workflow (spec §27.2)
 
