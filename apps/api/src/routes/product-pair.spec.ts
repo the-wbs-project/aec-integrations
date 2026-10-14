@@ -125,15 +125,24 @@ async function version(
 }
 
 /** Seed a claim on an integration. Defaults to the Stage 1.5 reality: a single
- *  AECi seed, which resolves `unverified`. */
+ *  AECi seed, which resolves `unverified`. `createdBy` makes it a vendor-added
+ *  claim (`origin = 'vendor'`), keeping the provenance pair's biconditional. */
 async function claim(
   id: string,
   integrationId: string,
   dataObjectId: string,
   direction: ClaimDirection,
   atts: SeedAttestation[] = [{ source: 'aeci', asserted: true, note: 'Curated by AECi.' }],
+  { createdBy }: { createdBy?: string } = {},
 ) {
-  await t.db.insert(claims).values({ id, integrationId, dataObjectId, direction });
+  await t.db.insert(claims).values({
+    id,
+    integrationId,
+    dataObjectId,
+    direction,
+    origin: createdBy ? 'vendor' : 'aeci',
+    createdByVendorId: createdBy ?? null,
+  });
   for (const a of atts) {
     await t.db.insert(attestations).values({
       id: crypto.randomUUID(),
@@ -820,6 +829,115 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
 // Price, release stage and the row's own review date, from BOTH delivered-tier
 // tables. Additive: an unset column serialises as `null`, never a guess.
 
+describe('GET /api/products/:slug/integrations/:otherSlug — unbacked vendor-added claims (AECI-1314)', () => {
+  const RETRACTED = '2026-10-14T00:00:00.000Z';
+  // Acme added Submittals from Procore (endpoint A) and then cancelled.
+  const cancelledYes: SeedAttestation = {
+    source: 'vendor_a',
+    asserted: true,
+    by: ACME,
+    retractedAt: RETRACTED,
+  };
+
+  /** One outbound mechanism with an AECi-seeded RFIs claim and a vendor-added,
+   *  inbound Submittals claim carrying `atts`. */
+  async function seedOrphan(atts: SeedAttestation[]) {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { mechanismKind: 'native', direction: 'a_to_b' });
+    await dataObject(u(101), 'submittals', 'Submittals', 1);
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await claim(u(201), u(10), u(102), 'a_to_b');
+    await claim(u(202), u(10), u(101), 'b_to_a', atts, { createdBy: ACME });
+  }
+
+  const read = async () =>
+    ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+
+  it('withholds a vendor-added claim whose only Yes was cancelled', async () => {
+    await seedOrphan([cancelledYes]);
+    const body = await read();
+    const [m] = body.mechanisms;
+    // Without the filter it reads `unverified`, which the page labels "Listed by
+    // AEC Integrations". AECi never listed it.
+    expect(m!.claims.map((c) => c.id)).toEqual([u(201)]);
+    expect(body.sync_headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
+    // The withdrawn inbound claim no longer steers the arrow either.
+    expect(m!.effective_direction).toBe('outbound');
+  });
+
+  it('withholds it when only the other company’s No is left', async () => {
+    await seedOrphan([cancelledYes, { source: 'vendor_b', asserted: false, by: GLOBEX }]);
+    const body = await read();
+    expect(body.mechanisms[0]!.claims.map((c) => c.id)).toEqual([u(201)]);
+    expect(body.sync_headline.total).toBe(1);
+  });
+
+  it('brings it back as single_source when the other company answers Yes', async () => {
+    await seedOrphan([cancelledYes, { source: 'vendor_b', asserted: true, by: GLOBEX }]);
+    const body = await read();
+    const orphan = body.mechanisms[0]!.claims.find((c) => c.id === u(202));
+    expect(orphan?.agreement).toBe('single_source');
+    expect(body.sync_headline).toEqual({ total: 2, confirmed: 0, single_source: 1 });
+  });
+
+  it('brings it back when AECi lists it', async () => {
+    await seedOrphan([cancelledYes, { source: 'aeci', asserted: true }]);
+    const body = await read();
+    expect(body.mechanisms[0]!.claims.find((c) => c.id === u(202))?.agreement).toBe('unverified');
+    expect(body.sync_headline.total).toBe(2);
+  });
+
+  it('keeps an AECi-seeded claim with no attestation rows at all', async () => {
+    await seedOrphan([cancelledYes]);
+    await claim(u(203), u(10), u(101), 'a_to_b', []);
+    const body = await read();
+    expect(body.mechanisms[0]!.claims.map((c) => c.id).sort()).toEqual([u(201), u(203)]);
+  });
+
+  it('applies the same rule on a connector-evidenced pair', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: u(1),
+      productBId: u(2),
+      direction: 'a_to_b',
+    });
+    await dataObject(u(20), 'employees', 'Employees');
+    await t.db.insert(claims).values({
+      id: u(61),
+      connectorEvidencedPairId: u(60),
+      dataObjectId: u(20),
+      direction: 'b_to_a',
+      origin: 'vendor',
+      createdByVendorId: ACME,
+    });
+    await t.db.insert(attestations).values({
+      id: u(62),
+      claimId: u(61),
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: ACME,
+      retractedAt: RETRACTED,
+    });
+    const body = await read();
+    expect(body.mechanisms[0]!.claims).toEqual([]);
+    expect(body.mechanisms[0]!.effective_direction).toBe('outbound');
+    expect(body.sync_headline.total).toBe(0);
+  });
+});
+
 describe('GET /api/products/:slug/integrations/:otherSlug: At a glance facts (AECI-1142)', () => {
   it('returns pricing_model, maturity and last_reviewed_at per integrations row', async () => {
     await seedProducts();
@@ -1111,6 +1229,34 @@ describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI
 
     const res = await get('/api/products/procore/integrations/revit');
     const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff).toBeNull();
+  });
+
+  // AECI-1314: a withheld claim's stamps cannot open selectors that change nothing.
+  it('is null when the only stamp is on an unbacked vendor-added claim', async () => {
+    await seedProducts();
+    await seedVendors();
+    await seedVersions();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    await claim(u(30), u(10), u(20), 'a_to_b'); // unstamped AECi seed
+    await dataObject(u(21), 'submittals', 'Submittals', 2);
+    await claim(
+      u(31),
+      u(10),
+      u(21),
+      'a_to_b',
+      [
+        { source: 'vendor_a', asserted: true, by: ACME, retractedAt: '2026-10-14T00:00:00.000Z' },
+        { source: 'vendor_b', asserted: false, by: GLOBEX, introducedVersion: R4 },
+      ],
+      { createdBy: ACME },
+    );
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.claims.map((c) => c.id)).toEqual([u(30)]);
     expect(body.version_diff).toBeNull();
   });
 

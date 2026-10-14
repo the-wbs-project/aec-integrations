@@ -5,6 +5,7 @@ import {
   computeSyncHeadline,
   conflictSince,
   distinctDataObjectSlugs,
+  isClaimPubliclyBacked,
   isClaimRefuted,
   type AgreementAttestation,
   type HistoricalAttestation,
@@ -200,6 +201,74 @@ describe('isClaimRefuted', () => {
 
   it('ignores retracted denials', () => {
     expect(isClaimRefuted([vendorA(false, ACME, '2026-08-14T00:00:00.000Z')])).toBe(false);
+  });
+});
+
+describe('isClaimPubliclyBacked (AECI-1314)', () => {
+  const RETRACTED = '2026-10-14T00:00:00.000Z';
+
+  it('keeps an AECi-origin claim with no attestation rows (legacy curation)', () => {
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [] })).toBe(true);
+  });
+
+  it('keeps an AECi-origin claim whatever its votes say', () => {
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [vendorA(false)] })).toBe(true);
+  });
+
+  it('withholds a vendor-origin claim with no attestation rows', () => {
+    expect(isClaimPubliclyBacked({ origin: 'vendor', attestations: [] })).toBe(false);
+  });
+
+  it('withholds a vendor-origin claim whose only Yes was retracted (the Cancel case)', () => {
+    expect(
+      isClaimPubliclyBacked({ origin: 'vendor', attestations: [vendorA(true, ACME, RETRACTED)] }),
+    ).toBe(false);
+  });
+
+  it('withholds a vendor-origin claim left with denials only', () => {
+    expect(
+      isClaimPubliclyBacked({
+        origin: 'vendor',
+        attestations: [vendorA(true, ACME, RETRACTED), vendorB(false)],
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps a vendor-origin claim with a live AECi seed', () => {
+    expect(isClaimPubliclyBacked({ origin: 'vendor', attestations: [aeci(true)] })).toBe(true);
+  });
+
+  it('withholds a vendor-origin claim whose AECi seed is retracted', () => {
+    expect(
+      isClaimPubliclyBacked({
+        origin: 'vendor',
+        attestations: [{ ...aeci(true), retractedAt: RETRACTED }],
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps a vendor-origin claim with one live affirming vendor vote', () => {
+    expect(isClaimPubliclyBacked({ origin: 'vendor', attestations: [vendorB(true)] })).toBe(true);
+  });
+
+  it('keeps a vendor-origin claim the other company affirmed after the author cancelled', () => {
+    expect(
+      isClaimPubliclyBacked({
+        origin: 'vendor',
+        attestations: [vendorA(true, ACME, RETRACTED), vendorB(true)],
+      }),
+    ).toBe(true);
+  });
+
+  it('withholds a vendor-origin claim whose only voter contradicts itself', () => {
+    // One company owning both endpoints, Yes on one slot and No on the other. The
+    // tally reads that as a denial, so nobody affirms.
+    expect(
+      isClaimPubliclyBacked({
+        origin: 'vendor',
+        attestations: [vendorA(true, ACME), vendorB(false, ACME)],
+      }),
+    ).toBe(false);
   });
 });
 

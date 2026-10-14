@@ -215,6 +215,43 @@ export function isClaimRefuted(attestations: readonly AgreementAttestation[]): b
 }
 
 /**
+ * The claim shape {@link isClaimPubliclyBacked} needs: its provenance and its
+ * attestation set. `origin` is a plain string for the same reason `source` is.
+ */
+export interface PublicVisibilityClaim {
+  readonly origin: string;
+  readonly attestations: readonly AgreementAttestation[];
+}
+
+/**
+ * Whether a claim may appear on a public read (AECI-1314). A claim is public
+ * only while someone stands behind it.
+ *
+ * A vendor-added claim (`origin = 'vendor'`) carries no AECi seed. Once its
+ * author cancels, nobody asserts it. `computeAgreement` would then read
+ * `unverified`, and the pair page would label it "Listed by AEC Integrations".
+ * AECi never listed it, so the claim is withheld instead.
+ *
+ * Returns `true` when any one holds:
+ *
+ * - `origin` is not `'vendor'`. AECi-seeded claims stay public exactly as before,
+ *   including a legacy claim with no attestation rows.
+ * - a live `source = 'aeci'` attestation exists.
+ * - at least one distinct vendor voter affirms, deduped as `computeAgreement` does.
+ *
+ * This is the one place `claims.origin` decides anything a reader sees, and it decides
+ * visibility, never a label (`STAGE_2_ATTESTATIONS_SPEC.md` §2.2).
+ */
+export function isClaimPubliclyBacked(claim: PublicVisibilityClaim): boolean {
+  if (claim.origin !== 'vendor') return true;
+  if (claim.attestations.some((a) => a.source === 'aeci' && a.retractedAt === null)) return true;
+  for (const affirms of tallyVoters(claim.attestations).values()) {
+    if (affirms) return true;
+  }
+  return false;
+}
+
+/**
  * The minimal claim shape `computeSyncHeadline` needs — its computed agreement,
  * and the `data_object` it moves (the headline counts objects, not rows).
  */

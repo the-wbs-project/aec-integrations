@@ -28,6 +28,7 @@ import {
   distinctDataObjectSlugs,
   effectiveContextDirection,
   integrationDirectionForContext,
+  isClaimPubliclyBacked,
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
@@ -218,7 +219,9 @@ export const productDetailIntegrationConfig = {
     // list config stays without it (see `ProductIntegrationItem.powered_by_product`).
     poweredByProduct: { columns: productLinkColumns },
     claims: {
-      columns: { direction: true },
+      // `origin` (AECI-1314): an unbacked vendor-added claim is withheld from
+      // public reads, so it must not steer the arrow or count toward the depth.
+      columns: { direction: true, origin: true },
       with: {
         // AECI-711: the depth axis counts distinct objects per row.
         dataObject: { columns: { slug: true } },
@@ -285,7 +288,9 @@ export const connectorEvidencedPairDetailConfig = {
   with: {
     ...connectorEvidencedPairListConfig.with,
     claims: {
-      columns: { direction: true },
+      // `origin` (AECI-1314): an unbacked vendor-added claim is withheld from
+      // public reads, so it must not steer the arrow or count toward the depth.
+      columns: { direction: true, origin: true },
       with: {
         // AECI-711: the depth axis counts distinct objects per row.
         dataObject: { columns: { slug: true } },
@@ -301,8 +306,10 @@ export const connectorEvidencedPairDetailConfig = {
 /**
  * The powered hub's claim hydration (AECI-1080): the `data_object` slug and
  * nothing else. The hub has no context product, so it derives no direction and
- * needs neither the claim's direction nor its attestations. Every claim counts,
- * as `productDetailDataObjectSlugs` documents for the endpoint embed.
+ * needs neither the claim's direction nor its attestations. Every claim counts.
+ * The endpoint embed's one exception, an unbacked vendor-added claim (AECI-1314),
+ * is not filtered here. A connector-powered edge refuses vendor authoring, so no
+ * vendor-added claim can be created on one.
  */
 const poweredClaimsConfig = {
   columns: {},
@@ -331,7 +338,8 @@ export const connectorEvidencedPairPoweredConfig = {
  * before its declaration.
  */
 const pairClaimsConfig = {
-  columns: { id: true, direction: true },
+  // `origin` feeds `isClaimPubliclyBacked` (AECI-1314). It is never serialised.
+  columns: { id: true, direction: true, origin: true },
   with: {
     dataObject: { columns: { slug: true, name: true, displayOrder: true } },
     attestations: {
@@ -394,13 +402,16 @@ export const connectorEvidencedPairTimelineConfig = {
   with: {
     productA: { columns: { id: true } },
     claims: {
-      columns: { id: true },
+      // `origin` and `attestedByVendorId` feed `isClaimPubliclyBacked` (AECI-1314).
+      // Neither is serialised: `toClaimTimelineEntry` builds each entry field by field.
+      columns: { id: true, origin: true },
       with: {
         attestations: {
           columns: {
             id: true,
             source: true,
             asserted: true,
+            attestedByVendorId: true,
             // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
@@ -432,6 +443,8 @@ export interface RawConnectorEvidencedPairRow {
  *  depth axis counts. */
 export interface RawProductDetailClaimRow {
   direction: string;
+  /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
+  origin: string;
   attestations: RawAgreementVoteRow[];
   dataObject: { slug: string };
 }
@@ -566,6 +579,9 @@ export function toProductIntegrationItemFromEvidencedPair(
   const item = toIntegrationListItemFromEvidencedPair(raw);
   const contextIsSource = item.source.id === contextProductId;
   const swapped = raw.direction === 'b_to_a';
+  // AECI-1314: the pair page withholds an unbacked vendor-added claim, so the row
+  // must not count or steer by it either (AECI-711: one rule for both).
+  const claims = publicClaims(raw.claims);
   return {
     ...item,
     context_direction: effectiveContextDirection(
@@ -576,7 +592,7 @@ export function toProductIntegrationItemFromEvidencedPair(
       // `raw.direction` would be anchored to the canonical A/B instead and is
       // what the claims below are flipped out of.
       item.direction,
-      raw.claims.map((claim) => {
+      claims.map((claim) => {
         const direction = coerceClaimDirection(claim.direction, raw.id);
         return {
           direction: swapped ? flipClaimDirection(direction) : direction,
@@ -588,7 +604,7 @@ export function toProductIntegrationItemFromEvidencedPair(
     // Never both: a row in `connector_evidenced_pairs` has no
     // `powered_by_product_id` to carry (§13.4(1)).
     powered_by_product: null,
-    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+    data_object_slugs: productDetailDataObjectSlugs(claims),
   };
 }
 
@@ -700,6 +716,10 @@ export const integrationPairConfig = {
  *     withdrawn assertion finds its way back into a vote, which is the exact hazard
  *     §2.5 handed to §4. Agreement comes from `integrationPairConfig`; this config
  *     feeds the timeline mapper and nothing else.
+ *   - **One exception: `isClaimPubliclyBacked` (AECI-1314).** It decides whether a
+ *     claim's history may be published at all, so it must see the same claims the
+ *     pair read hides. It computes no agreement and counts only rows whose
+ *     `retractedAt` is null, so a withdrawn Yes cannot keep a claim visible.
  *   - It carries no products, vendors, or mechanism columns — only what one history
  *     row renders. The payload is unbounded in principle (the log grows forever),
  *     so it stays as narrow as possible.
@@ -709,13 +729,16 @@ export const integrationTimelineConfig = {
   with: {
     sourceProduct: { columns: { id: true } },
     claims: {
-      columns: { id: true },
+      // `origin` and `attestedByVendorId` feed `isClaimPubliclyBacked` (AECI-1314).
+      // Neither is serialised: `toClaimTimelineEntry` builds each entry field by field.
+      columns: { id: true, origin: true },
       with: {
         attestations: {
           columns: {
             id: true,
             source: true,
             asserted: true,
+            attestedByVendorId: true,
             // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
@@ -1166,23 +1189,33 @@ export interface RawTimelineAttestationRow {
   id: string;
   source: string;
   asserted: boolean;
+  /** The voter identity `isClaimPubliclyBacked` dedupes by. Never serialised. */
+  attestedByVendorId: string | null;
   retractedAt: string | null;
   createdAt: string;
   introducedVersionId: string | null;
   deprecatedVersionId: string | null;
 }
 
+/** A claim as the timeline read hydrates it: its whole history, live and retracted. */
+export interface RawTimelineClaimRow {
+  id: string;
+  /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
+  origin: string;
+  attestations: RawTimelineAttestationRow[];
+}
+
 export interface RawTimelineIntegrationRow {
   id: string;
   sourceProduct: { id: string };
-  claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
+  claims: RawTimelineClaimRow[];
 }
 
 /** `connectorEvidencedPairTimelineConfig`'s output (AECI-1035). */
 export interface RawTimelineEvidencedPairRow {
   id: string;
   productA: { id: string };
-  claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
+  claims: RawTimelineClaimRow[];
 }
 
 /**
@@ -1215,6 +1248,8 @@ export interface PairVersionResolver {
 export interface RawPairClaimRow {
   id: string;
   direction: string;
+  /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
+  origin: string;
   dataObject: { slug: string; name: string; displayOrder: number | null };
   attestations: RawClaimAttestationRow[];
 }
@@ -1519,11 +1554,13 @@ export function toProductIntegrationItem(
   raw: RawProductIntegrationRow,
   contextIsSource: boolean,
 ): ProductIntegrationItem {
+  // AECI-1314: the same public-claim filter the pair page applies (AECI-711).
+  const claims = publicClaims(raw.claims);
   return {
     ...toIntegrationListItem(raw),
     context_direction: effectiveContextDirection(
       coerceDirection(raw.direction),
-      raw.claims.map((claim) => ({
+      claims.map((claim) => ({
         direction: coerceClaimDirection(claim.direction, raw.id),
         attestations: claim.attestations,
       })),
@@ -1533,15 +1570,32 @@ export function toProductIntegrationItem(
     // the DIRECT lane) and, in an un-migrated database, on a routable connector
     // edge the AECI-721 migration has not moved yet.
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
-    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+    data_object_slugs: productDetailDataObjectSlugs(claims),
   };
 }
 
 /**
+ * The claims a public read may show (AECI-1314): every claim except a vendor-added
+ * one nobody stands behind any more. See `isClaimPubliclyBacked`. Applied once per
+ * mechanism, before anything reads the claims, so the arrow, the depth count, the
+ * lanes and the sync headline all see the same list.
+ *
+ * Public reads only. The powered hub needs no filter, because a connector-powered
+ * edge refuses vendor authoring. Detectors and the vendor portal read every claim.
+ */
+function publicClaims<T extends { origin: string; attestations: readonly RawAgreementVoteRow[] }>(
+  claims: readonly T[],
+): T[] {
+  return claims.filter((claim) => isClaimPubliclyBacked(claim));
+}
+
+/**
  * AECI-711 depth axis: the distinct objects one edge's claims cover, by the same
- * AECI-1042 rule as the pair page's sync headline. Every claim counts, as it does
- * there with no version selected: a refuted claim still names an object the
- * catalog records, and the pair page lists it too.
+ * AECI-1042 rule as the pair page's sync headline. Every claim the pair page shows
+ * counts, as it does there with no version selected: a refuted claim still names
+ * an object the catalog records, and the pair page lists it too. The one exception
+ * is an unbacked vendor-added claim (AECI-1314). Both endpoint mappers drop it
+ * with `publicClaims` before calling this.
  */
 function productDetailDataObjectSlugs(claims: readonly RawPoweredClaimRow[]): string[] {
   return distinctDataObjectSlugs(
@@ -1762,16 +1816,19 @@ function toProductPairMechanism(
   versions?: PairVersionResolver,
 ): ProductPairMechanism {
   const contextIsSource = raw.sourceProduct.id === contextProductId;
+  // AECI-1314: drop unbacked vendor-added claims FIRST, so the direction, the lanes
+  // and `toProductPairResponse`'s sync headline all read one list.
+  const claims = publicClaims(raw.claims);
   return {
     id: raw.id,
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
     // AECI-711: the product row's rule, verbatim (`toProductIntegrationItem`). Every
-    // claim, not the version-filtered list below, because the row sees them all.
+    // public claim, not the version-filtered list below, because the row sees them all.
     effective_direction: effectiveContextDirection(
       coerceDirection(raw.direction),
-      raw.claims.map((claim) => ({
+      claims.map((claim) => ({
         direction: coerceClaimDirection(claim.direction, raw.id),
         attestations: claim.attestations,
       })),
@@ -1812,7 +1869,7 @@ function toProductPairMechanism(
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
     // of the version selection, so walking the selectors never reshuffles the lanes.
-    claims: [...raw.claims]
+    claims: [...claims]
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
@@ -1845,6 +1902,8 @@ function toProductPairMechanismFromEvidencedPair(
   const { source, direction } = orientEvidencedPair(raw);
   const contextIsSource = source.id === contextProductId;
   const contextIsA = raw.productA.id === contextProductId;
+  // AECI-1314: the same public-claim filter as `toProductPairMechanism`.
+  const claims = publicClaims(raw.claims);
   return {
     id: raw.id,
     // Null by construction — see the section header. The connector is in `via`.
@@ -1857,7 +1916,7 @@ function toProductPairMechanismFromEvidencedPair(
     // so one flag, `contextIsA`, frames both and no flip is needed.
     effective_direction: effectiveContextDirection(
       coerceDirection(raw.direction),
-      raw.claims.map((claim) => ({
+      claims.map((claim) => ({
         direction: coerceClaimDirection(claim.direction, raw.id),
         attestations: claim.attestations,
       })),
@@ -1885,7 +1944,7 @@ function toProductPairMechanismFromEvidencedPair(
     // AECI-1154: an entitled owner edits it here too (AECI-1090). Promote never does.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
-    claims: [...raw.claims]
+    claims: [...claims]
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsA, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
@@ -1898,7 +1957,8 @@ export { toProductPairMechanismFromEvidencedPair };
  * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
  * `ProductListItem` (vendor + review recap) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
- * claims. `sync_headline` is derived from every claim on the pair via
+ * claims. `sync_headline` is derived from every public claim on the pair (an
+ * unbacked vendor-added claim is already gone, AECI-1314) via
  * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct `data_object`
  * count across all mechanisms and both anchors (AECI-1042), not the claim count; `confirmed` and `single_source` are both `0` until the
  * Stage 2 portal writes vendor attestations, and stay separate counts so a
@@ -1969,6 +2029,12 @@ function countVersionStatuses(claims: readonly ProductPairClaim[]): PairVersionD
  * browser's "does this claim have a history affordance?" test is the absence of an
  * entry for its id.
  *
+ * **A claim the pair read withholds is omitted here too** (AECI-1314). An unbacked
+ * vendor-added claim is hidden from the pair page, and this route is the second
+ * public path to its rows. Without the filter it would publish the vendor's Yes and
+ * its Cancel. `isClaimPubliclyBacked` reads the full history safely: it counts only
+ * rows whose `retractedAt` is null.
+ *
  * `contextProductId` frames each row's slot context-relatively via
  * `attestorForContext`, exactly as the live pair read does, so the two surfaces
  * cannot disagree about which party is "context".
@@ -1995,6 +2061,7 @@ export function toPairTimelines(
     const contextIsSource = anchor.aId === contextProductId;
     for (const claim of anchor.claims) {
       if (claim.attestations.length === 0) continue;
+      if (!isClaimPubliclyBacked(claim)) continue;
       const entries = [...claim.attestations]
         .sort((a, b) => {
           if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;

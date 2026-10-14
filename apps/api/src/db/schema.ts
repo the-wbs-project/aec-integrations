@@ -805,6 +805,9 @@ export const productVersions = sqliteTable(
 // replaces AECi curation without touching vendor-created rows (§3) — and for the AECi
 // ops view. Provenance is deliberately NOT a reader-facing trust badge: a
 // vendor-created claim renders through the same agreement states as an AECi-seeded one.
+// One exception gates VISIBILITY, never a label (AECI-1314): a vendor-created claim
+// with no live AECi seed and no live affirming vendor vote is withheld from public
+// reads (`isClaimPubliclyBacked` in @aeci/shared). Nobody stands behind it any more.
 // The biconditional `origin = 'vendor' ⟺ created_by_vendor_id IS NOT NULL` is a
 // two-column invariant enforced in ONE place in application code
 // (`lib/attestation-authority.ts`), not by a DB CHECK.
