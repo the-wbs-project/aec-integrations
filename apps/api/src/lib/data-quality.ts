@@ -489,8 +489,8 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
  * `lib/license.ts` writes, so a vendor the reconcile would move is exactly a finding.
  *
  * Live is stored state only, never `ends_at` at read time (`DATABASE_SCHEMA.md`
- * §8.6c). Same `error` severity as the entitlement check: the seeds carry matching
- * licenses (`d1.spec.ts` proves a fresh local D1 reads 0).
+ * §8.6c). Severity is set in `CHECKS` (`warn` until the back-fill lands). The seeds
+ * carry matching licenses (`d1.spec.ts` proves a fresh local D1 reads 0).
  */
 export async function checkLicenseMirrorDrift(db: Db): Promise<CheckFinding> {
   // Spelled out with aliases: on a one-table select Drizzle renders `${col}` without

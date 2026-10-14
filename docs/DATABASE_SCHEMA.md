@@ -260,7 +260,7 @@ the claim button copy that switched on it. The remaining readers are internal:
   `pickPrimaryVendorRow` (`apps/api/src/lib/drizzle-helpers.ts`) and answers `diff_access`
 - the admin vendor surfaces, including the separate `GET /api/admin/vendors?verified=` filter
 - the vendor portal's `VendorAccountSchema`, as read-only state
-- the `entitlement_mirror_drift` data-quality check, the retract path and the backfill
+- the `entitlement_mirror_drift` and `license_mirror_drift` data-quality checks, the retract path and the backfills
 
 `vendorLinkColumns` still selects the column for the gate. `toVendorLink` and
 `toVendorListItem` no longer emit it. The column, `vendors_verified_idx` and the invariant are
@@ -2037,9 +2037,10 @@ Notes:
 - **One writer, both sides.** `apps/api/src/lib/vendor-entitlement.ts` emits every statement
   that can move either side of the *iff*, and never one without the other. An ESLint
   `no-restricted-syntax` rule rejects a `.set({ verified })` / `.values({ verified })` on
-  `vendors` in any other file (exempt list: exactly that one module), and the daily
-  `entitlement_mirror_drift` data-quality check counts `verified = 1` XOR an active row as
-  the run-time backstop. Callers are `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
+  `vendors` in any other file. The exempt list is that module and, since AECI-1352,
+  `lib/license.ts` (§8.6c) until E1.9. The daily `entitlement_mirror_drift` data-quality
+  check counts `verified = 1` XOR an active row as the run-time backstop. Its twin
+  `license_mirror_drift` (AECI-1354) does the same against live licenses. Callers are `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
   paid-tiers spec) and the claim grant, which composes the same builder into its batch.
 - **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a **closed** CHECK
   and opening it on SQLite is a full table rebuild; `audit_log.entity_type` is deliberately

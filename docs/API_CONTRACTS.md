@@ -2208,7 +2208,9 @@ ignores unknown keys, which would otherwise hide it.
 | Seat, request resolve, workflow | yes | yes |
 | `vendor_entitlements` row | none written; an existing row, active or ended, is left alone | opened or reactivated (none on a second seat) |
 | `vendors.verified` | untouched | flipped by the guarded mirror UPDATE |
-| Audit rows | `vendor_claim.granted` only | `vendor_claim.granted` + `vendor_entitlement.granted` |
+| Billing account | inserted when the vendor has none (AECI-1351) | same; the license dual-write creates it first (AECI-1353) |
+| Licenses | none | one per owned product, or one unassigned (AECI-1353); a second seat adds none |
+| Audit rows | `vendor_claim.granted`, plus `billing_account.created` when the account is new | `vendor_claim.granted` + `vendor_entitlement.granted`, plus `billing_account.created` and one `license.granted` per license when new |
 | `metadata.plan` | `'free'` | `'managed'` on both rows |
 | Cache purge | none (no cacheable page renders a seat) | vendor + its products, as below |
 | Approved email | Free variant | Managed variant |

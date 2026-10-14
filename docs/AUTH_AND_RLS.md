@@ -252,10 +252,14 @@ tier, status, term and the offline PO/invoice arrangement, and demoted `verified
 authorization:
 
 - **One writer, not one caller.** `apps/api/src/lib/vendor-entitlement.ts` is the **sole
-  writer of either side** of that *iff*, and never emits one side without the other. The claim
+  writer of either side** of that *iff*, and never emits one side without the other. During
+  the license transition `apps/api/src/lib/license.ts` is a second exempt writer of the
+  `verified` bit (AECI-1352, `DATABASE_SCHEMA.md` §8.6c). The entitlement module leaves the
+  exempt list at E1.9. The claim
   grant is now a *caller* of it, not the writer — an ESLint `no-restricted-syntax` rule rejects
   a `.set({ verified })` / `.values({ verified })` on `vendors` anywhere else, and the daily
-  `entitlement_mirror_drift` data-quality check is the run-time backstop.
+  `entitlement_mirror_drift` data-quality check is the run-time backstop. Its twin
+  `license_mirror_drift` (AECI-1354, `warn`) checks the same bit against live licenses.
 - **The arrangement is a row now, not just audit metadata.** It is still written to the grant
   audit row's metadata as well — `audit_log` is the renewal ledger (§2.1 of the paid-tiers
   spec), keyed `entity_type='vendor_entitlement', entity_id=<vendor_id>`.

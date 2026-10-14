@@ -96,7 +96,7 @@ This is the deliberate contrast with `STAGE_2_VENDOR_PORTAL_SPEC.md` §1.2 ("no 
 
 ### 2.1 The mirror invariant, and its two mechanical guards
 
-> **The mirror invariant.** `vendors.verified = true` **iff** the vendor has a `vendor_entitlements` row with `status = 'active'`. Because `vendor_entitlements.vendor_id` is **UNIQUE**, that predicate is a single-row test — and every statement that can move either side of the *iff* is emitted by one module, `apps/api/src/lib/vendor-entitlement.ts`, which never emits one side without the other. **No route handler writes `vendors.verified` directly.**
+> **The mirror invariant.** `vendors.verified = true` **iff** the vendor has a `vendor_entitlements` row with `status = 'active'`. Because `vendor_entitlements.vendor_id` is **UNIQUE**, that predicate is a single-row test — and every statement that can move either side of the *iff* is emitted by one module, `apps/api/src/lib/vendor-entitlement.ts`, which never emits one side without the other. *(As revised 2026-10-14: `lib/license.ts` is a second exempt writer during the license transition. See the note under Guard 1.)* **No route handler writes `vendors.verified` directly.**
 
 **Why UNIQUE, i.e. why one row per vendor and not a period-history table.** The invariant has to be expressible as a **guarded single-row `UPDATE`** so the write is safe under concurrency. D1 has no interactive transactions, so read-then-write is a race with no available fix. With one row per vendor the predicate is `status = 'active'`, which is a legal `WHERE`. With history rows it becomes `MAX(period_end)` / `is_current` over N rows — not a predicate you can put in a `WHERE`, and the mirror flip degrades into exactly the race there is no tool to fix.
 
@@ -109,6 +109,8 @@ Three supporting reasons: **`audit_log` already is the history ledger** (every m
 *As revised (AECI-1352, 2026-10-14).* A second exempt writer exists during the license transition: `apps/api/src/lib/license.ts`. Every license batch ends with one idempotent statement that sets `verified` to EXISTS(a live license on any of the vendor's billing accounts), guarded on `verified <>` that value. It replaces the single-row guarded flip with a predicate D1 can evaluate in one `UPDATE`, so the concurrency argument above still holds without one row per vendor. `lib/vendor-entitlement.ts` leaves `MIRROR_WRITE_EXEMPT` at E1.9 (AECI-1358). Process: `docs/VENDOR_SIGNUP_PROCESS.md` §5 E1. Schema: `DATABASE_SCHEMA.md` §8.6c.
 
 **Guard 2 — run-time (drift check).** A new check in `apps/api/src/lib/data-quality.ts`, run by the existing 04:00 UTC cron: `id: 'entitlement_mirror_drift'`, `severity: 'error'` — the count of vendors where `verified = 1` XOR an `active` entitlement row exists. It emits the existing `aeci.data_quality.check` gauge, so it needs no new metric and no new monitor plumbing, and it lands in the daily digest. This is the guard that catches what lint cannot: hand-written D1 SQL against a tier, the `apps/datatool` worker (which binds all four tiers and can write prod D1), and — the likely one — a backfill that ran on staging but not demo (§2.3).
+
+*As built (AECI-1354, 2026-10-14).* A twin check, `license_mirror_drift`, counts vendors where `verified = 1` XOR a live license exists. It ships at `warn`, not `error`, until the license back-fill has run on every tier (§2.4 step 4). Both checks must read 0 before E1.6.
 
 ### 2.2 The table
 
