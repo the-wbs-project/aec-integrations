@@ -696,6 +696,55 @@ describe('one license, two products: the plan is per product', () => {
   });
 });
 
+/**
+ * Ruled 2026-10-14 (`docs/VENDOR_SIGNUP_PROCESS.md` §2): only the payer gets
+ * Managed rights. A co-owned product is Managed only for the vendor whose billing
+ * account holds its license; the other owner stays Free on it.
+ */
+describe('a co-owned product is Managed only for the vendor that pays for it', () => {
+  beforeEach(async () => {
+    // VENDOR_UNCLAIMED co-owns PRODUCT_PAID, whose license is on VENDOR_PAID's account.
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_PAID, vendorId: VENDOR_UNCLAIMED, isPrimary: false });
+  });
+
+  it('GET /api/vendor/me shows the co-owned product as Free to the non-paying owner', async () => {
+    const { status, body } = await call('/api/vendor/me', 'GET', SEAT_UNCLAIMED);
+    expect(status).toBe(200);
+    const coOwned = (body.products as JsonBody[]).find((p) => p.id === PRODUCT_PAID);
+    expect(coOwned?.plan).toEqual({
+      tier: 'unclaimed',
+      status: null,
+      period_end: null,
+      ended_at: null,
+      capabilities: [...capabilitiesFor('unclaimed')],
+      price: DEFAULT_PLAN_PRICE,
+    });
+    // The payer still sees it Managed.
+    const payer = await call('/api/vendor/me', 'GET', SEAT_PAID);
+    const paid = (payer.body.products as JsonBody[]).find((p) => p.id === PRODUCT_PAID);
+    expect(paid?.plan.tier).toBe('verified');
+  });
+
+  it('refuses the non-paying owner a Managed field on the co-owned product, same 403 shape', async () => {
+    const res = await call(`/api/vendor/products/${PRODUCT_PAID}`, 'PATCH', SEAT_UNCLAIMED, {
+      api_docs_url: 'https://x.test/api',
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+    expect(res.body.error.details).toEqual({
+      capability: 'product.edit',
+      tier: 'unclaimed',
+      fields: ['api_docs_url'],
+    });
+    const payer = await call(`/api/vendor/products/${PRODUCT_PAID}`, 'PATCH', SEAT_PAID, {
+      api_docs_url: 'https://x.test/api',
+    });
+    expect(payer.status).toBe(200);
+  });
+});
+
 // ─── The second axis: the field-granular allow-list ──────────────────────────
 
 /** A tier this build does not know. `capabilitiesFor` gives it nothing, which is

@@ -78,6 +78,7 @@ import {
   auditLog,
   claims,
   integrations,
+  licenses,
   productRequests,
   productVendors,
   productVersions,
@@ -1295,10 +1296,34 @@ describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-117
     expect(status).toBe(404);
   });
 
-  it('a co-owner (non-primary product_vendors row) may reply to the same review', async () => {
+  it('a co-owner that does not pay for the product is Free on it: 403, not 201 (ruled 2026-10-14)', async () => {
+    // PRODUCT_A's one live license sits on VENDOR_A's billing account. Only the
+    // payer gets Managed rights, so VENDOR_B, though it holds a license of its own
+    // on PRODUCT_B, is refused here.
     await t.db
       .insert(productVendors)
       .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
+    const { status, body } = await call(
+      `/api/vendor/reviews/${REVIEW_A_EDIT}/response`,
+      'POST',
+      SEAT_B,
+      { body: 'From the co-owner.' },
+    );
+    expect(status).toBe(403);
+    expect(body.error?.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(body.error?.details).toEqual({ capability: 'review.reply', tier: 'unclaimed' });
+  });
+
+  it('a co-owner (non-primary product_vendors row) that PAYS for the product may reply', async () => {
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
+    // The license moves: VENDOR_A's ends, VENDOR_B's account takes the product.
+    await t.db
+      .update(licenses)
+      .set({ endedAt: '2026-09-01T00:00:00.000Z', endReason: 'released' })
+      .where(eq(licenses.assignedProductId, PRODUCT_A));
+    await seedLicense(t.db, VENDOR_B, { productId: PRODUCT_A });
     const { status } = await call(`/api/vendor/reviews/${REVIEW_A_EDIT}/response`, 'POST', SEAT_B, {
       body: 'From the co-owner.',
     });

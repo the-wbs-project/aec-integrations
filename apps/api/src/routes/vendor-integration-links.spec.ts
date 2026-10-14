@@ -518,6 +518,8 @@ describe('re-crawl plan gate (AECI-1186)', () => {
       ...AUTH_A,
       entitlementTier: 'verified',
       entitlement: { status: 'active', periodEnd: null },
+      // Per product since the 2026-10-14 ruling: the named endpoint holds the license.
+      licensedProductIds: [P_SOURCE],
     };
     const res = await put(
       entitled,

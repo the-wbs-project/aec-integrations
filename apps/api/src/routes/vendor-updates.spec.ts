@@ -822,6 +822,8 @@ describe('a claim_added write moves the recipient’s scopes and no one else’s
     userId: SEAT_B,
     email: 'ops@bentley.test',
     vendorId: VENDOR_B,
+    // Attestation writes gate on the caller's endpoint product (ruled 2026-10-14).
+    licensedProductIds: [PRODUCT_B],
   };
   const AUTH_C: AuthzVariables['auth'] = { ...AUTH, userId: uuid(102), vendorId: VENDOR_C };
 

@@ -4,7 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 import type { VendorMeResponse } from '@aeci/shared';
 
-import { isCatalogueSeat, productCan, vendorCan } from './vendor-capabilities';
+import {
+  integrationCanAuthor,
+  isCatalogueSeat,
+  productCan,
+  vendorCan,
+} from './vendor-capabilities';
 import type { VendorPortalStore } from './vendor-portal-store';
 
 const connector = { product_role: 'connector' };
@@ -82,5 +87,35 @@ describe('vendorCan', () => {
 
   it('is false before the store is seeded', () => {
     expect(vendorCan(storeWith(null), 'profile.edit')()).toBe(false);
+  });
+});
+
+/** Ruled 2026-10-14: attestations are per product (`integrationCanAuthor`). */
+describe('integrationCanAuthor', () => {
+  const managed = capabilitiesFor('verified');
+  const free = capabilitiesFor('unclaimed');
+  const products = (a: readonly Capability[], b: readonly Capability[]) => [
+    { id: 'p-a', plan: { capabilities: a } },
+    { id: 'p-b', plan: { capabilities: b } },
+  ];
+  const row = (slots: readonly string[]) => ({
+    context_product: { id: 'p-a' },
+    other_product: { id: 'p-b' },
+    slots,
+  });
+
+  it('reads the context product’s plan for a one-slot integration', () => {
+    expect(integrationCanAuthor(row(['vendor_a']), products(managed, free))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a']), products(free, managed))).toBe(false);
+  });
+
+  it('passes an owns-both integration when either endpoint is Managed', () => {
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, managed))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, free))).toBe(false);
+  });
+
+  it('is closed with no integration or an unknown product', () => {
+    expect(integrationCanAuthor(null, products(managed, managed))).toBe(false);
+    expect(integrationCanAuthor(row(['vendor_a']), [])).toBe(false);
   });
 });

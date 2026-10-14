@@ -443,6 +443,32 @@ describe('the plan gate', () => {
     expect(await indexNowRows()).toHaveLength(0);
     expect(await gscRows()).toHaveLength(0);
   });
+
+  // Ruled 2026-10-14: resubmission is per product. The vendor holds a live license,
+  // but not on PRODUCT, so PRODUCT's edit asks no search engine to re-fetch.
+  it('leaves no row after a product edit when the license is on another product', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
+    expect(await gscRows()).toHaveLength(0);
+  });
+
+  it('still buffers a profile edit for that vendor: the profile is a vendor-level write', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson('/api/vendor/profile', { headquarters: 'Carpinteria, CA' });
+    expect(res.status).toBe(200);
+    expect((await indexNowRows()).length).toBeGreaterThan(0);
+  });
+
+  it('leaves no row after an integration edit whose owned endpoint is not licensed', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, {
+      name: 'Procore Build Sync',
+    });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
+  });
 });
 
 // ─── Cause linkage (AECI-1184) ───────────────────────────────────────────────

@@ -36,8 +36,9 @@
  *   2. Authority, alone in its wave (only the caller's own `vendors` row rides
  *      along, exactly as `requireOwnedProduct` does) — checked in order:
  *      authority → 404, then `assertAttestableEdge` → 403 `FORBIDDEN`, then
- *      `requireCapability(c, 'attestation.author')` → 403 `ENTITLEMENT_REQUIRED`
- *      (AECI-623). The edge gate sits BETWEEN the two on purpose: a vendor
+ *      `requireAttestationCapability` → 403 `ENTITLEMENT_REQUIRED` (AECI-623; per
+ *      product since the 2026-10-14 ruling: the caller's endpoint product's own
+ *      license decides). The edge gate sits BETWEEN the two on purpose: a vendor
  *      without the capability on a connector-powered edge must not be told that
  *      an entitlement would unlock it (AECI-705 / §14).
  *   3. Everything else — vocabulary resolution, the duplicate-identity check,
@@ -162,7 +163,7 @@ import {
   type AttestationSlot,
 } from '../lib/attestation-authority';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { auditActorType, requireCapability } from '../lib/authz';
+import { auditActorType, productTier, requireProductCapability } from '../lib/authz';
 import { loadDataObjectResolver, type DataObjectTerm } from '../lib/data-object-vocabulary';
 import { productLinkColumns, toMechanismKind, toProductLink } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -190,6 +191,34 @@ const liveAttestationsWhere = isNull(attestations.retractedAt);
  *  integration's `source_product_id`, `vendor_b` = endpoint B (§3.2). */
 function endpointProductFor(authority: AttestationAuthority, slot: AttestationSlot): string {
   return slot === 'vendor_a' ? authority.sourceProductId : authority.targetProductId;
+}
+
+/**
+ * The `attestation.author` gate, PER PRODUCT (ruled 2026-10-14,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` §2). The product it reads is the caller's own
+ * endpoint of the integration: the product of the slot the caller holds. That
+ * product must hold a live license on the caller's own billing account
+ * (`productTier`), exactly as `requireProductCapability` reads it for a product
+ * edit.
+ *
+ * A caller owning BOTH endpoints passes when EITHER of its endpoint products is
+ * Managed. Header rule 3 is why: the write fills every slot the caller owns, and
+ * §4 dedupes voters by vendor, so the company casts one vote on the integration
+ * whichever endpoint it speaks for. Requiring both would refuse a vote the
+ * company has paid for on one of the two products it is about. The same answer
+ * holds on both of the portal's listings of that integration, which is what the
+ * one-position rule on `VendorIntegrationSchema` needs.
+ *
+ * Refused: `403 ENTITLEMENT_REQUIRED`, `details.tier` = the caller's endpoint
+ * product's tier (endpoint A first when it owns both, both being unlicensed).
+ */
+function requireAttestationCapability(c: VendorContext, authority: AttestationAuthority): void {
+  const owned = authority.slots.map((slot) => endpointProductFor(authority, slot));
+  const session = c.get('auth');
+  // `slots` is never empty past `resolveAttestationSlots`, so `owned[0]` exists.
+  const product =
+    owned.find((productId) => productTier(session, productId) !== 'unclaimed') ?? owned[0]!;
+  requireProductCapability(c, product, 'attestation.author');
 }
 
 /**
@@ -546,7 +575,7 @@ async function authorityAndVendor<T>(
  * powered-ness is public on the pair page. There is nothing left to conceal, and
  * a 404 here would be a lie the caller can disprove by loading its own page.
  *
- * **It runs BEFORE `requireCapability`, and that order is load-bearing.**
+ * **It runs BEFORE `requireAttestationCapability`, and that order is load-bearing.**
  * Reversed, a vendor without `attestation.author` on a powered edge is told to
  * activate access in order to author — a promise an entitlement will never keep,
  * because no tier unlocks this edge. The copy therefore points at the
@@ -1302,7 +1331,7 @@ export function createVendorClaimHandler(
     );
     assertAttestableEdge(authority);
     assertIntegrationLive(authority);
-    requireCapability(c, 'attestation.author');
+    requireAttestationCapability(c, authority);
 
     // Step 3 — everything that can fail, resolved before the batch opens.
     // The frame is validated before it is used: a `context_product_id` naming an
@@ -1502,7 +1531,7 @@ export function createUpsertVendorAttestationHandler(
     const { claim, authority } = resolved;
     assertAttestableEdge(authority);
     assertIntegrationLive(authority);
-    requireCapability(c, 'attestation.author');
+    requireAttestationCapability(c, authority);
 
     const payload = await parseJsonBody(c, UpsertVendorAttestationSchema);
     // Echo framing only — nothing stored by this write depends on it (AECI-666).
@@ -1676,7 +1705,7 @@ export function createRetractVendorAttestationHandler(
     // that already exist. Gating retract would trap a vendor holding a position
     // it can no longer withdraw, which is a worse failure than the one the gate
     // prevents. Withdrawing is always allowed; only taking a new position is not.
-    requireCapability(c, 'attestation.author');
+    requireAttestationCapability(c, authority);
 
     const [endpoints, liveBefore] = await Promise.all([
       endpointSlugs(db, authority),

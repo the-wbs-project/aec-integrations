@@ -23,7 +23,7 @@ import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, type VendorAttestationPosition } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
-import { vendorCan, vendorHasActiveEntitlement } from '../vendor-capabilities';
+import { integrationCanAuthor, vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { contestsFor, otherCompanyName, stampsToKeep } from './integration-detail-model';
@@ -75,8 +75,14 @@ export class IntegrationDetailState {
     return integration ? otherCompanyName(integration, this.myVendorId()) : null;
   });
 
-  /** `attestation.author` (AECI-623): answering and adding need it. */
-  readonly canAuthor = vendorCan(this.store, 'attestation.author');
+  /**
+   * `attestation.author` (AECI-623): answering and adding need it. Read from the
+   * caller's endpoint PRODUCT's plan, never the vendor's block (ruled 2026-10-14,
+   * like `VendorIntegrationsPage`); see {@link integrationCanAuthor}.
+   */
+  readonly canAuthor = computed(() =>
+    integrationCanAuthor(this.integration(), this.store.me()?.products ?? []),
+  );
   /** An active plan: owner writes on a connector-powered row need one (§4.5.6). */
   readonly entitled = vendorHasActiveEntitlement(this.store);
 

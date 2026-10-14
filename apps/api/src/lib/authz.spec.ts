@@ -625,7 +625,7 @@ describe('requireVendor — the plan from licenses', () => {
     expect(auth?.licenses).toHaveLength(2);
   });
 
-  it('a CO-OWNED product licensed on the other owner’s account is Managed, and its terms stay private', async () => {
+  it('a CO-OWNED product licensed on the other owner’s account stays Free for this vendor (only the payer gets Managed rights)', async () => {
     await seedSeat();
     await t.db.insert(productVendors).values([
       { productId: PRODUCT_1, vendorId: OTHER_VENDOR_ID, isPrimary: true },
@@ -636,14 +636,27 @@ describe('requireVendor — the plan from licenses', () => {
       endsAt: '2027-09-01T00:00:00.000Z',
     });
     const { auth } = await sessionFor('user-vendor');
-    // One live license per product (the partial unique index), so the co-owner can
-    // never hold its own: the PRODUCT's license is what makes it Managed.
-    expect(auth?.licensedProductIds).toEqual([PRODUCT_1]);
+    // Ruled 2026-10-14: a co-owned product is Managed only for the vendor whose
+    // billing account holds its license. The other owner paid, so this one is Free.
+    expect(auth?.licensedProductIds).toEqual([]);
+    expect(productTier(auth!, PRODUCT_1)).toBe('unclaimed');
     // The vendor itself holds no license, and the other vendor's term never enters
     // this session.
     expect(auth?.entitlementTier).toBe('unclaimed');
     expect(auth?.entitlement).toBeNull();
     expect(auth?.licenses).toEqual([]);
+  });
+
+  it('the PAYING co-owner is Managed on the co-owned product', async () => {
+    await seedSeat();
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_1, vendorId: OTHER_VENDOR_ID, isPrimary: true },
+      { productId: PRODUCT_1, vendorId: VENDOR_ID, isPrimary: false },
+    ]);
+    await seedLicense(t.db, VENDOR_ID, { productId: PRODUCT_1 });
+    const { auth } = await sessionFor('user-vendor');
+    expect(auth?.licensedProductIds).toEqual([PRODUCT_1]);
+    expect(productTier(auth!, PRODUCT_1)).toBe('verified');
   });
 
   it('never picks up another vendor’s license', async () => {

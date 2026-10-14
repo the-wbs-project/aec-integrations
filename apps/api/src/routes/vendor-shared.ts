@@ -26,7 +26,7 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { BatchStmt } from '../lib/audit';
-import type { AuthzVariables } from '../lib/authz';
+import { productTier, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
@@ -213,6 +213,16 @@ const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSourc
  * External discovery, not a ranking input. Nothing here reaches Algolia, and
  * the §3.2 firewall (`STAGE_2_PAID_TIERS_SPEC.md`) is untouched.
  *
+ * Search-engine resubmission is PER PRODUCT (ruled 2026-10-14,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` §2), like every other Managed right. This
+ * vendor-level check is the necessary condition only: a product is Managed for
+ * the vendor only when one of the vendor's own live licenses is assigned to it,
+ * and any live license makes the vendor-level tier paid. A write that names its
+ * product passes {@link vendorProductRecrawlEnabled} or the product gate in
+ * {@link bufferVendorRecrawl}. A write that names no product (a company profile
+ * edit, which `profile.edit` already limits to a vendor holding a live license)
+ * stays on this vendor-level gate.
+ *
  * For vendor-only call sites, so a Free write skips the URL derivation too. A
  * tail shared with an AECi admin write (`integration-retire-write.ts`) keeps
  * {@link recrawlEnabled}: the admin session carries no entitlement, and
@@ -220,6 +230,16 @@ const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSourc
  */
 export function vendorRecrawlEnabled(c: VendorContext): boolean {
   return recrawlEnabled(c.env) && hasActiveEntitlement(c.get('auth'));
+}
+
+/**
+ * {@link vendorRecrawlEnabled} for a write on ONE known product: the environment
+ * gate AND that product's own live license (`productTier`, ruled 2026-10-14). A
+ * Free product of a vendor that licenses another product asks no search engine to
+ * re-fetch, and its handler skips the URL derivation.
+ */
+export function vendorProductRecrawlEnabled(c: VendorContext, productId: string): boolean {
+  return recrawlEnabled(c.env) && productTier(c.get('auth'), productId) !== 'unclaimed';
 }
 
 /**
@@ -352,7 +372,8 @@ async function bufferVendorRecrawl(
   // legs (see `vendorRecrawlEnabled`). Keyed off the ORIGIN, not the session
   // alone: the admin retire shares this tail with a `NO_ENTITLEMENT` session
   // (`lib/authz.ts`), and AECi's own writes stay ungated, as promote's do.
-  if (origin.purgeSource === 'vendor' && !hasActiveEntitlement(c.get('auth'))) {
+  const vendorOrigin = origin.purgeSource === 'vendor';
+  if (vendorOrigin && !hasActiveEntitlement(c.get('auth'))) {
     // Settle a handed-over promise so a rejected derivation is not left unhandled.
     if (pending instanceof Promise) pending.catch(() => undefined);
     return;
@@ -363,7 +384,16 @@ async function bufferVendorRecrawl(
   // promise straight over, so the read never delays the response — it settles
   // inside `waitUntil` alongside the inserts it feeds.
   const recrawl = await pending;
-  const fullCause: RecrawlCause = { ...cause, productId: await resolveRecrawlProduct(recrawl) };
+  const productId = await resolveRecrawlProduct(recrawl);
+
+  // Ruled 2026-10-14: resubmission is per product. A vendor write that names the
+  // vendor's own product buffers only when THAT product holds the vendor's live
+  // license. A write that names none (a company profile edit, or an integration
+  // the owner touches neither endpoint of) stays on the vendor-level gate above.
+  if (vendorOrigin && productId !== null && productTier(c.get('auth'), productId) === 'unclaimed') {
+    return;
+  }
+  const fullCause: RecrawlCause = { ...cause, productId };
 
   // AECI-1184: why each URL is queued. Written after its queue upsert, inside that
   // upsert's catch, and caught on its own so a lost cause is logged as itself. A

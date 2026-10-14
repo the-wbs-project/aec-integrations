@@ -74,7 +74,7 @@ import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, productVendors, profiles } from '../db/schema';
+import { billingAccounts, licenses, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
@@ -109,9 +109,10 @@ export type AuthenticatedSession = {
    * on any of its billing accounts, assigned or not, and `'unclaimed'` for every
    * non-vendor session and every vendor with none.
    *
-   * It gates the VENDOR-level writes only: `profile.edit`, the attestation writes
-   * and the connector-powered carve-out. A write on ONE product gates on that
-   * product's own license through {@link requireProductCapability}, never on this.
+   * It gates the VENDOR-level writes only: `profile.edit` and the connector-powered
+   * carve-out. A write on ONE product, and since the 2026-10-14 ruling every
+   * attestation write and search-engine resubmission, gates on that product's own
+   * license through {@link productTier}, never on this.
    *
    * Named `entitlementTier` and **not `tier`** (§10 R4): `profiles.trust_tier`
    * is a REVIEWER concept on the neighbouring table whose CHECK vocabulary
@@ -149,12 +150,13 @@ export type AuthenticatedSession = {
     endedAt?: string | null;
   } | null;
   /**
-   * The products that hold a LIVE license (AECI-1355,
-   * `docs/VENDOR_SIGNUP_PROCESS.md` §3 step 6): the vendor's own live assignments,
-   * plus any product the vendor owns that holds a live license on another
-   * account (a co-owned product licensed by its other owner). The input of
-   * {@link requireProductCapability}: a product is Managed exactly when its id is
-   * here. Empty for non-vendor sessions.
+   * The products this vendor holds a LIVE license for (AECI-1355,
+   * `docs/VENDOR_SIGNUP_PROCESS.md` §3 step 6): the products assigned to a live
+   * license on the vendor's OWN billing accounts. The input of
+   * {@link requireProductCapability}: a product is Managed for this vendor exactly
+   * when its id is here. Only the payer gets Managed rights (ruled 2026-10-14): a
+   * co-owned product licensed on the OTHER owner's account is not listed, so this
+   * vendor stays Free on it. Empty for non-vendor sessions.
    *
    * Optional ONLY so the hand-built sessions in route specs still compile. Every
    * reader goes through {@link productTier}, which reads absence as "no product
@@ -316,7 +318,6 @@ type ProfileAuthz = {
 /** …plus the vendor's licenses, on the vendor branch only (AECI-1355). */
 type VendorProfileAuthz = ProfileAuthz & {
   licenseRows: readonly SessionLicense[];
-  ownedLicensedProductIds: readonly string[];
 };
 
 /**
@@ -335,8 +336,8 @@ const isLatestEndedInGroup = sql`${licenses.endedAt} = (
  * The `vendor_admin` read: the same four authorization columns, plus the vendor's
  * licenses, in ONE round-trip (§4.1, AECI-1355).
  *
- * Three statements in one `db.batch`. The license statements cannot take the
- * vendor id from the first statement's result, so each scopes by a subquery on
+ * Two statements in one `db.batch`. The license statement cannot take the
+ * vendor id from the first statement's result, so it scopes by a subquery on
  * `profiles.vendor_id` for the same user instead of a second round trip. A
  * half-granted seat (`vendor_id` NULL) matches nothing, because SQL NULL never
  * equals anything, so it reads no licenses rather than another vendor's. The
@@ -351,16 +352,15 @@ const isLatestEndedInGroup = sql`${licenses.endedAt} = (
  * live. Older ended licenses are history and stay unread, so the read stays
  * bounded by products plus live licenses as ended rows accumulate.
  *
- * Statement 3, the vendor's owned products that hold a live license on ANY
- * account. A product is Managed when it holds a live license (decision 5), and
- * the partial unique index allows one live license per product, so a CO-OWNED
- * product's license may sit on the other owner's account. Only the product id
- * crosses over: the other vendor's term, source and dates are its billing data
- * and never enter this session.
+ * The live rows also decide which products are Managed for this vendor. Only the
+ * payer gets Managed rights (`docs/VENDOR_SIGNUP_PROCESS.md` §2, ruled
+ * 2026-10-14): a CO-OWNED product whose one live license sits on the OTHER
+ * owner's account stays Free for this vendor. So nothing here reads another
+ * vendor's licenses, not even a product id.
  */
 async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileAuthz | undefined> {
   const sessionVendor = sql`(SELECT ${profiles.vendorId} FROM ${profiles} WHERE ${profiles.id} = ${userId})`;
-  const [profileRows, licenseRows, ownedLicensedRows] = await db.batch([
+  const [profileRows, licenseRows] = await db.batch([
     db
       .select({
         role: profiles.role,
@@ -387,20 +387,9 @@ async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileA
           or(isNull(licenses.endedAt), isLatestEndedInGroup),
         ),
       ),
-    db
-      .select({ productId: productVendors.productId })
-      .from(productVendors)
-      .innerJoin(licenses, eq(licenses.assignedProductId, productVendors.productId))
-      .where(and(eq(productVendors.vendorId, sessionVendor), isNull(licenses.endedAt))),
   ]);
   const profile = profileRows[0];
-  return profile
-    ? {
-        ...profile,
-        licenseRows,
-        ownedLicensedProductIds: ownedLicensedRows.map((row) => row.productId),
-      }
-    : undefined;
+  return profile ? { ...profile, licenseRows } : undefined;
 }
 
 /** The latest of a set of ended licenses by parsed `ended_at`. An unparseable stamp
@@ -448,10 +437,9 @@ const LICENSE_TIER: EntitlementTier = 'verified';
 /**
  * Resolve the licenses the guard read to the session's plan fields (AECI-1355).
  *
- * `rows` are the vendor's OWN licenses and decide the vendor-level tier and term.
- * `ownedLicensedProductIds` are the vendor's products holding a live license on
- * any account (a co-owned product may be licensed by its other owner), and join
- * the vendor's own live assignments in `licensedProductIds`.
+ * `rows` are the vendor's OWN licenses. They decide the vendor-level tier and
+ * term, and their live assignments are `licensedProductIds`: only the payer gets
+ * Managed rights on a product (ruled 2026-10-14).
  *
  * Stored state only: a license is live while `ended_at` is NULL, whatever its
  * `ends_at` says. E6's daily job turns a passed `ends_at` into `ended_at`; until it
@@ -463,17 +451,13 @@ const LICENSE_TIER: EntitlementTier = 'verified';
  */
 export function sessionPlanFromLicenses(
   rows: readonly SessionLicense[],
-  ownedLicensedProductIds: readonly string[] = [],
 ): Pick<
   AuthenticatedSession,
   'entitlementTier' | 'entitlement' | 'licensedProductIds' | 'licenses'
 > {
   const live = rows.filter((license) => license.ended_at === null);
   const licensedProductIds = [
-    ...new Set([
-      ...live.flatMap((license) => (license.product_id ? [license.product_id] : [])),
-      ...ownedLicensedProductIds,
-    ]),
+    ...new Set(live.flatMap((license) => (license.product_id ? [license.product_id] : []))),
   ];
   if (live.length > 0) {
     return {
@@ -648,10 +632,7 @@ function createAuthzMiddleware(
       // Only the vendor branch read licenses, so only it can resolve to anything
       // but the fail-closed floor.
       ...(requiredRole === 'vendor_admin'
-        ? sessionPlanFromLicenses(
-            (profile as VendorProfileAuthz).licenseRows,
-            (profile as VendorProfileAuthz).ownedLicensedProductIds,
-          )
+        ? sessionPlanFromLicenses((profile as VendorProfileAuthz).licenseRows)
         : NO_ENTITLEMENT),
     });
 

@@ -153,6 +153,7 @@ import {
   isMaintenanceTransfer,
   maintenanceTransferColumns,
   parseJsonBody,
+  vendorProductRecrawlEnabled,
   vendorRecrawlEnabled,
   requireOwnedProduct,
   seatsOf,
@@ -1307,12 +1308,13 @@ export function createUpdateVendorProductHandler(
     // The read is folded into the recrawl derivation rather than awaited inline,
     // so a slow or failing count never delays the response. A rejection resolves
     // to "no trade URLs", which is the safe direction.
-    // `vendorRecrawlEnabled` is checked BEFORE the read rather than inside the
-    // buffer, so a gated environment or a Free seat (AECI-1186) pays nothing:
-    // `resolvePublishedTradeSlugs` is a grouped D1 count and running it to feed a
-    // buffer that will not be written is pure waste.
+    // `vendorProductRecrawlEnabled` is checked BEFORE the read rather than inside
+    // the buffer, so a gated environment or a Free product (AECI-1186; per product
+    // since the 2026-10-14 ruling) pays nothing: `resolvePublishedTradeSlugs` is a
+    // grouped D1 count and running it to feed a buffer that will not be written is
+    // pure waste.
     const touchedTrades = symmetricDifference(beforeTaxonomy.trades, afterTaxonomy.trades);
-    const productBase = vendorRecrawlEnabled(c) ? publicSiteBase(c.env) : null;
+    const productBase = vendorProductRecrawlEnabled(c, productId) ? publicSiteBase(c.env) : null;
     const recrawl = productBase
       ? resolvePublishedTradeSlugs(db, touchedTrades)
           .catch(() => [] as string[])
