@@ -130,6 +130,18 @@ describe('retract-product FK coverage (AECI-687)', () => {
     expect(deletedTables().has('page_views')).toBe(false);
   });
 
+  it('leaves a license to its SET NULL and never names licenses in the plan (AECI-1350)', () => {
+    expect(PRODUCT_FK_HANDLING['licenses.assigned_product_id']).toBe('fk-action');
+    const fk = Object.values(snapshot.tables.licenses?.foreignKeys ?? {}).find(
+      (f) => f.tableTo === 'products',
+    );
+    expect(fk?.onDelete).toBe('set null');
+    for (const [key, outcome] of Object.entries(PRODUCT_FK_HANDLING)) {
+      if (outcome !== 'fk-action') continue;
+      expect(deletedTables().has(key.split('.')[0]!), key).toBe(false);
+    }
+  });
+
   it('deletes from every table whose FK outcome says it deletes', () => {
     const tables = deletedTables();
     for (const [key, outcome] of Object.entries({

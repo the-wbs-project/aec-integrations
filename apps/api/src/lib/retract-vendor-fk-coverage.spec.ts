@@ -113,6 +113,13 @@ describe('retract-vendor FK coverage (AECI-1226)', () => {
     }
   });
 
+  it('refuses on a billing account, so no license is ever orphaned (AECI-1350)', () => {
+    // `licenses.billing_account_id` is NO ACTION. It is safe only because no lane
+    // deletes a billing account: the vendor lane refuses on one.
+    expect(VENDOR_FK_HANDLING['billing_accounts.vendor_id']).toBe('refuse');
+    expect(PLAN.join('\n')).not.toContain('"licenses"');
+  });
+
   it('never deletes page_views (log-class, detached)', () => {
     expect(VENDOR_FK_HANDLING['page_views.vendor_id']).toBe('detach');
     expect(PLAN.some((s) => s.startsWith('DELETE FROM "page_views"'))).toBe(false);

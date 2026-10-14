@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attestations,
   auditLog,
+  billingAccounts,
   claims,
   connectorCatalogs,
   connectorCatalogSurfaces,
@@ -16,6 +17,7 @@ import {
   connectorStubMappings,
   connectorStubs,
   integrations,
+  licenses,
   products,
   productTrades,
   productVendors,
@@ -1202,5 +1204,85 @@ describe('connector lane (AECI-714)', () => {
       }),
     ).rejects.toThrow();
     t.dispose();
+  });
+});
+
+describe('billing accounts and licenses (AECI-1350)', () => {
+  async function seed(t: TestDb): Promise<void> {
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(products).values([
+      { id: 'p1', slug: 'acme-one', name: 'Acme One', promotionStatus: 'promoted' },
+      { id: 'p2', slug: 'acme-two', name: 'Acme Two', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(billingAccounts).values({ id: 'ba1', vendorId: 'v1', name: 'Acme' });
+  }
+
+  const license = (id: string, productId: string | null, endedAt: string | null = null) => ({
+    id,
+    billingAccountId: 'ba1',
+    source: 'complimentary',
+    startsAt: '2026-10-14T00:00:00.000Z',
+    endsAt: '2027-01-31T00:00:00.000Z',
+    endedAt,
+    assignedProductId: productId,
+    assignedAt: productId ? '2026-10-14T00:00:00.000Z' : null,
+  });
+
+  it('defaults both flags to false and keeps one billing account per vendor', async () => {
+    const t = await makeTestDb();
+    try {
+      await seed(t);
+      await t.db.insert(licenses).values(license('l1', null));
+      const [row] = await t.db.select().from(licenses);
+      expect(row?.releaseAtRenewal).toBe(false);
+      expect(row?.cancelAtTermEnd).toBe(false);
+      await expect(
+        t.db.insert(billingAccounts).values({ id: 'ba2', vendorId: 'v1', name: 'Acme again' }),
+      ).rejects.toThrow();
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('NULLs assigned_product_id on product delete and keeps the license', async () => {
+    const t = await makeTestDb();
+    try {
+      await seed(t);
+      await t.db.insert(licenses).values(license('l1', 'p1'));
+      await t.db.delete(products).where(eq(products.id, 'p1'));
+      const rows = await t.db.select().from(licenses);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.assignedProductId).toBeNull();
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('rejects two live licenses on one product, allows one ended plus one live', async () => {
+    const t = await makeTestDb();
+    try {
+      await seed(t);
+      await t.db.insert(licenses).values(license('l1', 'p1'));
+      await expect(t.db.insert(licenses).values(license('l2', 'p1'))).rejects.toThrow();
+
+      // An ended license keeps its assignment as history; a new live one may join it.
+      await t.db.insert(licenses).values(license('l3', 'p2', '2026-10-01T00:00:00.000Z'));
+      await t.db.insert(licenses).values(license('l4', 'p2'));
+      // Unassigned live licenses never collide (NULLs are distinct in a unique index).
+      await t.db.insert(licenses).values([license('l5', null), license('l6', null)]);
+      expect(await t.db.select().from(licenses)).toHaveLength(5);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('refuses a vendor delete while it holds a billing account (NO ACTION)', async () => {
+    const t = await makeTestDb();
+    try {
+      await seed(t);
+      await expect(t.db.delete(vendors).where(eq(vendors.id, 'v1'))).rejects.toThrow();
+    } finally {
+      t.dispose();
+    }
   });
 });

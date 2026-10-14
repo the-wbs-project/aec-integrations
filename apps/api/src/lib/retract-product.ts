@@ -38,6 +38,12 @@
  *   page_views                 product_id             —           log-class; NULLed, never deleted
  *   page_views                 pair_product_a_id      —           log-class; NULLed, never deleted
  *   page_views                 pair_product_b_id      —           log-class; NULLed, never deleted
+ *   licenses                   assigned_product_id    set null    allowed; NULLed by the FK action
+ *
+ * `licenses.assigned_product_id` (AECI-1350, migration 0073) is left to its `ON DELETE
+ * SET NULL`, never named in the plan. Retracting a product frees its Managed slot and
+ * the license survives on its billing account, which is the commercial record. Naming
+ * the table would fail the whole batch on a tier that has not applied 0073 yet.
  *
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
@@ -124,6 +130,8 @@ export function escapeSqlLiteral(value: string): string {
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
  *                      counted on that parent's tombstone.
+ *  - `fk-action`       never named in the plan; the FK's own `ON DELETE SET NULL`
+ *                      handles it and the row survives (`licenses`, AECI-1350).
  */
 export type FkOutcome =
   | 'refuse'
@@ -132,7 +140,8 @@ export type FkOutcome =
   | 'force-detach'
   | 'facet'
   | 'detach'
-  | 'cascade-child';
+  | 'cascade-child'
+  | 'fk-action';
 
 /** Every FK into `products`, keyed `table.column`. Pinned to the latest migration
  *  snapshot by `retract-product-fk-coverage.spec.ts`. */
@@ -160,6 +169,9 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // keeps its credit for the view (§13 D25).
   'page_views.pair_product_a_id': 'detach',
   'page_views.pair_product_b_id': 'detach',
+  // AECI-1350 (0073): a license assigned to the product. The FK's SET NULL frees the
+  // slot; the license stays on its billing account. See the header.
+  'licenses.assigned_product_id': 'fk-action',
 };
 
 /** Every FK into a table this lane DELETEs from (other than `products` itself),

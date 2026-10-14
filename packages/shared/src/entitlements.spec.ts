@@ -12,6 +12,7 @@ import { VendorSortSchema } from './api/vendors';
 import {
   CAPABILITIES,
   ENTITLEMENT_STATUSES,
+  LICENSE_SOURCES,
   PRODUCT_FIELD_CAPABILITIES,
   TIERS,
   TIER_CAPABILITIES,
@@ -318,6 +319,20 @@ const PLAN_SHAPED = [
   'priority',
   'seat',
 ];
+
+describe('LICENSE_SOURCES (AECI-1350)', () => {
+  it('is the three sources, in order', () => {
+    expect(LICENSE_SOURCES).toEqual(['stripe', 'invoice', 'complimentary']);
+  });
+
+  it('names where a license came from, never a plan', () => {
+    // A source is provenance. If one ever read like a plan, a caller could rank or
+    // gate on it, which is the pay-for-placement door the ranking firewall closes.
+    for (const source of LICENSE_SOURCES) {
+      for (const word of PLAN_SHAPED) expect(source, `${source} ⊃ ${word}`).not.toContain(word);
+    }
+  });
+});
 
 /** Run `fn` on a Proxy of `input` and return every property name it read. */
 function propertiesRead<T extends object>(fn: (input: T) => unknown, input: T): Set<string> {

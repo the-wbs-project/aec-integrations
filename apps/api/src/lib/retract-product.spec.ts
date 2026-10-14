@@ -700,6 +700,38 @@ describe('buildDeleteStatements against the migrated schema', () => {
     ).toEqual({ n: 0 });
     t.dispose();
   });
+
+  it('frees an assigned license through its SET NULL and keeps the license (AECI-1350)', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    t.raw.exec(
+      `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES ('prod-lic', 'lic', 'lic', ${TS}, ${TS});`,
+    );
+    t.raw.exec(
+      `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES ('v-lic', 'v-lic', 'V', ${TS}, ${TS});`,
+    );
+    t.raw.exec(
+      `INSERT INTO billing_accounts (id, vendor_id, name, created_at, updated_at) VALUES ('ba1', 'v-lic', 'V', ${TS}, ${TS});`,
+    );
+    t.raw.exec(
+      `INSERT INTO licenses (id, billing_account_id, source, starts_at, assigned_product_id, created_at, updated_at) VALUES ('l1', 'ba1', 'complimentary', ${TS}, 'prod-lic', ${TS}, ${TS});`,
+    );
+    const plan = buildDeleteStatements({
+      product: { id: 'prod-lic', slug: 'lic', name: 'lic', promotion_status: 'promoted' },
+      footprint: footprintOf(t, 'prod-lic'),
+      auditId: 'audit-lic',
+      now: NOW,
+    });
+    expect(plan.join('\n')).not.toContain('"licenses"');
+    apply(t, plan);
+    expect(t.raw.prepare(`SELECT count(*) AS n FROM products WHERE id = 'prod-lic'`).get()).toEqual(
+      { n: 0 },
+    );
+    expect(t.raw.prepare(`SELECT id, assigned_product_id FROM licenses`).all()).toEqual([
+      { id: 'l1', assigned_product_id: null },
+    ]);
+    t.dispose();
+  });
 });
 
 describe('vendor-held integrations are refused, --force or not (AECI-1005)', () => {

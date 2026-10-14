@@ -235,6 +235,22 @@ export const ENTITLEMENT_STATUSES = ['pending', 'active', 'expired', 'revoked'] 
 export type EntitlementStatus = (typeof ENTITLEMENT_STATUSES)[number];
 
 /**
+ * The `licenses.source` vocabulary (AECI-1350, `docs/VENDOR_SIGNUP_PROCESS.md` §2
+ * decisions 5 and 6). Where a Managed license came from, never what it grants: every
+ * live license grants the same thing. Like `tier`, the column is UNCONSTRAINED at the
+ * DB layer, because a CHECK change on D1 is a table recreate (`docs/migrations.md` §0).
+ * Writers validate against this list.
+ *
+ *  - `stripe`        — bought through Stripe Checkout (E9)
+ *  - `invoice`       — an offline invoice or PO deal granted by AECi
+ *  - `complimentary` — granted free by AECi, for example a pilot
+ */
+export const LICENSE_SOURCES = ['stripe', 'invoice', 'complimentary'] as const;
+
+/** One license source. */
+export type LicenseSource = (typeof LICENSE_SOURCES)[number];
+
+/**
  * The status a row must carry to grant anything. `tierFor` still takes a loose
  * `status: string` — a value outside the vocabulary above must fail closed like
  * any other non-`active` status, not throw.

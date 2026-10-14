@@ -136,6 +136,8 @@ Tables grouped by domain:
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
 - `vendor_plan_pricing` — per-vendor plan price overrides for the portal's plan panel; display only, never billing (§8.6a, ruling 2026-10-08)
+- `billing_accounts` — one per vendor; the account Managed licenses are sold on (§8.6b, AECI-1350)
+- `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 - `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
@@ -1763,6 +1765,103 @@ create table vendor_plan_pricing (
 - **Read paths.** `GET /api/vendor/me`, the product PATCH echo and both checklist reads put
   `{ managed_price_cents, message }` on every `plan` block, one primary-key read each.
   `GET /api/admin/vendors/:id` returns it with `updated_by` / `updated_at` as `plan_pricing`.
+
+### 8.6b `billing_accounts` (AECI-1350, migration 0073)
+
+The account Managed licenses are sold on: one bill, one term, one Stripe customer
+(`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. The
+claim-approval seat grant will create it, and a back-fill will create one for every vendor
+with a seat or an entitlement row. Teams may add rows later, so one-per-vendor is a unique
+index, not the primary key. Nothing reads or writes the table yet.
+
+```sql
+create table billing_accounts (
+  id text primary key,
+  vendor_id text not null references vendors(id), -- NO ACTION: a vendor with an account refuses retraction
+  name text not null,
+  billing_email text,       -- null until checkout (decision 16)
+  stripe_customer_id text,
+  created_by text,          -- a profiles.id; NO FK, as vendor_plan_pricing.updated_by
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index billing_accounts_vendor_key on billing_accounts(vendor_id);
+create unique index billing_accounts_stripe_customer_key on billing_accounts(stripe_customer_id)
+  where stripe_customer_id is not null;
+```
+
+- **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
+  which is decision 10's owner flag. Invite-accepted seats stay non-owner.
+- **Vendor retraction refuses.** `VENDOR_FK_HANDLING` in `apps/api/src/lib/retract-vendor.ts`
+  maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
+  account cannot be deleted by either path. That is also what keeps
+  `licenses.billing_account_id` (NO ACTION) safe: nothing deletes an account.
+- **No FK on `created_by`.** The erasure batch (`AUTH_AND_RLS.md` §8) has nothing new to null.
+- **No `relations()` entry** (the §8.6 rule). `drizzle-helpers.read-path.spec.ts` keeps both
+  tables off the catalog read paths.
+- **Domain state.** Every write will carry its `audit_log` row in the same `db.batch`, with
+  `entity_type = 'billing_account'`, `entity_id` = the account id, and `audit_log.vendor_id`
+  filled. License changes file under the account too (§8.6c).
+
+### 8.6c `licenses` (AECI-1350, migration 0073)
+
+One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
+and 18). Licenses carry their own dates. There is no subscription table: a Stripe
+subscription of quantity N is N rows sharing `stripe_subscription_id`. Nothing reads or
+writes the table yet; E1's later issues move plan resolution onto it.
+
+```sql
+create table licenses (
+  id text primary key,
+  billing_account_id text not null references billing_accounts(id), -- NO ACTION
+  source text not null,          -- LICENSE_SOURCES: 'stripe' | 'invoice' | 'complimentary'; NO CHECK
+  starts_at text not null,       -- ISO-8601
+  ends_at text,                  -- scheduled end; null = monthly
+  ended_at text,                 -- stored end; null = LIVE
+  reference text,                -- invoice number, PO or grant note
+  stripe_subscription_id text,
+  assigned_product_id text references products(id) on delete set null,
+  assigned_at text,
+  release_at_renewal integer not null default 0, -- decision 11
+  cancel_at_term_end integer not null default 0, -- decision 15
+  cancel_reason text,
+  terms_version text,            -- pointer only; the acceptance record is E2.4's table
+  granted_by text,               -- a profiles.id; NO FK
+  expiry_notice_sent_at text,    -- E6's term-end notice fence
+  created_at text not null,
+  updated_at text not null
+);
+
+create index licenses_account_idx on licenses(billing_account_id);
+-- One LIVE license per product. Ended licenses keep their assignment as history.
+create unique index licenses_live_product_idx on licenses(assigned_product_id)
+  where ended_at is null;
+-- E6's daily term-end scan. Monthly and ended rows are invisible to it.
+create index licenses_ends_idx on licenses(ends_at)
+  where ended_at is null and ends_at is not null;
+create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id)
+  where stripe_subscription_id is not null;
+```
+
+- **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
+  scheduled end; E6's daily job turns it into `ended_at`. Never derive "live" from `ends_at`
+  at read time.
+- **Monthly and annual share one column.** `ends_at` null is monthly (renews until cancelled).
+  `ends_at` set is annual, invoice or complimentary.
+- **`source` is unconstrained**, the `vendor_entitlements.tier` posture. The vocabulary is
+  `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change is a D1 table recreate
+  (`docs/migrations.md` §0). A source names where a license came from, never a plan; every
+  live license grants the same thing.
+- **Hand-back keeps the assignment** (decision 14). The lapse stamps `ended_at` and leaves
+  `assigned_product_id`, which the partial unique index allows. The product's edit right
+  goes because the gate finds no live license.
+- **Product retraction frees the slot.** `PRODUCT_FK_HANDLING` in
+  `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to `fk-action`:
+  the `ON DELETE SET NULL` NULLs it and the license survives on its account. The retraction
+  plan never names the table.
+- **Audit.** Rows file under the account: `entity_type = 'billing_account'`, `entity_id` =
+  the account id, `metadata.license_id`, `audit_log.vendor_id` and `product_id` filled.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
@@ -4344,6 +4443,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): no reader or writer yet (AECI-1350). No catalog read path may query them (`drizzle-helpers.read-path.spec.ts`)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---
