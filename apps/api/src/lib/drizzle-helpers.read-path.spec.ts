@@ -145,6 +145,7 @@ const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
   'lib/vendor-entitlement.ts': 'the entitlement writer, dual-writing licenses (AECI-1353)',
   'lib/entitlement-expiry.ts': 'the old expiry-warning cron, replaced by E6',
   'lib/backfill-entitlements.ts': 'the AECI-609 back-fill',
+  'lib/backfill-licenses.ts': 'the AECI-1354 license back-fill (reads the old row to map it)',
   'lib/data-quality.ts': 'the entitlement_mirror_drift check',
   'lib/retract-vendor.ts': 'the vendor-delete refusal count (FK handling)',
   'routes/account.ts': 'account erasure NULLs granted_by (a write, not a plan read)',
