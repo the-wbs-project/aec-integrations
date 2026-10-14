@@ -37,6 +37,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { checkRetiredIntegrationsUnclaimed } from '../lib/data-quality';
 import { INTEGRATION_RESTORED_ACTION, INTEGRATION_RETIRED_ACTION } from '../lib/integration-retire';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { expectAdminCauses } from '../test/recrawl-causes';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
@@ -196,6 +197,17 @@ const auditsFor = (action: string) =>
   t.db.select().from(auditLog).where(eq(auditLog.action, action));
 
 describe('POST /api/admin/integrations/:id/retire', () => {
+  it("snapshots the owner's plan from its licenses (AECI-1355)", async () => {
+    await seedLicense(t.db, VENDOR_B);
+    await adminRetire(I_MAIN);
+    const [audit] = await auditsFor(INTEGRATION_RETIRED_ACTION);
+    expect(audit).toMatchObject({
+      vendorId: VENDOR_B,
+      vendorTier: 'verified',
+      vendorEntitlementStatus: 'active',
+    });
+  });
+
   it('retires a claimed row as AECi, keeps it, and answers the documented shape', async () => {
     const res = await adminRetire(I_MAIN);
     expect(res.status).toBe(200);

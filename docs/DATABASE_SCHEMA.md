@@ -1619,8 +1619,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   row (§8.6c). The column names stay, to avoid an `audit_log` recreate. **Since AECI-1355 the
   vendor path and the shared admin helper (`vendorAuditStamp`, the hand-back, the seat-invite
   accept) also use `licensePlanSnapshot`**: the vendor path over the licenses on the session, the
-  others over `loadVendorLicenses`. The admin entitlement, claim, vendor and plan-pricing routes
-  still use `vendorPlanSnapshot` until E4 replaces them.
+  others over `loadVendorLicenses`. The admin claim approval, integration retire/restore,
+  plan-pricing and vendor seat (revoke, provision) routes do too, over `loadVendorLicenses`. Only
+  the admin entitlement routes still use `vendorPlanSnapshot`, until E4 replaces them.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =

@@ -137,8 +137,8 @@ import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
 import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
-import { loadEntitlement } from '../lib/vendor-entitlement';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { loadVendorLicenses } from '../lib/license';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 
 type AdminVendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -912,18 +912,18 @@ export function createAdminRevokeSeatHandler(
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
 
     // The plan snapshot (AECI-1193) rides the same wave as the seat read.
-    const [target, entitlement] = await Promise.all([
+    const [target, vendorLicenses] = await Promise.all([
       db.query.profiles.findFirst({
         columns: { id: true, role: true, vendorId: true, displayName: true },
         where: and(eq(profiles.id, targetId), seatsOf(vendorId)),
       }),
-      loadEntitlement(db, vendorId),
+      loadVendorLicenses(db, vendorId),
     ]);
     if (!target) throw notFoundError('profile', { id: targetId });
 
     const now = new Date().toISOString();
     const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
-    const vendorPlan = vendorPlanSnapshot(entitlement, now);
+    const vendorPlan = licensePlanSnapshot(vendorLicenses, now);
     const batch = revokeSeatStatements(db, {
       userId: targetId,
       vendorId,
@@ -1139,13 +1139,13 @@ export function createProvisionSeatHandler(
     // `seat_owner`, which both the idempotency check and the audit before-state
     // need. Read it here rather than widening the shared snapshot: that type is
     // consumed by `approveClaim`'s conflict path, which has no use for the column.
-    const [before, entitlement, billingAccount] = await Promise.all([
+    const [before, vendorLicenses, billingAccount] = await Promise.all([
       db.query.profiles.findFirst({
         columns: { role: true, vendorId: true, seatOwner: true, bannedAt: true },
         where: eq(profiles.id, userId),
       }),
-      // The plan snapshot for the audit row (AECI-1193), in the same wave.
-      loadEntitlement(db, vendorId),
+      // The plan snapshot for the audit row (AECI-1193), from the licenses (AECI-1355).
+      loadVendorLicenses(db, vendorId),
       // Whether the owner seat brings the billing account with it (AECI-1351).
       loadBillingAccount(db, vendorId),
     ]);
@@ -1187,7 +1187,7 @@ export function createProvisionSeatHandler(
     }
 
     const now = new Date().toISOString();
-    const vendorPlan = vendorPlanSnapshot(entitlement, now);
+    const vendorPlan = licensePlanSnapshot(vendorLicenses, now);
     const batch = provisionSeatStatements(db, {
       userId,
       vendorId,

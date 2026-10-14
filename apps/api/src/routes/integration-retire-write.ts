@@ -106,7 +106,7 @@ export interface RetireBatchInput {
   recipients: readonly string[];
   owner: { id: string | null; name: string | null };
   /** The owner's plan at write time (AECI-1193): the vendor session's on an owner
-   *  retire, `vendorPlanSnapshot(loadEntitlement(owner))` on an admin one. Ignored
+   *  retire, `licensePlanSnapshot(loadVendorLicenses(owner))` on an admin one. Ignored
    *  when there is no owner. */
   ownerPlan: VendorPlanSnapshot | null;
   pairSlugs: readonly [string, string] | null;

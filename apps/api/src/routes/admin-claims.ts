@@ -96,7 +96,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { tierFor, vendorPlanSnapshot, type EntitlementTier } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot, tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -552,7 +552,7 @@ async function approveClaim(
   const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
-    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+    vendorPlan: licensePlanSnapshot(licenses.vendorLicenses, resolvedAt),
     requestId: existing.id,
     actorId,
     actorType,
@@ -622,7 +622,7 @@ async function approveClaim(
     actorType,
     existing: billingAccount ?? (createdByEntitlement ? { id: createdByEntitlement } : null),
     now: resolvedAt,
-    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+    vendorPlan: licensePlanSnapshot(licenses.vendorLicenses, resolvedAt),
     source: CLAIM_AUDIT_SOURCE,
     sourceRequestId: existing.id,
   });
@@ -645,7 +645,7 @@ async function approveClaim(
       now: resolvedAt,
       source: CLAIM_AUDIT_SOURCE,
       // The same pre-batch snapshot the grant's own rows carry. No second read.
-      vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+      vendorPlan: licensePlanSnapshot(licenses.vendorLicenses, resolvedAt),
     },
     userId,
     { entitledAfterBatch: managed },

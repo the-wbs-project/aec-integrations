@@ -1066,9 +1066,9 @@ app.route('/', authAdmin);
 //
 // Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
 // gates, in this order: ownership → 404 (as above), then
-// `requireCapability(c, 'attestation.author')` → 403 `ENTITLEMENT_REQUIRED` on the
-// WRITES only (AECI-623) — authoring is an entitlement capability
-// (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
+// `requireProductCapability(c, productId, 'attestation.author')` → 403
+// `ENTITLEMENT_REQUIRED` on the WRITES only (AECI-623) — authoring is an entitlement
+// capability (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
 // dashboard can render a read-only tab instead of 403-ing a vendor out of its
 // own data.
 //   - GET    /api/vendor/products/:id/versions            — ordered by sort_key.
@@ -1364,8 +1364,9 @@ authVendor.post(
 );
 // AECI-1176: vendor replies to reviews (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.14).
 // Gate order: `requireVendor()` → `rateLimit('write')` → in the handler, the review
-// (unknown, unowned and unapproved are one 404) → `requireCapability('review.reply')`
-// on create and edit only → body → state. Withdraw is not capability-gated (§11c.9).
+// (unknown, unowned and unapproved are one 404) →
+// `requireProductCapability(c, review.productId, 'review.reply')` on create and edit
+// only → body → state. Withdraw is not capability-gated (§11c.9).
 // The GET carries no capability and no `rateLimit()`: reads are never limited.
 authVendor.get('/api/vendor/reviews', requireVendor(), createListVendorReviewsHandler());
 authVendor.post(

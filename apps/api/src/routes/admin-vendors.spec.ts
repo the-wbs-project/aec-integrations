@@ -33,6 +33,7 @@ import {
   billingAccounts,
   connectorEvidencedPairs,
   integrations,
+  licenses,
   productVendors,
   products,
   profiles,
@@ -48,6 +49,7 @@ import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import { runDataQualityChecks } from '../lib/data-quality';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
   createAdminRevokeSeatHandler,
@@ -1418,6 +1420,8 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
       tier: 'verified',
       status: 'active',
     });
+    // AECI-1355: the audit plan snapshot reads the vendor's licenses.
+    await seedLicense(t.db, VENDOR);
     await t.db
       .insert(profiles)
       .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true });
@@ -1458,8 +1462,8 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     // New rows spell the metadata key `vendorId`.
     expect(rows[0].vendorId).toBe(VENDOR);
     expect((rows[0].metadata as { vendorId?: string }).vendorId).toBe(VENDOR);
-    // AECI-1193: the vendor's plan at the moment of the revoke (the seed's active
-    // `verified` row). A seat revoke leaves the entitlement alone.
+    // AECI-1193: the vendor's plan at the moment of the revoke (the seed's live
+    // license, AECI-1355). A seat revoke leaves the entitlement alone.
     expect(rows[0].vendorTier).toBe('verified');
     expect(rows[0].vendorEntitlementStatus).toBe('active');
     expect(rows[0].actorType).toBe('admin');
@@ -1584,6 +1588,16 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     // IS that rescue, so carrying the guard over would only block the operator
     // who exists to undo it.
     expect((await revoke(VENDOR, SEAT_A)).status).toBe(204);
+  });
+  it('snapshots the plan from licenses, not the entitlement row (AECI-1355)', async () => {
+    // Only the entitlement row is left: the license snapshot reads `none`.
+    await t.db.delete(licenses);
+    await revoke(VENDOR, SEAT_A);
+    const [row] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_claim.seat_revoked'));
+    expect(row).toMatchObject({ vendorTier: 'none', vendorEntitlementStatus: 'none' });
   });
 });
 
@@ -1715,6 +1729,28 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     expect(metadata.vendorId).toBe(VENDOR);
     expect(metadata.entitlement_granted).toBe(false);
     expect(metadata.is_pure_connector_vendor).toBe(true);
+  });
+
+  it('snapshots the plan from licenses, not the entitlement row (AECI-1355)', async () => {
+    await t.db
+      .insert(vendorEntitlements)
+      .values({ vendorId: VENDOR, tier: 'verified', status: 'active' });
+    await provision(VENDOR, linked());
+    const [none] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_seat.provisioned'));
+    expect(none).toMatchObject({ vendorTier: 'none', vendorEntitlementStatus: 'none' });
+  });
+
+  it('records a live license as verified / active (AECI-1355)', async () => {
+    await seedLicense(t.db, VENDOR);
+    await provision(VENDOR, linked());
+    const [row] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_seat.provisioned'));
+    expect(row).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
   });
 
   it('surfaces the new row through GET /api/admin/vendors/:id/audit', async () => {
