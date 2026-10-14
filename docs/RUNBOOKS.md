@@ -1049,8 +1049,8 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
 
 > **`license_mirror_drift` on its own means the licenses were never back-filled on that tier.** It
-> counts vendors whose `verified` disagrees with EXISTS(a live license). Until the E1.6 switch-over
-> `entitlement_mirror_drift` checks the same bit against the entitlement row. It is `error` since
+> counts vendors whose `verified` disagrees with EXISTS(a live license). `entitlement_mirror_drift`
+> still checks the same bit against the entitlement row, which the dual-write keeps in step until E4. `license_mirror_drift` is `error` since
 > AECI-1355 (E1.6), so it trips the `data-quality-error` alert: plan resolution reads licenses, so
 > drift means a vendor's badge disagrees with what it can edit. When only the license
 > check fails, run `ops:backfill-licenses` on the tier: dry run first, then `--apply`

@@ -259,7 +259,7 @@ authorization:
   grant is now a *caller* of it, not the writer — an ESLint `no-restricted-syntax` rule rejects
   a `.set({ verified })` / `.values({ verified })` on `vendors` anywhere else, and the daily
   `entitlement_mirror_drift` data-quality check is the run-time backstop. Its twin
-  `license_mirror_drift` (AECI-1354, `warn`) checks the same bit against live licenses.
+  `license_mirror_drift` (AECI-1354; `error` since AECI-1355) checks the same bit against live licenses.
 - **The arrangement is a row now, not just audit metadata.** It is still written to the grant
   audit row's metadata as well — `audit_log` is the renewal ledger (§2.1 of the paid-tiers
   spec), keyed `entity_type='vendor_entitlement', entity_id=<vendor_id>`.

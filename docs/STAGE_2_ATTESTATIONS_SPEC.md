@@ -29,7 +29,7 @@ agreement.** Everything in §4 exists to make that structurally true rather than
 **Capability gate.** Attestation authoring is a **Verified-vendor** capability (`STAGE_2_SPEC.md`
 §8.1(3)). It gates **capability only, never ranking, placement, or badge trust** — no
 pay-for-placement. **As built (AECI-623):** the gate is `requireCapability(c, 'attestation.author')`
-over the session's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a), §4), and a miss is
+over the session's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a), §4; per product on the version writes since AECI-1355), and a miss is
 `403 ENTITLEMENT_REQUIRED`. This epic originally read the `vendors.verified` mirror through a
 placeholder, `assertVerifiedVendor`, which answered `403 FORBIDDEN`; that placeholder is deleted.
 
@@ -990,6 +990,8 @@ pre-existing spec passes **unmodified**.
 > connector-powered 403 stays `FORBIDDEN`, so a client tells the two apart by `code`. The portal's
 > write gate moved in the same change (`STAGE_2_REALTIME_SPEC.md` §6.1), and its two write
 > components show the access message only for `ENTITLEMENT_REQUIRED`. Gate order is unchanged.
+>
+> **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live license decides, not the vendor tier. The three claim attestation writes keep `requireCapability`. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier.
 
 ---
 

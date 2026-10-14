@@ -66,6 +66,14 @@ Chris reviewed this report on 2026-10-01. These rulings supersede the matching f
 This is a point-in-time report for a commercial decision. It is not a spec. It does not govern any
 code. The drafted plan model (Free, Managed, Insights, Enhanced, per product) is not approved.
 
+> **Superseded in part (2026-10-14, AECI-1355 and AECI-1356).** Plans are per product now. Plan
+> resolution reads `licenses`, not `vendor_entitlements`: the session carries `licensedProductIds`,
+> `requireProductCapability` gates one product's writes, and the expiry sweep fences on
+> `licenses.expiry_notice_sent_at` and audits `license.expiry_warned`. The findings below describe
+> the audited commit and are kept as written. Items 5, 18 and 21, the `product_plans` option in S2
+> and the "vendor-wide gate" risk are the ones this changes. Current truth is
+> `docs/VENDOR_SIGNUP_PROCESS.md` section 3 step 6 and `docs/STAGE_2_PAID_TIERS_SPEC.md` section 7.5.
+
 ## 1. Answer first
 
 The application can support the **seat-only and Managed edit features** today. It cannot yet

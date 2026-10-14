@@ -146,6 +146,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 - [ ] axe-core pass on the changed public surfaces: product detail, pair page, search, nav.
 - [ ] No console errors on the main public routes.
 - [ ] `entitlement_mirror_drift` reports 0 after the 04:00 UTC data-quality run.
+- [ ] `license_mirror_drift` reports 0 after the same run. It is `error` since AECI-1355, so a finding trips the `data-quality-error` alert. Run `ops:backfill-licenses` on the tier first if it does not.
 
 ---
 
