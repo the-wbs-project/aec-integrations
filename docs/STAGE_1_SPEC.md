@@ -1068,7 +1068,7 @@ dispatch goes through `ctx.waitUntil` and a failure warns rather than throws.
 
 **Dashboards:**
 - Requests per minute, error rate, p50/p95/p99 latency
-- Cache hit rate at the edge — *measured from `Cf-Cache-Status` on the Cloudflare dashboard, not from render metrics: since WC-8 a HIT skips the SSR Worker entirely, so it is unmeasurable from inside*
+- Cache hit rate at the edge — *measured from `Cf-Cache-Status` on the Cloudflare dashboard, not from render metrics: since WC-8 a HIT skips the SSR render (`Renderer`) entirely, so it is unmeasurable from inside*
 - Algolia query latency and error rate
 - D1 query latency per endpoint
 - Audit event volume by action type

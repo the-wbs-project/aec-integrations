@@ -59,8 +59,8 @@ test.describe('native Workers Cache (AECI-323 / WC-9)', () => {
       .toBe('HIT');
 
     expect(hit).toBeDefined();
-    // A HIT never runs the Worker, so the client-visible headers it serves must
-    // match those baked on the MISS render that populated the cache.
+    // A HIT never runs `Renderer` (only the gateway), so the client-visible headers it
+    // serves must match those baked on the MISS render that populated the cache.
     expect(hit!.headers()['cache-control']).toBe(miss.headers()['cache-control']);
     expect(hit!.headers()['x-robots-tag']).toBe(miss.headers()['x-robots-tag']);
   });

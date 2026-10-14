@@ -1171,7 +1171,7 @@ design. Where each signal lives now:
 - **Page views** → the browser `PageViewTracker` (AECI-151,
   `apps/web/src/app/core/page-view-tracker.ts`) is the **canonical** counter. The SSR-side
   `firePageView` (`POST /api/page-views`) fires only on a MISS / non-cacheable render and always
-  undercounted; a HIT never reaches the Worker, so it is deliberately **not** reconstructed from
+  undercounted; a HIT never reaches `Renderer` (only the gateway runs), so it is deliberately **not** reconstructed from
   HITs. Do not add HIT-counting to the Worker.
 - **`noindex` on HIT** → the crawler-indexing header is baked into the cached payload on the MISS
   render (`docs/CACHE_STRATEGY.md` §7.1), so every HIT serves it without the Worker running.

@@ -1365,7 +1365,7 @@ Lighthouse does not run on PRs or on merges to `main`. It measures a commit in t
 - GitHub Actions usage tracked monthly to stay under free-tier minutes
 - ~~Failed builds notify Slack~~ — **no Slack in this project** (§3.3). A failed build's signal is the red run + GitHub's own email/UI notification; there is no chat integration
 - Long-running jobs (>15 min) flagged for investigation
-- Edge cache HIT-rate observed via `Cf-Cache-Status` on the Cloudflare Workers observability dashboard — the Datadog `cache hit rate < 70%` monitor was retired in WC-8 (a HIT skips the SSR Worker, so it's unmeasurable from render metrics). See `docs/CACHE_STRATEGY.md` §9.
+- Edge cache HIT-rate observed via `Cf-Cache-Status` on the Cloudflare Workers observability dashboard — the Datadog `cache hit rate < 70%` monitor was retired in WC-8 (a HIT skips the SSR render in `Renderer`, so it's unmeasurable from render metrics). See `docs/CACHE_STRATEGY.md` §9.
 
 ---
 

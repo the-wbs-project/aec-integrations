@@ -1,7 +1,7 @@
 # AEC Integrations — Edge Cache Strategy
 
 **Status:** Active — source of truth for AECi edge caching
-**Model:** Native Cloudflare Workers Cache (a cache HIT skips the SSR Worker). Design & rationale in [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0028](adr/0028-promote-purges-cloudflare-directly.md)).
+**Model:** Native Cloudflare Workers Cache (a cache HIT skips the `Renderer` render; the uncached gateway still runs). Design & rationale in [ADR 0020](adr/0020-workers-cache-and-queue-purge.md) (amends [ADR 0004](adr/0004-pro-plan-and-cache-tag-purge.md); reverses the mechanism in [ADR 0028](adr/0028-promote-purges-cloudflare-directly.md)).
 **Supersedes (for caching specifics):** `STAGE_1_SPEC.md` §9.1 / §9.2 / §9.3
 **Established by:** Phase 2 (`STAGE_1_PHASE_2_SPEC.md` §8); migrated to native Workers Cache by the AECI-314 epic (WC-1…WC-11 / AECI-315…325)
 **Companion docs:** `STAGE_1_SPEC.md`, `STAGE_1_PHASE_2_SPEC.md`, `API_CONTRACTS.md`, `CICD_PLAN.md`, `OBSERVABILITY.md`
@@ -652,7 +652,7 @@ The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-
 
 ## 9. Observability & local-dev
 
-**HIT/MISS signal.** Under native Workers Cache a HIT **skips the SSR Worker**, so there is no per-HIT Worker log to count. The primary HIT/MISS signal is the **`Cf-Cache-Status`** response header (`HIT` / `MISS` / `EXPIRED` / `BYPASS` / `DYNAMIC` / `REVALIDATED` / `UPDATING` / `STALE`), and edge HIT-rate lives on the **Cloudflare Workers observability dashboard**. The SSR render metrics only ever emit `cache_status:MISS` / `miss` / `non_cacheable` (a HIT never reaches them), so the **`cache hit rate < 70%` monitor + dashboard widget were retired in WC-8 (AECI-322)** — an in-Worker hit-rate is structurally unmeasurable when HITs never run the Worker. See `docs/OBSERVABILITY.md` and `docs/RUNBOOKS.md` ("Low cache hit rate").
+**HIT/MISS signal.** Under native Workers Cache a HIT **skips `Renderer`**, so there is no per-HIT render log to count. The gateway (the `default` export, its own cache disabled) still runs on every HIT. The AECI-1303 spike proved that on staging on 2026-10-14: a gateway-added header was fresh on four consecutive HITs (`docs/design/edge-log-and-page-views.md` §8). The primary HIT/MISS signal is the **`Cf-Cache-Status`** response header (`HIT` / `MISS` / `EXPIRED` / `BYPASS` / `DYNAMIC` / `REVALIDATED` / `UPDATING` / `STALE`), and edge HIT-rate lives on the **Cloudflare Workers observability dashboard**. The SSR render metrics only ever emit `cache_status:MISS` / `miss` / `non_cacheable` (a HIT never reaches them), so the **`cache hit rate < 70%` monitor + dashboard widget were retired in WC-8 (AECI-322)** — an in-Worker hit-rate is structurally unmeasurable when HITs never reach the render. See `docs/OBSERVABILITY.md` and `docs/RUNBOOKS.md` ("Low cache hit rate").
 
 **Purge observability.** Every purge — in-process (`/admin/purge`), queue-consumer (promote / moderation / datatool), or a no-op on an uncached tier — emits `aeci.cache.purge{source,outcome,mode}` (§5). That metric is the signal that invalidation is firing and which outcome it took (`ok` / `purge_failed` / `no_cache` / `noop` / `skipped`).
 
