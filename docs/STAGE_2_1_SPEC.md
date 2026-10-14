@@ -112,7 +112,7 @@ Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage 
 
 Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md` §13 records them. The portal surfaces are `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.
 
-**Why it passes §1.** It refines the built seat and entitlement surface. A seat with no plan can already use the portal, but no one has designed that state. It also gates the pilot end on 2026-12-14. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 sets that date. Without a Free state, a lapsed pilot vendor loses every edit.
+**Why it passes §1.** It refines the built seat and entitlement surface. A seat with no plan can already use the portal, but no one has designed that state. It also gates the pilot end. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 first set a shared date of 2026-12-14. AECI-1325 replaced it on 2026-10-14 with a one-month term per vendor, ended by an admin Clear (`STAGE_2_PAID_TIERS_SPEC.md` §7.3 ruling). Without a Free state, a lapsed pilot vendor loses every edit.
 
 **A named exception to §4.** §4 says "no portal surface additions". The product checklists and "Looks right" are portal surface additions. They are admitted by operator decision on 2026-10-01, in the way AECI-710 and AECI-711 are admitted in §3.3.2. They rank behind the seat-granting blockers. Nothing else in the epic is a new surface. The plan panel, the badge and the banner restate plan state the portal already holds.
 

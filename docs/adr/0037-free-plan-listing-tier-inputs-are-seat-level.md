@@ -11,7 +11,7 @@ The vendor portal has a "seat", a signed-in vendor account, and a "plan", a `ven
 
 The 2026-09-30 data-readiness audit found a ranking leak. `listing_tier` is a search-ranking signal. It is built from a product's description, website, logo and categories. Only a vendor with a plan could edit those fields. So payment could raise a product's rank through the edit path. `VENDOR_PLAN_DATA_READINESS.md` §5 records this as coupling 1.
 
-The pilot also ends on 2026-12-14. Without a usable no-plan state, a lapsed pilot vendor would lose every edit.
+The pilot also ends on 2026-12-14. Without a usable no-plan state, a lapsed pilot vendor would lose every edit. (Amended 2026-10-14, AECI-1325: there is no shared pilot end date. Each pilot vendor gets a one-month term from sign-on, ended by an admin Clear. `STAGE_2_PAID_TIERS_SPEC.md` §7.3 records the ruling.)
 
 ## Decision
 

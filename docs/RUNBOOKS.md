@@ -2122,3 +2122,49 @@ The manual fallback is step 0 of `docs/gsc-reindex-playbook.md`.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
+
+## Pilot vendor terms: set, extend, end
+
+Not an alert. This is the operator procedure for a pilot vendor's free Managed term. Ruled 2026-10-14 (AECI-1325, `STAGE_2_PAID_TIERS_SPEC.md` §7.3). No code ends a pilot. The operator does each step by hand.
+
+**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends by an admin Clear.
+
+**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one with an active Managed entitlement whose arrangement notes say "pilot". Keep a calendar reminder per vendor on its end date. The expiry job sends one notice per term and nothing on the end date itself, so the calendar is the only reminder that lands on the day.
+
+### 1. Start the pilot
+
+1. Open the vendor at `/admin/vendors/:id`.
+2. Choose **Set**. Tier: Managed.
+3. Set **Term end date** to the sign-on date plus one month.
+4. Put "Pilot" and the sign-on date in **Arrangement notes**.
+5. Confirm. Then add the calendar reminder for the term end date.
+6. Optional: set the plan message override on the same page (§13.13), for example "Free pilot until 14 November". It is display only.
+
+The next 11:00 UTC expiry run emails the vendor's seats and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
+
+### 2. Extend the pilot
+
+1. Open the vendor at `/admin/vendors/:id`.
+2. Choose **Renew**. Set **Term end date** one month later. Note the extension in **Arrangement notes**.
+3. Confirm, then move the calendar reminder.
+
+Renew keeps the other arrangement fields and resets the warning stamp, so the vendor gets a fresh notice for the new term. Update the message override if you set one.
+
+### 3. End the pilot
+
+1. Open the vendor at `/admin/vendors/:id` on or after the term end date.
+2. Choose **Clear**. Enter "Pilot ended" as the internal reason.
+3. Confirm. Remove the message override if you set one.
+
+What Clear does:
+
+| Effect | Detail |
+|---|---|
+| Plan | The vendor moves to the Free plan. Seats, logins and everything it entered stay. |
+| Portal | The plan-ended banner shows on every portal page (§13.11). |
+| Owner contests | Open owner contests on connector-powered rows move to AECi (§5.1, AECI-1092). |
+| Cache | The vendor and product pages are purged. |
+
+### `revoked` versus `expired`
+
+Clear records the entitlement as `revoked`, with a `vendor_entitlement.cleared` audit row. A pilot that ends on schedule therefore reads as a revocation in the audit log and in reports, even though nothing was wrong. `expired` means a term that lapsed on its own, and nothing writes it today, because the expiry job never writes `status`. The vendor sees no difference: the banner reads "Your Managed plan has ended" for both. When reading reports, treat a `revoked` row whose reason is "Pilot ended" as a normal pilot end.

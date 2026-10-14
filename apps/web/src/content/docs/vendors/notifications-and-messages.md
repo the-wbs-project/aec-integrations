@@ -42,7 +42,7 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 |---|---|---|
 | Your claim is approved, or was not approved | The person who claimed | When we decide the claim |
 | An invitation to a seat | The person invited | When an owner invites or resends |
-| Your plan ends soon | Every seat | 30 days before a Managed plan's end date |
+| Your plan ends soon | Every seat | Once per term, up to 30 days before a Managed plan's end date |
 | A new review of your product | Every seat | When we publish the review |
 | A change request you sent was declined | Every seat at your company | When the owner declines it, with the date your time to ask for a review ends |
 | A review request on your decision | Every seat at the owner | When the other company asks us to review it, with your reply date |

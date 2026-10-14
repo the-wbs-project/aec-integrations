@@ -530,7 +530,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary: "Warns a vendor's seats that their plan term ends soon.",
-    note: "Always on: warns of the end of a vendor's paid term.",
+    note: "Always on: warns of the end of a vendor's plan term, paid or pilot.",
   },
   'entitlement-expiring-admin': {
     channel: 'email',

@@ -1326,10 +1326,13 @@ export function sendAttestationOpsDigestEmail(
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
 // copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
-// its own. Neither template may imply that vendor access is about to be switched
-// off automatically, because it is not — deactivation stays a deliberate admin act
-// (§5). Account access is also framed exactly as everywhere else,
-// never an endorsement and never a ranking or placement signal.
+// its own. Deactivation stays a deliberate admin act (§5). Since AECI-1325 the
+// vendor copy no longer promises that nothing changes: an admin may end the plan at
+// the term's end, as every pilot term does. It leads with the end date and the
+// renewal offer, then says a vendor that does not renew drops to the Free plan
+// with nothing removed, and links the plans page. Replies go to SUPPORT_EMAIL.
+// Account access is also framed exactly as everywhere else, never an endorsement
+// and never a ranking or placement signal.
 
 /** What both expiry templates need to describe one term. `daysRemaining` is
  *  negative once the term is past its end — the sweep still warns exactly once for
@@ -1369,35 +1372,54 @@ export function sendEntitlementExpiringEmail(
   c: EmailContext,
   opts: EntitlementExpirySubject,
 ): Promise<EmailOutcome> {
-  const name = opts.vendorName.trim() || 'your company';
-  const portal = portalUrl(c.env);
-  const phrase = expiryPhrase(opts.daysRemaining);
+  const company = opts.vendorName.trim();
+  // "Your Acme Software plan", or "Your plan" when the name is blank.
+  const yourPlan = company ? `Your ${company} plan` : 'Your plan';
+  const mover = company || 'your company';
+  const date = formatLongDay(opts.periodEndDay);
   const past = opts.daysRemaining < 0;
+  const site = siteUrl(c.env);
+  const plansPage = site ? `${site}/docs/vendors/plans` : null;
+  const portal = portalUrl(c.env);
+  // The ask says "reply to this email", so a reply has to reach a person. Without
+  // this it lands in the EMAIL_FROM notifications mailbox.
+  const support = c.env.SUPPORT_EMAIL?.trim();
 
+  // AECI-1325: the job never lapses a plan, but an admin may end it at the term's
+  // end (a pilot ends that way). Lead with the date and the renewal offer, then say
+  // what a vendor that does not renew keeps. Never promise the plan carries on, and
+  // never lead with a day count: a one-month pilot is inside the window on day one.
+  // One name throughout: "plan", the portal's word.
   const lead = past
-    ? `Your vendor access term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay}. That was ${phrase}.`
-    : `Your vendor access term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
-  // The reassurance is the point of the whole §7 decision. Say it plainly.
-  const noLapse =
-    "Nothing changes automatically. We don't switch access off when a term reaches its end date. This is a heads-up so you can decide, not a countdown.";
-  const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
+    ? `${yourPlan} on AEC Integrations was due to end on ${date}, ${expiryPhrase(opts.daysRemaining)}.`
+    : `${yourPlan} on AEC Integrations runs until ${date}.`;
+  const ask = past
+    ? `It stays active for now. To continue, or if the dates look wrong, reply to this email. If we don't hear from you, we'll move ${mover} to the Free plan. You keep your seats and everything you've entered.`
+    : `If you'd like to continue past that date, or the dates look wrong, reply to this email.`;
+  const onEnd = past
+    ? null
+    : `If you don't renew, ${mover} moves to the Free plan. You keep your seats and everything you've entered.`;
   const stance =
     "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
   const render = (link: LinkTagger): EmailContent => {
-    const textParagraphs = [lead, noLapse, ask];
-    const htmlParagraphs = [
-      past
-        ? `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)}. That was ${escapeHtml(phrase)}.`
-        : `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
-      noLapse,
-      ask,
-    ];
+    const textParagraphs = [lead, ask];
+    const htmlParagraphs = [escapeHtml(lead), escapeHtml(ask)];
+    if (onEnd) {
+      textParagraphs.push(onEnd);
+      htmlParagraphs.push(escapeHtml(onEnd));
+    }
+    // A link, not a feature list: the list would drift from the help center.
+    if (plansPage) {
+      const tagged = link(plansPage);
+      textParagraphs.push(`See what the Free plan includes: ${tagged}`);
+      htmlParagraphs.push(`See <a href="${escapeHtml(tagged)}">what the Free plan includes</a>.`);
+    }
     if (portal) {
       const tagged = link(portal);
-      textParagraphs.push(`Your current status is on your vendor portal: ${tagged}`);
+      textParagraphs.push(`See your plan in the vendor portal: ${tagged}`);
       htmlParagraphs.push(
-        `Your current status is on <a href="${escapeHtml(tagged)}">your vendor portal</a>.`,
+        `See your plan in <a href="${escapeHtml(tagged)}">the vendor portal</a>.`,
       );
     }
     textParagraphs.push(stance);
@@ -1408,12 +1430,25 @@ export function sendEntitlementExpiringEmail(
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'entitlement-expiring',
-    subject: past
-      ? `Your vendor access term for ${name} has reached its end date`
-      : `Your vendor access term for ${name} ends ${phrase}`,
+    // A date, never a day count: a count goes stale in the inbox.
+    subject: past ? `${yourPlan} was due to end ${date}` : `${yourPlan} runs until ${date}`,
     render,
+    ...(support ? { replyTo: support } : {}),
   });
 }
+
+/** `2026-11-14` as `November 14, 2026`, the US English form the help center uses.
+ *  An unparseable value is returned as given. */
+function formatLongDay(day: string): string {
+  const at = new Date(`${day.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(at.getTime())) return day;
+  return LONG_DAY_FORMAT.format(at);
+}
+
+const LONG_DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  dateStyle: 'long',
+});
 
 /**
  * §7.2 `entitlement-expiring-admin` — the operator copy, to `SUPPORT_EMAIL`.
