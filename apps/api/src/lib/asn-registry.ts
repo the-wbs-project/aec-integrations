@@ -116,6 +116,12 @@ const NETWORK_CLASS_BY_INFO_TYPE: Readonly<Record<string, AsnNetworkClass>> = {
   'Route Collector': 'non_eyeball',
 };
 
+/** The `info_type` → class table as plain data in declaration order, so the versioned traffic
+ *  classifier (AECI-872) can fingerprint the reading it depends on. */
+export function networkClassEntries(): ReadonlyArray<readonly [string, AsnNetworkClass]> {
+  return Object.entries(NETWORK_CLASS_BY_INFO_TYPE);
+}
+
 /** Classify one stored `info_type`. Null, empty and unrecognized all read as
  *  `unclassified` — the registry knowing nothing is a fact worth surfacing, and
  *  it is not the same fact as "this is a person". */

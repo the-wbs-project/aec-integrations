@@ -5190,12 +5190,15 @@ the only writer of `unsubscribed_at` is the subscriber, through the tokenized
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
 an unknown `sort` key, or an unknown `status`.
 
-#### Traffic classification classes on the admin read surface — **PROPOSED (AECI-872), not yet agreed**
+#### Traffic classification classes on the admin read surface — **PROPOSED (AECI-872)**
 
-> **PROPOSED (AECI-872), not yet agreed.** None of the fields below exist. This is the wire half of
-> `ADMIN_PANEL_SPEC.md` §13 **D19** and the read side of `DATABASE_SCHEMA.md` §9.7, written so the
-> shapes can be argued before any schema or handler is touched. Nothing here is implemented and
-> nothing in `packages/shared/src/api/admin-panel.ts` changes until D19 is agreed.
+> **PROPOSED. D19 agreed 2026-10-14; this shape is built in Phase 2 (AECI-1345).** None of the fields
+> below exist yet. This is the wire half of `ADMIN_PANEL_SPEC.md` §13 **D19** and the read side of
+> `DATABASE_SCHEMA.md` §9.7. Nothing in `packages/shared/src/api/admin-panel.ts` changes before
+> Phase 2. The class and reason-code vocabularies are fixed now: `TRAFFIC_CLASSES` and
+> `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. D19 settled that unresolved traffic is
+> reported as a count, with its share carried only by the gated `classification_unresolved_share`
+> note below.
 
 Scope is deliberately narrow: **shapes only**. Which classifier runs, when, and how it decides are
 D19's business and §3c's; this section says what the operator's surfaces would return.

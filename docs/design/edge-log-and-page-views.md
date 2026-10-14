@@ -241,7 +241,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | S1 | AECI-1298: why the stored score is a constant 99 | N3 helps |
 | S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit. **Done 2026-10-14: go** (§8) | none |
 | S3 | AECI-1304: one day of Logpush through Basin, Ray ID join, score comparison | N1, N3 |
-| S4 | AECI-872: agree the classification procedure and shadow thresholds | none |
+| S4 | AECI-872: agree the classification procedure and shadow thresholds. **Done 2026-10-14: D19 agreed; the classifier and shadow runner are built** | none |
 | S5 | AECI-1196 ADR, with counsel on the privacy items | S2, S3 |
 
 ### During (filed after the ADR)
