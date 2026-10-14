@@ -2038,8 +2038,10 @@ Rotation is the only way to a known value, and it is cheap — IndexNow supports
 ```
 openssl rand -hex 16
 gh secret set INDEXNOW_KEY_PRODUCTION
-gh workflow run promote-to-prod.yml -f confirm=PROMOTE
+gh workflow run promote-to-prod.yml
 ```
+
+Then approve the run's `deploy-prod-workers` job in the Actions UI. It waits for Chris (AECI-1239).
 
 Record the value in the password manager **at the moment you generate it**. Then
 `https://www.aecintegrations.com/<key>.txt` is checkable by hand, which proves the

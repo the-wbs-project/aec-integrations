@@ -15,10 +15,6 @@
 #        /api/version + /_version (both must agree). A pasted SHA must be full
 #        40-char lowercase hex. deploy-prod-workers reads the chosen SHA from
 #        this job's `sha` output, never from the input.
-#      - Validates `confirm == PROMOTE`. AECI-879 dropped this box when the
-#        pasted SHA was the confirmation. A blank SHA is no longer a deliberate
-#        act, and the `production` environment has no required reviewer
-#        (AECI-1239), so the typed word is the one human step.
 #      - `scripts/require-secrets.sh` over the prod secrets (REQUIRED fail-fast,
 #        BEFORE the approval gate, so a misconfigured prod never half-deploys).
 #      - Checks out the repo at the chosen SHA.
@@ -26,11 +22,14 @@
 #        asserts demo reports the chosen SHA. The verbatim failure
 #        message — `demo is not at <sha>, refusing to promote` — gates the
 #        promote on the immediate upstream tier (demo).
+#      - Writes the SHA production runs now and a compare link to the run
+#        summary, so the approver sees what the promote ships.
 #
 #   2. deploy-prod-workers  (gated by GH Environment `production`)
-#      - Approval pause, once a required reviewer is set on the `production`
-#        environment (docs/environments.md §4). None is set today (AECI-1239),
-#        so the job starts as soon as pre-promotion-checks passes.
+#      - Approval pause: the `production` environment lists Chris as its
+#        required reviewer (AECI-1239, docs/environments.md "GitHub
+#        Environments"). The job waits for that approval before any mutation.
+#        The approval is the human step; there is no typed confirm input.
 #      - Provisions the prod scheduled-job queues (idempotent).
 #      - Applies the prod app DB migrations to Cloudflare D1 (aeci-app-production)
 #        via `wrangler d1 migrations apply` and reconciles the D1 taxonomy seed
@@ -114,10 +113,6 @@ on:
         required: false
         type: string
         default: ''
-      confirm:
-        description: 'Type PROMOTE to ship to production'
-        required: true
-        type: string
 
 # Promotes are destructive (migrations + Worker swap) and not idempotent across
 # overlapping runs; queue rather than cancel so a second click after the first
@@ -167,24 +162,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # Step 1a: Require the typed confirmation.
-      #   AECI-879 removed this box because pasting a 40-char SHA was already a
-      #   deliberate act. A blank SHA is not, and the `production` environment
-      #   has no required reviewer (AECI-1239), so without this a bare dispatch
-      #   ships demo's commit to prod with nobody choosing it. Exact match only.
-      # -----------------------------------------------------------------------
-      - name: Validate confirm input
-        env:
-          CONFIRM: ${{ inputs.confirm }}
-        run: |
-          if [ "$CONFIRM" != "PROMOTE" ]; then
-            echo "::error::confirm must equal PROMOTE (received: '$CONFIRM')"
-            exit 1
-          fi
-          echo "confirm=PROMOTE accepted"
-
-      # -----------------------------------------------------------------------
-      # Step 1b: Pick the commit.
+      # Step 1: Pick the commit.
       #   `commit_sha` is optional: blank means "whatever demo is running now",
       #   read from demo's /api/version + /_version, which must agree. A pasted
       #   SHA is shape-checked here, since workflow_dispatch inputs have no
@@ -353,6 +331,35 @@ jobs:
           fi
           echo "Demo API + SSR both match input SHA: $EXPECTED_SHA"
 
+      # -----------------------------------------------------------------------
+      # Step 4: Tell the approver what ships (AECI-1239).
+      #   deploy-prod-workers waits for Chris's approval. This summary is what
+      #   the approver reads first: the SHA production runs now and a link to the
+      #   chosen SHA's diff. Best-effort: an unreadable prod version prints `unknown`
+      #   and never fails the promote.
+      # -----------------------------------------------------------------------
+      - name: Summarise the promote for the approver
+        env:
+          CHOSEN_SHA: ${{ steps.sha.outputs.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -uo pipefail
+          prod_sha="$(curl -fsS --max-time 10 https://www.aecintegrations.com/api/version | jq -r '.sha // empty' 2>/dev/null || true)"
+          {
+            echo "### Approve to ship"
+            echo ""
+            echo "| | SHA |"
+            echo "| --- | --- |"
+            echo "| Production now | \`${prod_sha:-unknown}\` |"
+            echo "| This promote | \`$CHOSEN_SHA\` |"
+            echo ""
+            if [ -n "$prod_sha" ] && [ "$prod_sha" != "$CHOSEN_SHA" ]; then
+              echo "[Compare production to this promote]($REPO_URL/compare/$prod_sha...$CHOSEN_SHA)"
+            elif [ "$prod_sha" = "$CHOSEN_SHA" ]; then
+              echo "Production already runs this SHA. Approving redeploys it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ===========================================================================
   # Job 2: Deploy production Workers (gated by GH Environment `production`)
   # ===========================================================================
@@ -361,11 +368,10 @@ jobs:
     needs: pre-promotion-checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The `production` GH Environment is meant to list chrisw@thewbsproject.com
-    # as a required reviewer (docs/environments.md §4), which would block the run
-    # here before ANY mutation (queue/D1/deploy). None is set today (AECI-1239):
-    # the environment carries only the main-only branch rule, so the typed
-    # `confirm=PROMOTE` in pre-promotion-checks is the human step.
+    # The `production` GH Environment lists Chris (chris-walton) as its required
+    # reviewer (AECI-1239), plus the main-only branch rule. The run blocks here
+    # before ANY mutation (queue/D1/deploy) until Chris approves. Self-review is
+    # allowed: one person dispatches and approves the same run.
     environment:
       name: production
       url: https://www.aecintegrations.com

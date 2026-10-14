@@ -92,8 +92,10 @@ key and a throttle are indistinguishable from our side.
 ```
 openssl rand -hex 16
 gh secret set INDEXNOW_KEY_PRODUCTION
-gh workflow run promote-to-prod.yml -f confirm=PROMOTE
+gh workflow run promote-to-prod.yml
 ```
+
+Then approve the run's `deploy-prod-workers` job in the Actions UI. It waits for Chris (AECI-1239).
 
 Then verify the file-serving half by hand — this is the check the key's unreadability used
 to make impossible:
