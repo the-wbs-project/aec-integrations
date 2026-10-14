@@ -523,8 +523,9 @@ export function createModerateContestHandler(
       if (accept.tags.length) c.executionCtx.waitUntil(purgeTags(c, accept.tags));
       // AECI-1092: an accept that wrote the row here takes the owner edit's search
       // tail too (a by-id Algolia sync, either table). An upstream-only accept wrote
-      // nothing, so promote carries it.
-      if (accept.appliedMode !== 'upstream-only') {
+      // nothing, so promote carries it. So did an owner accept naming the holder
+      // (AECI-1235), which has nothing to sync.
+      if (accept.wroteHere) {
         const anchor = contestAnchorOf(after);
         dispatchOwnerWriteSearch(
           c,
@@ -765,6 +766,12 @@ export async function planAcceptWrites(
   audits: AuditLogEntry[];
   tags: string[];
   appliedMode: ContestAppliedMode;
+  /**
+   * AECI-1235: the accept writes the integration row here. False for an
+   * `upstream-only` accept and for an `owner` accept naming the current holder,
+   * which records the owner without writing it. Gates the purge and the Algolia sync.
+   */
+  wroteHere: boolean;
   /** AECI-1191: the accept changes a vendor-held value, so it requires a note. */
   overwritesVendorField: boolean;
   /**
@@ -807,6 +814,7 @@ export async function planAcceptWrites(
   const entity = { entityType: anchorEntityType(anchor.kind), entityId: integration.id };
 
   let appliedMode: ContestAppliedMode = 'upstream-only';
+  let wroteHere = true;
   let lockRace: (() => Promise<ApiError | null>) | undefined;
   if (field !== 'owner') {
     if (claimed) {
@@ -918,6 +926,14 @@ export async function planAcceptWrites(
     if (integration.builtByVendorId !== newOwner) {
       await rerouteOwnerContests(db, row, anchor, actor, now, stmts, audits);
     }
+  } else if (claimed && row.proposedValue === integration.builtByVendorId) {
+    // AECI-1235: another vendor proposed the vendor that holds the claim, usually
+    // filed before that vendor claimed it. Nothing changes hands: no write, no
+    // re-route, and `claimed_at` stays. Same test as `acceptOverwritesVendorField`.
+    // The state sentinel above still aborts if the holder lost the claim meanwhile.
+    // The issue is "Record integration owner", so the review app records the holder.
+    appliedMode = 'owner-recorded';
+    wroteHere = false;
   } else if (claimed) {
     // Reassigned away from the vendor that claimed it, or to "neither": the new owner
     // has not acted, so `claimed_at` clears and the promote fence lifts (ADR 0035).
@@ -937,8 +953,9 @@ export async function planAcceptWrites(
     await rerouteOwnerContests(db, row, anchor, actor, now, stmts, audits);
   }
 
+  wroteHere &&= appliedMode !== 'upstream-only';
   let tags: string[] = [];
-  if (appliedMode !== 'upstream-only') {
+  if (wroteHere) {
     tags = (await anchorPurgeTags(db, integration, pairCacheTag)).tags;
   }
   const overwritesVendorField = acceptOverwritesVendorField(row, integration);
@@ -957,7 +974,16 @@ export async function planAcceptWrites(
           ),
         }
       : null;
-  return { stmts, audits, tags, appliedMode, overwritesVendorField, displacedOwner, lockRace };
+  return {
+    stmts,
+    audits,
+    tags,
+    appliedMode,
+    wroteHere,
+    overwritesVendorField,
+    displacedOwner,
+    lockRace,
+  };
 }
 
 /** The owner an AECi accept displaces (AECI-1159), as its notice snapshots it. */

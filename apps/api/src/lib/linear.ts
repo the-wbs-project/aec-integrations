@@ -655,7 +655,8 @@ export interface LinearContestIssueInput {
    *   - `'applied-here'` — the integration is claimed, so promote no longer writes
    *     it and AECi wrote the value here itself. The review lane only records it.
    *   - `'owner-recorded'` — an `owner` accept that wrote `built_by_vendor_id` here
-   *     (with `claimed_at` set or cleared). Titled "Record integration owner".
+   *     (with `claimed_at` set or cleared), or found the proposed owner already
+   *     holding the claim and wrote nothing (AECI-1235). Titled "Record integration owner".
    */
   appliedMode?: ContestAppliedMode;
 }

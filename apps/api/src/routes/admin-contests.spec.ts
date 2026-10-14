@@ -29,7 +29,11 @@ import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { racingFactory } from '../test/racing-factory';
-import { createAdminContestsListHandler, createModerateContestHandler } from './admin-contests';
+import {
+  createAdminContestsListHandler,
+  createModerateContestHandler,
+  planAcceptWrites,
+} from './admin-contests';
 import { createSubmitContestHandler } from './vendor-contests';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -430,15 +434,46 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
     expect(await auditActions()).toEqual(['integration.contest.submitted']);
   });
 
-  it('refuses with no note when the proposed owner already holds the claim but did not file', async () => {
-    // Code review finding: the reassign branch runs (proposed != submitter) and
-    // clears claimed_at, so the holder loses its claim. That is vendor-held.
+  it('AECI-1235: an owner accept naming the holder keeps its claim, re-routes nothing, needs no note', async () => {
+    // A files "B owns it" while the row is unclaimed, so it routes to AECi.
     await setIntegration({ builtByVendorId: null });
     const id = await fileContest('owner', VENDOR_B);
+    // B later claims the row, and A files a content contest that B decides.
     await setIntegration({ builtByVendorId: VENDOR_B, claimedAt: CLAIMED_AT });
-    expect((await accept(id, null)).status).toBe(400);
-    expect((await integrationRow()).claimedAt).toBe(CLAIMED_AT);
-    expect(await auditActions()).toEqual(['integration.contest.submitted']);
+    claimed = true;
+    const ownerRouted = await fileContest('name', 'Revit Link');
+    expect((await contestRow(ownerRouted)).routedTo).toBe('owner');
+    const listed = (await call(ADMIN, 'GET', '/api/admin/contests')).body.data as JsonBody[];
+    expect(listed.find((r) => r.id === id)).toMatchObject({ accept_note_required: false });
+    // The plan holds only the integration-state sentinel: no write, so no purge or sync.
+    const plan = await planAcceptWrites(
+      t.db,
+      await contestRow(id),
+      { actorId: ADMIN_ID, actorType: 'admin' },
+      CLAIMED_AT,
+    );
+    expect(plan).toMatchObject({ appliedMode: 'owner-recorded', wroteHere: false, tags: [] });
+    expect(plan.stmts).toHaveLength(1);
+
+    const res = await accept(id, null);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('accepted');
+
+    const row = await integrationRow();
+    expect(row.builtByVendorId).toBe(VENDOR_B);
+    expect(row.claimedAt).toBe(CLAIMED_AT);
+    expect(await contestRow(ownerRouted)).toMatchObject({ routedTo: 'owner', status: 'open' });
+    const audits = await t.db.select().from(auditLog);
+    const actions = audits.map((r) => r.action);
+    expect(actions).not.toContain('integration.updated');
+    expect(actions).not.toContain('integration.claimed');
+    expect(actions).not.toContain('integration.contest.rerouted');
+    expect(audits.some((r) => (r.metadata as { kind?: string }).kind === 'aeci_override')).toBe(
+      false,
+    );
+    const decision = audits.find((r) => r.action === 'integration.contest.accepted');
+    expect(decision!.metadata).toMatchObject({ appliedMode: 'owner-recorded' });
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'owner-recorded' });
   });
 
   it('writes the note into the decision audit row as metadata.reason, and keeps decision_note', async () => {

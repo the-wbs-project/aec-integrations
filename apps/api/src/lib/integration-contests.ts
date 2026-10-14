@@ -1185,19 +1185,21 @@ export function isContestValueStale(
  * - `owner` with proposed = the submitter takes the `owner-approved` branch, which
  *   changes the claim only when another vendor holds it.
  * - `owner` with proposed = anyone else takes the `owner-reassigned` branch, which
- *   always clears `claimed_at`: true, even when the proposed owner is the holder.
+ *   clears `claimed_at`, unless the proposed owner already holds the claim. That
+ *   accept records the holder and writes nothing (AECI-1235).
+ *
+ * Both `owner` cases reduce to one test: does the holder change?
  *
  * When true the accept requires a `note`, which lands in the decision audit row's
  * `metadata.reason`. The list read reports the same value as
  * `accept_note_required`, so the queue and the handler cannot disagree.
  */
 export function acceptOverwritesVendorField(
-  row: Pick<ContestRow, 'field' | 'proposedValue' | 'submitterVendorId'>,
+  row: Pick<ContestRow, 'field' | 'proposedValue'>,
   integration: Pick<IntegrationRow, 'builtByVendorId' | 'claimedAt'>,
 ): boolean {
   if (!isClaimed(integration)) return false;
   if (row.field !== 'owner') return true;
-  if (row.proposedValue !== row.submitterVendorId) return true;
   return integration.builtByVendorId !== row.proposedValue;
 }
 
