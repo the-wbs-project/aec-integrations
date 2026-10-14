@@ -17,8 +17,8 @@ describe('acceptOverwritesVendorField (AECI-1191)', () => {
     ['a content field on a claimed row', by('description', 'x'), CLAIMED, true],
     ['the submitter taking the claim from the holder', by('owner', SUBMITTER), CLAIMED, true],
     ['an owner set to neither on a claimed row', by('owner', null), CLAIMED, true],
-    // The reassign branch runs and clears claimed_at, so the holder loses its claim.
-    ['proposing the holder, filed by someone else', by('owner', OWNER), CLAIMED, true],
+    // AECI-1235: the holder keeps its claim, so nothing vendor-held changes.
+    ['proposing the holder, filed by someone else', by('owner', OWNER), CLAIMED, false],
     ['the holder proposing itself', by('owner', OWNER, OWNER), CLAIMED, false],
     ['a content field on an unclaimed row', by('description', 'x'), UNCLAIMED, false],
     ['an owner contest on an unclaimed row', by('owner', SUBMITTER), UNCLAIMED, false],
