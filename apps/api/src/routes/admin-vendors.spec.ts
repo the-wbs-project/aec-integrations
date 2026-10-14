@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  billingAccounts,
   connectorEvidencedPairs,
   integrations,
   productVendors,
@@ -1722,6 +1723,9 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     await t.db
       .insert(profiles)
       .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: false });
+    // The account the vendor's first owner brought (AECI-1351), so the one audit row
+    // below is the promotion's.
+    await t.db.insert(billingAccounts).values({ vendorId: VENDOR, name: 'MindCloud' });
 
     const res = await provision(
       VENDOR,
@@ -1744,6 +1748,53 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
     expect(seat.seatOwner).toBe(true);
     expect(await t.db.select().from(auditLog)).toHaveLength(1);
+  });
+
+  it('brings the billing account with the first owner seat, in the same batch (AECI-1351)', async () => {
+    const [before] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    const res = await provision(VENDOR, linked());
+    expect(res.status).toBe(201);
+
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      vendorId: VENDOR,
+      name: 'MindCloud',
+      billingEmail: null,
+      createdBy: ADMIN,
+    });
+    const [row] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'billing_account.created'));
+    expect(row).toMatchObject({
+      entityType: 'billing_account',
+      entityId: accounts[0]!.id,
+      vendorId: VENDOR,
+      actorId: ADMIN,
+    });
+    // No `vendors` write: the row is byte-identical, `updated_at` included.
+    const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(after).toEqual(before);
+  });
+
+  it('writes no billing account when the vendor already has one (AECI-1351)', async () => {
+    await t.db.insert(billingAccounts).values({
+      id: u(90),
+      vendorId: VENDOR,
+      name: 'MindCloud',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    });
+
+    const res = await provision(VENDOR, linked());
+    expect(res.status).toBe(201);
+
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ id: u(90), updatedAt: '2020-01-01T00:00:00.000Z' });
+    expect((await t.db.select().from(auditLog)).map((r) => r.action)).toEqual([
+      'vendor_seat.provisioned',
+    ]);
   });
 
   it('409s on an account that is a site admin, or belongs to another vendor', async () => {

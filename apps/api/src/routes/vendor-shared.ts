@@ -538,6 +538,24 @@ export function seatsOf(vendorId: string): SQL | undefined {
   return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
 }
 
+/**
+ * "The owner seats on this vendor": the {@link seatsOf} seats whose
+ * `profiles.seat_owner` is true. `seat_owner` (AECI-664) is the owner flag of
+ * decision 10 in `docs/VENDOR_SIGNUP_PROCESS.md` §2: only an owner seat buys
+ * licenses, and E3 routes a claim on an already-seated company to these seats.
+ *
+ * Who holds the bit: a seat granted by a claim approval or the admin provision
+ * route is an owner (`lib/vendor-grant.ts`). A seat that joined by redeeming an
+ * invite is not (`acceptInviteStatements` in `lib/vendor-seat-invites.ts` inserts
+ * `seat_owner = false`, and only preserves a bit the profile already held).
+ *
+ * Banned owners are included, as in {@link seatsOf}. A caller that needs working
+ * owners adds `isNull(profiles.bannedAt)` itself.
+ */
+export function ownerSeatsOf(vendorId: string): SQL | undefined {
+  return and(seatsOf(vendorId), eq(profiles.seatOwner, true));
+}
+
 export function ownedProductIds(db: Db, vendorId: string) {
   return db
     .select({ productId: productVendors.productId })

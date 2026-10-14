@@ -2134,6 +2134,8 @@ fail-open like every send.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
+**The grant brings the billing account (AECI-1351).** On Free and Managed alike, when the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged.
+
 ```typescript
 export const ClaimEntitlementSchema = z.object({
   // The offline PO/invoice arrangement. Since AECI-612 this is written to the
@@ -2868,6 +2870,9 @@ it (leg 3 of `auditScopeWhere`; leg 4's roster subquery filters on the ban actio
 written before AECI-1192 carry it only in `metadata.vendor_id`, which leg 3 keeps as a legacy
 fallback. New rows spell that metadata key `vendorId` (`DATABASE_SCHEMA.md` §8.4). The metadata also carries `entitlement_granted: false`,
 `is_pure_connector_vendor`, `identity_outcome` and `seat_created`.
+
+When the vendor has no billing account the same batch also inserts one, with its own
+`billing_account.created` row (AECI-1351, `DATABASE_SCHEMA.md` §8.6b). The wire shape is unchanged.
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
 

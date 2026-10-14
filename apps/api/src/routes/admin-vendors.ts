@@ -98,6 +98,7 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { blankLast, textAsc } from '../lib/collation';
 import { auditInsert, type BatchTuple } from '../lib/audit';
+import { ensureBillingAccountStatements, loadBillingAccount } from '../lib/billing-account';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
@@ -1017,7 +1018,8 @@ function emitSeatProvision(
  * The mirror of {@link createAdminRevokeSeatHandler} directly above, and its
  * shape is deliberately that endpoint's rather than the claim grant's: `vendorId`
  * comes from the path, the write is scoped to it, and the whole thing is two
- * statements in one `db.batch`.
+ * statements in one `db.batch`. Four when the vendor has no billing account yet:
+ * the owner seat brings it, with its `billing_account.created` row (AECI-1351).
  *
  * ── THE INVARIANT THIS ENDPOINT EXISTS TO HOLD ───────────────────────────────
  * **It opens no `vendor_entitlements` row, so it never turns `vendors.verified` on.**
@@ -1067,7 +1069,7 @@ export function createProvisionSeatHandler(
     const payload = ProvisionVendorSeatSchema.parse(raw);
 
     const vendor = await db.query.vendors.findFirst({
-      columns: { id: true, verified: true },
+      columns: { id: true, verified: true, companyName: true },
       where: eq(vendors.id, vendorId),
     });
     if (!vendor) {
@@ -1131,13 +1133,15 @@ export function createProvisionSeatHandler(
     // `seat_owner`, which both the idempotency check and the audit before-state
     // need. Read it here rather than widening the shared snapshot: that type is
     // consumed by `approveClaim`'s conflict path, which has no use for the column.
-    const [before, entitlement] = await Promise.all([
+    const [before, entitlement, billingAccount] = await Promise.all([
       db.query.profiles.findFirst({
         columns: { role: true, vendorId: true, seatOwner: true, bannedAt: true },
         where: eq(profiles.id, userId),
       }),
       // The plan snapshot for the audit row (AECI-1193), in the same wave.
       loadEntitlement(db, vendorId),
+      // Whether the owner seat brings the billing account with it (AECI-1351).
+      loadBillingAccount(db, vendorId),
     ]);
 
     const readout = (noop: boolean): ProvisionVendorSeatResponse => ({
@@ -1197,6 +1201,19 @@ export function createProvisionSeatHandler(
       isPureConnectorVendor: pureConnector,
       reason: payload.reason ?? null,
     });
+    // An owner seat brings the vendor's billing account (AECI-1351,
+    // `VENDOR_SIGNUP_PROCESS.md` §3 step 2) when it has none. A vendor that already
+    // has one gets no statement and no audit row. Nothing here names `vendors`.
+    const account = ensureBillingAccountStatements(db, {
+      vendorId,
+      name: vendor.companyName,
+      createdBy: auth.userId,
+      actorType: auditActorType(auth),
+      existing: billingAccount,
+      now,
+      vendorPlan,
+      source: CLAIM_AUDIT_SOURCE,
+    });
 
     // AECI-989: a new active seat returns the contests a ban moved to AECi.
     const returned = await planSeatGrantReturn(
@@ -1217,7 +1234,7 @@ export function createProvisionSeatHandler(
     // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
     // The admin's (or redeemer's) retry then re-plans against the cleared state.
     try {
-      await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+      await db.batch([...batch.stmts, ...account.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     } catch (error) {
       if (returned && isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
@@ -1226,7 +1243,7 @@ export function createProvisionSeatHandler(
     // ONE batched forward: the return adds a row and a transition per contest.
     forwardAuditBatch(
       c,
-      [batch.auditEntry, ...(returned?.audits ?? [])],
+      [batch.auditEntry, account.auditEntry, ...(returned?.audits ?? [])],
       returned?.transitions ?? [],
     );
 
