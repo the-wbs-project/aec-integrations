@@ -27,7 +27,9 @@ describe('AboutPage', () => {
   it('leads with the trust-first positioning in the page H1', () => {
     const { host } = setup();
     expect(host.querySelector('h1')?.textContent).toContain("couldn't find anywhere else");
-    expect(host.textContent).toContain('no pay-for-placement');
+    expect(host.textContent).toContain('No pay-for-placement');
+    // AECI-1316: vendors write some product copy, so the claim is gone.
+    expect(host.textContent).not.toContain('vendor marketing');
   });
 
   it('renders the section headings in a valid order (one h1, then h2s)', () => {

@@ -77,7 +77,7 @@ Each has its own tab. Tick the terms that describe the product. Each tab explain
 
 On Managed, the **Audiences** and **Phases** tabs also let you say how each team uses the product. Under each term you tick, add up to 8 short points of up to 200 characters each. You can reorder and remove points.
 
-Points publish to your product page as soon as you save, with no review. One **Save changes** saves the terms and the points together.
+Points publish to your product page as soon as you save, with no review. The section then says "Written by" and your company name, so readers know the words are yours. One **Save changes** saves the terms and the points together.
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 

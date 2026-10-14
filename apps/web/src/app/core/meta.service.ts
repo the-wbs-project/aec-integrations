@@ -202,7 +202,7 @@ export class MetaService {
     this.clearJsonLd();
 
     const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
-    const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement.`;
+    const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No pay-for-placement.`;
 
     this.title.setTitle(title);
     this.meta.updateTag({ name: 'description', content: description });

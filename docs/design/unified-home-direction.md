@@ -12,15 +12,17 @@ The live concepts are the dev-only **`/preview/unified-home`** route (`apps/web/
 
 The home's one-liner is:
 
-> **The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement.**
+> **The independent directory of AEC software integrations. No pay-for-placement.**
+
+AECI-1316 (2026-10-14) dropped "No vendor marketing" from every line below. Vendors write product descriptions and "How teams use it", so the claim was untrue.
 
 Three live expressions ladder up to it (reconciled in AECI-270):
 
 | Surface | String | File |
 |---|---|---|
-| Hero lede | "The independent directory of integrations across the AEC stack, with no vendor marketing and no pay-for-placement." | `home-hero.ts` (`@@home.hero.lede`) |
+| Hero lede | "The independent directory of integrations across the AEC stack, with no pay-for-placement." | `home-hero.ts` (`@@home.hero.lede`) |
 | Footer tagline | "The independent directory of AEC software integrations." | `site-footer.ts` (`@@app.footer.tagline`) |
-| Meta description | "The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement." | `core/meta.service.ts` (`@@meta.homeDescription`) |
+| Meta description | "The independent directory of AEC software integrations. No pay-for-placement." | `core/meta.service.ts` (`@@meta.homeDescription`) |
 
 The hero **tagline** ("Find the integrations between your AEC tools.") is unchanged — it is the verb-forward hook; the lede now carries the positioning. **No launch copy claims integrations are "verified"** — nothing is dual-vendor-verified at Stage 1 (spec §1; §4.2 verified-badge placeholder). This is why the prior footer "Vendor-verified reviews…" tagline was reconciled out: the directory, not a verified-review claim, is the honest anchor at launch.
 
@@ -51,7 +53,7 @@ One column of stacked modules in the standard shell (`SiteHeader` + Bone shelf a
 All bands are **static, SSR-safe, edge-cache-neutral** unless noted, and obey the DESIGN.md laws: Forest is the only CTA/figure color (Forest-Anchor Rule), Clay ≤5% decorative-only, Bone is an accent band never a page background, **borders not shadows**, Source Serif headlines (≥18px) + Atkinson body, sentence case, **no em dashes**, no banned hero-metric template, Lucide glyphs only. No new tokens (see "Tokens").
 
 ### 2 — Credibility strip
-A thin band directly under the hero: **coverage counts** (products / integrations / vendors) + the line "Independent and editorially neutral. No vendor marketing, no pay-for-placement." Counts are **live** (`GET /api/stats/home` for the integration total; taxonomy/product/vendor totals from the stats payload or `GET /api/taxonomy`), so the strip needs a real **empty state**: when a count is 0, drop that figure rather than render a bare "0", and fall back to the independence line alone. This is a coverage *fact row*, not the banned hero-metric template (no sparkline, no gradient, label always present).
+A thin band directly under the hero: **coverage counts** (products / integrations / vendors) + the line "Independent and editorially neutral. No pay-for-placement." Counts are **live** (`GET /api/stats/home` for the integration total; taxonomy/product/vendor totals from the stats payload or `GET /api/taxonomy`), so the strip needs a real **empty state**: when a count is 0, drop that figure rather than render a bare "0", and fall back to the independence line alone. This is a coverage *fact row*, not the banned hero-metric template (no sparkline, no gradient, label always present).
 
 ### 3 — Why AECi / the problem
 The broken-landscape narrative, translated from the landing into the editorial voice (no em dashes, no "verified" overclaim): two short paragraphs (pay-to-play rankings, AI reviews, vendor-funded visibility; and the information that actually decides a purchase is impossible to find), then **three cited figures** in a **spec-sheet row** (label-value, hairline-separated), not big-number cards: ≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories. Figures are **static cited stats**, not live data.

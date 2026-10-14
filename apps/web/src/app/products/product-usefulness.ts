@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input } from '@angular/core';
 
-import type { ProductUsefulness } from '@aeci/shared';
+import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
 
 /**
  * AECI-170 — the "How teams use it" section on the product detail page
@@ -32,6 +32,12 @@ import type { ProductUsefulness } from '@aeci/shared';
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
+ * **Vendor-written copy is labelled (AECI-1316).** When `source` is `'vendor'`
+ * the section says "Written by {vendor}" under its heading, so a reader never
+ * takes the vendor's own words for AECi's description. AECi's copy (`null`)
+ * carries no label. This reverses the "no vendor supplied label" decision of
+ * STAGE_2_5_SPEC.md §12.1 under ADR 0033's named re-open trigger.
+ *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
  * component never re-sorts.
@@ -56,6 +62,19 @@ import type { ProductUsefulness } from '@aeci/shared';
         >
           How teams use it
         </h2>
+        @if (vendorAuthored()) {
+          <p class="text-sm text-(--text-secondary)" data-testid="usefulness-attribution">
+            @if (vendorName(); as name) {
+              <ng-container i18n="@@products.detail.usefulness.writtenBy"
+                >Written by {{ name }}</ng-container
+              >
+            } @else {
+              <ng-container i18n="@@products.detail.usefulness.writtenByVendor"
+                >Written by the vendor</ng-container
+              >
+            }
+          </p>
+        }
 
         <ng-template #groupList let-groups>
           @for (group of groups; track group.slug) {
@@ -108,6 +127,12 @@ import type { ProductUsefulness } from '@aeci/shared';
 })
 export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
+  /** `ProductDetail.usefulness_source`; `'vendor'` turns the "Written by" line on. */
+  readonly source = input<ProductDetail['usefulness_source']>(null);
+  /** The product's vendor, named in the "Written by" line. */
+  readonly vendorName = input<string | null>(null);
+
+  protected readonly vendorAuthored = computed(() => this.source() === 'vendor');
 
   protected readonly audienceGroups = computed(() =>
     this.data().audiences.filter((g) => g.points.length > 0),

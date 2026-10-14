@@ -72,7 +72,9 @@ describe('HomeHero', () => {
       'Find the integrations between your AEC tools.',
     );
     expect(host.textContent).toContain('The specifier');
-    expect(host.textContent).toContain('no vendor marketing and no pay-for-placement');
+    expect(host.textContent).toContain('with no pay-for-placement');
+    // AECI-1316: vendors write some product copy, so the claim is gone.
+    expect(host.textContent).not.toContain('vendor marketing');
   });
 
   it('mounts the reused autocomplete widget as the hero-search instance with a real label', async () => {

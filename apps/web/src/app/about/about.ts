@@ -52,7 +52,7 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
             <p class="mt-5 text-lg leading-relaxed text-(--text-secondary)" i18n="@@app.about.lede">
               AEC Integrations is an independent directory and review platform for the software
               integrations that architecture, engineering, and construction teams depend on. No
-              vendor marketing, no pay-for-placement, no blurred line between editorial and revenue.
+              pay-for-placement, no blurred line between editorial and revenue.
             </p>
           </div>
         </div>

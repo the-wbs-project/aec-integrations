@@ -113,7 +113,11 @@ describe('MetaService.setHomeMeta', () => {
     expect(doc.title).toContain('AEC Integrations');
 
     const desc = doc.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
-    expect(desc?.getAttribute('content')).toContain('independent');
+    expect(desc?.getAttribute('content')).toBe(
+      'The independent directory of AEC software integrations. No pay-for-placement.',
+    );
+    // AECI-1316: vendors write some product copy, so "no vendor marketing" is untrue.
+    expect(desc?.getAttribute('content')).not.toContain('vendor marketing');
 
     // Home is indexable — no robots tag.
     expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();

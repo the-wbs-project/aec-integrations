@@ -396,6 +396,22 @@ describe('GET /api/products/:slug', () => {
     expect(usefulness!.phases[0]!.points).toEqual(['d2', 'd1']);
   });
 
+  // AECI-1316: the page labels vendor-written "How teams use it" from this field.
+  it('reads usefulness_source through: vendor when the vendor wrote it, null for AECi copy', async () => {
+    const block = { audiences: [], phases: [{ slug: 'design', name: 'Design', points: ['d1'] }] };
+    await seedProduct(u(1), 'cam', 'Cam', { usefulness: block, usefulnessSource: 'vendor' });
+    await seedProduct(u(2), 'dex', 'Dex', { usefulness: block });
+
+    const vendorBody = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/cam')).json(),
+    );
+    expect(vendorBody.usefulness_source).toBe('vendor');
+    const aeciBody = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/dex')).json(),
+    );
+    expect(aeciBody.usefulness_source).toBeNull();
+  });
+
   it('hydrates detail: taxonomy + both integration sides + approved reviews only', async () => {
     await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 5, ratingOverallAvg: 4.2 });
     await seedProduct(u(2), 'navisworks', 'Navisworks');

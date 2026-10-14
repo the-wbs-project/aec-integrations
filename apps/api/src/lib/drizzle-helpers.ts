@@ -814,6 +814,8 @@ export const productDetailConfig = {
     apiDocsUrl: true,
     hasApiDocs: true,
     usefulness: true,
+    // AECI-1316: the page labels vendor-written "How teams use it".
+    usefulnessSource: true,
     // Maintenance marker (AECI-616) — detail only; the marker never renders on a card.
     lastReviewedAt: true,
     maintainedBy: true,
@@ -1317,6 +1319,7 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   apiDocsUrl: string | null;
   hasApiDocs: boolean;
   usefulness: unknown;
+  usefulnessSource: 'vendor' | 'admin' | null;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
   productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
@@ -2579,6 +2582,7 @@ export function toProductDetail(
       .sort(compareTermsByDisplayOrder)
       .map(toTaxonomyLink),
     usefulness: toUsefulness(raw.usefulness),
+    usefulness_source: raw.usefulnessSource,
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
     // Endpoint buckets: TWO sources, unioned (AECI-713 / §13.1's delivered tier),

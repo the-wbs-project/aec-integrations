@@ -32,7 +32,8 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
 
   test('SSR-renders the trust-first story and the reused commitments band', async ({ request }) => {
     const html = await (await request.get('/about')).text();
-    expect(html).toContain('no pay-for-placement');
+    expect(html).toContain('No pay-for-placement');
+    expect(html).not.toContain('vendor marketing');
     expect(html).toContain('Why we exist');
     expect(html).toContain("How we're different");
     // The three commitments band (reused `<aec-home-trust-pillars>`).

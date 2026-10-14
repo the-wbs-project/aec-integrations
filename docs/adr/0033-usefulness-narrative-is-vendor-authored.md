@@ -29,3 +29,11 @@ Diverges from ADR 0032 in exactly one respect. Promote emits a `preserved[]` rec
 The review app's copy of `usefulness` is dead for any product a vendor has edited, and there is no control to hand it back. The catalogue has two writers for one column where it had one. A future admin editor needs no migration, since `usefulness_source` already accepts `admin`.
 
 Revisit if moderation becomes necessary, if the public page needs to attribute the section, or if a second content column wants the same treatment — at which point the per-column `*_source` pattern should probably become a general mechanism rather than a third copy.
+
+## Amendment 2026-10-14 (AECI-1316): the public page attributes the section
+
+The trigger "if the public page needs to attribute the section" fired. The home page said "no vendor marketing" while vendors wrote this section and product descriptions, with nothing on the page to say so.
+
+Two changes, decided by Chris on 2026-10-14. The home hero, the home meta description and `/about` no longer say "no vendor marketing". And `GET /api/products/:slug` now returns `usefulness_source`, so the product page says "Written by {vendor}" under the section heading when the value is `'vendor'`. AECi's own copy carries no label.
+
+The mechanism is unchanged. `usefulness_source` is still written only by a vendor save and still never cleared. Product descriptions have no provenance column, so they stay unlabelled; dropping the home claim is what keeps the copy true for them. STAGE_2_5_SPEC.md §12.1 carries the reversed bullet.
