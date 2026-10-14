@@ -156,6 +156,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'license.released': $localize`:@@admin.audit.action.licenseReleased:License released`,
   'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:License revoked`,
   'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:License term changed`,
+  // AECI-1356 cutover: the back-fill copied the entitlement's expiry-notice stamp onto
+  // the vendor's live licenses (`metadata.license_ids`).
+  'license.expiry_stamp_reconciled': $localize`:@@admin.audit.action.licenseExpiryStampReconciled:Plan-ending notice marked as sent on licenses`,
 
   // ── Moderation. Role-aware since AECI-524: the same endpoint writes
   //    `reviewer.*` or `vendor_admin.*` depending on the target's role. ──────

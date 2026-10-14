@@ -1948,6 +1948,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   disagrees with its entitlement is refused and listed. Rows with `period_end` NULL are
   listed for a date decision (ruling 2026-10-14). Proof it landed: the
   `license_mirror_drift` data-quality check reads 0 beside `entitlement_mirror_drift`.
+  Every run then copies the entitlement's `expiry_notice_sent_at` onto live licenses of
+  the same term that lack it, for every vendor (a NULL-only fill, with one
+  `license.expiry_stamp_reconciled` audit row per vendor stamped), so the
+  AECI-1356 sweep never re-warns a term the old sweep warned. Re-run it after the
+  E1.6/E1.7 deploy, before the next 11:00 UTC expiry run.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 

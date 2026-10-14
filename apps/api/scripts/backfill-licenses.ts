@@ -13,10 +13,13 @@
  *      entitlement row (active → live, expired/revoked → ended, pending → none), and
  *      one `billing_account.backfilled` audit row. See the core's header.
  *   4. Prints the report: counts, perpetual rows (no end date, need a date decision),
- *      zero-product vendors, and mirror drift (refused, not repaired).
+ *      zero-product vendors, mirror drift (refused, not repaired), and the live
+ *      licenses whose `expiry_notice_sent_at` lags the entitlement's on the same term.
  *   5. On `--apply`, runs each vendor's statements as ONE `wrangler d1 execute`, so a
- *      vendor's account, licenses and audit row land together. Then re-reads
- *      `verified` against EXISTS(live license) and fails on any drift it did not
+ *      vendor's account, licenses and audit row land together. Then runs the stamp
+ *      reconcile (AECI-1356): per vendor, one execute holding its
+ *      `license.expiry_stamp_reconciled` audit row and the UPDATE. Then re-reads
+ *      `verified` against EXISTS(live license), failing on any drift it did not
  *      already refuse.
  *
  * SAFETY:
@@ -26,11 +29,13 @@
  *     entitlement is refused and listed; the others are still written. The exit code
  *     is 1 when anything was refused, so the run reads as unfinished.
  *   - Idempotent: vendors already carrying a license are skipped, ids are UUIDv5, and
- *     every INSERT has a `WHERE NOT EXISTS` re-guard. A re-run writes nothing.
+ *     every INSERT has a `WHERE NOT EXISTS` re-guard. The stamp reconcile only fills a
+ *     NULL stamp. A re-run writes nothing.
  *
  * PROOF IT LANDED is the `license_mirror_drift` data-quality check (04:00 UTC) beside
  * `entitlement_mirror_drift`. Run this on EVERY deployed tier before the E1.6
- * switch-over.
+ * switch-over, and AGAIN after the E1.6/E1.7 deploy and before the next 11:00 UTC
+ * expiry run: the re-run copies any stamp the old sweep wrote in between.
  *
  * USAGE (from apps/api; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
  *   pnpm --filter @aeci/api ops:backfill-licenses -- --local
@@ -46,14 +51,19 @@ import {
   LICENSE_TABLES_SQL,
   buildLicenseDriftSql,
   buildOwnedProductsSql,
+  buildStampLagSql,
+  buildStampReconcileStatements,
   buildVendorStatements,
   buildVendorsSql,
   countBackfill,
   formatLicenseBackfillReport,
+  formatStampLagReport,
   planLicenseBackfill,
+  planStampReconcile,
   type BackfillVendorRow,
   type LicenseDriftRow,
   type OwnedProductRow,
+  type StampLagRow,
 } from '../src/lib/backfill-licenses';
 
 // ─── Args + target resolution (as backfill-entitlements.ts) ──────────────────
@@ -169,15 +179,22 @@ export async function main(argv: string[]): Promise<number> {
   const plan = await planLicenseBackfill(vendors, owned, { now });
   const counts = countBackfill(plan);
 
+  const stampLag = rowsOf(runD1<StampLagRow>(target, buildStampLagSql()));
+  const reconcile = await planStampReconcile(stampLag, { now });
+
   console.log(formatLicenseBackfillReport(plan));
   console.log('');
+  console.log(formatStampLagReport(reconcile));
+  console.log('');
 
-  if (counts.vendorsToWrite === 0) {
+  if (counts.vendorsToWrite === 0 && stampLag.length === 0) {
     console.log(`✓ Nothing to back-fill on ${target.db}.`);
     return counts.refused > 0 ? 1 : 0;
   }
   if (!apply) {
-    console.log(`Dry run: would write ${counts.vendorsToWrite} vendor(s). Re-run with --apply.`);
+    console.log(
+      `Dry run: would write ${counts.vendorsToWrite} vendor(s) and copy ${stampLag.length} stamp(s) for ${reconcile.length} vendor(s). Re-run with --apply.`,
+    );
     return counts.refused > 0 ? 1 : 0;
   }
 
@@ -185,6 +202,18 @@ export async function main(argv: string[]): Promise<number> {
     const stmts = buildVendorStatements(p, { now, operator });
     if (stmts.length > 0) runD1(target, stmts.join('\n'));
   }
+
+  // The stamp reconcile, one execute per vendor (its audit row, then the UPDATE). The
+  // inserts above carry their stamps, so the read before them is the full set.
+  for (const r of reconcile) {
+    runD1(target, buildStampReconcileStatements(r, { now, operator }).join('\n'));
+  }
+  const stampLeft = rowsOf(runD1<StampLagRow>(target, buildStampLagSql()));
+  if (stampLeft.length > 0) {
+    console.error(`✗ ${stampLeft.length} live license(s) still lag the entitlement's stamp.`);
+    return 1;
+  }
+  console.log(`✓ Copied ${stampLag.length} expiry-notice stamp(s); none left lagging.`);
 
   // Proof 1: a re-plan finds nothing left to write. (`meta.changes` is not a usable
   // count here: local D1 reports none for an INSERT … SELECT.)

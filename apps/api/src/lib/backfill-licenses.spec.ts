@@ -12,16 +12,22 @@ import {
   backfillIds,
   buildLicenseDriftSql,
   buildOwnedProductsSql,
+  buildStampLagSql,
+  buildStampReconcileStatements,
   buildVendorStatements,
   buildVendorsSql,
   countBackfill,
   entitlementDrift,
   formatLicenseBackfillReport,
+  formatStampLagReport,
+  LICENSE_EXPIRY_STAMP_RECONCILED_ACTION,
   planLicenseBackfill,
+  planStampReconcile,
   URL_NAMESPACE,
   uuidv5,
   type BackfillVendorRow,
   type OwnedProductRow,
+  type StampLagRow,
 } from './backfill-licenses';
 
 const NOW = '2026-10-14T12:00:00.000Z';
@@ -302,10 +308,110 @@ describe('buildVendorStatements', () => {
   });
 
   it('reads that are pure SELECTs', () => {
-    for (const sql of [buildVendorsSql(), buildOwnedProductsSql(), buildLicenseDriftSql()]) {
+    for (const sql of [
+      buildVendorsSql(),
+      buildOwnedProductsSql(),
+      buildLicenseDriftSql(),
+      buildStampLagSql(),
+    ]) {
       expect(sql.trimStart()).toMatch(/^SELECT/);
       expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
     }
+  });
+});
+
+const STAMP = '2026-12-02T11:00:00.000Z';
+const lagRow = (vendorId: string, licenseId: string): StampLagRow => ({
+  vendor_id: vendorId,
+  slug: `${vendorId}-co`,
+  company_name: `${vendorId} Co`,
+  license_id: licenseId,
+  ends_at: '2027-01-01T00:00:00.000Z',
+  stamp: STAMP,
+  ent_tier: 'verified',
+  ent_period_end: '2027-01-01',
+});
+
+describe('planStampReconcile (AECI-1356 cutover)', () => {
+  it('groups the lag read by vendor, license ids sorted, with a deterministic audit id', async () => {
+    const rows = [lagRow('v1', 'l2'), lagRow('v1', 'l1'), lagRow('v2', 'l3')];
+    const plan = await planStampReconcile(rows, { now: NOW });
+    expect(plan.map((r) => [r.vendorId, r.licenseIds])).toEqual([
+      ['v1', ['l1', 'l2']],
+      ['v2', ['l3']],
+    ]);
+    expect(plan[0]!.plan).toMatchObject({ tier: 'verified', status: 'active' });
+    const again = await planStampReconcile([...rows].reverse(), { now: NOW });
+    expect(again.find((r) => r.vendorId === 'v1')!.auditId).toBe(plan[0]!.auditId);
+    // A later stamp on the same licenses is a different event, so a different id.
+    const later = await planStampReconcile(
+      [{ ...lagRow('v1', 'l1'), stamp: '2027-12-02T11:00:00.000Z' }, lagRow('v1', 'l2')],
+      { now: NOW },
+    );
+    expect(later[0]!.auditId).not.toBe(plan[0]!.auditId);
+  });
+});
+
+describe('buildStampReconcileStatements (AECI-1356 cutover)', () => {
+  async function stmts() {
+    const [r] = await planStampReconcile([lagRow('v1', 'l1'), lagRow('v1', 'l2')], { now: NOW });
+    return buildStampReconcileStatements(r!, { now: NOW, operator: 'ops@example.com' });
+  }
+
+  it('writes the audit row BEFORE the UPDATE, so its guard still sees the unstamped rows', async () => {
+    const [audit, update] = await stmts();
+    expect(audit).toMatch(/^INSERT INTO "audit_log"/);
+    expect(audit).toContain(`'${LICENSE_EXPIRY_STAMP_RECONCILED_ACTION}', 'billing_account'`);
+    expect(audit).toContain("'system'");
+    expect(audit).toContain("'source', 'ops:backfill-licenses'");
+    expect(audit).toContain("'license_ids', json((SELECT json_group_array");
+    expect(update).toMatch(/^UPDATE "licenses"\nSET "expiry_notice_sent_at" = /);
+  });
+
+  it("guards the audit row on the UPDATE's own WHERE and on its id", async () => {
+    const [audit, update] = await stmts();
+    const where = update!.slice(
+      update!.indexOf('\nWHERE "licenses"."id" IN') + '\nWHERE '.length,
+      -1,
+    );
+    expect(audit).toContain(`AND EXISTS (SELECT 1 FROM "licenses" WHERE ${where});`);
+    expect(audit).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM "audit_log" WHERE "id" = '/);
+  });
+
+  it('the UPDATE names only the fence and updated_at, scoped to the listed licenses', async () => {
+    const [, update] = await stmts();
+    const set = update!.slice(update!.indexOf('SET'), update!.lastIndexOf('\nWHERE'));
+    const assigned = [...set.matchAll(/^\s*(?:SET )?"(\w+)" = /gm)].map((m) => m[1]);
+    expect(assigned).toEqual(['expiry_notice_sent_at', 'updated_at']);
+    expect(set).toContain(`"updated_at" = '${NOW}'`);
+    expect(update).toContain(`"licenses"."id" IN ('l1', 'l2')`);
+    for (const guard of [
+      '"licenses"."ended_at" IS NULL',
+      '"licenses"."ends_at" IS NOT NULL',
+      '"licenses"."expiry_notice_sent_at" IS NULL',
+      'e."status" = \'active\'',
+      `strftime('%Y-%m-%dT%H:%M:%fZ', e."period_end") = strftime('%Y-%m-%dT%H:%M:%fZ', "licenses"."ends_at")`,
+    ]) {
+      expect(update).toContain(guard);
+    }
+    expect(update).not.toMatch(/"verified"|"vendors"|\bINSERT\b|\bDELETE\b/);
+  });
+});
+
+describe('formatStampLagReport', () => {
+  it('lists each vendor with its license count, term and the stamp it would copy', async () => {
+    const out = formatStampLagReport(
+      await planStampReconcile([lagRow('v1', 'l1'), lagRow('v1', 'l2')], { now: NOW }),
+    );
+    expect(out).toContain('same term): 2');
+    expect(out).toContain('vendors / audit rows: 1');
+    expect(out).toContain(
+      `  > v1 Co (v1-co): 2 license(s), ends 2027-01-01T00:00:00.000Z, stamp ${STAMP}`,
+    );
+  });
+
+  it('says none when nothing lags', () => {
+    expect(formatStampLagReport([])).toContain('vendors / audit rows: 0\n  (none)');
   });
 });
 

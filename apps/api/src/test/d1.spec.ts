@@ -31,11 +31,16 @@ import { auditInsert, type BatchTuple } from '../lib/audit';
 import {
   BILLING_ACCOUNT_BACKFILLED_ACTION,
   buildOwnedProductsSql,
+  buildStampLagSql,
+  buildStampReconcileStatements,
+  LICENSE_EXPIRY_STAMP_RECONCILED_ACTION,
   buildVendorStatements,
   buildVendorsSql,
   planLicenseBackfill,
+  planStampReconcile,
   type BackfillVendorRow,
   type OwnedProductRow,
+  type StampLagRow,
 } from '../lib/backfill-licenses';
 import { checkEntitlementMirrorDrift, checkLicenseMirrorDrift } from '../lib/data-quality';
 import { productListConfig } from '../lib/drizzle-helpers';
@@ -1716,6 +1721,104 @@ describe('license back-fill (AECI-1354)', () => {
         t.raw.exec(buildVendorStatements(p, { now: NOW }).join('\n'));
       const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
       expect(after.n - before.n).toBe(0);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('copies the entitlement stamp onto an already-licensed vendor, same term only (AECI-1356)', async () => {
+    const t = await makeTestDb();
+    try {
+      fixture(t);
+      await run(t);
+      const account = (
+        await t.db.select().from(billingAccounts).where(eq(billingAccounts.vendorId, 'v-act'))
+      )[0]!.id;
+      // After the back-fill, the old sweep warns Active Co's term on the entitlement
+      // only (period_end is stored date-only), and the account gains three more
+      // licenses: one ended on the same term, one monthly, one on a different term.
+      const STAMP = '2026-12-02T11:00:00.000Z';
+      t.raw.exec(`
+        UPDATE vendor_entitlements SET expiry_notice_sent_at = '${STAMP}' WHERE id IN ('e-act', 'e-perp', 'e-rev');
+        INSERT INTO licenses (id, billing_account_id, source, starts_at, ends_at, ended_at, end_reason, created_at, updated_at) VALUES
+          ('l-ended',   '${account}', 'invoice',       '${NOW}', '2027-01-01T00:00:00.000Z', '${NOW}', 'lapsed', '${NOW}', '${NOW}'),
+          ('l-monthly', '${account}', 'complimentary', '${NOW}', NULL,                       NULL,     NULL,     '${NOW}', '${NOW}'),
+          ('l-other',   '${account}', 'invoice',       '${NOW}', '2028-01-01T00:00:00.000Z', NULL,     NULL,     '${NOW}', '${NOW}');
+      `);
+
+      // The re-run's plan skips every vendor as already licensed; the lag read still
+      // finds Active Co's two live licenses on the warned term.
+      const second = await run(t);
+      expect(second.changes).toBe(0);
+      expect(second.plan.vendors.find((v) => v.vendorId === 'v-act')?.outcome).toBe(
+        'already-licensed',
+      );
+      const lag = t.raw.prepare(buildStampLagSql()).all() as StampLagRow[];
+      expect(lag.map((r) => [r.slug, r.ends_at, r.stamp])).toEqual([
+        ['act-co', '2027-01-01T00:00:00.000Z', STAMP],
+        ['act-co', '2027-01-01T00:00:00.000Z', STAMP],
+      ]);
+      const stamped = new Set(lag.map((r) => r.license_id));
+
+      // The reconcile as the CLI runs it: one execute per vendor, audit row first.
+      const LATER = '2026-12-03T00:00:00.000Z';
+      const reconcile = async () => {
+        const rows = t.raw.prepare(buildStampLagSql()).all() as StampLagRow[];
+        const plan = await planStampReconcile(rows, { now: LATER });
+        const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+        for (const r of plan) {
+          const stmts = buildStampReconcileStatements(r, { now: LATER });
+          t.raw.transaction(() => t.raw.exec(stmts.join('\n')))();
+        }
+        const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+        return { plan, changes: after.n - before.n };
+      };
+      const auditCount = () =>
+        (t.raw.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n;
+      const auditsBefore = auditCount();
+
+      const first = await reconcile();
+      expect(first.plan.map((r) => r.vendorId)).toEqual(['v-act']);
+      // Two licenses stamped and one audit row.
+      expect(first.changes).toBe(3);
+      for (const l of await t.db.select().from(licenses)) {
+        if (stamped.has(l.id)) {
+          expect(l).toMatchObject({ expiryNoticeSentAt: STAMP, updatedAt: LATER });
+        } else {
+          // Ended, monthly, other-term, perpetual and revoked licenses keep NULL.
+          expect(l.expiryNoticeSentAt).toBeNull();
+        }
+      }
+      expect(auditCount()).toBe(auditsBefore + 1);
+      const [row] = await t.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, LICENSE_EXPIRY_STAMP_RECONCILED_ACTION));
+      expect(row).toMatchObject({
+        actorType: 'system',
+        entityType: 'billing_account',
+        entityId: account,
+        vendorId: 'v-act',
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'active',
+      });
+      expect(row!.metadata).toMatchObject({
+        source: 'ops:backfill-licenses',
+        license_ids: [...stamped].sort(),
+        expiry_notice_sent_at: STAMP,
+      });
+
+      // Idempotent: the lag read is empty, a re-run changes nothing and writes no audit
+      // row, and re-executing the first run's statements is a no-op too.
+      expect(t.raw.prepare(buildStampLagSql()).all()).toEqual([]);
+      expect((await reconcile()).changes).toBe(0);
+      const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+      for (const r of first.plan)
+        t.raw.exec(buildStampReconcileStatements(r, { now: LATER }).join('\n'));
+      const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
+      expect(after.n - before.n).toBe(0);
+      expect(auditCount()).toBe(auditsBefore + 1);
+      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
     } finally {
       t.dispose();
     }

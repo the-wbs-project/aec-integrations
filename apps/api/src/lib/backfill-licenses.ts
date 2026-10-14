@@ -39,6 +39,13 @@
  *      license written. `vendor_tier` / `vendor_entitlement_status` are the
  *      entitlement's `vendorPlanSnapshot`, the readers' truth until E1.6.
  *
+ * THEN, for EVERY vendor (already licensed or not), the stamp reconcile
+ * ({@link buildStampReconcileStatements}): per vendor, one UPDATE that copies the
+ * entitlement's `expiry_notice_sent_at` onto live licenses of the same term that lack
+ * it, and one `license.expiry_stamp_reconciled` audit row in the same execute. It
+ * covers the window between the back-fill and the AECI-1356 sweep deploy. Re-running
+ * the back-fill after that deploy is what closes the window.
+ *
  * WHAT IT NEVER DOES. It never writes `vendors.verified`, and so emits no mirror
  * reconcile. For a vendor whose mirror already agrees with its entitlement, the
  * mapping gives a live license exactly when `verified = 1`, so `license_mirror_drift`
@@ -73,6 +80,8 @@ export const BILLING_ACCOUNT_BACKFILLED_ACTION = 'billing_account.backfilled';
 
 export const BACKFILL_LICENSES_ISSUE = 'AECI-1354';
 export const BACKFILL_LICENSES_TOOL_PATH = 'apps/api/scripts/backfill-licenses.ts';
+/** `metadata.source` on the stamp-reconcile audit rows (ruling 2026-10-14). */
+export const BACKFILL_LICENSES_SOURCE = 'ops:backfill-licenses';
 
 // ─── UUIDv5 ──────────────────────────────────────────────────────────────────
 
@@ -204,6 +213,187 @@ export function buildLicenseDriftSql(): string {
     '  WHERE b."vendor_id" = v."id" AND l."ended_at" IS NULL)',
     'ORDER BY v."company_name" COLLATE NOCASE, v."id";',
   ].join('\n');
+}
+
+// ─── Expiry-notice stamp reconcile (AECI-1356 cutover) ──────────────────────
+
+/**
+ * SQLite's canonical form of a timestamp, equal to `Date.prototype.toISOString()`.
+ * `strftime` reads `YYYY-MM-DD`, a space or `T` separator, and a `Z` or `±HH:MM`
+ * suffix, and returns NULL for anything else, so an unreadable value never matches.
+ */
+const isoOf = (expr: string) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${expr})`;
+
+/**
+ * The live licenses whose fence lags their vendor's entitlement on the SAME term. Reads
+ * the outer `"licenses"` row; the entitlement is reached through the license's billing
+ * account. A license qualifies when it is live (`ended_at` NULL), has an end date, is
+ * unstamped, and its vendor's entitlement row is `active`, stamped, and ends on the
+ * license's `ends_at` (both normalised, so `2027-01-01` meets `2027-01-01T00:00:00.000Z`).
+ */
+const STAMP_LAG_FROM = [
+  '"vendor_entitlements" e JOIN "billing_accounts" b ON b."vendor_id" = e."vendor_id"',
+  'WHERE b."id" = "licenses"."billing_account_id"',
+  '  AND e."status" = \'active\'',
+  `  AND ${isoOf('e."expiry_notice_sent_at"')} IS NOT NULL`,
+  `  AND ${isoOf('e."period_end"')} = ${isoOf('"licenses"."ends_at"')}`,
+].join('\n');
+
+const STAMP_LAG_WHERE = [
+  '"licenses"."ended_at" IS NULL',
+  '  AND "licenses"."ends_at" IS NOT NULL',
+  '  AND "licenses"."expiry_notice_sent_at" IS NULL',
+  `  AND EXISTS (SELECT 1 FROM ${STAMP_LAG_FROM})`,
+].join('\n');
+
+/** One live license the stamp reconcile would stamp, with its vendor and term. */
+export interface StampLagRow {
+  vendor_id: string;
+  slug: string;
+  company_name: string;
+  license_id: string;
+  ends_at: string;
+  /** The entitlement's stamp, normalised: the value the reconcile copies. */
+  stamp: string;
+  /** The entitlement's tier and `period_end`, for the audit row's plan snapshot. */
+  ent_tier: string;
+  ent_period_end: string;
+}
+
+/**
+ * The read behind the reconcile: every license the reconcile would stamp, with the
+ * stamp it would copy. Run before (the dry-run count and the per-vendor plan) and
+ * after (the proof: 0 rows) the write.
+ */
+export function buildStampLagSql(): string {
+  return [
+    'SELECT v."id" AS "vendor_id", v."slug" AS "slug", v."company_name" AS "company_name",',
+    '  "licenses"."id" AS "license_id", "licenses"."ends_at" AS "ends_at",',
+    `  (SELECT ${isoOf('e."expiry_notice_sent_at"')} FROM ${STAMP_LAG_FROM}) AS "stamp",`,
+    '  (SELECT e."tier" FROM "vendor_entitlements" e WHERE e."vendor_id" = v."id") AS "ent_tier",',
+    '  (SELECT e."period_end" FROM "vendor_entitlements" e WHERE e."vendor_id" = v."id") AS "ent_period_end"',
+    'FROM "licenses"',
+    'JOIN "billing_accounts" ba ON ba."id" = "licenses"."billing_account_id"',
+    'JOIN "vendors" v ON v."id" = ba."vendor_id"',
+    `WHERE ${STAMP_LAG_WHERE}`,
+    'ORDER BY v."company_name" COLLATE NOCASE, v."id", "licenses"."id";',
+  ].join('\n');
+}
+
+/** The audit action, one row per vendor whose licenses the reconcile stamps.
+ *  Registered in `@aeci/shared/audit-vendor-actions`. */
+export const LICENSE_EXPIRY_STAMP_RECONCILED_ACTION = 'license.expiry_stamp_reconciled';
+
+/** One vendor's share of the reconcile. */
+export interface VendorStampReconcile {
+  vendorId: string;
+  slug: string;
+  name: string;
+  /** The licenses the read found lagging, in id order. The write is scoped to them. */
+  licenseIds: string[];
+  endsAt: string;
+  stamp: string;
+  auditId: string;
+  plan: VendorPlanSnapshot;
+}
+
+/**
+ * Group the lag read by vendor. The audit id is UUIDv5 over the vendor, the stamp and
+ * the license ids, so re-executing the same statements cannot write a second row, and
+ * a later stamp on a later term (a new stamp) gets its own id.
+ */
+export async function planStampReconcile(
+  rows: readonly StampLagRow[],
+  opts: { now: string },
+): Promise<VendorStampReconcile[]> {
+  const now = toIsoTimestamp(opts.now);
+  const by = new Map<string, StampLagRow[]>();
+  for (const r of rows) {
+    const list = by.get(r.vendor_id) ?? [];
+    list.push(r);
+    by.set(r.vendor_id, list);
+  }
+  const out: VendorStampReconcile[] = [];
+  for (const [vendorId, list] of by) {
+    const first = list[0]!;
+    const licenseIds = list.map((r) => r.license_id).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    out.push({
+      vendorId,
+      slug: first.slug,
+      name: first.company_name,
+      licenseIds,
+      endsAt: first.ends_at,
+      stamp: first.stamp,
+      auditId: await uuidv5(
+        `audit:${LICENSE_EXPIRY_STAMP_RECONCILED_ACTION}:${vendorId}:${first.stamp}:${licenseIds.join(',')}`,
+        BACKFILL_LICENSES_NAMESPACE,
+      ),
+      plan: vendorPlanSnapshot(
+        { tier: first.ent_tier, status: 'active', periodEnd: first.ent_period_end },
+        now,
+      ),
+    });
+  }
+  return out;
+}
+
+/**
+ * The reconcile for ONE vendor: its audit row, then the UPDATE, as one execute.
+ * Copies the entitlement's `expiry_notice_sent_at` onto the vendor's live licenses of
+ * the same term that lack it. Runs for EVERY vendor, including those the plan skips as
+ * already licensed.
+ *
+ * WHY. The plan copies the stamp only onto licenses it inserts. Between the back-fill
+ * and the deploy of the license-based sweep (AECI-1356) the old sweep stamps only
+ * `vendor_entitlements`, and E1.4's dual-write mints or re-terms licenses without the
+ * stamp. Without this, the new sweep's first run would send a second "your plan ends"
+ * notice for a term the old sweep already warned. Cutover order: back-fill, deploy
+ * E1.6/E1.7, re-run the back-fill before the next 11:00 UTC expiry run.
+ *
+ * THE AUDIT ROW (ruling 2026-10-14): one `license.expiry_stamp_reconciled` row per
+ * vendor, actor `system`, filed under the billing account. It is an INSERT … SELECT
+ * placed BEFORE the UPDATE and guarded on the UPDATE's own WHERE, so it lands exactly
+ * when the UPDATE will stamp something; after the UPDATE that WHERE matches nothing, so
+ * the guard could not run second. `metadata.license_ids` is computed by the same
+ * predicate inside the INSERT, so it names exactly the rows the UPDATE then stamps,
+ * even if one was stamped between the read and the write. The two statements share one
+ * execute and commit together. The deterministic id adds a second guard.
+ *
+ * The UPDATE names only `expiry_notice_sent_at` and `updated_at`, never `vendors`.
+ * Idempotent: the WHERE requires an unstamped license, so a re-run stamps 0 rows and
+ * writes no audit row.
+ */
+export function buildStampReconcileStatements(
+  r: VendorStampReconcile,
+  opts: { now: string; operator?: string | null },
+): string[] {
+  const now = lit(toIsoTimestamp(opts.now));
+  const scope = `"licenses"."id" IN (${r.licenseIds.map((id) => lit(id)).join(', ')})\n  AND ${STAMP_LAG_WHERE}`;
+  const metadata = [
+    'json_object(',
+    `  'source', ${lit(BACKFILL_LICENSES_SOURCE)},`,
+    `  'issue', ${lit(BACKFILL_LICENSES_ISSUE)},`,
+    `  'tool', ${lit(BACKFILL_LICENSES_TOOL_PATH)},`,
+    `  'operator', ${lit(opts.operator ?? null)},`,
+    `  'vendorId', ${lit(r.vendorId)},`,
+    `  'ends_at', ${lit(r.endsAt)},`,
+    `  'expiry_notice_sent_at', ${lit(r.stamp)},`,
+    `  'license_ids', json((SELECT json_group_array("id") FROM (SELECT "licenses"."id" AS "id" FROM "licenses" WHERE ${scope} ORDER BY "licenses"."id"))))`,
+  ].join('\n');
+  return [
+    [
+      'INSERT INTO "audit_log" ("id","actor_id","actor_type","action","entity_type","entity_id","before_state","after_state","metadata","vendor_id","product_id","vendor_tier","vendor_entitlement_status","created_at")',
+      `SELECT ${lit(r.auditId)}, NULL, 'system', ${lit(LICENSE_EXPIRY_STAMP_RECONCILED_ACTION)}, 'billing_account', ${accountOf(r.vendorId)}, NULL, NULL, ${metadata}, ${lit(r.vendorId)}, NULL, ${lit(r.plan.tier)}, ${lit(r.plan.status)}, ${now}`,
+      `WHERE NOT EXISTS (SELECT 1 FROM "audit_log" WHERE "id" = ${lit(r.auditId)})`,
+      `  AND EXISTS (SELECT 1 FROM "licenses" WHERE ${scope});`,
+    ].join('\n'),
+    [
+      'UPDATE "licenses"',
+      `SET "expiry_notice_sent_at" = (SELECT ${isoOf('e."expiry_notice_sent_at"')} FROM ${STAMP_LAG_FROM}),`,
+      `    "updated_at" = ${now}`,
+      `WHERE ${scope};`,
+    ].join('\n'),
+  ];
 }
 
 // ─── Plan ────────────────────────────────────────────────────────────────────
@@ -615,5 +805,22 @@ export function formatLicenseBackfillReport(plan: BackfillPlan): string {
     lines.push('  Fix the entitlement or the mirror through the admin panel, then re-run.');
   }
 
+  return lines.join('\n');
+}
+
+/** The stamp-reconcile section of the report: the licenses whose fence lags. */
+export function formatStampLagReport(reconcile: readonly VendorStampReconcile[]): string {
+  const total = reconcile.reduce((n, r) => n + r.licenseIds.length, 0);
+  const lines = [
+    `Expiry-notice stamps to copy from the entitlement (live licenses, same term): ${total}`,
+    `  vendors / audit rows: ${reconcile.length}`,
+  ];
+  for (const r of reconcile) {
+    lines.push(
+      `  > ${r.name} (${r.slug}): ${r.licenseIds.length} license(s), ends ${r.endsAt}, stamp ${r.stamp}`,
+    );
+  }
+  if (reconcile.length === 0) lines.push('  (none)');
+  lines.push('  Licenses this run inserts carry the stamp already and are not counted here.');
   return lines.join('\n');
 }
