@@ -79,7 +79,7 @@ Internal engineering with no date. That covers CI, developer experience, data ar
 
 **Exit criterion.** None. Platform is standing.
 
-**Parked: the Trust ladder.** The epic "Trust ladder (parked)" sits in Platform. It holds the unbuilt `STAGE_3_SPEC.md` §2.1 rungs and `evidence_tier`. No project schedules it. It is parked pending Chris's ruling: schedule it as its own project, or leave it parked.
+**Parked: the Trust ladder.** The epic AECI-1329 "Trust ladder (parked)" sits in Platform. It holds the unbuilt `STAGE_3_SPEC.md` §2.1 rungs and `evidence_tier`. No project schedules it. It is parked pending Chris's ruling: schedule it as its own project, or leave it parked.
 
 **Governing docs.** `docs/CICD_PLAN.md`, `docs/TESTING_STRATEGY.md`, `docs/ACCESSIBILITY_AUDIT.md`, `docs/STAGE_3_SPEC.md` §2.1, §2.4 and §2.5.
 
@@ -121,7 +121,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 
 | § | Open item | Project |
 |---|---|---|
-| §2 step 2 | Ranking change 2: `evidence_tier`, `limits`, `file-transfer`, integrations index ordering | Platform (Trust ladder epic, parked) |
+| §2 step 2 | Ranking change 2: `evidence_tier`, `limits`, `file-transfer`, integrations index ordering | Platform (AECI-1329, parked) |
 | §2 step 4 | Release the blocked home-page copy | SEO |
 | §2 fold-in | AECI-283 tuning loop and the `SEARCH_RANKING.md` §7 rewrite | SEO |
 | §2 fold-in | AECI-534 remove `has_api_docs` | SEO |
@@ -143,7 +143,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 
 | § | Open item | Project |
 |---|---|---|
-| §2.1 | Trust ladder: rung 2 AECi-verified, rung 3 dual-vendor, the demand-ordered queue, review trust, anti-gaming | Platform (Trust ladder epic, parked) |
+| §2.1 | Trust ladder: rung 2 AECi-verified, rung 3 dual-vendor, the demand-ordered queue, review trust, anti-gaming | Platform (AECI-1329, parked) |
 | §2.2 | pSEO: AECI-340 to AECI-344 | SEO |
 | §2.2 | AECI-560 sitemap split, gated on 50,000 URLs | SEO |
 | §2.3 | Stack-aware discovery. §5(3) is undecided | None. Unscheduled |
