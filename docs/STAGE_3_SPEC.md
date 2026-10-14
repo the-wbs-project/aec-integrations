@@ -1,5 +1,11 @@
 # AEC Integrations — Stage 3 Specification (Scope Outline)
 
+> **Retired as a stage (2026-10-14).** Stage 3 will not run as a stage. Its open work moved to the Pilot, SEO, Insights, Enhanced and Platform projects. The Trust ladder (§2.1) is a parked epic in Platform, pending a ruling. `docs/ROADMAP.md` §4.2 maps each open section to its project.
+>
+> **Section numbers are frozen.** Open issues anchor to them, and `spec-anchor` resolves by path. No section is renumbered or moved.
+>
+> **Live contracts.** Most of this outline is unbuilt. §2.1, §2.2, §2.4, §2.5 and §2.6 govern their open issues. §4 is reference for Enhanced and Insights. §5 stays the record of open decisions. The preconditions below no longer gate anything. The body below is unchanged.
+
 **Version:** 0.1 — **scope outline, not a build contract**
 **Date:** August 2026
 **Status:** Kickoff draft (2026-08-24 planning session). This is the Stage 3 equivalent of `STAGE_2_SPEC.md` at its v0.1 — the pillars, the backlog triage, and the open decisions. It is **not** decomposed into buildable issues; each pillar grows its own companion spec before build (as every Stage 2 pillar did).

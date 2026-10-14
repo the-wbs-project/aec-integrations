@@ -194,16 +194,22 @@ Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 
 ## 5. Exit criteria — the vendor go-live gate
 
 - [ ] Dress rehearsal (§3.1) passes end-to-end on staging **and** dark production with zero manual DB intervention.
+  - *Handed to Pilot 2026-10-13. No run is logged in `STAGE_2_1_REHEARSAL.md`. AECI-1157 owns the warning and expiry steps. No issue owns a full sitting.*
 - [x] AECI-623 merged. PR #808, 2026-09-23.
 - [ ] AECI-633 logged green. Todo on 2026-09-24.
+  - *Handed to Pilot 2026-10-13, no issue yet. AECI-633 is not open in Linear, and no green run is logged.*
 - [x] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053. PR #807 and PR #809, both merged 2026-09-23.
 - [x] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (unblocked 2026-09-23 when the AECI-1064 ruling landed). **Status 2026-09-24:** all five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 ran in production on 2026-09-24, and its overlap check reads 0 powered duplicates in every catalogue.
 - [x] Vendor guides (§3.5) built and live at v0, noindex. AECI-1104, PR #811, merged 2026-09-23.
 - [x] Vendor guides indexed, in the sitemap and linked from the footer and portal. This is the literal "published". *(All of it 2026-10-12, AECI-1253, ahead of AECI-1105 by Chris's ruling. The portal links are listed in `STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 1.)*
 - [ ] Refinement backlog (§3.2) empty, or each remainder explicitly deferred with a recorded reason.
+  - *Handed to Pilot 2026-10-13. The remainder is the portal audit findings AECI-1312 to AECI-1322. AECI-1320 went to Managed.*
 - [ ] First pilot vendor(s) invited, claimed, granted, and attesting successfully — then the parked queue is processed and claim approval becomes routine operation.
+  - *Handed to Pilot 2026-10-13. AECI-1105 owns it, narrowed to emptying the parked claim queue.*
 
 When these are green, vendors are live — and Stage 2.5 opens.
+
+**Closed as a stage 2026-10-13.** The open boxes above are not ticked. Each names the Pilot owner that holds it now. Stage 2.5 does not open: it was retired as a stage on 2026-10-14. `docs/ROADMAP.md` is the index of the projects that replaced the stages.
 
 ---
 

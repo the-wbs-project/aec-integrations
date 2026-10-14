@@ -33,6 +33,8 @@
 | 8 | Pre-claim history | **Shown**, labelled as the organic baseline recorded before the vendor claimed. |
 | 9 | Design fidelity | **Wireframes before any build**, produced with Mobbin under the Anchor-Site Rule. The wireframe issue blocks the page issue. |
 
+> **Amended 2026-10-13, decision 2.** Ruled 2026-10-13: performance reporting is the Insights plan, a rung above Managed. The public pages no longer promise it to Managed (#960). `analytics.view` leaves `verified` when the rung is built; see docs/ROADMAP.md. Decision 1 is also stale: Stage 2.5 was retired as a stage on 2026-10-14, and the three epics sit in the Insights project.
+
 Defaults taken without objection: report days are **UTC**, labelled on the page; nav label **Performance**; route `/vendor/:vendorSlug/performance`.
 
 ### 1.2 Issue map & build order
