@@ -1174,7 +1174,7 @@ design. Where each signal lives now:
   undercounted; a HIT never reaches `Renderer` (only the gateway runs), so it is deliberately **not** reconstructed from
   HITs. Do not add HIT-counting to the Worker.
 - **`noindex` on HIT** → the crawler-indexing header is baked into the cached payload on the MISS
-  render (`docs/CACHE_STRATEGY.md` §7.1), so every HIT serves it without the Worker running.
+  render (`docs/CACHE_STRATEGY.md` §7.1), so every HIT serves it without `Renderer` running.
 
 ## Dashboards
 
