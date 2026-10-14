@@ -1585,7 +1585,8 @@ export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
  * No `relations()` entry (the `STAGE_2_PAID_TIERS_SPEC.md` §2.5 rule, see the note under
  * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.
  * Domain state: every write carries its `audit_log` row (`entity_type =
- * 'billing_account'`) in the same `db.batch`. Nothing reads or writes it yet.
+ * 'billing_account'`) in the same `db.batch`. Written by `lib/billing-account.ts`
+ * (AECI-1351) in the owner-seat grant batch. No UI reads it yet.
  */
 export const billingAccounts = sqliteTable(
   'billing_accounts',

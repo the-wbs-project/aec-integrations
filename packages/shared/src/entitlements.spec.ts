@@ -20,6 +20,9 @@ import {
   capabilitiesFor,
   hasCapability,
   vendorPlanSnapshot,
+  licensePlanSnapshot,
+  LICENSE_ENDINGS,
+  LICENSE_REVOKED_REASON,
   isEntitlementTier,
   tierFor,
   type Capability,
@@ -862,5 +865,118 @@ describe('vendorPlanSnapshot', () => {
     it('does not change tierFor: the lapsed-but-active row still authorizes', () => {
       expect(tierFor({ tier: 'verified', status: 'active' })).toBe('verified');
     });
+  });
+});
+
+// AECI-1352: the same audit columns, read off license rows.
+describe('licensePlanSnapshot', () => {
+  const NOW = '2026-10-14T12:00:00.000Z';
+  const FUTURE = '2027-10-14T00:00:00.000Z';
+  const PAST = '2026-10-01T00:00:00.000Z';
+  const live = (endsAt: string | null) => ({ endsAt, endedAt: null, cancelReason: null });
+  const ended = (endedAt: string, cancelReason: string | null = null) => ({
+    endsAt: PAST,
+    endedAt,
+    cancelReason,
+  });
+
+  it('records none on both axes for no license, never null', () => {
+    expect(licensePlanSnapshot([], NOW)).toEqual({ tier: 'none', status: 'none' });
+    expect(licensePlanSnapshot(null, NOW)).toEqual({ tier: 'none', status: 'none' });
+    expect(licensePlanSnapshot(undefined, NOW)).toEqual({ tier: 'none', status: 'none' });
+  });
+
+  it('any live license records verified / active, whatever else ended', () => {
+    expect(licensePlanSnapshot([live(FUTURE)], NOW)).toEqual({
+      tier: 'verified',
+      status: 'active',
+    });
+    expect(licensePlanSnapshot([ended(PAST, LICENSE_REVOKED_REASON), live(FUTURE)], NOW)).toEqual({
+      tier: 'verified',
+      status: 'active',
+    });
+  });
+
+  it('a monthly license (ends_at null) never lapses on the clock', () => {
+    expect(licensePlanSnapshot([live(null)], NOW).status).toBe('active');
+  });
+
+  it('live licenses all past their term record expired (the 2026-10-05 clock rule)', () => {
+    expect(licensePlanSnapshot([live(PAST)], NOW)).toEqual({
+      tier: 'verified',
+      status: 'expired',
+    });
+    expect(licensePlanSnapshot([live(NOW)], NOW).status).toBe('expired');
+    // One live license still in term keeps the plan active.
+    expect(licensePlanSnapshot([live(PAST), live(FUTURE)], NOW).status).toBe('active');
+  });
+
+  it('compares a date-only ends_at by instant, as UTC midnight', () => {
+    expect(licensePlanSnapshot([live('2026-10-15')], NOW).status).toBe('active');
+    expect(licensePlanSnapshot([live('2026-10-14')], NOW).status).toBe('expired');
+  });
+
+  it('an unparseable ends_at keeps the license live', () => {
+    expect(licensePlanSnapshot([live('soon')], NOW).status).toBe('active');
+  });
+
+  it('accepts a Date for now', () => {
+    expect(licensePlanSnapshot([live(PAST)], new Date(NOW)).status).toBe('expired');
+  });
+
+  it('all ended: the latest ended license decides expired or revoked', () => {
+    expect(licensePlanSnapshot([ended(PAST)], NOW)).toEqual({
+      tier: 'verified',
+      status: 'expired',
+    });
+    expect(licensePlanSnapshot([ended(PAST, LICENSE_REVOKED_REASON)], NOW)).toEqual({
+      tier: 'verified',
+      status: 'revoked',
+    });
+    // An older revoke under a newer lapse reads expired, and the reverse reads revoked.
+    expect(
+      licensePlanSnapshot(
+        [ended('2026-01-01T00:00:00.000Z', LICENSE_REVOKED_REASON), ended(PAST)],
+        NOW,
+      ).status,
+    ).toBe('expired');
+    expect(
+      licensePlanSnapshot(
+        [ended('2026-01-01T00:00:00.000Z'), ended(PAST, LICENSE_REVOKED_REASON)],
+        NOW,
+      ).status,
+    ).toBe('revoked');
+  });
+
+  it('a cancel reason other than the revoke marker reads expired', () => {
+    expect(licensePlanSnapshot([ended(PAST, 'ban')], NOW).status).toBe('expired');
+  });
+
+  it('every status it produces is in the §2.2 vocabulary, and pending is never one', () => {
+    const produced = [
+      licensePlanSnapshot([live(FUTURE)], NOW),
+      licensePlanSnapshot([live(PAST)], NOW),
+      licensePlanSnapshot([ended(PAST)], NOW),
+      licensePlanSnapshot([ended(PAST, LICENSE_REVOKED_REASON)], NOW),
+    ].map((s) => s.status);
+    for (const status of produced) {
+      expect(ENTITLEMENT_STATUSES as readonly string[]).toContain(status);
+      expect(status).not.toBe('pending');
+    }
+  });
+
+  it('matches vendorPlanSnapshot for the equivalent entitlement row', () => {
+    expect(licensePlanSnapshot([live(FUTURE)], NOW)).toEqual(
+      vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: FUTURE }, NOW),
+    );
+    expect(licensePlanSnapshot([live(PAST)], NOW)).toEqual(
+      vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: PAST }, NOW),
+    );
+    expect(licensePlanSnapshot([], NOW)).toEqual(vendorPlanSnapshot(null, NOW));
+  });
+
+  it('names the three endings, and only revoked is stored', () => {
+    expect(LICENSE_ENDINGS).toEqual(['lapsed', 'released', 'revoked']);
+    expect(LICENSE_REVOKED_REASON).toBe('revoked');
   });
 });

@@ -218,7 +218,7 @@ create table vendors (
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Operational
-  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
+  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, plus apps/api/src/lib/license.ts during the license transition (AECI-1352, §8.6c: reconciled to EXISTS(live license)), enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -1563,7 +1563,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   records `none` on both, never NULL. NULL means "not snapshotted". A vendor write reads the plan
   from the session at no extra D1 cost. An admin write reads `loadEntitlement` in the handler. An
   admin row about an entitlement change records the plan **before** the change; `after_state` holds
-  the new one. A `notification.sent` row carries no plan.
+  the new one. A `notification.sent` row carries no plan. License rows (AECI-1352) fill the same
+  two columns from `licensePlanSnapshot`, which reads license rows instead of the entitlement
+  row (§8.6c). The column names stay, to avoid an `audit_log` recreate.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
@@ -1769,10 +1771,10 @@ create table vendor_plan_pricing (
 ### 8.6b `billing_accounts` (AECI-1350, migration 0073)
 
 The account Managed licenses are sold on: one bill, one term, one Stripe customer
-(`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. The
-claim-approval seat grant will create it, and a back-fill will create one for every vendor
-with a seat or an entitlement row. Teams may add rows later, so one-per-vendor is a unique
-index, not the primary key. Nothing reads or writes the table yet.
+(`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
+may add rows later, so one-per-vendor is a unique index, not the primary key. A back-fill
+will create one for every vendor with a seat or an entitlement row. No UI reads it yet
+(decision 18).
 
 ```sql
 create table billing_accounts (
@@ -1791,8 +1793,20 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   where stripe_customer_id is not null;
 ```
 
+- **Creation point (AECI-1351).** `ensureBillingAccountStatements` in
+  `apps/api/src/lib/billing-account.ts` adds the row to the batch that seats an owner: the
+  claim approval (`PATCH /api/admin/claims/:id`, Free and Managed alike) and the admin
+  provision (`POST /api/admin/vendors/:id/seats`). The caller preloads the account with
+  `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
+  so a second seat writes nothing here. `name` is the vendor's `company_name`;
+  `billing_email` stays NULL; `created_by` is the approving admin. No statement names
+  `vendors`, so `vendors.updated_at` never moves for it. Two first approvals racing on one
+  vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
+  batch, seat included, rolls back.
 - **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
-  which is decision 10's owner flag. Invite-accepted seats stay non-owner.
+  which is decision 10's owner flag. `ownerSeatsOf(vendorId)` in
+  `apps/api/src/routes/vendor-shared.ts` is the predicate. Claim-granted and
+  admin-provisioned seats are owners; invite-accepted seats stay non-owner.
 - **Vendor retraction refuses.** `VENDOR_FK_HANDLING` in `apps/api/src/lib/retract-vendor.ts`
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
@@ -1800,16 +1814,19 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 - **No FK on `created_by`.** The erasure batch (`AUTH_AND_RLS.md` §8) has nothing new to null.
 - **No `relations()` entry** (the §8.6 rule). `drizzle-helpers.read-path.spec.ts` keeps both
   tables off the catalog read paths.
-- **Domain state.** Every write will carry its `audit_log` row in the same `db.batch`, with
+- **Domain state.** Every write carries its `audit_log` row in the same `db.batch`, with
   `entity_type = 'billing_account'`, `entity_id` = the account id, and `audit_log.vendor_id`
-  filled. License changes file under the account too (§8.6c).
+  filled. Creation is `billing_account.created` (registered in
+  `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). License changes file
+  under the account too (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 
 One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
 and 18). Licenses carry their own dates. There is no subscription table: a Stripe
-subscription of quantity N is N rows sharing `stripe_subscription_id`. Nothing reads or
-writes the table yet; E1's later issues move plan resolution onto it.
+subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
+`apps/api/src/lib/license.ts` (AECI-1352). No route calls it yet; E1's later issues move
+plan resolution onto the table.
 
 ```sql
 create table licenses (
@@ -1860,8 +1877,34 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to `fk-action`:
   the `ON DELETE SET NULL` NULLs it and the license survives on its account. The retraction
   plan never names the table.
+- **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
+  `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
+  NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`,
+  `setCancelAtTermEndStatements` and `endLicensesStatements`. E4, E5, E6 and E9 call them
+  and add no second writer. Each takes the caller's pre-read (`loadVendorLicenses`) and
+  `now`. A no-op returns one frozen empty batch. Every date is stored as
+  `toISOString()`, so a date-only input lands as `…T00:00:00.000Z`.
+- **How a license ended.** There is no status column. `endLicensesStatements` takes an
+  ending (`LICENSE_ENDINGS` in `@aeci/shared/entitlements`: `lapsed`, `released`,
+  `revoked`) that picks the audit action. Only `revoked` is stored: it writes
+  `cancel_reason = 'revoked'`. The other endings leave `cancel_reason` as it was.
+- **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
+  statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
+  any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
+  EXISTS(...)`. It is the module's only `vendors` statement. It is idempotent and
+  order-free, so two concurrent license batches leave `verified` correct whichever commits
+  first (`d1.spec.ts`). `updated_at` moves only when `verified` moves. The builder's
+  `verifiedFlipped` is a prediction from the pre-read; the SQL is the truth. Guard 1
+  (`MIRROR_WRITE_EXEMPT` in `eslint.config.base.mjs`) exempts this file and
+  `lib/vendor-entitlement.ts` until E1.9 retires the latter.
 - **Audit.** Rows file under the account: `entity_type = 'billing_account'`, `entity_id` =
-  the account id, `metadata.license_id`, `audit_log.vendor_id` and `product_id` filled.
+  the account id, `metadata.license_id`, `audit_log.vendor_id` and `product_id` filled. One
+  row per license written, in the same batch. Actions are `license.*` (`LICENSE_ACTION`,
+  registered in `packages/shared/src/audit-vendor-actions.ts`, not vendor receipts yet).
+  `vendor_tier` and `vendor_entitlement_status` record the plan before the write, from
+  `licensePlanSnapshot`: any live license is `verified` / `active` (`expired` once every
+  live license is past its `ends_at`), else the latest ended license is `revoked` or
+  `expired`, and no license is `none` / `none`.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
@@ -4443,7 +4486,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): no reader or writer yet (AECI-1350). No catalog read path may query them (`drizzle-helpers.read-path.spec.ts`)
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): `billing_accounts` is written only by the admin seat grants (`requireAdmin()`, AECI-1351); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

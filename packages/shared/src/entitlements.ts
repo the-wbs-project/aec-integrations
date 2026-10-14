@@ -360,6 +360,89 @@ export function vendorPlanSnapshot(
   return { tier: row.tier, status };
 }
 
+/**
+ * How a license ended (AECI-1352). `endLicensesStatements` in `apps/api/src/lib/license.ts`
+ * takes one, so E4.2 (revoke), E4.4 (release) and E6 (lapse) share one builder.
+ *
+ *  - `lapsed`   — the term ran out (E6's daily job), or Stripe cancelled the subscription
+ *  - `released` — AECi ended a license the vendor no longer wants (a reduction)
+ *  - `revoked`  — AECi pulled it for cause (abuse, misrepresentation)
+ *
+ * Only `revoked` is STORED on the row: `licenses` has no status column, so the end
+ * builder writes `cancel_reason = 'revoked'` (`LICENSE_REVOKED_REASON`) and leaves
+ * `cancel_reason` alone otherwise. That is what lets {@link licensePlanSnapshot} tell
+ * a revoked plan from an expired one. The other two endings live in the audit action.
+ */
+export const LICENSE_ENDINGS = ['lapsed', 'released', 'revoked'] as const;
+
+/** One license ending. */
+export type LicenseEnding = (typeof LICENSE_ENDINGS)[number];
+
+/** The `licenses.cancel_reason` a revoke stamps. See {@link LICENSE_ENDINGS}. */
+export const LICENSE_REVOKED_REASON = 'revoked';
+
+/**
+ * The raw tier a license snapshot records. Licenses carry no tier: every live license
+ * grants the one paid rung, which `vendor_entitlements.tier` called `verified`. Kept
+ * as that word so audit rows before and after the switch-over read alike.
+ */
+const LICENSE_SNAPSHOT_TIER = 'verified';
+
+/** The license columns {@link licensePlanSnapshot} reads. Structural, so a Drizzle row or a
+ *  narrower projection both pass. */
+export interface LicensePlanRow {
+  endsAt: string | null;
+  endedAt: string | null;
+  cancelReason?: string | null;
+}
+
+/**
+ * Snapshot a vendor's licenses (every license on every billing account it holds) for
+ * an audit row (AECI-1352). Same shape and columns as {@link vendorPlanSnapshot}:
+ * `audit_log.vendor_tier` and `audit_log.vendor_entitlement_status` (`DATABASE_SCHEMA.md`
+ * §8.4). Those column names stay, to avoid an `audit_log` recreate.
+ *
+ *  - no license at all → `none` / `none` (the Free plan);
+ *  - any LIVE license (`ended_at` null) → `verified` / `active`, unless every live
+ *    license's scheduled `ends_at` is at or before `now`, which records `expired`.
+ *    That is the 2026-10-05 clock ruling carried over: E6's job turns `ends_at` into
+ *    `ended_at`, and until it runs a write after the term must not read as a live plan;
+ *  - every license ended → the most recently ended one decides: `revoked` when its
+ *    `cancel_reason` is {@link LICENSE_REVOKED_REASON}, else `expired`.
+ *
+ * Record rule only, like `vendorPlanSnapshot`: authorization reads stored state.
+ * Dates are compared by parsed instant, so date-only and full ISO spellings cannot
+ * mis-order. A null `ends_at` is monthly and never lapses on the clock; an
+ * unparseable one keeps the license live. `pending` is never produced: a license has
+ * no pending state.
+ */
+export function licensePlanSnapshot(
+  licenses: readonly LicensePlanRow[] | null | undefined,
+  now: Date | string,
+): VendorPlanSnapshot {
+  if (!licenses || licenses.length === 0) return { tier: NO_PLAN, status: NO_PLAN };
+
+  const live = licenses.filter((l) => l.endedAt === null);
+  if (live.length > 0) {
+    const allPastTerm = live.every((l) => termHasEnded(l.endsAt, now));
+    return { tier: LICENSE_SNAPSHOT_TIER, status: allPastTerm ? 'expired' : 'active' };
+  }
+
+  let latest: LicensePlanRow | null = null;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const license of licenses) {
+    const ms = Date.parse(license.endedAt ?? '');
+    // An unparseable stamp sorts first, so a readable one always wins.
+    const key = Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+    if (latest === null || key > latestMs) {
+      latest = license;
+      latestMs = key;
+    }
+  }
+  const revoked = latest?.cancelReason === LICENSE_REVOKED_REASON;
+  return { tier: LICENSE_SNAPSHOT_TIER, status: revoked ? 'revoked' : 'expired' };
+}
+
 /** Whether `periodEnd` is at or before `now`. Null or unparseable on either side
  *  is "not ended": the snapshot then falls back to the stored status. */
 function termHasEnded(periodEnd: string | null, now: Date | string): boolean {

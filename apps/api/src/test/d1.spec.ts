@@ -26,8 +26,14 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { auditInsert } from '../lib/audit';
+import { auditInsert, type BatchTuple } from '../lib/audit';
 import { productListConfig } from '../lib/drizzle-helpers';
+import {
+  endLicensesStatements,
+  grantLicensesStatements,
+  loadVendorLicenses,
+  type LicenseBatch,
+} from '../lib/license';
 import { makeTestDb, type TestDb } from './d1';
 
 describe('in-memory D1 harness (AECI-253)', () => {
@@ -1281,6 +1287,117 @@ describe('billing accounts and licenses (AECI-1350)', () => {
     try {
       await seed(t);
       await expect(t.db.delete(vendors).where(eq(vendors.id, 'v1'))).rejects.toThrow();
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+// AECI-1352: the reconcile is order-free. Two batches built from ONE pre-read (the
+// concurrent case: two admins, or a webhook beside the daily job) and committed in
+// either order leave `vendors.verified` equal to EXISTS(live license). The builders'
+// `verifiedFlipped` predictions can be wrong here; the SQL must not be.
+describe('license mirror reconcile under concurrent batches (AECI-1352)', () => {
+  const NOW = '2026-10-14T12:00:00.000Z';
+
+  async function seed(t: TestDb, liveIds: string[]): Promise<void> {
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(billingAccounts).values({ id: 'ba1', vendorId: 'v1', name: 'Acme' });
+    for (const id of liveIds) {
+      await t.db.insert(licenses).values({
+        id,
+        billingAccountId: 'ba1',
+        source: 'complimentary',
+        startsAt: '2026-10-01T00:00:00.000Z',
+      });
+    }
+    await t.db
+      .update(vendors)
+      .set({ verified: liveIds.length > 0 })
+      .where(eq(vendors.id, 'v1'));
+  }
+
+  async function context(t: TestDb) {
+    const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
+    return {
+      vendorId: 'v1',
+      now: NOW,
+      actorId: null,
+      actorType: 'system' as const,
+      vendorLicenses: await loadVendorLicenses(t.db, 'v1'),
+      vendorWasVerified: vendor!.verified,
+    };
+  }
+
+  async function mirrorMatchesTruth(t: TestDb): Promise<boolean> {
+    const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
+    const live = (await t.db.select().from(licenses)).some((l) => l.endedAt === null);
+    return vendor!.verified === live;
+  }
+
+  const apply = (t: TestDb, batch: LicenseBatch) => t.db.batch(batch.stmts as BatchTuple);
+
+  it.each([
+    ['end first', false],
+    ['grant first', true],
+  ])('a grant and an end of the last live license, %s', async (_label, grantFirst) => {
+    const t = await makeTestDb();
+    try {
+      await seed(t, ['l1']);
+      const ctx = await context(t);
+      const end = endLicensesStatements(t.db, {
+        ...ctx,
+        target: { licenseIds: ['l1'] },
+        ending: 'lapsed',
+      });
+      const grant = grantLicensesStatements(t.db, {
+        ...ctx,
+        billingAccountId: 'ba1',
+        count: 1,
+        source: 'complimentary',
+        endsAt: '2027-10-14',
+      });
+      // From the shared pre-read, the end predicts a flip and the grant none.
+      expect(end.verifiedFlipped).toBe(true);
+      expect(grant.verifiedFlipped).toBe(false);
+
+      for (const batch of grantFirst ? [grant, end] : [end, grant]) {
+        await apply(t, batch);
+        expect(await mirrorMatchesTruth(t)).toBe(true);
+      }
+      const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
+      expect(vendor!.verified).toBe(true);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('two ends of the two live licenses, each predicting no flip, clear the mirror', async () => {
+    const t = await makeTestDb();
+    try {
+      await seed(t, ['l1', 'l2']);
+      const ctx = await context(t);
+      const endOne = endLicensesStatements(t.db, {
+        ...ctx,
+        target: { licenseIds: ['l1'] },
+        ending: 'lapsed',
+      });
+      const endTwo = endLicensesStatements(t.db, {
+        ...ctx,
+        target: { licenseIds: ['l2'] },
+        ending: 'released',
+      });
+      // Each sees the other license still live, so neither predicts the flip.
+      expect(endOne.verifiedFlipped).toBe(false);
+      expect(endTwo.verifiedFlipped).toBe(false);
+
+      await apply(t, endOne);
+      expect(await mirrorMatchesTruth(t)).toBe(true);
+      await apply(t, endTwo);
+      expect(await mirrorMatchesTruth(t)).toBe(true);
+      const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
+      expect(vendor!.verified).toBe(false);
+      expect(vendor!.updatedAt).toBe(NOW);
     } finally {
       t.dispose();
     }
