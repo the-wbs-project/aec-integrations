@@ -66,7 +66,7 @@ shipped.
 > - **Cloudflare account (AECI-1161, [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)).** Every environment deploys to The WBS Project account from the 2026-10-04 cutover. The config PR that changes `account_id` in the wrangler files merges only after the cutover. Staging deploys from `main` on every merge, and its custom domain cannot bind on the WBS account until the zone has moved, so an early merge would break the staging deploy. Runbook: `scripts/ops/2026-09-wbs-account-move/README.md`.
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
 > - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with an optional `commit_sha` input; blank promotes whatever staging runs (AECI-879 dropped the typed `confirm=PROMOTE` box; the dispatch is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres). It is gated on Lighthouse: the SHA needs a `lighthouse: success` commit status, or the promote measures it first (§11c).
-> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with an optional `commit_sha` input (blank promotes whatever demo runs) and a required `confirm` input that must equal `PROMOTE`. AECI-879 dropped that box when the pasted SHA was the confirmation; it returned when the SHA became optional, because the `production` environment has no required reviewer (AECI-1239). It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
+> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with an optional `commit_sha` input (blank promotes whatever demo runs). The human step is Chris's approval on the `production` GH Environment, whose required reviewer is Chris (AECI-1239). There is no typed confirm input. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews are retired (AECI-1268, 2026-10-10).** `pr-preview.yml` is deleted. Human review and Algolia use staging. See §2.1.
 
 Three permanent deployed environments, all on Cloudflare, plus local:
@@ -128,7 +128,7 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 The real site. **Launched** — the AECI-247/277 apex cutover is done, so production serves the public apex `aecintegrations.com` and `www.aecintegrations.com` (the bare apex 301s to `www.`, which is canonical per ADR 0011 as amended 2026-07-05), and nothing else since **AECI-807** retired the internal `prod.aecintegrations.com`. Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
-- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`). Not active: the `production` environment has no required reviewer (AECI-1239), so the typed `confirm=PROMOTE` input is the human step today.
+- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`). Active since AECI-1239 (2026-10-14); before that the environment had no reviewer and promotes ran unattended.
 - Own D1 (`aeci-app-production`); shares the single Supabase auth project (ADR 0017)
 - Production Algolia indexes (`production_*`)
 - PostHog under the production project `aec-integrations` (354071), with deployment markers — the live alerting plane (ADR 0024; the Datadog plane was retired at AECI-651)
@@ -392,15 +392,16 @@ The former independent `migrate-preview` job (AECI-828) was deleted on 2026-10-1
 
 Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered by Chris (workflow_dispatch with an optional `commit_sha` input and `confirm=PROMOTE`). The `deploy-prod-workers` job targets the `production` GH Environment, which has no required reviewer today (AECI-1239). Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
+Triggered by Chris (workflow_dispatch with an optional `commit_sha` input). The `deploy-prod-workers` job targets the `production` GH Environment, which waits for Chris's approval (AECI-1239). Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
 
 **Job: `pre-promotion-checks`**
-1. Validate `confirm` equals `PROMOTE`, then pick the commit with `scripts/resolve-promote-sha.sh`: blank `commit_sha` → the SHA both demo Workers report (refused if they disagree); otherwise it must match `^[0-9a-f]{40}$`. Exposed as the job output `sha`, which every later step reads.
+1. Pick the commit with `scripts/resolve-promote-sha.sh`: blank `commit_sha` → the SHA both demo Workers report (refused if they disagree); otherwise it must match `^[0-9a-f]{40}$`. Exposed as the job output `sha`, which every later step reads.
 2. Checkout at the chosen SHA
 3. Assert **demo** reports the same SHA on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `demo is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
 4. `scripts/require-secrets.sh` — refuse to promote if a required prod secret is missing (before the approval gate, so nothing is deployed)
+5. Write the approver's summary: production's current SHA, the chosen SHA, and a compare link
 
-**Job: `deploy-prod-workers`** (targets GH Environment `production`, the approval gate once a required reviewer is set; none is set today, AECI-1239)
+**Job: `deploy-prod-workers`** (targets GH Environment `production`, the approval gate; Chris is the required reviewer, AECI-1239)
 1. Provision the prod scheduled-job queues — six as of AECI-302 (`aeci-{algolia-sync,algolia-drift,stats,reconcile,data-quality,attestation-notify}-production`), plus `aeci-gsc-inspect-production` since AECI-1236 — **and the WC-5 cross-Worker `aeci-cache-purge-production` queue** (idempotent; before both Worker deploys — its consumer is on the SSR Worker)
 2. Apply the app DB migrations to **Cloudflare D1** + reconcile the D1 taxonomy seed via `scripts/d1-apply-migrations.sh aeci-app-production production` (wraps `wrangler d1 migrations apply … --remote` + the two `wrangler d1 execute … --file=seed/*.sql` reconciles, **retrying each on a transient Cloudflare D1 `[code: 7500]` internal error** — safe because all three are idempotent), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
@@ -1416,7 +1417,7 @@ onto the workflow the issue named, `promote-to-prod.yml`:
 
 | Failure point | Mutated before it fails? | Recovery today | Would restart-from-step help? |
 |---|---|---|---|
-| `pre-promotion-checks` — `confirm`, `require-secrets.sh`, the demo SHA gate | **Nothing** | `Re-run failed jobs` re-runs only this ~2-min job; `deploy-prod-workers` then re-enters the `production` approval gate | **No — already job-scoped.** This *is* the "version gate" the issue complained about |
+| `pre-promotion-checks` — `require-secrets.sh`, the demo SHA gate | **Nothing** | `Re-run failed jobs` re-runs only this ~2-min job; `deploy-prod-workers` then re-enters the `production` approval gate | **No — already job-scoped.** This *is* the "version gate" the issue complained about |
 | Provision queues → `d1 migrations apply` → purge taxonomy tags | Queues + D1 | Full job re-run; all three are idempotent (`scripts/d1-apply-migrations.sh` even retries a transient D1 `[code: 7500]`) | Marginal |
 | `Deploy API` → the Worker secret pushes → `Deploy SSR` → `verify-worker-secrets.sh` | Workers live | Full job re-run; `wrangler deploy` and `wrangler secret put` are idempotent | Marginal |
 | **Smoke gate** (`verify-version.sh` + `verify-health.sh`) | Workers went live, then were **auto-rolled-back** (AECI-91) | Full job re-run | **No — resuming would be wrong.** The rollback reverted the deploy, so a fresh deploy is the only correct recovery |
@@ -1454,7 +1455,7 @@ Before the first deploy:
 
 - [ ] GitHub repo created with branch protection on `main`
 - [ ] GitHub Environments created: `staging`, `production` (full list in `docs/environments.md` "GitHub Environments"; the `preview` environment is retired, AECI-1268)
-- [ ] Production environment requires manual approval from Chris or Bill
+- [x] Production environment requires manual approval from Chris (AECI-1239, 2026-10-14)
 - [ ] All secrets configured per Section 7.1
 - [ ] Cloudflare account has Workers, Pages (for static assets), and zone access
 - [ ] Supabase projects created for dev/staging/production

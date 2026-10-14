@@ -153,7 +153,7 @@ On the day:
 4. **Chris:** freeze. No promotes, no admin edits, no datatool.
 5. **Agent, with Chris's go:** `move.sh pause-crons`, right after a `:00`, `:15`, `:30` or `:45` tick.
 6. **Agent:** `move.sh export`, then `move.sh import`, then `move.sh verify --strict`. It must print `VERIFY CLEAN`. If not, stop, run `move.sh resume-crons`, and unfreeze. Nothing has changed for visitors.
-7. **Chris:** run `promote-to-prod` on the merge SHA and approve it. Its deploy restores the crons. If it fails or is cancelled before its deploy step, nothing restores them. Run `move.sh resume-crons` then.
+7. **Chris:** run `promote-to-prod` on the merge SHA and approve it. On 2026-10-05 there was nothing to approve: the `production` environment had no required reviewer, so the deploy started 12 s after pre-checks. The gate exists since AECI-1239 (2026-10-14). Its deploy restores the crons. If it fails or is cancelled before its deploy step, nothing restores them. Run `move.sh resume-crons` then.
 8. **Agent:** confirm, below.
 9. **Chris or agent:** redeploy the datatool, and the agent Worker if it is deployed: `pnpm --filter @aeci/datatool deploy`, `pnpm --filter @aeci/agent deploy:production`.
 10. **Chris:** unfreeze.
