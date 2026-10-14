@@ -34,6 +34,7 @@ import {
   productVendors,
   products,
   profiles,
+  licenses,
   vendorEntitlements,
   vendorRequests,
   vendors,
@@ -47,6 +48,7 @@ import { isContestRaceError, planEntitlementClearReroute } from '../lib/integrat
 import { planSeatGrantReturn } from '../lib/vendor-handback';
 import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createModerateClaimHandler } from './admin-claims';
 import { createModerateContestHandler } from './admin-contests';
@@ -147,8 +149,11 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-const entitle = (vendorId: string) =>
-  t.db.insert(vendorEntitlements).values({
+/** Managed, as the dual-write leaves it (AECI-1353): the entitlement row, which the
+ *  admin clear's 422 gate reads, and a live license, which the owner checks read
+ *  since AECI-1355. */
+const entitle = async (vendorId: string) => {
+  await t.db.insert(vendorEntitlements).values({
     vendorId,
     tier: 'verified',
     status: 'active',
@@ -156,6 +161,8 @@ const entitle = (vendorId: string) =>
     createdAt: CLAIMED_AT,
     updatedAt: CLAIMED_AT,
   });
+  await seedLicense(t.db, vendorId);
+};
 const banSeatDirectly = (seatId: string) =>
   t.db.update(profiles).set({ bannedAt: BANNED_AT }).where(eq(profiles.id, seatId));
 
@@ -441,6 +448,7 @@ describe('the entitlement clear makes stamped connector-row contests AECi’s fo
       .update(vendorEntitlements)
       .set({ status: 'active', tier: 'verified' })
       .where(eq(vendorEntitlements.vendorId, VENDOR_B));
+    await seedLicense(t.db, VENDOR_B);
     await unban(SEAT_B);
     expect((await contest(powered)).routedTo).toBe('aeci');
     expect((await contest(plain)).routedTo).toBe('owner');
@@ -534,6 +542,8 @@ describe('the reconciliation races', () => {
     const original = t.db.batch.bind(t.db);
     vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
       await t.db.delete(vendorEntitlements).where(eq(vendorEntitlements.vendorId, VENDOR_B));
+      // AECI-1355: the clear ends the vendor's licenses in the same batch.
+      await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
       return original(stmts);
     }) as never);
     const res = await unban(SEAT_B);
@@ -551,6 +561,8 @@ describe('the reconciliation races', () => {
     const original = t.db.batch.bind(t.db);
     vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
       await t.db.delete(vendorEntitlements).where(eq(vendorEntitlements.vendorId, VENDOR_T));
+      // AECI-1355: the clear ends the vendor's licenses in the same batch.
+      await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
       return original(stmts);
     }) as never);
     const res = await provisionSeat(VENDOR_T);

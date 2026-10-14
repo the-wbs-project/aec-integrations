@@ -24,16 +24,17 @@
  *
  * The companion structural guarantee lives in `db/schema.ts`: `vendorEntitlements`
  * deliberately has **no `relations()` entry**, so a `with: { entitlement: … }` read
- * cannot even compile. The §4 gate and the `entitlement_mirror_drift` check both use an
- * explicit `leftJoin`, which needs no relation.
+ * cannot even compile. The `entitlement_mirror_drift` check uses an explicit `leftJoin`,
+ * which needs no relation. The §4 gate read the table the same way until AECI-1355
+ * moved it onto `licenses` (the allow-list below).
  *
  * The behavioural half of this guard was a drifted-pair test of `?verified=` in
  * `routes/vendors.spec.ts` (R9). That filter is retired (AECI-1266), so the test
  * went with it. This source scan is the guard that remains.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -82,7 +83,8 @@ describe('§2.5 — no read path queries vendor_entitlements', () => {
  * AECI-1350: the same rule for `billing_accounts` and `licenses`. They are the
  * successor to `vendor_entitlements` (E1, `docs/VENDOR_SIGNUP_PROCESS.md` §5), so the
  * catalog read paths stay as blind to them as to the table they replace. Plan
- * resolution reads them in the authz guard with explicit joins, never in a read config.
+ * resolution reads them in the authz guard with explicit joins (AECI-1355), never in a
+ * read config.
  *
  * `licenses` is an ordinary English word, so the pattern matches only the Drizzle
  * identifier used as a value (`licenses.`, `(licenses)`, `licenses,` in an import) and
@@ -118,6 +120,85 @@ describe('AECI-1350 — no read path queries billing_accounts or licenses', () =
     const { schema } = await import('../db/schema');
     expect(schema).toHaveProperty('billingAccounts');
     expect(schema).toHaveProperty('licenses');
+  });
+});
+
+/**
+ * AECI-1355 (E1.6): plan resolution reads `licenses`, so `vendor_entitlements` is
+ * left to the modules that still WRITE it or that AECi operators read, until E1.9
+ * retires the table. The AC: "no read path imports `vendorEntitlements` outside
+ * the admin and retirement set".
+ *
+ * Asserted as an exact set over every non-spec module, so both directions fail: a
+ * new reader (a vendor route, a gate, a cron) trips it, and a module that stops
+ * referencing the table must be dropped from the list, which keeps the list an
+ * honest inventory for E1.9. The pattern is the Drizzle identifier or the quoted
+ * SQL name, never the word in prose.
+ */
+const ENTITLEMENT_CODE_REFERENCE = /\bvendorEntitlements\b|"vendor_entitlements"/;
+
+/** Why each module may still name the table. */
+const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
+  // The definition.
+  'db/schema.ts': 'the table itself',
+  // Retirement set: the old writers and checks E1.9 deletes with the table.
+  'lib/vendor-entitlement.ts': 'the entitlement writer, dual-writing licenses (AECI-1353)',
+  'lib/entitlement-expiry.ts': 'the old expiry-warning cron, replaced by E6',
+  'lib/backfill-entitlements.ts': 'the AECI-609 back-fill',
+  'lib/data-quality.ts': 'the entitlement_mirror_drift check',
+  'lib/retract-vendor.ts': 'the vendor-delete refusal count (FK handling)',
+  'routes/account.ts': 'account erasure NULLs granted_by (a write, not a plan read)',
+  // Admin set: operator surfaces, replaced by E4.
+  'lib/sort.ts': 'the admin vendor list sort by entitlement status and term',
+  'routes/admin-claims.ts': 'claim approval (admin)',
+  'routes/admin-entitlements.ts': 'set / renew / clear (admin)',
+  'routes/admin-users.ts': 'user erasure preview (admin)',
+  'routes/admin-vendors.ts': 'the admin vendor list and detail',
+};
+
+function sourceModules(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'test' ? [] : sourceModules(path);
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts') ? [path] : [];
+  });
+}
+
+describe('AECI-1355 — vendor_entitlements is read only by the admin and retirement set', () => {
+  it('the modules naming the table are exactly the allow-list', () => {
+    const referencing = sourceModules(SRC)
+      .filter((path) => ENTITLEMENT_CODE_REFERENCE.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(SRC, path).split('\\').join('/'))
+      .sort();
+    expect(
+      referencing,
+      'A module outside the admin and retirement set references vendor_entitlements, or ' +
+        'one on the list no longer does. Plan resolution reads `licenses` (AECI-1355): ' +
+        'read the session (`entitlementTier`, `licensedProductIds`) or `lib/license.ts`.',
+    ).toEqual(Object.keys(ENTITLEMENT_TABLE_ALLOWED).sort());
+  });
+
+  it('the plan-resolution modules are not on it', () => {
+    for (const path of [
+      'lib/authz.ts',
+      'lib/integration-entitlement.ts',
+      'lib/integration-contests.ts',
+      'lib/vendor-snapshot.ts',
+      'lib/audit-vendor.ts',
+      'lib/vendor-handback.ts',
+      'routes/vendor.ts',
+      'routes/vendor-shared.ts',
+      'routes/vendor-updates.ts',
+      'routes/seat-invites.ts',
+    ]) {
+      expect(ENTITLEMENT_TABLE_ALLOWED).not.toHaveProperty(path);
+    }
+  });
+
+  it('the pattern matches code and skips prose', () => {
+    expect('db.select().from(vendorEntitlements)').toMatch(ENTITLEMENT_CODE_REFERENCE);
+    expect('SELECT 1 FROM "vendor_entitlements"').toMatch(ENTITLEMENT_CODE_REFERENCE);
+    expect('// the old `vendor_entitlements` row').not.toMatch(ENTITLEMENT_CODE_REFERENCE);
   });
 });
 

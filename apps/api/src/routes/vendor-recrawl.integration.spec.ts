@@ -75,10 +75,16 @@ const AUTH: AuthzVariables['auth'] = {
   role: 'vendor_admin',
   vendorId: VENDOR,
   entitlementTier: 'verified',
+  // AECI-1355: the product writes gate on PRODUCT's own live license.
+  licensedProductIds: [PRODUCT],
   entitlement: null,
 };
 /** A seat with no active entitlement: the Free plan (AECI-1186). */
-const FREE_AUTH: AuthzVariables['auth'] = { ...AUTH, entitlementTier: 'unclaimed' };
+const FREE_AUTH: AuthzVariables['auth'] = {
+  ...AUTH,
+  entitlementTier: 'unclaimed',
+  licensedProductIds: [],
+};
 /** The integration the vendor owns and has claimed, PRODUCT → PAIRED. */
 const OWNED_INTEGRATION = u(24);
 

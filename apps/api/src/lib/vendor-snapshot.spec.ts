@@ -17,11 +17,11 @@ import {
   taxonomyDataObjects,
   userActivityDaily,
   vendorActivityDaily,
-  vendorEntitlements,
   vendorSeatInvites,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import {
   computeVendorSnapshot,
   runVendorSnapshot,
@@ -93,9 +93,12 @@ describe('computeVendorSnapshot — scope', () => {
     expect([...rows.keys()]).toEqual([ACME]);
   });
 
-  it('activates a vendor by a seat, an entitlement row, or a live invite', async () => {
+  it('activates a vendor by a seat, a license (even an ended one), or a live invite', async () => {
     await seat('u1', ACME);
-    await t.db.insert(vendorEntitlements).values({ vendorId: GLOBEX, status: 'expired' });
+    await seedLicense(t.db, GLOBEX, {
+      endedAt: '2026-09-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
     await t.db.insert(vendorSeatInvites).values({
       vendorId: INITECH,
       email: 'a@initech.test',
@@ -141,7 +144,7 @@ describe('computeVendorSnapshot — counts', () => {
     expect((await snapshot()).get(ACME)?.pendingInvites).toBe(1);
   });
 
-  it('records a Free vendor with no entitlement row as null raw plan and unclaimed', async () => {
+  it('records a Free vendor with no license as null raw plan and unclaimed', async () => {
     await seat('u1', ACME);
     expect((await snapshot()).get(ACME)).toMatchObject({
       entitlementTier: null,
@@ -150,18 +153,19 @@ describe('computeVendorSnapshot — counts', () => {
     });
   });
 
-  it('records the raw plan row and the tier tierFor() derives from it', async () => {
-    await t.db.insert(vendorEntitlements).values([
-      { vendorId: ACME, tier: 'verified', status: 'active' },
-      { vendorId: GLOBEX, tier: 'verified', status: 'expired' },
-    ]);
+  it('records the plan its licenses give, as the vendor guard derives it (AECI-1355)', async () => {
+    await seedLicense(t.db, ACME);
+    await seedLicense(t.db, GLOBEX, {
+      endedAt: '2026-09-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
     const rows = await snapshot();
     expect(rows.get(ACME)).toMatchObject({
       entitlementTier: 'verified',
       entitlementStatus: 'active',
       effectiveTier: 'verified',
     });
-    // A lapsed plan keeps its raw row but is Free.
+    // A lapsed plan keeps its raw tier but is Free.
     expect(rows.get(GLOBEX)).toMatchObject({
       entitlementTier: 'verified',
       entitlementStatus: 'expired',

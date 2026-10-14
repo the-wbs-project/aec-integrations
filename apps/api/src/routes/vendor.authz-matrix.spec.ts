@@ -88,7 +88,6 @@ import {
   reviewResponses,
   reviews,
   taxonomyDataObjects,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -97,6 +96,7 @@ import { requireVendor, type AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { fakeExecutionContext } from '../test/helpers';
+import { seedLicense } from '../test/licenses';
 import {
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
@@ -206,16 +206,6 @@ beforeEach(async () => {
     },
     { id: VENDOR_UNVERIFIED, slug: 'trimble', companyName: 'Trimble', verified: false },
   ]);
-  // `vendors.verified` is a MIRROR of an ACTIVE `vendor_entitlements` row
-  // (AECI-609 / §2.1), and AECI-611 made the mirror's SOURCE what the write
-  // gate reads. A fixture that sets `verified: true` without the row describes
-  // a drifted state the middleware resolves to `unclaimed` — so seed both sides
-  // together, exactly as `lib/vendor-entitlement.ts` writes them. Trimble gets
-  // no row on purpose: it is the unverified persona.
-  await t.db.insert(vendorEntitlements).values([
-    { id: uuid(70), vendorId: VENDOR_A, tier: 'verified', status: 'active' },
-    { id: uuid(71), vendorId: VENDOR_B, tier: 'verified', status: 'active' },
-  ]);
   await t.db.insert(products).values([
     // Promoted, because the AECI-1011 create accepts only promoted endpoints.
     {
@@ -239,6 +229,13 @@ beforeEach(async () => {
     { productId: PRODUCT_B, vendorId: VENDOR_B, isPrimary: true },
     { productId: PRODUCT_UNVERIFIED, vendorId: VENDOR_UNVERIFIED, isPrimary: true },
   ]);
+  // `vendors.verified` is a MIRROR of "any live license" (§2.1, AECI-1352), and
+  // since AECI-1355 the write gates read the licenses themselves: a product is
+  // Managed when a live license is on it. Seed both sides together, exactly as
+  // `lib/license.ts` writes them. Trimble gets no license on purpose: it is the
+  // unverified persona.
+  await seedLicense(t.db, VENDOR_A, { productId: PRODUCT_A });
+  await seedLicense(t.db, VENDOR_B, { productId: PRODUCT_B });
   await t.db.insert(productVersions).values([
     { id: VERSION_A, productId: PRODUCT_A, label: 'v1', sortKey: 100_000_000_000 },
     { id: VERSION_B, productId: PRODUCT_B, label: 'v1', sortKey: 100_000_000_000 },

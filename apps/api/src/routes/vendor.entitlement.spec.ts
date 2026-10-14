@@ -7,18 +7,21 @@
  * in-memory D1 harness, driven by genuinely signed JWTs. That matters here more
  * than anywhere: the tier is produced by the guard's `leftJoin`, so a spec that
  * stubbed `c.set('auth', …)` would be asserting its own fixture rather than the
- * mechanism. Every tier below is the one the middleware actually derived from a
- * seeded `vendor_entitlements` row.
+ * mechanism. Every tier below is the one the middleware actually derived from
+ * seeded `licenses` rows (AECI-1355; it was `vendor_entitlements` before).
  *
- * Three personas, one per entitlement state that behaves differently:
+ * Three personas, one per plan state that behaves differently:
  *
- *   PAID      — an `active` entitlement (Managed). Every write works.
- *   LAPSED    — `revoked` / `expired` / `pending`. Resolves to the Free plan:
- *               reads 200, company details and the four `listing_tier` product
- *               fields write, every Managed-only field 403s (AECI-1214, §13.3).
- *   UNCLAIMED — no `vendor_entitlements` row at all. Same as LAPSED, but with a
- *               null term readout rather than a lapsed one. The connector
- *               catalogue seat is this persona.
+ *   PAID      — a live license on its product (Managed). Every write works.
+ *   LAPSED    — its only license ended (`revoked`, or `expired` for a lapse).
+ *               Resolves to the Free plan: reads 200, company details and the
+ *               four `listing_tier` product fields write, every Managed-only
+ *               field 403s (AECI-1214, §13.3).
+ *   UNCLAIMED — no license at all. Same as LAPSED, but with a null term readout
+ *               rather than a lapsed one. The connector catalogue seat is this
+ *               persona.
+ *
+ * Plus the AECI-1355 acceptance case: one vendor, two products, one license.
  *
  * ── The invariant this file exists for ──────────────────────────────────────
  * **Reads are NEVER gated** (§4.3 / §10 R13). `/vendor` is gated by
@@ -58,9 +61,9 @@ import {
   productVendors,
   products,
   profiles,
+  licenses,
   taxonomyCategories,
   vendorPlanPricing,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -69,6 +72,7 @@ import { requireVendor, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { seedLicense } from '../test/licenses';
 import {
   PRODUCT_COLUMN_MAP,
   VENDOR_COLUMN_MAP,
@@ -92,6 +96,8 @@ const VENDOR_UNCLAIMED = uuid(3);
 const PRODUCT_PAID = uuid(10);
 const PRODUCT_LAPSED = uuid(11);
 const PRODUCT_UNCLAIMED = uuid(12);
+/** A second product of the PAID vendor, with no license of its own (AECI-1355). */
+const PRODUCT_PAID_FREE = uuid(13);
 
 const SEAT_PAID = uuid(100);
 const SEAT_LAPSED = uuid(101);
@@ -106,9 +112,8 @@ beforeEach(async () => {
   t = await makeTestDb();
   jwks = await makeTestJwks();
 
-  // `verified` mirrors an ACTIVE entitlement (§2.1) — seeded together, never one
-  // side alone, or the fixture describes a state `entitlement_mirror_drift`
-  // would flag.
+  // `verified` mirrors "any live license" (§2.1, AECI-1352) — seeded together,
+  // never one side alone, or the fixture describes a drifted state.
   await t.db.insert(vendors).values([
     {
       id: VENDOR_PAID,
@@ -132,33 +137,24 @@ beforeEach(async () => {
       verified: false,
     },
   ]);
-  await t.db.insert(vendorEntitlements).values([
-    {
-      id: uuid(70),
-      vendorId: VENDOR_PAID,
-      tier: 'verified',
-      status: 'active',
-      periodEnd: '2027-01-01T00:00:00.000Z',
-    },
-    // Pulled for cause. The row survives the revocation — that is what lets the
-    // dashboard say WHY, and it is why `status` rather than row-absence is the
-    // thing the gate reads.
-    {
-      id: uuid(71),
-      vendorId: VENDOR_LAPSED,
-      tier: 'verified',
-      status: 'revoked',
-      periodEnd: '2026-01-01T00:00:00.000Z',
-      endedAt: '2026-01-02T00:00:00.000Z',
-    },
-  ]);
-  // VENDOR_UNCLAIMED deliberately gets NO entitlement row.
-
   await t.db.insert(products).values([
     { id: PRODUCT_PAID, slug: 'revit', name: 'Revit', description: 'Paid product' },
     { id: PRODUCT_LAPSED, slug: 'microstation', name: 'MicroStation', description: 'Lapsed' },
     { id: PRODUCT_UNCLAIMED, slug: 'tekla', name: 'Tekla', description: 'Unclaimed' },
   ]);
+  await seedLicense(t.db, VENDOR_PAID, {
+    productId: PRODUCT_PAID,
+    endsAt: '2027-01-01T00:00:00.000Z',
+  });
+  // Pulled for cause. The license survives the revocation with its assignment
+  // (decision 14) — that is what lets the dashboard say WHY.
+  await seedLicense(t.db, VENDOR_LAPSED, {
+    productId: PRODUCT_LAPSED,
+    endsAt: '2026-01-01T00:00:00.000Z',
+    endedAt: '2026-01-02T00:00:00.000Z',
+    endReason: 'revoked',
+  });
+  // VENDOR_UNCLAIMED deliberately gets NO license.
   await t.db.insert(productVendors).values([
     { productId: PRODUCT_PAID, vendorId: VENDOR_PAID, isPrimary: true },
     { productId: PRODUCT_LAPSED, vendorId: VENDOR_LAPSED, isPrimary: true },
@@ -246,10 +242,13 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       // so the dashboard can gate its forms off one field instead of guessing.
       expect(body.entitlement.tier).toBe('unclaimed');
       expect(body.entitlement.capabilities).toEqual([...capabilitiesFor('unclaimed')]);
-      // Every product carries the vendor's block as its plan until per-product
-      // plans exist (§13.7).
+      // Each product's plan is its own (§13.7, AECI-1355). Here no product holds
+      // a live license either, so each is Free too.
       expect(body.products.length).toBeGreaterThan(0);
-      for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
+      for (const product of body.products) {
+        expect(product.plan.tier).toBe('unclaimed');
+        expect(product.plan.capabilities).toEqual([...capabilitiesFor('unclaimed')]);
+      }
     },
   );
 
@@ -266,7 +265,7 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     const { body } = await call('/api/vendor/me', 'GET', SEAT_LAPSED);
     expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
     expect(body.entitlement.ended_at).toBe('2026-01-02T00:00:00.000Z');
-    // The per-product plan copy carries the same date (§13.7).
+    // The product whose license ended carries its own date (§13.7).
     for (const product of body.products) {
       expect(product.plan.ended_at).toBe('2026-01-02T00:00:00.000Z');
     }
@@ -289,33 +288,29 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     expect(Array.isArray(body.seats)).toBe(true);
   });
 
-  // The AC names `revoked` AND `expired`; they are different rows in the state
-  // machine (pulled for cause vs. lapsed amicably) and the read must survive
-  // both. `pending` rides along because an offline PO that has not taken effect
-  // is the third way to hold a non-granting row.
-  it.each([['expired'], ['pending']])(
-    'GET /api/vendor/me returns 200 for an %s entitlement',
-    async (status) => {
-      await t.db
-        .update(vendorEntitlements)
-        .set({ status })
-        .where(eq(vendorEntitlements.vendorId, VENDOR_LAPSED));
+  // The AC names `revoked` AND `expired`; they are different end reasons (pulled
+  // for cause vs. lapsed amicably) and the read must survive both. A license has
+  // no `pending` state (AECI-1355), so the third entitlement status has no case.
+  it.each([
+    ['lapsed', 'expired'],
+    ['released', 'expired'],
+  ])('GET /api/vendor/me returns 200 for a license ended as %s (%s)', async (endReason, status) => {
+    await t.db.update(licenses).set({ endReason });
 
-      const read = await call('/api/vendor/me', 'GET', SEAT_LAPSED);
-      expect(read.status).toBe(200);
-      expect(() => VendorMeResponseSchema.parse(read.body)).not.toThrow();
-      expect(read.body.entitlement.tier).toBe('unclaimed');
-      expect(read.body.entitlement.status).toBe(status);
+    const read = await call('/api/vendor/me', 'GET', SEAT_LAPSED);
+    expect(read.status).toBe(200);
+    expect(() => VendorMeResponseSchema.parse(read.body)).not.toThrow();
+    expect(read.body.entitlement.tier).toBe('unclaimed');
+    expect(read.body.entitlement.status).toBe(status);
 
-      // …and a Managed-only write is still refused, so every non-granting
-      // status lands on the Free plan, not just the one seeded above.
-      const write = await call(`/api/vendor/products/${PRODUCT_LAPSED}`, 'PATCH', SEAT_LAPSED, {
-        api_docs_url: 'https://x.test/api',
-      });
-      expect(write.status).toBe(403);
-      expect(write.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    },
-  );
+    // …and a Managed-only write is still refused, so every non-granting
+    // status lands on the Free plan, not just the one seeded above.
+    const write = await call(`/api/vendor/products/${PRODUCT_LAPSED}`, 'PATCH', SEAT_LAPSED, {
+      api_docs_url: 'https://x.test/api',
+    });
+    expect(write.status).toBe(403);
+    expect(write.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+  });
 
   it('serves the paid vendor the FULL block — the launch behaviour is unchanged', async () => {
     const { status, body } = await call('/api/vendor/me', 'GET', SEAT_PAID);
@@ -594,6 +589,110 @@ describe('a Managed seat edits every field', () => {
     expect(status).toBe(403);
     expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
     expect(body.error.message).toBe('Portal abuse');
+  });
+});
+
+// ─── Per-product plans (AECI-1355) ───────────────────────────────────────────
+
+/**
+ * The E1.6 acceptance case (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 6): a vendor
+ * with two products and ONE license assigned to the first. Managed fields write
+ * on the licensed product and answer `403 ENTITLEMENT_REQUIRED` on the other,
+ * with the same `details` shape the no-plan seat gets.
+ */
+describe('one license, two products: the plan is per product', () => {
+  beforeEach(async () => {
+    await t.db
+      .insert(products)
+      .values({ id: PRODUCT_PAID_FREE, slug: 'navisworks', name: 'Navisworks' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_PAID_FREE, vendorId: VENDOR_PAID, isPrimary: false });
+  });
+
+  it('writes Managed fields on the licensed product and 403s them on the other', async () => {
+    const managed = {
+      api_docs_url: 'https://x.test/api',
+      usefulness: { audiences: [], phases: [] },
+    };
+    const licensed = await call(
+      `/api/vendor/products/${PRODUCT_PAID}`,
+      'PATCH',
+      SEAT_PAID,
+      managed,
+    );
+    expect(licensed.status).toBe(200);
+    expect(licensed.body.product.plan.tier).toBe('verified');
+
+    const other = await call(
+      `/api/vendor/products/${PRODUCT_PAID_FREE}`,
+      'PATCH',
+      SEAT_PAID,
+      managed,
+    );
+    expect(other.status).toBe(403);
+    expect(other.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+    // The same shape as a seat with no plan at all: the product's tier, the
+    // first denied field's capability, every denied field.
+    expect(other.body.error.details).toEqual({
+      capability: 'product.edit',
+      tier: 'unclaimed',
+      fields: ['api_docs_url', 'usefulness'],
+    });
+    const noPlan = await call(
+      `/api/vendor/products/${PRODUCT_UNCLAIMED}`,
+      'PATCH',
+      SEAT_UNCLAIMED,
+      managed,
+    );
+    expect(Object.keys(noPlan.body.error.details).sort()).toEqual(
+      Object.keys(other.body.error.details).sort(),
+    );
+    expect(noPlan.body.error.message).toBe(other.body.error.message);
+
+    // Nothing landed on the refused product.
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT_PAID_FREE));
+    expect(row?.apiDocsUrl).toBeNull();
+
+    // The Free fields still write on the unlicensed product.
+    const free = await call(`/api/vendor/products/${PRODUCT_PAID_FREE}`, 'PATCH', SEAT_PAID, {
+      description: 'Free edit',
+    });
+    expect(free.status).toBe(200);
+  });
+
+  it('GET /api/vendor/me is ungated and shows each product its own plan', async () => {
+    const { status, body } = await call('/api/vendor/me', 'GET', SEAT_PAID);
+    expect(status).toBe(200);
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    // The vendor block: any live license makes the vendor verified.
+    expect(body.entitlement.tier).toBe('verified');
+    const plans = Object.fromEntries(
+      (body.products as JsonBody[]).map((p) => [p.id, p.plan as JsonBody]),
+    );
+    expect(plans[PRODUCT_PAID]).toEqual(body.entitlement);
+    expect(plans[PRODUCT_PAID_FREE]).toEqual({
+      tier: 'unclaimed',
+      status: null,
+      period_end: null,
+      ended_at: null,
+      capabilities: [...capabilitiesFor('unclaimed')],
+      price: DEFAULT_PLAN_PRICE,
+    });
+  });
+
+  it('an unassigned license makes the vendor verified and no product Managed', async () => {
+    await t.db.update(licenses).set({ assignedProductId: null, assignedAt: null });
+    const me = await call('/api/vendor/me', 'GET', SEAT_PAID);
+    expect(me.body.entitlement.tier).toBe('verified');
+    for (const product of me.body.products) expect(product.plan.tier).toBe('unclaimed');
+    const write = await call(`/api/vendor/products/${PRODUCT_PAID}`, 'PATCH', SEAT_PAID, {
+      api_docs_url: 'https://x.test/api',
+    });
+    expect(write.status).toBe(403);
+    // Company details are a vendor-level write, held on every plan.
+    const profile = await call('/api/vendor/profile', 'PATCH', SEAT_PAID, { description: 'ok' });
+    expect(profile.status).toBe(200);
   });
 });
 

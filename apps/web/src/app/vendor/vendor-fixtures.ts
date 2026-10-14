@@ -281,10 +281,12 @@ const FREE_PLAN: VendorEntitlementBlock = {
 };
 
 /**
- * Copy the vendor's entitlement block into every product's `plan`, exactly as
- * `GET /api/vendor/me` does until per-product plans exist (AECI-1214, §13.7). A
- * fixture that changed `entitlement` without this would describe a payload the
- * server cannot produce: a product screen gated one way and the vendor another.
+ * Copy the vendor's entitlement block into every product's `plan`. Since AECI-1355
+ * the server fills each product's `plan` from that product's own license, so this
+ * models the common case: every product licensed (or none), the vendor block and
+ * each product block alike. The block shape is unchanged. A mixed-plan fixture sets
+ * `plan` per product instead; the server can now produce one, where the vendor
+ * block is `verified` and an unlicensed product's block is Free.
  */
 export function withProductPlans(me: VendorMeResponse): VendorMeResponse {
   return { ...me, products: me.products.map((p) => ({ ...p, plan: me.entitlement })) };

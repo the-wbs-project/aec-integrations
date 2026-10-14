@@ -27,18 +27,23 @@ import {
 } from 'jose';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { profiles, vendorEntitlements, vendors } from '../db/schema';
+import { productVendors, products, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
 import { logToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import {
   auditActorType,
   extractSessionCookieToken,
+  productPlan,
+  productTier,
   requireAdmin,
   requireAuth,
   requireCapability,
+  requireProductCapability,
   requireVendor,
+  sessionPlanFromLicenses,
   type AuthzContext,
   type AuthzOptions,
   type AuthzVariables,
@@ -117,23 +122,6 @@ async function seedVendor(): Promise<void> {
   ]);
 }
 
-let entitlementSeq = 0;
-/** Seed one `vendor_entitlements` row (AECI-609). Defaults to the launch grant:
- *  the paid entry rung, active, perpetual. */
-async function seedEntitlement(
-  vendorId: string,
-  seed: { tier?: string; status?: string; periodEnd?: string | null; endedAt?: string | null } = {},
-): Promise<void> {
-  await t.db.insert(vendorEntitlements).values({
-    id: `77777777-7777-4777-8777-${String(++entitlementSeq).padStart(12, '0')}`,
-    vendorId,
-    tier: seed.tier ?? 'verified',
-    status: seed.status ?? 'active',
-    periodEnd: seed.periodEnd ?? null,
-    endedAt: seed.endedAt ?? null,
-  });
-}
-
 const REVIEWER: ProfileSeed = { role: 'reviewer' };
 const ADMIN: ProfileSeed = { role: 'admin' };
 /** A fully granted vendor-portal seat (AECI-520). */
@@ -192,6 +180,8 @@ type CallResult = {
       vendorId: string | null;
       entitlementTier?: string;
       entitlement?: { status: string; periodEnd: string | null; endedAt?: string | null } | null;
+      licensedProductIds?: string[];
+      licenses?: { product_id: string | null; ended_at: string | null }[];
     };
     reviewerId?: string;
     clientSent?: unknown;
@@ -462,11 +452,13 @@ describe('requireVendor', () => {
       email: 'ops@autodesk.test',
       role: 'vendor_admin',
       vendorId: VENDOR_ID,
-      // The join ran and found nothing — this vendor has no entitlement row, so
+      // The license read ran and found nothing — this vendor has no license, so
       // it authenticates, passes the guard, reads its dashboard, and writes
-      // nothing (AECI-611 fail-closed).
+      // nothing Managed (AECI-611 fail-closed, AECI-1355).
       entitlementTier: 'unclaimed',
       entitlement: null,
+      licensedProductIds: [],
+      licenses: [],
     });
   });
 
@@ -481,16 +473,20 @@ describe('requireVendor', () => {
 });
 
 /**
- * AECI-611 — the entitlement on the session (`STAGE_2_PAID_TIERS_SPEC.md` §4.1).
+ * AECI-611 — the plan on the session (`STAGE_2_PAID_TIERS_SPEC.md` §4.1), read from
+ * `licenses` since AECI-1355 (E1.6).
  *
- * The tier is loaded by `requireVendor()`'s profile read, which became a
- * `leftJoin` onto `vendor_entitlements`. Everything below is about ONE property:
- * **the tier fails closed on every axis**. There is no input — a missing row, a
- * lapsed status, an unknown tier, another vendor's row — that yields anything
- * but `'unclaimed'` unless the caller genuinely holds an active entitlement.
+ * `requireVendor()`'s profile read became a two-statement batch: the profile, and
+ * the vendor's licenses. Everything below is about ONE property: **the plan fails
+ * closed on every axis**. There is no input — no license, only ended licenses,
+ * another vendor's license — that yields anything but `'unclaimed'` unless the
+ * vendor genuinely holds a live license, and a PRODUCT is Managed only when the
+ * live license is on it.
  */
-describe('requireVendor — the entitlement join', () => {
+describe('requireVendor — the plan from licenses', () => {
   const VENDOR_PATH = '/api/vendor/me';
+  const PRODUCT_1 = '55555555-5555-4555-8555-000000000001';
+  const PRODUCT_2 = '55555555-5555-4555-8555-000000000002';
 
   async function sessionFor(sub: string) {
     const token = await mintToken({ sub });
@@ -501,80 +497,166 @@ describe('requireVendor — the entitlement join', () => {
   async function seedSeat(): Promise<void> {
     await seedVendor();
     await seedProfile('user-vendor', VENDOR_ADMIN);
+    await t.db.insert(products).values([
+      { id: PRODUCT_1, slug: 'revit', name: 'Revit' },
+      { id: PRODUCT_2, slug: 'navisworks', name: 'Navisworks' },
+    ]);
   }
 
-  it('resolves an ACTIVE entitlement to its tier, with the term readout', async () => {
+  it('resolves a live license to verified, with the term and the licensed product', async () => {
     await seedSeat();
-    await seedEntitlement(VENDOR_ID, { periodEnd: '2027-01-01T00:00:00.000Z' });
+    await seedLicense(t.db, VENDOR_ID, {
+      productId: PRODUCT_1,
+      endsAt: '2027-01-01T00:00:00.000Z',
+    });
     const { status, auth } = await sessionFor('user-vendor');
     expect(status).toBe(200);
     expect(auth?.entitlementTier).toBe('verified');
     expect(auth?.entitlement).toEqual({
       status: 'active',
-      // The RAW row tier (AECI-1193), for the audit plan snapshot.
+      // The RAW tier (AECI-1193), for the audit plan snapshot.
       tier: 'verified',
       periodEnd: '2027-01-01T00:00:00.000Z',
       endedAt: null,
     });
+    expect(auth?.licensedProductIds).toEqual([PRODUCT_1]);
+    expect(auth?.licenses).toEqual([
+      {
+        product_id: PRODUCT_1,
+        source: 'complimentary',
+        ends_at: '2027-01-01T00:00:00.000Z',
+        ended_at: null,
+        end_reason: null,
+      },
+    ]);
   });
 
-  it('resolves a vendor with NO entitlement row to unclaimed, and still lets it in', async () => {
+  it('an UNASSIGNED live license makes the vendor verified and no product Managed', async () => {
+    await seedSeat();
+    await seedLicense(t.db, VENDOR_ID);
+    const { auth } = await sessionFor('user-vendor');
+    expect(auth?.entitlementTier).toBe('verified');
+    expect(auth?.licensedProductIds).toEqual([]);
+  });
+
+  it('resolves a vendor with NO license to unclaimed, and still lets it in', async () => {
     await seedSeat();
     const { status, auth } = await sessionFor('user-vendor');
-    // The guard still passes — the entitlement decides what you may WRITE, never
-    // whether you may authenticate or read (§4.3).
+    // The guard still passes — the plan decides what you may WRITE, never whether
+    // you may authenticate or read (§4.3).
     expect(status).toBe(200);
     expect(auth?.entitlementTier).toBe('unclaimed');
+    // `null` is "never had one", which the pilot-ended banner must tell from "ended".
     expect(auth?.entitlement).toBeNull();
+    expect(auth?.licensedProductIds).toEqual([]);
   });
 
-  // The fail-closed matrix. `pending` is the offline-invoicing limbo (§2.2):
-  // arrangement recorded, not yet effective — so it must NOT grant anything.
-  it.each([['pending'], ['expired'], ['revoked']])(
-    'resolves a %s entitlement to unclaimed while still reporting its status',
-    async (status) => {
+  it.each([
+    ['lapsed', 'expired'],
+    ['released', 'expired'],
+    ['revoked', 'revoked'],
+  ])(
+    'resolves a vendor whose only license ended (%s) to unclaimed, reporting %s',
+    async (endReason, status) => {
       await seedSeat();
-      await seedEntitlement(VENDOR_ID, {
-        status,
-        periodEnd: '2026-01-01T00:00:00.000Z',
-        endedAt: status === 'pending' ? null : '2026-01-02T00:00:00.000Z',
+      await seedLicense(t.db, VENDOR_ID, {
+        productId: PRODUCT_1,
+        endsAt: '2026-01-01T00:00:00.000Z',
+        endedAt: '2026-01-02T00:00:00.000Z',
+        endReason,
       });
       const { auth } = await sessionFor('user-vendor');
       expect(auth?.entitlementTier).toBe('unclaimed');
-      // The term readout survives the downgrade on purpose: the §8 dashboard
-      // needs to say "expired on …", not merely "locked".
-      // `endedAt` rides along for the pilot-ended banner (AECI-1218, §13.11).
+      expect(auth?.licensedProductIds).toEqual([]);
+      // The term readout survives the downgrade on purpose: the §8 dashboard needs
+      // to say "ended on …", and the pilot-ended banner reads `endedAt` (§13.11).
       expect(auth?.entitlement).toEqual({
         status,
-        // The raw tier survives the downgrade too (AECI-1193): an audit row written
-        // now must say "verified, expired", which `entitlementTier` cannot.
         tier: 'verified',
         periodEnd: '2026-01-01T00:00:00.000Z',
-        endedAt: status === 'pending' ? null : '2026-01-02T00:00:00.000Z',
+        endedAt: '2026-01-02T00:00:00.000Z',
       });
     },
   );
 
-  it('resolves an ACTIVE row with a tier this build does not know to unclaimed', async () => {
+  it('an ended license past its scheduled end does not matter while another is live', async () => {
     await seedSeat();
-    // `vendor_entitlements.tier` has NO CHECK by design (§2.2) so a new rung is
-    // a data edit. The safety of that decision rests entirely on this cell: an
-    // unknown tier must buy nothing, not everything.
-    await seedEntitlement(VENDOR_ID, { tier: 'platinum-enterprise-max' });
+    await seedLicense(t.db, VENDOR_ID, {
+      productId: PRODUCT_1,
+      endedAt: '2026-01-02T00:00:00.000Z',
+      endReason: 'revoked',
+    });
+    await seedLicense(t.db, VENDOR_ID, { productId: PRODUCT_2 });
     const { auth } = await sessionFor('user-vendor');
-    expect(auth?.entitlementTier).toBe('unclaimed');
+    expect(auth?.entitlementTier).toBe('verified');
+    expect(auth?.entitlement?.status).toBe('active');
+    expect(auth?.licensedProductIds).toEqual([PRODUCT_2]);
   });
 
-  it('never picks up another vendor’s entitlement', async () => {
+  it('trusts stored state: a live license past its ends_at still grants until E6 ends it', async () => {
     await seedSeat();
-    await seedEntitlement(OTHER_VENDOR_ID);
+    await seedLicense(t.db, VENDOR_ID, {
+      productId: PRODUCT_1,
+      endsAt: '2020-01-01T00:00:00.000Z',
+    });
     const { auth } = await sessionFor('user-vendor');
-    expect(auth?.entitlementTier).toBe('unclaimed');
+    expect(auth?.entitlementTier).toBe('verified');
+    expect(auth?.licensedProductIds).toEqual([PRODUCT_1]);
   });
 
-  it('resolves a BANNED seat with an active entitlement to 403, before any tier question', async () => {
+  it('reads only the latest ended license per product, and every live one', async () => {
+    await seedSeat();
+    await seedLicense(t.db, VENDOR_ID, {
+      productId: PRODUCT_1,
+      endedAt: '2025-01-01T00:00:00.000Z',
+      endReason: 'lapsed',
+    });
+    await seedLicense(t.db, VENDOR_ID, {
+      productId: PRODUCT_1,
+      endedAt: '2026-03-01T00:00:00.000Z',
+      endReason: 'revoked',
+    });
+    await seedLicense(t.db, VENDOR_ID, { productId: PRODUCT_2 });
+    const { auth } = await sessionFor('user-vendor');
+    const ended = auth?.licenses?.filter((l) => l.ended_at !== null);
+    expect(ended).toEqual([
+      expect.objectContaining({ product_id: PRODUCT_1, ended_at: '2026-03-01T00:00:00.000Z' }),
+    ]);
+    expect(auth?.licenses).toHaveLength(2);
+  });
+
+  it('a CO-OWNED product licensed on the other owner’s account is Managed, and its terms stay private', async () => {
+    await seedSeat();
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_1, vendorId: OTHER_VENDOR_ID, isPrimary: true },
+      { productId: PRODUCT_1, vendorId: VENDOR_ID, isPrimary: false },
+    ]);
+    await seedLicense(t.db, OTHER_VENDOR_ID, {
+      productId: PRODUCT_1,
+      endsAt: '2027-09-01T00:00:00.000Z',
+    });
+    const { auth } = await sessionFor('user-vendor');
+    // One live license per product (the partial unique index), so the co-owner can
+    // never hold its own: the PRODUCT's license is what makes it Managed.
+    expect(auth?.licensedProductIds).toEqual([PRODUCT_1]);
+    // The vendor itself holds no license, and the other vendor's term never enters
+    // this session.
+    expect(auth?.entitlementTier).toBe('unclaimed');
+    expect(auth?.entitlement).toBeNull();
+    expect(auth?.licenses).toEqual([]);
+  });
+
+  it('never picks up another vendor’s license', async () => {
+    await seedSeat();
+    await seedLicense(t.db, OTHER_VENDOR_ID);
+    const { auth } = await sessionFor('user-vendor');
+    expect(auth?.entitlementTier).toBe('unclaimed');
+    expect(auth?.licenses).toEqual([]);
+  });
+
+  it('resolves a BANNED seat with a live license to 403, before any plan question', async () => {
     await seedVendor();
-    await seedEntitlement(VENDOR_ID);
+    await seedLicense(t.db, VENDOR_ID);
     await seedProfile('user-banned-vendor', {
       ...VENDOR_ADMIN,
       bannedAt: '2026-07-01T00:00:00.000Z',
@@ -582,17 +664,17 @@ describe('requireVendor — the entitlement join', () => {
     });
     const token = await mintToken({ sub: 'user-banned-vendor' });
     const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
-    // AECI-524: the ban is orthogonal to and STRICTLY EARLIER than the
-    // entitlement. A paid-up vendor's banned seat is still locked out, and the
-    // rejection names the ban rather than the plan.
+    // AECI-524: the ban is orthogonal to and STRICTLY EARLIER than the plan. A
+    // paid-up vendor's banned seat is still locked out, and the rejection names the
+    // ban rather than the plan.
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
     expect(body.error?.message).toBe('Portal abuse');
   });
 
-  it('takes exactly ONE round-trip — the join replaces the profile read', async () => {
+  it('takes exactly ONE round-trip — the batch replaces the profile read', async () => {
     await seedSeat();
-    await seedEntitlement(VENDOR_ID);
+    await seedLicense(t.db, VENDOR_ID);
     dbCalls = 0;
     const { status } = await sessionFor('user-vendor');
     expect(status).toBe(200);
@@ -603,22 +685,80 @@ describe('requireVendor — the entitlement join', () => {
   });
 });
 
+/** The pure derivations behind the session's plan fields (AECI-1355). */
+describe('sessionPlanFromLicenses / productPlan / productTier', () => {
+  const live = (product_id: string | null, ends_at: string | null = null) => ({
+    product_id,
+    source: 'stripe',
+    ends_at,
+    ended_at: null,
+    end_reason: null,
+  });
+
+  it('reports the latest live term, and null once any live license is monthly', () => {
+    const annual = sessionPlanFromLicenses([
+      live('p1', '2027-01-01T00:00:00.000Z'),
+      live('p2', '2027-06-01T00:00:00.000Z'),
+    ]);
+    expect(annual.entitlement?.periodEnd).toBe('2027-06-01T00:00:00.000Z');
+    const mixed = sessionPlanFromLicenses([live('p1', '2027-01-01T00:00:00.000Z'), live('p2')]);
+    expect(mixed.entitlement?.periodEnd).toBeNull();
+  });
+
+  it('gives each product its own plan', () => {
+    const session = sessionPlanFromLicenses([
+      live('p1', '2027-01-01T00:00:00.000Z'),
+      {
+        product_id: 'p2',
+        source: 'invoice',
+        ends_at: '2026-05-01T00:00:00.000Z',
+        ended_at: '2026-05-01T00:00:00.000Z',
+        end_reason: 'lapsed',
+      },
+    ]);
+    expect(productTier(session, 'p1')).toBe('verified');
+    expect(productTier(session, 'p2')).toBe('unclaimed');
+    expect(productTier(session, 'p3')).toBe('unclaimed');
+    expect(productPlan(session, 'p1').entitlement).toEqual({
+      status: 'active',
+      tier: 'verified',
+      periodEnd: '2027-01-01T00:00:00.000Z',
+      endedAt: null,
+    });
+    expect(productPlan(session, 'p2')).toEqual({
+      entitlementTier: 'unclaimed',
+      entitlement: {
+        status: 'expired',
+        tier: 'verified',
+        periodEnd: '2026-05-01T00:00:00.000Z',
+        endedAt: '2026-05-01T00:00:00.000Z',
+      },
+    });
+    // Never on Managed: no term at all.
+    expect(productPlan(session, 'p3')).toEqual({ entitlementTier: 'unclaimed', entitlement: null });
+  });
+
+  it('a session with no license fields grants nothing per product (fail closed)', () => {
+    expect(productTier({}, 'p1')).toBe('unclaimed');
+    expect(productPlan({}, 'p1')).toEqual({ entitlementTier: 'unclaimed', entitlement: null });
+  });
+});
+
 /**
- * §4.1's other half, and the reason the join is on ONE branch: `requireAuth()`
- * fronts the review-submit hot path and `requireAdmin()` fronts `/api/admin/*`,
- * where an unconditional join would be a `LEFT JOIN … ON NULL` on every request.
- * Both must keep issuing exactly the read they issued before this issue.
+ * §4.1's other half, and the reason the license read is on ONE branch:
+ * `requireAuth()` fronts the review-submit hot path and `requireAdmin()` fronts
+ * `/api/admin/*`. Both must keep issuing exactly the read they issued before.
  */
-describe('requireAuth / requireAdmin do not run the entitlement join', () => {
-  it('reports unclaimed for a vendor_admin WITH an active entitlement, via requireAuth', async () => {
+describe('requireAuth / requireAdmin do not read licenses', () => {
+  it('reports unclaimed for a vendor_admin WITH a live license, via requireAuth', async () => {
     await seedVendor();
-    await seedEntitlement(VENDOR_ID);
+    await seedLicense(t.db, VENDOR_ID);
     await seedProfile('user-vendor', VENDOR_ADMIN);
     const token = await mintToken({ sub: 'user-vendor' });
 
     // Same user, same DB, two guards. Through `requireVendor()` the tier is
     // real; through `requireAuth()` it is the fail-closed floor — which is only
-    // possible if `requireAuth()` never ran the join.
+    // possible if `requireAuth()` never read licenses.
     const viaVendor = await call(makeApp(), '/api/vendor/me', 'GET', bearer(token));
     expect(viaVendor.body.auth?.entitlementTier).toBe('verified');
 
@@ -626,25 +766,27 @@ describe('requireAuth / requireAdmin do not run the entitlement join', () => {
     expect(viaAuth.status).toBe(200);
     expect(viaAuth.body.auth?.entitlementTier).toBe('unclaimed');
     expect(viaAuth.body.auth?.entitlement).toBeNull();
+    // The non-vendor session is unchanged: no license fields at all.
+    expect(viaAuth.body.auth).not.toHaveProperty('licensedProductIds');
+    expect(viaAuth.body.auth).not.toHaveProperty('licenses');
   });
 
   /**
-   * The structural half: a fake `Db` that implements BOTH read shapes and
-   * records which one the guard reached for. `requireAuth()`/`requireAdmin()`
-   * must call `db.query.profiles.findFirst` and never `db.select()`; the vendor
-   * branch must do the opposite. This is the assertion that fails if someone
-   * "simplifies" the branch into an unconditional join.
+   * The structural half: a fake `Db` that implements BOTH read shapes and records
+   * which one the guard reached for. `requireAuth()`/`requireAdmin()` must call
+   * `db.query.profiles.findFirst` and never `db.batch()`; the vendor branch must do
+   * the opposite. This is the assertion that fails if someone "simplifies" the
+   * branch into an unconditional license read.
    */
   function fakeDb(row: Record<string, unknown>) {
     const findFirst = vi.fn(async () => row);
-    const select = vi.fn(() => ({
-      from: () => ({
-        leftJoin: () => ({ where: () => ({ limit: async () => [row] }) }),
-      }),
-    }));
-    const db = { query: { profiles: { findFirst } }, select } as unknown as Db;
+    const chain: Record<string, unknown> = {};
+    for (const step of ['from', 'innerJoin', 'where', 'limit']) chain[step] = () => chain;
+    const select = vi.fn(() => chain);
+    const batch = vi.fn(async () => [[row], [], []]);
+    const db = { query: { profiles: { findFirst } }, select, batch } as unknown as Db;
     const dbFor: DbFactory = () => ({ db, getBookmark: () => null });
-    return { findFirst, select, dbFor };
+    return { findFirst, batch, dbFor };
   }
 
   const VENDOR_ROW = {
@@ -652,17 +794,14 @@ describe('requireAuth / requireAdmin do not run the entitlement join', () => {
     vendorId: VENDOR_ID,
     bannedAt: null,
     banReason: null,
-    entTier: 'verified',
-    entStatus: 'active',
-    entPeriodEnd: null,
   };
 
   it.each([
     ['requireAuth', requireAuth, '/api/account', 'DELETE'],
     ['requireAdmin', requireAdmin, '/api/admin/reviews/r1', 'PATCH'],
-  ] as const)('%s issues findFirst and never select()', async (_label, guard, path, method) => {
+  ] as const)('%s issues findFirst and never batch()', async (_label, guard, path, method) => {
     const role = guard === requireAdmin ? 'admin' : 'reviewer';
-    const { findFirst, select, dbFor: fake } = fakeDb({ ...VENDOR_ROW, role, vendorId: null });
+    const { findFirst, batch, dbFor: fake } = fakeDb({ ...VENDOR_ROW, role, vendorId: null });
     const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     app.onError(errorHandler());
     app.all(path, guard({ getKey, dbFor: fake }), (c) => c.json({ auth: c.get('auth') }));
@@ -671,11 +810,11 @@ describe('requireAuth / requireAdmin do not run the entitlement join', () => {
     const res = await app.request(path, { method, headers: bearer(token) }, ENV);
     expect(res.status).toBe(200);
     expect(findFirst).toHaveBeenCalledTimes(1);
-    expect(select).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
   });
 
-  it('requireVendor issues select() (the join) and never findFirst', async () => {
-    const { findFirst, select, dbFor: fake } = fakeDb(VENDOR_ROW);
+  it('requireVendor issues ONE batch() and never findFirst', async () => {
+    const { findFirst, batch, dbFor: fake } = fakeDb(VENDOR_ROW);
     const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     app.onError(errorHandler());
     app.get('/api/vendor/me', requireVendor({ getKey, dbFor: fake }), (c) =>
@@ -685,7 +824,7 @@ describe('requireAuth / requireAdmin do not run the entitlement join', () => {
     const token = await mintToken({ sub: 'user-vendor' });
     const res = await app.request('/api/vendor/me', { headers: bearer(token) }, ENV);
     expect(res.status).toBe(200);
-    expect(select).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledTimes(1);
     expect(findFirst).not.toHaveBeenCalled();
   });
 });
@@ -755,6 +894,60 @@ describe('requireCapability', () => {
       'product.listing.edit',
       'product.categories.edit',
     ]);
+  });
+});
+
+/**
+ * `requireProductCapability` — the per-product gate (AECI-1355). DB-free like the
+ * vendor gate; the product's own license decides.
+ */
+describe('requireProductCapability', () => {
+  const ctxFor = (auth: Partial<AuthzVariables['auth']>) =>
+    ({
+      get: () => ({
+        userId: 'u',
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        entitlementTier: 'verified',
+        entitlement: { status: 'active', periodEnd: null },
+        ...auth,
+      }),
+    }) as unknown as AuthzContext;
+
+  it('passes on the licensed product and 403s on the other, with the same details shape', () => {
+    const ctx = ctxFor({ licensedProductIds: ['p1'] });
+    expect(() => requireProductCapability(ctx, 'p1', 'product.usefulness.edit')).not.toThrow();
+
+    let thrown: unknown;
+    try {
+      requireProductCapability(ctx, 'p2', 'product.usefulness.edit');
+    } catch (e) {
+      thrown = e;
+    }
+    const err = thrown as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(403);
+    expect(err.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+    // The vendor holds a license, but `details.tier` is the PRODUCT's.
+    expect(err.details).toEqual({ capability: 'product.usefulness.edit', tier: 'unclaimed' });
+    // The same copy as the vendor-level gate.
+    let vendorLevel = '';
+    try {
+      requireCapability(ctxFor({ entitlementTier: 'unclaimed' }), 'product.usefulness.edit');
+    } catch (e) {
+      vendorLevel = (e as ApiError).message;
+    }
+    expect(err.message).toBe(vendorLevel);
+  });
+
+  it('passes the Free capabilities on every product, licensed or not', () => {
+    for (const capability of capabilitiesFor('unclaimed')) {
+      expect(() => requireProductCapability(ctxFor({}), 'p9', capability)).not.toThrow();
+    }
+  });
+
+  it('fails closed on a session that never loaded licenses', () => {
+    expect(() => requireProductCapability(ctxFor({}), 'p1', 'review.reply')).toThrow(ApiError);
   });
 });
 

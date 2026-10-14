@@ -10,8 +10,8 @@
  *  1. Eight grouped reads, one `db.batch` round trip, each `GROUP BY vendor_id`.
  *     Never one query per vendor.
  *  2. The activated set is derived from three of those reads: a vendor with at
- *     least one unbanned seat, an entitlement row, or a live invite. A catalog
- *     vendor with none of these gets no row.
+ *     least one unbanned seat, a license (live or ended, AECI-1355), or a live
+ *     invite. A catalog vendor with none of these gets no row.
  *  3. One `db.batch` of chunked upserts on `(day, vendor_id)`. A same-day rerun
  *     replaces the rows and adds none.
  *
@@ -28,22 +28,23 @@
  * search, home-stats and listing path. It sends nothing.
  */
 
-import { tierFor } from '@aeci/shared/entitlements';
 import { and, count, eq, gte, isNotNull, isNull, lte, max, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
   attestations,
+  billingAccounts,
   integrationFieldChallenges,
+  licenses,
   productVendors,
   products,
   profiles,
   userActivityDaily,
   vendorActivityDaily,
-  vendorEntitlements,
   vendorSeatInvites,
 } from '../db/schema';
 import { shiftDay } from './admin-analytics';
+import { sessionPlanFromLicenses, type SessionLicense } from './authz';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { chunked } from './promote-claims';
 import { isChecked } from './vendor-checklist';
@@ -105,7 +106,7 @@ export async function computeVendorSnapshot(
   const [
     seatRows,
     inviteRows,
-    entitlementRows,
+    licenseRows,
     activityRows,
     ownedRows,
     filedRows,
@@ -130,14 +131,20 @@ export async function computeVendorSnapshot(
       .from(vendorSeatInvites)
       .where(liveInvites(nowIso))
       .groupBy(vendorSeatInvites.vendorId),
-    // `vendor_id` is unique on this table, so this is one row per vendor.
+    // Every license, with the vendor of its billing account (AECI-1355). The plan
+    // columns are derived per vendor in TS by the SAME function the vendor guard
+    // uses (`sessionPlanFromLicenses`), so the snapshot and the portal agree.
     db
       .select({
-        vendorId: vendorEntitlements.vendorId,
-        tier: vendorEntitlements.tier,
-        status: vendorEntitlements.status,
+        vendorId: billingAccounts.vendorId,
+        product_id: licenses.assignedProductId,
+        source: licenses.source,
+        ends_at: licenses.endsAt,
+        ended_at: licenses.endedAt,
+        end_reason: licenses.endReason,
       })
-      .from(vendorEntitlements),
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId)),
     // Distinct users over three trailing windows in one pass over 30 days. A
     // `CASE` with no `ELSE` yields NULL outside the window, and `count(DISTINCT …)`
     // ignores NULL.
@@ -203,7 +210,12 @@ export async function computeVendorSnapshot(
   const owned = byVendor(ownedRows);
   const filed = byVendor(filedRows);
   const attested = byVendor(attestationRows);
-  const entitlements = new Map(entitlementRows.map((r) => [r.vendorId, r]));
+  const licensesByVendor = new Map<string, SessionLicense[]>();
+  for (const { vendorId, ...license } of licenseRows) {
+    const list = licensesByVendor.get(vendorId) ?? [];
+    list.push(license);
+    licensesByVendor.set(vendorId, list);
+  }
   const activity = new Map(activityRows.map((r) => [r.vendorId, r]));
 
   const productsTotal = new Map<string, number>();
@@ -217,12 +229,16 @@ export async function computeVendorSnapshot(
   }
 
   // The activated set. Seats here are unbanned seats, so a vendor whose only seat
-  // is banned, with no plan row and no live invite, is not activated.
-  const activated = new Set<string>([...seats.keys(), ...entitlements.keys(), ...invites.keys()]);
+  // is banned, with no license and no live invite, is not activated.
+  const activated = new Set<string>([
+    ...seats.keys(),
+    ...licensesByVendor.keys(),
+    ...invites.keys(),
+  ]);
 
   const computedAt = nowIso;
   return [...activated].sort().map((vendorId): VendorSnapshotRow => {
-    const entitlement = entitlements.get(vendorId) ?? null;
+    const plan = sessionPlanFromLicenses(licensesByVendor.get(vendorId) ?? []);
     const act = activity.get(vendorId);
     return {
       day,
@@ -232,9 +248,9 @@ export async function computeVendorSnapshot(
       activeUsers1d: Number(act?.d1 ?? 0),
       activeUsers7d: Number(act?.d7 ?? 0),
       activeUsers30d: Number(act?.d30 ?? 0),
-      entitlementTier: entitlement?.tier ?? null,
-      entitlementStatus: entitlement?.status ?? null,
-      effectiveTier: tierFor(entitlement),
+      entitlementTier: plan.entitlement?.tier ?? null,
+      entitlementStatus: plan.entitlement?.status ?? null,
+      effectiveTier: plan.entitlementTier,
       openContestsOwned: owned.get(vendorId) ?? 0,
       openContestsFiled: filed.get(vendorId) ?? 0,
       dataFlowsConfirmed: attested.get(vendorId) ?? 0,

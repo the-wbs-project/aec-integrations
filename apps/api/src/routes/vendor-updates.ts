@@ -34,7 +34,7 @@
  *   | scope          | predicate lives in                                          |
  *   |----------------|-------------------------------------------------------------|
  *   | `profile`      | trivially `vendors.id = <session vendor>`                    |
- *   | `entitlement`  | trivially `vendor_entitlements.vendor_id = <session vendor>` |
+ *   | `entitlement`  | `licenses` on a `billing_accounts` row of the session vendor |
  *   | `products`     | `ownedProductIds` (`vendor-shared.ts`)                       |
  *   | `integrations` | `ownedEndpointJoin` (`lib/attestation-authority.ts`), plus   |
  *   |                | the owned-rows predicates (`lib/owned-integrations.ts`)      |
@@ -83,6 +83,7 @@ import { getDb } from '../db/client';
 import {
   attestations,
   auditLog,
+  billingAccounts,
   claims,
   connectorCatalogs,
   connectorEvidencedPairs,
@@ -90,11 +91,11 @@ import {
   connectorStubs,
   integrationFieldChallenges,
   integrations,
+  licenses,
   productVendors,
   products,
   reviewResponses,
   reviews,
-  vendorEntitlements,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -202,15 +203,18 @@ export function createVendorUpdatesHandler(
       // see without reloading.
       db.select({ value: vendors.updatedAt }).from(vendors).where(eq(vendors.id, vendorId)),
 
-      // `entitlement` — `vendor_entitlements.vendor_id` is UNIQUE, so this is a
-      // MAX over at most one row. `max()` rather than a plain select anyway:
-      // an aggregate with no GROUP BY always returns exactly one row (NULL when
-      // the set is empty), so the "no entitlement ever arranged" case needs no
-      // branch here.
+      // `entitlement` — since AECI-1355 the plan is the vendor's licenses, so this
+      // is the newest `updated_at` over every license on every billing account of
+      // the vendor, live or ended: a grant, an assignment, a re-term and an end
+      // each stamp it. Every license write lands in `lib/license.ts`, which stamps
+      // `updated_at` on the rows it touches. An aggregate with no GROUP BY always
+      // returns exactly one row (NULL when the set is empty), so "never held a
+      // license" needs no branch here.
       db
-        .select({ value: max(vendorEntitlements.updatedAt) })
-        .from(vendorEntitlements)
-        .where(eq(vendorEntitlements.vendorId, vendorId)),
+        .select({ value: max(licenses.updatedAt) })
+        .from(licenses)
+        .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+        .where(eq(billingAccounts.vendorId, vendorId)),
 
       // `products` — every product the vendor owns, via the shared subquery.
       db

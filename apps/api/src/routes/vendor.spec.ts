@@ -37,7 +37,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
-import type { AuthzVariables } from '../lib/authz';
+import type { AuthzVariables, SessionLicense } from '../lib/authz';
 import {
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
@@ -63,6 +63,11 @@ const REQUEST = uuid(300);
 
 let t: TestDb;
 
+/** A license as the vendor guard puts it on the session (AECI-1355). */
+function live(product_id: string | null, ends_at: string | null = null): SessionLicense {
+  return { product_id, source: 'complimentary', ends_at, ended_at: null, end_reason: null };
+}
+
 const AUTH: AuthzVariables['auth'] = {
   userId: SEAT,
   email: 'ops@autodesk.test',
@@ -70,6 +75,9 @@ const AUTH: AuthzVariables['auth'] = {
   vendorId: VENDOR,
   entitlementTier: 'verified',
   entitlement: { status: 'active', periodEnd: null },
+  // AECI-1355: the session the guard builds from a live license on PRODUCT.
+  licensedProductIds: [PRODUCT],
+  licenses: [live(PRODUCT)],
 };
 
 beforeEach(async () => {
@@ -491,6 +499,16 @@ describe('PATCH /api/vendor/profile', () => {
         periodEnd: '2026-09-01T00:00:00.000Z',
         endedAt: '2026-09-02T00:00:00.000Z',
       },
+      licensedProductIds: [],
+      licenses: [
+        {
+          product_id: PRODUCT,
+          source: 'complimentary',
+          ends_at: '2026-09-01T00:00:00.000Z',
+          ended_at: '2026-09-02T00:00:00.000Z',
+          end_reason: 'lapsed',
+        },
+      ],
     };
 
     it('stamps a profile edit with the acting vendor and its active plan', async () => {
@@ -521,7 +539,7 @@ describe('PATCH /api/vendor/profile', () => {
         action: 'product.updated',
         vendorId: VENDOR,
         productId: PRODUCT,
-        // A hand-built session without the raw tier falls back to `entitlementTier`.
+        // AECI-1355: `licensePlanSnapshot` over the session's licenses.
         vendorTier: 'verified',
         vendorEntitlementStatus: 'active',
       });
@@ -553,6 +571,7 @@ describe('PATCH /api/vendor/profile', () => {
             tier: 'verified',
             periodEnd: '2020-01-01T00:00:00.000Z',
           },
+          licenses: [live(PRODUCT, '2020-01-01T00:00:00.000Z')],
         },
       );
       expect(status).toBe(200);
@@ -576,6 +595,7 @@ describe('PATCH /api/vendor/profile', () => {
             tier: 'verified',
             periodEnd: '2999-01-01T00:00:00.000Z',
           },
+          licenses: [live(PRODUCT, '2999-01-01T00:00:00.000Z')],
         },
       );
       const [row] = await auditRows();
@@ -590,6 +610,8 @@ describe('PATCH /api/vendor/profile', () => {
           ...AUTH,
           entitlementTier: 'unclaimed',
           entitlement: null,
+          licensedProductIds: [],
+          licenses: [],
         },
       );
       const [row] = await auditRows();

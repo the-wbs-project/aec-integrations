@@ -56,6 +56,7 @@ import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import type { AuthzVariables } from '../lib/authz';
 import { submitCount, submitDistribution, submitMetricsBatch } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createDecideContestHandler, createSubmitContestHandler } from './vendor-contests';
 
@@ -118,6 +119,8 @@ beforeEach(async () => {
     createdAt: NOW,
     updatedAt: NOW,
   });
+  // AECI-1355: the owner checks read licenses.
+  await seedLicense(t.db, VENDOR_T);
   await t.db.insert(profiles).values([
     { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR_A },
     { id: SEAT_T, role: 'vendor_admin', vendorId: VENDOR_T },

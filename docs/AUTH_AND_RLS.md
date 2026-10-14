@@ -502,11 +502,22 @@ Two schema facts the rule has to survive: `product_vendors` is many-to-many, so 
 - **`entitlementTier: EntitlementTier`** — always present, never optional (an optional field invites `session.entitlementTier ?? 'verified'`), `'unclaimed'` for non-vendor sessions and for any vendor without an `active` entitlement. Named `entitlementTier` and **not `tier`**, because `profiles.trust_tier` is a neighbouring **reviewer** concept whose CHECK vocabulary literally contains `'verified'` (`DATABASE_SCHEMA.md` §7.1). They are unrelated and must never be confused.
 - **`entitlement: { status, periodEnd } | null`** — term detail for the dashboard readout only; **deliberately not an authorization input.**
 
-**Loaded on the `vendor_admin` branch only.** That branch's existing per-request profile re-fetch gains a `leftJoin` onto `vendor_entitlements` — one extra table on a single-row lookup over a unique index, in the **same** round-trip. `requireAuth()` and `requireAdmin()` keep the exact query they ran before, so `/api/admin/*`, `POST /api/reviews` and `DELETE /api/account` are byte-identical to pre-AECI-611: an admin session has `vendor_id = null`, so an unconditional join would be a `LEFT JOIN … ON NULL` on every admin request. A separate `requireCapability()` *middleware* was rejected for three reasons: it would need `vendorId` first and therefore **serialize** a second read; being opt-in, an omission would be a silent authorization hole rather than a visible one; and the gate is **field**-granular, which route-level middleware cannot express.
+> **Since AECI-1355 (E1.6) the plan is read from `licenses`, not `vendor_entitlements`** (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 6). The fields above are derived:
+>
+> - `entitlementTier` is `'verified'` exactly when the vendor holds at least one **live** license (`licenses.ended_at IS NULL`) on any of its billing accounts, assigned or not. It gates the vendor-level writes: `profile.edit`, the attestation writes, and the connector-powered carve-out (`hasActiveEntitlement`).
+> - `entitlement` is `active` while any license is live (`periodEnd` = the latest live `ends_at`, `null` if any is monthly). Once none is live, the most recently ended license decides: `revoked` when its `end_reason` is `revoked`, else `expired`, with its `ends_at` and `ended_at`. `null` means the vendor never held a license.
+> - **`licensedProductIds: string[]`** — the products that hold a live license: the vendor's own live assignments, plus any product it owns that holds a live license on another account (a co-owned product licensed by its other owner; the partial unique index allows one live license per product). The input of `requireProductCapability`.
+> - **`licenses: { product_id, source, ends_at, ended_at, end_reason }[]`** — the vendor's OWN licenses: every live one plus the most recently ended one per (billing account, assigned product). Older ended licenses are not read. Another vendor's terms never enter the session. Feeds each product's `plan` block and the audit snapshot (`licensePlanSnapshot`).
+>
+> Live is stored state only. A license past its `ends_at` still grants until E6's daily job writes `ended_at`. The two license fields are optional on the type so hand-built test sessions compile, and absence reads as "no license", which fails closed. `requireAuth()` and `requireAdmin()` set neither.
+
+**Loaded on the `vendor_admin` branch only.** That branch's existing per-request profile re-fetch became (AECI-1355) one `db.batch` of three statements: the profile, the vendor's own licenses, and its owned products holding a live license. The license statements scope by a subquery on `profiles.vendor_id`, so it is still **one** round-trip. (Before AECI-1355 it was a `leftJoin` onto `vendor_entitlements`.) `requireAuth()` and `requireAdmin()` keep the exact query they ran before, so `/api/admin/*`, `POST /api/reviews` and `DELETE /api/account` are byte-identical to pre-AECI-611: an admin session has `vendor_id = null`, so an unconditional join would be a `LEFT JOIN … ON NULL` on every admin request. A separate `requireCapability()` *middleware* was rejected for three reasons: it would need `vendorId` first and therefore **serialize** a second read; being opt-in, an omission would be a silent authorization hole rather than a visible one; and the gate is **field**-granular, which route-level middleware cannot express.
 
 **Fail-closed.** No row, a non-`active` status, or a tier this build does not know all resolve to `'unclaimed'` → the Free capabilities only (`profile.edit`, `product.listing.edit`, `product.categories.edit`, AECI-1214) → 403 on every Managed write. Never default to `'verified'`. `vendor_entitlements.tier` is deliberately unconstrained at the DB layer, so the unknown-tier case is real and not theoretical.
 
 **Where it is enforced.** `requireCapability(c, cap)` throws **403 `ENTITLEMENT_REQUIRED`** with `details: { capability, tier, fields? }` — 403 and not 402, because 402 Payment Required would leak a billing model into a wire contract that must stay payer-model-agnostic, and `API_CONTRACTS.md` §4.1 has no 402 row. Two axes enforce it and they must agree: the **route-level** call in a write handler, and the **field-level** allow-list (`splitPatch` / `assertFieldsEntitled`, which map every vendor-editable field to a capability and **throw with `details.fields` rather than silently dropping** — a dirty-diff form re-seeds its baseline from the echo and would settle *clean* on a value that never landed). `verified` holds every capability. Since AECI-1214 the field → capability tables are `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in `@aeci/shared/entitlements`, the Free tier (`unclaimed`) holds company details and the four `listing_tier` product fields, and the product PATCH is gated per field only (`STAGE_2_PAID_TIERS_SPEC.md` §13.3).
+
+**Per product (AECI-1355).** A write on ONE product gates on that product's own license, not the vendor's: `requireProductCapability(c, productId, cap)` is the same DB-free assertion over `licensedProductIds` plus `TIER_CAPABILITIES`, with the same 403 status, copy and `details` shape (`details.tier` is the product's tier). It is called after `requireOwnedProduct` on the product-version writes and the review-reply create and edit. The product PATCH has no route-level gate; its field gate (`assertFieldsEntitled` / `splitPatch`) takes the product's tier from `productTier`. So a vendor with two products and one license writes Managed fields on one and gets `403 ENTITLEMENT_REQUIRED` on the other. `requireCapability` stays for `profile.edit` and the attestation writes. The logo upload (`POST /api/vendor/logo`) names no product and gates on Free capabilities only, so it is unchanged; the PATCH that saves the URL is gated per product.
 
 **Where the call site sits is not uniform, and that is deliberate.** On `PATCH /api/vendor/profile` the gate runs immediately after `sessionVendorId(c)`. On `PATCH /api/vendor/products/:id` it runs **after `requireOwnedProduct`**, because a 403 raised before ownership settles would confirm to a non-owner that the product exists — and **404-never-403 is the harder invariant** of this surface (§4.2a). The rule is "after ownership settles, wherever there is an ownership question", not "immediately after `sessionVendorId`".
 
@@ -749,8 +760,9 @@ row filter RLS would have provided, and they are not optional:
 **A third obligation applies to the version WRITES only** (AECI-607,
 `STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is the **`attestation.author`
 capability**, so `POST` / `PATCH` / `DELETE` additionally call
-`requireCapability(c, 'attestation.author')` and answer **`403
-ENTITLEMENT_REQUIRED`** without it (AECI-623). Two details that are easy to get
+`requireProductCapability(c, productId, 'attestation.author')` (AECI-1355; it was
+`requireCapability` from AECI-623) and answer **`403 ENTITLEMENT_REQUIRED`** without
+it: the product's own live license decides. Two details that are easy to get
 backwards:
 
 - **Ownership (404) is evaluated before the capability (403).** Reversed, the
@@ -762,8 +774,8 @@ backwards:
   data instead of letting the dashboard render a read-only tab that explains what
   active access unlocks. The 403 copy points at activation and **never at
   ranking, placement, or search** — no pay-for-placement.
-- The check is `requireCapability()` over the session's `entitlementTier`, the
-  same DB-free gate every other vendor write uses. Until **AECI-623** it was
+- The check is `requireProductCapability()` over the session's
+  `licensedProductIds` (AECI-1355), a DB-free gate like every other vendor write. Until **AECI-623** it was
   `assertVerifiedVendor()`, a one-function stand-in that read the
   `vendors.verified` mirror and answered `403 FORBIDDEN`. That stand-in is
   deleted. No authorization decision reads the mirror any more; it survives only

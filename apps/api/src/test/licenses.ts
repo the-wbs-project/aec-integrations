@@ -1,0 +1,62 @@
+/**
+ * Test seeds for `billing_accounts` and `licenses` (AECI-1355). Since plan resolution
+ * reads licenses, a spec that needs a vendor on Managed seeds a live license here,
+ * where it used to seed an active `vendor_entitlements` row.
+ *
+ * Raw inserts, not the `lib/license.ts` builders, so a spec states the exact row it
+ * means and no audit row lands beside it.
+ */
+
+import { eq } from 'drizzle-orm';
+
+import type { Db } from '../db/client';
+import { billingAccounts, licenses } from '../db/schema';
+
+let licenseSeq = 0;
+
+/** The vendor's billing account, created on first use (one per vendor, as in prod). */
+export async function seedBillingAccount(db: Db, vendorId: string): Promise<string> {
+  const [existing] = await db
+    .select({ id: billingAccounts.id })
+    .from(billingAccounts)
+    .where(eq(billingAccounts.vendorId, vendorId));
+  if (existing) return existing.id;
+  const id = crypto.randomUUID();
+  await db.insert(billingAccounts).values({ id, vendorId, name: `Account ${vendorId}` });
+  return id;
+}
+
+export interface LicenseSeed {
+  /** The product the license is assigned to. Omit or `null` for an unassigned slot. */
+  productId?: string | null;
+  source?: string;
+  endsAt?: string | null;
+  /** Set to end the license. `null` (the default) is live. */
+  endedAt?: string | null;
+  endReason?: string | null;
+  /** Stamps `updated_at`, for the cursor specs. */
+  updatedAt?: string;
+}
+
+/** One license on the vendor's billing account. Live and perpetual by default. */
+export async function seedLicense(
+  db: Db,
+  vendorId: string,
+  seed: LicenseSeed = {},
+): Promise<string> {
+  const billingAccountId = await seedBillingAccount(db, vendorId);
+  const id = `66666666-6666-4666-8666-${String(++licenseSeq).padStart(12, '0')}`;
+  await db.insert(licenses).values({
+    id,
+    billingAccountId,
+    source: seed.source ?? 'complimentary',
+    startsAt: '2026-01-01T00:00:00.000Z',
+    endsAt: seed.endsAt ?? null,
+    endedAt: seed.endedAt ?? null,
+    endReason: seed.endReason ?? null,
+    assignedProductId: seed.productId ?? null,
+    assignedAt: seed.productId ? '2026-01-01T00:00:00.000Z' : null,
+    ...(seed.updatedAt ? { updatedAt: seed.updatedAt } : {}),
+  });
+  return id;
+}

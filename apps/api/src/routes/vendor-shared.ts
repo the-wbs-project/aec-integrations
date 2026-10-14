@@ -14,7 +14,7 @@
 
 import type { CachePurgeSource } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { vendorPlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -64,26 +64,29 @@ export function sessionVendorId(c: VendorContext): string {
 }
 
 /**
- * The session vendor's plan, snapshotted for an audit row (AECI-1193). Read from
- * the session's `entitlement` block, which `requireVendor()` already joined, so a
- * vendor write costs no extra D1 read. A hand-built test session without the raw
- * `tier` falls back to the resolved `entitlementTier`.
+ * The session vendor's plan, snapshotted for an audit row (AECI-1193). Since
+ * AECI-1355 it is `licensePlanSnapshot` over the licenses `requireVendor()` already
+ * read onto the session, so a vendor write costs no extra D1 read, and a vendor row
+ * and an admin row about the same vendor (`vendorAuditStamp`) use one rule.
  *
- * The block carries `periodEnd`, so a write made after the term ended records
- * `expired` even though the stored status, and so the session, still read
- * `active` (ruling 2026-10-05). `now` is the write time and defaults to the wall
- * clock. The session's authorization is untouched.
+ * The session holds every live license and the latest ended one, which is all the
+ * snapshot reads. A live license whose `ends_at` has passed records `expired` even
+ * though the session still treats it as live (ruling 2026-10-05, a record rule).
+ * `now` is the write time and defaults to the wall clock. The session's
+ * authorization is untouched. A session with no `licenses` (a non-vendor or
+ * hand-built one) records `none`.
  */
 export function sessionVendorPlan(
   c: VendorContext,
   now: Date | string = new Date(),
 ): VendorPlanSnapshot {
-  const auth = c.get('auth');
-  const ent = auth.entitlement;
-  return vendorPlanSnapshot(
-    ent
-      ? { tier: ent.tier ?? auth.entitlementTier, status: ent.status, periodEnd: ent.periodEnd }
-      : null,
+  const licenses = c.get('auth').licenses ?? [];
+  return licensePlanSnapshot(
+    licenses.map((license) => ({
+      endsAt: license.ends_at,
+      endedAt: license.ended_at,
+      endReason: license.end_reason,
+    })),
     now,
   );
 }
@@ -753,10 +756,10 @@ export function productMaintenanceTransfer(
  *
  * The caller's `vendors` row rides along in the same wave so a granted seat
  * whose vendor row was deleted answers 404, as `GET /api/vendor/me` does. It is
- * NOT an authorization input: the capability gate is `requireCapability`, which
- * reads the session's `entitlementTier`, never the `vendors.verified` mirror
- * (AECI-623). Callers run that gate after this returns, so a non-owner gets a
- * 404 rather than learning it lacks the capability.
+ * NOT an authorization input: the capability gate is `requireProductCapability`,
+ * which reads the session's `licensedProductIds` (AECI-1355), never the
+ * `vendors.verified` mirror (AECI-623). Callers run that gate after this returns,
+ * so a non-owner gets a 404 rather than learning it lacks the capability.
  */
 export async function requireOwnedProduct(
   db: Db,

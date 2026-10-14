@@ -1616,7 +1616,11 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   admin row about an entitlement change records the plan **before** the change; `after_state` holds
   the new one. A `notification.sent` row carries no plan. License rows (AECI-1352) fill the same
   two columns from `licensePlanSnapshot`, which reads license rows instead of the entitlement
-  row (§8.6c). The column names stay, to avoid an `audit_log` recreate.
+  row (§8.6c). The column names stay, to avoid an `audit_log` recreate. **Since AECI-1355 the
+  vendor path and the shared admin helper (`vendorAuditStamp`, the hand-back, the seat-invite
+  accept) also use `licensePlanSnapshot`**: the vendor path over the licenses on the session, the
+  others over `loadVendorLicenses`. The admin entitlement, claim, vendor and plan-pricing routes
+  still use `vendorPlanSnapshot` until E4 replaces them.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
@@ -4481,9 +4485,9 @@ create table vendor_activity_daily (
   active_users_1d integer not null,
   active_users_7d integer not null,
   active_users_30d integer not null,
-  entitlement_tier text,             -- raw vendor_entitlements.tier; null = no row (Free)
+  entitlement_tier text,             -- 'verified' when the vendor holds or held a license; null = never (Free)
   entitlement_status text,           -- raw vendor_entitlements.status; null = no row
-  effective_tier text not null,      -- tierFor(row): 'unclaimed' (Free) unless the row is active
+  effective_tier text not null,      -- 'verified' iff any live license, else 'unclaimed' (Free)
   open_contests_owned integer not null,
   open_contests_filed integer not null,
   data_flows_confirmed integer not null,
@@ -4496,9 +4500,10 @@ create table vendor_activity_daily (
 create index vendor_activity_daily_vendor_day_idx on vendor_activity_daily(vendor_id, day);
 ```
 
-**Which vendors get a row.** A vendor with at least one unbanned seat, an entitlement row in any
-status, or a live invite. A catalog vendor with none of these has nothing to trend and gets no
-row. A vendor whose only seat is banned, with no plan row and no live invite, gets none either.
+**Which vendors get a row.** A vendor with at least one unbanned seat, a license live or ended
+(an entitlement row in any status until AECI-1355), or a live invite. A catalog vendor with none of
+these has nothing to trend and gets no row. A vendor whose only seat is banned, with no license
+and no live invite, gets none either.
 
 **What each column counts.**
 
@@ -4507,8 +4512,8 @@ row. A vendor whose only seat is banned, with no plan row and no live invite, ge
 | `seats` | `profiles` with `role = 'vendor_admin'`, this `vendor_id`, and `banned_at IS NULL`. `seatsOf` (`routes/vendor-shared.ts`) counts banned seats for the roster. This column does not, because a banned seat cannot be used |
 | `pending_invites` | `vendor_seat_invites` not accepted, not revoked, and with `expires_at` after the run instant. The predicate is `liveInvites` (`lib/vendor-seat-invites.ts`), the same one the roster uses |
 | `active_users_1d` / `_7d` / `_30d` | Distinct `user_activity_daily.user_id` with `role = 'vendor_admin'` and this `vendor_id`, over the 1, 7 and 30 days ending on `day`, inclusive. An admin or reviewer row carrying the vendor id does not count |
-| `entitlement_tier`, `entitlement_status` | The raw `vendor_entitlements` row. Both null when there is no row, which is the Free plan |
-| `effective_tier` | `tierFor()` from `@aeci/shared/entitlements`. `unclaimed` is Free. A row that is not `active` is Free too |
+| `entitlement_tier`, `entitlement_status` | Since AECI-1355, the vendor's licenses as the vendor guard derives them (`sessionPlanFromLicenses`): `verified` / `active` while any license is live, else the latest ended license's `expired` or `revoked`. Both null when the vendor never held a license, which is the Free plan. (Until AECI-1355, the raw `vendor_entitlements` row.) |
+| `effective_tier` | `verified` iff the vendor holds a live license, else `unclaimed` (Free). The same rule as the session's `entitlementTier` |
 | `open_contests_owned` | `integration_field_challenges` with `status = 'open'` and `owner_vendor_id` = this vendor |
 | `open_contests_filed` | The same, with `submitter_vendor_id` = this vendor |
 | `data_flows_confirmed` | Live `attestations` (`retracted_at IS NULL`) with `attested_by_vendor_id` = this vendor |

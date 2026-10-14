@@ -44,7 +44,7 @@ import {
   products,
   profiles,
   taxonomyDataObjects,
-  vendorEntitlements,
+  licenses,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -53,6 +53,7 @@ import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createVendorClaimHandler } from './vendor-attestations';
 import { createVendorUpdatesHandler } from './vendor-updates';
@@ -202,15 +203,10 @@ function expectOnlyMoved(
 
 // ── Fixture writers ─────────────────────────────────────────────────────────
 
+/** A live license for the vendor, stamped `at` (AECI-1355: the `entitlement`
+ *  cursor reads `licenses`). */
 async function seedEntitlement(vendorId: string, at = SEEDED) {
-  await t.db.insert(vendorEntitlements).values({
-    id: crypto.randomUUID(),
-    vendorId,
-    tier: 'verified',
-    status: 'active',
-    createdAt: at,
-    updatedAt: at,
-  });
+  return seedLicense(t.db, vendorId, { updatedAt: at });
 }
 
 async function seedClaim(id: string, integrationId: string, at = SEEDED) {
@@ -350,20 +346,20 @@ describe('GET /api/vendor/updates — each scope moves independently', () => {
     expectOnlyMoved(before, await revisions(), 'profile', MOVED);
   });
 
-  it('`entitlement` moves when the admin sets or renews the arrangement', async () => {
+  it('`entitlement` moves when a license is granted, re-termed or ended', async () => {
     const before = await revisions();
     expect(before.entitlement).toBeNull();
 
-    await seedEntitlement(VENDOR_A, MOVED);
+    const licenseId = await seedEntitlement(VENDOR_A, MOVED);
     expectOnlyMoved(before, await revisions(), 'entitlement', MOVED);
 
     // …and again on the renew, which is the one concrete sub-minute latency need
     // on the surface (ADR 0023's table).
     const afterGrant = await revisions();
     await t.db
-      .update(vendorEntitlements)
-      .set({ periodEnd: '2027-01-01T00:00:00.000Z', updatedAt: MOVED_LATER })
-      .where(eq(vendorEntitlements.vendorId, VENDOR_A));
+      .update(licenses)
+      .set({ endsAt: '2027-01-01T00:00:00.000Z', updatedAt: MOVED_LATER })
+      .where(eq(licenses.id, licenseId));
     expectOnlyMoved(afterGrant, await revisions(), 'entitlement', MOVED_LATER);
   });
 

@@ -80,6 +80,9 @@ const seat = (userId: string, vendorId: string, tier: 'verified' | 'unclaimed'):
   vendorId,
   entitlementTier: tier,
   entitlement: null,
+  // AECI-1355: the reply gate is per product. A `verified` seat here stands for
+  // both products holding a live license (a co-owner shares the product's license).
+  licensedProductIds: tier === 'verified' ? [P_A, P_C] : [],
 });
 const AUTH_A = seat(SEAT_A, VENDOR_A, 'verified');
 const AUTH_A2 = seat(SEAT_A2, VENDOR_A, 'verified');

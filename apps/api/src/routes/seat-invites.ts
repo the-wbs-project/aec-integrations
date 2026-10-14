@@ -58,8 +58,8 @@ import {
 } from '../lib/vendor-handback';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
 import { afterVendorWrite } from './vendor-shared';
-import { loadEntitlement } from '../lib/vendor-entitlement';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { loadVendorLicenses } from '../lib/license';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 
 type InviteContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -170,12 +170,12 @@ export function createAcceptSeatInviteHandler(
     // EXPLICIT errors, never a silent overwrite of an existing linkage.
     // The vendor's plan rides the same wave (AECI-1193): the redeemer has no vendor
     // session yet, so the audit row's plan snapshot is read here.
-    const [before, entitlement] = await Promise.all([
+    const [before, vendorLicenses] = await Promise.all([
       db.query.profiles.findFirst({
         columns: { role: true, vendorId: true, seatOwner: true, workEmailVerified: true },
         where: eq(profiles.id, auth.userId),
       }),
-      loadEntitlement(db, invite.vendorId),
+      loadVendorLicenses(db, invite.vendorId),
     ]);
     if (before?.role === 'admin') {
       throw new ApiError(
@@ -206,7 +206,7 @@ export function createAcceptSeatInviteHandler(
       email: invite.email,
       userId: auth.userId,
       actorType: auditActorType(auth),
-      vendorPlan: vendorPlanSnapshot(entitlement, now),
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
       now,
       domainMatched,
       profileBefore: before
@@ -227,7 +227,7 @@ export function createAcceptSeatInviteHandler(
         actorType: auditActorType(auth),
         now,
         source: 'vendor-portal',
-        vendorPlan: vendorPlanSnapshot(entitlement, now),
+        vendorPlan: licensePlanSnapshot(vendorLicenses, now),
       },
       auth.userId,
     );

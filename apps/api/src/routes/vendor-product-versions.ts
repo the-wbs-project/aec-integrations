@@ -18,9 +18,10 @@
  *    vendor does not own is indistinguishable from one that does not exist — the
  *    AECI-520 non-disclosure rule.
  * 2. **Capability → 403 `ENTITLEMENT_REQUIRED`**, on the WRITES only:
- *    `requireCapability(c, 'attestation.author')` over the session's tier
- *    (AECI-623; `STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Versions exist only to
- *    stamp attestations, so they share that capability. `GET` is not gated, so
+ *    `requireProductCapability(c, productId, 'attestation.author')` over THIS
+ *    product's tier, from its own live license (AECI-1355; AECI-623;
+ *    `STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Versions exist only to stamp
+ *    attestations, so they share that capability. `GET` is not gated, so
  *    the §6 dashboard can render the tab read-only and explain why rather than
  *    403-ing a vendor out of its own data.
  *
@@ -73,7 +74,7 @@ import { productVersions } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json, noContent } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
-import { auditActorType, requireCapability } from '../lib/authz';
+import { auditActorType, requireProductCapability } from '../lib/authz';
 import { VERSION_ORDER } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { readPairCounterpartSlugs } from '../lib/product-pair-slugs';
@@ -263,7 +264,7 @@ export function createProductVersionHandler(
     // (403 ENTITLEMENT_REQUIRED). Body parsing comes after both, so a malformed body from a
     // non-owning vendor still answers 404 rather than leaking a 400.
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireCapability(c, 'attestation.author');
+    requireProductCapability(c, productId, 'attestation.author');
 
     const payload = await parseJsonBody(c, CreateProductVersionSchema);
     await assertLabelFree(db, productId, payload.label);
@@ -345,7 +346,7 @@ export function createUpdateProductVersionHandler(
     const { db } = writeDb(c, dbFor);
 
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireCapability(c, 'attestation.author');
+    requireProductCapability(c, productId, 'attestation.author');
 
     const payload = await parseJsonBody(c, UpdateProductVersionSchema);
     const before = await loadOwnedVersion(db, productId, versionId);
@@ -438,7 +439,7 @@ export function createDeleteProductVersionHandler(
     const { db } = writeDb(c, dbFor);
 
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireCapability(c, 'attestation.author');
+    requireProductCapability(c, productId, 'attestation.author');
 
     const before = await loadOwnedVersion(db, productId, versionId);
 
