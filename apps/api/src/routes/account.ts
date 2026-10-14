@@ -77,7 +77,9 @@ import { getDb, type DbContext } from '../db/client';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
+  billingAccounts,
   integrationFieldChallenges,
+  licenses,
   profileAudiences,
   profileDetails,
   profiles,
@@ -482,7 +484,9 @@ export function createDeleteAccountHandler(
     // One atomic unit: null every inbound reference (five NO ACTION + the ten SET NULL
     // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by`,
     // `vendor_seat_invites.invited_by_id`, the five contest/protest columns and the two
-    // reply columns — made explicit) → PII-free audit → delete the profile.
+    // reply columns — made explicit), plus the two no-FK actor columns
+    // `billing_accounts.created_by` and `licenses.granted_by` → PII-free audit →
+    // delete the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
@@ -523,6 +527,20 @@ export function createDeleteAccountHandler(
         .update(vendorEntitlements)
         .set({ grantedBy: null })
         .where(eq(vendorEntitlements.grantedBy, userId)),
+      // AECI-1350: two actor columns with NO FK to `profiles`, so SQLite would leave
+      // the erased id on them and nothing else would clear it. Nulled here for the
+      // same reason `user_activity_daily` is deleted: erasure must leave no linkage.
+      // The ACCOUNT and the LICENSE survive (they are the vendor's commercial
+      // record), and `updated_at` is pinned to itself so `$onUpdate` does not make
+      // an erasure look like a commercial change.
+      db
+        .update(billingAccounts)
+        .set({ createdBy: null, updatedAt: sql`${billingAccounts.updatedAt}` })
+        .where(eq(billingAccounts.createdBy, userId)),
+      db
+        .update(licenses)
+        .set({ grantedBy: null, updatedAt: sql`${licenses.updatedAt}` })
+        .where(eq(licenses.grantedBy, userId)),
       // AECI-664: another of the sixteen (`AUTH_AND_RLS.md` §8), same treatment and same
       // reason. The INVITE survives its sender's erasure — a pending invite is the
       // invitee's to redeem, and deleting it would silently break a colleague's link

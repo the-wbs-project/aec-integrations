@@ -1064,6 +1064,64 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('pins every inbound foreign key of products, SET NULL included — AECI-1350', async () => {
+    // A recreate of `products` fires every inbound ON DELETE action, and
+    // `PRAGMA defer_foreign_keys` does not stop it (`docs/migrations.md` §3.3a). The
+    // CASCADE children lose rows. The SET NULL children lose a pointer, and one of
+    // those pointers is commercial state: `licenses.assigned_product_id` (0073). A
+    // generated-order recreate would unassign every license, and after AECI-1355 a
+    // product's plan resolves from its assigned license, so every product would lose
+    // Managed. When this list changes, re-plan the next `products` recreate first.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name, f."from" AS col, f.on_delete AS onDelete
+           FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+          WHERE m.type = 'table'
+            AND m.name NOT LIKE 'sqlite_%'
+            AND f."table" = 'products'
+          ORDER BY m.name, f."from"`,
+      )
+      .all();
+    expect(inbound).toContainEqual({
+      name: 'licenses',
+      col: 'assigned_product_id',
+      onDelete: 'SET NULL',
+    });
+    // The whole list, every action. A new CASCADE child needs a carry table; a new
+    // SET NULL child needs the same question asked of its null.
+    expect(
+      (inbound as { name: string; col: string; onDelete: string }[]).map((r) => [
+        r.name,
+        r.col,
+        r.onDelete,
+      ]),
+    ).toEqual([
+      ['connector_catalogs', 'connector_product_id', 'CASCADE'],
+      ['connector_evidenced_pairs', 'connector_product_id', 'CASCADE'],
+      ['connector_evidenced_pairs', 'product_a_id', 'CASCADE'],
+      ['connector_evidenced_pairs', 'product_b_id', 'CASCADE'],
+      ['connector_stub_mappings', 'product_id', 'SET NULL'],
+      ['integrations', 'powered_by_product_id', 'NO ACTION'],
+      ['integrations', 'source_product_id', 'CASCADE'],
+      ['integrations', 'target_product_id', 'CASCADE'],
+      ['licenses', 'assigned_product_id', 'SET NULL'],
+      ['page_views', 'pair_product_a_id', 'NO ACTION'],
+      ['page_views', 'pair_product_b_id', 'NO ACTION'],
+      ['page_views', 'product_id', 'NO ACTION'],
+      ['product_audiences', 'product_id', 'CASCADE'],
+      ['product_categories', 'product_id', 'CASCADE'],
+      ['product_extensions', 'host_product_id', 'CASCADE'],
+      ['product_extensions', 'product_id', 'CASCADE'],
+      ['product_phases', 'product_id', 'CASCADE'],
+      ['product_trades', 'product_id', 'CASCADE'],
+      ['product_vendors', 'product_id', 'CASCADE'],
+      ['product_versions', 'product_id', 'CASCADE'],
+      ['reviews', 'product_id', 'CASCADE'],
+    ]);
+    t.dispose();
+  });
+
   it('keeps `integration_endpoint_moves` free of foreign keys — AECI-991', async () => {
     // The redirect is keyed on the pair the edge moved AWAY from, so a foreign key to
     // either endpoint is a delete of the redirect whenever that endpoint retires. Both

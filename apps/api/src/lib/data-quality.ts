@@ -846,7 +846,13 @@ export const CHECKS: CheckSpec[] = [
   {
     id: 'license_mirror_drift',
     label: 'Vendors whose `verified` flag disagrees with their live licenses',
-    severity: 'error',
+    // `warn`, not `error`, until the back-fill has run everywhere. This check
+    // deploys before `ops:backfill-licenses`, and until then every verified
+    // vendor has no license, so `error` would trip the production
+    // `data-quality-error` PostHog alert on day one. AECI-1355 (the E1.6
+    // plan-resolution switch-over) raises it to `error` once the back-fill
+    // reads 0 on every tier.
+    severity: 'warn',
     run: ({ db }) => checkLicenseMirrorDrift(db),
   },
   {

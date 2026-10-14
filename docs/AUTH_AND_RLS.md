@@ -1016,6 +1016,14 @@ middleware never writes on `DELETE /api/account` itself. Both of its writers, th
 `apps/api/src/activity-middleware.spec.ts` drains `waitUntil` after a delete, and after a racing
 request, and asserts zero rows. The privacy policy promises this deletion (AECI-1211).
 
+**Two actor columns with no FK are nulled too (AECI-1350).** `billing_accounts.created_by` and
+`licenses.granted_by` hold a `profiles.id` but carry no foreign key, so the table above does not
+list them and SQLite never clears them. The erasure batch nulls both where they name the user.
+The billing account and the license survive, because they are the vendor's commercial record.
+Only the person's link is severed. Both statements pin `updated_at`, so an erasure does not read
+as a commercial change. `apps/api/src/routes/account.spec.ts` asserts it.
+`vendor_plan_pricing.updated_by` is the same shape and is not nulled today.
+
 **Flow (`DELETE /api/account`, `requireAuth`, AECI-202; D1 re-platform AECI-254/278).**
 Because the app store (D1) and Supabase Auth are now **separate systems** (ADR 0016),
 erasure is a **two-system** operation — there is no single cross-system transaction
@@ -1023,7 +1031,8 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null every inbound reference above (fifteen; the three cascading rows need no statement),
+   in order, null every inbound reference above (fifteen; the three cascading rows need no statement)
+   and the two no-FK actor columns,
    delete the user's `user_activity_daily` rows, write the `account.deleted` audit row, then
    delete the `profiles` row. All commit or roll back as a unit.
    **When the profile is a `vendor_admin` seat (AECI-1106)**, the AECI-989 seat-loss

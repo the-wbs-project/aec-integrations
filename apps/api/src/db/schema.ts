@@ -1579,8 +1579,9 @@ export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
  * rather than cascading it away.
  *
  * `created_by` has no FK, like `vendor_plan_pricing.updated_by`: an admin's or owner's id
- * stays on the record, the `DELETE /api/account` erasure batch has nothing new to null,
- * and a `profiles` recreate cannot cascade into it.
+ * stays on the record and a `profiles` recreate cannot cascade into it. Because there is
+ * no FK, SQLite never clears it, so the `DELETE /api/account` erasure batch nulls it (and
+ * `licenses.granted_by`) explicitly (`AUTH_AND_RLS.md` §8).
  *
  * No `relations()` entry (the `STAGE_2_PAID_TIERS_SPEC.md` §2.5 rule, see the note under
  * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.

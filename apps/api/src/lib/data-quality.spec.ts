@@ -575,10 +575,11 @@ describe('checkLicenseMirrorDrift', () => {
     expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
   });
 
-  it('is registered at `error` severity, right after the entitlement check', () => {
+  // `warn` until the back-fill lands on every tier; AECI-1355 raises it to `error`.
+  it('is registered at `warn` severity, right after the entitlement check', () => {
     const ids = CHECKS.map((c) => c.id);
     expect(ids.indexOf('license_mirror_drift')).toBe(ids.indexOf('entitlement_mirror_drift') + 1);
-    expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
+    expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('warn');
   });
 });
 

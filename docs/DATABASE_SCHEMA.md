@@ -1811,7 +1811,9 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
   `licenses.billing_account_id` (NO ACTION) safe: nothing deletes an account.
-- **No FK on `created_by`.** The erasure batch (`AUTH_AND_RLS.md` §8) has nothing new to null.
+- **No FK on `created_by`.** A `profiles` recreate cannot cascade into it. SQLite never clears it
+  either, so the erasure batch (`AUTH_AND_RLS.md` §8) nulls it explicitly, as it does
+  `licenses.granted_by`.
 - **No `relations()` entry** (the §8.6 rule). `drizzle-helpers.read-path.spec.ts` keeps both
   tables off the catalog read paths.
 - **Domain state.** Every write carries its `audit_log` row in the same `db.batch`, with

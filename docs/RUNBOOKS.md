@@ -1050,7 +1050,10 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 
 > **`license_mirror_drift` on its own means the licenses were never back-filled on that tier.** It
 > counts vendors whose `verified` disagrees with EXISTS(a live license). Until the E1.6 switch-over
-> `entitlement_mirror_drift` checks the same bit against the entitlement row. When only the license
+> `entitlement_mirror_drift` checks the same bit against the entitlement row. It is `warn` for now,
+> so it reaches the dashboard and the digest but never the `data-quality-error` alert: it deploys
+> before the back-fill, and every verified vendor reads as drift until that runs. AECI-1355 (E1.6)
+> raises it to `error` once it reads 0 on every tier. When only the license
 > check fails, run `ops:backfill-licenses` on the tier: dry run first, then `--apply`
 > (`--allow-production` on production). The script writes the missing billing accounts and licenses
 > and one `billing_account.backfilled` audit row per vendor, and a re-run writes nothing

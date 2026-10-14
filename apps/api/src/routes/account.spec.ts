@@ -10,8 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  billingAccounts,
   integrationFieldChallenges,
   integrations,
+  licenses,
   products,
   profileAudiences,
   profileDetails,
@@ -457,6 +459,61 @@ describe('DELETE /api/account', () => {
     expect(ent).toBeDefined();
     expect(ent!.grantedBy).toBeNull();
     expect(ent!.status).toBe('active');
+  });
+
+  it('nulls billing_accounts.created_by and licenses.granted_by, keeping both rows (AECI-1350)', async () => {
+    // Neither column has an FK to `profiles`, so SQLite would leave the erased id in
+    // place and the profile delete would still succeed. Only the explicit statements
+    // in the erasure batch clear them. `updated_at` must not move: an erasure is not
+    // a commercial change.
+    const STAMP = '2026-01-01T00:00:00.000Z';
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db.insert(billingAccounts).values({
+      id: u(30),
+      vendorId: u(2),
+      name: 'Autodesk',
+      createdBy: USER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    await t.db.insert(licenses).values({
+      id: u(31),
+      billingAccountId: u(30),
+      source: 'invoice',
+      startsAt: STAMP,
+      grantedBy: USER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    // Someone else's grant is left alone.
+    await t.db.insert(licenses).values({
+      id: u(32),
+      billingAccountId: u(30),
+      source: 'complimentary',
+      startsAt: STAMP,
+      grantedBy: ADMIN_USER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profiles)).toHaveLength(0);
+
+    const [account] = await t.db.select().from(billingAccounts);
+    expect(account).toMatchObject({ id: u(30), createdBy: null, updatedAt: STAMP });
+    const rows = await t.db.select().from(licenses).orderBy(licenses.id);
+    expect(rows.map((r) => [r.id, r.grantedBy, r.updatedAt, r.endedAt])).toEqual([
+      [u(31), null, STAMP, null],
+      [u(32), ADMIN_USER, STAMP, null],
+    ]);
   });
 
   it('nulls the contest submitted_by / decided_by without deleting the contest (AECI-1008)', async () => {
