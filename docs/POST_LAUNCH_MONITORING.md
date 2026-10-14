@@ -1134,11 +1134,12 @@ Ops-routed findings are unaffected.
 | `VENDOR_SYNC_FOCUSED_INTERVAL_MS` / `VENDOR_SYNC_UNFOCUSED_INTERVAL_MS` (hidden = no timer) | `vendor/vendor-live-sync.ts` (web) | 20 s / 60 s / paused | How fast a live portal notices a change it did not make (AECI-629 / `STAGE_2_REALTIME_SPEC.md` §4.1). **The `aeci.api.vendor.updates{changed:none}` ratio is the evidence** — a high `none` share means the cadence outruns how often the portal actually changes, so **lengthen the interval first**; a high `some` share is the opposite finding and is ADR 0023's third re-open condition (adopt a Durable Object), not a reason to poll harder. **Read `some` as an upper bound** — the endpoint is stateless, so the tag means "a cursor moved within 60 s of this response", and one write can be tagged `some` on three consecutive polls of a focused client (`OBSERVABILITY.md`). Hidden is **paused with no timer** rather than slowed: the tab polls immediately on `visibilitychange`, so a resumed tab is correct in one round trip. `online` is answered immediately **only while visible** — a flapping connection would otherwise wake a hidden tab repeatedly. |
 | `VENDOR_SYNC_BACKOFF_BASE_MS` / `VENDOR_SYNC_BACKOFF_CAP_MS` | `vendor/vendor-live-sync.ts` (web) | 20 s / 160 s | The error backoff: `min(20 s × 2ⁿ, 160 s)`, reset on the first success. **It is floored at the current poll interval** (`Math.max(base, backoff)`), so a *focused* tab sees 20 → 40 → 80 → 160 s while an *unfocused* one sees 60 → 60 → 80 → 160 s — without the floor the first backoff step (20 s) would be shorter than the unfocused cadence (60 s) and an outage would be answered with three times the healthy load. The cap is sized so a portal left open through an API outage settles at roughly one request every three minutes and still recovers on its own without the vendor reloading. Raise only if an outage's tail traffic is itself the problem; lowering it trades recovery latency for load during exactly the window the API is already unwell. |
 
-### 3c. Changing a classifier: evaluation and recording — **PROPOSED (AECI-872), not yet agreed**
+### 3c. Changing a classifier: evaluation and recording (AECI-872)
 
-> **PROPOSED (AECI-872), not yet agreed.** This section describes a procedure that does **not** run
-> today. It is the operational half of `ADMIN_PANEL_SPEC.md` §13 **D19**, and it takes effect only if
-> D19 is agreed. Until then §3b above is the live procedure for every threshold in this document.
+This is the operational half of `ADMIN_PANEL_SPEC.md` §13 **D19**, agreed on 2026-10-14. Steps 1 to 3
+run today with the offline shadow runner. The stored classification record in step 4 arrives with
+Phase 2 (**AECI-1345**), and the seam in step 5 with Phase 3 (**AECI-1346**). Until Phase 3 ships,
+the digest still reports under §3b, and §3b stays the live procedure for every threshold here.
 
 Today a threshold change is one edit to a constant in `lib/swarm-detection.ts` and a note in
 `POST_LAUNCH_HEALTH_REPORT.md`. That is the whole record. Two gaps follow from it and §3b already
@@ -1154,7 +1155,28 @@ name rows is a hunch. Quote the rows from a read-only `SELECT` against the tier'
 memory — §3b's census and sweep queries are the starting point.
 
 **2. Shadow-run.** The new version runs **beside** the current one and reports; it decides nothing.
-It must be exercised against the D19(d) reviewed sample, which has to contain all six of:
+The runner is `apps/api/scripts/traffic-classification-shadow.ts`:
+
+```bash
+pnpm --filter @aeci/api ops:traffic-shadow -- --from 2026-09-13 --to 2026-10-13
+```
+
+It reads production D1 read-only, from `/tmp`, with the operator's wrangler OAuth login. Every
+statement passes a SELECT-only guard. It loads the rows into a local SQLite built from the real
+migrations, runs `detectSwarms` and `NOT_INTERNAL` unchanged, and classifies every row with
+`lib/traffic-classifier.ts`. Its JSON and Markdown reports go to `.context/aeci-872/`, which is
+gitignored. Each report header carries the classifier version, the rule fingerprint, the git SHA and
+the evidence window. Add `--local` for a dry run against the local D1. Before trusting a production
+run, confirm the target with `wrangler d1 info aeci-app-production-us` from `/tmp`. Then check one
+day's row count against that day's digest `page_views` total. The report's "Reproduces digest"
+column must read `yes` on every day, or the runner is not seeing the digest's population.
+
+Three constants are new with the classifier and are shadow-only until cut-over:
+`SUSPECTED_MIN_SIGNAL_FAMILIES` (2), `SPA_FOLLOWUP_WINDOW_MINUTES` (30) and the runner's
+`SHARED_PROXY_MIN_UA_HASHES` (5). They change no reported number today, so they join §3b's tunables
+table with Phase 3. The first two are rule inputs, so changing either bumps the classifier version.
+
+The run must be exercised against the D19(d) reviewed sample, which has to contain all six of:
 
 | Sample slice | Why it is in the set |
 |---|---|
@@ -1164,6 +1186,31 @@ It must be exercised against the D19(d) reviewed sample, which has to contain al
 | Ambiguous shared-proxy cases | Office NAT, campus, café. D15(c) is entirely about this shape. |
 | Real traffic with unknown labels | The actual population. Without it the sample measures the sample. |
 | **Held-out days the tuning never saw** | The only slice that can show over-fitting to a decomposed day. |
+
+**Building the labelled slices.** The operator and privacy-hardened slices come from labelled
+browsing sessions, matched by time window and home network. The runner builds the other slices
+itself: known bots from edge verification (`cf_verified_bot`, or a non-null `cf_verified_bot_category`) or a named crawler label, shared-proxy candidates from
+eyeball ASNs carrying many UA hashes in one hour (listed for review, never auto-labelled), and
+unknown for the rest. The protocol for the labelled sessions:
+
+1. Browse `www.aecintegrations.com` for about 10 minutes per session. Open listing, category and
+   pair pages, and follow at least three in-app links per session. Run each privacy-hardened session
+   signed out, in a browser never used for admin sign-in. The operator session is the one exception.
+2. Run four sessions: Safari with default settings; Firefox with Enhanced Tracking Protection on
+   Strict and Global Privacy Control on; Brave with Shields up; and one Chrome session signed in as
+   admin, which is the operator slice.
+3. For each session, write down the browser and the start and end time in UTC. Then read your home
+   ASN off one of the session's rows on `/admin/activity`, after the session ends. Do not run two
+   sessions at the same time.
+4. Record the sessions in `.context/aeci-872/labels.json`. The shape is
+   `apps/api/scripts/traffic-shadow-labels.example.json`. Declare the held-out days in the same file
+   **before** the first tuning run, and never move a day into or out of that list afterwards.
+
+A row matches a session when it falls inside the window and carries the session's ASN. A stranger on
+the same ISP in the same ten minutes would match too, which is why the sessions are short. The
+classifier computes a class for every row, internal ones included, so the operator slice measures
+false exclusions. Both labelled slices are real browser activity, so any row the classifier places in
+an automation class is a false exclusion.
 
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.
@@ -1180,17 +1227,20 @@ result to be reported as a win.
 **4. Record.** A version change is recorded in four places, and the first two are the ones that make
 the stored series legible afterwards:
 
-- **The classification record itself** (`DATABASE_SCHEMA.md` §9.7) carries the classifier version on
-  every row it writes, so a day evaluated under two versions is visible in the data rather than in
-  someone's memory.
-- **`job_runs.detail`** carries the version and the constant values the run actually used — not just
+- **The classification record itself** (`DATABASE_SCHEMA.md` §9.7, built in Phase 2, AECI-1345)
+  carries the classifier version on every row it writes, so a day evaluated under two versions is
+  visible in the data rather than in someone's memory. Until then the shadow report header carries
+  the version and fingerprint. `traffic-classifier.spec.ts` pins both, so a rule edit that does not
+  bump `TRAFFIC_CLASSIFIER_VERSION` fails CI.
+- **`job_runs.detail`** (Phase 2) carries the version and the constant values the run actually used — not just
   the counts it produced, which is all it carries today (`swarmCandidates`, `asnRotatorCandidates`,
   `swarmFlaggedViews`, `swarmTruncated`, `verdictFlaggedViews`, `nonBrowserCandidates`).
 - **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
 - **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
   is unchanged and is not superseded by any of the above.
 
-**5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. The
+**5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. This
+step arrives with Phase 3 (AECI-1346). The
 rule is D19(c): **days under different classifier versions are flagged, never blended.** Concretely,
 for the day of the switch and for any window spanning it, three things hold.
 

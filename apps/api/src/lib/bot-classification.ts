@@ -201,6 +201,24 @@ const DATACENTER_ASNS: ReadonlyMap<number, string> = new Map([
   [62041, 'Telegram (link preview)'],
 ]);
 
+/** The label `classifyTraffic` writes for a UA that matched only {@link GENERIC_BOT_RE}. */
+export const GENERIC_BOT_LABEL = 'Other bot';
+
+/**
+ * The named-crawler rules as plain data: `[pattern source, flags, label]`, in match
+ * order. Exposed for the versioned traffic classifier (AECI-872), which reads stored
+ * `bot_name` labels and fingerprints the rules that produced them. The regexes stay
+ * private so nothing outside this module can match against a UA with them.
+ */
+export function namedBotEntries(): ReadonlyArray<readonly [string, string, string]> {
+  return NAMED_BOTS.map(([re, label]) => [re.source, re.flags, label] as const);
+}
+
+/** The generic-automation rule as plain data, for the same fingerprint (AECI-872). */
+export function genericBotRule(): readonly [string, string, string] {
+  return [GENERIC_BOT_RE.source, GENERIC_BOT_RE.flags, GENERIC_BOT_LABEL];
+}
+
 /** The `[asn, label]` pairs of `DATACENTER_ASNS`, in declaration order. Exposed so the
  *  spec can assert `scripts/ops/backfill-page-view-bots.sql` mirrors this table exactly
  *  (and so an ops script can regenerate that SQL) without exporting a mutable Map. */
@@ -214,7 +232,7 @@ export function classifyTraffic(ua: string | null, asn: number | null): TrafficC
     for (const [re, name] of NAMED_BOTS) {
       if (re.test(ua)) return { isBot: true, botName: name };
     }
-    if (GENERIC_BOT_RE.test(ua)) return { isBot: true, botName: 'Other bot' };
+    if (GENERIC_BOT_RE.test(ua)) return { isBot: true, botName: GENERIC_BOT_LABEL };
   }
   if (asn !== null) {
     const label = DATACENTER_ASNS.get(asn);

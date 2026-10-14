@@ -1,0 +1,28 @@
+{
+  "sessions": [
+    {
+      "slice": "privacy_hardened",
+      "browser": "Firefox, Strict tracking protection, GPC on, signed out",
+      "startUtc": "2026-10-20T08:00:00.000Z",
+      "endUtc": "2026-10-20T08:10:00.000Z",
+      "cfAsn": 7713,
+      "note": "Example only. Copy to .context/aeci-872/labels.json and replace every value."
+    },
+    {
+      "slice": "operator",
+      "browser": "Chrome, signed in as admin",
+      "startUtc": "2026-10-20T09:00:00.000Z",
+      "endUtc": "2026-10-20T09:10:00.000Z",
+      "cfAsn": 7713
+    }
+  ],
+  "heldOutDays": [
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+  ]
+}

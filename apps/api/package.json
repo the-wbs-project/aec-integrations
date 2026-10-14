@@ -38,6 +38,7 @@
     "ops:backfill-entitlements": "tsx scripts/backfill-entitlements.ts",
     "ops:backfill-metrics-daily": "tsx scripts/backfill-metrics-daily.ts",
     "ops:submit-trade-urls": "tsx scripts/submit-trade-urls.ts",
+    "ops:traffic-shadow": "tsx scripts/traffic-classification-shadow.ts",
     "docs:notifications": "tsx scripts/generate-notifications-doc.ts",
     "docs:notifications:check": "tsx scripts/generate-notifications-doc.ts --check",
     "typecheck": "tsc --noEmit",

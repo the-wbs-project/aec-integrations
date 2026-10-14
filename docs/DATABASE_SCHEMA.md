@@ -3003,12 +3003,13 @@ cannot cascade. `apps/api/src/test/migration-0062.spec.ts` pins that.
 
 ---
 
-### 9.7 `page_view_classifications` — **PROPOSED (AECI-872), not yet agreed**
+### 9.7 `page_view_classifications` — **PROPOSED (AECI-872)**
 
-> **PROPOSED (AECI-872), not yet agreed.** This table does not exist. There is no migration, no
-> Drizzle model and no code. It is the storage half of `ADMIN_PANEL_SPEC.md` §13 **D19**, written
-> here so the shape can be argued before anything is generated. **No `pnpm db:generate` until D19 is
-> agreed.**
+> **PROPOSED. D19 agreed 2026-10-14; this shape is built in Phase 2 (AECI-1345).** This table does not
+> exist yet. There is no migration and no Drizzle model. It is the storage half of
+> `ADMIN_PANEL_SPEC.md` §13 **D19**. The classifier that will fill it exists already, as a pure
+> module (`apps/api/src/lib/traffic-classifier.ts`), and runs today only in the offline shadow runner.
+> **No `pnpm db:generate` before Phase 2.**
 
 The versioned classification record. One row says: *this page view was placed in this class, by this
 version of the classifier, for these reasons, looking at this window of evidence, at this time.*
@@ -3022,8 +3023,9 @@ property of the request**: the request's facts are immutable, the judgement abou
 create table page_view_classifications (
   id integer primary key autoincrement,
 
-  -- The observation this judges. `page_views.id` is the real FK; see the two
-  -- hazards below before settling on the ON DELETE action.
+  -- The observation this judges. `page_views.id` is the real FK. ON DELETE
+  -- CASCADE was accepted with the two hazards below; the prune deletes these
+  -- rows explicitly first.
   page_view_id integer not null references page_views(id) on delete cascade,
 
   -- The D19(b) reporting class. Closed server-side vocabulary:
@@ -3035,7 +3037,8 @@ create table page_view_classifications (
   -- table recreate.
   class text not null,
 
-  -- Short, STABLE codes, as a JSON array: '["ua_named_crawler","asn_hosting"]'.
+  -- Short, STABLE codes, as a JSON array: '["asn_datacenter","verdict_inconsistent"]'.
+  -- The vocabulary is REASON_CODES in apps/api/src/lib/traffic-classifier.ts.
   -- Stable because they are read back months later and compared across versions;
   -- renaming one is a data migration, not a refactor. The same code vocabulary the
   -- admin note codes use (API_CONTRACTS.md §6.10) — machine-readable, never prose.
@@ -3055,15 +3058,16 @@ create table page_view_classifications (
   evidence_to text not null,
 
   -- Denormalized UTC date of the page view (`substr(page_views.created_at,1,10)`).
-  -- See "Indexes" below — this is the one field the reviewer should push back on.
+  -- Kept on review (D19, 2026-10-14); see "Indexes" below.
   view_day text not null,
 
   created_at text not null default (datetime('now'))
 );
 
--- One judgement per (view, version). A re-run of the same version is an upsert,
--- not a second row; a NEW version writes a second row beside the first, which is
--- what makes D19(c)'s "flagged, never blended" checkable in the data.
+-- One judgement per (view, version), append-only. A row is never updated. A
+-- re-run of the same version inserts nothing new; a NEW version writes a second
+-- row beside the first, which is what makes D19(c)'s "flagged, never blended"
+-- checkable in the data.
 create unique index page_view_classifications_view_version_idx
   on page_view_classifications(page_view_id, classifier_version);
 
@@ -3078,12 +3082,12 @@ placed explicitly, so "we could not tell" is a countable population instead of a
 that is classified but has no evidence still gets a row, with `class = 'unresolved'` and reason codes
 naming what was missing.
 
-**Indexes: the `view_day` denormalization is the one live question.** Without it, every digest read
-joins back to `page_views` to reach `created_at`, and the day filter cannot be served from this table
-at all. With it, the day is duplicated — which is safe only because `page_views.created_at` is
-immutable, and that is the argument, not a convenience. **Alternative for the reviewer:** drop
-`view_day`, join on the `page_view_id` leading column of the unique index, and accept a join on every
-breakdown. Do not add any index beyond the two above speculatively: §9.1's rule applies here in
+**Indexes: `view_day` is kept (D19, agreed 2026-10-14).** Without it, every digest read joins back to
+`page_views` to reach `created_at`, and the day filter cannot be served from this table at all. With
+it, the day is duplicated, which is safe only because `page_views.created_at` is immutable. That is
+the argument, not a convenience. The rejected alternative was to drop `view_day` and join on the
+`page_view_id` leading column of the unique index for every breakdown. Do not add any index beyond
+the two above speculatively: §9.1's rule applies here in
 spirit — indexes are billed as rows written, and this table's write volume tracks `page_views`.
 
 **Two hazards on the foreign key, and they pull in opposite directions.**
@@ -3098,9 +3102,9 @@ spirit — indexes are billed as rows written, and this table's write volume tra
    `page_views` in chunks by `id` and reports `rowsDeleted`. If these rows disappear by cascade, the
    number it reports and audits is wrong for this table by omission.
 
-**Recommended resolution, for the reviewer to accept or reject:** keep the FK for integrity, and have
-the §7.4 prune delete from this table **explicitly and first**, in the same run and the same window,
-so the cascade is never the thing that does the work.
+**Resolution, accepted with D19 on 2026-10-14:** keep the FK for integrity, and have the §7.4 prune
+delete from this table **explicitly and first**, in the same run and the same window, so the cascade
+is never the thing that does the work.
 
 **Retention: 400 days, aligned with `page_views` §9.1 — not independent.** A classification of a row
 that no longer exists is unreadable, so there is no case for keeping it longer, and keeping it
@@ -3122,8 +3126,9 @@ the generated SQL before it is ever applied: **if the generated migration contai
 `__new_page_views`, stop.** The additive-only rule is also what makes D19 introducible without the
 one-way backfill of `is_bot` that D14 argued against.
 
-**Would be written by** the classifier run (proposed: alongside the 00:15 snapshot cron, so a day is
-classified once it is complete) and by any shadow-mode run under a distinct `classifier_version`.
+**Would be written by** the Phase 2 cron writer (proposed: alongside the 00:15 snapshot cron, so a
+day is classified once it is complete). The Phase 1 shadow runner writes nothing here. It reads
+production read-only and writes its report to a local file (`POST_LAUNCH_MONITORING.md` §3c).
 **Would be read by** the daily digest, `GET /api/admin/overview`, `GET /api/admin/traffic/breakdown`
 and `GET /api/admin/page-views` (`API_CONTRACTS.md` §6.10). No public surface reads it, and none
 should — D19(g) forbids a new public surface.
