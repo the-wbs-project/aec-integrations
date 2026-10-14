@@ -579,7 +579,7 @@ describe('checkLicenseMirrorDrift', () => {
   it('is registered at `warn` severity, right after the entitlement check', () => {
     const ids = CHECKS.map((c) => c.id);
     expect(ids.indexOf('license_mirror_drift')).toBe(ids.indexOf('entitlement_mirror_drift') + 1);
-    expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('warn');
+    expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
   });
 });
 
