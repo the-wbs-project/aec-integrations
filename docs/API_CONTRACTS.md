@@ -466,6 +466,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
   usefulness: ProductUsefulnessSchema.nullable(),
+  // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
+  // 'vendor' = the product's vendor wrote it in the portal; the page labels the
+  // section "Written by {vendor}". null = AECi's copy, via promote. 'admin' is
+  // reserved (ADR 0033). Defaulted to null so an older payload still parses.
+  usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
   // `powered_by_product` (see §5.3). BOTH delivered-tier tables (AECI-713): rows
   // of `integrations` and rows of `connector_evidenced_pairs` where this product

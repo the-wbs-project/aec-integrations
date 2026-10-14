@@ -553,8 +553,7 @@ export class UnifiedHomePreview {
     { figure: '90', label: 'integrations' },
     { figure: '33', label: 'vendors' },
   ];
-  protected readonly independence =
-    'Independent and editorially neutral. No vendor marketing, no pay-for-placement.';
+  protected readonly independence = 'Independent and editorially neutral. No pay-for-placement.';
 
   protected readonly problem = {
     eyebrow: 'The problem',

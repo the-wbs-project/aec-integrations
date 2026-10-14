@@ -591,7 +591,13 @@ import { RoleBadge } from './role-badge';
 
         <div slot="body" class="space-y-12">
           @if (p.usefulness; as u) {
-            <aec-product-usefulness id="how-teams-use-it" class="scroll-mt-20" [data]="u" />
+            <aec-product-usefulness
+              id="how-teams-use-it"
+              class="scroll-mt-20"
+              [data]="u"
+              [source]="p.usefulness_source"
+              [vendorName]="p.vendor?.name ?? null"
+            />
           }
 
           <!-- Powered ("this product IS the connector") integrations, per Stage

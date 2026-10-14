@@ -373,7 +373,7 @@ Neither column is indexed: both are read with the row and never filtered or sort
 
 Not indexed: it is read with the row, never filtered on.
 
-**Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction.
+**Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
 
 ### 4.3 `integrations`
 

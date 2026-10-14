@@ -52,6 +52,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     phases: [],
     trades: [],
     usefulness: null,
+    usefulness_source: null,
     integrations_as_source: [],
     integrations_as_target: [],
     integrations_as_connector: [],

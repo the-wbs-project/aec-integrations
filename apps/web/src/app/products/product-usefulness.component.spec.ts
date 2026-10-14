@@ -25,14 +25,45 @@ const FULL: ProductUsefulness = {
   ],
 };
 
-function setup(data: ProductUsefulness) {
+function setup(
+  data: ProductUsefulness,
+  attribution: { source?: 'vendor' | 'admin' | null; vendorName?: string | null } = {},
+) {
   const fixture = TestBed.createComponent(ProductUsefulnessSection);
   fixture.componentRef.setInput('data', data);
+  if (attribution.source !== undefined) fixture.componentRef.setInput('source', attribution.source);
+  if (attribution.vendorName !== undefined)
+    fixture.componentRef.setInput('vendorName', attribution.vendorName);
   fixture.detectChanges();
   return fixture;
 }
 
 describe('ProductUsefulnessSection', () => {
+  // AECI-1316: vendor-written copy is labelled; AECi's own copy is not.
+  describe('attribution', () => {
+    const attribution = (el: HTMLElement) =>
+      el.querySelector('[data-testid="usefulness-attribution"]')?.textContent?.trim() ?? null;
+
+    it('says "Written by {vendor}" when the vendor wrote the section', () => {
+      const el = setup(FULL, { source: 'vendor', vendorName: 'Procore' }).nativeElement;
+      expect(attribution(el)).toBe('Written by Procore');
+    });
+
+    it('falls back to "Written by the vendor" when the product has no vendor name', () => {
+      const el = setup(FULL, { source: 'vendor', vendorName: null }).nativeElement;
+      expect(attribution(el)).toBe('Written by the vendor');
+    });
+
+    it('carries no label on AECi copy (source null)', () => {
+      const el = setup(FULL, { source: null, vendorName: 'Procore' }).nativeElement;
+      expect(attribution(el)).toBeNull();
+    });
+
+    it('carries no label by default', () => {
+      expect(attribution(setup(FULL).nativeElement)).toBeNull();
+    });
+  });
+
   it('renders both columns with every group name and point when both facets are populated', () => {
     const el = setup(FULL).nativeElement as HTMLElement;
 
