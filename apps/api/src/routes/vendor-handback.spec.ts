@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  billingAccounts,
   claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
@@ -111,6 +112,8 @@ beforeEach(async () => {
     tier: 'verified',
     status: 'active',
   });
+  // AECI-1351: the post-back-fill state, so a provision writes no account row.
+  await t.db.insert(billingAccounts).values({ id: u(71), vendorId: VENDOR, name: 'Bentley' });
   await t.db.insert(products).values([
     {
       id: P_MINE,
