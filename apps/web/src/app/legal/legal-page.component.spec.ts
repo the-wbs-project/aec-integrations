@@ -28,7 +28,7 @@ describe('LegalPage', () => {
     expect(h1s).toHaveLength(1);
     expect(h1s[0].textContent).toContain('Terms of Service');
     // Frontmatter version line (§27.1: version shown at the top).
-    expect(host.textContent).toContain('Version 1.0');
+    expect(host.textContent).toContain('Version 1.1');
   });
 
   it('hides the effective-date chip while the draft frontmatter leaves it blank', () => {
