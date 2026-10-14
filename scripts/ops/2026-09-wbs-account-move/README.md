@@ -74,7 +74,8 @@ The custom domains therefore bind at the cutover, after the zone activates. That
    - Security → Bots (Super Bot Fight Mode, AI bots, JavaScript detections)
    - Security → WAF → Managed rules
    - AI Crawl Control
-   - Web Analytics
+   - Web Analytics. Turn automatic setup on again for the new zone right after cutover. It does not
+     follow the zone, and the 2026-10-04 move missed it (AECI-1307)
    - Email Routing (`unsubscribe@`)
    - SSL/TLS mode
 3. In the WBS account, add `aecintegrations.com` as a website and assign the Enterprise plan. It stays Pending until the nameservers change. Adding the domain here is safe while it is still live on the old account. It is the documented first step of a move.
