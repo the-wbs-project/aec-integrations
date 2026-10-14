@@ -22,6 +22,8 @@ report:
   visitors. Cloudflare's per-request dataset has path, user agent, verified-bot flag, referrer and
   query string for every request. Cloudflare Web Analytics page loads are already on our pages, keep
   paths for 184 days, and need no consent. They are a candidate source for Insights view counts.
+  They have a gap from 2026-10-04 to 2026-10-14, because the setting did not follow the zone move (AECI-1307).
+  The gap dates are in `scripts/ops/2026-10-traffic-history/README.md`.
 - **That record expires.** Per-request detail was kept 31 days on Pro. The zone moved to
   Enterprise on 2026-10-04, and the new zone keeps 90 days (firewall events 31). Verified
   2026-10-13 (AECI-1302). Logpush is self-service on Pro, about 1 to 2 GB
