@@ -146,6 +146,8 @@ export interface BackfillVendorRow {
   ent_granted_at: string | null;
   ent_ended_at: string | null;
   ent_updated_at: string | null;
+  /** The old sweep's fence. Carried onto a live term's licenses (AECI-1356). */
+  ent_expiry_notice_sent_at: string | null;
 }
 
 export function buildVendorsSql(): string {
@@ -157,7 +159,8 @@ export function buildVendorsSql(): string {
     '  e."id" AS "ent_id", e."tier" AS "ent_tier", e."status" AS "ent_status",',
     '  e."period_start" AS "ent_period_start", e."period_end" AS "ent_period_end",',
     '  e."invoice_ref" AS "ent_invoice_ref", e."amount" AS "ent_amount", e."granted_by" AS "ent_granted_by",',
-    '  e."granted_at" AS "ent_granted_at", e."ended_at" AS "ent_ended_at", e."updated_at" AS "ent_updated_at"',
+    '  e."granted_at" AS "ent_granted_at", e."ended_at" AS "ent_ended_at", e."updated_at" AS "ent_updated_at",',
+    '  e."expiry_notice_sent_at" AS "ent_expiry_notice_sent_at"',
     'FROM "vendors" v',
     'LEFT JOIN "vendor_entitlements" e ON e."vendor_id" = v."id"',
     `WHERE ${IN_SCOPE}`,
@@ -218,6 +221,10 @@ export interface PlannedLicense {
   assignedProductId: string | null;
   assignedAt: string | null;
   grantedBy: string | null;
+  /** The entitlement's expiry-notice stamp, on a live license with an end date only.
+   *  Without it the first license-based sweep would warn again a term the
+   *  entitlement-based sweep already warned (AECI-1356). */
+  expiryNoticeSentAt: string | null;
 }
 
 export interface VendorBackfillPlan {
@@ -381,6 +388,10 @@ export async function planLicenseBackfill(
           assignedProductId: productId,
           assignedAt: productId ? grantedAt : null,
           grantedBy: row.ent_granted_by,
+          expiryNoticeSentAt:
+            live && terms.endsAt !== null && row.ent_expiry_notice_sent_at
+              ? toIsoTimestamp(row.ent_expiry_notice_sent_at)
+              : null,
         });
       }
     }
@@ -444,8 +455,8 @@ export function buildVendorStatements(
   for (const l of p.licenses) {
     stmts.push(
       [
-        'INSERT INTO "licenses" ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","granted_by","created_at","updated_at")',
-        `SELECT ${lit(l.id)}, ${accountOf(p.vendorId)}, ${lit(l.source)}, ${lit(l.startsAt)}, ${lit(l.endsAt)}, ${lit(l.endedAt)}, ${lit(l.endReason)}, ${lit(l.reference)}, ${lit(l.assignedProductId)}, ${lit(l.assignedAt)}, ${lit(l.grantedBy)}, ${now}, ${now}`,
+        'INSERT INTO "licenses" ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","granted_by","expiry_notice_sent_at","created_at","updated_at")',
+        `SELECT ${lit(l.id)}, ${accountOf(p.vendorId)}, ${lit(l.source)}, ${lit(l.startsAt)}, ${lit(l.endsAt)}, ${lit(l.endedAt)}, ${lit(l.endReason)}, ${lit(l.reference)}, ${lit(l.assignedProductId)}, ${lit(l.assignedAt)}, ${lit(l.grantedBy)}, ${lit(l.expiryNoticeSentAt)}, ${now}, ${now}`,
         // Skip when the vendor holds any license this plan did not mint (it was
         // licensed since the read), or when this license already exists (a re-run).
         'WHERE NOT EXISTS (SELECT 1 FROM "licenses" l JOIN "billing_accounts" b ON b."id" = l."billing_account_id"',

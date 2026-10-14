@@ -45,6 +45,7 @@ function vendor(over: Partial<BackfillVendorRow> & { id: string }): BackfillVend
     ent_granted_at: null,
     ent_ended_at: null,
     ent_updated_at: null,
+    ent_expiry_notice_sent_at: null,
     ...over,
   };
 }
@@ -153,6 +154,33 @@ describe('planLicenseBackfill', () => {
       endsAt: null,
       assignedProductId: null,
     });
+  });
+
+  it('carries the expiry-notice stamp onto a live term, and only a live term (AECI-1356)', async () => {
+    const stamp = '2026-12-05';
+    const plan = await planLicenseBackfill(
+      [
+        entitled('v1', 'active', { ent_expiry_notice_sent_at: stamp }),
+        entitled('v2', 'active', { ent_period_end: null, ent_expiry_notice_sent_at: stamp }),
+        entitled('v3', 'expired', { ent_expiry_notice_sent_at: stamp }),
+      ],
+      [owns('v1', 'p1'), owns('v1', 'p2')],
+      { now: NOW },
+    );
+    const [term, monthly, ended] = plan.vendors;
+    // Without it the first license-based sweep would warn again a term already warned.
+    expect(term?.licenses.map((l) => l.expiryNoticeSentAt)).toEqual([
+      '2026-12-05T00:00:00.000Z',
+      '2026-12-05T00:00:00.000Z',
+    ]);
+    expect(monthly?.licenses[0]?.expiryNoticeSentAt).toBeNull();
+    expect(ended?.licenses[0]?.expiryNoticeSentAt).toBeNull();
+
+    const [insert] = buildVendorStatements(term!, { now: NOW }).filter((x) =>
+      x.startsWith('INSERT INTO "licenses"'),
+    );
+    expect(insert).toContain('"expiry_notice_sent_at"');
+    expect(insert).toContain("'2026-12-05T00:00:00.000Z'");
   });
 
   it('maps expired and revoked rows to ENDED licenses that keep their products', async () => {
