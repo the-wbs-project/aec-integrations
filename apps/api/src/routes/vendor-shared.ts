@@ -556,6 +556,41 @@ export function ownerSeatsOf(vendorId: string): SQL | undefined {
   return and(seatsOf(vendorId), eq(profiles.seatOwner, true));
 }
 
+/**
+ * The owner-seat gate, the second of three on an owner-only route: `requireVendor()`
+ * (which vendor), then this, then a `vendor_id` filter on every statement. Used by the
+ * seat-management routes (`vendor-seat-invites.ts`, AECI-664) and the Billing reads
+ * (`vendor-billing-acceptances.ts`, AECI-1362; decision 17 of
+ * `VENDOR_SIGNUP_PROCESS.md` §2).
+ *
+ * Re-reads `seat_owner` from D1 rather than reading anything off the session, for the
+ * same reason `createAuthzMiddleware` re-reads `banned_at` every request: a demotion
+ * has to take effect on the caller's NEXT call, not whenever their token expires.
+ * A non-owner gets `403 FORBIDDEN` with `message`.
+ *
+ * Returns the owner's `display_name` because the invite email names the sender and
+ * this read is already paid for.
+ */
+export async function requireSeatOwner(
+  db: Db,
+  userId: string,
+  vendorId: string,
+  message = 'Only a vendor account owner can manage seats',
+): Promise<{ displayName: string | null }> {
+  const row = await db.query.profiles.findFirst({
+    columns: { displayName: true, seatOwner: true },
+    where: and(
+      eq(profiles.id, userId),
+      eq(profiles.vendorId, vendorId),
+      eq(profiles.role, VENDOR_ADMIN_ROLE),
+    ),
+  });
+  if (!row?.seatOwner) {
+    throw new ApiError(403, 'FORBIDDEN', message);
+  }
+  return { displayName: row.displayName };
+}
+
 export function ownedProductIds(db: Db, vendorId: string) {
   return db
     .select({ productId: productVendors.productId })
