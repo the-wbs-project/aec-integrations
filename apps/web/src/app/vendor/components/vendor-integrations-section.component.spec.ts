@@ -24,6 +24,7 @@ import {
   VENDOR_INTEGRATIONS_EMPTY_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
+  VENDOR_PRODUCT_REQUESTS_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -33,6 +34,7 @@ import { VendorIntegrationsSection } from './vendor-integrations-section';
 let api: {
   getIntegrations: ReturnType<typeof vi.fn>;
   getContests: ReturnType<typeof vi.fn>;
+  listProductRequests: ReturnType<typeof vi.fn>;
 };
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
@@ -43,6 +45,8 @@ beforeEach(() => {
   api = {
     getIntegrations: vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE),
     getContests: vi.fn().mockResolvedValue(NO_CONTESTS),
+    // AECI-1377: the product request list under the create form. Empty renders nothing.
+    listProductRequests: vi.fn().mockResolvedValue({ requests: [] }),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -226,6 +230,18 @@ describe('VendorIntegrationsSection — the load ladder', () => {
     fixture.detectChanges();
     expect(rows(fixture).length).toBeGreaterThan(0);
     expect(announce).toHaveBeenCalledWith('Your integrations are up to date.');
+  });
+
+  it('lists the product requests under the create form (AECI-1377)', async () => {
+    api.listProductRequests.mockResolvedValue({ requests: VENDOR_PRODUCT_REQUESTS_FIXTURE });
+    const fixture = await create();
+    await flush();
+    fixture.detectChanges();
+    const list = el(fixture).querySelector('[data-testid="product-requests"]');
+    expect(list?.textContent).toContain('Products you asked us to add');
+    // Below the create disclosure, above the integration list.
+    const create_ = el(fixture).querySelector('[data-testid="integration-create"]')!;
+    expect(create_.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('explains an empty surface', async () => {

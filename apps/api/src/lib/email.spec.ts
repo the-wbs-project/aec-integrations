@@ -48,6 +48,8 @@ import {
   type PlanInquirySummary,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
+  sendProductRequestDecidedEmail,
+  vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
   type SubmittedReviewSummary,
@@ -3212,5 +3214,97 @@ describe('protest and decline emails (AECI-1205)', () => {
       expect(html).not.toContain('href="https://evil.example');
       expect(html).toContain('https://evil.example/login?next=/vendor');
     });
+  });
+});
+
+describe('product-request-decided (AECI-1377)', () => {
+  const base = {
+    to: 'seat@bentley.example',
+    requestId: 'pr-1',
+    requestName: 'FieldNotes',
+    vendorSlug: 'bentley',
+    contextProductSlug: 'microstation',
+    dedupeKey: 'product-request-decided:pr-1',
+  };
+  const site = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+
+  it('builds the deep link in the /vendor/{vendor}/products/{slug}/integrations form', () => {
+    expect(
+      vendorProductIntegrationsUrl(site as Env, 'bentley', 'microstation', 'field-notes'),
+    ).toBe(
+      'https://www.aecintegrations.com/vendor/bentley/products/microstation/integrations?create=open&counterpart=field-notes',
+    );
+    expect(vendorProductIntegrationsUrl({} as Env, 'a', 'b', 'c')).toBeNull();
+  });
+
+  it('added: says the product is listed and links to the integration form', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProductRequestDecidedEmail(fakeContext(site), {
+      ...base,
+      decision: { outcome: 'added', productName: 'Field Notes', productSlug: 'field-notes' },
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Field Notes is now listed on AEC Integrations');
+    expect(String(body.text)).toContain('Field Notes is now listed. Add your integration.');
+    expect(String(body.html)).toContain('Add the integration');
+    expect(String(body.html)).toContain('counterpart=field-notes');
+    expect(String(body.text)).toContain('/vendor/bentley/products/microstation/integrations');
+  });
+
+  it('already_listed: names the catalog product the request matched', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProductRequestDecidedEmail(fakeContext(site), {
+      ...base,
+      decision: {
+        outcome: 'already_listed',
+        productName: 'Field Notes',
+        productSlug: 'field-notes',
+      },
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('FieldNotes is already listed on AEC Integrations');
+    expect(String(body.text)).toContain(
+      'FieldNotes was already listed as Field Notes. Add your integration.',
+    );
+    expect(String(body.text)).toContain('counterpart=field-notes');
+  });
+
+  it('declined: carries the reason, escaped, and no button', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProductRequestDecidedEmail(fakeContext(site), {
+      ...base,
+      requestName: 'Tool <b>',
+      decision: { outcome: 'declined', reason: 'Not AEC <software>.' },
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('We will not add Tool <b> to AEC Integrations');
+    expect(String(body.text)).toContain('We will not add Tool <b>.');
+    expect(String(body.text)).toContain('Our reason: Not AEC <software>.');
+    expect(String(body.html)).toContain('Not AEC &lt;software&gt;.');
+    expect(String(body.html)).not.toContain('<b>');
+    expect(String(body.html)).not.toContain('Add the integration');
+  });
+
+  it('drops the button when the vendor or its product is gone', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProductRequestDecidedEmail(fakeContext(site), {
+      ...base,
+      contextProductSlug: null,
+      decision: { outcome: 'added', productName: 'Field Notes', productSlug: 'field-notes' },
+    });
+    expect(String(lastBody(fetchSpy).html)).not.toContain('Add the integration');
+  });
+
+  it('uses no em dash in any variant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    for (const decision of [
+      { outcome: 'added', productName: 'A', productSlug: 'a' },
+      { outcome: 'already_listed', productName: 'A', productSlug: 'a' },
+      { outcome: 'declined', reason: 'R' },
+    ] as const) {
+      await sendProductRequestDecidedEmail(fakeContext(site), { ...base, decision });
+      const body = lastBody(fetchSpy);
+      expect(`${String(body.subject)}${String(body.text)}`).not.toContain('\u2014');
+    }
   });
 });

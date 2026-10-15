@@ -311,6 +311,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
 | `NOTIFICATION_NOT_PAUSABLE` | 400 | `PUT /api/admin/email/switches/:key` asked to pause an entry the notification registry marks always on (AECI-1224): a seat invite, a claim or review decision, the account-deleted confirmation, a deadline email, or anything not sent through `lib/email.ts`. Resuming one is allowed. `field: 'key'` |
 | `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
+| `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
+| `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -1433,7 +1435,7 @@ resolver's gate and the in-shell badge feed.
 | Field | Counts |
 |---|---|
 | `pending_reviews` | `reviews.status = 'pending'` |
-| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, **plus** `listing_requests.status = 'open'` (AECI-1293: the second section of `/admin/requests`, a different table, so still disjoint from claims) |
+| `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'`, **plus** `listing_requests.status = 'open'` (AECI-1293: the second section of `/admin/requests`, a different table, so still disjoint from claims), **plus** `product_requests.status = 'open'` (AECI-1377: a vendor asking us to add a product, also on `/admin/requests`, another table) |
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
 | `pending_review_responses` | `review_responses.status = 'pending'`, vendor replies awaiting pre-moderation (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A sixth count on a different table, so disjoint from the other five. Badges `/admin/review-responses`. Optional on the wire type for deploy skew only |
@@ -1442,7 +1444,8 @@ resolver's gate and the in-shell badge feed.
 **The six are disjoint, and the header badge SUMS them.** Requests and claims
 are one table split by `kind`, so `pending_requests` counts corrections, never claims; an
 all-kinds count would put every open claim into the total twice. Since AECI-1293 it also
-counts open `listing_requests` rows, the second section of `/admin/requests`. `in_review` is
+counts open `listing_requests` rows, the second section of `/admin/requests`, and since
+AECI-1377 open `product_requests` rows, also listed there. `in_review` is
 deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
@@ -1789,7 +1792,7 @@ export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 
 Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of six `COUNT(*)`s (four until AECI-1008 and AECI-1177 added theirs), and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
 
-**The six counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` never counts claims. It is open corrections plus open listing requests (AECI-1293). That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
+**The six counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` never counts claims. It is open corrections plus open listing requests (AECI-1293) plus open product requests (AECI-1377). That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
 
 **Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badges. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same counts now ride on `GET /api/account` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the numbers stay consistent.
 
@@ -1981,6 +1984,53 @@ given, is in the audit metadata only). Resolving does not create the listing: th
 operator adds it upstream and emails the submitter. Errors: `NOT_FOUND` (unknown id),
 `INVALID_STATE_TRANSITION` (422, not `open`), `VALIDATION_FAILED`. No rate limit and no
 cache purge, like `PATCH /api/admin/requests/:id`.
+
+#### `GET /api/admin/product-requests` and `PATCH /api/admin/product-requests/:id` (AECI-1377)
+
+The product request queue on `/admin/requests` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6,
+`ADMIN_PANEL_SPEC.md` §5.16). Behind `requireAdmin()`, no rate limit. Source of truth:
+`packages/shared/src/api/product-requests.ts`.
+
+```typescript
+export const ListProductRequestsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'added', 'already_listed', 'declined']).default('open'),
+});
+export const AdminProductRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'added', 'already_listed', 'declined']),
+  vendor_id: z.string(),
+  vendor: LinkRefSchema.nullable(),          // joined; null when the vendor row is gone
+  requested_by: z.string(),                  // the seat's profile id, no FK
+  context_product_id: z.string(),
+  context_product: LinkRefSchema.nullable(), // joined
+  name: z.string(),
+  maker: z.string(),
+  website: z.string().nullable(),
+  body: z.string(),                          // '' when none
+  created_at: z.string().datetime(),
+  resolved_at: z.string().datetime().nullable(),
+  resolved_by: z.string().nullable(),        // no FK to profiles
+  decline_reason: z.string().nullable(),     // declined only
+  resolved_product: ProductLinkSchema.nullable(), // added / already_listed only
+});
+// GET  → paginatedResponseSchema(AdminProductRequestSchema), newest first, `id` tiebreak.
+export const DecideProductRequestSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.enum(['added', 'already_listed']), product_id: z.string().uuid() }).strict(),
+  z.object({ outcome: z.literal('declined'), reason: AdminReasonSchema }).strict(), // 1..1000
+]);
+// PATCH → AdminProductRequest.
+```
+
+A PATCH is one `db.batch`: the `UPDATE … WHERE status = 'open'`, then a `changes()`
+sentinel, then the `product_request.{outcome}` audit row and the requesting vendor's
+`portal-product-request-decided` `notification.sent` row (`vendor_id` set). A lost
+two-admin race rolls the whole batch back, unlike the listing-request PATCH, because a
+committed loser would put two decisions in the vendor's feed. After commit the
+`product-request-decided` email goes to the seat that asked, unless that seat is gone
+(no longer an unbanned `vendor_admin` of the vendor, or no address on file). The
+decline reason is shown to the vendor. Errors: `NOT_FOUND` (unknown id),
+`INVALID_STATE_TRANSITION` (422, not `open`, or lost the race), `PRODUCT_NOT_PROMOTED`
+(422), `VALIDATION_FAILED`. No cache purge: nothing public changes.
 
 #### `GET /api/admin/claims` (Stage 2 — AECI-521)
 
@@ -6142,7 +6192,7 @@ Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silen
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -7648,6 +7698,50 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 **After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue; queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds an active entitlement (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
+
+#### Product requests — `POST` + `GET /api/vendor/product-requests`
+
+Stage 2.1 (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). A vendor whose partner product is not in the catalog asks AECi to add it, from the "Add an integration" form, and hears back either way. A request never creates an integration. Zod in `packages/shared/src/api/product-requests.ts`, handlers in `apps/api/src/routes/vendor-product-requests.ts`, shared rules in `apps/api/src/lib/product-requests.ts`. The admin side is §6.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/product-requests` | seat, `rateLimit('write')`, `context_product_id` held by the caller | `201 { request }` |
+| `GET` | `/api/vendor/product-requests` | seat. Never rate-limited | `200 { requests }`, newest first, at most 50 |
+
+**No capability gate.** A seat is the whole gate, as for the create above. Under `/api/vendor/*`, not `/api/requests/*`: an authenticated write, capped by the in-Worker limiter, not zone Rule A.
+
+```typescript
+export const CreateProductRequestSchema = z
+  .object({
+    context_product_id: z.string().uuid(), // the caller's promoted product (the tab it asked from)
+    name: z.string().trim().min(1).max(200),
+    maker: z.string().trim().min(1).max(200),
+    website: z.string().trim().max(500).optional(), // https only (HttpsUrlSchema); '' = not supplied
+    body: z.string().trim().max(2000).optional(),   // "Anything we should know?"
+  })
+  .strict();
+
+export const VendorProductRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'added', 'already_listed', 'declined']),
+  context_product_id: z.string().uuid(),
+  name, maker,
+  website: z.string().nullable(),
+  body: z.string(),                         // '' when none
+  created_at, resolved_at: z.string().datetime().nullable(),
+  decline_reason: z.string().nullable(),    // declined only; shown to the vendor
+  resolved_product: ProductLinkSchema.nullable(), // { id, slug, name, logo_url }, added / already_listed only
+});
+// POST → { request: VendorProductRequest }    GET → { requests: VendorProductRequest[] }
+```
+
+**Order: shape → context product → duplicate.** A shape error or an unknown key is `400`. A `context_product_id` that is not a promoted product the caller's vendor holds is `404`. An open request of the same vendor whose `name` matches, trimmed and case-insensitive, is `409 PRODUCT_REQUEST_EXISTS` with `details.request_id`. A decided request blocks nothing.
+
+**One batch.** The INSERT (`status = 'open'`, `requested_by` = the seat), an in-batch duplicate sentinel, and the `product_request.created` audit row. The metadata is `{ source: 'vendor-portal', context_product_id, has_website }`, never the typed name, maker, website or note. **After commit:** the audit forward and the `product-request-alert` email to `SUPPORT_EMAIL`, reply-to the seat's session email. No cache purge, Algolia sync or IndexNow: nothing public changes.
+
+**The list** is every request of the caller's vendor, whichever seat asked. It re-reads when the `notifications` scope of `GET /api/vendor/updates` moves, because every decision writes its portal row (`STAGE_2_REALTIME_SPEC.md` §2.3).
+
+**The decision** reads on `GET /api/vendor/notifications` as `{ kind: 'product_request', id, event: 'added' | 'already_listed' | 'declined', request_id, request_name, product: { slug, name } | null, context_product: { slug, name } | null, reason: string | null, created_at }`. `product` is the linked catalog product, `null` on `declined`. `reason` is the decline reason, `null` otherwise.
 
 #### Integration retire and restore — `POST /api/vendor/integrations/:id/retire` + `/restore`
 

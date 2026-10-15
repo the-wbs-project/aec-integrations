@@ -78,6 +78,7 @@ import {
   auditLog,
   claims,
   integrations,
+  productRequests,
   productVendors,
   productVersions,
   products,
@@ -125,6 +126,10 @@ import {
 import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
+import {
+  createListVendorProductRequestsHandler,
+  createVendorProductRequestHandler,
+} from './vendor-product-requests';
 import { createVendorUpdatesHandler } from './vendor-updates';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
@@ -422,6 +427,17 @@ function makeApp() {
     requireVendor(guard),
     createCreateVendorIntegrationHandler(t.factory),
   );
+  // AECI-1377 — seat only; the context-product check is inside the handler.
+  app.get(
+    '/api/vendor/product-requests',
+    requireVendor(guard),
+    createListVendorProductRequestsHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/product-requests',
+    requireVendor(guard),
+    createVendorProductRequestHandler(t.factory),
+  );
   app.post('/api/vendor/claims', requireVendor(guard), createVendorClaimHandler(t.factory));
   app.put(
     '/api/vendor/claims/:claimId/attestation',
@@ -534,6 +550,13 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     ok: 204,
   },
   { path: '/api/vendor/integrations', method: 'GET' },
+  { path: '/api/vendor/product-requests', method: 'GET' },
+  {
+    path: '/api/vendor/product-requests',
+    method: 'POST',
+    body: { context_product_id: PRODUCT_A, name: 'Field Notes', maker: 'Field Notes Inc' },
+    ok: 201,
+  },
   {
     path: '/api/vendor/integrations',
     method: 'POST',
@@ -1208,6 +1231,34 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
       'submittals',
       'rfis',
     ]);
+  });
+});
+
+describe('/api/vendor/product-requests — cross-vendor isolation (AECI-1377)', () => {
+  it("answers another vendor's context product with the unknown-id 404, and writes nothing", async () => {
+    const { status } = await call('/api/vendor/product-requests', 'POST', SEAT_B, {
+      context_product_id: PRODUCT_A,
+      name: 'Field Notes',
+      maker: 'Field Notes Inc',
+    });
+    expect(status).toBe(404);
+    expect(await t.db.select().from(productRequests)).toHaveLength(0);
+  });
+
+  it("never lists another vendor's requests", async () => {
+    expect(
+      (
+        await call('/api/vendor/product-requests', 'POST', SEAT_A, {
+          context_product_id: PRODUCT_A,
+          name: 'Field Notes',
+          maker: 'Field Notes Inc',
+        })
+      ).status,
+    ).toBe(201);
+    expect((await call('/api/vendor/product-requests', 'GET', SEAT_B)).body.requests).toEqual([]);
+    expect((await call('/api/vendor/product-requests', 'GET', SEAT_A)).body.requests).toHaveLength(
+      1,
+    );
   });
 });
 

@@ -21,6 +21,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
+import { productRequestDecisionNotification } from '../lib/product-requests';
 import {
   reviewApprovedNotifications,
   reviewResponseDecisionNotification,
@@ -491,6 +492,55 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       seatName: null,
     });
     await ledgerRow({ metadata: seat.metadata });
+    expect((await get()).body.notifications).toEqual([]);
+  });
+});
+
+describe('product_request rows (AECI-1377)', () => {
+  const ACTOR = { actorId: uuid(90), actorType: 'admin' as const };
+  const decided = (event: 'added' | 'already_listed' | 'declined', vendorId: string = VENDOR) =>
+    productRequestDecisionNotification('portal-product-request-decided', ACTOR, {
+      requestId: uuid(60),
+      vendorId,
+      event,
+      requestName: 'FieldNotes',
+      product: event === 'declined' ? null : { slug: 'field-notes', name: 'Field Notes' },
+      contextProduct: { slug: 'microstation', name: 'MicroStation' },
+      reason: event === 'declined' ? 'Not AEC software.' : null,
+    });
+
+  it('maps all three decisions, and carries the reason on a decline only', async () => {
+    await ledgerRow({ metadata: decided('added').metadata, createdAt: daysAgo(3) });
+    await ledgerRow({ metadata: decided('already_listed').metadata, createdAt: daysAgo(2) });
+    await ledgerRow({ metadata: decided('declined').metadata, createdAt: daysAgo(1) });
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    const common = {
+      kind: 'product_request',
+      id: expect.any(String),
+      request_id: uuid(60),
+      request_name: 'FieldNotes',
+      context_product: { slug: 'microstation', name: 'MicroStation' },
+      created_at: expect.any(String),
+    };
+    const listed = { slug: 'field-notes', name: 'Field Notes' };
+    expect(body.notifications).toEqual([
+      { ...common, event: 'declined', product: null, reason: 'Not AEC software.' },
+      { ...common, event: 'already_listed', product: listed, reason: null },
+      { ...common, event: 'added', product: listed, reason: null },
+    ]);
+  });
+
+  it('skips a row it cannot read: an unknown event, or an added row with no product', async () => {
+    const meta = decided('added').metadata as Record<string, unknown>;
+    await ledgerRow({ metadata: { ...meta, event: 'approved' } });
+    await ledgerRow({ metadata: { ...meta, product: null } });
+    expect((await get()).body.notifications).toEqual([]);
+  });
+
+  it('is isolated to its recipient', async () => {
+    await ledgerRow({ metadata: decided('added', OTHER_VENDOR).metadata });
     expect((await get()).body.notifications).toEqual([]);
   });
 });

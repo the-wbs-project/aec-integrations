@@ -10,6 +10,7 @@ import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 import { ListingRequestQueue } from './listing-request-queue';
+import { ProductRequestQueue } from './product-request-queue';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
@@ -53,10 +54,15 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * The second section, `ListingRequestQueue`: typed-in listings from the claim dialog,
  * from their own table and endpoints. The Requests badge counts open corrections plus
  * open listing requests, so both sections decrement it.
+ *
+ * ── PRODUCT REQUESTS (AECI-1377) ─────────────────────────────────────────────
+ * The third section, `ProductRequestQueue`: vendors asking us to add the other
+ * product of an integration (`ADMIN_PANEL_SPEC.md` §5.16). The badge counts its open
+ * rows too, and a decision decrements it.
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [DatePipe, ListingRequestQueue, NewTabIcon, RouterLink],
+  imports: [DatePipe, ListingRequestQueue, NewTabIcon, ProductRequestQueue, RouterLink],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {

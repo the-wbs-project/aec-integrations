@@ -8,6 +8,7 @@ import {
 } from './integration-retire';
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 import { ContextDirectionSchema } from './integrations';
+import { PRODUCT_REQUEST_OUTCOMES } from './product-requests';
 
 /**
  * Vendor notification list (`GET /api/vendor/notifications`, AECI-302 /
@@ -318,6 +319,40 @@ export const VendorAeciOverrideNotificationSchema = z.object({
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;
 
+/**
+ * AECi decided one of this vendor's product requests (`kind: 'product_request'`,
+ * AECI-1377 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6).
+ *
+ * Written by `PATCH /api/admin/product-requests/:id` in the decision batch, to the
+ * requesting vendor (registry id `portal-product-request-decided`). The seat that
+ * asked is also emailed (`product-request-decided`). Every field is a snapshot
+ * taken at decision time.
+ *
+ *   - `event`: the decision, `added`, `already_listed` or `declined`.
+ *   - `request_name`: the name the vendor typed.
+ *   - `product`: the catalog product an `added` or `already_listed` decision linked,
+ *     `null` on `declined`. On `already_listed` its `name` is the catalog name.
+ *   - `context_product`: the vendor's own product the request came from. The call to
+ *     action is its Integrations tab with `?create=open&counterpart={product.slug}`.
+ *   - `reason`: the decline reason, which the vendor is shown (ruled 2026-10-15).
+ *     `null` on the other two. Never an internal note.
+ */
+export const VendorProductRequestNotificationSchema = z.object({
+  kind: z.literal('product_request'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  event: z.enum(PRODUCT_REQUEST_OUTCOMES),
+  request_id: z.string().uuid(),
+  request_name: z.string(),
+  product: NotificationProductRefSchema.nullable(),
+  context_product: NotificationProductRefSchema.nullable(),
+  reason: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorProductRequestNotification = z.infer<
+  typeof VendorProductRequestNotificationSchema
+>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
@@ -325,7 +360,7 @@ export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNo
  *  `integration_update` in AECI-1006 (`./integration-edits`), and
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
  *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above), and
- *  `aeci_override` in AECI-1159 (above). */
+ *  `aeci_override` in AECI-1159 (above), and `product_request` in AECI-1377 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -336,6 +371,7 @@ export const VendorNotificationSchema = z.union([
   VendorReviewNotificationSchema,
   VendorReviewResponseNotificationSchema,
   VendorAeciOverrideNotificationSchema,
+  VendorProductRequestNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -345,7 +381,7 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  carries an explicit `kind`, so this names them rather than testing for one.
  *  **A new member must be named here**, or its rows read as attestation rows
  *  (`claim_added` since AECI-1153, `review` and `review_response` since
- *  AECI-1180, `aeci_override` since AECI-1159). */
+ *  AECI-1180, `aeci_override` since AECI-1159, `product_request` since AECI-1377). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -358,7 +394,8 @@ export function isAttestationNotification(
     notification.kind !== 'claim_added' &&
     notification.kind !== 'review' &&
     notification.kind !== 'review_response' &&
-    notification.kind !== 'aeci_override'
+    notification.kind !== 'aeci_override' &&
+    notification.kind !== 'product_request'
   );
 }
 

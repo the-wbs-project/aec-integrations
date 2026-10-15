@@ -68,6 +68,7 @@ interface ApiMock {
   moderate: ReturnType<typeof vi.fn>;
   /** AECI-1293: the second section's list, empty here; pinned in its own spec. */
   listListingRequests: ReturnType<typeof vi.fn>;
+  listProductRequests: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(rows: AdminVendorRequest[], total = rows.length): ApiMock {
@@ -79,6 +80,7 @@ function makeApiMock(rows: AdminVendorRequest[], total = rows.length): ApiMock {
         makeRequest({ id, status: input.action === 'resolve' ? 'resolved' : 'rejected' }),
     ),
     listListingRequests: vi.fn(async () => ({ data: [], page: 1, perPage: 100, total: 0 })),
+    listProductRequests: vi.fn(async () => ({ data: [], page: 1, perPage: 100, total: 0 })),
   };
 }
 
@@ -360,10 +362,12 @@ describe('RequestQueue', () => {
         ]),
       );
       expect(el.querySelectorAll('h1')).toHaveLength(0);
-      // Corrections, then the AECI-1293 listing requests section (empty here).
+      // Corrections, then the AECI-1293 listing requests and the AECI-1377 product
+      // requests (both empty here).
       expect([...el.querySelectorAll('h2')].map((h) => h.textContent?.trim())).toEqual([
         'Correction requests',
         'Listing requests',
+        'Product requests from vendors',
       ]);
       expect(el.querySelectorAll('h3')).toHaveLength(2);
       expect(el.querySelector('h4, h5, h6')).toBeNull();
@@ -371,10 +375,11 @@ describe('RequestQueue', () => {
 
     it('gives the filter control an accessible group name', async () => {
       const { el } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
-      // One status group per section: AECI-922 retired the kind filter, and AECI-1293
-      // added the listing requests section with its own.
+      // One status group per section: AECI-922 retired the kind filter, AECI-1293
+      // added the listing requests section with its own, and AECI-1377 the product
+      // requests section.
       const groups = [...el.querySelectorAll('[role="group"]')];
-      expect(groups).toHaveLength(2);
+      expect(groups).toHaveLength(3);
       for (const g of groups) {
         const labelId = g.getAttribute('aria-labelledby');
         expect(labelId).toBeTruthy();

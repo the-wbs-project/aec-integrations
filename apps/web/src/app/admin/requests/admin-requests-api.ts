@@ -16,6 +16,11 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AdminListingRequest,
+  AdminProductRequest,
+  DecideProductRequest,
+  ListProductRequestsQuery,
+  ListProductRequestsResponse,
+  ProductsListResponse,
   ListListingRequestsQuery,
   ListListingRequestsResponse,
   ListVendorRequestsQuery,
@@ -70,5 +75,38 @@ export class AdminRequestsApi {
         input,
       ),
     );
+  }
+
+  /** `GET /api/admin/product-requests` (AECI-1377): vendors asking us to add a product. */
+  listProductRequests(
+    query: Partial<ListProductRequestsQuery> = {},
+  ): Promise<ListProductRequestsResponse> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params = params.set(key, String(value));
+    }
+    return firstValueFrom(
+      this.http.get<ListProductRequestsResponse>('/api/admin/product-requests', { params }),
+    );
+  }
+
+  /** `PATCH /api/admin/product-requests/:id` — decide an open product request. */
+  decideProductRequest(id: string, input: DecideProductRequest): Promise<AdminProductRequest> {
+    return firstValueFrom(
+      this.http.patch<AdminProductRequest>(
+        `/api/admin/product-requests/${encodeURIComponent(id)}`,
+        input,
+      ),
+    );
+  }
+
+  /** The product picker's search for an Added or Already listed decision: the PUBLIC
+   *  `GET /api/products`, which lists promoted products only, A to Z. */
+  searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
+    const params = new HttpParams()
+      .set('search', query)
+      .set('perPage', String(perPage))
+      .set('sort', 'name');
+    return firstValueFrom(this.http.get<ProductsListResponse>('/api/products', { params }));
   }
 }

@@ -81,6 +81,16 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-contests/admin-contests-preview').then((m) => m.AdminContestsPreview),
   },
+  // AECI-1377: the "Product requests from vendors" section of `/admin/requests` over
+  // a fake API, so the three decision forms and the product picker render without an
+  // admin session.
+  {
+    path: 'admin-product-requests',
+    loadComponent: () =>
+      import('./admin-product-requests/admin-product-requests-preview').then(
+        (m) => m.AdminProductRequestsPreview,
+      ),
+  },
   // AECI-1177 — the `/admin/review-responses` queue over a fixture-backed fake API,
   // so every card state and the reason form render without an admin session.
   {

@@ -56,9 +56,14 @@ import type {
   ListVendorReviewsResponse,
   VendorReviewItem,
   VendorReviewResponseResult,
+  CreateProductRequestInput,
+  CreateProductRequestResponse,
+  ListVendorProductRequestsResponse,
+  VendorProductRequest,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import {
+  CreateProductRequestSchema,
   CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
@@ -108,6 +113,8 @@ import {
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
+  VENDOR_PRODUCT_REQUEST_NOTIFICATIONS_FIXTURE,
+  VENDOR_PRODUCT_REQUESTS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
   VENDOR_SEATS_FIXTURE,
   VENDOR_TAXONOMY_FIXTURE,
@@ -380,6 +387,8 @@ export class PreviewVendorApi extends VendorApi {
   private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
   private nextContestSeq = 0;
   private nextCreateSeq = 0;
+  private productRequests: VendorProductRequest[] = clone([...VENDOR_PRODUCT_REQUESTS_FIXTURE]);
+  private nextRequestSeq = 0;
   private checklistState: ChecklistFixtureState = NOTHING_CHECKED;
 
   /** Point the fake at the fixture the preview is currently showing, so writes
@@ -679,6 +688,7 @@ export class PreviewVendorApi extends VendorApi {
     // Newest first, as the ledger read orders them.
     const rows = [
       ...VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
+      ...VENDOR_PRODUCT_REQUEST_NOTIFICATIONS_FIXTURE,
       ...VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
       ...VENDOR_NOTIFICATIONS_FIXTURE,
     ].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
@@ -1418,6 +1428,55 @@ export class PreviewVendorApi extends VendorApi {
       .sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id))
       .slice(0, perPage);
     return { data: clone(items), total: items.length, page: 1, perPage };
+  }
+
+  /** The public product read, from the same small catalogue the search answers
+   *  from (AECI-1377 deep link). An unknown slug is the real route's `404`. */
+  override async getProduct(slug: string): Promise<ProductListItem> {
+    const found = PREVIEW_CATALOGUE.find((p) => p.slug === slug);
+    if (!found) throw apiError(404, 'NOT_FOUND', 'Product not found');
+    return clone(found);
+  }
+
+  /** The vendor's requests, one per status (AECI-1377). */
+  override async listProductRequests(): Promise<ListVendorProductRequestsResponse> {
+    return { requests: clone(this.productRequests) };
+  }
+
+  /** A request, fixture-side: the schema, the context-product `404`, and the
+   *  open-duplicate `409` the handler applies (§4.7.6). */
+  override async createProductRequest(
+    body: CreateProductRequestInput,
+  ): Promise<CreateProductRequestResponse> {
+    const parsed = CreateProductRequestSchema.safeParse(body);
+    if (!parsed.success) throw apiError(400, 'VALIDATION_FAILED', 'Check the body');
+    if (!this.me?.products.some((p) => p.id === parsed.data.context_product_id)) {
+      throw apiError(404, 'NOT_FOUND', 'Product not found');
+    }
+    const key = parsed.data.name.trim().toLowerCase();
+    const existing = this.productRequests.find(
+      (r) => r.status === 'open' && r.name.trim().toLowerCase() === key,
+    );
+    if (existing) {
+      throw apiError(409, 'PRODUCT_REQUEST_EXISTS', 'Already asked', {
+        details: { request_id: existing.id },
+      });
+    }
+    const request: VendorProductRequest = {
+      id: `00000000-0000-4000-8000-${String(910000000000 + this.nextRequestSeq++)}`,
+      status: 'open',
+      context_product_id: parsed.data.context_product_id,
+      name: parsed.data.name,
+      maker: parsed.data.maker,
+      website: parsed.data.website || null,
+      body: parsed.data.body ?? '',
+      created_at: '2026-10-15T12:00:00.000Z',
+      resolved_at: null,
+      decline_reason: null,
+      resolved_product: null,
+    };
+    this.productRequests = [request, ...this.productRequests];
+    return { request: clone(request) };
   }
 
   /** The create, fixture-side: the schema and value rule the handler applies, the

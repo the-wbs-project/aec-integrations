@@ -135,6 +135,13 @@ export const ApiErrorCode = {
   NOTIFICATION_NOT_PAUSABLE: 'NOTIFICATION_NOT_PAUSABLE',
   // AECI-1224: the switch moved between the read and the write, from another tab (409).
   NOTIFICATION_SWITCH_CHANGED: 'NOTIFICATION_SWITCH_CHANGED',
+  // AECI-1377 product requests (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6).
+  // `PRODUCT_REQUEST_EXISTS` (409) answers a vendor's request when the same vendor
+  // already has an OPEN request whose name matches, trimmed and case-insensitive;
+  // `details.request_id` names it. `PRODUCT_NOT_PROMOTED` (422) answers an admin
+  // `added` or `already_listed` decision whose `product_id` is not a promoted product.
+  PRODUCT_REQUEST_EXISTS: 'PRODUCT_REQUEST_EXISTS',
+  PRODUCT_NOT_PROMOTED: 'PRODUCT_NOT_PROMOTED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

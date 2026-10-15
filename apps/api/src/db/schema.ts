@@ -1422,6 +1422,57 @@ export const listingRequests = sqliteTable(
 );
 
 /**
+ * Product requests (AECI-1377, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6): a seated
+ * vendor asks AECi to add the OTHER product of an integration it wants to list,
+ * because the catalog does not have it. Written by `POST /api/vendor/product-requests`
+ * from the "Add an integration" form, decided on `/admin/requests`
+ * (`PATCH /api/admin/product-requests/:id`). A request never creates an integration:
+ * the vendor finishes that itself once the product exists.
+ *
+ * **Its own table, not `listing_requests`.** A listing request is "I make this
+ * product, add it so I can claim it": an anonymous submitter, a plan answer and a
+ * claim to follow. This one has a signed-in vendor as its actor, no claim and no
+ * plan. Sharing the table would make every reader branch on a `source` column.
+ *
+ * **Deliberately no FK and no CHECK** (the `listing_requests` precedent). No FK from
+ * `requested_by` or `resolved_by` to `profiles`, so the erasure batch has nothing new
+ * to null. No CHECK on `status`: a CHECK change would force a recreate. Zod and the
+ * handlers enforce the vocabulary (`open`, `added`, `already_listed`, `declined`).
+ *
+ * Domain state (a request): the insert and the decision each write their
+ * `audit_log` row in the same `db.batch` (ADR 0022).
+ */
+export const productRequests = sqliteTable(
+  'product_requests',
+  {
+    id: uuidPk(),
+    /** The requesting vendor. Every seat of it sees the request. */
+    vendorId: text('vendor_id').notNull(),
+    /** The seat (profile id) that asked. The decision email goes here. */
+    requestedBy: text('requested_by').notNull(),
+    /** The caller's own product whose Integrations tab the request came from. */
+    contextProductId: text('context_product_id').notNull(),
+    name: text('name').notNull(),
+    maker: text('maker').notNull(),
+    website: text('website'),
+    /** "Anything we should know?". NOT NULL, `''` when none. */
+    body: text('body').notNull().default(''),
+    status: text('status').notNull().default('open'),
+    /** The promoted product an `added` or `already_listed` decision linked. */
+    resolvedProductId: text('resolved_product_id'),
+    /** A `declined` decision's reason. Shown to the vendor (ruled 2026-10-15). */
+    declineReason: text('decline_reason'),
+    createdAt: createdAt(),
+    resolvedAt: text('resolved_at'),
+    resolvedById: text('resolved_by'),
+  },
+  (t) => [
+    index('product_requests_status_created_idx').on(t.status, t.createdAt),
+    index('product_requests_vendor_created_idx').on(t.vendorId, t.createdAt),
+  ],
+);
+
+/**
  * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
  * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
  * table (§2.4/§2.5). It has no public reader left: AECI-1264 (2026-10-09) deleted

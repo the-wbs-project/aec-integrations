@@ -130,6 +130,7 @@ Tables grouped by domain:
 **Operations and workflow**:
 - `vendor_requests` — incoming claim and correction requests
 - `listing_requests` — typed-in listings from the claim dialog, a product or company not in the catalog (§8.1a, AECI-1293)
+- `product_requests` — a seated vendor asking AECi to add the other product of an integration (§8.1b, AECI-1377)
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
@@ -1443,6 +1444,55 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
   CHECK-constrained. The audit metadata never holds the typed name, website or email.
 - **No retention prune**, like `vendor_requests`.
+
+### 8.1b `product_requests` (AECI-1377)
+
+A seated vendor asking AECi to add the OTHER product of an integration it wants to list,
+because the catalog does not have it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). Written by
+`POST /api/vendor/product-requests` from the "Add an integration" form, listed by
+`GET /api/vendor/product-requests`, and decided on `/admin/requests` through
+`/api/admin/product-requests`. A request never creates an integration.
+
+```sql
+create table product_requests (
+  id                  text primary key,          -- uuid, crypto.randomUUID()
+  vendor_id           text not null,             -- the requesting vendor, NO FK
+  requested_by        text not null,             -- the seat's profile id, NO FK
+  context_product_id  text not null,             -- the caller's product it asked from, NO FK
+  name                text not null,             -- 1..200, as typed
+  maker               text not null,             -- 1..200, as typed
+  website             text,                      -- https only, <=500, NULL when skipped
+  body                text not null default '',  -- "Anything we should know?", <=2000
+  status              text not null default 'open', -- 'open' | 'added' | 'already_listed' | 'declined'
+  resolved_product_id text,                      -- the promoted product an added/already_listed decision linked
+  decline_reason      text,                      -- 1..1000, shown to the vendor
+  created_at          text not null,
+  resolved_at         text,
+  resolved_by         text                       -- an admin profile id, NO FK
+);
+create index product_requests_status_created_idx on product_requests(status, created_at);
+create index product_requests_vendor_created_idx on product_requests(vendor_id, created_at);
+```
+
+- **Why its own table, not `listing_requests`.** A listing request is "I make this
+  product, add it so I can claim it": an anonymous submitter, a plan answer, a claim to
+  follow. A product request has a signed-in vendor as its actor, no claim and no plan.
+  Sharing the table would make the admin row, the alert, the receipt and the badge
+  branch on a `source` column.
+- **No FK and no CHECK**, the `listing_requests` precedent. `requested_by` and
+  `resolved_by` have no FK to `profiles`, so the erasure batch has nothing new to null.
+  The `status` vocabulary is enforced by Zod. Migration `0075` is exactly the
+  `CREATE TABLE` and its two indexes (`src/test/migration-0075.spec.ts` is the tripwire).
+- **One open request per name.** An open row of the same vendor whose `name` matches,
+  trimmed and case-insensitive, answers `409 PRODUCT_REQUEST_EXISTS`. The check runs in
+  the handler and again as an in-batch sentinel. A decided row blocks nothing.
+- **Domain state, audited.** The insert writes `product_request.created` (metadata
+  `context_product_id` and `has_website`, never the typed text), and each decision
+  `product_request.added`, `product_request.already_listed` or
+  `product_request.declined` plus the vendor's `notification.sent` row, in the same
+  `db.batch` (ADR 0022). The decision batch carries a `changes()` sentinel, so a lost
+  two-admin race rolls back whole. Every row sets `audit_log.vendor_id` (§8.4).
+- **No retention prune**, like `listing_requests`.
 
 ### 8.2 `workflow_instances`
 

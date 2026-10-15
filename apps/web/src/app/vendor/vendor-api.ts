@@ -26,6 +26,10 @@ import type {
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
   CreateVendorIntegrationResponse,
+  CreateProductRequestInput,
+  CreateProductRequestResponse,
+  ListVendorProductRequestsResponse,
+  ProductListItem,
   ProductsListResponse,
   CreateVendorClaimInput,
   UpdateVendorIntegrationInput,
@@ -633,6 +637,35 @@ export class VendorApi {
       sort: 'name',
     });
     return firstValueFrom(this.http.get<ProductsListResponse>(`/api/products?${params}`));
+  }
+
+  /** `GET /api/products/:slug`, the public product read, for the create form's
+   *  `?counterpart={slug}` deep link (AECI-1377, §4.7.6). The response is a
+   *  `ProductDetail`; the form reads only its list-item half. It does not filter on
+   *  promotion, so the create's own `404` still catches an unpromoted product. */
+  getProduct(slug: string): Promise<ProductListItem> {
+    return firstValueFrom(
+      this.http.get<ProductListItem>(`/api/products/${encodeURIComponent(slug)}`),
+    );
+  }
+
+  // ─── Product requests (AECI-1377, §4.7.6) ──────────────────────────────────
+
+  /** `POST /api/vendor/product-requests` — ask AECi to add the other product of an
+   *  integration. A seat is the whole gate. `409 PRODUCT_REQUEST_EXISTS` when an
+   *  open request already names it. */
+  createProductRequest(body: CreateProductRequestInput): Promise<CreateProductRequestResponse> {
+    return firstValueFrom(
+      this.http.post<CreateProductRequestResponse>('/api/vendor/product-requests', body),
+    );
+  }
+
+  /** `GET /api/vendor/product-requests` — the vendor's requests, newest first, at
+   *  most 50. Not a cursor scope: the list re-reads when `notifications` moves. */
+  listProductRequests(): Promise<ListVendorProductRequestsResponse> {
+    return firstValueFrom(
+      this.http.get<ListVendorProductRequestsResponse>('/api/vendor/product-requests'),
+    );
   }
 
   // ─── Per-side integration links (AECI-1007) ────────────────────────────────

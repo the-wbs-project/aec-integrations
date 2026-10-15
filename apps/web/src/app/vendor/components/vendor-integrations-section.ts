@@ -33,6 +33,7 @@ import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCreate } from './vendor-integration-create';
+import { VendorProductRequestsList } from './vendor-product-requests-list';
 import {
   type CounterpartSide,
   EMPTY_FILTER,
@@ -79,7 +80,13 @@ import {
  */
 @Component({
   selector: 'aec-vendor-integrations-section',
-  imports: [NgTemplateOutlet, RouterLink, LogoOrInitial, VendorIntegrationCreate],
+  imports: [
+    NgTemplateOutlet,
+    RouterLink,
+    LogoOrInitial,
+    VendorIntegrationCreate,
+    VendorProductRequestsList,
+  ],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
@@ -97,7 +104,13 @@ import {
 
       <!-- AECI-1011. A seat is the whole gate for listing an integration
            (AECI-1003 decision 15), unlike answering. -->
-      <aec-vendor-integration-create [contextProductId]="contextProductId()" />
+      <aec-vendor-integration-create
+        [contextProductId]="contextProductId()"
+        [deepLink]="urlState()"
+        (requested)="requests.reload()"
+      />
+      <!-- AECI-1377: the vendor's product requests. Renders nothing when there are none. -->
+      <aec-vendor-product-requests-list #requests [routed]="urlState()" />
 
       @if (!canAuthor()) {
         <div class="rounded-(--radius-md) border border-(--border-default) p-4">

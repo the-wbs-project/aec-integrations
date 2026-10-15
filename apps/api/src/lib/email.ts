@@ -2681,6 +2681,169 @@ export function sendListingRequestAlert(
   });
 }
 
+/** A product request as `POST /api/vendor/product-requests` saved it (AECI-1377). */
+export interface ProductRequestSummary {
+  /** The `product_requests.id` of the saved row. */
+  requestId: string;
+  name: string;
+  maker: string;
+  website: string | null;
+  /** "Anything we should know?", `''` when none. */
+  body: string;
+  vendorName: string;
+  contextProductName: string;
+  /** The requesting seat's session email, or `null` when the session carried none. */
+  requesterEmail: string | null;
+}
+
+/**
+ * Operator alert: a seated vendor asked us to add the other product of an integration
+ * (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). To `SUPPORT_EMAIL`, reply-to the
+ * requesting seat. The CTA opens `/admin/requests`, where the request waits either way,
+ * which is why the entry is pausable.
+ *
+ * Every vendor-typed value is `plain`, so AECi's markup never turns it into a link in
+ * the support inbox (the AECI-1197 rule).
+ */
+export function sendProductRequestAlert(
+  c: EmailContext,
+  opts: { request: ProductRequestSummary } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { request } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const rows: EmailTableRow[] = [
+    ['Product', request.name, { plain: true }],
+    ['Made by', request.maker, { plain: true }],
+    ['Website', request.website ?? 'not supplied', { plain: true }],
+    ['Vendor', request.vendorName, { plain: true }],
+    ['Asked from', request.contextProductName, { plain: true }],
+    ['Seat', request.requesterEmail ?? 'not known', { plain: true }],
+    ['Note', request.body || '(none)', { plain: true }],
+    ['Request id', request.requestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+
+  const name = subjectSafe(request.name);
+  const vendor = subjectSafe(request.vendorName);
+  const intro = `${vendor} asked us to add ${name}, so they can list an integration with it. Add and promote the product, or find it in the catalog, then decide the request on the requests screen.`;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: `Product request: ${name}`,
+    table: rows,
+    ...(base
+      ? { cta: { label: 'Open the requests queue', url: link(`${base}/admin/requests`) } }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'product-request-alert',
+    subject: `[AECi] Product request: ${name}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    ...(request.requesterEmail ? { replyTo: request.requesterEmail } : {}),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
+/** What the decision email says (AECI-1377). One template, three outcomes. */
+export type ProductRequestDecision =
+  | { outcome: 'added'; productName: string; productSlug: string }
+  | { outcome: 'already_listed'; productName: string; productSlug: string }
+  | { outcome: 'declined'; reason: string };
+
+export interface ProductRequestDecidedEmail {
+  to: string;
+  requestId: string;
+  /** The name the vendor typed. */
+  requestName: string;
+  /** `null` when the vendor row is gone. The email then has no button. */
+  vendorSlug: string | null;
+  /** The vendor's own product the request came from: the deep link's tab. `null`
+   *  when that product is gone. The email then has no button. */
+  contextProductSlug: string | null;
+  decision: ProductRequestDecision;
+  /** `product-request-decided:{requestId}`. The caller owns it. */
+  dedupeKey: string;
+}
+
+/**
+ * `product-request-decided` (AECI-1377, §4.7.6): tells the seat that asked what AECi
+ * decided. One template with three variants, under one dedupe key per request.
+ *
+ *   - `added`: "{product} is now listed. Add your integration."
+ *   - `already_listed`: "{name} was already listed as {catalog name}. Add your integration."
+ *   - `declined`: "We will not add {name}." and the reason, which the vendor is shown
+ *     (ruled 2026-10-15). Never an internal note.
+ *
+ * The CTA on the first two is the deep link into the context product's Integrations
+ * tab with the form open and the product preselected
+ * ({@link vendorProductIntegrationsUrl}). It is omitted when `PUBLIC_SITE_URL` is unset,
+ * or when the vendor or its product is gone.
+ * The typed name and the reason are vendor or operator text, so they are escaped.
+ */
+export function sendProductRequestDecidedEmail(
+  c: EmailContext,
+  opts: ProductRequestDecidedEmail,
+): Promise<EmailOutcome> {
+  const typed = subjectSafe(opts.requestName);
+  const { decision } = opts;
+  let subject: string;
+  let heading: string;
+  let text: string[];
+  let html: string[];
+  let url: string | null = null;
+  if (decision.outcome === 'declined') {
+    subject = `We will not add ${typed} to AEC Integrations`;
+    heading = `We will not add ${typed}`;
+    const lead = `We will not add ${opts.requestName}.`;
+    const leadHtml = `We will not add <strong>${escapeHtml(opts.requestName)}</strong>.`;
+    const reason = `Our reason: ${decision.reason}`;
+    const reasonHtml = `Our reason: <em>${escapeHtml(decision.reason)}</em>`;
+    const next = 'If something has changed, you can ask again from the Integrations tab.';
+    text = [lead, reason, next];
+    html = [leadHtml, reasonHtml, next];
+  } else {
+    url =
+      opts.vendorSlug && opts.contextProductSlug
+        ? vendorProductIntegrationsUrl(
+            c.env,
+            opts.vendorSlug,
+            opts.contextProductSlug,
+            decision.productSlug,
+          )
+        : null;
+    const product = decision.productName;
+    const add = 'Add your integration.';
+    if (decision.outcome === 'added') {
+      subject = `${subjectSafe(product)} is now listed on AEC Integrations`;
+      heading = `${subjectSafe(product)} is now listed`;
+      text = [`${product} is now listed. ${add}`];
+      html = [`<strong>${escapeHtml(product)}</strong> is now listed. ${add}`];
+    } else {
+      subject = `${typed} is already listed on AEC Integrations`;
+      heading = `${typed} is already listed`;
+      text = [`${opts.requestName} was already listed as ${product}. ${add}`];
+      html = [
+        `<strong>${escapeHtml(opts.requestName)}</strong> was already listed as <strong>${escapeHtml(product)}</strong>. ${add}`,
+      ];
+    }
+  }
+  const shared = (link: LinkTagger) => ({
+    preheader: heading,
+    heading,
+    ...(url ? { cta: { label: 'Add the integration', url: link(url) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'product-request-decided',
+    subject,
+    render: (link) => houseBody(shared(link), text, html),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'product_request', id: opts.requestId },
+  });
+}
+
 // ─── Low-level transport (AECI-241 / Phase 7.6) ─────────────────────────────────
 // Used by the two cron digests (`scheduled.ts`). Dependency-free with an injectable
 // fetch/logger. It holds no ExecutionContext, so it emits no metric itself: each digest
@@ -3029,6 +3192,24 @@ function vendorProductReviewsUrl(env: Env, vendorSlug: string, productSlug: stri
   const base = siteUrl(env);
   return base
     ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/products/${encodeURIComponent(productSlug)}/reviews`
+    : null;
+}
+
+/**
+ * A product's Integrations tab in the portal with the create form open and the other
+ * product preselected (AECI-1377, §4.7.6):
+ * `/vendor/:vendorSlug/products/:productSlug/integrations?create=open&counterpart=:slug`.
+ * `null` when `PUBLIC_SITE_URL` is unset.
+ */
+export function vendorProductIntegrationsUrl(
+  env: Env,
+  vendorSlug: string,
+  productSlug: string,
+  counterpartSlug: string,
+): string | null {
+  const base = siteUrl(env);
+  return base
+    ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/products/${encodeURIComponent(productSlug)}/integrations?create=open&counterpart=${encodeURIComponent(counterpartSlug)}`
     : null;
 }
 
