@@ -789,29 +789,26 @@ export function sendVendorReviewPublishedEmail(
 
 /**
  * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
- * vendor claim was granted, so their vendor account now has active management access. For an
- * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
- * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
- * first login; a `linked` claimant already has an account. Links to the `/vendor`
- * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
- * absent → silent skip. Copy stays account-scoped: access is a status, not a
- * product endorsement, and never touches ranking (no pay-for-placement).
+ * vendor claim was granted, so they can now manage the vendor on AEC Integrations.
+ * Recipient is the claim's `submitter_email`; absent → silent skip. Copy stays
+ * account-scoped: access is a status, not a product endorsement, and never touches
+ * ranking (no pay-for-placement).
  *
- * **The first template on the house layout** (`./email-layout`), which is why it reads
- * as a headline, two short blocks and one Forest button rather than four equal grey
- * paragraphs. The structural change is the CTA: the portal used to be an inline link
- * inside a sentence, and this is the one action the email exists to prompt. Every §9 AC
- * is unchanged — the vendor is named, capabilities are listed, the link appears only
- * when configured, the sign-in line still branches on the identity outcome, and the
- * account-status framing stays account-scoped. (It used to be aligned with the public
- * account label, which AECI-1264 removed on 2026-10-09.)
+ * **One variant since AECI-1367** (`VENDOR_SIGNUP_PROCESS.md` §3 step 2): every
+ * approval lands on Free, so AECI-1215's Managed variant is gone. Three blocks:
  *
- * **Two variants since AECI-1215** (`STAGE_2_PAID_TIERS_SPEC.md` §13.6), one per plan
- * the operator chose. Only the capabilities block differs. Managed keeps the copy
- * above. Free says what a Free seat can do, which is edit company details and the
- * product listing, and names the plan so the claimant is not promised attestations
- * it cannot author. Both share the `claim-approved` template id: it is one event,
- * and the plan is in the audit row.
+ *  1. **Sign in.** The CTA is the sign-in page (`/auth/login?return=/vendor`), never a
+ *     one-time link: the email may be read days later. An `invited` claimant's account
+ *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
+ *     copy tells them it exists and which address to use.
+ *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
+ *  3. **How Managed works:** licenses on the company's billing account, one per
+ *     product, bought later from Billing. No price until E8 rules on the copy.
+ *
+ * It names the vendor (the company the seat belongs to, even when the claim named a
+ * product) and has no "attestations" line: authoring attestations is Managed-only.
+ * Without `PUBLIC_SITE_URL` there is no button, and the sign-in line names the page
+ * instead.
  */
 export function sendClaimApprovedEmail(
   c: EmailContext,
@@ -819,44 +816,46 @@ export function sendClaimApprovedEmail(
     to: string | undefined;
     vendorName: string;
     invited: boolean;
-    plan: 'free' | 'managed';
   },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const portal = portalUrl(c.env);
+  const signInPage = signInUrl(c.env);
 
-  // The button carries the destination, so the sign-in line no longer repeats the URL.
-  // Without a portal link there is no button, and the copy has to stand alone.
+  const opening = `You can now manage ${name} on AEC Integrations. Your company starts on the Free plan.`;
+  const openingHtml = `You can now manage <strong>${escapeHtml(name)}</strong> on AEC Integrations. Your company starts on the Free plan.`;
+
+  // Block 1: sign in. The button carries the destination, so the line does not repeat
+  // the URL. Without a button the line has to name the page.
+  const where = signInPage ? 'the sign-in page' : 'the AEC Integrations sign-in page';
   const signIn = opts.invited
-    ? portal
-      ? 'We created an account for your email address. Sign in by requesting a one-time sign-in link.'
-      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : 'Sign in with your existing account to get started.';
+    ? `We created an account for this email address. Sign in from ${where} with this address to open your vendor portal.`
+    : `Sign in with your existing account from ${where} to open your vendor portal.`;
+
+  // Block 2: what Free includes (§13.3). Every seat holds these on every plan.
+  const free =
+    "The Free plan includes your company details and each product's description, website, logo and categories. You can also check each product's integration list and confirm it looks right.";
+
+  // Block 3: how Managed works. No price: E8 rules on that copy.
+  const managed =
+    "Managed adds more to each product. It is sold as licenses on your company's billing account, and each license is assigned to one product. You can buy licenses later from Billing in your vendor portal.";
 
   const accountStatus =
-    "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
-  const capabilities =
-    opts.plan === 'free'
-      ? 'Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing.'
-      : 'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
-
-  const opening = `Your vendor account is now active on AEC Integrations and can manage the ${name} listing.`;
-  const openingHtml = `Your vendor account is now active on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
+    'A vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and no plan changes where you rank or appear.';
 
   const shared = (link: LinkTagger) => ({
-    preheader: `Your vendor portal for ${name} is open.`,
+    preheader: `You can now manage ${name} on AEC Integrations.`,
     heading: `Your claim for ${name} is approved`,
-    ...(portal ? { cta: { label: 'Go to your vendor portal', url: link(portal) } } : {}),
+    ...(signInPage ? { cta: { label: 'Sign in', url: link(signInPage) } } : {}),
     note: accountStatus,
   });
 
   // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line pointing at the public
-  // vendor page. An approved claimant is on a plan and can act on it. It stays an
-  // inline link, so the portal remains the email's one button. Omitted with no host.
+  // vendor page, after the Managed block it expands on. It stays an inline link, so
+  // sign-in remains the email's one button. Omitted with no host.
   const program = vendorProgramUrl(c.env);
   const render = (link: LinkTagger): EmailContent => {
-    const text = [opening, capabilities, signIn];
-    const html = [openingHtml, capabilities, signIn];
+    const text = [opening, signIn, free, managed];
+    const html = [openingHtml, signIn, free, managed];
     if (program) {
       const tagged = link(program);
       text.push(`See what each plan includes on our page for software vendors: ${tagged}`);
@@ -1051,18 +1050,18 @@ export async function sendClaimDecisionEmail(
     decision: 'approved' | 'rejected';
     to: string;
     targetName: string;
+    /** The granted vendor's company name (AECI-1367). Set on approve. */
+    vendorName?: string;
     identityOutcome?: 'linked' | 'invited';
-    plan?: 'free' | 'managed';
   },
 ): Promise<void> {
   if (input.decision === 'approved') {
     await sendClaimApprovedEmail(c, {
       to: input.to,
-      vendorName: input.targetName,
+      // The approval names the vendor the seat belongs to. The claimed target's name
+      // is the fallback for a caller that does not pass it.
+      vendorName: input.vendorName?.trim() || input.targetName,
       invited: input.identityOutcome === 'invited',
-      // The route always sets `plan` on approve. Managed is the fallback only so a
-      // caller that predates AECI-1215 keeps today's copy.
-      plan: input.plan ?? 'managed',
     });
   } else {
     // Neutral by design — the reviewer's `reason` is an internal audit note and is
@@ -1897,6 +1896,11 @@ export function sendLandingSignupNotification(
   });
 }
 
+/** The connector-vendor line on the claim alert (AECI-1367). The queue row's flag says
+ *  the same thing in `apps/web` (`@@admin.claims.connectorFlag.*`). */
+export const CONNECTOR_VENDOR_FLAG =
+  'Connector vendor: contact them directly. Every product this vendor lists is a connector.';
+
 /**
  * Operator alert: someone submitted a vendor claim (`POST /api/requests/claim`).
  *
@@ -1963,6 +1967,11 @@ export function sendClaimSubmittedNotification(
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
     duplicateOfRequestId: string | null;
+    /** AECI-1367: every product the claimed vendor lists is a connector
+     *  (`isPureConnectorVendor`). `true` adds the "contact them directly" line.
+     *  `false`, `null` (unknown) and absent add nothing. Informational only: the
+     *  claim is approved like any other. */
+    connectorVendor?: boolean | null;
     /** AECI-861: the created issue's web permalink, or `null` when creation failed
      *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
      *  itself the thing the operator needs to know. */
@@ -2006,6 +2015,11 @@ export function sendClaimSubmittedNotification(
 
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
   const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
+  // AECI-1367 (Chris's ruling 2026-10-14): the same neutral flag the queue row shows.
+  // It does not say to hold the claim. It says to talk to them.
+  const blocks = opts.connectorVendor === true ? [intro, CONNECTOR_VENDOR_FLAG] : [intro];
+  const htmlBlocks =
+    opts.connectorVendor === true ? [introHtml, escapeHtml(CONNECTOR_VENDOR_FLAG)] : [introHtml];
   const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New claim for ${opts.targetName}`,
@@ -2017,7 +2031,7 @@ export function sendClaimSubmittedNotification(
     to: c.env.SUPPORT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
-    render: (link) => houseBody(shared(link), [intro], [introHtml]),
+    render: (link) => houseBody(shared(link), blocks, htmlBlocks),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -3009,10 +3023,18 @@ function productUrl(env: Env, slug: string): string | null {
 }
 
 /** The vendor portal entry point (`/vendor`, AECI-522) or `null` when
- *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
+ *  `PUBLIC_SITE_URL` is unset; the caller then omits the link. */
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/** The sign-in page, returning to the vendor portal (`/auth/login?return=/vendor`), or
+ *  `null` when `PUBLIC_SITE_URL` is unset. The claim-approved email's one button
+ *  (AECI-1367): a page, never a one-time link, so a late read still works. */
+function signInUrl(env: Env): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/auth/login?return=${encodeURIComponent('/vendor')}` : null;
 }
 
 /** The public vendor landing page (`/vendor-program`, AECI-1283) or `null` when

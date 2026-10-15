@@ -1,17 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { products, productVendors, vendors } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
 import {
   EMPTY_PRODUCT_ROLES,
+  claimTargetIsPureConnector,
   foldProductRoleGroups,
   isPureConnectorVendor,
 } from './vendor-product-roles';
 
 /**
  * The §5.2 payer test in isolation (AECI-738). The route specs cover the SQL and
- * the wiring; this covers the decision itself, because the decision is the part
- * that is one-way: `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 says Grant and Reject are
- * BOTH wrong on a pure-connector claim, and a false positive here parks a real
- * customer's claim while a false negative sends them a decline email.
+ * the wiring; this covers the decision itself. Since AECI-1367 it drives an
+ * informational flag only ("Connector vendor: contact them directly"), so a wrong
+ * answer costs the operator a misleading line, not a parked claim.
  */
 describe('isPureConnectorVendor', () => {
   const roles = (o: Partial<typeof EMPTY_PRODUCT_ROLES>) => ({ ...EMPTY_PRODUCT_ROLES, ...o });
@@ -64,5 +66,52 @@ describe('foldProductRoleGroups', () => {
     ]).get('v1')!;
     expect(roles).toEqual({ application: 0, connector: 1, hybrid: 0, total: 2 });
     expect(isPureConnectorVendor(roles)).toBe(false);
+  });
+});
+
+// ─── AECI-1367: the claim alert's connector flag ─────────────────────────────
+
+describe('claimTargetIsPureConnector', () => {
+  const V = '11111111-1111-4111-8111-111111111111';
+  const P1 = '22222222-2222-4222-8222-222222222221';
+  const P2 = '22222222-2222-4222-8222-222222222222';
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+    await t.db.insert(vendors).values({ id: V, slug: 'zapier', companyName: 'Zapier' });
+  });
+  afterEach(() => t.dispose());
+
+  const seedProducts = async (roles: Array<'application' | 'connector' | 'hybrid'>) => {
+    const ids = [P1, P2].slice(0, roles.length);
+    await t.db
+      .insert(products)
+      .values(ids.map((id, i) => ({ id, slug: `p-${i}`, name: `P${i}`, productRole: roles[i]! })));
+    await t.db
+      .insert(productVendors)
+      .values(ids.map((productId) => ({ productId, vendorId: V, isPrimary: true })));
+  };
+
+  it('is true for a vendor target whose every product is a connector', async () => {
+    await seedProducts(['connector', 'connector']);
+    expect(await claimTargetIsPureConnector(t.db, 'vendor', V)).toBe(true);
+  });
+
+  it('is false when the vendor also lists an application', async () => {
+    await seedProducts(['connector', 'application']);
+    expect(await claimTargetIsPureConnector(t.db, 'vendor', V)).toBe(false);
+  });
+
+  it('is false for a vendor with no products (unknown, never flagged)', async () => {
+    expect(await claimTargetIsPureConnector(t.db, 'vendor', V)).toBe(false);
+  });
+
+  it('tests a product target on its primary vendor', async () => {
+    await seedProducts(['connector']);
+    expect(await claimTargetIsPureConnector(t.db, 'product', P1)).toBe(true);
+  });
+
+  it('answers null for a product with no vendor', async () => {
+    expect(await claimTargetIsPureConnector(t.db, 'product', P2)).toBeNull();
   });
 });

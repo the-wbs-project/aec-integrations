@@ -24,8 +24,8 @@ import { PlanPriceSchema } from './admin-plan-pricing';
  * and break the mirror invariant. It appears on the RESPONSE as a read-only
  * readout of where the mirror landed.
  *
- * The arrangement fields are a superset of `ClaimEntitlementSchema`
- * (`./admin-claims`), whose caps they reuse. `amount` stays a free-form
+ * The arrangement fields once mirrored the claim approval's `entitlement` body,
+ * which AECI-1367 retired (every approval lands on Free). `amount` stays a free-form
  * `string`, not a number: currency-agnostic ("USD 5,000 / yr") and
  * payer-model-agnostic (§8.1(4)).
  */
@@ -116,8 +116,8 @@ export const EntitlementTermDateSchema = z.union([z.string().date(), z.string().
 /**
  * The offline arrangement recorded on the entitlement row. Every field
  * optional: an admin may record a term with no paperwork reference yet, and
- * `clear` carries none of them. Caps match the shipped `ClaimEntitlementSchema`
- * so the two surfaces can never disagree about what fits.
+ * `clear` carries none of them. The caps are the ones the retired claim-approval
+ * arrangement used (AECI-1367 removed that body).
  */
 export const EntitlementArrangementSchema = z.object({
   payer: z.string().max(200).optional(),

@@ -297,7 +297,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: CATALOGUE,
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
   'listing-request-alert': {
     channel: 'email',
@@ -411,7 +411,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event. Both end with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',

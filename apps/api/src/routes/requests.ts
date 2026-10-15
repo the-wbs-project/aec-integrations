@@ -59,6 +59,7 @@ import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
+import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -301,9 +302,16 @@ async function createRequest(
   // this one. The stuck-request alert covers a create that never succeeds. The key makes a
   // replayed `waitUntil` a ledger `duplicate`, not a second email.
   c.executionCtx.waitUntil(
-    linearDone.then((outcome) => {
+    linearDone.then(async (outcome) => {
       if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
+      // AECI-1367: the neutral connector-vendor flag. Never throws.
+      const connectorVendor = await claimTargetIsPureConnector(
+        db,
+        insert.targetType,
+        insert.targetId,
+      );
       return sendClaimSubmittedNotification(c, {
+        connectorVendor,
         dedupeKey: `claim-submitted-alert:${requestId}`,
         entity: { type: 'vendor_request', id: requestId },
         requestId,

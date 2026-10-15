@@ -89,6 +89,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         : { integrations: 0, connector_evidenced: 0, total: 0 },
     // AECI-739: the operator note. Default is "no note".
     admin_notes: 'admin_notes' in over ? over.admin_notes! : null,
+    // AECI-1322: a resolved fixture was granted unless a test says otherwise.
+    granted: over.granted ?? (over.status ?? 'open') === 'resolved',
   };
 }
 
@@ -137,11 +139,8 @@ function makeApiMock(rows: AdminClaim[], total = rows.length): ApiMock {
                 verified: true,
                 identity_outcome: 'linked',
                 seat_created: false,
-                // AECI-612: the grant now opens a `vendor_entitlements` row in the
-                // same batch, and reports the tier it landed on.
-                tier: 'verified',
-                entitlement_created: true,
-                plan: 'managed',
+                // AECI-1367: every approval lands on Free.
+                tier: 'unclaimed',
               }
             : null,
       }),
@@ -185,39 +184,9 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
   return btn as HTMLButtonElement;
 }
 
-/** Pick a plan radio in the open approve form (AECI-1215). */
-function pickPlan(
-  fixture: { detectChanges(): void },
-  card: HTMLElement,
-  plan: 'free' | 'managed',
-): void {
-  const radio = card.querySelector(`input[type="radio"][value="${plan}"]`) as HTMLInputElement;
-  radio.checked = true;
-  radio.dispatchEvent(new Event('change'));
-  fixture.detectChanges();
-}
-
-/** Open the approve form and pick a plan, Managed unless told otherwise. */
-function openApproveWithPlan(
-  fixture: { detectChanges(): void },
-  card: HTMLElement,
-  plan: 'free' | 'managed' = 'managed',
-): void {
+/** Open the approve confirmation. AECI-1367: there is nothing to pick. */
+function openApprove(fixture: { detectChanges(): void }, card: HTMLElement): void {
   buttonByText(card, 'Grant vendor account').click();
-  fixture.detectChanges();
-  pickPlan(fixture, card, plan);
-}
-
-/** Open the approve form, pick Managed and type the arrangement note. */
-function typeApproveNote(
-  fixture: { detectChanges(): void },
-  card: HTMLElement,
-  note: string,
-): void {
-  openApproveWithPlan(fixture, card, 'managed');
-  const textarea = card.querySelector('textarea') as HTMLTextAreaElement;
-  textarea.value = note;
-  textarea.dispatchEvent(new Event('input'));
   fixture.detectChanges();
 }
 
@@ -295,6 +264,24 @@ describe('ClaimQueue', () => {
       );
       expect(accountSignal(el)).toBe(expected);
     });
+
+    // AECI-1322: the Linear webhook resolves a claim with no grant behind it.
+    it.each([true, false, null])(
+      'a resolved claim with no grant reads "Resolved without a grant" (account %s)',
+      async (hasAccount) => {
+        const { el } = await setup(
+          makeApiMock([
+            makeClaim({
+              id: 'c1',
+              status: 'resolved',
+              granted: false,
+              has_auth_account: hasAccount,
+            }),
+          ]),
+        );
+        expect(accountSignal(el)).toBe('Resolved without a grant');
+      },
+    );
 
     it('never offers an approve action on a decided claim', async () => {
       for (const status of ['resolved', 'rejected'] as const) {
@@ -410,30 +397,42 @@ describe('ClaimQueue', () => {
     expect(degraded.el.textContent).toContain('Unavailable');
   });
 
-  it('warns against Grant and Reject on a pure-connector claim, without disabling them', async () => {
-    const { el } = await setup(
-      makeApiMock([
-        makeClaim({
-          id: 'c1',
-          product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
-          is_pure_connector_vendor: true,
-        }),
-      ]),
-    );
-    const card = cardFor(el, 'Procore');
-    expect(card.textContent).toContain('Pure connector vendor');
-    expect(card.textContent).toContain('do not Grant or Reject');
-    // §5.2 is an operator procedure, not an API rule: `product_role` is curated
-    // upstream, so a mis-roled record must not hard-block a legitimate claim.
-    const buttons = [...card.querySelectorAll('button')].filter((b) =>
-      /Grant vendor account|Reject/.test(b.textContent ?? ''),
-    );
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((b) => !b.disabled)).toBe(true);
-  });
+  // AECI-1367 (Chris's ruling 2026-10-14): a connector vendor is approved like anyone
+  // else. The parking banners are gone. One neutral flag remains.
+  it.each([
+    ['owns no integrations', { integrations: 0, connector_evidenced: 0, total: 0 }],
+    ['owns integrations', { integrations: 1, connector_evidenced: 3, total: 4 }],
+    ['owned count unavailable', null],
+  ])(
+    'shows the neutral connector flag on a pure-connector claim that %s, with Grant enabled',
+    async (_label, owned) => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({
+            id: 'c1',
+            product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
+            is_pure_connector_vendor: true,
+            owned_integrations: owned,
+          }),
+        ]),
+      );
+      const card = cardFor(el, 'Procore');
+      const flag = card.querySelector('[data-testid="claim-connector-flag"]');
+      expect(flag?.textContent).toContain('Connector vendor: contact them directly');
+      // None of the retired park procedure survives.
+      expect(card.textContent).not.toContain('do not Grant or Reject');
+      expect(card.textContent).not.toContain('a paying owner');
+      expect(card.textContent).not.toContain('check what it owns before you act');
+      expect(card.textContent).not.toContain('partnership track');
+      const buttons = [...card.querySelectorAll('button')].filter((b) =>
+        /Grant vendor account|Reject/.test(b.textContent ?? ''),
+      );
+      expect(buttons.length).toBe(2);
+      expect(buttons.every((b) => !b.disabled)).toBe(true);
+    },
+  );
 
-  it('reads a pure connector vendor that owns integrations as a paying owner, not a park', async () => {
-    // AECI-1041 / §8.10: the third-party owner. The park banner would be wrong advice.
+  it('still reads the owned-integrations signal on a connector claim', async () => {
     const { el } = await setup(
       makeApiMock([
         makeClaim({
@@ -447,35 +446,18 @@ describe('ClaimQueue', () => {
     const card = cardFor(el, 'Procore');
     expect(card.textContent).toContain('Integrations owned');
     expect(card.textContent).toContain('4 (1 direct, 3 via a connector)');
-    expect(card.textContent).toContain('a paying owner');
-    expect(card.textContent).not.toContain('do not Grant or Reject');
-    const buttons = [...card.querySelectorAll('button')].filter((b) =>
-      /Grant vendor account|Reject/.test(b.textContent ?? ''),
-    );
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((b) => !b.disabled)).toBe(true);
   });
 
-  it('asks the operator to check step 1a when the owned count is unavailable', async () => {
-    const { el } = await setup(
-      makeApiMock([
-        makeClaim({
-          id: 'c1',
-          product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
-          is_pure_connector_vendor: true,
-          owned_integrations: null,
-        }),
-      ]),
-    );
-    const card = cardFor(el, 'Procore');
-    expect(card.textContent).toContain('check what it owns before you act');
-    expect(card.textContent).toContain('Integrations owned');
-    expect(card.textContent).not.toContain('Connector vendor that owns integrations');
-  });
-
-  it('shows no connector warning on an ordinary vendor claim', async () => {
-    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
-    expect(el.textContent).not.toContain('do not Grant or Reject');
+  it.each([
+    ['an ordinary vendor claim', makeClaim({ id: 'c1' })],
+    ['a role signal that is unavailable', makeClaim({ id: 'c1', is_pure_connector_vendor: null })],
+    [
+      'a decided connector claim',
+      makeClaim({ id: 'c1', status: 'resolved', is_pure_connector_vendor: true }),
+    ],
+  ])('shows no connector flag on %s', async (_label, claim) => {
+    const { el } = await setup(makeApiMock([claim]));
+    expect(el.querySelector('[data-testid="claim-connector-flag"]')).toBeNull();
   });
 
   it('renders prior requests + the duplicate-chain note', async () => {
@@ -580,58 +562,41 @@ describe('ClaimQueue', () => {
     expect(api.listClaims).toHaveBeenLastCalledWith({ status: 'rejected', page: 1, perPage: 100 });
   });
 
-  it('approves with an arrangement note: passes entitlement.notes and drops the row', async () => {
+  // ── Approve lands on Free (AECI-1367) ──────────────────────────────────────
+
+  it('approves with no plan and drops the row', async () => {
     const api = makeApiMock([
       makeClaim({ id: 'c1' }),
       makeClaim({ id: 'c2', target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' } }),
     ]);
     const { el, fixture } = await setup(api);
-    typeApproveNote(fixture, cardFor(el, 'Procore'), '  PO #4471, USD 5k/yr  ');
+    openApprove(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
-    expect(api.moderate).toHaveBeenCalledWith('c1', {
-      action: 'approve',
-      plan: 'managed',
-      entitlement: { notes: 'PO #4471, USD 5k/yr' },
-    });
+    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve' });
     expect(el.querySelectorAll('article')).toHaveLength(1);
     expect(el.textContent).toContain('Bluebeam');
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Free plan');
   });
 
-  it('approves Managed without a note: omits entitlement', async () => {
-    const api = makeApiMock([makeClaim({ id: 'c1' })]);
-    const { el, fixture } = await setup(api);
-    openApproveWithPlan(fixture, cardFor(el, 'Procore'), 'managed');
-    buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
-    await settle();
-    fixture.detectChanges();
-    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve', plan: 'managed' });
-    expect(el.querySelector('article')).toBeNull();
-  });
-
-  // ── The plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6) ─────────
-
-  it('asks for a plan in a labelled radio group with nothing preselected', async () => {
+  it('has no plan fieldset, radios, arrangement notes or verified-badge help (AECI-1272)', async () => {
     const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
     const card = cardFor(el, 'Procore');
-    buttonByText(card, 'Grant vendor account').click();
-    fixture.detectChanges();
-
-    const fieldset = card.querySelector('fieldset') as HTMLFieldSetElement;
-    expect(fieldset.querySelector('legend')?.textContent).toContain('Plan');
-    const radios = [...fieldset.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
-    expect(radios.map((r) => r.value)).toEqual(['free', 'managed']);
-    expect(radios.every((r) => !r.checked)).toBe(true);
-    // One group: both radios share a name.
-    expect(new Set(radios.map((r) => r.name)).size).toBe(1);
-    expect(fieldset.textContent).toContain('Free');
-    expect(fieldset.textContent).toContain('Managed');
+    openApprove(fixture, card);
+    const form = card.querySelector('form') as HTMLFormElement;
+    expect(form.querySelector('fieldset')).toBeNull();
+    expect(form.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect(form.querySelector('textarea')).toBeNull();
+    expect(form.textContent).not.toContain('Payment / arrangement notes');
+    expect(form.textContent).not.toContain('verified badge');
+    expect(form.textContent).toContain('Free plan');
+    // Nothing to pick, so Confirm is live at once.
+    expect(buttonByText(card, 'Confirm grant').disabled).toBe(false);
   });
 
-  // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.5): the claimant's answer sits beside
-  // the radios, which stay unselected whatever it says (§13.6).
-  it('shows the claimant asked about Managed beside unselected radios', async () => {
+  // AECI-1293: the claimant's answer stays on the approve form until E3.2 removes it.
+  it('still shows what the claimant asked about, outside any fieldset', async () => {
     const { el, fixture } = await setup(
       makeApiMock([makeClaim({ id: 'c1', plan_interest: 'managed', body: 'Four products.' })]),
     );
@@ -639,16 +604,11 @@ describe('ClaimQueue', () => {
     expect(card.querySelector('[data-testid="claim-plan-interest"]')?.textContent).toContain(
       'Managed',
     );
-    expect(card.textContent).toContain('Comments');
     expect(card.textContent).toContain('Four products.');
-    buttonByText(card, 'Grant vendor account').click();
-    fixture.detectChanges();
-    const fieldset = card.querySelector('fieldset') as HTMLFieldSetElement;
-    expect(fieldset.querySelector('[data-testid="claim-plan-asked"]')?.textContent?.trim()).toBe(
-      'They asked about: Managed',
-    );
-    const radios = [...fieldset.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
-    expect(radios.every((r) => !r.checked)).toBe(true);
+    openApprove(fixture, card);
+    const asked = card.querySelector('[data-testid="claim-plan-asked"]');
+    expect(asked?.textContent?.trim()).toBe('They asked about: Managed');
+    expect(asked?.closest('fieldset')).toBeNull();
   });
 
   it('says "Not answered" when the claimant gave no plan', async () => {
@@ -658,66 +618,16 @@ describe('ClaimQueue', () => {
     ).toContain('Not answered');
   });
 
-  it('keeps Confirm grant disabled until a plan is picked', async () => {
+  it('Enter-to-submit approves too', async () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     const { el, fixture } = await setup(api);
     const card = cardFor(el, 'Procore');
-    buttonByText(card, 'Grant vendor account').click();
-    fixture.detectChanges();
-
-    const confirm = buttonByText(card, 'Confirm grant');
-    expect(confirm.disabled).toBe(true);
-    // Enter-to-submit with no plan sends nothing.
+    openApprove(fixture, card);
     (card.querySelector('form') as HTMLFormElement).dispatchEvent(
       new Event('submit', { cancelable: true }),
     );
     await settle();
-    expect(api.moderate).not.toHaveBeenCalled();
-
-    pickPlan(fixture, card, 'free');
-    expect(buttonByText(card, 'Confirm grant').disabled).toBe(false);
-  });
-
-  it('shows the arrangement notes only for Managed', async () => {
-    const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
-    const card = cardFor(el, 'Procore');
-    buttonByText(card, 'Grant vendor account').click();
-    fixture.detectChanges();
-    expect(card.querySelector('textarea')).toBeNull();
-
-    pickPlan(fixture, card, 'free');
-    expect(card.querySelector('textarea')).toBeNull();
-
-    pickPlan(fixture, card, 'managed');
-    expect(card.querySelector('textarea')).not.toBeNull();
-    expect(card.textContent).toContain('Payment / arrangement notes');
-  });
-
-  it('approves Free with plan free and never sends a typed note', async () => {
-    const api = makeApiMock([makeClaim({ id: 'c1' })]);
-    const { el, fixture } = await setup(api);
-    const card = cardFor(el, 'Procore');
-    // Type a note under Managed, then switch to Free: the note must not travel.
-    typeApproveNote(fixture, card, 'PO #4471');
-    pickPlan(fixture, card, 'free');
-    buttonByText(card, 'Confirm grant').click();
-    await settle();
-    fixture.detectChanges();
-    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve', plan: 'free' });
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('Free plan');
-  });
-
-  it('clears the plan when the form is reopened', async () => {
-    const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
-    const card = cardFor(el, 'Procore');
-    openApproveWithPlan(fixture, card, 'managed');
-    buttonByText(card, 'Cancel').click();
-    fixture.detectChanges();
-    buttonByText(card, 'Grant vendor account').click();
-    fixture.detectChanges();
-    expect(buttonByText(card, 'Confirm grant').disabled).toBe(true);
-    const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
-    expect(radios.every((r) => !r.checked)).toBe(true);
+    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve' });
   });
 
   // ── The nav badge (AECI-922) ───────────────────────────────────────────────
@@ -728,7 +638,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     const { el, fixture, store } = await setup(api);
     store.seed({ reviews: 5, requests: 2, claims: 3 });
-    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
+    openApprove(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
@@ -777,7 +687,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 409 }));
     const { el, fixture } = await setup(api);
-    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
+    openApprove(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
@@ -791,7 +701,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 503 }));
     const { el, fixture } = await setup(api);
-    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
+    openApprove(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();

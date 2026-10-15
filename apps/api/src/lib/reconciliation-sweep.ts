@@ -72,6 +72,7 @@ import {
   drizzleLinearStore,
 } from './linear';
 import { NOTIFIED_REQUEST_KINDS } from './request-links';
+import { claimTargetIsPureConnector } from './vendor-product-roles';
 import type { Db } from '../db/client';
 import {
   auditLog,
@@ -355,6 +356,8 @@ export async function runReconciliationSweep(
       // inside the per-row `try`, so a mail error never aborts the batch.
       if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
         await sendClaimAlert(c, {
+          // AECI-1367: the same connector flag the intake send carries. Never throws.
+          connectorVendor: await claimTargetIsPureConnector(db, row.targetType, row.targetId),
           dedupeKey: `claim-submitted-alert:${row.id}`,
           entity: { type: 'vendor_request', id: row.id },
           requestId: row.id,

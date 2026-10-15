@@ -84,6 +84,8 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     is_pure_connector_vendor: false,
     owned_integrations: { integrations: 0, connector_evidenced: 2, total: 2 },
     admin_notes: null,
+    // AECI-1322: a resolved fixture was granted unless a test says otherwise.
+    granted: (over.status ?? 'open') === 'resolved',
     duplicate_siblings: [],
     ...over,
   };
@@ -552,6 +554,19 @@ describe('ClaimDetail', () => {
       const { el } = await setup(makeApiMock(makeDetail({ status, has_auth_account: hasAccount })));
       expect(accountSignal(el)).toBe(expected);
     });
+
+    // AECI-1322: moving the Linear issue to Done resolves a claim with no grant.
+    it.each([true, false, null])(
+      'a resolved claim with no grant reads "Resolved without a grant" (account %s)',
+      async (hasAccount) => {
+        const { el } = await setup(
+          makeApiMock(
+            makeDetail({ status: 'resolved', granted: false, has_auth_account: hasAccount }),
+          ),
+        );
+        expect(accountSignal(el)).toBe('Resolved without a grant');
+      },
+    );
   });
 
   describe('structural a11y', () => {

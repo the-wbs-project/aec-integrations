@@ -1110,10 +1110,11 @@ export const profiles = sqliteTable(
      * is inert noise on a `reviewer`/`admin` profile and nothing reads it there.
      *
      * `true` = this seat may invite colleagues and remove seats. Set by
-     * `grantSeatStatements` (an AECi-reviewed claim grant IS the owner event) and
-     * cleared by `revokeSeatStatements`; a seat created by ACCEPTING an invite
-     * gets `false`, which is what stops an unbounded transitive invite chain from
-     * one reviewed human.
+     * `grantSeatStatements` only when the vendor has no unbanned owner seat yet
+     * (AECI-1367: decided in SQL at commit, never demoting an existing owner), and
+     * by the admin provision; cleared by `revokeSeatStatements`. A seat created by
+     * ACCEPTING an invite gets `false`, which is what stops an unbounded transitive
+     * invite chain from one reviewed human.
      *
      * The `0025` migration backfills every pre-existing `vendor_admin` to `true`
      * — they were all admin-granted, and a default-`false` rollout would ship the

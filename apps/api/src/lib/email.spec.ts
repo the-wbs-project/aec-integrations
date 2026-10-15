@@ -23,6 +23,7 @@ import {
   resendIdempotencyKey,
   recordEmailSend,
   sendAccountDeletionEmail,
+  CONNECTOR_VENDOR_FLAG,
   DIGEST_LIST_LIMIT,
   sendAttestationDigestEmail,
   sendAttestationOpsDigestEmail,
@@ -500,97 +501,93 @@ describe('sendReviewRejectedEmail', () => {
   });
 });
 
+// AECI-1367: one variant, because every approval lands on Free. Three blocks: sign in,
+// what Free includes, how Managed works.
 describe('sendClaimApprovedEmail', () => {
-  it('names the vendor, lists capabilities, and links to the dashboard when PUBLIC_SITE_URL is set', async () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://aecintegrations.com' };
+  const SIGN_IN = 'https://aecintegrations.com/auth/login?return=%2Fvendor';
+
+  it('names the vendor, has the sign-in link and the three blocks, and no attestations line', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const outcome = await sendClaimApprovedEmail(
-      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
-      { to: 'owner@vendor.com', vendorName: 'Autodesk, Inc.', invited: false, plan: 'managed' },
-    );
+    const outcome = await sendClaimApprovedEmail(fakeContext(SITE), {
+      to: 'owner@vendor.com',
+      vendorName: 'Autodesk, Inc.',
+      invited: false,
+    });
 
     expect(outcome).toBe('sent');
     const body = lastBody(fetchSpy);
     expect(body.to).toBe('owner@vendor.com');
     expect(body.subject).toBe('Your claim for Autodesk, Inc. is approved');
     const text = String(body.text);
-    expect(text).toContain('vendor account is now active');
-    expect(text).toContain('data corrections');
-    expect(text).toContain('https://aecintegrations.com/vendor');
-    expect(String(body.html)).toContain('https://aecintegrations.com/vendor');
+    const html = String(body.html);
+    expect(text).toContain('You can now manage Autodesk, Inc. on AEC Integrations.');
+    expect(html).toContain('<strong>Autodesk, Inc.</strong>');
+    // Block 1: sign in, through the sign-in page.
+    expect(text).toContain(`Sign in: ${SIGN_IN}`);
+    expect(text).toContain('Sign in with your existing account');
+    // Block 2: what Free includes.
+    expect(text).toContain('The Free plan includes your company details');
+    // Block 3: how Managed works, with no price.
+    expect(text).toContain("licenses on your company's billing account");
+    expect(text).toContain('each license is assigned to one product');
+    expect(text).toContain('from Billing in your vendor portal');
+    expect(text).not.toMatch(/\$\d/);
+    // No Managed-only promise, and no AECI-1215 Managed variant.
+    expect(text).not.toContain('attestation');
     // Account-state framing, not a product endorsement (no pay-for-placement).
-    expect(text).toContain("doesn't affect search ranking or placement");
+    expect(text).toContain('no plan changes where you rank or appear');
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
-    // Voice guard. No shim needed any more: the house layout carries no sign-off, so
-    // the only em dash this template ever held is gone.
     expect(text).not.toContain('—');
     expect(text).not.toContain('The AEC Integrations team');
   });
 
-  it('renders through the house layout, not the legacy bare-paragraph shell', async () => {
+  it('renders through the house layout with the sign-in page as its one button', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+    await sendClaimApprovedEmail(fakeContext(SITE), {
       to: 'owner@vendor.com',
       vendorName: 'Autodesk, Inc.',
       invited: false,
-      plan: 'managed',
     });
 
     const html = String(lastBody(fetchSpy).html);
-    // The card, the Forest logo band, and the Forest CTA. A regression back to
-    // `toHtml()` loses all three, and `#27272a` is its tell.
     expect(html).toContain('max-width:600px');
     expect(html).toContain('https://www.aecintegrations.com/branding/email-logo-banner.png');
-    expect(html).toContain('>Go to your vendor portal</a>');
+    expect(html).toContain('>Sign in</a>');
     expect(html).toContain('v:roundrect');
     expect(html).not.toContain('#27272a');
+    // One button.
+    expect(html.match(/display:inline-block;background-color:#1e3a2f/g)).toHaveLength(1);
+    // Never a one-time sign-in link: the destination is the page.
+    expect(html).toContain('href="https://aecintegrations.com/auth/login?return=%2Fvendor&amp;');
   });
 
-  it('leads with the portal button rather than burying the link in a sentence', async () => {
+  it('tells an invited (just-provisioned) claimant that the account exists', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
-      to: 'owner@vendor.com',
-      vendorName: 'Globex',
-      invited: false,
-      plan: 'managed',
-    });
-
-    const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('Go to your vendor portal: https://aecintegrations.com/vendor');
-  });
-
-  it('tailors the sign-in copy for an invited (just-provisioned) claimant', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+    await sendClaimApprovedEmail(fakeContext(SITE), {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: true,
-      plan: 'managed',
-    });
-    expect(String(lastBody(fetchSpy).text)).toContain('We created an account');
-  });
-
-  it('reads as an existing-account sign-in for a linked claimant', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext(), {
-      to: 'owner@vendor.com',
-      vendorName: 'Globex',
-      invited: false,
-      plan: 'managed',
     });
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('existing account');
-    expect(text).not.toContain('We created an account');
+    expect(text).toContain('We created an account for this email address.');
+    expect(text).toContain('Sign in from the sign-in page with this address');
+    expect(text).not.toContain('existing account');
   });
 
-  it('omits the dashboard link (no dead host) when PUBLIC_SITE_URL is absent', async () => {
+  it('names the sign-in page and has no button when PUBLIC_SITE_URL is absent', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimApprovedEmail(fakeContext(), {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: true,
-      plan: 'managed',
     });
-    expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor');
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    expect(text).toContain('the AEC Integrations sign-in page');
+    expect(text).not.toContain('/auth/login');
+    expect(text).not.toContain('/vendor');
+    expect(String(body.html)).not.toContain('v:roundrect');
   });
 
   it('skips when the recipient is undefined', async () => {
@@ -600,74 +597,32 @@ describe('sendClaimApprovedEmail', () => {
         to: undefined,
         vendorName: 'Globex',
         invited: false,
-        plan: 'managed',
       }),
     ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
-  // AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6: the approved email has a variant
-  // per plan. Only the capabilities block differs.
-  it('names the Free plan and lists only what a Free seat can edit', async () => {
+
+  // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line links the public vendor
+  // page. An inline link, so sign-in stays the one button.
+  it('links /vendor-program in one inline line', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+    await sendClaimApprovedEmail(fakeContext(SITE), {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: false,
-      plan: 'free',
     });
     const body = lastBody(fetchSpy);
     const text = String(body.text);
-    expect(text).toContain('Free plan');
-    expect(text).toContain('edit your company details and your product listing');
-    // No promise of a Managed capability.
-    expect(text).not.toContain('attestations');
-    expect(String(body.html)).toContain('Free plan');
-    expect(body.subject).toBe('Your claim for Globex is approved');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
-    expect(text).not.toContain('—');
+    const html = String(body.html);
+    expect(text).toContain(
+      'See what each plan includes on our page for software vendors: https://aecintegrations.com/vendor-program',
+    );
+    expect(text.split('/vendor-program')).toHaveLength(2);
+    expect(html).toContain(
+      'href="https://aecintegrations.com/vendor-program?utm_source=email&amp;utm_campaign=claim-approved"',
+    );
+    expect(html).toContain('>our page for software vendors</a>.');
   });
-
-  it('keeps the Managed copy for a Managed approval', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimApprovedEmail(fakeContext(), {
-      to: 'owner@vendor.com',
-      vendorName: 'Globex',
-      invited: false,
-      plan: 'managed',
-    });
-    const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('add integration attestations');
-    expect(text).not.toContain('Free plan');
-  });
-
-  // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line links the public vendor
-  // page, on both plan variants. An inline link, so the portal stays the one button.
-  it.each(['free', 'managed'] as const)(
-    'links /vendor-program in one inline line on the %s variant',
-    async (plan) => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-      await sendClaimApprovedEmail(
-        fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
-        { to: 'owner@vendor.com', vendorName: 'Globex', invited: false, plan },
-      );
-      const body = lastBody(fetchSpy);
-      const text = String(body.text);
-      const html = String(body.html);
-      expect(text).toContain(
-        'See what each plan includes on our page for software vendors: https://aecintegrations.com/vendor-program',
-      );
-      expect(text.split('/vendor-program')).toHaveLength(2);
-      // Tagged like every site link in a transactional email (AECI-1209).
-      expect(html).toContain(
-        'href="https://aecintegrations.com/vendor-program?utm_source=email&amp;utm_campaign=claim-approved"',
-      );
-      expect(html).toContain('>our page for software vendors</a>.');
-      // Still one button, and it is the portal.
-      expect(html).toContain('>Go to your vendor portal</a>');
-      expect(html.match(/display:inline-block;background-color:#1e3a2f/g)).toHaveLength(1);
-      expect(text).not.toContain('—');
-    },
-  );
 
   it('omits the /vendor-program line when PUBLIC_SITE_URL is absent', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
@@ -675,24 +630,35 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: false,
-      plan: 'free',
     });
     const body = lastBody(fetchSpy);
     expect(String(body.text)).not.toContain('vendor-program');
-    expect(String(body.text)).not.toContain('page for software vendors');
     expect(String(body.html)).not.toContain('vendor-program');
   });
 
-  it('routes the decision seam to the variant for the chosen plan', async () => {
+  it('the decision seam names the granted vendor, not the claimed product', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimDecisionEmail(fakeContext(), {
+      decision: 'approved',
+      to: 'owner@vendor.com',
+      targetName: 'Revit',
+      vendorName: 'Autodesk, Inc.',
+      identityOutcome: 'invited',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your claim for Autodesk, Inc. is approved');
+    expect(String(body.text)).toContain('We created an account');
+  });
+
+  it('the decision seam falls back to the target name without a vendor name', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimDecisionEmail(fakeContext(), {
       decision: 'approved',
       to: 'owner@vendor.com',
       targetName: 'Globex',
       identityOutcome: 'linked',
-      plan: 'free',
     });
-    expect(String(lastBody(fetchSpy).text)).toContain('Free plan');
+    expect(lastBody(fetchSpy).subject).toBe('Your claim for Globex is approved');
   });
 });
 
@@ -1619,6 +1585,30 @@ describe('sendClaimSubmittedNotification', () => {
       { ...CLAIM, duplicateOfRequestId: 'req-1' },
     );
     expect(String(lastBody(fetchSpy).text)).toContain('Possible duplicate: req-1');
+  });
+
+  // AECI-1367: the same neutral flag the /admin/claims row shows.
+  it('carries the connector-vendor flag when every product is a connector', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, connectorVendor: true },
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain(CONNECTOR_VENDOR_FLAG);
+    expect(String(body.text)).toContain('Connector vendor: contact them directly');
+    expect(String(body.html)).toContain('Connector vendor: contact them directly');
+    // Informational, not a hold instruction.
+    expect(String(body.text)).not.toMatch(/do not (grant|approve)/i);
+  });
+
+  it.each([false, null, undefined])('omits the connector flag when it is %s', async (flag) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, connectorVendor: flag },
+    );
+    expect(String(lastBody(fetchSpy).text)).not.toContain('Connector vendor');
   });
 
   it('omits the links when PUBLIC_SITE_URL is unset rather than emitting a dead host', async () => {
