@@ -2774,6 +2774,19 @@ This supersedes the "Approved copy" bullet above, including its AECI-1215 Manage
 - **Gone.** The "attestations" line.
 - **Kept.** The account-status note (no plan changes where you rank or appear) and the inline `/vendor-program` link.
 
+### As built — the claim email set (AECI-1366, AECI-1367, AECI-1368 — 2026-10-15)
+
+The decision pair is no longer the whole §9 set. Four templates cover a claim, and `NOTIFICATIONS.md` is the generated list.
+
+| Template | To | When | Issue |
+|---|---|---|---|
+| `claim-received` | the claimant | On submit of a claim or a typed-in listing request. One per address per UTC day. Reverses "no email to the visitor" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3). | AECI-1366 |
+| `claim-owner-review` | each unbanned owner seat | On a claim routed to the owners (§11a.10). Capped at 5 routed claims per vendor per UTC day (`waf-rate-limits.md` §6.2). | AECI-1368 |
+| `claim-owner-fallback-alert` | `SUPPORT_EMAIL` | The daily `claim_owner_fallback` cron, once per run, when owners left a claim undecided for 7 days. | AECI-1368 |
+| `claim-approved` | the claimant | Rewritten to one variant, above. `claim-rejected` is unchanged and is also what an owner decline sends. | AECI-1367 |
+
+E10 rewrites this section in full.
+
 ### As built — the copy moves onto the house email layout (2026-09-14)
 
 The §9 build note above says the copy is assembled "via `toText()`/`toHtml()`". That is no

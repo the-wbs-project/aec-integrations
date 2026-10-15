@@ -14,7 +14,7 @@ A vendor whose products are all connectors is not invoiced for a seat. It can ha
 
 That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. It cannot confirm data flows. The other product details stay with the AEC Integrations team.
 
-We handle connector-vendor claims by conversation rather than by the usual approve or decline, so you will hear from us directly rather than by an automatic email. [Claiming your vendor listing](/docs/vendors/claiming-your-listing) covers the claim form itself.
+We approve a connector-vendor claim like any other, and we also contact you directly about the catalog seat. [Claiming your vendor listing](/docs/vendors/claiming-your-listing) covers the claim form itself.
 
 ## The Catalog tab
 
