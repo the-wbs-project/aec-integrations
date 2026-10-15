@@ -513,6 +513,9 @@
           // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
           // reset. Not 12:00: the protest reminder owns "0 12 * * *".
           "0 13 * * *",
+          // AECI-1368 claim owner fallback: routed claims the owners left undecided
+          // for 7 days go to AECi. The next free daily slot after 13:00.
+          "0 14 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -685,7 +688,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same seventeen crons as staging/production (see staging note — incl. the hourly
+      // Same nineteen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -724,6 +727,9 @@
           // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
           // reset. Not 12:00: the protest reminder owns "0 12 * * *".
           "0 13 * * *",
+          // AECI-1368 claim owner fallback: routed claims the owners left undecided
+          // for 7 days go to AECi. The next free daily slot after 13:00.
+          "0 14 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -963,6 +969,9 @@
           // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
           // reset. Not 12:00: the protest reminder owns "0 12 * * *".
           "0 13 * * *",
+          // AECI-1368 claim owner fallback: routed claims the owners left undecided
+          // for 7 days go to AECi. The next free daily slot after 13:00.
+          "0 14 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

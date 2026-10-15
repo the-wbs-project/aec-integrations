@@ -16,6 +16,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   ClaimFormInput,
+  ClaimTargetResponse,
   CorrectionForm,
   ListingRequestInput,
   RequestSubmitResponse,
@@ -61,6 +62,21 @@ export class RequestsApi {
   submitListing(formValue: ListingRequestInput): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/listing', formValue),
+    );
+  }
+
+  /**
+   * `GET /api/requests/claim-target/:type/:slug` (AECI-1368): the company a claim on
+   * this target would land on, and whether it already has an owner seat. `has_seats`
+   * true means a claim submitted now goes to the company's owners first. Read
+   * `no-store`, so it reflects a seat granted a moment ago. A missing target rejects
+   * with the 404 the claim submit would give.
+   */
+  getClaimTarget(target: RequestTargetRef): Promise<ClaimTargetResponse> {
+    const type = encodeURIComponent(target.targetType);
+    const slug = encodeURIComponent(target.slug);
+    return firstValueFrom(
+      this.http.get<ClaimTargetResponse>(`/api/requests/claim-target/${type}/${slug}`),
     );
   }
 }

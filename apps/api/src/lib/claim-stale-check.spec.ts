@@ -126,6 +126,38 @@ describe('runClaimStaleCheck', () => {
     });
   });
 
+  it('skips a claim still routed to the company owners (AECI-1368)', async () => {
+    // Routed: the owners have 7 days to decide, so an un-started ticket is expected.
+    await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
+    await seedClaim({ id: 'req-1', routedToOwnersAt: hoursAgo(25) });
+    const fetchStates = statesFor([['iss-req-1', 'backlog', 'Backlog']]);
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runClaimStaleCheck(makeCtx(), t.db, {
+      fetchStates: fetchStates as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ checked: 0, stale: 0, alerted: false });
+    expect(fetchStates).not.toHaveBeenCalled();
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it('counts a claim again once the owner fallback handed it back (AECI-1368)', async () => {
+    await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
+    await seedClaim({ id: 'req-1', routedToOwnersAt: null, ownerFallbackAt: hoursAgo(1) });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runClaimStaleCheck(makeCtx(), t.db, {
+      fetchStates: statesFor([['iss-req-1', 'backlog', 'Backlog']]) as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ checked: 1, stale: 1, alerted: true });
+  });
+
   it.each([
     ['started', 'In Progress'],
     ['completed', 'Done'],

@@ -21,6 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AcceptSeatClaimResponse,
   ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
@@ -195,6 +196,22 @@ export class VendorApi {
   /** `DELETE /api/vendor/seats/invites/:id` — revoke a pending invite (204). */
   revokeInvite(inviteId: string): Promise<void> {
     return firstValueFrom(this.http.delete<void>(`/api/vendor/seats/invites/${inviteId}`));
+  }
+
+  /** `POST /api/vendor/seats/claims/:id/accept` (AECI-1368): an owner accepts a claim
+   *  routed to their company. 201 with the seat invite issued to the claimant. */
+  acceptSeatClaim(claimId: string): Promise<AcceptSeatClaimResponse> {
+    return firstValueFrom(
+      this.http.post<AcceptSeatClaimResponse>(`/api/vendor/seats/claims/${claimId}/accept`, null),
+    );
+  }
+
+  /** `POST /api/vendor/seats/claims/:id/decline` (AECI-1368): an owner declines it.
+   *  204; the claimant gets the neutral claim-rejected email. */
+  declineSeatClaim(claimId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.post<void>(`/api/vendor/seats/claims/${claimId}/decline`, null),
+    );
   }
 
   /** `DELETE /api/vendor/seats/:userId` — remove a colleague's seat (204). */

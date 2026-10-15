@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all eighteen crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all nineteen crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
 | `insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 20 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -117,11 +117,12 @@ Two deliberate widenings ride along:
    home-stats were previously unwatched — several shipped after the Datadog monitors were
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
-   `vendor-snapshot`, and AECI-1236 added `gsc-inspect`, so the query now sums sixteen metrics.
+   `vendor-snapshot`, AECI-1236 added `gsc-inspect`, and AECI-1368 added `claim-owner-fallback`,
+   so the query now sums seventeen metrics.
    A routine Google 429 on `gsc-inspect` is `outcome:quota`, not `failed`, so only a refused key
    or a broken chain pages. Their liveness rows are in the
    sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
-   Three of the eighteen crons are absent from that query on purpose:
+   Three of the nineteen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
@@ -415,8 +416,11 @@ and give it an `activeFrom`:
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-One entry carries an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
+Two entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `2026-10-12T18:00:00Z`. Delete it once `aeci.gsc_inspect.run` appears in production.
+`claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
+expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
+delete it once `aeci.claim.owner_fallback.job` appears in production.
 
 AECI-1232 removed the previous two on 2026-10-05, after a production sweep reported both
 heartbeats `ok`:

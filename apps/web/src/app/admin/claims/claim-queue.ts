@@ -5,11 +5,12 @@ import { RouterLink } from '@angular/router';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
-import type {
-  AdminClaim,
-  ListVendorClaimsQuery,
-  ModerateClaimInput,
-  VendorEntitlementResponse,
+import {
+  claimOwnerReviewDeadline,
+  type AdminClaim,
+  type ListVendorClaimsQuery,
+  type ModerateClaimInput,
+  type VendorEntitlementResponse,
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
@@ -189,6 +190,11 @@ export class ClaimQueue {
 
   /** Relative age (e.g. "3 d", "5 h", "12 min"). Browser-only — the list is empty
    *  during SSR, so `Date.now()` is never read server-side. */
+  /** When a routed claim comes back to AECi (AECI-1368): the shared 7-day rule. */
+  protected ownerDeadline(routedToOwnersAt: string): string {
+    return claimOwnerReviewDeadline(routedToOwnersAt);
+  }
+
   protected age(createdAt: string): string {
     const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
     if (minutes < 60) return $localize`:@@admin.claims.age.minutes:${minutes}:COUNT: min`;

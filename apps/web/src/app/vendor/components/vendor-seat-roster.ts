@@ -2,7 +2,12 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
 
-import type { ManageableSeatInvite, VendorSeat } from '@aeci/shared';
+import {
+  claimOwnerReviewDeadline,
+  type ManageableSeatInvite,
+  type PendingSeatClaim,
+  type VendorSeat,
+} from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -57,6 +62,101 @@ import { VendorPortalStore } from '../vendor-portal-store';
         Everyone with access to this vendor. Ask an account owner (listed below) to add or remove a
         colleague.
       </p>
+    }
+
+    @if (canManage() && claims().length > 0) {
+      <section class="mt-6" aria-labelledby="vendor-seats-claims-heading">
+        <h3
+          id="vendor-seats-claims-heading"
+          class="font-label text-sm font-semibold text-(--text-primary)"
+          i18n="@@vendor.seats.claims.heading"
+        >
+          Wants to join
+        </h3>
+        <p
+          class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.seats.claims.intro"
+        >
+          These people asked AEC Integrations to let them manage this company. Accept sends them a
+          seat invite at the work email they gave. Their seat is not an owner seat. Decline tells
+          them the claim was not approved. If no owner decides in time, AEC Integrations reviews it.
+        </p>
+        <ul class="mt-3 divide-y divide-(--border-default) border-y border-(--border-default)">
+          @for (claim of claims(); track claim.id) {
+            <li class="flex flex-wrap items-start justify-between gap-3 py-3">
+              <div class="min-w-0 space-y-1">
+                <p class="text-sm font-semibold text-(--text-primary)">
+                  {{ claim.submitter_name || claim.submitter_email }}
+                  @if (claim.submitter_role; as role) {
+                    <span class="font-normal text-(--text-secondary)">· {{ role }}</span>
+                  }
+                </p>
+                <p class="text-sm text-(--text-secondary)">
+                  <span i18n="@@vendor.seats.claims.email">Work email:</span>
+                  {{ claim.submitter_email }}
+                </p>
+                @if (claim.submitter_linkedin_url; as linkedin) {
+                  <p class="text-sm">
+                    <a
+                      [href]="linkedin"
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      i18n="@@vendor.seats.claims.linkedin"
+                      >LinkedIn profile</a
+                    >
+                  </p>
+                }
+                @if (claim.context_product_name; as product) {
+                  <p class="text-xs text-(--text-secondary)">
+                    <span i18n="@@vendor.seats.claims.cameFrom">Sent from the page for</span>
+                    {{ product }}
+                  </p>
+                }
+                @if (claim.comments) {
+                  <p class="text-sm whitespace-pre-line text-(--text-primary)">
+                    {{ claim.comments }}
+                  </p>
+                }
+                <p class="text-xs text-(--text-secondary)">
+                  <ng-container i18n="@@vendor.seats.claims.asked">Asked</ng-container>
+                  {{ claim.created_at | date: 'mediumDate' }}
+                  <ng-container i18n="@@vendor.seats.claims.decideBy">· decide by</ng-container>
+                  {{ decideBy(claim) | date: 'mediumDate' }}
+                </p>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  [disabled]="busyClaim() !== null"
+                  (click)="acceptClaim(claim)"
+                  [class]="dangerClass"
+                >
+                  @if (isClaimBusy(claim, 'accept')) {
+                    <span i18n="@@vendor.seats.claims.accepting">Accepting…</span>
+                  } @else {
+                    <span i18n="@@vendor.seats.claims.accept">Accept</span>
+                  }
+                  <span class="sr-only">{{ claim.submitter_name || claim.submitter_email }}</span>
+                </button>
+                <button
+                  type="button"
+                  [disabled]="busyClaim() !== null"
+                  (click)="declineClaim(claim)"
+                  [class]="dangerClass"
+                >
+                  @if (isClaimBusy(claim, 'decline')) {
+                    <span i18n="@@vendor.seats.claims.declining">Declining…</span>
+                  } @else {
+                    <span i18n="@@vendor.seats.claims.decline">Decline</span>
+                  }
+                  <span class="sr-only">{{ claim.submitter_name || claim.submitter_email }}</span>
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
     }
 
     @if (loading()) {
@@ -267,6 +367,11 @@ export class VendorSeatRoster {
    *  re-derived from the roster. Hiding a control the API would 403 and showing
    *  one it would accept have to come from the same source. */
   protected readonly canManage = this.store.canManageSeats;
+  /** Claims routed to this company's owners (AECI-1368). Owner seats only: the
+   *  server sends a member `[]`, and the template also gates on `canManage`. */
+  protected readonly claims = this.store.pendingSeatClaims;
+  /** The claim decision in flight, if any. One at a time over the whole list. */
+  protected readonly busyClaim = signal<{ id: string; action: 'accept' | 'decline' } | null>(null);
   protected readonly busySeat = signal<string | null>(null);
   /** The invite action in flight, if any — the id AND which action, not the id
    *  alone. Both actions are mutually exclusive over the whole list, so the id by
@@ -385,6 +490,61 @@ export class VendorSeatRoster {
     }
   }
 
+  /**
+   * Accept a claim routed to this company (AECI-1368): the server issues a seat invite
+   * to the claimant's work email and resolves the claim. Pessimistic and re-read like
+   * every write here: the row moves from "Wants to join" to the pending invites, and
+   * the server's list is what says so.
+   */
+  protected async acceptClaim(claim: PendingSeatClaim): Promise<void> {
+    if (this.busyClaim()) return;
+    this.busyClaim.set({ id: claim.id, action: 'accept' });
+    this.actionError.set(null);
+    this.actionStatus.set(null);
+    try {
+      const { invite } = await this.api.acceptSeatClaim(claim.id);
+      this.actionStatus.set(
+        $localize`:@@vendor.seats.claims.accepted:Accepted. A seat invite was sent to ${invite.email}:email:.`,
+      );
+      await this.store.reload('seats');
+    } catch (err) {
+      this.actionError.set(claimErrorFor(err, 'accept'));
+    } finally {
+      this.busyClaim.set(null);
+    }
+  }
+
+  /** Decline a claim routed to this company (AECI-1368). The claimant gets the
+   *  neutral "not approved" email, which does not say who declined. */
+  protected async declineClaim(claim: PendingSeatClaim): Promise<void> {
+    if (this.busyClaim()) return;
+    this.busyClaim.set({ id: claim.id, action: 'decline' });
+    this.actionError.set(null);
+    this.actionStatus.set(null);
+    try {
+      await this.api.declineSeatClaim(claim.id);
+      const who = claim.submitter_name || claim.submitter_email;
+      this.actionStatus.set(
+        $localize`:@@vendor.seats.claims.declined:Declined the request from ${who}:name:.`,
+      );
+      await this.store.reload('seats');
+    } catch (err) {
+      this.actionError.set(claimErrorFor(err, 'decline'));
+    } finally {
+      this.busyClaim.set(null);
+    }
+  }
+
+  protected isClaimBusy(claim: PendingSeatClaim, action: 'accept' | 'decline'): boolean {
+    const busy = this.busyClaim();
+    return busy?.id === claim.id && busy.action === action;
+  }
+
+  /** When AEC Integrations takes the claim over: the shared 7-day rule. */
+  protected decideBy(claim: PendingSeatClaim): string {
+    return claimOwnerReviewDeadline(claim.routed_to_owners_at);
+  }
+
   /** Is THIS action in flight on THIS invite? The action matters: a revoke and a
    *  re-send both hold the row, and only one of them is a send. */
   protected isBusy(invite: ManageableSeatInvite, action: 'resend' | 'revoke'): boolean {
@@ -411,6 +571,27 @@ export class VendorSeatRoster {
   protected resendHintSuffix(invite: ManageableSeatInvite): string {
     const hint = this.resendHint(invite);
     return hint ? `. ${hint}` : '';
+  }
+}
+
+/** Map an accept or decline refusal onto copy that says what to do next
+ *  (AECI-1368). An accept spends one of the day's invites, so it can hit the cap. */
+function claimErrorFor(err: unknown, action: 'accept' | 'decline'): string {
+  const code =
+    err instanceof HttpErrorResponse
+      ? ((err.error as { error?: { code?: string } } | null)?.error?.code ?? null)
+      : null;
+  switch (code) {
+    case 'RATE_LIMITED':
+      return $localize`:@@vendor.seats.claims.error.rate:You have sent the most invites allowed today. Try again tomorrow.`;
+    case 'FORBIDDEN':
+      return $localize`:@@vendor.seats.claims.error.forbidden:Only an account owner can decide who joins.`;
+    case 'NOT_FOUND':
+      return $localize`:@@vendor.seats.claims.error.gone:That request was already decided. Refresh the list.`;
+    default:
+      return action === 'accept'
+        ? $localize`:@@vendor.seats.claims.error.accept:Could not accept that request. Try again.`
+        : $localize`:@@vendor.seats.claims.error.decline:Could not decline that request. Try again.`;
   }
 }
 

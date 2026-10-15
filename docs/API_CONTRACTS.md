@@ -1333,6 +1333,22 @@ Unlike the other submitter fields, the KEY is omittable: it carries `.default(''
 
 **`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
 
+**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
+
+#### `GET /api/requests/claim-target/:type/:slug` (AECI-1368)
+
+Which company a claim on `(type, slug)` would be stored against, and whether it already has a team. Public, read-only, `Cache-Control: private, no-store` (the answer changes the moment a seat is granted), no `rateLimit()` (a read, §6.3 of `waf-rate-limits.md`; zone Rule A matches `POST` only).
+
+```typescript
+export const ClaimTargetResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  has_seats: z.boolean(),   // the vendor has an unbanned owner seat: a claim
+                            // submitted now is routed to the owners first
+});
+```
+
+`type` is `product` or `vendor`. A product resolves exactly as `POST /api/requests/claim` resolves it (`resolveClaimTarget`): the primary vendor, else any `product_vendors` row. A missing slug, a product with no vendor row, or an unknown `type` is `404 NOT_FOUND`, the claim route's answer. `has_seats` says nothing about plan: since `VENDOR_SIGNUP_PROCESS.md` decision 2 every approved claim lands on Free with an owner seat (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a). Web client: `RequestsApi.getClaimTarget`.
+
 #### `POST /api/requests/correction`
 
 ```typescript
@@ -2064,6 +2080,13 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // Since AECI-1322 the generic `PATCH /api/admin/requests/:id` refuses claims, so
   // only the claims endpoint stamps resolved_by_id on a claim.
   granted: z.boolean(),
+  // AECI-1368: owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10). REQUIRED-
+  // nullable (R10). routed_to_owners_at is set while the company's owners decide;
+  // the queue shows "With owners until" it + 7 days, and Grant / Reject stay
+  // enabled. owner_fallback_at is set once the 7-day cron handed it back to AECi.
+  // An owner-accepted claim reads granted: true (the owner is resolved_by_id).
+  routed_to_owners_at: z.string().nullable(),
+  owner_fallback_at: z.string().nullable(),
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -4544,7 +4567,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all eighteen
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all nineteen
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -6267,8 +6290,38 @@ export const ListVendorSeatsResponseSchema = z.object({
   pending_invites: z.array(ManageableSeatInviteSchema),  // live only: not accepted,
                                                          // not revoked, not expired
   can_manage_seats: z.boolean(),                         // the caller's seat_owner
+  pending_claims: z.array(PendingSeatClaimSchema),       // AECI-1368, owners only
+});
+
+// AECI-1368: a claim routed to this company's owners (§11a.10).
+export const PendingSeatClaimSchema = z.object({
+  id: z.string().uuid(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  submitter_email: z.string(),               // accepting invites this address
+  submitter_linkedin_url: z.string().nullable(),
+  comments: z.string(),                      // vendor_requests.body
+  created_at: z.string().datetime(),
+  routed_to_owners_at: z.string().datetime(),
+  context_product_name: z.string().nullable(),
 });
 ```
+
+**`pending_claims` (AECI-1368).** The open or `in_review` claims on this vendor with `routed_to_owners_at` set, oldest first, then `id`. **Owner seats only**: when `can_manage_seats` is false the array is `[]`, because each row is a claimant's contact details. A claim leaves the list when it is decided (by an owner or by AECi) and stays on it until then, even past the 7-day deadline, until the `claim_owner_fallback` cron clears `routed_to_owners_at`. The 7 days are `CLAIM_OWNER_REVIEW_DAYS` in `@aeci/shared`.
+
+#### `POST /api/vendor/seats/claims/:id/accept` (AECI-1368)
+
+An owner accepts a claim routed to their company (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). No body. **201** `{ invite: ManageableSeatInvite }` (`AcceptSeatClaimResponseSchema`).
+
+One `db.batch`: a `vendor_seat_invites` row to the claim's `submitter_email` (normalized), invited by the owner, audit `vendor_seat.invited`; and the claim resolved with `resolved_by_id` = the owner, the `vendor_claim` workflow completed, its transition, audit `vendor_claim.owner_accepted`. Then the ordinary `vendor-seat-invite` email. No `profiles` row is written: the claimant becomes a member seat by redeeming the invite. If the address already has a live invite, no new invite is created and no email is sent. The claim resolves against that invite, which is echoed. An accepted claim reads `granted: true` on `/admin/claims`, because `resolved_by_id` is set.
+
+Gates: `requireVendor()`, `rateLimit('write', { by: 'vendor' })`, `requireSeatOwner()` in the handler.
+
+Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
+
+#### `POST /api/vendor/seats/claims/:id/decline` (AECI-1368)
+
+An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the neutral `claim-rejected` email, which does not say who declined. Same gates and the same `403` / `404` / `429` as accept.
 
 #### `POST /api/vendor/seats/invites`
 

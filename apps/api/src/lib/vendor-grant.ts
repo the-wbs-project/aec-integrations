@@ -36,12 +36,13 @@ import { DISPLAY_NAME_MAX_LENGTH, vendorVisibleReasonMetadata } from '@aeci/shar
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles, vendorRequests, workflowInstances } from '../db/schema';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { ownerSeatExistsSql } from './owner-seat';
 
 /** The role a granted seat drops back to on revoke — the `profiles` default. */
 const REVIEWER_ROLE = 'reviewer';
@@ -137,6 +138,32 @@ export interface RejectClaimParams {
   reason: string | null;
   targetType: string;
   targetId: string;
+  /**
+   * `metadata.source` on the audit row and the transition. Defaults to
+   * {@link CLAIM_AUDIT_SOURCE}. An owner's decline from the Seats section (AECI-1368)
+   * passes `'vendor-portal'`, so the trail tells "AECi rejected" from "the company's
+   * owner declined": the actor type is `'user'` for both.
+   */
+  source?: string;
+  /** The vendor the audit row is about, when the caller knows it (the owner decline). */
+  vendorId?: string;
+}
+
+/** An owner accepting a claim routed to their company (AECI-1368, §11a.10). */
+export interface OwnerAcceptClaimParams {
+  requestId: string;
+  /** The owner seat accepting it: the audit actor and `resolved_by_id`. */
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  vendorId: string;
+  resolvedAt: string;
+  fromStatus: string;
+  workflowId: string;
+  existingWf: boolean;
+  /** The seat invite the accept issued (or the live one it reused) to the claimant. */
+  inviteId: string;
+  /** `true` when the batch also creates that invite, `false` when it reused one. */
+  inviteCreated: boolean;
 }
 
 export interface RevokeSeatParams {
@@ -347,7 +374,9 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
  * Aliased so the subquery's columns can never bind to the row being upserted.
  */
 function firstOwnerSql(vendorId: string) {
-  return sql<boolean>`NOT EXISTS (SELECT 1 FROM "profiles" AS "owner_seat" WHERE "owner_seat"."vendor_id" = ${vendorId} AND "owner_seat"."seat_owner" = 1 AND "owner_seat"."banned_at" IS NULL)`;
+  // AECI-1368: the predicate lives in `lib/owner-seat.ts`, shared with claim routing
+  // and `has_seats`, so the three can never disagree about who is an owner.
+  return sql<boolean>`NOT ${ownerSeatExistsSql(vendorId)}`;
 }
 
 /**
@@ -373,11 +402,12 @@ function usableSubmitterName(name: string | null): string | null {
  * purge, no identity resolution — a rejected claim provisions nothing.
  */
 export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch {
-  const metadata = claimMetadata(p, {});
+  const metadata = claimMetadata(p, p.source ? { source: p.source } : {});
 
   const auditEntry: AuditLogEntry = {
     actorId: p.actorId,
     actorType: p.actorType,
+    ...(p.vendorId ? { vendorId: p.vendorId } : {}),
     action: 'vendor_claim.rejected',
     entityType: 'vendor_request',
     entityId: p.requestId,
@@ -421,6 +451,89 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
           currentState: 'rejected',
           completedAt: p.resolvedAt,
           finalOutcome: CLAIM_TERMINAL_OUTCOME.rejected,
+        }),
+    workflowTransitionInsert(db, workflowEntry),
+    auditInsert(db, auditEntry),
+  ];
+
+  return { stmts, auditEntry, workflowEntry };
+}
+
+/**
+ * An owner accepts a claim routed to their company (AECI-1368,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10): resolve the request with the OWNER as
+ * `resolved_by_id`, complete the `vendor_claim` workflow, audit. The caller puts the
+ * seat invite (`createInviteStatements`) in the same batch.
+ *
+ * **No seat is written here, and no `vendor_admin` row anywhere.** The claimant gets
+ * a seat only by redeeming the invite (`acceptInviteStatements`), which proves they
+ * control the address and makes them a member seat, never an owner (§11a.4). That is
+ * why the status is `resolved` while no seat exists yet: the claim is decided, and
+ * the invite is the grant. `AdminClaim.granted` reads `true` for it, because the
+ * owner is a non-null `resolved_by_id`.
+ *
+ * The request UPDATE is guarded on still-undecided AND still-routed, so an AECi
+ * decision or the 7-day fallback landing first turns this into a no-op on the row.
+ */
+export function ownerAcceptClaimStatements(db: Db, p: OwnerAcceptClaimParams): ClaimBatch {
+  const metadata = {
+    source: 'vendor-portal',
+    kind: 'claim',
+    target_type: 'vendor',
+    target_id: p.vendorId,
+    decided_by: 'owner',
+    invite_id: p.inviteId,
+    invite_created: p.inviteCreated,
+  };
+
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    vendorId: p.vendorId,
+    action: 'vendor_claim.owner_accepted',
+    entityType: 'vendor_request',
+    entityId: p.requestId,
+    beforeState: { status: p.fromStatus },
+    afterState: { status: 'resolved' },
+    metadata,
+  };
+
+  const workflowEntry: WorkflowTransitionEntry = {
+    workflowId: p.workflowId,
+    fromState: p.fromStatus,
+    toState: 'resolved',
+    actorId: p.actorId,
+    reason: 'accepted by a company owner',
+    metadata,
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .update(vendorRequests)
+      .set({ status: 'resolved', resolvedById: p.actorId, resolvedAt: p.resolvedAt })
+      .where(
+        and(
+          eq(vendorRequests.id, p.requestId),
+          inArray(vendorRequests.status, ['open', 'in_review']),
+          isNotNull(vendorRequests.routedToOwnersAt),
+        ),
+      ),
+    p.existingWf
+      ? db
+          .update(workflowInstances)
+          .set({
+            currentState: 'resolved',
+            completedAt: p.resolvedAt,
+            finalOutcome: CLAIM_TERMINAL_OUTCOME.resolved,
+          })
+          .where(eq(workflowInstances.id, p.workflowId))
+      : db.insert(workflowInstances).values({
+          id: p.workflowId,
+          workflowType: 'vendor_claim',
+          entityId: p.requestId,
+          currentState: 'resolved',
+          completedAt: p.resolvedAt,
+          finalOutcome: CLAIM_TERMINAL_OUTCOME.resolved,
         }),
     workflowTransitionInsert(db, workflowEntry),
     auditInsert(db, auditEntry),

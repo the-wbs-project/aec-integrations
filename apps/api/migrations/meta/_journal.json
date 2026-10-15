@@ -533,6 +533,13 @@
       "when": 1792036029359,
       "tag": "0075_clever_baron_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1792037593747,
+      "tag": "0076_chief_lethal_legion",
+      "breakpoints": true
     }
   ]
 }
