@@ -2,7 +2,7 @@
 
 **Status: agreed in discussion with Chris on 2026-10-14. Mostly not yet built. Epics filed in Linear the same day (AECI-1331 to AECI-1340, project Pilot); parked items are AECI-1341 to AECI-1344.**
 
-**Built so far (2026-10-15).** E1.1 to E1.5 (AECI-1350 to AECI-1354): the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. Plan resolution does not read licenses yet. Only the dual-write pre-read and the `license_mirror_drift` data-quality check do. `vendor_entitlements` is still the truth for plan resolution until E1.6 (AECI-1355). Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c. E2.4 (AECI-1362): the `agreement_acceptances` table (§8.6d), its write helper `lib/agreement-acceptances.ts`, and two reads, `GET /api/vendor/billing/acceptances` (owner seats) and `GET /api/admin/vendors/:id/acceptances`. Nothing writes acceptances yet. E3 and E9 call the helper. E2.3 (AECI-1361): every legal document has per-version URLs (`/legal/<slug>/v<version>`), a current pointer, and an on-page `## Change history` (`STAGE_1_SPEC.md` §27.3).
+**Built so far (2026-10-15).** E1.1 to E1.5 (AECI-1350 to AECI-1354): the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. Plan resolution does not read licenses yet. Only the dual-write pre-read and the `license_mirror_drift` data-quality check do. `vendor_entitlements` is still the truth for plan resolution until E1.6 (AECI-1355). Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c. E2.1 and E2.2 (AECI-1359, AECI-1360): the vendor terms at `/legal/vendor-terms` and the Managed plan agreement at `/legal/managed-plan-agreement`, both v1.0 drafts awaiting counsel. E2.3 (AECI-1361): every legal document has per-version URLs (`/legal/<slug>/v<version>`), a current pointer, and an on-page `## Change history` (`STAGE_1_SPEC.md` §27.3). E2.4 (AECI-1362): the `agreement_acceptances` table (§8.6d), its write helper `lib/agreement-acceptances.ts`, and two reads, `GET /api/vendor/billing/acceptances` (owner seats) and `GET /api/admin/vendors/:id/acceptances`. Nothing writes acceptances yet. E3 and E9 call the helper. Whether the privacy policy must disclose that acceptance evidence survives erasure is open for counsel (AECI-1363, `AUTH_AND_RLS.md` §8).
 This is the one place that describes how a vendor goes from "Claim this company" to products on
 Managed and back to Free. Every other document, help page, email and screen must match this one.
 A flow chart drawn before the license model was agreed exists outside the repo; it will be redrawn
@@ -106,7 +106,9 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
   licenses stay assigned until renewal, hand-back on lapse, suspension for abuse or non-payment,
   liability cap at twelve months of fees, changes bind at the next renewal.
 
-Both live at versioned URLs under `/legal/`. Store for each acceptance: who (the claimant's email and
+Both live at versioned URLs under `/legal/`: `/legal/vendor-terms` and `/legal/managed-plan-agreement`,
+with each superseded version at `/legal/<slug>/v<version>` (`STAGE_1_SPEC.md` §27.3). The acceptance
+store is `agreement_acceptances` (`DATABASE_SCHEMA.md` §8.6d). Store for each acceptance: who (the claimant's email and
 request at claim time, the seat once one exists), time, version, billing account, source (claim or
 checkout), and the Stripe session id for the plan agreement. IP and user agent are recorded on the
 claim path only; the checkout acceptance is written from the Stripe webhook and has neither. A one-hour lawyer read before the first

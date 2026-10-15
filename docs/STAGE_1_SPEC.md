@@ -966,6 +966,8 @@ Markdown source files in `apps/web/src/content/legal/`, rendered as static SSR p
 
 Initial drafts produced from templates and reviewed by counsel before launch.
 
+**Added after launch (AECI-1359, AECI-1360, 2026-10-15):** the **Vendor Terms** (`/legal/vendor-terms`, accepted at claim) and the **Managed Plan Agreement** (`/legal/managed-plan-agreement`, accepted at checkout). Their content is governed by `docs/VENDOR_SIGNUP_PROCESS.md` §4. Both are counsel-pending v1.0 drafts. Acceptances are stored in `agreement_acceptances` (`DATABASE_SCHEMA.md` §8.6d).
+
 **Document lifecycle, versioning, and change workflow:** see Section 27.
 
 ---

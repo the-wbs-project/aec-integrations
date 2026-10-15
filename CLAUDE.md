@@ -72,6 +72,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the one claim dialog on it and `/docs/vendors/plans` (§15: find or type in, plan, comments; `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
+| Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | Vendor claim, licenses and billing: the agreed process (not built; epics E1 to E10) | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
