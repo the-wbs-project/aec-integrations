@@ -10,6 +10,7 @@ import {
   SITE_LOGO,
   type EntityKind,
   HOME_OG_IMAGE,
+  SITE_ALTERNATE_NAMES,
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
@@ -231,7 +232,10 @@ export class MetaService {
     this.meta.updateTag({ property: 'og:image:alt', content: ogImageAlt });
     this.meta.updateTag({ name: 'twitter:image:alt', content: ogImageAlt });
 
-    this.upsertJsonLdScript('website', buildWebSiteJsonLd({ origin, name: SITE_NAME }));
+    this.upsertJsonLdScript(
+      'website',
+      buildWebSiteJsonLd({ origin, name: SITE_NAME, alternateNames: SITE_ALTERNATE_NAMES }),
+    );
     this.upsertJsonLdScript(
       'organization',
       buildSiteOrganizationLd({ origin, name: SITE_NAME, logo: `${origin}${SITE_LOGO}` }),
