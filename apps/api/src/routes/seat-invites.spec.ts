@@ -22,6 +22,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags } from '../test/licenses';
 import { createAcceptSeatInviteHandler, createSeatInvitePreviewHandler } from './seat-invites';
 import {
   createRemoveSeatHandler,
@@ -520,6 +521,37 @@ describe('GET/POST /api/seat-invites/:token', () => {
       session({ userId: admin, email: 'dana@acme.com', role: 'admin', vendorId: null }),
     );
     expect(res.status).toBe(409);
+  });
+
+  it('a redeem on a vendor with no unbanned seat clears only the vendor-banned license flags (ruled 2026-10-15)', async () => {
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-01T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.vendorId, VENDOR));
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    await seedInvite();
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(200);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(FLAGS_AFTER_GRANT);
+    const cleared = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'license.cancel_at_term_end_cleared',
+    );
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({ actorId: redeemer.userId, entityType: 'billing_account' });
+    expect(cleared[0]!.metadata).toMatchObject({
+      source: 'vendor-portal',
+      license_id: seeds.banned,
+    });
+  });
+
+  it('a redeem with nothing flagged writes no license row', async () => {
+    await seedInvite();
+    expect(
+      (await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer)).status,
+    ).toBe(200);
+    expect(
+      (await t.db.select().from(auditLog)).filter((a) => a.action.startsWith('license.')),
+    ).toEqual([]);
   });
 
   it('404s an unknown token with no identifier echoed back', async () => {

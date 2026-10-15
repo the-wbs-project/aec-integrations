@@ -59,7 +59,7 @@ import { ensureProfileRow } from '../lib/profile-provisioning';
 import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { seedLicense } from '../test/licenses';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
   createAdminClaimAuditHandler,
@@ -683,6 +683,36 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     expect(status).toBe(200);
     expect((await profileOf(CLAIMANT_ID))!.seatOwner).toBe(true);
+  });
+
+  it('a claim granted on a banned vendor clears only the vendor-banned license flags (ruled 2026-10-15)', async () => {
+    await seedVendor();
+    await t.db.insert(profiles).values({
+      id: CLAIMANT2_ID,
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      seatOwner: true,
+      bannedAt: OLD_TS,
+    });
+    const seeds = await seedCancelFlags(t.db, VENDOR_ID);
+    await seedRequest();
+    const batchSpy = vi.spyOn(t.db, 'batch');
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    batchSpy.mockRestore();
+    expect(await readCancelFlags(t.db, seeds)).toEqual(FLAGS_AFTER_GRANT);
+    const cleared = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'license.cancel_at_term_end_cleared',
+    );
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({ actorId: ADMIN_ID, entityType: 'billing_account' });
+    expect(cleared[0]!.metadata).toMatchObject({
+      license_id: seeds.banned,
+      seat_user_id: CLAIMANT_ID,
+    });
   });
 
   it('a seated vendor with no billing account yet gets one with the next seat (pre-back-fill)', async () => {

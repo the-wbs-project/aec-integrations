@@ -41,14 +41,14 @@ import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { seedLicense } from '../test/licenses';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
 import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
-import { planVendorHandback } from '../lib/vendor-handback';
+import { planSeatGrantReturn, planVendorHandback } from '../lib/vendor-handback';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -668,6 +668,82 @@ describe('a new seat grant returns the contests a ban moved to AECi', () => {
   });
 });
 
+// ─── A new seat clears the vendor-banned license flags (ruled 2026-10-15) ────
+
+describe('a new seat grant clears the vendor-banned license flags, as an unban does', () => {
+  const provision = () =>
+    call(`/api/admin/vendors/${VENDOR}/seats`, 'POST', { email: 'new-seat@bentley.example' });
+  const grantParams = {
+    vendorId: VENDOR,
+    actorId: ADMIN,
+    actorType: 'admin' as const,
+    now: '2026-10-15T00:00:00.000Z',
+    source: 'admin-moderation',
+  };
+
+  it('the provision clears the flags the last-seat ban set, in its own batch', async () => {
+    await ban(SEAT_A);
+    expect((await t.db.select().from(licenses))[0]).toMatchObject({
+      cancelReason: 'vendor-banned',
+    });
+    const batch = vi.spyOn(t.db, 'batch');
+    expect((await provision()).status).toBe(201);
+    expect(batch).toHaveBeenCalledTimes(1);
+    const [row] = await t.db.select().from(licenses);
+    expect(row).toMatchObject({ cancelAtTermEnd: false, cancelReason: null, endedAt: null });
+    const cleared = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'license.cancel_at_term_end_cleared',
+    );
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({
+      actorId: ADMIN,
+      entityType: 'billing_account',
+      entityId: u(71),
+      vendorId: VENDOR,
+    });
+    expect(cleared[0]!.metadata).toMatchObject({
+      source: 'admin-moderation',
+      seat_user_id: SEAT_B,
+      license_id: row!.id,
+    });
+  });
+
+  it('clears only live vendor-banned flags: another reason and an ended license stay', async () => {
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    expect((await provision()).status).toBe(201);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(FLAGS_AFTER_GRANT);
+  });
+
+  it('a seat for a banned profile clears nothing', async () => {
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
+    await provision();
+    expect((await readCancelFlags(t.db, seeds)).banned).toEqual({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+  });
+
+  it('planSeatGrantReturn is null when nothing is stamped and nothing is flagged', async () => {
+    expect(await planSeatGrantReturn(t.db, grantParams, SEAT_B)).toBeNull();
+  });
+
+  it('planSeatGrantReturn carries the license statements and audits when only a flag is set', async () => {
+    await seedCancelFlags(t.db, VENDOR);
+    const batch = await planSeatGrantReturn(t.db, grantParams, SEAT_B);
+    expect(batch).not.toBeNull();
+    expect(batch!.audits.map((a) => a.action)).toEqual(['license.cancel_at_term_end_cleared']);
+    expect(batch!.transitions).toEqual([]);
+    expect(batch!.purgeTags).toEqual([]);
+    const sqlOf = (stmt: unknown) => (stmt as { toSQL(): { sql: string } }).toSQL().sql;
+    const licenseUpdates = batch!.stmts.map(sqlOf).filter((q) => /^update "licenses"/.test(q));
+    expect(licenseUpdates).toHaveLength(1);
+    expect(licenseUpdates[0]).toContain('"cancel_reason" = ?');
+  });
+});
+
 // ─── The plan stamp: passed in, or read once (AECI-1192 review) ──────────────
 
 describe("the hand-back stamps the caller's plan, or reads it when none is passed", () => {
@@ -923,8 +999,9 @@ describe('each seat write forwards its audit rows and transitions in ONE request
       ).status,
     ).toBe(201);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The provision row and the returned contest's re-route.
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // The provision row, the returned contest's re-route and the one live license's
+    // cleared vendor-banned flag (ruled 2026-10-15).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 });

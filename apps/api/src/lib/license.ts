@@ -84,6 +84,7 @@ import {
   LICENSE_END_REASONS,
   LICENSE_SOURCES,
   licensePlanSnapshot,
+  type LicenseCancelReason,
   type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
@@ -745,6 +746,56 @@ export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams
     writes.push({ stmt, entry: licenseEntry(p, now, action, before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+/** The `cancel_reason` the ban of a vendor's last unbanned seat writes (AECI-1374). */
+export const VENDOR_BANNED_CANCEL_REASON: LicenseCancelReason = 'vendor-banned';
+
+export interface ClearVendorBannedFlagsParams {
+  vendorId: string;
+  now: string | Date;
+  actorId: string | null;
+  actorType: AuditLogEntry['actorType'];
+  /** `metadata.source` on each audit row. */
+  source?: string;
+  extraMetadata?: Record<string, unknown>;
+}
+
+/**
+ * The vendor has an unbanned `vendor_admin` seat again, so the `vendor-banned` flags
+ * come off (decision 15). One implementation for both ways back: the unban
+ * (`routes/admin-reviewers.ts`, AECI-1374) and every new seat grant
+ * (`planSeatGrantReturn` in `lib/vendor-handback.ts`, ruled 2026-10-15). Clears only
+ * live licenses whose reason is `vendor-banned`; each UPDATE is guarded on that reason.
+ * Reads the vendor's licenses, and `vendors.verified` only when a flag is set.
+ * Nothing flagged: a no-op, with no statement and no audit row.
+ */
+export async function clearVendorBannedFlagsStatements(
+  db: Db,
+  p: ClearVendorBannedFlagsParams,
+): Promise<LicenseBatch> {
+  const vendorLicenses = await loadVendorLicenses(db, p.vendorId);
+  const flagged = vendorLicenses.filter(
+    (l) => l.endedAt === null && l.cancelReason === VENDOR_BANNED_CANCEL_REASON,
+  );
+  if (flagged.length === 0) return NO_OP;
+  const vendorRow = await db.query.vendors.findFirst({
+    columns: { verified: true },
+    where: eq(vendors.id, p.vendorId),
+  });
+  return setCancelAtTermEndStatements(db, {
+    vendorId: p.vendorId,
+    now: p.now,
+    actorId: p.actorId,
+    actorType: p.actorType,
+    vendorLicenses,
+    vendorWasVerified: vendorRow?.verified ?? false,
+    ...(p.source ? { source: p.source } : {}),
+    ...(p.extraMetadata ? { extraMetadata: p.extraMetadata } : {}),
+    licenseIds: flagged.map((l) => l.id),
+    cancel: false,
+    ifCancelReason: VENDOR_BANNED_CANCEL_REASON,
+  });
 }
 
 // ─── End ────────────────────────────────────────────────────────────────────

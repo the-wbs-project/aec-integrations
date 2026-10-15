@@ -2252,6 +2252,8 @@ fail-open like every send.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+
 **The grant brings the billing account (AECI-1351).** When the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged. (Since AECI-1367 this is the only account-level write beside the seat.)
 
 **As built 2026-10-15 (AECI-1367, epic AECI-1333 E3.4): every approval lands on Free.** The Free or Managed choice (AECI-1215) is superseded (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The `plan` and `entitlement` request fields and the `plan` and `entitlement_created` response fields are gone. The pre-AECI-1367 contract is in git history.
@@ -2315,7 +2317,8 @@ atomic `db.batch`:
    audit row filed under `entity_type = 'vendor_request'` and `entity_id` = the claim id,
    with the `acceptance_ids` in `afterState`. The audit row is emitted only when a pre-read
    (`loadClaimAcceptanceIds`) finds rows (`DATABASE_SCHEMA.md` §8.6d).
-4. The AECI-989 seat return, with `entitledAfterBatch: false`.
+4. The AECI-989 seat return, with `entitledAfterBatch: false`. It also clears the vendor's
+   `vendor-banned` license flags (ruled 2026-10-15, `clearVendorBannedFlagsStatements`).
 
 No entitlement row is written, `vendors.verified` is not touched, and **nothing is purged**.
 Post-commit (best-effort): fire the claim-approved email. A `target_type='product'` claim
@@ -2978,6 +2981,8 @@ Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_adm
 model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 ```typescript
 export const ProvisionVendorSeatSchema = z.object({
@@ -3792,7 +3797,9 @@ any source, `cancel_at_term_end = true`, `cancel_reason = 'vendor-banned'`, in t
 batch: one `license.cancel_at_term_end_set` row each (`entity_type = 'billing_account'`,
 `metadata.license_id`). A license already flagged is skipped and keeps its reason. An unban
 of a vendor seat clears the flag on live licenses whose reason is `vendor-banned` only
-(`license.cancel_at_term_end_cleared`). Ended licenses are never touched. Nothing ends, no
+(`license.cancel_at_term_end_cleared`). So does a new unbanned seat from any of the three
+seat writers (ruled 2026-10-15): one helper, `clearVendorBannedFlagsStatements`, serves the
+unban and every grant. Ended licenses are never touched. Nothing ends, no
 plan changes, nothing is purged and no email is sent. The response shape is unchanged.
 
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
@@ -6697,6 +6704,8 @@ Deliberately thin: the token is in a URL, so treat everything behind it as semi-
 Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client can land the new seat on `/vendor/:slug/overview`.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 **The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
 

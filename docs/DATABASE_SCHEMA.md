@@ -2028,7 +2028,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
   `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
   value: `vendor-banned`, written on every live license when a ban leaves the vendor with no
-  unbanned seat, and cleared by the unban (AECI-1374, decision 15). The builder's
+  unbanned seat, and cleared when the vendor has an unbanned seat again: the unban, or a new
+  seat from the admin provision, the claim grant or the invite redeem (AECI-1374, decision 15;
+  the seat grant ruled 2026-10-15). Both go through `clearVendorBannedFlagsStatements`. The builder's
   `ifCancelReason` guards each UPDATE on the reason it expects, so the unban never clears a
   flag another writer set. Unconstrained at the DB layer, like `end_reason`.
 - **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical

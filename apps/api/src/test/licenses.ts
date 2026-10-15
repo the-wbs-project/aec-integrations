@@ -36,6 +36,8 @@ export interface LicenseSeed {
   endReason?: string | null;
   /** Stamps `updated_at`, for the cursor specs. */
   updatedAt?: string;
+  cancelAtTermEnd?: boolean;
+  cancelReason?: string | null;
 }
 
 /** One license on the vendor's billing account. Live and perpetual by default. */
@@ -57,6 +59,67 @@ export async function seedLicense(
     assignedProductId: seed.productId ?? null,
     assignedAt: seed.productId ? '2026-01-01T00:00:00.000Z' : null,
     ...(seed.updatedAt ? { updatedAt: seed.updatedAt } : {}),
+    ...(seed.cancelAtTermEnd !== undefined ? { cancelAtTermEnd: seed.cancelAtTermEnd } : {}),
+    ...(seed.cancelReason !== undefined ? { cancelReason: seed.cancelReason } : {}),
   });
   return id;
 }
+
+/** The three license rows a seat-return spec reads after the grant (ruled 2026-10-15). */
+export interface CancelFlagSeeds {
+  /** Live, flagged `vendor-banned`: the seat grant clears it. */
+  banned: string;
+  /** Live, flagged by someone else (reason NULL): the grant leaves it. */
+  other: string;
+  /** Ended, still carrying `vendor-banned`: history, the grant leaves it. */
+  ended: string;
+}
+
+/** Seed a banned vendor's license flags: one to clear, two to leave alone. */
+export async function seedCancelFlags(db: Db, vendorId: string): Promise<CancelFlagSeeds> {
+  return {
+    banned: await seedLicense(db, vendorId, {
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    }),
+    other: await seedLicense(db, vendorId, {
+      source: 'invoice',
+      cancelAtTermEnd: true,
+      cancelReason: null,
+    }),
+    ended: await seedLicense(db, vendorId, {
+      endedAt: '2026-06-01T00:00:00.000Z',
+      endReason: 'lapsed',
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    }),
+  };
+}
+
+/** The cancel flags on the three seeded rows, keyed as seeded. */
+export async function readCancelFlags(
+  db: Db,
+  seeds: CancelFlagSeeds,
+): Promise<
+  Record<keyof CancelFlagSeeds, { cancelAtTermEnd: boolean; cancelReason: string | null }>
+> {
+  const rows = await db
+    .select({
+      id: licenses.id,
+      cancelAtTermEnd: licenses.cancelAtTermEnd,
+      cancelReason: licenses.cancelReason,
+    })
+    .from(licenses);
+  const of = (id: string) => {
+    const row = rows.find((r) => r.id === id)!;
+    return { cancelAtTermEnd: row.cancelAtTermEnd, cancelReason: row.cancelReason };
+  };
+  return { banned: of(seeds.banned), other: of(seeds.other), ended: of(seeds.ended) };
+}
+
+/** What {@link readCancelFlags} returns once a seat grant has run. */
+export const FLAGS_AFTER_GRANT = {
+  banned: { cancelAtTermEnd: false, cancelReason: null },
+  other: { cancelAtTermEnd: true, cancelReason: null },
+  ended: { cancelAtTermEnd: true, cancelReason: 'vendor-banned' },
+} as const;

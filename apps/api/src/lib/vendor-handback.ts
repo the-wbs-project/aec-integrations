@@ -65,6 +65,8 @@
  * hand-back took for good from returning after the vendor re-claims the row.
  * A contest submitted during the lapse is stamped at submit
  * (`routes/vendor-contests.ts`), so it returns the same way.
+ * A seat grant also clears the vendor's `vendor-banned` license flags, as the unban
+ * does (ruled 2026-10-15, `clearVendorBannedFlagsStatements` in `lib/license.ts`).
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -104,7 +106,7 @@ import {
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
-import { loadVendorLicenses } from './license';
+import { clearVendorBannedFlagsStatements, loadVendorLicenses } from './license';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -802,11 +804,18 @@ export async function planOwnerSeatReturn(
  * (`PATCH /api/admin/claims/:id`) and the invite redeem
  * (`POST /api/seat-invites/:token/accept`).
  *
+ * The same grant also clears the `vendor-banned` cancel-at-term-end flags on the
+ * vendor's live licenses (ruled 2026-10-15, `STAGE_2_PAID_TIERS_SPEC.md` §5.2), as
+ * the unban does, through the one helper `clearVendorBannedFlagsStatements`. Its
+ * statements carry their own audit inserts and go after the sealed contest rows. Its
+ * audit rows join `audits`, so the caller forwards them with the rest.
+ *
  * `null` when the new seat's own profile is banned, because a banned seat is not
- * an active one, or when nothing is stamped. The pre-batch read cannot see the new
- * seat, so the caller's grant is what makes the vendor active again. A grant that
- * lands on no row (a lost race) still commits these guarded re-routes. That is
- * accepted: the grant's own batch is what decides whether the seat exists.
+ * an active one, or when nothing is stamped and nothing is flagged. The pre-batch
+ * read cannot see the new seat, so the caller's grant is what makes the vendor
+ * active again. A grant that lands on no row (a lost race) still commits these
+ * guarded writes. That is accepted: the grant's own batch is what decides whether
+ * the seat exists.
  */
 export async function planSeatGrantReturn(
   db: Db,
@@ -820,7 +829,20 @@ export async function planSeatGrantReturn(
   });
   if (seat?.bannedAt) return null;
   const batch = await planOwnerSeatReturn(db, p, opts);
-  return batch.stmts.length > 0 ? batch : null;
+  const flags = await clearVendorBannedFlagsStatements(db, {
+    vendorId: p.vendorId,
+    now: p.now,
+    actorId: p.actorId,
+    actorType: p.actorType,
+    source: p.source,
+    extraMetadata: { seat_user_id: seatUserId },
+  });
+  if (batch.stmts.length === 0 && flags.stmts.length === 0) return null;
+  return {
+    ...batch,
+    stmts: [...batch.stmts, ...flags.stmts],
+    audits: [...batch.audits, ...flags.auditEntries],
+  };
 }
 
 // ─── Shared: one contest re-route ────────────────────────────────────────────

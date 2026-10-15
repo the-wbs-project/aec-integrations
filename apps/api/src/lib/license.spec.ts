@@ -30,6 +30,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
 import {
   assignLicenseStatements,
+  clearVendorBannedFlagsStatements,
   endLicensesStatements,
   grantLicensesStatements,
   licenseTermsForEntitlement,
@@ -487,6 +488,66 @@ describe('setCancelAtTermEndStatements', () => {
     });
     expect(await licenseOf('l-other')).toMatchObject({ cancelAtTermEnd: true, cancelReason: null });
     expect(await licenseOf('l-raced')).toMatchObject({ cancelAtTermEnd: true, cancelReason: null });
+  });
+});
+
+describe('clearVendorBannedFlagsStatements (ruled 2026-10-15)', () => {
+  const params = {
+    vendorId: VENDOR_ID,
+    now: NOW,
+    actorId: ADMIN_ID,
+    actorType: 'admin' as const,
+    source: 'admin-moderation',
+    extraMetadata: { seat_user_id: 'seat-1' },
+  };
+
+  it('clears live vendor-banned flags only, one audit row each', async () => {
+    await seedLicense('l-banned', { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    await seedLicense('l-other', { cancelAtTermEnd: true, cancelReason: null });
+    await seedLicense('l-ended', {
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+      endedAt: OLD_TS,
+    });
+    await seedLicense('l-foreign', {
+      billingAccountId: OTHER_ACCOUNT_ID,
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+    const batch = await clearVendorBannedFlagsStatements(t.db, params);
+    expect(batch.auditEntries).toHaveLength(1);
+    expect(batch.auditEntries[0]).toMatchObject({
+      action: 'license.cancel_at_term_end_cleared',
+      entityType: 'billing_account',
+      entityId: ACCOUNT_ID,
+      vendorId: VENDOR_ID,
+    });
+    expect(batch.auditEntries[0]!.metadata).toMatchObject({
+      source: 'admin-moderation',
+      seat_user_id: 'seat-1',
+      license_id: 'l-banned',
+    });
+    await run(batch);
+    expect(await licenseOf('l-banned')).toMatchObject({
+      cancelAtTermEnd: false,
+      cancelReason: null,
+    });
+    expect(await licenseOf('l-other')).toMatchObject({ cancelAtTermEnd: true, cancelReason: null });
+    expect(await licenseOf('l-ended')).toMatchObject({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+    expect(await licenseOf('l-foreign')).toMatchObject({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+  });
+
+  it('is the empty no-op when nothing is flagged vendor-banned', async () => {
+    await seedLicense('l-other', { cancelAtTermEnd: true, cancelReason: null });
+    const batch = await clearVendorBannedFlagsStatements(t.db, params);
+    expect(batch.stmts).toHaveLength(0);
+    expect(batch.auditEntries).toHaveLength(0);
   });
 });
 
