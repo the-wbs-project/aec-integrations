@@ -43,6 +43,8 @@ import {
   sendLandingFeedbackNotification,
   sendPlanInquiryAlert,
   sendListingRequestAlert,
+  sendProductRequestAlert,
+  sendProductRequestDecidedEmail,
   sendPlanInquiryReceivedEmail,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
@@ -295,6 +297,36 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
           planInterest: 'managed',
           body: '',
         },
+      }),
+  },
+  'product-request-alert': {
+    links: true,
+    verbatim: ['https://fieldnotes.example.com'],
+    send: (c) =>
+      sendProductRequestAlert(c, {
+        request: {
+          requestId: 'pr-1',
+          name: 'Field Notes',
+          maker: 'Field Notes Inc',
+          website: 'https://fieldnotes.example.com',
+          body: '',
+          vendorName: 'Bentley',
+          contextProductName: 'MicroStation',
+          requesterEmail: 'seat@bentley.example',
+        },
+      }),
+  },
+  'product-request-decided': {
+    links: true,
+    send: (c) =>
+      sendProductRequestDecidedEmail(c, {
+        to: 'seat@bentley.example',
+        requestId: 'pr-1',
+        requestName: 'Field Notes',
+        vendorSlug: 'bentley',
+        contextProductSlug: 'microstation',
+        decision: { outcome: 'added', productName: 'Field Notes', productSlug: 'field-notes' },
+        dedupeKey: 'product-request-decided:pr-1',
       }),
   },
   'claim-submitted-alert': {

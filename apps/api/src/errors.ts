@@ -55,6 +55,8 @@ type ResourceKind =
   | 'field_override'
   // A typed-in listing request on `/admin/requests` (AECI-1293). Admin-only.
   | 'listing_request'
+  // A vendor's product request (AECI-1377). Admin-only on the PATCH.
+  | 'product_request'
   | 'category'
   | 'audience'
   | 'phase'

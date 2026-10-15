@@ -313,6 +313,41 @@ export const NOTIFICATIONS = {
       'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
     note: 'No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way.',
   },
+  'product-request-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/product-requests (routes/vendor-product-requests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'Key product-request-alert:{requestId}, so at most one alert per saved request.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.6',
+    summary:
+      'Tells SUPPORT_EMAIL a seated vendor asked us to add a product it integrates with, with reply-to set to the seat.',
+    note: 'Pausable: an operator alert. The request waits in /admin/requests either way.',
+  },
+  'product-request-decided': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/product-requests/:id (routes/admin-product-requests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key product-request-decided:{requestId}. A request is decided once, so one email per request. A lost concurrent decision rolls back and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.6',
+    summary:
+      'Tells the seat that asked whether AECi added the product, found it already listed, or declined it with the reason.',
+    note: 'Always on: a decision, like claim-rejected and the review decisions. One template with three outcome variants. Not sent when the seat is gone, and the portal row is then the record.',
+  },
   'contest-submitted-alert': {
     channel: 'email',
     audience: 'operator',
@@ -842,6 +877,23 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary: 'Tells a vendor that AECi approved, rejected or removed its reply to a review.',
     note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email.',
+  },
+  'portal-product-request-decided': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/product-requests/:id (routes/admin-product-requests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per decision, in the decision batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.6',
+    summary:
+      'Tells a vendor that AECi added, found already listed, or declined a product it asked us to add.',
+    note: 'Goes to the requesting vendor on every plan. Carries the decline reason, never an internal note. Not pausable: a portal row, not email.',
   },
   'portal-field-overridden-by-aeci': {
     channel: 'portal',

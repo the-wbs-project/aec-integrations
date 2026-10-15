@@ -30,6 +30,7 @@ export * from './page-views';
 export * from './plan-inquiry';
 export * from './product-facets';
 export * from './product-pairs';
+export * from './product-requests';
 export * from './product-versions';
 export * from './profile-details';
 export * from './products';
