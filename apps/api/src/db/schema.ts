@@ -1721,12 +1721,12 @@ export const billingAccounts = sqliteTable(
  *
  * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
  * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
- * `lib/license.ts` (AECI-1352), whose only caller today is the entitlement builders'
- * dual-write (`lib/vendor-entitlement.ts`, AECI-1353), and by the one-off
- * `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
- * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Read by those pre-reads and the
- * `license_mirror_drift` data-quality check. Plan resolution does not read it until
- * E1.6 (AECI-1355).
+ * `lib/license.ts` (AECI-1352), called by the entitlement builders' dual-write
+ * (`lib/vendor-entitlement.ts`, AECI-1353), the admin grant, edit and early-unassign
+ * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374), and by the
+ * one-off `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
+ * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Plan resolution reads it
+ * since E1.6 (AECI-1355), and so do the expiry sweep and `license_mirror_drift`.
  */
 export const licenses = sqliteTable(
   'licenses',

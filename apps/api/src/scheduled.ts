@@ -71,16 +71,15 @@
  * the state the site is actually serving. Unlike the read-only gauges this one
  * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
  * ran is a nudge nobody is ever told about.
- * 11:00 UTC — daily Stage 2 §7 entitlement term-expiry sweep
- * (`./lib/entitlement-expiry`, AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one
- * indexed read over `vendor_entitlements_expiry_idx` for terms within 30 days →
- * a renewal prompt to the vendor's seats and an operator copy to
- * `SUPPORT_EMAIL`, fenced by `expiry_notice_sent_at` so a term earns ONE
- * notice rather than one per night. Queue-less (a small read plus a handful of
+ * 11:00 UTC — daily Stage 2 §7 license term-expiry sweep
+ * (`./lib/entitlement-expiry`, AECI-613, moved onto `licenses` by AECI-1356 /
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7): one read of live licenses with an end date
+ * inside 30 days → a renewal prompt to the vendor's seats and an operator copy to
+ * `SUPPORT_EMAIL`, one notice per billing account per end date, fenced by
+ * `licenses.expiry_notice_sent_at`. Queue-less (a small read plus a handful of
  * fail-open emails). **It warns and never lapses** — it writes
- * `expiry_notice_sent_at` and an audit row, never `status` and never
- * `vendors.verified` (§7.3). Perpetual entitlements are invisible to it by
- * construction: the index is partial on `period_end IS NOT NULL`.
+ * `expiry_notice_sent_at` and an audit row, never `ended_at` and never
+ * `vendors.verified` (§7.3). Open-ended licenses are invisible to it.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
