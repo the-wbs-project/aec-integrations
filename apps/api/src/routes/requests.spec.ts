@@ -13,6 +13,7 @@ import {
   auditLog,
   productVendors,
   products,
+  profiles,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -22,7 +23,11 @@ import { LABEL_IDS } from '../lib/linear';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
-import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
+import {
+  createClaimSubmitHandler,
+  createClaimTargetHandler,
+  createCorrectionSubmitHandler,
+} from './requests';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
@@ -1090,5 +1095,124 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
       variables: { input: { labelIds: string[] } };
     };
     expect(sent.variables.input.labelIds).toContain(LABEL_IDS.domainCheckPending);
+  });
+});
+
+// ─── AECI-1368: claims routed to the company's owners ────────────────────────
+
+describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const validBody = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+  };
+  const submit = (execCtx = fakeExecutionContext()) =>
+    claimApp().request('/api/requests/claim', postInit(validBody), TEST_ENV, execCtx);
+
+  it('sets routed_to_owners_at when the company has an unbanned owner seat, status stays open', async () => {
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+
+    const res = await submit();
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+    expect(row?.ownerFallbackAt).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(true);
+  });
+
+  it('does not route when the only owner seat is banned', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db.insert(profiles).values({
+      id: OWNER_ID,
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      seatOwner: true,
+      bannedAt: '2026-10-01T00:00:00.000Z',
+    });
+
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+  });
+
+  it('does not route when the company has only a member seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: false });
+
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+  });
+
+  it('does not route a claim on a company with no seats', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(false);
+  });
+});
+
+describe('GET /api/requests/claim-target/:type/:slug (AECI-1368)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const targetApp = () =>
+    buildAppWithHandler({
+      method: 'get',
+      path: '/api/requests/claim-target/:type/:slug',
+      handler: createClaimTargetHandler(t.factory),
+    });
+  const get = (path: string) =>
+    targetApp().request(path, { method: 'GET' }, TEST_ENV, fakeExecutionContext());
+
+  it('returns the vendor and has_seats false for a company with no owner seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await get('/api/requests/claim-target/vendor/acme-co');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('no-store');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: false });
+  });
+
+  it('returns has_seats true when the company has an unbanned owner seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    const res = await get('/api/requests/claim-target/vendor/acme-co');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: true });
+  });
+
+  it('resolves a product to its company, the one the claim would be stored on', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'acme-build', name: 'Acme Build' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+    const res = await get('/api/requests/claim-target/product/acme-build');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: false });
+  });
+
+  it.each([
+    ['/api/requests/claim-target/vendor/nope'],
+    ['/api/requests/claim-target/product/nope'],
+    ['/api/requests/claim-target/integration/acme-co'],
+  ])('404s like the claim route for %s', async (path) => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await get(path);
+    expect(res.status).toBe(404);
+  });
+
+  it('404s a product with no company to claim', async () => {
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'orphan', name: 'Orphan' });
+    const res = await get('/api/requests/claim-target/product/orphan');
+    expect(res.status).toBe(404);
   });
 });

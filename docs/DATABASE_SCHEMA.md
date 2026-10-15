@@ -1323,6 +1323,13 @@ the `/admin/claims` enrichment, the vendor portal's `vendorRequestsWhere`, the ย
 sweep and the stale-claim check) keeps handling both. Corrections keep their
 product or vendor target.
 
+**Claims routed to the owners (AECI-1368, 2026-10-15).** A claim on a company that
+already has an unbanned owner seat is stored with `routed_to_owners_at` set, and
+stays `open`. The owners accept or decline it from Seats. After 7 days with no
+decision the `claim_owner_fallback` cron clears it into `owner_fallback_at`, with an
+`audit_log` row per claim in the same batch. Neither column changes `status`, so the
+status CHECK is untouched. Migration 0076 is two nullable `ADD COLUMN`s.
+
 ```sql
 create table vendor_requests (
   id uuid primary key default gen_random_uuid(),
@@ -1371,6 +1378,15 @@ create table vendor_requests (
   -- target), or a claim stored before 0075 (those keep target_type 'product').
   -- NO FK and NO CHECK, like target_id: either is a drizzle-kit recreate here.
   context_product_id text,
+
+  -- AECI-1368 (migration 0076): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md ยง11a.10).
+  -- routed_to_owners_at: set at submit when the claimed company has an unbanned owner
+  -- seat, so its owners decide first. NULL for every other row.
+  -- owner_fallback_at: set by the claim_owner_fallback cron when it hands a routed
+  -- claim back to AECi after 7 days with no decision. It clears routed_to_owners_at
+  -- in the same statement. Both plain nullable ADD COLUMNs, never a CHECK.
+  routed_to_owners_at text,
+  owner_fallback_at text,
 
   -- Status
   status text not null default 'open'

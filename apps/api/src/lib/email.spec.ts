@@ -36,6 +36,8 @@ import {
   sendContestDeclinedProtestWindowEmail,
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
+  sendClaimOwnerFallbackAlert,
+  sendClaimOwnerReviewEmail,
   sendProtestSubmittedAlert,
   formatDeadline,
   sendEmail,
@@ -3202,5 +3204,70 @@ describe('protest and decline emails (AECI-1205)', () => {
       expect(html).not.toContain('href="https://evil.example');
       expect(html).toContain('https://evil.example/login?next=/vendor');
     });
+  });
+});
+
+describe('claim owner routing emails (AECI-1368)', () => {
+  const SITE = {
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const FACTS = {
+    requestId: 'req-1',
+    vendorName: 'Acme',
+    vendorSlug: 'acme',
+    submitterEmail: 'casey@acme.com',
+    submitterName: 'Casey Claimant',
+    submitterRole: 'Product manager',
+    submitterLinkedinUrl: 'https://www.linkedin.com/in/casey',
+    comments: 'I run the integrations team.',
+    contextProductName: 'Acme Build',
+    decideBy: '2026-10-22T14:30:00.000Z',
+  };
+
+  it('claim-owner-review asks the owner to decide, names the claimant and links Seats', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimOwnerReviewEmail(fakeContext(SITE), {
+      ...FACTS,
+      to: 'owner@acme.com',
+      dedupeKey: 'claim-owner-review:req-1:p-1',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('owner@acme.com');
+    expect(body.subject).toBe('Casey Claimant wants to join Acme on AEC Integrations');
+    const text = String(body.text);
+    expect(text).toContain('Casey Claimant asked to manage Acme on AEC Integrations.');
+    expect(text).toContain('casey@acme.com');
+    expect(text).toContain('If no owner decides by Oct 22, 2026, 2:30 PM UTC');
+    expect(text).toContain('https://www.aecintegrations.com/vendor/acme/seats');
+    // The claimant's LinkedIn URL is their own text: never a link.
+    expect(String(body.html)).not.toContain('href="https://www.linkedin.com/in/casey');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-owner-review']);
+  });
+
+  it('claim-owner-fallback-alert tells support which claims came back, with the queue link', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimOwnerFallbackAlert(fakeContext(SITE), {
+      to: 'support@aecintegrations.com',
+      rows: [
+        {
+          requestId: 'req-1',
+          vendorName: 'Acme',
+          submitterEmail: 'casey@acme.com',
+          submitterName: 'Casey',
+          createdAt: '2026-10-08T14:30:00.000Z',
+          routedToOwnersAt: '2026-10-08T14:30:00.000Z',
+          adminUrl: 'https://www.aecintegrations.com/admin/claims/req-1',
+        },
+      ],
+      dedupeKey: 'claim-owner-fallback-alert:req-1',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('[AECi] 1 claim not decided by the owners in 7 days');
+    const text = String(body.text);
+    expect(text).toContain('It is now in the claim queue for AECi to review.');
+    expect(text).toContain('casey@acme.com');
+    expect(text).toContain('https://www.aecintegrations.com/admin/claims');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-owner-fallback-alert']);
   });
 });

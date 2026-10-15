@@ -1341,6 +1341,17 @@ export const vendorRequests = sqliteTable(
     // (docs/migrations.md §0). Readers resolve it like `target_id`, tolerating a
     // product that has since gone.
     contextProductId: text('context_product_id'),
+    // AECI-1368: when a claim on a company that already has an unbanned owner seat
+    // was routed to those owners (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10). Set at submit,
+    // cleared by the `claim_owner_fallback` sweep once 7 days pass with no decision.
+    // NULL for every other claim. While set, the owners' Seats section lists the claim
+    // and the claim-stale-check skips it.
+    routedToOwnersAt: text('routed_to_owners_at'),
+    // AECI-1368: when the `claim_owner_fallback` sweep handed a routed claim back to
+    // AECi after 7 days with no owner decision. NULL otherwise. Both columns are plain
+    // nullable ADD COLUMNs, never a CHECK: this table has FK children
+    // (docs/migrations.md §0).
+    ownerFallbackAt: text('owner_fallback_at'),
 
     domainMatch: text('domain_match').notNull().default('pending'),
 

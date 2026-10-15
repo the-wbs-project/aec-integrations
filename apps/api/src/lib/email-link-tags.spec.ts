@@ -37,6 +37,8 @@ import {
   sendContestDeclinedProtestWindowEmail,
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
+  sendClaimOwnerFallbackAlert,
+  sendClaimOwnerReviewEmail,
   sendContestSubmittedNotification,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -427,6 +429,42 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             ageMinutes: 90,
             retried: true,
             reason: 'timeout',
+          },
+        ],
+      }),
+  },
+  'claim-owner-review': {
+    links: true,
+    send: (c) =>
+      sendClaimOwnerReviewEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'claim-owner-review:req-1:p-1',
+        requestId: 'req-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        submitterEmail: 'claimant@bentley.example',
+        submitterName: 'Casey Claimant',
+        submitterRole: 'Product manager',
+        submitterLinkedinUrl: 'https://www.linkedin.com/in/casey',
+        comments: 'I run the integrations team.',
+        contextProductName: 'MicroStation',
+        decideBy: '2026-10-22T14:30:00.000Z',
+      }),
+  },
+  'claim-owner-fallback-alert': {
+    links: true,
+    send: (c) =>
+      sendClaimOwnerFallbackAlert(c, {
+        to: 'support@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            vendorName: 'Bentley',
+            submitterEmail: 'claimant@bentley.example',
+            submitterName: 'Casey Claimant',
+            createdAt: '2026-10-08T14:30:00.000Z',
+            routedToOwnersAt: '2026-10-08T14:30:00.000Z',
+            adminUrl: adminRequestUrl(c.env, 'claim', 'req-1'),
           },
         ],
       }),

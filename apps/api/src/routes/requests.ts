@@ -38,7 +38,10 @@
 
 import {
   ClaimRequestSchema,
+  ClaimTargetResponseSchema,
   CorrectionRequestSchema,
+  RequestTargetTypeSchema,
+  type ClaimTargetResponse,
   type RequestKind,
   type RequestSubmitResponse,
   type RequestTargetType,
@@ -62,11 +65,13 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { computeDomainMatch } from '../lib/domain-match';
-import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
+import { emailOwnersOfRoutedClaim } from '../lib/claim-owner-routing';
+import { vendorHasOwnerSeat } from '../lib/owner-seat';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -260,6 +265,10 @@ interface RequestInsert {
   planInterest: string | null;
   body: string;
   sourceUrl: string | null;
+  /** AECI-1368: set when this claim is routed to the company's owners first (the
+   *  vendor has an unbanned owner seat). The submit instant, else null. Always null
+   *  for a correction. A column, so it rides `rowData` into the insert. */
+  routedToOwnersAt: string | null;
 }
 
 /** Insert the row + open its workflow instance/genesis transition + write the
@@ -303,6 +312,8 @@ async function createRequest(
       ? {
           context_product_id: contextProduct?.id ?? null,
           context_product_slug: contextProduct?.slug ?? null,
+          // AECI-1368: whether the claim went to the company's owners first.
+          routed_to_owners: insert.routedToOwnersAt !== null,
         }
       : {}),
   };
@@ -429,6 +440,25 @@ async function createRequest(
     }),
   );
 
+  // AECI-1368: a claim on a company with an owner seat goes to those owners first.
+  // Post-commit and best-effort: the claim is in their Seats section whatever the
+  // mail does. Bounded per vendor per day (`lib/claim-owner-routing.ts`).
+  if (insert.routedToOwnersAt !== null) {
+    c.executionCtx.waitUntil(
+      emailOwnersOfRoutedClaim(c, db, {
+        requestId,
+        vendorId: insert.targetId,
+        routedToOwnersAt: insert.routedToOwnersAt,
+        submitterEmail: insert.submitterEmail,
+        submitterName: insert.submitterName,
+        submitterRole: insert.submitterRole,
+        submitterLinkedinUrl: insert.submitterLinkedinUrl,
+        body: insert.body,
+        contextProductName: contextProduct?.name ?? null,
+      }),
+    );
+  }
+
   const body: RequestSubmitResponse = {
     request_id: requestId,
     message:
@@ -464,6 +494,7 @@ export function createCorrectionSubmitHandler(
       planInterest: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
+      routedToOwnersAt: null,
     });
   };
 }
@@ -477,6 +508,10 @@ export function createClaimSubmitHandler(
     // AECI-1364: a product target is normalised to its company here. The response
     // is unchanged, so the forms and the dialog need no new handling.
     const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
+    // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`.
+    const routedToOwnersAt = (await vendorHasOwnerSeat(db, target.id))
+      ? new Date().toISOString()
+      : null;
 
     return createRequest(c, db, 'claim', {
       targetType: 'vendor',
@@ -495,6 +530,45 @@ export function createClaimSubmitHandler(
       planInterest: payload.plan_interest ? payload.plan_interest : null,
       body: payload.body,
       sourceUrl: null,
+      routedToOwnersAt,
     });
+  };
+}
+
+// ─── GET /api/requests/claim-target/:type/:slug (AECI-1368) ──────────────────
+
+/**
+ * The company a claim on `(type, slug)` would be stored against, and whether it has
+ * an unbanned owner seat (`has_seats`), so the claim form can tell the claimant
+ * before submit that the company's team decides first
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a and §11a.10).
+ *
+ * It resolves through `resolveClaimTarget`, the same function the submit uses, so
+ * the two cannot disagree about the company, and a slug the submit would 404 is a
+ * 404 here. `has_seats` is `vendorHasOwnerSeat`, the predicate the submit routes on.
+ *
+ * Public and read-only. `json()` sets `private, no-store`: the answer changes the
+ * moment a seat is granted, so no layer may cache it. No `rateLimit()`, because reads
+ * are never rate-limited (`waf-rate-limits.md` §6). Zone Rule A matches POST only, so
+ * it does not apply to this GET either.
+ */
+export function createClaimTargetHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const type = RequestTargetTypeSchema.safeParse(c.req.param('type'));
+    const slug = c.req.param('slug') ?? '';
+    // An unknown type is a 404 like an unknown slug: there is nothing to claim there.
+    if (!type.success || slug.length === 0) {
+      throw notFoundError('product', { slug });
+    }
+    const { db } = dbFor(c.env);
+    const target = await resolveClaimTarget(db, type.data, slug);
+    const body: ClaimTargetResponse = {
+      vendor_id: target.id,
+      has_seats: await vendorHasOwnerSeat(db, target.id),
+    };
+    validateResponseInDev(c.env, () => ClaimTargetResponseSchema.parse(body));
+    return json(body);
   };
 }

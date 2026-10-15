@@ -2445,6 +2445,145 @@ export function sendContestDeclinedProtestWindowEmail(
   });
 }
 
+// ─── Claims routed to a company's owners (AECI-1368, §11a.10) ─────────────────
+
+/** The claim facts the owner review email shows. Every value is what the claimant
+ *  typed, so every row is `PLAIN`: nothing they wrote may render as a link. */
+export interface ClaimOwnerReviewFacts {
+  requestId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/seats` button. `null` drops the button. */
+  vendorSlug: string | null;
+  submitterEmail: string;
+  submitterName: string | null;
+  submitterRole: string | null;
+  submitterLinkedinUrl: string | null;
+  comments: string;
+  contextProductName: string | null;
+  /** `routed_to_owners_at` + 7 days, computed by the caller. */
+  decideBy: string;
+}
+
+/** The portal's Seats section for a vendor, or `null`. */
+function vendorSeatsUrl(env: Env, vendorSlug: string | null): string | null {
+  const base = siteUrl(env);
+  return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/seats` : null;
+}
+
+/**
+ * `claim-owner-review`: someone claimed a company that already has owner seats, so
+ * each owner is asked to accept or decline them (AECI-1368,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). Sent from `POST /api/requests/claim` after
+ * the insert commits, one per owner seat, keyed
+ * `claim-owner-review:{requestId}:{profileId}`.
+ *
+ * Every claimant value is `PLAIN`. The LinkedIn URL in particular is the claimant's
+ * own text, so it never becomes a link in a mail that goes to a third party.
+ */
+export function sendClaimOwnerReviewEmail(
+  c: EmailContext,
+  opts: ClaimOwnerReviewFacts & { to: string; dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim() || 'your company';
+  const who = opts.submitterName?.trim() || opts.submitterEmail;
+  const due = formatDeadline(opts.decideBy);
+  const seats = vendorSeatsUrl(c.env, opts.vendorSlug);
+  const lead = `${who} asked to manage ${company} on AEC Integrations. You hold an owner seat for ${company}, so we are asking you first.`;
+  const leadHtml = `${escapeHtml(who)} asked to manage <strong>${escapeHtml(company)}</strong> on AEC Integrations. You hold an owner seat for ${escapeHtml(company)}, so we are asking you first.`;
+  const choice =
+    'Accept sends them a seat invite to the work email below. Their seat will not be an owner seat. Decline tells them the claim was not approved.';
+  const fallback = `If no owner decides by ${due}, AEC Integrations reviews the claim instead.`;
+  const table: EmailTableRow[] = [
+    ['Name', opts.submitterName?.trim() || 'not given', PLAIN],
+    ['Role', opts.submitterRole?.trim() || 'not given', PLAIN],
+    ['Work email', opts.submitterEmail, PLAIN],
+    ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied', PLAIN],
+    ...(opts.contextProductName
+      ? ([['Came from', opts.contextProductName, PLAIN]] as EmailTableRow[])
+      : []),
+    ['Their note', opts.comments, PLAIN],
+    ['Decide by', due],
+  ];
+  const shared = (link: LinkTagger) => ({
+    preheader: `Decide by ${due}.`,
+    heading: `${who} wants to join ${company}`,
+    table,
+    ...(seats ? { cta: { label: 'Review in Seats', url: link(seats) } } : {}),
+    note: `You get this email because you hold an owner seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-owner-review',
+    subject: `${who} wants to join ${company} on AEC Integrations`,
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, choice, fallback],
+        [leadHtml, escapeHtml(choice), escapeHtml(fallback)],
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'vendor_request', id: opts.requestId },
+  });
+}
+
+/** One claim the owner fallback handed to AECi, for the operator digest. */
+export interface ClaimOwnerFallbackSummary {
+  requestId: string;
+  /** `null` when the vendor row is gone. */
+  vendorName: string | null;
+  submitterEmail: string;
+  submitterName: string | null;
+  createdAt: string;
+  routedToOwnersAt: string;
+  adminUrl: string | null;
+}
+
+/**
+ * `claim-owner-fallback-alert`: the daily `claim_owner_fallback` cron moved claims the
+ * owners left undecided for 7 days back to AECi (AECI-1368). One digest per run,
+ * keyed on the sorted claim ids, so a replayed run sends nothing. Recipient is
+ * `SUPPORT_EMAIL`; absent, `'skipped'`.
+ */
+export function sendClaimOwnerFallbackAlert(
+  c: EmailContext,
+  opts: { to: string | undefined; rows: readonly ClaimOwnerFallbackSummary[] } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { rows } = opts;
+  const one = rows.length === 1;
+  const plural = one ? '' : 's';
+  const sections = (link: LinkTagger) =>
+    rows.map((r) => {
+      const detail: Array<[string, string]> = [
+        ['Claimant', r.submitterEmail],
+        ['Name', r.submitterName ?? 'not given'],
+        ['Submitted', formatDeadline(r.createdAt)],
+        ['Sent to owners', formatDeadline(r.routedToOwnersAt)],
+        ['Request id', r.requestId],
+      ];
+      if (r.adminUrl) detail.push(['Administer', link(r.adminUrl)]);
+      return { heading: r.vendorName ?? '(company removed)', rows: detail };
+    });
+  const intro =
+    `${rows.length} claim${plural} on ${one ? 'a company' : 'companies'} with owner seats ` +
+    `${one ? 'was' : 'were'} not decided by the owners within 7 days. ` +
+    `${one ? 'It is' : 'They are'} now in the claim queue for AECi to review.`;
+  const base = siteUrl(c.env);
+  const shared = (link: LinkTagger) => ({
+    preheader: `${rows.length} claim${plural} now waiting on AECi.`,
+    heading: `${rows.length} claim${plural} handed back by the owners`,
+    sections: sections(link),
+    ...(base ? { cta: { label: 'Open the claim queue', url: link(`${base}/admin/claims`) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-owner-fallback-alert',
+    subject: `[AECi] ${rows.length} claim${plural} not decided by the owners in 7 days`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *

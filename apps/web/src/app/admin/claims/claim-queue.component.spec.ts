@@ -93,6 +93,9 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     context_product: 'context_product' in over ? over.context_product! : null,
     // AECI-1322: a resolved fixture was granted unless a test says otherwise.
     granted: over.granted ?? (over.status ?? 'open') === 'resolved',
+    // AECI-1368: owner routing. Default: never routed.
+    routed_to_owners_at: over.routed_to_owners_at ?? null,
+    owner_fallback_at: over.owner_fallback_at ?? null,
   };
 }
 
@@ -459,6 +462,48 @@ describe('ClaimQueue', () => {
       expect(buttons.every((b) => !b.disabled)).toBe(true);
     },
   );
+
+  // AECI-1368: a claim routed to the company's owners warns and never gates.
+  it('shows "With owners until" on a routed claim, with Grant and Reject still enabled', async () => {
+    const { el } = await setup(
+      makeApiMock([makeClaim({ id: 'c1', routed_to_owners_at: '2026-10-14T10:00:00.000Z' })]),
+    );
+    const card = cardFor(el, 'Procore');
+    const flag = card.querySelector('[data-testid="claim-owner-routed"]');
+    expect(flag?.textContent).toContain('With owners until');
+    // 2026-10-14 + 7 days.
+    expect(flag?.textContent).toContain('Oct 21, 2026');
+    const buttons = [...card.querySelectorAll('button')].filter((b) =>
+      /Grant vendor account|Reject/.test(b.textContent ?? ''),
+    );
+    expect(buttons.length).toBe(2);
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('says a claim came back from the owners once the fallback ran', async () => {
+    const { el } = await setup(
+      makeApiMock([makeClaim({ id: 'c1', owner_fallback_at: '2026-10-21T14:00:00.000Z' })]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.querySelector('[data-testid="claim-owner-routed"]')).toBeNull();
+    expect(card.querySelector('[data-testid="claim-owner-fallback"]')?.textContent).toContain(
+      'did not decide within 7 days',
+    );
+  });
+
+  it('shows no owner flag on an unrouted or decided claim', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({ id: 'c1' }),
+        makeClaim({
+          id: 'c2',
+          status: 'resolved',
+          routed_to_owners_at: '2026-10-14T10:00:00.000Z',
+        }),
+      ]),
+    );
+    expect(el.querySelector('[data-testid="claim-owner-routed"]')).toBeNull();
+  });
 
   it('still reads the owned-integrations signal on a connector claim', async () => {
     const { el } = await setup(

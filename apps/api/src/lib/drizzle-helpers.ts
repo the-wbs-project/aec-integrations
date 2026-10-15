@@ -2292,6 +2292,10 @@ export const adminVendorRequestConfig = {
     // AECI-1364: the product page a claim came from. Same arrangement as
     // `adminNotes`: surfaced only by `toAdminClaim`, as `context_product`.
     contextProductId: true,
+    // AECI-1368: owner routing and its 7-day fallback. Same arrangement again:
+    // surfaced only by `toAdminClaim`.
+    routedToOwnersAt: true,
+    ownerFallbackAt: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -2321,6 +2325,10 @@ export interface RawAdminVendorRequestRow {
   /** AECI-1364: `vendor_requests.context_product_id`. Mapped into a response only by
    *  `toAdminClaim`, hydrated to a `LinkRef` by the caller. */
   contextProductId: string | null;
+  /** AECI-1368: `vendor_requests.routed_to_owners_at`. Mapped only by `toAdminClaim`. */
+  routedToOwnersAt: string | null;
+  /** AECI-1368: `vendor_requests.owner_fallback_at`. Mapped only by `toAdminClaim`. */
+  ownerFallbackAt: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -2493,6 +2501,9 @@ export function toAdminClaim(
     // AECI-1322: only the grant resolves a claim AND names the resolving admin. The
     // Linear webhook resolves with `resolved_by_id` null.
     granted: raw.status === 'resolved' && raw.resolvedById !== null,
+    // AECI-1368. `?? null`: a row read through an older column set has neither key.
+    routed_to_owners_at: raw.routedToOwnersAt ?? null,
+    owner_fallback_at: raw.ownerFallbackAt ?? null,
   };
 }
 

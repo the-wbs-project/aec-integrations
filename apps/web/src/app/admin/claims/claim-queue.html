@@ -495,6 +495,35 @@
         </div>
         }
 
+        <!-- AECI-1368: the company already has an owner seat, so its owners decide
+             first. A warning, never a gate: Grant and Reject below stay enabled. -->
+        @if (isActionable(r.status) && r.routed_to_owners_at; as routedAt) {
+        <div
+          class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          data-testid="claim-owner-routed"
+        >
+          <p class="text-sm font-bold text-(--text-primary)">
+            <ng-container i18n="@@admin.claims.ownerRouted.title">With owners until</ng-container>
+            {{ ownerDeadline(routedAt) | date: 'medium' }}
+          </p>
+          <p
+            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
+            i18n="@@admin.claims.ownerRouted.body"
+          >
+            This company already has an owner seat, so its owners were asked to accept or decline
+            this claim from their Seats page. You can still grant or reject it. If they have not
+            decided by then, it comes back to this queue.
+          </p>
+        </div>
+        } @else if (isActionable(r.status) && r.owner_fallback_at) {
+        <p class="mt-5 text-xs text-(--text-secondary)" data-testid="claim-owner-fallback">
+          <ng-container i18n="@@admin.claims.ownerFallback"
+            >The company's owners did not decide within 7 days. Handed back</ng-container
+          >
+          {{ r.owner_fallback_at | date: 'medium' }}
+        </p>
+        }
+
         <!-- AECI-1367 (Chris's ruling 2026-10-14): a pure-connector vendor is approved
              like anyone else. This is a neutral flag, not a warning and not a gate.
              The claim-submitted-alert email carries the same line. -->

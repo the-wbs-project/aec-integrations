@@ -87,6 +87,8 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     context_product: null,
     // AECI-1322: a resolved fixture was granted unless a test says otherwise.
     granted: (over.status ?? 'open') === 'resolved',
+    routed_to_owners_at: null,
+    owner_fallback_at: null,
     duplicate_siblings: [],
     ...over,
   };

@@ -501,6 +501,46 @@ export const ManageableSeatInviteSchema = VendorSeatInviteSchema.extend({
 export type ManageableSeatInvite = z.infer<typeof ManageableSeatInviteSchema>;
 
 /**
+ * A claim on this company that was routed to its owners (AECI-1368,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10): someone asked to join, and the
+ * company already has an unbanned owner seat, so the owners decide first. AECi
+ * steps in if they have not decided within 7 days.
+ *
+ * **Claimant PII.** The server returns these to OWNER seats only; every other
+ * seat gets an empty array. The fields are what the claimant typed on the claim
+ * form and nothing the reviewer adds (no domain signal, no admin notes).
+ */
+/** How long a company's owners have to decide a claim routed to them before AECi
+ *  takes it over (AECI-1368, `docs/VENDOR_SIGNUP_PROCESS.md` decision 4). One number
+ *  for the fallback cron, the owner email, the Seats list and the admin queue. */
+export const CLAIM_OWNER_REVIEW_DAYS = 7;
+
+/** The instant AECi takes a routed claim over: `routed_to_owners_at` plus
+ *  {@link CLAIM_OWNER_REVIEW_DAYS}. ISO in, ISO out. */
+export function claimOwnerReviewDeadline(routedToOwnersAt: string): string {
+  return new Date(
+    Date.parse(routedToOwnersAt) + CLAIM_OWNER_REVIEW_DAYS * 86_400_000,
+  ).toISOString();
+}
+
+export const PendingSeatClaimSchema = z.object({
+  id: z.string().uuid(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  /** The work email the claimant gave. Accepting sends the seat invite here. */
+  submitter_email: z.string(),
+  submitter_linkedin_url: z.string().nullable(),
+  /** The claim form's "Additional comments" (`vendor_requests.body`). */
+  comments: z.string(),
+  created_at: z.string().datetime(),
+  /** When it was routed to the owners. AECi takes it over 7 days after this. */
+  routed_to_owners_at: z.string().datetime(),
+  /** The product page the claim was sent from, or null. */
+  context_product_name: z.string().nullable(),
+});
+export type PendingSeatClaim = z.infer<typeof PendingSeatClaimSchema>;
+
+/**
  * The vendor's seat roster. A bare object — the list is bounded by how many seats
  * a vendor has, so it is never paginated at launch.
  *
@@ -518,8 +558,24 @@ export const ListVendorSeatsResponseSchema = z.object({
    * would get cannot disagree; the surface never re-derives it from the roster.
    */
   can_manage_seats: z.boolean(),
+  /**
+   * Open claims routed to this company's owners (AECI-1368), oldest first. Owner
+   * seats only: a member seat, or any caller where `can_manage_seats` is false,
+   * gets `[]`, because each row carries the claimant's contact details.
+   */
+  pending_claims: z.array(PendingSeatClaimSchema),
 });
 export type ListVendorSeatsResponse = z.infer<typeof ListVendorSeatsResponseSchema>;
+
+// ─── POST /api/vendor/seats/claims/:id/accept | decline ──────────────────────
+
+/**
+ * `201` from accept (AECI-1368): the seat invite the accept issued to the
+ * claimant's address, so the roster can move the row from "Wants to join" to
+ * the pending invites without refetching. Decline returns `204`.
+ */
+export const AcceptSeatClaimResponseSchema = z.object({ invite: ManageableSeatInviteSchema });
+export type AcceptSeatClaimResponse = z.infer<typeof AcceptSeatClaimResponseSchema>;
 
 // ─── POST /api/vendor/seats/invites ──────────────────────────────────────────
 

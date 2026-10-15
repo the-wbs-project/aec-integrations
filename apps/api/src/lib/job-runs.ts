@@ -301,6 +301,15 @@ export type JobRunDetail =
       capped: number;
       emails: Record<EmailOutcome, number>;
     }
+  /** The daily AECI-1368 claim owner fallback. `moved` is the routed claims handed
+   *  to AECi this run (0 is the normal value), `alert` the digest's send outcome, or
+   *  `null` when nothing moved and nothing was sent. */
+  | {
+      job: 'claim-owner-fallback';
+      moved: number;
+      capped: number;
+      alert: EmailOutcome | null;
+    }
   /** The daily AECI-1236 URL Inspection run. One row per CHUNK (one consumer
    *  invocation), all sharing `runId`; `remaining` is the budget the chunk started
    *  with and `next` what it passed on (null = the run ended here). */

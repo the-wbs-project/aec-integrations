@@ -229,3 +229,22 @@ export const RequestSubmitResponseSchema = z.object({
   message: z.string(),
 });
 export type RequestSubmitResponse = z.infer<typeof RequestSubmitResponseSchema>;
+
+// ─── GET /api/requests/claim-target/:type/:slug ──────────────────────────────
+
+/**
+ * The company a claim on `(type, slug)` would land on, and whether it already
+ * has a team (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a and §11a.10).
+ *
+ * A product resolves to its primary vendor, else any `product_vendors` row: the
+ * same company `POST /api/requests/claim` would store. `has_seats` is the one owner
+ * predicate, "the vendor has an unbanned owner seat", so it is true exactly when a
+ * claim submitted now would be routed to the owners first. The claim form reads it
+ * to show the routed disclosure before submit. Public, read-only,
+ * `Cache-Control: no-store`.
+ */
+export const ClaimTargetResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  has_seats: z.boolean(),
+});
+export type ClaimTargetResponse = z.infer<typeof ClaimTargetResponseSchema>;

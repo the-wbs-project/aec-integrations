@@ -7,7 +7,8 @@
  * That is the gap this closes — a claim that was filed correctly and then ignored.
  *
  * Every six hours it reads the claims that are past `STALE_THRESHOLD_HOURS` and
- * have a linked issue, asks Linear what state each of those issues is actually in,
+ * have a linked issue (skipping a claim still routed to the company's owners,
+ * AECI-1368), asks Linear what state each of those issues is actually in,
  * and emails `SUPPORT_EMAIL` one digest naming the ones nobody has started.
  *
  * ── IT ASKS LINEAR, NOT D1 ────────────────────────────────────────────────────
@@ -51,7 +52,7 @@
  */
 
 import type { RequestKind } from '@aeci/shared';
-import { and, asc, eq, isNotNull, lt } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 
 import { bandDigestKey, bandIndex, crossedBand } from './alert-bands';
 import type { AlertContext } from './admin-alert';
@@ -156,6 +157,11 @@ export async function runClaimStaleCheck(
       eq(vendorRequests.status, 'open'),
       isNotNull(vendorRequests.linearIssueId),
       lt(vendorRequests.createdAt, cutoffIso),
+      // AECI-1368: a claim routed to the company's owners is theirs to decide for 7
+      // days, so an un-started ticket is expected, not stale. Once the
+      // `claim_owner_fallback` cron hands it back (clearing this column) it counts
+      // again, aged from `created_at` like any other claim.
+      isNull(vendorRequests.routedToOwnersAt),
       kinds.length === 1 ? eq(vendorRequests.kind, kinds[0]!) : undefined,
     ),
     orderBy: asc(vendorRequests.createdAt),

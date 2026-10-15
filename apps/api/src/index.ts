@@ -130,7 +130,11 @@ import {
   createConnectorCatalogKickoffHandler,
   createPromoteKickoffHandler,
 } from './routes/promote-kickoff';
-import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
+import {
+  createClaimSubmitHandler,
+  createClaimTargetHandler,
+  createCorrectionSubmitHandler,
+} from './routes/requests';
 import {
   createSlugRedirectResolveHandler,
   createSlugRedirectsListHandler,
@@ -226,6 +230,10 @@ import {
   createRevokeSeatInviteHandler,
   createSeatInviteHandler,
 } from './routes/vendor-seat-invites';
+import {
+  createAcceptSeatClaimHandler,
+  createDeclineSeatClaimHandler,
+} from './routes/vendor-seat-claims';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import {
   createAcceptSeatInviteHandler,
@@ -368,6 +376,10 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // per IP like the claim route, and like it, it carries no in-Worker bucket
 // (`docs/waf-rate-limits.md` §6.2).
 phase28.post('/api/requests/listing', createListingRequestHandler());
+// AECI-1368: which company a claim would land on and whether it has an owner seat
+// (`{ vendor_id, has_seats }`), so the claim form can show the routed disclosure
+// before submit. A public read: no auth, no `rateLimit()`, `private, no-store`.
+phase28.get('/api/requests/claim-target/:type/:slug', createClaimTargetHandler());
 
 // Landing lead-capture (ADR 0016 / AECI-257) — the feedback + mailing-list signup
 // forms, moved off Supabase Postgres onto D1. Public (no auth), no audit row
@@ -1457,6 +1469,28 @@ authVendor.post(
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
   createResendSeatInviteHandler(getDb, sendSeatInvite),
+);
+// AECI-1368: the owner's decision on a claim routed to their company
+// (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). Both mail (the seat invite, or the
+// neutral claim-rejected), so both take the per-vendor `write` bucket the invite routes
+// share, and the invite cap counts an accept's invite. `requireSeatOwner()` runs inside
+// each handler. A claim not on this vendor, not routed, or decided is a 404.
+// Registered before `/seats/:userId` like the invite routes, so the literal `claims`
+// segment is never read as a user id (those are DELETEs, but the order keeps the rule
+// one rule).
+authVendor.post(
+  '/api/vendor/seats/claims/:id/accept',
+  requireVendor(),
+  rateLimit('write', { by: 'vendor' }),
+  createAcceptSeatClaimHandler(getDb, sendSeatInvite),
+);
+authVendor.post(
+  '/api/vendor/seats/claims/:id/decline',
+  requireVendor(),
+  rateLimit('write', { by: 'vendor' }),
+  createDeclineSeatClaimHandler(getDb, (c, o) =>
+    sendClaimDecisionEmail(c, { decision: 'rejected', to: o.to, targetName: o.vendorName }),
+  ),
 );
 authVendor.delete(
   '/api/vendor/seats/invites/:id',

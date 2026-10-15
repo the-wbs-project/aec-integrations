@@ -274,6 +274,21 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * console says "Resolved without a grant" instead of implying a seat exists.
    */
   granted: z.boolean(),
+  /**
+   * AECI-1368: when this claim was routed to the company's owners, because the
+   * company already had an unbanned owner seat (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+   * §11a.10). While set, the owners decide first and the queue shows "With owners
+   * until" this plus 7 days. Grant and Reject stay enabled: it warns, never gates.
+   * `null` for a claim that was never routed, or one the fallback handed back.
+   *
+   * An owner who accepts the claim resolves it with `resolved_by_id` set to the
+   * owner, so `granted` reads `true` for it. The seat itself comes later, when the
+   * claimant redeems the invite, and it is a member seat, not an owner seat.
+   */
+  routed_to_owners_at: z.string().nullable(),
+  /** AECI-1368: when the `claim_owner_fallback` cron handed a routed claim back to
+   *  AECi after 7 days with no owner decision, or `null`. */
+  owner_fallback_at: z.string().nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 
