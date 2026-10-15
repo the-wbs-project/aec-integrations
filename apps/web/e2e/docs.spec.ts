@@ -123,6 +123,7 @@ test.describe('/docs shell — AECI-1248', () => {
     ['/docs/getting-started/taxonomy', 'How listings are classified'],
     ['/docs/trust/how-ranking-works', 'How ranking works'],
     ['/docs/trust/agreement-states', 'Agreement states'],
+    ['/docs/trust/listing-submissions', 'Listing submissions'],
   ];
 
   test('SSR-renders the reader pages with their titles (AECI-1249)', async ({ request }) => {

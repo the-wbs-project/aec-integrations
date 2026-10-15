@@ -120,6 +120,13 @@ project. An accept on a claimed row that applied a content value keeps the `Appl
 contested field` title and says in its body that AECi already applied it. Both follow the
 AECI-1025 playbook.
 
+**`REQUEST - ` is the inbound listing submission prefix** (AECI-588, 2026-10-15). A request to
+list a product that arrives by email, not through the app, is filed by hand as
+`REQUEST - <company>: listing submission` on the AECi team, no project, assigned to Chris, with the
+email quoted and the sender's address recorded. It is app-repo operations work, not review-app
+work, so it is not a `REVIEW - ` issue. An in-app typed-in listing request files no issue
+(`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4). The procedure is `docs/LISTING_SUBMISSIONS_RUNBOOK.md` §2.
+
 This was AECI-601's open question 4 — *should review-app issues live on the AECi team at all?* —
 and the answer is yes. One team, prefixed titles. Twenty-plus issues already follow it.
 

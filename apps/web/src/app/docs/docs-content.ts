@@ -50,6 +50,7 @@ import requestsMd from '../../content/docs/reviewers/requests-and-corrections.md
 import writingReviewMd from '../../content/docs/reviewers/writing-a-review.md';
 import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
 import rankingMd from '../../content/docs/trust/how-ranking-works.md';
+import listingSubmissionsMd from '../../content/docs/trust/listing-submissions.md';
 import vendorGuideIntroMd from '../../content/docs/vendors/_index.md';
 import attestingMd from '../../content/docs/vendors/confirming-integration-data.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
@@ -198,7 +199,7 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
       return $localize`:@@app.docs.section.trust:Trust and ranking`;
     },
     get summary() {
-      return $localize`:@@app.docs.section.trust.summary:How ranking works and how to read the agreement labels.`;
+      return $localize`:@@app.docs.section.trust.summary:How ranking works, how to read the agreement labels, and how we decide what to list.`;
     },
     audience: 'reader',
     order: 2,
@@ -258,6 +259,7 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
   trust: [
     { slug: 'how-ranking-works', source: rankingMd },
     { slug: 'agreement-states', source: agreementStatesMd },
+    { slug: 'listing-submissions', source: listingSubmissionsMd },
   ],
   reviewers: [
     { slug: 'writing-a-review', source: writingReviewMd },

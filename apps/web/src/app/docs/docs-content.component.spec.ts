@@ -66,7 +66,7 @@ const GETTING_STARTED_SLUGS = [
   'taxonomy',
 ];
 
-const TRUST_SLUGS = ['how-ranking-works', 'agreement-states'];
+const TRUST_SLUGS = ['how-ranking-works', 'agreement-states', 'listing-submissions'];
 
 // ─── Fixture manifest ────────────────────────────────────────────────────────
 
