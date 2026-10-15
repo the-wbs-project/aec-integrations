@@ -38,7 +38,7 @@ export const NOINDEX_PATH_PREFIXES: readonly string[] = [...LEGAL_ARCHIVE_PATHS]
 /**
  * Whether a locale-stripped pathname is held out of the index in every env.
  * `prefixes` defaults to the live list. Tests pass their own to pin the
- * whole-segment matching while the live list is empty.
+ * whole-segment matching, because the live list holds no docs path.
  */
 export function pathForcesNoindex(
   path: string,

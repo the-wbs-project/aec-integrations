@@ -99,12 +99,19 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 
 ## 4. The two agreements
 
-- **Vendor terms** (at claim): who may claim, truthfulness, content rights and licence to publish,
-  AECi may edit or remove content, plans never affect ranking or reviews, governing law.
+- **Vendor terms** (at claim): who "you" means (claimant and company, authority to bind), who may
+  claim, truthfulness, content rights and licence to publish (incl. name and logo permission, no
+  confidential content), AECi may edit or remove content, no vendor-arranged reviews, claimed is
+  not endorsed, plans never affect ranking or reviews, hand-back, seats and revocation, ending a
+  claim, personal data, liability, indemnity, governing law, how changes bind (30-day email),
+  general terms (precedence, notices, assignment, severability).
 - **Managed plan agreement** (at checkout): what a license is and does, prices and the two
   billing options, annual renewal and 30-day notice, monthly cancel-any-time, 14-day refund,
   licenses stay assigned until renewal, hand-back on lapse, suspension for abuse or non-payment,
-  liability cap at twelve months of fees, changes bind at the next renewal.
+  liability cap at twelve months of fees (with the standard exclusions), changes bind at the next
+  renewal (monthly: 30-day email), plus who accepts and authority, card authorization, price
+  changes never mid-term, tax line, refund mechanics, no promise of results, term and survival,
+  general terms (precedence incl. a grant's own written deal, notices, assignment, severability).
 
 Both live at versioned URLs under `/legal/`: `/legal/vendor-terms` and `/legal/managed-plan-agreement`,
 with each superseded version at `/legal/<slug>/v<version>` (`STAGE_1_SPEC.md` §27.3). The acceptance

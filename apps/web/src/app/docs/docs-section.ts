@@ -18,7 +18,7 @@
  * because the `[innerHTML]` sanitizer strips `id`.
  *
  * Static, SSR-safe and edge-cached like the article page. Indexability is by
- * path (`pathForcesNoindex`). Since AECI-1253 that list is empty, so
+ * path (`pathForcesNoindex`). Since AECI-1253 that list holds no docs path, so
  * `/docs/vendors` is indexable with the rest of the vendor guide.
  * Light theme only.
  */

@@ -162,7 +162,7 @@ describe('LegalPage', () => {
     expect(article.querySelector('a[href="/legal/managed-plan-agreement"]')).not.toBeNull();
   });
 
-  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, Disputes, Contact, Change history', () => {
+  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, the three closing sections, Disputes, Contact, Change history', () => {
     const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
     expect(h2s(article)).toEqual([
       'What a license is and does',
@@ -177,6 +177,9 @@ describe('LegalPage', () => {
       'Changes to this agreement',
       'Plans never affect ranking or reviews',
       'Renewal notice',
+      'No promise of results',
+      'Term and survival',
+      'General terms',
       'Disputes',
       'Contact',
       // AECI-1361: every current legal file ends with its change history.
