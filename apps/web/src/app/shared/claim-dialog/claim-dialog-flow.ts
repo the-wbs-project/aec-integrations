@@ -196,14 +196,25 @@ interface ClaimDialogModel {
             >
               Claim sent
             </h3>
-            <p
-              class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@requests.sent.claim.subtitle"
-            >
-              We've emailed a receipt to
-              <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
-              >. We'll write to you there with our decision.
-            </p>
+            @if (routed()) {
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@requests.sent.claim.subtitle.routed"
+              >
+                We've emailed a receipt to
+                <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+                >.
+              </p>
+            } @else {
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@requests.sent.claim.subtitle"
+              >
+                We've emailed a receipt to
+                <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+                >. We'll write to you there with our decision.
+              </p>
+            }
             <div
               class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
             >
@@ -221,29 +232,34 @@ interface ClaimDialogModel {
                   <li data-testid="claim-dialog-sent-routed">
                     @if (routedCompany(); as name) {
                       <ng-container i18n="@@requests.sent.claim.routed"
-                        >We've asked {{ name }}'s team to confirm you. We step in if they do not
-                        answer within {{ reviewDays }} days.</ng-container
+                        >The team at {{ name }} has been asked to confirm you.</ng-container
                       >
                     } @else {
                       <ng-container i18n="@@requests.sent.claim.routed.unnamed"
-                        >We've asked the company's team to confirm you. We step in if they do not
-                        answer within {{ reviewDays }} days.</ng-container
+                        >The team at this company has been asked to confirm you.</ng-container
                       >
                     }
+                  </li>
+                  <li i18n="@@requests.sent.claim.routed.accept">
+                    If they accept, you get an invitation email to join.
+                  </li>
+                  <li i18n="@@requests.sent.claim.routed.fallback">
+                    If nobody answers within {{ reviewDays }} days, we review your claim and write
+                    to you.
                   </li>
                 } @else {
                   <li i18n="@@requests.sent.claim.step1">
                     A person at AEC Integrations reviews every claim. Nothing is granted
                     automatically.
                   </li>
+                  <li i18n="@@requests.sent.claim.step2">
+                    We check your email domain against your company's website, and your LinkedIn if
+                    you added it.
+                  </li>
+                  <li i18n="@@requests.sent.claim.step3">
+                    If we approve it, we email you a link to your vendor portal.
+                  </li>
                 }
-                <li i18n="@@requests.sent.claim.step2">
-                  We check your email domain against your company's website, and your LinkedIn if
-                  you added it.
-                </li>
-                <li i18n="@@requests.sent.claim.step3">
-                  If we approve it, we email you a link to your vendor portal.
-                </li>
               </ol>
             </div>
           }

@@ -271,8 +271,13 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
     await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toBeVisible();
     await expect(dialog.getByTestId('claim-dialog-sent-routed')).toHaveText(
-      "We've asked Procore Technologies's team to confirm you. We step in if they do not answer within 7 days.",
+      'The team at Procore Technologies has been asked to confirm you.',
     );
+    await expect(dialog).toContainText('If they accept, you get an invitation email to join.');
+    await expect(dialog).toContainText(
+      'If nobody answers within 7 days, we review your claim and write to you.',
+    );
+    await expect(dialog).not.toContainText('with our decision');
     expect(sent.claim).toHaveLength(1);
     expect(sent.claim[0]).toMatchObject({ accepted_terms: true });
   });

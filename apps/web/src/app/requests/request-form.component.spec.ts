@@ -760,9 +760,15 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     await fillClaim(fixture);
     await send(fixture, el);
     expect(squash(el.querySelector('[data-testid="request-sent-routed"]')?.textContent)).toBe(
-      "We've asked Acme Software's team to confirm you. We step in if they do not answer within 7 days.",
+      'The team at Acme Software has been asked to confirm you.',
+    );
+    expect(squash(el.textContent)).toContain("We've emailed a receipt to dana@acme.example.");
+    expect(squash(el.textContent)).toContain(
+      'If they accept, you get an invitation email to join. If nobody answers within 7 days, we review your claim and write to you.',
     );
     expect(el.textContent).not.toContain('Nothing is granted automatically');
+    expect(el.textContent).not.toContain('with our decision');
+    expect(el.textContent).not.toContain('link to your vendor portal');
   });
 
   it('a failed lookup shows no disclosure and never blocks the submit', async () => {

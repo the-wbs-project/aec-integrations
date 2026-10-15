@@ -3313,7 +3313,7 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-received']]);
   });
 
-  it('routed variant: their team has been asked to confirm, and AECi steps in after 7 days', async () => {
+  it('routed variant: the team at the company confirms, an accept sends an invite, AECi steps in after 7 days', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimReceivedEmail(fakeContext(SITE), {
       to: 'dana@acme.com',
@@ -3321,9 +3321,11 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
     });
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain(
-      'Acme Software already maintains this listing, so we have asked their team to confirm you. We step in if they do not answer within 7 days.',
+      'The team at Acme Software has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within 7 days, we review your claim and write to you.',
     );
     expect(text).not.toContain('You sent it from');
+    expect(text).not.toContain('with the decision');
+    expect(text).not.toContain("'s team");
   });
 
   it('listing variant: echoes the typed name as plain text, never in the subject', async () => {
@@ -3363,7 +3365,7 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
 describe('claimRoutedAlertLine (AECI-1366)', () => {
   it('names the owners and the instant AECi steps in, 7 days after routing', () => {
     expect(claimRoutedAlertLine('Acme', '2026-10-15T14:30:00.000Z')).toBe(
-      "Sent to Acme's owners; AECi steps in on Oct 22, 2026, 2:30 PM UTC.",
+      'Sent to the owners at Acme; AECi steps in on Oct 22, 2026, 2:30 PM UTC.',
     );
   });
 });

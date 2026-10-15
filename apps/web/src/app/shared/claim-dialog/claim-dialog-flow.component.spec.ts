@@ -428,8 +428,14 @@ describe('ClaimDialogFlow', () => {
     expect(t.heading()).toBe('Claim sent');
     expect(text(t.host)).toContain("We've emailed a receipt to dana@acme.example.");
     expect(text(t.$('[data-testid="claim-dialog-sent-routed"]'))).toBe(
-      "We've asked Acme Software's team to confirm you. We step in if they do not answer within 7 days.",
+      'The team at Acme Software has been asked to confirm you.',
     );
+    expect(text(t.host)).toContain('If they accept, you get an invitation email to join.');
+    expect(text(t.host)).toContain(
+      'If nobody answers within 7 days, we review your claim and write to you.',
+    );
+    expect(text(t.host)).not.toContain('with our decision');
+    expect(text(t.host)).not.toContain('link to your vendor portal');
   });
 
   it('no seat: no notice, and the standard receipt', async () => {

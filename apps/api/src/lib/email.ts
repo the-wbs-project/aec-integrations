@@ -1979,7 +1979,7 @@ export function sendClaimSubmittedNotification(
      *  itself the thing the operator needs to know. */
     linearIssueUrl?: string | null;
     /** AECI-1366: `vendor_requests.routed_to_owners_at`. Set when the claim went to the
-     *  company's owners first (AECI-1368). Adds the "Sent to <Company>'s owners" line
+     *  company's owners first (AECI-1368). Adds the "Sent to the owners at <Company>" line
      *  with the date AECi steps in. Null or absent adds nothing. */
     routedToOwnersAt?: string | null;
   } & SendDedupe,
@@ -2059,7 +2059,7 @@ export function sendClaimSubmittedNotification(
 /** The claim alert's routed line (AECI-1366): who decides first and when AECi steps in. */
 export function claimRoutedAlertLine(companyName: string, routedToOwnersAt: string): string {
   const stepsIn = formatDeadline(claimOwnerReviewDeadline(routedToOwnersAt));
-  return `Sent to ${companyName}'s owners; AECi steps in on ${stepsIn}.`;
+  return `Sent to the owners at ${companyName}; AECi steps in on ${stepsIn}.`;
 }
 
 /** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */
@@ -2892,8 +2892,9 @@ export type ClaimReceivedSubject =
  * it. The only visitor text it echoes is a typed-in listing name, as plain text in the
  * body (the AECI-1197 rule), never in the subject.
  *
- * Routed variant: when the company's owners decide first, it says the company's team has
- * been asked to confirm them and AECi steps in after 7 days.
+ * Routed variant: when the company's owners decide first, it says the team at the company
+ * has been asked to confirm them, that an accept sends an invitation email, and that AECi
+ * reviews the claim if nobody answers in 7 days.
  */
 export async function sendClaimReceivedEmail(
   c: EmailContext,
@@ -2922,7 +2923,7 @@ export async function sendClaimReceivedEmail(
       ? `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You sent it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
       : `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
     next = about.routedToOwnersAt
-      ? `${about.companyName} already maintains this listing, so we have asked their team to confirm you. We step in if they do not answer within ${CLAIM_OWNER_REVIEW_DAYS} days. Either way, we email this address with the decision.`
+      ? `The team at ${about.companyName} has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within ${CLAIM_OWNER_REVIEW_DAYS} days, we review your claim and write to you.`
       : review;
     table.push(['Company', about.companyName]);
     if (about.contextProductName) table.push(['Came from', about.contextProductName]);

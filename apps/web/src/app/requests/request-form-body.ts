@@ -148,6 +148,10 @@ export class RequestFormBody implements OnInit {
    *  "sent" title and email line on it; the routed page renders its own. */
   readonly sent = output<string>();
 
+  /** AECI-1366: emitted just before `sent`, true when the claim went to the company's
+   *  owners first (AECI-1368). The drawer drops its "with our decision" line on it. */
+  readonly sentRouted = output<boolean>();
+
   /** The submitted email, for the routed page's confirmation line. */
   protected readonly sentTo = signal('');
 
@@ -285,6 +289,7 @@ export class RequestFormBody implements OnInit {
               });
         this.sentTo.set(v.submitter_email.trim());
         this.submitted.set(res);
+        this.sentRouted.emit(this.kind() === 'claim' && this.routed());
         this.sent.emit(this.sentTo());
         afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
           injector: this.injector,

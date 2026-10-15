@@ -88,13 +88,19 @@
           </div>
 
           <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
-            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') {
+            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') { @if (sentRouted()) {
+            <ng-container i18n="@@requests.sent.claim.subtitle.routed"
+              >We've emailed a receipt to
+              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong
+              >.</ng-container
+            >
+            } @else {
             <ng-container i18n="@@requests.sent.claim.subtitle"
               >We've emailed a receipt to
               <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong>. We'll
               write to you there with our decision.</ng-container
             >
-            } @case ('correction') {
+            } } @case ('correction') {
             <ng-container i18n="@@requests.sent.correction.subtitle"
               >Thanks. We'll check it against the source. If we have questions, we'll email
               <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong
@@ -138,6 +144,7 @@
           [bodyPrefill]="t.bodyPrefill ?? null"
           [company]="t.company ?? null"
           variant="drawer"
+          (sentRouted)="sentRouted.set($event)"
           (sent)="sentTo.set($event)"
           (done)="drawer.close()"
         />

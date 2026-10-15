@@ -1332,7 +1332,7 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     expect(receipt.text).not.toContain('/auth/');
     expect(receipt.text).not.toMatch(/\/vendor(\?|\/|\s|$)/);
     // The unrouted alert has no owners line.
-    expect(mails[0]!.text).not.toContain("'s owners");
+    expect(mails[0]!.text).not.toContain('Sent to the owners at');
   });
 
   it('routed claim: the receipt says their team confirms, the alert says when AECi steps in', async () => {
@@ -1349,10 +1349,10 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     const mails = sent();
     const alert = mails.find((m) => String(m.to) === 'support@aecintegrations.com')!;
     const receipt = mails.find((m) => String(m.to) === 'dana@acme.com')!;
-    expect(alert.text).toMatch(/Sent to co-acme-co's owners; AECi steps in on .+ UTC\./);
+    expect(alert.text).toMatch(/Sent to the owners at co-acme-co; AECi steps in on .+ UTC\./);
+    expect(receipt.text).toContain('The team at co-acme-co has been asked to confirm you.');
     expect(receipt.text).toContain(
-      'co-acme-co already maintains this listing, so we have asked their team to confirm you.',
+      'If nobody answers within 7 days, we review your claim and write to you.',
     );
-    expect(receipt.text).toContain('We step in if they do not answer within 7 days.');
   });
 });

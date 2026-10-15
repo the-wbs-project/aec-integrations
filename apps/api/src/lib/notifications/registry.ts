@@ -297,7 +297,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: CATALOGUE,
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to <Company>\'s owners; AECi steps in on <date>" (AECI-1366). Pausable: operator alert. The claim waits in /admin/claims either way.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to the owners at <Company>; AECi steps in on <date>" (AECI-1366). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
   'claim-received': {
     channel: 'email',
