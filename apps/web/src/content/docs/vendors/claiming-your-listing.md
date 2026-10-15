@@ -45,7 +45,7 @@ We do not promise a time for a decision. Some claims take longer to confirm than
 
 ## What happens next
 
-**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with a one-time link sent to the same address. Approval also puts your company on a plan, Free or Managed. The email tells you what your account can do. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
+**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. Approval puts your company on the Free plan, and the email tells you what your account can do. Managed is a separate step. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
 
 **If we cannot approve it,** you get an email saying so. You are welcome to send a new claim with more detail about your role.
 

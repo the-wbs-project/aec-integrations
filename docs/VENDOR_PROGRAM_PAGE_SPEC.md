@@ -216,7 +216,7 @@ Extend the events that ship (`apps/web/src/app/analytics/analytics.ts`, `docs/AN
 | `plan_cta_clicked` | Add `page`: `docs_plans` or `vendor_program`. Add placement `search_result` (**removed 2026-10-12** with Find your product, before it shipped). Existing values keep their meaning. `plan: 'free'` now covers "Claim your listing free" and "Claim this listing" on this page. **Since §15:** `free` is a "Claim your listing" click and `managed` a "Start with Managed" click, and both open the claim dialog. |
 | `plan_inquiry_submitted` | Add `page`, with the same values. `contact` stays a placement for the `/contact` form, with `page` absent. |
 | `vendor_product_search` | **Removed 2026-10-12** with Find your product (§6), before it shipped. No production rows carry it. It was fired once per settled non-empty query, with `results_count` only. Nothing fires it now. The claim dialog's `claim_dialog_step` covers the find funnel: step `find` shown, then step `you` with `path` `found` (a listing chosen) or `typed` (not listed) (§15.7). The dialog never sent the search text and still does not. |
-| `claim_requested` | No change here. §15.7 adds `plan_interest`. It fires when a claim form is sent, from any entry point. |
+| `claim_requested` | No change here. §15.7 added `plan_interest` and AECI-1365 removed it (2026-10-15). It fires when a claim form is sent, from any entry point. |
 
 "Ask us to add it" (§6, removed 2026-10-12) fired nothing. It is not a plan call to action, so `plan_cta_clicked` would be wrong. A `$pageview` on `/contact` whose `$current_url` carries `topic=add-product` already counts the arrivals.
 
