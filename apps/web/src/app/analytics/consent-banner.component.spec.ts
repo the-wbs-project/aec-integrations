@@ -76,4 +76,15 @@ describe('ConsentBanner', () => {
     expect(consent.deny).toHaveBeenCalledTimes(1);
     expect(el.querySelector('#consent-accept')).toBeNull();
   });
+
+  it('lets clicks beside the card reach the page and reserves space below the footer', async () => {
+    const { fixture, el } = create('unknown');
+    await hydrate(fixture);
+    const region = el.querySelector('[role="region"]') as HTMLElement;
+    expect(region.classList).toContain('pointer-events-none');
+    expect((region.firstElementChild as HTMLElement).classList).toContain('pointer-events-auto');
+    const spacer = region.previousElementSibling as HTMLElement;
+    expect(spacer.getAttribute('aria-hidden')).toBe('true');
+    expect(spacer.style.height).toBe(`${region.offsetHeight}px`);
+  });
 });

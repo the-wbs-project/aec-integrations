@@ -10,7 +10,7 @@
  * `/legal/*` 404s with NOT_FOUND_TTL + `Cache-Tag: route:404`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
   attachConsoleCapture,
@@ -63,6 +63,17 @@ const PAGES = [
   },
 ] as const;
 
+/**
+ * Presets a consent decision before any page script runs, so the analytics
+ * consent banner never mounts over the footer (AECI-1359). The key mirrors
+ * `CONSENT_STORAGE_KEY` in `src/app/analytics/consent.ts`.
+ */
+async function presetConsent(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    globalThis.localStorage.setItem('aeci_analytics_consent', 'denied');
+  });
+}
+
 for (const pageDef of PAGES) {
   test.describe(`${pageDef.path} — Phase 7.2 (AECI-237)`, () => {
     test('returns 200 with the 24h-edge static-page cache headers + route:index tag', async ({
@@ -107,6 +118,7 @@ for (const pageDef of PAGES) {
     });
 
     test('is reachable from the footer Legal nav', async ({ page }) => {
+      await presetConsent(page);
       await page.goto('/');
       await expect(page.locator('app-root')).toBeAttached();
 

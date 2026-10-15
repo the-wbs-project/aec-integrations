@@ -1,4 +1,13 @@
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  afterNextRender,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ConsentService } from './consent';
@@ -15,20 +24,29 @@ import { ConsentService } from './consent';
  *
  * Rendered once in the app shell (`app.ts`). Non-modal (it doesn't trap focus);
  * keyboard-reachable; all copy is `$localize`-wrapped; light-theme tokens only.
+ *
+ * Layout (AECI-1359): the fixed full-width wrapper is `pointer-events-none` and
+ * only the visible card takes clicks, so the gutters beside the card never
+ * swallow a click on the page underneath. While the banner shows, an in-flow
+ * spacer (the last child of the app shell's column, after the footer) is sized
+ * to the banner's measured height, so the footer's bottom row can scroll clear
+ * of it. No global scroll offset is involved.
  */
 @Component({
   selector: 'aec-consent-banner',
   imports: [RouterLink],
   template: `
     @if (show()) {
+      <div aria-hidden="true" [style.height.px]="reserve()"></div>
       <div
-        class="fixed inset-x-0 bottom-0 z-50 p-4"
+        #region
+        class="pointer-events-none fixed inset-x-0 bottom-0 z-50 p-4"
         role="region"
         aria-label="Analytics consent"
         i18n-aria-label="@@analytics.consent.regionLabel"
       >
         <div
-          class="mx-auto flex max-w-3xl flex-col gap-4 rounded-(--radius-lg)
+          class="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 rounded-(--radius-lg)
             border border-(--border-default) bg-(--surface-raised) p-5 shadow-lg
             sm:flex-row sm:items-center sm:justify-between"
         >
@@ -81,11 +99,35 @@ import { ConsentService } from './consent';
 })
 export class ConsentBanner {
   private readonly consent = inject(ConsentService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** SSR-neutral: hidden until reconciled in the browser. */
   protected readonly show = signal(false);
 
+  /** Height (px) the in-flow spacer reserves below the footer while visible. */
+  protected readonly reserve = signal(0);
+
+  private readonly region = viewChild<ElementRef<HTMLElement>>('region');
+
   constructor() {
+    // Track the fixed region's rendered height (it changes at the sm breakpoint
+    // and with text wrapping). The region only exists in the browser, after
+    // reconciliation, so ResizeObserver is never touched during SSR.
+    let observer: ResizeObserver | undefined;
+    this.destroyRef.onDestroy(() => observer?.disconnect());
+    effect(() => {
+      const el = this.region()?.nativeElement;
+      observer?.disconnect();
+      observer = undefined;
+      if (!el || typeof ResizeObserver === 'undefined') {
+        this.reserve.set(0);
+        return;
+      }
+      observer = new ResizeObserver(() => this.reserve.set(el.offsetHeight));
+      observer.observe(el);
+      this.reserve.set(el.offsetHeight);
+    });
+
     // Browser-only (afterNextRender never runs during SSR), so reading consent
     // state here can't bake a visitor-specific banner into the cached HTML.
     afterNextRender(() => {
