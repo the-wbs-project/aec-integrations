@@ -20,7 +20,7 @@ import { HttpsUrlSchema } from './https-url';
  *   GET   /api/admin/product-requests      — the admin queue, by status, paginated.
  *   PATCH /api/admin/product-requests/:id  — decide an open request.
  *
- * Wire shapes: `API_CONTRACTS.md` §6.14 (vendor) and §6.10c (admin). Table:
+ * Wire shapes: `API_CONTRACTS.md` §6.14 (vendor) and §6.10 (admin). Table:
  * `DATABASE_SCHEMA.md` §8.1b.
  *
  * i18n note: framework-agnostic package (no `$localize`). The messages below are
