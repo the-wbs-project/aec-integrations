@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   auditLog,
   productVendors,
   products,
@@ -246,6 +247,7 @@ describe('POST /api/requests/claim', () => {
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
 
@@ -414,6 +416,7 @@ describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-136
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
   };
   const submit = (extra: Record<string, unknown>) =>
     claimApp().request(
@@ -446,6 +449,7 @@ describe('POST /api/requests/claim → product target normalised to the company 
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
   };
   const submit = (
     extra: Record<string, unknown> = {},
@@ -658,6 +662,7 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
         }),
         TEST_ENV,
@@ -698,6 +703,7 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing.',
         }),
         TEST_ENV,
@@ -740,6 +746,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
   const correctionBody = {
@@ -1077,6 +1084,7 @@ describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => 
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
   const submit = (execCtx = fakeExecutionContext()) =>
@@ -1183,5 +1191,168 @@ describe('GET /api/requests/claim-target/:type/:slug (AECI-1368)', () => {
     await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'orphan', name: 'Orphan' });
     const res = await get('/api/requests/claim-target/product/orphan');
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── AECI-1366: the vendor terms box, the acceptance and the receipt ──────────
+
+describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI-1366)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const body = {
+    target_type: 'product',
+    slug: 'acme-build',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+  };
+  /** Production, so the tier policy delivers the receipt to the outside address. */
+  const PROD_ENV = {
+    ...TEST_ENV,
+    ENV: 'production' as const,
+    RESEND_API_KEY: 'rk_test',
+    EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const submit = (
+    extra: Record<string, unknown> = {},
+    env = TEST_ENV,
+    execCtx = fakeExecutionContext(),
+    headers: Record<string, string> = {},
+  ) =>
+    claimApp().request(
+      '/api/requests/claim',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ ...body, ...extra }),
+      },
+      env,
+      execCtx,
+    );
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records the acceptance on the claim with the current version, IP and user agent', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const res = await submit({}, TEST_ENV, fakeExecutionContext(), {
+      'cf-connecting-ip': '198.51.100.7',
+      'user-agent': 'Mozilla/5.0 (test)',
+    });
+    expect(res.status).toBe(201);
+    const { request_id } = await createdRow(res);
+
+    const rows = await t.db.select().from(agreementAcceptances);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email: 'dana@acme.com',
+      vendorRequestId: request_id,
+      listingRequestId: null,
+      profileId: null,
+      vendorId: null,
+      billingAccountId: null,
+      ip: '198.51.100.7',
+      userAgent: 'Mozilla/5.0 (test)',
+    });
+    const actions = (await t.db.select().from(auditLog)).map((a) => a.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['vendor_request.created', 'agreement.accepted']),
+    );
+  });
+
+  it('commits the claim, its workflow, both audit rows and the acceptance in ONE db.batch', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const batch = vi.spyOn(t.db, 'batch');
+    await submit();
+    expect(batch).toHaveBeenCalledTimes(1);
+    // claim, workflow instance, genesis transition, claim audit, acceptance, its audit
+    expect(batch.mock.calls[0]![0]).toHaveLength(6);
+  });
+
+  it('writes neither the claim nor the acceptance when the batch fails', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    vi.spyOn(t.db, 'batch').mockRejectedValueOnce(new Error('D1 down'));
+    const res = await submit();
+    expect(res.status).toBe(500);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['false', false],
+    ['the string "true"', 'true'],
+  ])('rejects accepted_terms %s with 400 VALIDATION_FAILED on the field', async (_l, value) => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const res = await submit({ accepted_terms: value });
+    expect(res.status).toBe(400);
+    const { error } = (await res.json()) as { error: { code: string; field?: string } };
+    expect(error).toMatchObject({ code: 'VALIDATION_FAILED', field: 'accepted_terms' });
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+  });
+
+  function resendFetch() {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return () =>
+      fetchMock.mock.calls
+        .filter(([url]) => String(url).includes('resend'))
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init!.body)) as { to: string; subject: string; text: string },
+        );
+  }
+
+  it('sends the alert, then the claimant a receipt naming the company and the product', async () => {
+    const sent = resendFetch();
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const execCtx = fakeExecutionContext();
+    expect((await submit({}, PROD_ENV, execCtx)).status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const mails = sent();
+    expect(mails.map((m) => String(m.to))).toEqual([
+      'support@aecintegrations.com',
+      'dana@acme.com',
+    ]);
+    const receipt = mails[1]!;
+    expect(receipt.subject).toBe('We got your claim for co-acme-build');
+    expect(receipt.text).toContain('name-acme-build');
+    expect(receipt.text).toContain('A person at AEC Integrations reviews every claim.');
+    expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
+    // Nothing that grants anything: no sign-in, no portal, no token.
+    expect(receipt.text).not.toContain('/auth/');
+    expect(receipt.text).not.toMatch(/\/vendor(\?|\/|\s|$)/);
+    // The unrouted alert has no owners line.
+    expect(mails[0]!.text).not.toContain("'s owners");
+  });
+
+  it('routed claim: the receipt says their team confirms, the alert says when AECi steps in', async () => {
+    const sent = resendFetch();
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    const execCtx = fakeExecutionContext();
+    const res = await submit({ target_type: 'vendor', slug: 'acme-co' }, PROD_ENV, execCtx);
+    expect(res.status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const mails = sent();
+    const alert = mails.find((m) => String(m.to) === 'support@aecintegrations.com')!;
+    const receipt = mails.find((m) => String(m.to) === 'dana@acme.com')!;
+    expect(alert.text).toMatch(/Sent to co-acme-co's owners; AECi steps in on .+ UTC\./);
+    expect(receipt.text).toContain(
+      'co-acme-co already maintains this listing, so we have asked their team to confirm you.',
+    );
+    expect(receipt.text).toContain('We step in if they do not answer within 7 days.');
   });
 });

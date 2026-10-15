@@ -1755,7 +1755,8 @@ export const licenses = sqliteTable(
  *
  * `billing_account_id` is NO ACTION, like `licenses.billing_account_id`: nothing deletes
  * a billing account. `vendor_request_id` is SET NULL, so a deleted claim leaves the
- * acceptance standing. The partial unique index on `stripe_checkout_session_id` makes a
+ * acceptance standing. `listing_request_id` (AECI-1366, migration 0077) is the same for a
+ * typed-in listing request: a claim-source acceptance names exactly one of the two. The partial unique index on `stripe_checkout_session_id` makes a
  * replayed checkout webhook fail its batch instead of writing a second acceptance.
  *
  * Domain state: every insert carries its `agreement.accepted` audit row in the same
@@ -1778,6 +1779,11 @@ export const agreementAcceptances = sqliteTable(
     vendorId: text('vendor_id'),
     billingAccountId: text('billing_account_id').references(() => billingAccounts.id),
     vendorRequestId: text('vendor_request_id').references(() => vendorRequests.id, {
+      onDelete: 'set null',
+    }),
+    /** AECI-1366: the typed-in listing request this acceptance was given on (the
+     *  "Not listed? Type it in" path has no claim row). SET NULL, like the claim link. */
+    listingRequestId: text('listing_request_id').references(() => listingRequests.id, {
       onDelete: 'set null',
     }),
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),

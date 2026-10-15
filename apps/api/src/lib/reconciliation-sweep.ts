@@ -172,6 +172,8 @@ type StuckRow = {
    *  post the §7.2 duplicate note, which is a separate decision. The email merely must
    *  not claim "no duplicate" about a row that has one. */
   duplicateOfRequestId: string | null;
+  /** AECI-1366: the recovery alert names the owner routing as the submit-time one does. */
+  routedToOwnersAt: string | null;
   createdAt: string;
 };
 
@@ -261,6 +263,7 @@ export async function runReconciliationSweep(
       sourceUrl: true,
       domainMatch: true,
       duplicateOfRequestId: true,
+      routedToOwnersAt: true,
       createdAt: true,
     },
     where: stuckWhere,
@@ -377,6 +380,7 @@ export async function runReconciliationSweep(
           domainMatch: row.domainMatch,
           duplicateOfRequestId: row.duplicateOfRequestId,
           linearIssueUrl: outcome.issueUrl,
+          routedToOwnersAt: row.routedToOwnersAt,
         });
       }
     } catch (error) {

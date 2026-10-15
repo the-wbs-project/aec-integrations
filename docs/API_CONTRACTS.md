@@ -1311,8 +1311,11 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
-//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200) }
+//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
+//                     accepted_terms (literal true, required; AECI-1366) }
 ```
+
+**The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
 
@@ -1375,7 +1378,9 @@ export const ListingRequestSchema = ClaimFormSchema.extend({
 // No target: the listing is not in the catalog yet.
 ```
 
-Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `has_linkedin`, never the typed name, website or email. It held `plan_interest` too until AECI-1365 removed the field. A body that still sends it returns `201` and the key is dropped. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id; nothing goes to the submitter. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `has_linkedin`, never the typed name, website or email. It held `plan_interest` too until AECI-1365 removed the field. A body that still sends it returns `201` and the key is dropped. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+
+**As built, AECI-1366 (2026-10-15).** The schema extends `ClaimFormSchema`, so it requires `accepted_terms: true` exactly as the claim does. The batch adds the acceptance row (`listing_request_id` = the new row, `vendor_request_id` null, migration 0077) and its `agreement.accepted` audit row, four statements in all. After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded.
 
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
 

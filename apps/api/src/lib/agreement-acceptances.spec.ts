@@ -17,6 +17,7 @@ import {
   agreementAcceptances,
   auditLog,
   billingAccounts,
+  listingRequests,
   profiles,
   vendorRequests,
   vendors,
@@ -116,6 +117,7 @@ describe('agreementAcceptanceStatements', () => {
       vendorId: VENDOR,
       billingAccountId: null,
       vendorRequestId: null,
+      listingRequestId: null,
       stripeCheckoutSessionId: null,
       acceptedAt: NOW,
       ip: '203.0.113.7',
@@ -203,6 +205,30 @@ describe('agreementAcceptanceStatements', () => {
     expect(
       await t.db.select().from(auditLog).where(eq(auditLog.entityId, replay.acceptanceId)),
     ).toEqual([]);
+  });
+
+  // AECI-1366: the typed-in listing path has no claim row to name.
+  it('records an acceptance against a listing request, and the audit row names it', async () => {
+    const LISTING = u(40);
+    await t.db.insert(listingRequests).values({
+      id: LISTING,
+      listingName: 'Site Diary Pro',
+      website: 'https://sitediary.example.com',
+      submitterEmail: 'pat@sitediary.example.com',
+    });
+    const out = agreementAcceptanceStatements(
+      t.db,
+      claim({ vendorId: null, listingRequestId: LISTING }),
+    );
+    await t.db.batch(out.stmts as BatchTuple);
+    const [row] = await t.db.select().from(agreementAcceptances);
+    expect(row).toMatchObject({ listingRequestId: LISTING, vendorRequestId: null });
+    expect(out.auditEntry.afterState).toMatchObject({ listing_request_id: LISTING });
+
+    // ON DELETE SET NULL: deleting the request leaves the evidence standing.
+    await t.db.delete(listingRequests).where(eq(listingRequests.id, LISTING));
+    const [after] = await t.db.select().from(agreementAcceptances);
+    expect(after).toMatchObject({ id: out.acceptanceId, listingRequestId: null });
   });
 
   it('lets many acceptances carry no Stripe session id', async () => {

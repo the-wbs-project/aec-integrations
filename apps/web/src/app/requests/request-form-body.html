@@ -37,9 +37,9 @@
 <p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
   @switch (kind()) { @case ('claim') {
   <ng-container i18n="@@requests.sent.claim.subtitle"
-    >We'll email
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong> with our
-    decision.</ng-container
+    >We've emailed a receipt to
+    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. We'll write
+    to you there with our decision.</ng-container
   >
   } @case ('correction') {
   <ng-container i18n="@@requests.sent.correction.subtitle"
@@ -57,9 +57,26 @@
     What happens next
   </p>
   <ol class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)">
+    @if (routed()) {
+    <!-- AECI-1366: the company's team decides first (AECI-1368). -->
+    <li data-testid="request-sent-routed">
+      @if (company(); as name) {
+      <ng-container i18n="@@requests.sent.claim.routed"
+        >We've asked {{ name }}'s team to confirm you. We step in if they do not answer within {{
+        reviewDays }} days.</ng-container
+      >
+      } @else {
+      <ng-container i18n="@@requests.sent.claim.routed.unnamed"
+        >We've asked the company's team to confirm you. We step in if they do not answer within {{
+        reviewDays }} days.</ng-container
+      >
+      }
+    </li>
+    } @else {
     <li i18n="@@requests.sent.claim.step1">
       A person at AEC Integrations reviews every claim. Nothing is granted automatically.
     </li>
+    }
     <li i18n="@@requests.sent.claim.step2">
       We check your email domain against your company's website, and your LinkedIn if you added it.
     </li>
@@ -295,6 +312,9 @@
   novalidate
   (submit)="$event.preventDefault(); onSubmit()"
 >
+  <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
+  <aec-claim-routed-notice [show]="routed()" [company]="company()" />
+
   <!-- Name, role, LinkedIn, work email: shared with the claim dialog (AECI-1293). -->
   <aec-claimant-fields
     [name]="form.submitter_name"
@@ -340,6 +360,9 @@
     </p>
     }
   </div>
+
+  <!-- AECI-1366: required. Submit stays disabled until it is checked. -->
+  <aec-vendor-terms-box [field]="form.accepted_terms" [rejected]="termsRejected()" />
 
   <!--
     AECI-847: in the drawer the submit control is pinned to the bottom of the

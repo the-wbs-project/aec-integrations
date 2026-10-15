@@ -22,8 +22,11 @@ The form asks for:
 - **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
+- **I represent this company and accept the vendor terms.** You must tick this box to send a claim. It links to the [vendor terms](/legal/vendor-terms). We record the version you accepted, with the time.
 
-Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next.
+Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next. We also email that address a receipt that says what you claimed and what happens next. One address gets at most one receipt a day. If you did not send a claim and got a receipt, you can ignore it. Nothing changes on any account until a person approves a claim.
+
+If your company already has a team on AEC Integrations, the form tells you before you send. Your claim goes to that team first, and they confirm you. If they do not answer within 7 days, we step in and review it ourselves.
 
 A claim on a product page is a claim on the vendor that makes the product. The seat you get covers the whole vendor account, not one product.
 

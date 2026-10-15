@@ -30,9 +30,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1159 added the three AECi override feed rows: 52. AECI-1237 added the field
  * correction and its lift: 54. AECI-1279 added the plan inquiry receipt and alert: 56.
  * AECI-1293 added the listing request alert: 57. AECI-1368 added the claim owner review
- * email and the owner fallback digest: 59.
+ * email and the owner fallback digest: 59. AECI-1366 added the claimant's receipt: 60.
  */
-const EXPECTED_COUNT = 59;
+const EXPECTED_COUNT = 60;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -68,8 +68,9 @@ describe('notification registry shape', () => {
       // AECI-1180 added `vendor-review-published`, `portal-review` and
       // `portal-review-response`. AECI-1279 added `plan-inquiry-received` and
       // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`. AECI-1368
-      // added `claim-owner-review` and `claim-owner-fallback-alert`.
-      email: 32,
+      // added `claim-owner-review` and `claim-owner-fallback-alert`. AECI-1366 added
+      // `claim-received`.
+      email: 33,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 21,
@@ -191,6 +192,7 @@ const ALWAYS_ON = [
   'account-deleted',
   'claim-approved',
   'claim-owner-review',
+  'claim-received',
   'claim-rejected',
   'contest-declined-protest-window',
   'contest-protest-opened',

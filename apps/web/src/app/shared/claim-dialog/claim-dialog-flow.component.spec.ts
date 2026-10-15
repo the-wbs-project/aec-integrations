@@ -2,7 +2,8 @@
  * The claim dialog's steps (`claim-dialog-flow.ts`, AECI-1293,
  * `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): each of the three steps (AECI-1365
  * removed the plan step), Back, both submit paths, the 404 fallback and the
- * analytics payloads. The BrnDialog shell and the triggers are pinned in
+ * analytics payloads. AECI-1366 adds the vendor terms box, the routed notice and
+ * receipt, and the stale-bundle `accepted_terms` 400. The BrnDialog shell and the triggers are pinned in
  * `claim-dialog.component.spec.ts`.
  */
 import { HttpErrorResponse } from '@angular/common/http';
@@ -28,7 +29,10 @@ const PRODUCT: AutocompleteSuggestion = {
   routerLink: ['/products', 'acme-takeoff'],
 };
 
-function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}) {
+function setup(
+  opening: ClaimDialogOpening,
+  opts: { email?: string | null; hasSeats?: boolean | 'error' } = {},
+) {
   const analytics = {
     claimDialogStep: vi.fn(),
     claimRequested: vi.fn(),
@@ -37,6 +41,10 @@ function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}
   const api = {
     submitClaim: vi.fn().mockResolvedValue({ request_id: 'req-1', message: 'ok' }),
     submitListing: vi.fn().mockResolvedValue({ request_id: 'lr-1', message: 'ok' }),
+    getClaimTarget:
+      opts.hasSeats === 'error'
+        ? vi.fn().mockRejectedValue(new HttpErrorResponse({ status: 500 }))
+        : vi.fn().mockResolvedValue({ vendor_id: 'v-1', has_seats: opts.hasSeats ?? false }),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -77,10 +85,16 @@ function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}
     box.suggestionChosen.emit(hit);
     fixture.detectChanges();
   };
-  const fillYou = () => {
+  const toggleTerms = () => {
+    host.querySelector<HTMLInputElement>('#claim-dialog-terms')!.click();
+    fixture.detectChanges();
+  };
+  /** The You step's fields, and the vendor terms box unless `terms` is false. */
+  const fillYou = (terms = true) => {
     fill('claim-dialog-name', 'Dana Reyes');
     fill('claim-dialog-role', 'Head of Partnerships');
     fill('claim-dialog-email', 'dana@acme.example');
+    if (terms) toggleTerms();
   };
   return {
     fixture,
@@ -93,6 +107,7 @@ function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}
     back,
     choose,
     fillYou,
+    toggleTerms,
     analytics,
     api,
   };
@@ -181,6 +196,7 @@ describe('ClaimDialogFlow', () => {
         submitter_role: 'Head of Partnerships',
         submitter_linkedin_url: '',
         body: 'We make four products.',
+        accepted_terms: true,
       },
     );
     expect(t.heading()).toBe('Claim sent');
@@ -251,7 +267,8 @@ describe('ClaimDialogFlow', () => {
       routerLink: ['/vendors', 'acme-software'],
     });
     const summary = text(t.$('[data-testid="claim-dialog-listing"]'));
-    expect(summary).toContain('Claiming Acme Software');
+    // "Claiming" and the name are flex items: the gap, not a text space, separates them.
+    expect(summary).toMatch(/^Claiming\s*Acme Software/);
     expect(summary).not.toContain('page');
     expect(TestBed.inject(ClaimDialogService).company()).toBe('Acme Software');
   });
@@ -259,7 +276,7 @@ describe('ClaimDialogFlow', () => {
   it('falls back to the product name when a product hit has no vendor name', () => {
     const t = setup({ page: 'vendor_program', entry: 'top' });
     t.choose({ ...PRODUCT, subtitle: null });
-    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Claiming Acme Takeoff');
+    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toMatch(/^Claiming\s*Acme Takeoff/);
     expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
   });
 
@@ -307,13 +324,14 @@ describe('ClaimDialogFlow', () => {
       submitter_role: 'Head of Partnerships',
       submitter_linkedin_url: '',
       body: '',
+      accepted_terms: true,
       listing_name: 'Site Diary Pro',
       website: 'https://sitediary.example.com',
     });
     expect(t.api.submitClaim).not.toHaveBeenCalled();
     expect(t.heading()).toBe('Request sent');
     expect(text(t.host)).toContain(
-      "We'll add Site Diary Pro to the directory, then email dana@acme.example so you can finish your claim.",
+      "We've emailed a receipt to dana@acme.example. We'll add Site Diary Pro to the directory, then write to you there so you can finish your claim.",
     );
     expect(t.analytics.listingRequested).toHaveBeenCalledWith({ page: 'vendor_program' });
     // Never a typed value in any event.
@@ -350,6 +368,124 @@ describe('ClaimDialogFlow', () => {
     await t.primary();
     expect(t.heading()).toBe('Anything to add?');
     expect(text(t.$('[role="alert"]'))).toBe('Something went wrong. Please try again.');
+  });
+
+  // ── AECI-1366 ───────────────────────────────────────────────────────────────
+  it.each(['found', 'typed'] as const)(
+    'Continue stops on an unchecked vendor terms box on the %s path, with the error tied to it',
+    async (path) => {
+      const t = setup({ page: 'vendor_program', entry: 'top' });
+      if (path === 'found') t.choose(PRODUCT);
+      else {
+        t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+        t.fixture.detectChanges();
+        t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+        t.fill('claim-dialog-website', 'https://sitediary.example.com');
+      }
+      const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
+      expect(box.type).toBe('checkbox');
+      expect(box.checked).toBe(false);
+      const link = t.$<HTMLAnchorElement>('label[for="claim-dialog-terms"] a')!;
+      expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
+      expect(link.target).toBe('_blank');
+      expect(text(t.$('label[for="claim-dialog-terms"]'))).toContain(
+        'I represent this company and accept the vendor terms',
+      );
+
+      t.fillYou(false);
+      await t.primary();
+      expect(t.heading()).toBe('About you');
+      expect(document.activeElement?.id).toBe('claim-dialog-terms');
+      expect(box.getAttribute('aria-invalid')).toBe('true');
+      expect(box.getAttribute('aria-describedby')).toBe('claim-dialog-terms-error');
+      expect(text(t.$('#claim-dialog-terms-error'))).toContain('Tick the box');
+
+      t.toggleTerms();
+      expect(t.$('#claim-dialog-terms-error')).toBeNull();
+      await t.primary();
+      expect(t.heading()).toBe('Anything to add?');
+      expect(t.api.submitClaim).not.toHaveBeenCalled();
+      expect(t.api.submitListing).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a company with an owner seat shows the routed notice, then the routed receipt', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' }, { hasSeats: true });
+    t.choose(PRODUCT);
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+    expect(t.api.getClaimTarget).toHaveBeenCalledWith({
+      targetType: 'product',
+      slug: 'acme-takeoff',
+    });
+    expect(text(t.$('[data-testid="claim-routed-notice"]'))).toBe(
+      'Acme Software already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+    );
+
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+    expect(t.heading()).toBe('Claim sent');
+    expect(text(t.host)).toContain("We've emailed a receipt to dana@acme.example.");
+    expect(text(t.$('[data-testid="claim-dialog-sent-routed"]'))).toBe(
+      "We've asked Acme Software's team to confirm you. We step in if they do not answer within 7 days.",
+    );
+  });
+
+  it('no seat: no notice, and the standard receipt', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' }, { hasSeats: false });
+    t.choose(PRODUCT);
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+    expect(t.$('[data-testid="claim-routed-notice"]')).toBeNull();
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+    expect(t.$('[data-testid="claim-dialog-sent-routed"]')).toBeNull();
+    expect(text(t.host)).toContain('A person at AEC Integrations reviews every claim.');
+  });
+
+  it('a failed claim-target lookup shows no notice and never blocks the submit', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' }, { hasSeats: 'error' });
+    t.choose(PRODUCT);
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+    expect(t.$('[data-testid="claim-routed-notice"]')).toBeNull();
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+    expect(t.api.submitClaim).toHaveBeenCalledTimes(1);
+    expect(t.heading()).toBe('Claim sent');
+  });
+
+  it('a 400 on accepted_terms (a stale bundle) returns to the box with its error, not the generic notice', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.api.submitClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'Request failed validation',
+            field: 'accepted_terms',
+          },
+        },
+      }),
+    );
+    t.choose(PRODUCT);
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+
+    expect(t.heading()).toBe('About you');
+    const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
+    expect(box.checked).toBe(false);
+    expect(box.getAttribute('aria-describedby')).toBe('claim-dialog-terms-error');
+    expect(t.$('#claim-dialog-terms-error')).not.toBeNull();
+    expect(text(t.host)).not.toContain('Something went wrong');
+    expect(document.activeElement?.id).toBe('claim-dialog-terms');
   });
 
   it('prefills a signed-in email once, never over what the visitor typed', async () => {

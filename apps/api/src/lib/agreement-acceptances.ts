@@ -2,8 +2,9 @@
  * The one module that writes `agreement_acceptances` (AECI-1362, E2.4 of
  * `docs/VENDOR_SIGNUP_PROCESS.md` §4; `DATABASE_SCHEMA.md` §8.6d).
  *
- * Two INSERT callers, neither built yet: the claim insert (E3, the vendor terms box) and
- * the Stripe checkout webhook (E9, the Managed plan agreement box). One UPDATE caller:
+ * Three INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
+ * vendor terms box on the claim form), and the Stripe checkout webhook (E9, the Managed
+ * plan agreement box, not built yet). One UPDATE caller:
  * the claim approval (AECI-1367) links the claim's acceptances to the new seat, the
  * vendor and its billing account through `linkClaimAcceptanceStatements`. Like `lib/audit.ts` and
  * `lib/billing-account.ts`, this module never runs a batch. It RETURNS the acceptance
@@ -99,6 +100,8 @@ export interface AgreementAcceptanceParams {
   billingAccountId?: string | null;
   /** The claim this acceptance was given on. */
   vendorRequestId?: string | null;
+  /** The typed-in listing request this acceptance was given on (AECI-1366). */
+  listingRequestId?: string | null;
   /** The plan agreement's Stripe Checkout session. Unique when present. */
   stripeCheckoutSessionId?: string | null;
   /** ISO timestamp of the acceptance. Normalised here. */
@@ -181,6 +184,7 @@ export function agreementAcceptanceStatements(
     vendorId: p.vendorId ?? null,
     billingAccountId: p.billingAccountId ?? null,
     vendorRequestId: p.vendorRequestId ?? null,
+    listingRequestId: p.listingRequestId ?? null,
     stripeCheckoutSessionId: p.stripeCheckoutSessionId ?? null,
     acceptedAt,
     ip: evidence.ip,
@@ -196,6 +200,7 @@ export function agreementAcceptanceStatements(
     vendor_id: row.vendorId,
     billing_account_id: row.billingAccountId,
     vendor_request_id: row.vendorRequestId,
+    listing_request_id: row.listingRequestId,
     stripe_checkout_session_id: row.stripeCheckoutSessionId,
   };
   const auditEntry: AuditLogEntry = {

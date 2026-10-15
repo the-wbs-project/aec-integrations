@@ -165,9 +165,17 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
+  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3): "I represent this
+  // company and accept the vendor terms". Required on every claim and listing request:
+  // missing or `false` is `400 VALIDATION_FAILED` with `field: 'accepted_terms'`. The
+  // version accepted is stamped by the server, never sent by the client.
+  accepted_terms: z.literal(true, {
+    error: 'Confirm you represent this company and accept the vendor terms.',
+  }),
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
-/** The wire body before defaults: every defaulted key may be omitted. */
+/** The wire body before defaults: every defaulted key may be omitted. `accepted_terms`
+ *  has no default, so it is always sent. */
 export type ClaimFormInput = z.input<typeof ClaimFormSchema>;
 
 /** Wire body for `POST /api/requests/claim`. `target_type` still takes `'product'`,

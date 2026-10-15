@@ -111,6 +111,9 @@ function alertCtx(env: Partial<Env> = {}) {
 // ─── 1. Claim intake alert ───────────────────────────────────────────────────
 
 describe('claim intake alert', () => {
+  /** Resend calls to the support inbox. The claimant's receipt (`claim-received`,
+   *  AECI-1366) is the other call a submit makes. */
+  const alertCalls = () => resendCalls().filter(([to]) => to === ENV.SUPPORT_EMAIL);
   /** Submit one claim through the real handler and drain its `waitUntil`s. */
   async function submitClaim(): Promise<string> {
     await t.db.insert(vendors).values({ id: u(1), slug: 'acme-co', companyName: 'Acme' });
@@ -131,6 +134,7 @@ describe('claim intake alert', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
         }),
       },
@@ -163,28 +167,31 @@ describe('claim intake alert', () => {
 
   it('a delivered submit alert holds the key: the sweep send is a duplicate, one email in all', async () => {
     const requestId = await submitClaim();
-    expect(resendCalls()).toHaveLength(1);
+    expect(alertCalls()).toHaveLength(1);
 
     const result = await sweepCreatesIssue();
 
     expect(result).toMatchObject({ retried: 1, cleared: 1 });
-    expect(resendCalls()).toHaveLength(1);
+    expect(alertCalls()).toHaveLength(1);
     const rows = await ledger('claim-submitted-alert');
     expect(rows.map((r) => [r.outcome, r.dedupeKey])).toEqual([
       ['sent', `claim-submitted-alert:${requestId}`],
       ['duplicate', null],
     ]);
     expect(rows[0]).toMatchObject({ entityType: 'vendor_request', entityId: requestId });
+    // The claimant's receipt went once, at submit. The sweep never re-sends it.
+    expect(resendCalls().filter(([to]) => to === 'dana@acme.com')).toHaveLength(1);
+    expect((await ledger('claim-received')).map((r) => r.outcome)).toEqual(['sent']);
   });
 
   it('a submit alert Resend refused released the key: the sweep sends it, with the link (AECI-1197 review)', async () => {
     fetchSpy.mockImplementationOnce(async () => new Response('busy', { status: 503 }));
     const requestId = await submitClaim();
-    expect(resendCalls()).toHaveLength(1);
+    expect(alertCalls()).toHaveLength(1);
 
     await sweepCreatesIssue();
 
-    expect(resendCalls()).toHaveLength(2);
+    expect(alertCalls()).toHaveLength(2);
     const second = JSON.parse(String(fetchSpy.mock.calls.at(-1)?.[1]?.body)) as { text: string };
     expect(second.text).toContain('https://linear.app/aec/issue/AECI-901/claim');
     const rows = await ledger('claim-submitted-alert');
@@ -202,12 +209,59 @@ describe('claim intake alert', () => {
 
     await sweepCreatesIssue();
 
-    expect(resendCalls()).toHaveLength(1);
+    expect(alertCalls()).toHaveLength(1);
     const rows = await ledger('claim-submitted-alert');
     expect(rows.map((r) => [r.outcome, r.dedupeKey])).toEqual([
       ['unknown', `claim-submitted-alert:${requestId}`],
       ['duplicate', null],
     ]);
+  });
+});
+
+// ─── 1b. Claim receipt (AECI-1366) ──────────────────────────────────────────
+
+describe('claim receipt', () => {
+  it('sends one claim-received per address per UTC day, however many claims it sends', async () => {
+    await t.db.insert(vendors).values({ id: u(1), slug: 'acme-co', companyName: 'Acme' });
+    const app = buildAppWithHandler({
+      method: 'post',
+      path: '/api/requests/claim',
+      handler: createClaimSubmitHandler(t.factory),
+    });
+    const claim = async (email: string) => {
+      const ctx = fakeExecutionContext();
+      const res = await app.request(
+        '/api/requests/claim',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            target_type: 'vendor',
+            slug: 'acme-co',
+            submitter_name: 'Dana Reyes',
+            submitter_email: email,
+            submitter_role: 'Head of Partnerships',
+            accepted_terms: true,
+          }),
+        },
+        ENV,
+        ctx,
+      );
+      expect(res.status).toBe(201);
+      await drain(ctx);
+    };
+
+    await claim('dana@acme.com');
+    await claim('Dana@Acme.com');
+    await claim('dana@acme.com');
+
+    const receipts = resendCalls().filter(([to]) => to.toLowerCase() === 'dana@acme.com');
+    expect(receipts).toHaveLength(1);
+    const rows = await ledger('claim-received');
+    expect(rows.map((r) => r.outcome)).toEqual(['sent', 'duplicate', 'duplicate']);
+    expect(rows[0]!.dedupeKey).toMatch(/^claim-received:[0-9a-f]{64}:\d{4}-\d{2}-\d{2}$/);
+    // Every claim still alerts the operator.
+    expect(resendCalls().filter(([to]) => to === ENV.SUPPORT_EMAIL)).toHaveLength(3);
   });
 });
 

@@ -19,6 +19,9 @@ import { submitCount } from '../posthog';
 import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
+  claimReceivedDedupeKey,
+  claimRoutedAlertLine,
+  sendClaimReceivedEmail,
   parseRecipients,
   resendIdempotencyKey,
   recordEmailSend,
@@ -3269,5 +3272,98 @@ describe('claim owner routing emails (AECI-1368)', () => {
     expect(text).toContain('casey@acme.com');
     expect(text).toContain('https://www.aecintegrations.com/admin/claims');
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-owner-fallback-alert']);
+  });
+});
+
+describe('sendClaimReceivedEmail (AECI-1366)', () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const claim = {
+    kind: 'claim' as const,
+    requestId: 'req-1',
+    companyName: 'Acme Software',
+    contextProductName: 'Acme Field',
+    routedToOwnersAt: null,
+  };
+
+  it('tells the claimant what they claimed and what happens next, with no link that grants anything', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimReceivedEmail(
+      fakeContext({ ...SITE, SUPPORT_EMAIL: 'support@aecintegrations.com' }),
+      { to: 'dana@acme.com', subject: claim },
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('dana@acme.com');
+    expect(body.subject).toBe('We got your claim for Acme Software');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    const text = String(body.text);
+    expect(text).toContain('Thanks for claiming Acme Software on AEC Integrations.');
+    expect(text).toContain('You sent it from the Acme Field page.');
+    expect(text).toContain('A person at AEC Integrations reviews every claim.');
+    expect(text).toContain('If you did not send this, you can ignore this email.');
+    expect(text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
+    expect(text).toContain('https://www.aecintegrations.com/docs/vendors/claiming-your-listing');
+    // No sign-in, portal or token link.
+    expect(text).not.toContain('/auth/');
+    expect(text).not.toMatch(/\/vendor(\?|\/|\s|$)/);
+    expect(text).not.toContain('already maintains');
+    for (const part of [body.subject, text, body.html]) expect(String(part)).not.toContain('—');
+    for (const part of [body.subject, text]) expect(String(part)).not.toContain('!');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-received']]);
+  });
+
+  it('routed variant: their team has been asked to confirm, and AECi steps in after 7 days', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimReceivedEmail(fakeContext(SITE), {
+      to: 'dana@acme.com',
+      subject: { ...claim, contextProductName: null, routedToOwnersAt: '2026-10-15T10:00:00.000Z' },
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain(
+      'Acme Software already maintains this listing, so we have asked their team to confirm you. We step in if they do not answer within 7 days.',
+    );
+    expect(text).not.toContain('You sent it from');
+  });
+
+  it('listing variant: echoes the typed name as plain text, never in the subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimReceivedEmail(fakeContext(SITE), {
+      to: 'pat@example.com',
+      subject: { kind: 'listing', requestId: 'lr-1', listingName: 'https://evil.example' },
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('We got your listing request');
+    expect(String(body.text)).toContain('https://evil.example');
+    expect(String(body.html)).not.toContain('href="https://evil.example');
+  });
+
+  it('keys the send on the address hash and the UTC day, case-insensitively', async () => {
+    const day = new Date('2026-10-15T23:59:00.000Z');
+    const a = await claimReceivedDedupeKey('Dana@Acme.com', day);
+    expect(a).toMatch(/^claim-received:[0-9a-f]{64}:2026-10-15$/);
+    expect(a).not.toContain('acme');
+    expect(await claimReceivedDedupeKey(' dana@acme.com ', day)).toBe(a);
+    expect(
+      await claimReceivedDedupeKey('dana@acme.com', new Date('2026-10-16T00:00:00Z')),
+    ).not.toBe(a);
+  });
+
+  it('is suppressed outside production for an outside address', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimReceivedEmail(fakeContext({ ENV: 'demo' }), {
+      to: 'dana@acme.com',
+      subject: claim,
+    });
+    expect(outcome).not.toBe('sent');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('claimRoutedAlertLine (AECI-1366)', () => {
+  it('names the owners and the instant AECi steps in, 7 days after routing', () => {
+    expect(claimRoutedAlertLine('Acme', '2026-10-15T14:30:00.000Z')).toBe(
+      "Sent to Acme's owners; AECi steps in on Oct 22, 2026, 2:30 PM UTC.",
+    );
   });
 });

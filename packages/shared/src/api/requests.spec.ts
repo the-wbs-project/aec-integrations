@@ -12,6 +12,7 @@ const claim = {
   submitter_name: 'Ada Lovelace',
   submitter_email: 'ada@example.com',
   submitter_role: 'Product manager',
+  accepted_terms: true,
 };
 
 const listing = {
@@ -36,6 +37,33 @@ describe('ClaimFormSchema without the plan question (AECI-1365)', () => {
   it('keeps the 2,000 character cap on body (the "Additional comments")', () => {
     expect(ClaimFormSchema.safeParse({ ...claim, body: 'x'.repeat(2000) }).success).toBe(true);
     expect(ClaimFormSchema.safeParse({ ...claim, body: 'x'.repeat(2001) }).success).toBe(false);
+  });
+});
+
+// AECI-1366: "I represent this company and accept the vendor terms" is required.
+describe('accepted_terms (AECI-1366)', () => {
+  const { accepted_terms: _omit, ...withoutTerms } = claim;
+
+  it.each([
+    ['ClaimFormSchema', ClaimFormSchema, {}],
+    ['ListingRequestSchema', ListingRequestSchema, listing],
+  ] as const)('%s accepts only the literal true', (_name, schema, extra) => {
+    expect(schema.safeParse({ ...claim, ...extra }).success).toBe(true);
+    for (const value of [false, 'true', 1, null]) {
+      const result = schema.safeParse({ ...claim, ...extra, accepted_terms: value });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.path).toEqual(['accepted_terms']);
+    }
+  });
+
+  it('refuses a body that omits the key, as a stale client would send', () => {
+    const result = ClaimRequestSchema.safeParse({
+      ...withoutTerms,
+      target_type: 'vendor',
+      slug: 'acme',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual(['accepted_terms']);
   });
 });
 

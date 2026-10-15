@@ -90,9 +90,9 @@
           <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
             @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') {
             <ng-container i18n="@@requests.sent.claim.subtitle"
-              >We'll email
-              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong> with
-              our decision.</ng-container
+              >We've emailed a receipt to
+              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong>. We'll
+              write to you there with our decision.</ng-container
             >
             } @case ('correction') {
             <ng-container i18n="@@requests.sent.correction.subtitle"
@@ -136,6 +136,7 @@
           [kind]="t.kind"
           [slug]="t.slug"
           [bodyPrefill]="t.bodyPrefill ?? null"
+          [company]="t.company ?? null"
           variant="drawer"
           (sent)="sentTo.set($event)"
           (done)="drawer.close()"

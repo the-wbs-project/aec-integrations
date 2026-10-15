@@ -2030,6 +2030,7 @@ create table agreement_acceptances (
   vendor_id text,                  -- a vendors.id; NO FK
   billing_account_id text references billing_accounts(id),           -- NO ACTION
   vendor_request_id text references vendor_requests(id) on delete set null,
+  listing_request_id text references listing_requests(id) on delete set null, -- AECI-1366, migration 0077
   stripe_checkout_session_id text,
   accepted_at text not null,       -- ISO-8601
   ip text,                         -- CF-Connecting-IP; claim path only
@@ -2050,7 +2051,12 @@ create unique index agreement_acceptances_stripe_session_key
   claim insert (E3) and the checkout webhook (E9) append both statements to their own
   `db.batch`, so the acceptance commits or rolls back with the claim or license. Neither
   caller exists yet. *(As built 2026-10-15, AECI-1367: the claim-time link below is the
-  second builder, `linkClaimAcceptanceStatements`.)*
+  second builder, `linkClaimAcceptanceStatements`.)* *(As built 2026-10-15, AECI-1366: two
+  callers now exist. `POST /api/requests/claim` writes a `vendor_terms` row with
+  `vendor_request_id` = the new claim, and `POST /api/requests/listing` writes one with
+  `listing_request_id` = the new listing request. Both set `source = 'claim'`, stamp the
+  current version, `CF-Connecting-IP` and the user agent, and put both statements after
+  their own insert in their own batch. The checkout webhook (E9) is still to come.)*
 - **Current version only.** The helper refuses a version other than
   `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
@@ -2082,6 +2088,13 @@ create unique index agreement_acceptances_stripe_session_key
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
   the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
+- **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0077).** The typed-in listing
+  path ("Not listed? Type it in") has no claim row, so its acceptance names the
+  `listing_requests` row instead. A claim-source row names exactly one of the two. Nullable,
+  `ON DELETE SET NULL`, added by one `ALTER TABLE ... ADD`. drizzle-kit dropped the
+  `ON DELETE` clause from the generated `ADD ... REFERENCES`, so the migration body is
+  hand-written (the 0047 precedent). Nothing links it at approval: a listing request grants
+  no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
   `id`. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or

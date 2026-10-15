@@ -540,6 +540,13 @@
       "when": 1792037593747,
       "tag": "0076_chief_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1792039347032,
+      "tag": "0077_past_whirlwind",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,7 @@
 import {
   ClaimRequestSchema,
   ClaimTargetResponseSchema,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
   RequestTargetTypeSchema,
   type ClaimTargetResponse,
@@ -65,9 +66,10 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
+import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { sendClaimSubmittedNotification } from '../lib/email';
+import { sendClaimReceivedEmail, sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
@@ -319,6 +321,27 @@ async function createRequest(
   const requestId = crypto.randomUUID();
   const workflowId = crypto.randomUUID();
 
+  // AECI-1366: a claim carries the vendor terms acceptance ("I represent this company
+  // and accept the vendor terms", `ClaimFormSchema.accepted_terms`). The server stamps
+  // the current version and the request's IP and user agent; the client sends neither.
+  // Profile, vendor and billing account stay null until the approval links them
+  // (`linkClaimAcceptanceStatements`, matched on `vendor_request_id`). The rows ride the
+  // claim's own batch, so a failed batch writes neither the claim nor the acceptance.
+  const acceptance =
+    kind === 'claim'
+      ? agreementAcceptanceStatements(db, {
+          document: 'vendor_terms',
+          version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+          source: 'claim',
+          email: insert.submitterEmail,
+          vendorRequestId: requestId,
+          acceptedAt: new Date().toISOString(),
+          requestHeaders: c.req.raw.headers,
+          actorId: null,
+          actorType: 'user',
+        })
+      : null;
+
   // Phase 6.2 (AECI-209): the workflow instance mirrors the request `status`, then
   // the genesis transition records `null → open`. Lean — no guarded FSM (§26.3).
   // `linearIssueId` stays null (Phase 6.4 fills it post-commit); the submit is
@@ -355,11 +378,18 @@ async function createRequest(
     }),
     workflowTransitionInsert(db, workflowEntry),
     auditInsert(db, auditEntry),
+    // AFTER the claim insert: the acceptance's `vendor_request_id` FK names it.
+    ...(acceptance?.stmts ?? []),
   ];
   await db.batch(stmts as BatchTuple);
 
   // Best-effort §26.5 forwards AFTER the atomic commit, in ONE request (AECI-1112).
-  forwardAuditBatch(c, [auditEntry], [workflowEntry], 'request-form');
+  forwardAuditBatch(
+    c,
+    acceptance ? [auditEntry, acceptance.auditEntry] : [auditEntry],
+    [workflowEntry],
+    'request-form',
+  );
 
   // Phase 6.4 (AECI-211): create the Linear issue out-of-band so it never blocks
   // the 201. `createLinearIssueForRequest` never throws (it logs + meters every
@@ -399,8 +429,11 @@ async function createRequest(
   // separate claim-only code path, so admitting corrections later is a predicate
   // change here and nothing else. Fail-open (absent
   // `SUPPORT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
-  // fail the 201. The claimant still gets no submit-time mail by design; their only
-  // mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  // fail the 201.
+  //
+  // AECI-1366: the claimant's receipt (`claim-received`) follows the alert in the same
+  // chain. It goes to the typed address, so it is bounded to one per address per UTC
+  // day (`claimReceivedDedupeKey`), and it carries no link that grants anything.
   //
   // The §6.7 sweep re-sends this alert under the same key when its retry creates the
   // issue (AECI-1203). The ledger makes that send a `duplicate` unless Resend refused
@@ -431,7 +464,21 @@ async function createRequest(
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
         linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
-      }).then(() => undefined);
+        routedToOwnersAt: insert.routedToOwnersAt,
+      })
+        .then(() =>
+          sendClaimReceivedEmail(c, {
+            to: insert.submitterEmail,
+            subject: {
+              kind: 'claim',
+              requestId,
+              companyName: targetName,
+              contextProductName: contextProduct?.name ?? null,
+              routedToOwnersAt: insert.routedToOwnersAt,
+            },
+          }),
+        )
+        .then(() => undefined);
     }),
   );
 

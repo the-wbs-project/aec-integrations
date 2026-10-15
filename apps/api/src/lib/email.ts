@@ -84,6 +84,8 @@
  */
 
 import {
+  CLAIM_OWNER_REVIEW_DAYS,
+  claimOwnerReviewDeadline,
   orderedPairSlugs,
   type AttestationDetector,
   type RequestKind,
@@ -1976,6 +1978,10 @@ export function sendClaimSubmittedNotification(
      *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
      *  itself the thing the operator needs to know. */
     linearIssueUrl?: string | null;
+    /** AECI-1366: `vendor_requests.routed_to_owners_at`. Set when the claim went to the
+     *  company's owners first (AECI-1368). Adds the "Sent to <Company>'s owners" line
+     *  with the date AECi steps in. Null or absent adds nothing. */
+    routedToOwnersAt?: string | null;
   } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
@@ -2027,6 +2033,12 @@ export function sendClaimSubmittedNotification(
   const blocks = opts.connectorVendor === true ? [intro, CONNECTOR_VENDOR_FLAG] : [intro];
   const htmlBlocks =
     opts.connectorVendor === true ? [introHtml, escapeHtml(CONNECTOR_VENDOR_FLAG)] : [introHtml];
+  // AECI-1366: a claim routed to the company's owners (AECI-1368) waits for them first.
+  if (opts.routedToOwnersAt) {
+    const routed = claimRoutedAlertLine(opts.targetName, opts.routedToOwnersAt);
+    blocks.push(routed);
+    htmlBlocks.push(escapeHtml(routed));
+  }
   const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New claim for ${opts.targetName}`,
@@ -2042,6 +2054,12 @@ export function sendClaimSubmittedNotification(
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
+}
+
+/** The claim alert's routed line (AECI-1366): who decides first and when AECi steps in. */
+export function claimRoutedAlertLine(companyName: string, routedToOwnersAt: string): string {
+  const stepsIn = formatDeadline(claimOwnerReviewDeadline(routedToOwnersAt));
+  return `Sent to ${companyName}'s owners; AECi steps in on ${stepsIn}.`;
 }
 
 /** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */
@@ -2779,8 +2797,8 @@ export interface ListingRequestSummary {
  *
  * Every visitor-typed value is `plain`: the name, the website and the email are typed,
  * not verified, so AECi's markup must never turn them into links in the support inbox
- * (the AECI-1197 rule). There is no email to the visitor: the address is unverified,
- * as on a claim, and the dialog's own receipt is the receipt.
+ * (the AECI-1197 rule). The visitor's receipt is `claim-received` (AECI-1366), sent
+ * after this alert and bounded per address per day.
  */
 export function sendListingRequestAlert(
   c: EmailContext,
@@ -2819,6 +2837,131 @@ export function sendListingRequestAlert(
     replyTo: request.submitterEmail,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
+  });
+}
+
+/**
+ * The per-address, per-day ledger key of the claim receipt (AECI-1366): at most one
+ * `claim-received` per address per UTC day, across claims and listing requests. The key
+ * holds the address's hash, never the address (AECI-1203), as `plan-inquiry-received`
+ * does.
+ *
+ * It is also the per-request bound. A request has one address and sends its receipt
+ * once, post-commit, so no request can send two. A second request from the same address
+ * on the same day gets no receipt: the on-screen receipt still shows, and the claim is
+ * in the queue either way.
+ */
+export async function claimReceivedDedupeKey(
+  email: string,
+  now: Date = new Date(),
+): Promise<string> {
+  return `claim-received:${await recipientHash(email)}:${now.toISOString().slice(0, 10)}`;
+}
+
+/** What a `claim-received` receipt is about. */
+export type ClaimReceivedSubject =
+  | {
+      kind: 'claim';
+      /** The `vendor_requests.id`. */
+      requestId: string;
+      /** The company claimed (a claim is on the company, AECI-1364). */
+      companyName: string;
+      /** The product page the claim came from, or null. */
+      contextProductName: string | null;
+      /** `vendor_requests.routed_to_owners_at`: set when the company's owners decide
+       *  first (AECI-1368). Selects the routed variant. */
+      routedToOwnersAt: string | null;
+    }
+  | {
+      kind: 'listing';
+      /** The `listing_requests.id`. */
+      requestId: string;
+      /** What the visitor typed. Echoed as plain text, never in the subject. */
+      listingName: string;
+    };
+
+/**
+ * The claimant's receipt (AECI-1366, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3 and §15.4). Sent
+ * post-commit to the address typed on a claim or a typed-in listing request. It says what
+ * was claimed and what happens next, and links the vendor terms they accepted and the
+ * help page. It carries NO link that grants anything: no sign-in link, no portal link,
+ * no token. A claim grants nothing until a person approves it.
+ *
+ * The address is typed, not verified, so the send is bounded to one per address per UTC
+ * day ({@link claimReceivedDedupeKey}) and the body says what to do if they did not send
+ * it. The only visitor text it echoes is a typed-in listing name, as plain text in the
+ * body (the AECI-1197 rule), never in the subject.
+ *
+ * Routed variant: when the company's owners decide first, it says the company's team has
+ * been asked to confirm them and AECi steps in after 7 days.
+ */
+export async function sendClaimReceivedEmail(
+  c: EmailContext,
+  opts: { to: string; subject: ClaimReceivedSubject; now?: Date },
+): Promise<EmailOutcome> {
+  const { subject: about } = opts;
+  const base = siteUrl(c.env);
+  const support = c.env.SUPPORT_EMAIL?.trim() || undefined;
+
+  const review =
+    'A person at AEC Integrations reviews every claim. Nothing is granted automatically. We check your email domain against the company website, and your LinkedIn profile if you added it. We email this address with our decision.';
+  const notYou =
+    'If you did not send this, you can ignore this email. Nothing changes on any account until a person approves a claim.';
+
+  let heading: string;
+  let opening: string;
+  let openingHtml: string;
+  let next: string;
+  const table: EmailTableRow[] = [];
+  if (about.kind === 'claim') {
+    heading = `We got your claim for ${subjectSafe(about.companyName)}`;
+    opening = about.contextProductName
+      ? `Thanks for claiming ${about.companyName} on AEC Integrations. You sent it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
+      : `Thanks for claiming ${about.companyName} on AEC Integrations.`;
+    openingHtml = about.contextProductName
+      ? `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You sent it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
+      : `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
+    next = about.routedToOwnersAt
+      ? `${about.companyName} already maintains this listing, so we have asked their team to confirm you. We step in if they do not answer within ${CLAIM_OWNER_REVIEW_DAYS} days. Either way, we email this address with the decision.`
+      : review;
+    table.push(['Company', about.companyName]);
+    if (about.contextProductName) table.push(['Came from', about.contextProductName]);
+  } else {
+    heading = 'We got your listing request';
+    opening =
+      'Thanks for asking us to add a listing to AEC Integrations. We add it to the directory, then email this address so you can finish your claim.';
+    openingHtml = escapeHtml(opening);
+    next = review;
+    table.push(['Listing', about.listingName, { plain: true }]);
+  }
+
+  const blocks = [opening, next, notYou];
+  const htmlBlocks = [openingHtml, escapeHtml(next), escapeHtml(notYou)];
+  const shared = (link: LinkTagger) => ({
+    preheader: next,
+    heading,
+    table: [
+      ...table,
+      ...(base
+        ? ([
+            ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
+            ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
+          ] as EmailTableRow[])
+        : []),
+    ],
+  });
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-received',
+    subject: heading,
+    render: (link) => houseBody(shared(link), blocks, htmlBlocks),
+    dedupeKey: await claimReceivedDedupeKey(opts.to, opts.now),
+    entity: {
+      type: about.kind === 'claim' ? 'vendor_request' : 'listing_request',
+      id: about.requestId,
+    },
+    ...(support ? { replyTo: support } : {}),
   });
 }
 

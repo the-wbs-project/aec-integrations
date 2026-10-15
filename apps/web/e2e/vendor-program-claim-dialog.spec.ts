@@ -5,7 +5,10 @@
  * leaves the machine and no row is written: a found listing sends
  * `POST /api/requests/claim` with the comments, a typed-in listing sends
  * `POST /api/requests/listing`. Three steps since AECI-1365 removed the plan step, and
- * neither body carries a plan answer. Then the dialog's own behaviour (Escape, focus,
+ * neither body carries a plan answer. AECI-1366: the vendor terms box is required on the
+ * You step and both bodies carry `accepted_terms: true`. The claim-target lookup is
+ * mocked too, and a company with an owner seat shows the routed notice and receipt.
+ * Then the dialog's own behaviour (Escape, focus,
  * the full-screen sheet below `sm`) and axe with the dialog open at 375 and 1280.
  *
  * Set `CLAIM_DIALOG_SHOTS` to a directory to save a screenshot of each step at both
@@ -57,9 +60,23 @@ async function mockSearch(page: Page): Promise<void> {
   });
 }
 
-/** Answers both submit endpoints with a 201 and records what was sent. */
-async function mockSubmits(page: Page): Promise<{ claim: unknown[]; listing: unknown[] }> {
+/** Answers both submit endpoints with a 201 and records what was sent. Also answers the
+ *  claim-target lookup (AECI-1368): the company has an owner seat when `hasSeats`. */
+async function mockSubmits(
+  page: Page,
+  hasSeats = false,
+): Promise<{ claim: unknown[]; listing: unknown[] }> {
   const sent = { claim: [] as unknown[], listing: [] as unknown[] };
+  await page.route('**/api/requests/claim-target/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        vendor_id: '99999999-2222-4333-8444-555555555555',
+        has_seats: hasSeats,
+      }),
+    });
+  });
   for (const kind of ['claim', 'listing'] as const) {
     await page.route(`**/api/requests/${kind}`, async (route) => {
       sent[kind].push(route.request().postDataJSON());
@@ -90,11 +107,17 @@ async function openFromManagedCard(page: Page) {
   return dialog;
 }
 
-async function fillYou(page: Page) {
+/** The vendor terms box (AECI-1366). */
+const termsBox = (page: Page) =>
+  page.getByRole('dialog').getByRole('checkbox', { name: /I represent this company/ });
+
+/** The You step's fields, and the vendor terms box unless `terms` is false. */
+async function fillYou(page: Page, terms = true) {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Your name').fill('Dana Reyes');
   await dialog.getByLabel('Your role at the company').fill('Head of Partnerships');
   await dialog.getByLabel('Your work email').fill('dana@procore.example');
+  if (terms) await termsBox(page).check();
 }
 
 const axe = (page: Page) =>
@@ -138,7 +161,18 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await dialog.getByRole('button', { name: 'Continue' }).click();
       await expect(dialog.getByLabel('Your name')).toBeFocused();
       await expect(dialog.getByText('Your name is required.')).toBeVisible();
-      await fillYou(page);
+      // AECI-1366: the vendor terms box is required, and its error is tied to it.
+      await fillYou(page, false);
+      await expect(dialog.getByTestId('claim-routed-notice')).toHaveCount(0);
+      await dialog.getByRole('button', { name: 'Continue' }).click();
+      await expect(termsBox(page)).toBeFocused();
+      await expect(termsBox(page)).toHaveAttribute('aria-describedby', 'claim-dialog-terms-error');
+      await expect(dialog.locator('#claim-dialog-terms-error')).toBeVisible();
+      await expect(dialog.getByRole('link', { name: /vendor terms/ })).toHaveAttribute(
+        'href',
+        '/legal/vendor-terms',
+      );
+      await termsBox(page).check();
       expect((await axe(page)).violations).toEqual([]);
       await shot(page, '2-you');
       await dialog.getByRole('button', { name: 'Continue' }).click();
@@ -153,7 +187,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await dialog.getByRole('button', { name: 'Send claim' }).click();
 
       await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toBeFocused();
-      await expect(dialog).toContainText('dana@procore.example');
+      await expect(dialog).toContainText("We've emailed a receipt to dana@procore.example.");
       expect((await axe(page)).violations).toEqual([]);
       await shot(page, '4-done');
       expect(sent.claim).toEqual([
@@ -163,6 +197,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
           submitter_role: 'Head of Partnerships',
           submitter_linkedin_url: '',
           body: 'We make four products.',
+          accepted_terms: true,
           target_type: 'product',
           slug: 'fixture-procore',
         },
@@ -194,7 +229,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
     await expect(dialog.getByRole('heading', { name: 'Request sent' })).toBeVisible();
     await expect(dialog).toContainText(
-      "We'll add Site Diary Pro to the directory, then email dana@procore.example so you can finish your claim.",
+      "We've emailed a receipt to dana@procore.example. We'll add Site Diary Pro to the directory, then write to you there so you can finish your claim.",
     );
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: width === 375 ? 740 : 900 });
@@ -207,11 +242,39 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         submitter_role: 'Head of Partnerships',
         submitter_linkedin_url: '',
         body: '',
+        accepted_terms: true,
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',
       },
     ]);
     expect(sent.claim).toEqual([]);
+  });
+
+  test('a company with an owner seat: the routed notice, then the routed receipt (AECI-1366)', async ({
+    page,
+  }) => {
+    await mockSearch(page);
+    const sent = await mockSubmits(page, true);
+    await page.goto('/vendor-program');
+    await waitForHydrationSettle(page);
+
+    const dialog = await openFromManagedCard(page);
+    await dialog.getByLabel('Your product or company').fill('Proc');
+    await page.getByRole('option', { name: /Procore/ }).click();
+    await expect(dialog.getByTestId('claim-routed-notice')).toHaveText(
+      'Procore Technologies already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+    );
+    await fillYou(page);
+    expect((await axe(page)).violations).toEqual([]);
+    await dialog.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByRole('button', { name: 'Send claim' }).click();
+
+    await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toBeVisible();
+    await expect(dialog.getByTestId('claim-dialog-sent-routed')).toHaveText(
+      "We've asked Procore Technologies's team to confirm you. We step in if they do not answer within 7 days.",
+    );
+    expect(sent.claim).toHaveLength(1);
+    expect(sent.claim[0]).toMatchObject({ accepted_terms: true });
   });
 
   test('Back, Escape and focus return', async ({ page }) => {
@@ -262,7 +325,7 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
     await dialog.getByLabel('Product or company name').fill('X');
     await dialog.getByLabel('Website').fill('https://x.example.com');
     await dialog.getByRole('button', { name: 'Continue' }).click();
-    // Opened from the Free card: Free is preselected.
-    await expect(dialog.getByRole('radio', { name: 'Free' })).toBeChecked();
+    // AECI-1365 removed the plan step: the You step goes straight to the comments.
+    await expect(dialog.getByRole('heading', { name: 'Anything to add?' })).toBeVisible();
   });
 });

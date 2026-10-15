@@ -6,7 +6,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, listingRequests, vendorRequests, workflowInstances } from '../db/schema';
+import {
+  agreementAcceptances,
+  auditLog,
+  listingRequests,
+  vendorRequests,
+  workflowInstances,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createListingRequestHandler, LISTING_REQUEST_RECEIVED } from './listing-requests';
@@ -35,13 +41,23 @@ const validBody = {
   submitter_name: 'Pat Lee',
   submitter_email: 'pat@sitediary.example.com',
   submitter_role: 'Founder',
+  accepted_terms: true,
   body: 'We make two products.',
 };
 
-function post(body: unknown, env = TEST_ENV, execCtx = fakeExecutionContext()) {
+function post(
+  body: unknown,
+  env = TEST_ENV,
+  execCtx = fakeExecutionContext(),
+  headers: Record<string, string> = {},
+) {
   return app().request(
     PATH,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    },
     env,
     execCtx,
   );
@@ -69,16 +85,21 @@ describe('POST /api/requests/listing', () => {
       status: 'open',
     });
 
+    // The request's audit row, then the vendor terms acceptance's (AECI-1366).
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]).toMatchObject({
+    expect(audits).toHaveLength(2);
+    expect(audits.map((a) => a.action)).toEqual(
+      expect.arrayContaining(['agreement.accepted', 'listing_request.created']),
+    );
+    const created = audits.find((a) => a.action === 'listing_request.created')!;
+    expect(created).toMatchObject({
       action: 'listing_request.created',
       entityType: 'listing_request',
       entityId: json.request_id,
       actorType: 'user',
     });
     // Never the typed name, website or email in the audit metadata.
-    expect(audits[0]!.metadata).toEqual({
+    expect(created.metadata).toEqual({
       source: 'claim-dialog',
       has_linkedin: false,
     });
@@ -88,11 +109,97 @@ describe('POST /api/requests/listing', () => {
     expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
   });
 
-  it('commits the insert and the audit row in ONE db.batch (ADR 0022)', async () => {
+  it('commits the insert, the acceptance and both audit rows in ONE db.batch (ADR 0022)', async () => {
     const batch = vi.spyOn(t.db, 'batch');
     await post(validBody);
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls[0]![0]).toHaveLength(2);
+    expect(batch.mock.calls[0]![0]).toHaveLength(4);
+  });
+
+  // ── AECI-1366: the vendor terms box ───────────────────────────────────────
+  it('records the vendor terms acceptance against the listing request', async () => {
+    const res = await post(validBody, TEST_ENV, fakeExecutionContext(), {
+      'cf-connecting-ip': '203.0.113.9',
+      'user-agent': 'Mozilla/5.0 (test)',
+    });
+    expect(res.status).toBe(201);
+    const { request_id } = (await res.json()) as { request_id: string };
+    const rows = await t.db.select().from(agreementAcceptances);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email: 'pat@sitediary.example.com',
+      listingRequestId: request_id,
+      vendorRequestId: null,
+      profileId: null,
+      vendorId: null,
+      billingAccountId: null,
+      ip: '203.0.113.9',
+      userAgent: 'Mozilla/5.0 (test)',
+    });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['false', false],
+  ])(
+    'rejects accepted_terms %s with VALIDATION_FAILED on the field and writes nothing',
+    async (_label, value) => {
+      const res = await post({ ...validBody, accepted_terms: value });
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as { error: { code: string; field?: string } };
+      expect(error).toMatchObject({ code: 'VALIDATION_FAILED', field: 'accepted_terms' });
+      expect(await t.db.select().from(listingRequests)).toHaveLength(0);
+      expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    },
+  );
+
+  it('writes neither the request nor the acceptance when the batch fails', async () => {
+    vi.spyOn(t.db, 'batch').mockRejectedValueOnce(new Error('D1 down'));
+    const res = await post(validBody);
+    expect(res.status).toBe(500);
+    expect(await t.db.select().from(listingRequests)).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+  });
+
+  it('sends the claimant a claim-received receipt after the alert, on production', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const env = {
+      ...TEST_ENV,
+      ENV: 'production' as const,
+      RESEND_API_KEY: 'rk_test',
+      EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+      SUPPORT_EMAIL: 'support@aecintegrations.com',
+      PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    };
+    const execCtx = fakeExecutionContext();
+    expect((await post(validBody, env, execCtx)).status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const resend = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('resend'))
+      .map(
+        ([, init]) =>
+          JSON.parse(String(init!.body)) as { to: string; subject: string; text: string },
+      );
+    expect(resend.map((m) => String(m.to))).toEqual([
+      'support@aecintegrations.com',
+      'pat@sitediary.example.com',
+    ]);
+    const receipt = resend[1]!;
+    expect(receipt.subject).toBe('We got your listing request');
+    expect(receipt.subject).not.toContain('Site Diary Pro');
+    expect(receipt.text).toContain('Site Diary Pro');
+    expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
+    expect(receipt.text).not.toContain('/vendor?');
+    expect(receipt.text).not.toContain('/auth/');
   });
 
   it('stores "" optional answers as NULL and an omitted body as ""', async () => {

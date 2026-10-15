@@ -297,7 +297,25 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: CATALOGUE,
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). Pausable: operator alert. The claim waits in /admin/claims either way.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to <Company>\'s owners; AECi steps in on <date>" (AECI-1366). Pausable: operator alert. The claim waits in /admin/claims either way.',
+  },
+  'claim-received': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/claim (routes/requests.ts) and POST /api/requests/listing (routes/listing-requests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key claim-received:{recipientHash}:{YYYY-MM-DD}: at most one receipt per address per UTC day, across claims and listing requests. A request has one address and sends once post-commit, so the key is also the per-request bound.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
+    summary:
+      'Tells the person who sent a claim or a typed-in listing request that we have it, what they claimed, and what happens next.',
+    note: "Sent after the operator alert, in the same waitUntil. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
   },
   'listing-request-alert': {
     channel: 'email',
@@ -311,7 +329,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
     summary:
       'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
-    note: 'No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way.',
+    note: 'The visitor gets claim-received, bounded per address per day (AECI-1366). Pausable: operator alert. The request waits in /admin/requests either way.',
   },
   'contest-submitted-alert': {
     channel: 'email',
