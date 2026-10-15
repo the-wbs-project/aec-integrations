@@ -507,13 +507,14 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Seven (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Eight (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
 | `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter + a **sort key per rendered column** (`AdminVendorSortSchema`, admin-only — see the revision note below). One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. The per-row product count reuses `vendorListConfig.extras.productCount`, the same correlated subquery the public list already ships; its `integrationCount` sibling is no longer selected. |
 | `GET /api/admin/vendors/:id` | Basics, entitlement, the seat roster + pending invites, and product / integration / claim counts. Two D1 round trips: a 404 gate, then **one `db.batch` of six reads** — a batch for the round trip, not for atomicity, the same use `GET /api/vendor/updates` documents. Deliberately **not** a `UNION`: D1 caps compound selects at five, which the admin System screen already got bitten by. |
 | `GET /api/admin/vendors/:id/products` | The vendor's product roster behind the detail page's Products tab (§5.9). Paginated, name-ordered, joins EVERY `product_vendors` row. Added after AECI-652; contract in `API_CONTRACTS.md` §6.10. |
+| `GET /api/admin/vendors/:id/billing` | The Billing tab's read (AECI-1372, E4.3; §5.9). In `routes/admin-vendors-billing.ts`. One `db.batch`: the vendor (404 gate), the billing account, its owner seats, every license with its assigned product, the agreement acceptances. `billing_account: null` is a 200: an E1 back-fill defect, shown as such. No audit row, no limiter. |
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. Requires a JSON body `{ reason, internalNote? }` (AECI-1191, AECI-1159). |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
@@ -636,14 +637,15 @@ Shipped as specified above. Decisions this section did not pre-settle:
 
 ---
 
-### 5.9 The detail page becomes a three-tab menu
+### 5.9 The detail page becomes a tabbed menu (three tabs, now five)
 
 **Presentation plus one new read endpoint. Nothing in §5.6 or §5.8 is retracted** — the
 entitlement control is still mounted only here, the seat timestamp still reads "Account
 created", the seats tri-state is preserved, and no write path changed.
 
-`/admin/vendors/:id` gains a horizontal menu — **Vendor** / **Products** / **Audit
-Trail** — over one panel:
+`/admin/vendors/:id` gains a horizontal menu over one panel. It shipped with three tabs.
+Since AECI-1046 and AECI-1372 it has five, in this order: **Vendor** / **Billing** /
+**Products** / **Integrations** / **Audit Trail**.
 
 - **Vendor** keeps basics + counts, the entitlement control and the seat roster
   together. That grouping is the point: the entitlement state explains the roster, so
@@ -653,6 +655,15 @@ Trail** — over one panel:
   Read-only except for AECI-955 logo editing (STAGE_2_5_SPEC.md §11): there is no general admin product-edit endpoint, and §5.6.4's catalog lockout is
   unchanged by this.
 - **Audit Trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
+- **Billing** (AECI-1372, E4.3; `?tab=billing`) reads `GET /api/admin/vendors/:id/billing`
+  lazily on first open. It shows the billing account and its owner seats, every license
+  (live first, then ended; dates through `formatTermDate`, §5.8), the agreement
+  acceptances and the early-unassign requests (empty until E4.4). A live license flagged
+  `cancel_at_term_end` reads "Cancels at term end: vendor banned", and a banner tops the tab
+  while any is flagged. The E4.1 grant control lives here. The Entitlement and Plan price
+  sections stay on Vendor until E4.6. `/admin/claims` "Manage entitlement" links open this
+  tab. Read-only otherwise: nothing on it changes ranking or reviews.
+- **Integrations** (AECI-1046) is described in `ADMIN_PANEL_SPEC.md` §5.7.
 
 Three decisions worth recording:
 

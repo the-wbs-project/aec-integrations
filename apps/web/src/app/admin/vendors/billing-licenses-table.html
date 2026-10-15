@@ -1,0 +1,478 @@
+<p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.intro">
+  Managed is sold as licenses on a billing account. A license puts one product on Managed once the
+  vendor assigns it, and assignment is the vendor's. Nothing on this tab changes ranking or reviews.
+</p>
+
+@if (loading()) {
+<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.loading">
+  Loading this vendor's billing…
+</p>
+} @else if (failed()) {
+<div
+  role="alert"
+  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+>
+  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.billing.error">
+    We couldn't load this vendor's billing.
+  </p>
+  <button
+    type="button"
+    (click)="retry.emit()"
+    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.vendors.billing.retry"
+  >
+    Try again
+  </button>
+</div>
+} @else if (billing(); as b) {
+
+<!-- The ban banner (E4.5): any live license flagged to end instead of renewing. -->
+@if (cancellingCount() > 0) {
+<p
+  class="mt-4 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+  role="note"
+  data-testid="billing-cancel-banner"
+  i18n="@@admin.vendors.billing.cancelBanner"
+>
+  {cancellingCount(), plural, =1 {1 live license cancels at term end} other {{{cancellingCount()}}
+  live licenses cancel at term end}} ({{ cancellingReasons() }}). A flagged license ends at the end
+  of its term and does not renew. Nothing is refunded.
+</p>
+}
+
+<!-- ── Billing account ─────────────────────────────────────────────────── -->
+<section class="mt-6" aria-labelledby="admin-vendor-billing-account">
+  <h3
+    id="admin-vendor-billing-account"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.account.heading"
+  >
+    Billing account
+  </h3>
+
+  @if (account(); as a) {
+  <dl class="mt-2 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.name">Name</dt>
+    <dd class="font-medium text-(--text-primary)">{{ a.name }}</dd>
+
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.email">
+      Billing email
+    </dt>
+    <dd class="font-medium text-(--text-primary)">
+      @if (a.billing_email) { {{ a.billing_email }} } @else {
+      <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+      <span class="sr-only" i18n="@@admin.vendors.billing.account.emailNone"
+        >No billing email set</span
+      >
+      }
+    </dd>
+
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.stripe">
+      Stripe customer
+    </dt>
+    <dd class="font-mono text-xs text-(--text-primary)">
+      @if (a.stripe_customer_id) { {{ a.stripe_customer_id }} } @else {
+      <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+      <span class="sr-only" i18n="@@admin.vendors.billing.account.stripeNone"
+        >No Stripe customer</span
+      >
+      }
+    </dd>
+
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.owners">
+      Owner seats
+    </dt>
+    <dd class="text-(--text-primary)">
+      @if (a.owner_seats.length === 0) {
+      <span class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.ownersNone"
+        >No owner seat. Only an owner seat can buy.</span
+      >
+      } @else {
+      <ul class="m-0 list-none space-y-1 p-0">
+        @for (seat of a.owner_seats; track seat.user_id) {
+        <li>
+          <span class="font-medium">{{ seatName(seat) }}</span>
+          @if (seat.banned) {
+          <span
+            class="ms-2 rounded-(--radius-sm) bg-(--surface-muted) px-1.5 py-0.5 text-xs font-bold text-(--text-primary)"
+            i18n="@@admin.vendors.billing.account.ownerBanned"
+            >Banned</span
+          >
+          }
+        </li>
+        }
+      </ul>
+      }
+    </dd>
+
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.created">Created</dt>
+    <dd class="text-(--text-primary)">{{ date(a.created_at) }}</dd>
+  </dl>
+  } @else {
+  <!-- Every vendor with a seat or an entitlement was back-filled an account (E1). -->
+  <p
+    class="mt-2 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    role="note"
+    data-testid="billing-no-account"
+    i18n="@@admin.vendors.billing.account.none"
+  >
+    No billing account. Every vendor should have one, so the back-fill missed this vendor. Licenses
+    cannot be granted until it has one. Report it to the team.
+  </p>
+  }
+</section>
+
+<!-- ── Licenses ────────────────────────────────────────────────────────── -->
+@if (account()) {
+<section class="mt-6" aria-labelledby="admin-vendor-billing-licenses">
+  <h3
+    id="admin-vendor-billing-licenses"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.licenses.heading"
+  >
+    Licenses
+  </h3>
+
+  <div class="mt-2">
+    <ng-content select="[billingGrant]" />
+  </div>
+
+  @if (rows().length === 0) {
+  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.empty">
+    No licenses on this account. The vendor is on Free until one is granted or bought and assigned.
+  </p>
+  } @else {
+  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.count">
+    {liveCount(), plural, =1 {1 live license} other {{{liveCount()}} live licenses}} of {{
+    rows().length }} on record. Live first, then ended.
+  </p>
+  @if (b.licenses_truncated) {
+  <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.truncated">
+    Showing the first {{ rows().length }}. The oldest ended licenses are not listed.
+  </p>
+  }
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full min-w-[56rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.vendors.billing.licenses.caption">
+        Licenses on this billing account, live first
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.product"
+          >
+            Product
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.source"
+          >
+            Source
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.starts"
+          >
+            Starts
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.ends"
+          >
+            Ends
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.status"
+          >
+            Status
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.stripe"
+          >
+            Stripe subscription
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.terms"
+          >
+            Terms version
+          </th>
+          @if (rowActions()) {
+          <th
+            scope="col"
+            class="py-2 text-end font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.licenses.col.actions"
+          >
+            Actions
+          </th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.license.id) {
+        <tr class="border-b border-(--border-default) align-top" data-testid="billing-license-row">
+          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+            @if (row.license.assigned_product; as p) { {{ p.name }}
+            <span class="block text-xs font-normal text-(--text-tertiary)">{{ p.slug }}</span>
+            } @else {
+            <span
+              class="font-normal text-(--text-secondary)"
+              i18n="@@admin.vendors.billing.licenses.unassigned"
+              >Unassigned</span
+            >
+            }
+          </th>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            {{ row.sourceLabel }} @if (row.license.reference) {
+            <span class="block text-xs text-(--text-tertiary)">{{ row.license.reference }}</span>
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.startsLabel }}</td>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (row.endsLabel) { {{ row.endsLabel }} } @else {
+            <span i18n="@@admin.vendors.billing.licenses.monthly">Monthly, renews</span>
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 text-(--text-primary)">
+            {{ row.statusLabel }} @if (row.cancelLabel) {
+            <span
+              class="mt-1 block text-xs font-bold text-(--text-primary)"
+              data-testid="billing-license-cancel"
+              >{{ row.cancelLabel }}</span
+            >
+            } @if (row.license.live && row.license.release_at_renewal) {
+            <span
+              class="mt-1 block text-xs text-(--text-secondary)"
+              i18n="@@admin.vendors.billing.licenses.releaseAtRenewal"
+              >Released from its product at renewal</span
+            >
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 font-mono text-xs text-(--text-secondary)">
+            @if (row.license.stripe_subscription_id) {
+            <span class="break-all">{{ row.license.stripe_subscription_id }}</span>
+            } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.licenses.stripeNone"
+              >No Stripe subscription</span
+            >
+            }
+          </td>
+
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (row.license.terms_version) { {{ row.license.terms_version }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.licenses.termsNone"
+              >No terms version</span
+            >
+            }
+          </td>
+
+          @if (rowActions(); as actions) {
+          <td class="py-2.5 text-end">
+            <ng-container
+              [ngTemplateOutlet]="actions"
+              [ngTemplateOutletContext]="rowContext(row)"
+            />
+          </td>
+          }
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  }
+</section>
+}
+
+<!-- ── Agreement acceptances (E2.4) ────────────────────────────────────── -->
+<section class="mt-6" aria-labelledby="admin-vendor-billing-acceptances">
+  <h3
+    id="admin-vendor-billing-acceptances"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.acceptances.heading"
+  >
+    Agreement acceptances
+  </h3>
+
+  @if (acceptances().length === 0) {
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.acceptances.empty">
+    No acceptances on record. A claim records the vendor terms, and a Stripe checkout records the
+    Managed plan agreement.
+  </p>
+  } @else { @if (b.acceptances_truncated) {
+  <p
+    class="mt-2 text-sm text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.acceptances.truncated"
+  >
+    Showing the newest {{ acceptances().length }}.
+  </p>
+  }
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full min-w-[48rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.vendors.billing.acceptances.caption">
+        Agreement acceptances, newest first
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.document"
+          >
+            Agreement
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.by"
+          >
+            Accepted by
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.source"
+          >
+            Where
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.when"
+          >
+            Accepted
+          </th>
+          <th
+            scope="col"
+            class="py-2 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.ip"
+          >
+            IP address
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (a of acceptances(); track a.id) {
+        <tr class="border-b border-(--border-default) align-top">
+          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+            {{ documentLabel(a.document) }}
+            <span
+              class="block text-xs font-normal text-(--text-tertiary)"
+              i18n="@@admin.vendors.billing.acceptances.version"
+              >Version {{ a.version }}</span
+            >
+          </th>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ a.email }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ acceptanceSourceLabel(a.source) }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
+          <td class="py-2.5 font-mono text-xs text-(--text-secondary)">
+            @if (a.ip) { {{ a.ip }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.acceptances.ipNone"
+              >Not recorded</span
+            >
+            }
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  }
+</section>
+
+<!-- ── Early-unassign requests (decision 11; E4.4 fills this) ───────────── -->
+<section class="mt-6" aria-labelledby="admin-vendor-billing-releases">
+  <h3
+    id="admin-vendor-billing-releases"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.releases.heading"
+  >
+    Early-unassign requests
+  </h3>
+
+  @if (releaseRequests().length === 0) {
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.releases.empty">
+    No early-unassign requests. A license stays on its product until renewal unless the vendor asks
+    AEC Integrations to take it off sooner.
+  </p>
+  } @else {
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full min-w-[40rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.vendors.billing.releases.caption">
+        Early-unassign requests, newest first
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.releases.col.requested"
+          >
+            Requested
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.releases.col.reason"
+          >
+            Reason
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.releases.col.status"
+          >
+            Status
+          </th>
+          <th
+            scope="col"
+            class="py-2 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.releases.col.decided"
+          >
+            Decided
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of releaseRequests(); track r.id) {
+        <tr class="border-b border-(--border-default) align-top">
+          <th scope="row" class="py-2.5 pe-4 text-start font-medium text-(--text-primary)">
+            {{ date(r.created_at) }}
+          </th>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ r.reason }}</td>
+          <td class="py-2.5 pe-4 text-(--text-primary)">{{ releaseStatusLabel(r.status) }}</td>
+          <td class="py-2.5 text-(--text-secondary)">
+            @if (r.decided_at) { {{ date(r.decided_at) }} @if (r.decision_note) {
+            <span class="block text-xs text-(--text-tertiary)">{{ r.decision_note }}</span>
+            } } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.releases.undecided"
+              >Not decided</span
+            >
+            }
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  }
+</section>
+}

@@ -481,6 +481,14 @@ describe('ClaimDetail', () => {
     });
   });
 
+  it('points "Manage entitlement" at the vendor Billing tab (AECI-1372)', async () => {
+    const { el } = await setup(makeApiMock(makeDetail()));
+    const link = [...el.querySelectorAll('a')].find(
+      (a) => a.textContent?.trim() === 'Manage entitlement',
+    );
+    expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=billing`);
+  });
+
   it('explains in_review only at that status', async () => {
     const open = await setup(makeApiMock(makeDetail()));
     expect(open.el.textContent).not.toContain('This claim is in review');

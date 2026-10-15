@@ -868,7 +868,8 @@ describe('ClaimQueue', () => {
       const link = [...card.querySelectorAll('a')].find(
         (a) => a.textContent?.trim() === 'Manage entitlement',
       );
-      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
+      // AECI-1372: the license view and the grant live on the Billing tab.
+      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=billing`);
     });
 
     it('renders no link when the claim has no vendor to act on', async () => {

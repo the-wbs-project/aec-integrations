@@ -14,6 +14,7 @@ export * from './admin-reindex';
 export * from './admin-requests';
 export * from './admin-reviewers';
 export * from './admin-users';
+export * from './admin-vendor-billing';
 export * from './admin-vendors';
 export * from './agreements';
 export * from './common';

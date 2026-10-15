@@ -2808,6 +2808,97 @@ Errors: `404 NOT_FOUND` on an unknown vendor id. An empty 200 would read as "thi
 accepted nothing". Plus the shared 401/403. Handler:
 `apps/api/src/routes/admin-vendor-acceptances.ts`.
 
+#### `GET /api/admin/vendors/:id/billing` (AECI-1372, E4.3)
+
+The read-only Billing tab on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7; decision 17
+of `VENDOR_SIGNUP_PROCESS.md` §2). Behind `requireAdmin()`. A read: no audit row, never
+rate-limited, `Cache-Control: private, no-store`. Contract:
+`packages/shared/src/api/admin-vendor-billing.ts`. Handler:
+`apps/api/src/routes/admin-vendors-billing.ts`.
+
+One `db.batch` of five reads: the vendor (the 404 gate), its billing account, its owner
+seats (`profiles.seat_owner`, banned ones included and flagged), every license on its
+account with the assigned product, and its acceptances (`listVendorAcceptances`, the same
+reader and order as `GET /api/admin/vendors/:id/acceptances`). The owner-seat emails come
+from one bounded GoTrue lookup after the batch.
+
+```typescript
+export const ADMIN_BILLING_LICENSES_MAX = 500;
+export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
+
+export const AdminBillingAccountSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  billing_email: z.string().nullable(),        // null until checkout (decision 16)
+  stripe_customer_id: z.string().nullable(),
+  created_at: z.string(),
+  owner_seats: z.array(z.object({
+    user_id: z.string(),
+    display_name: z.string().nullable(),
+    email: z.string().nullable(),              // GoTrue; see seat_emails_available
+    banned: z.boolean(),
+  })),
+  seat_emails_available: z.boolean(),
+});
+
+export const AdminBillingLicenseSchema = z.object({
+  id: z.string(),
+  source: z.string(),                          // LICENSE_SOURCES; unconstrained in D1
+  starts_at: z.string(),
+  ends_at: z.string().nullable(),              // null = monthly
+  ended_at: z.string().nullable(),             // null = live
+  end_reason: z.string().nullable(),           // LICENSE_END_REASONS
+  live: z.boolean(),                           // ended_at === null, never from ends_at
+  reference: z.string().nullable(),
+  assigned_product: z.object({ id: z.string(), slug: z.string(), name: z.string() }).nullable(),
+  assigned_at: z.string().nullable(),
+  release_at_renewal: z.boolean(),
+  cancel_at_term_end: z.boolean(),
+  cancel_reason: z.string().nullable(),        // LICENSE_CANCEL_REASONS
+  stripe_subscription_id: z.string().nullable(),
+  terms_version: z.string().nullable(),        // a pointer; the record is `acceptances`
+  granted_by: z.string().nullable(),
+  created_at: z.string(),
+});
+
+export const AdminLicenseReleaseRequestSchema = z.object({
+  id: z.string(),
+  license_id: z.string(),
+  status: z.enum(['open', 'approved', 'declined']),
+  reason: z.string(),
+  requested_by: z.string().nullable(),
+  created_at: z.string(),
+  decided_at: z.string().nullable(),
+  decision_note: z.string().nullable(),
+});
+
+export const AdminVendorBillingResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account: AdminBillingAccountSchema.nullable(),
+  licenses: z.array(AdminBillingLicenseSchema),
+  licenses_truncated: z.boolean(),
+  acceptances: z.array(AdminAgreementAcceptanceSchema),
+  acceptances_truncated: z.boolean(),
+  release_requests: z.array(AdminLicenseReleaseRequestSchema),   // [] until E4.4
+});
+```
+
+- **Order.** Licenses: live first, oldest first; then ended, most recently ended first;
+  `id` breaks ties. Acceptances: newest first.
+- **Bound.** At most 500 licenses and 200 acceptances. Each list reads its cap plus one,
+  and `*_truncated` is `true` when the cap bit. A grant writes at most 50 licenses and a
+  Stripe subscription is one row per unit, so a real account sits far below the cap.
+  Live rows sort first, so a truncated list drops old ended rows, never a live one below
+  the cap.
+- **`billing_account: null` is a 200**, with `licenses: []`. Every vendor with a seat or
+  an entitlement was back-filled an account (E1), so this is a back-fill defect, and the
+  tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
+- **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
+  read. The UI labels the known values.
+- **`release_requests`** is `[]` until E4.4 (AECI-1373) adds `license_release_requests`.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 
 Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin-side

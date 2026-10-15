@@ -24,6 +24,7 @@ import type {
   AdminVendorIntegrationsResponse,
   AdminVendorAuditQuery,
   AdminVendorAuditResponse,
+  AdminVendorBillingResponse,
   AdminVendorDetail,
   AdminVendorProductsQuery,
   AdminVendorProductsResponse,
@@ -54,6 +55,20 @@ export class AdminVendorsApi {
   getVendor(id: string): Promise<AdminVendorDetail> {
     return firstValueFrom(
       this.http.get<AdminVendorDetail>(`/api/admin/vendors/${encodeURIComponent(id)}`),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/billing` (AECI-1372, E4.3): the read-only Billing tab.
+   * Billing account and owner seats, every license, the agreement acceptances and the
+   * early-unassign requests, in one payload. `billing_account: null` is a vendor the
+   * E1 back-fill missed, not an error.
+   */
+  getBilling(id: string): Promise<AdminVendorBillingResponse> {
+    return firstValueFrom(
+      this.http.get<AdminVendorBillingResponse>(
+        `/api/admin/vendors/${encodeURIComponent(id)}/billing`,
+      ),
     );
   }
 

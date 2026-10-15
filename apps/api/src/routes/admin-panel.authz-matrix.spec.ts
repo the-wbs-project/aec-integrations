@@ -16,8 +16,9 @@
  * by AECI-859 with `GET /api/admin/subscribers`, by
  * AECI-1008 with `GET /api/admin/contests`, by AECI-1177 with
  * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, by
- * AECI-1188 with `GET /api/admin/reindex/submissions`, and by AECI-1362 with
- * `GET /api/admin/vendors/:id/acceptances`.
+ * AECI-1188 with `GET /api/admin/reindex/submissions`, by AECI-1362 with
+ * `GET /api/admin/vendors/:id/acceptances`, and by AECI-1372 with
+ * `GET /api/admin/vendors/:id/billing`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -72,6 +73,7 @@ import {
 } from './admin-vendors';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
 import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances';
+import { createAdminVendorBillingHandler } from './admin-vendors-billing';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
@@ -137,6 +139,11 @@ const ROUTES = [
   {
     name: 'GET /api/admin/vendors/:id/acceptances',
     url: `/api/admin/vendors/${VENDOR}/acceptances`,
+  },
+  // AECI-1372 — the read-only Billing tab.
+  {
+    name: 'GET /api/admin/vendors/:id/billing',
+    url: `/api/admin/vendors/${VENDOR}/billing`,
   },
   // AECI-692 — the §5.8 user surface. Two reads; ban/reinstate is not here at
   // all, it reuses `PATCH /api/admin/reviewers/:id` unchanged, so this file
@@ -299,6 +306,11 @@ function makeApp() {
     '/api/admin/vendors/:id/acceptances',
     requireAdmin(guard),
     createAdminVendorAcceptancesHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/vendors/:id/billing',
+    requireAdmin(guard),
+    createAdminVendorBillingHandler(t.factory, noEmails),
   );
   // AECI-692. Same reasoning as `noEmails`: the record seam's default would
   // reach GoTrue, and `available: true` with an empty map is the "seam up, no

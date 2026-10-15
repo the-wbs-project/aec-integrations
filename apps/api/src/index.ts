@@ -64,6 +64,7 @@ import {
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
 import { createAdminVendorAcceptancesHandler } from './routes/admin-vendor-acceptances';
+import { createAdminVendorBillingHandler } from './routes/admin-vendors-billing';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
@@ -902,6 +903,10 @@ authAdmin.get(
   requireAdmin(),
   createAdminVendorAcceptancesHandler(),
 );
+// AECI-1372 (E4.3): the read-only Billing tab: billing account, owner seats, every
+// license, acceptances and (from E4.4) early-unassign requests. A read: no audit, no
+// limiter; 404 on an unknown vendor, 200 with `billing_account: null` when it has none.
+authAdmin.get('/api/admin/vendors/:id/billing', requireAdmin(), createAdminVendorBillingHandler());
 // AECI-1046: the vendor-held integrations a vendor owns (the Integrations tab), and the
 // admin retire and restore of one. The ninth named write exception in
 // `ADMIN_PANEL_SPEC.md`: a MODERATION write on a vendor's listing, on the owner
