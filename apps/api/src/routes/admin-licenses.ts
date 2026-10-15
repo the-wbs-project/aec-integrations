@@ -1,9 +1,11 @@
 /**
  * Admin license grant (AECI-1370, E4.1; `docs/VENDOR_SIGNUP_PROCESS.md` §3 step 5,
- * decisions 6, 16 and 17).
+ * decisions 6, 16 and 17), and the edit of one license (AECI-1371, E4.2; see
+ * {@link createUpdateLicenseHandler} and the block above it).
  *
- *   POST /api/admin/vendors/:id/licenses, behind `requireAdmin()` and the `write`
+ *   POST  /api/admin/vendors/:id/licenses, behind `requireAdmin()` and the `write`
  *   rate limit.
+ *   PATCH /api/admin/licenses/:id, the same guards.
  *
  * Writes N UNASSIGNED complimentary or invoice licenses on the vendor's billing
  * account, through `grantLicensesStatements` in `lib/license.ts` (the one license
@@ -49,29 +51,44 @@ import {
   ApiErrorCode,
   GrantLicensesResponseSchema,
   GrantLicensesSchema,
+  UpdateLicenseResponseSchema,
+  UpdateLicenseSchema,
+  vendorVisibleReasonMetadata,
   type AdminGrantedLicense,
   type GrantLicensesInput,
   type GrantLicensesResponse,
   type GrantLicensesWarning,
+  type UpdateLicenseInput,
+  type UpdateLicenseResponse,
 } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { LICENSE_SOURCES, type LicenseSource } from '@aeci/shared/entitlements';
 import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, vendors } from '../db/schema';
+import { billingAccounts, licenses, products, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { logToPosthog } from '../posthog';
-import type { BatchTuple } from '../lib/audit';
+import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
+import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { uuidv5 } from '../lib/backfill-licenses';
 import { loadBillingAccount } from '../lib/billing-account';
-import { sendLicensesGrantedEmail, type EmailContext } from '../lib/email';
+import { sendLicensesGrantedEmail, sendManagedEndedEmail, type EmailContext } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
-import { grantLicensesStatements, loadVendorLicenses, toIsoTimestamp } from '../lib/license';
+import {
+  endLicensesStatements,
+  grantLicensesStatements,
+  loadVendorLicenses,
+  setLicensesTermStatements,
+  toIsoTimestamp,
+  type LicenseBatch,
+  type LicenseBefore,
+} from '../lib/license';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
@@ -365,6 +382,45 @@ function warn(c: EmailContext, message: string, outcome?: string): void {
 }
 
 /**
+ * Who a billing email goes to (decision 16): every unbanned seat, plus the billing
+ * email when one is set, each address once, case-insensitively. Without the GoTrue
+ * service-role key no seat resolves: the billing email still gets it, and this warns.
+ * Shared by `licenses-granted` and `managed-ended` (AECI-1371).
+ */
+async function billingRecipients(
+  c: EmailContext,
+  db: Db,
+  vendorId: string,
+  billingAccountId: string,
+  fetchSeatEmails: FetchSeatEmails,
+  template: string,
+): Promise<string[]> {
+  const [seatMap, accountRow] = await Promise.all([
+    loadVendorSeatRecipients(db, c.env, [vendorId], fetchSeatEmails),
+    db.query.billingAccounts.findFirst({
+      columns: { billingEmail: true },
+      where: eq(billingAccounts.id, billingAccountId),
+    }),
+  ]);
+  const seats = seatMap.get(vendorId) ?? [];
+  if (seats.length === 0) {
+    // No seat resolved: none exists, or the GoTrue service-role key is absent and
+    // the seam returned nothing. The billing email, when set, still gets it.
+    warn(c, `${template}: no seat address resolved; sending to the billing email only`);
+  }
+
+  const addresses: string[] = [];
+  const seen = new Set<string>();
+  for (const address of [...seats.map((s) => s.email), accountRow?.billingEmail ?? '']) {
+    const key = address.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    addresses.push(address.trim());
+  }
+  return addresses;
+}
+
+/**
  * The `licenses-granted` fan-out: every unbanned seat, plus the billing email when one
  * is set, each address once. Never throws: the grant is committed whatever happens
  * here, and the ledger records every send.
@@ -386,28 +442,14 @@ export async function emailLicensesGranted(
   send: SendLicensesGranted,
 ): Promise<void> {
   try {
-    const [seatMap, accountRow] = await Promise.all([
-      loadVendorSeatRecipients(db, c.env, [input.vendorId], fetchSeatEmails),
-      db.query.billingAccounts.findFirst({
-        columns: { billingEmail: true },
-        where: eq(billingAccounts.id, input.billingAccountId),
-      }),
-    ]);
-    const seats = seatMap.get(input.vendorId) ?? [];
-    if (seats.length === 0) {
-      // No seat resolved: none exists, or the GoTrue service-role key is absent and
-      // the seam returned nothing. The billing email, when set, still gets it.
-      warn(c, 'licenses-granted: no seat address resolved; sending to the billing email only');
-    }
-
-    const addresses: string[] = [];
-    const seen = new Set<string>();
-    for (const address of [...seats.map((s) => s.email), accountRow?.billingEmail ?? '']) {
-      const key = address.trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      addresses.push(address.trim());
-    }
+    const addresses = await billingRecipients(
+      c,
+      db,
+      input.vendorId,
+      input.billingAccountId,
+      fetchSeatEmails,
+      'licenses-granted',
+    );
     if (addresses.length === 0) {
       warn(c, 'licenses-granted: no recipient; nobody was emailed about the grant');
       return;
@@ -432,5 +474,311 @@ export async function emailLicensesGranted(
       'licenses-granted email failed',
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+// ─── PATCH /api/admin/licenses/:id (AECI-1371, E4.2) ────────────────────────
+//
+// Edit one license: `extend` its end date, change its invoice `reference`, or
+// `revoke` it. `VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 11, decisions 11 and 14;
+// `STAGE_2_PAID_TIERS_SPEC.md` §5.2. Behind `requireAdmin()` and `rateLimit('write')`.
+//
+// ── THE REFUSALS, IN ORDER ──────────────────────────────────────────────────
+//  - body invalid → 400 (`VALIDATION_FAILED` / `MALFORMED_REQUEST`), before any read;
+//  - unknown license → 404 (`details.resource = 'license'`);
+//  - ended license → 422 `INVALID_STATE_TRANSITION`, every action: no un-end;
+//  - `extend` or `reference` on a Stripe license → 409 `LICENSE_SOURCE_STRIPE`;
+//  - `reference` on a complimentary license → 422 `INVALID_STATE_TRANSITION`: only an
+//    invoice license carries one;
+//  - `extend` not strictly after the current end, as instants → 400, field `ends_at`.
+//    A license with no end date (an open-ended complimentary back-fill) takes any end
+//    after now and after its start: that is how AECi sets the date it deferred.
+// Nothing is written on any refusal.
+//
+// ── EXTEND AND REFERENCE ────────────────────────────────────────────────────
+// `setLicensesTermStatements`: one guarded UPDATE, one `license.term_changed` audit
+// row (`metadata.change` names the action), the mirror reconcile. A live license stays
+// live, so no plan changes: no purge and no email. A reference equal to the stored one
+// is a no-op answered 200 with `changed: false`.
+//
+// ── REVOKE ──────────────────────────────────────────────────────────────────
+// `endLicensesStatements({ endReason: 'revoked' })` (ruling P1, 2026-10-15): it stamps
+// `ended_at` and `end_reason` and never names `assigned_product_id`, so an assigned
+// license keeps its product as history (decision 14, the hand-back). The product
+// drops to Free because no live license holds it. In the same batch: the
+// `license.revoked` row (reason marked vendor-visible, internal note beside it), the
+// mirror reconcile, and the `portal-license-revoked-by-aeci` Messages row to the vendor.
+// No `products` statement: the Managed-field content stays as it is.
+//
+// Post-commit, only when the license was on a product: purge `product:{slug}`,
+// `index:products` and the vendor set (`vendorPurgeTags`), and send `managed-ended` to
+// every seat and the billing email. An unassigned revoke purges nothing and sends no
+// email, unless it ends the vendor's last live license: then the `vendors.verified`
+// mirror flips, and the vendor set is purged as the grant does.
+
+/** The `managed-ended` sender, injected so specs never touch Resend. */
+export type SendManagedEnded = typeof sendManagedEndedEmail;
+
+/** The ledger key of one `managed-ended` email about one license, to one address. */
+export async function managedEndedDedupeKey(licenseId: string, address: string): Promise<string> {
+  return `managed-ended:${licenseId.toLowerCase()}:${await recipientHash(address)}`;
+}
+
+async function parseUpdateBody(c: LicensesContext): Promise<UpdateLicenseInput> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+  }
+  return UpdateLicenseSchema.parse(raw);
+}
+
+function stripeRefusal(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.LICENSE_SOURCE_STRIPE,
+    'Stripe manages this license. Change its term or invoice in Stripe. Nothing was changed.',
+  );
+}
+
+function toUpdatedLicense(l: LicenseBefore): UpdateLicenseResponse['license'] {
+  return {
+    ...toGrantedLicense(l),
+    ended_at: l.endedAt,
+    end_reason: l.endReason,
+  };
+}
+
+export function createUpdateLicenseHandler(
+  dbFor: DbFactory = getDb,
+  fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
+  sendEnded: SendManagedEnded = sendManagedEndedEmail,
+): (c: LicensesContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const licenseId = c.req.param('id');
+    if (!licenseId) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing license id', {
+        field: 'id',
+      });
+    }
+    const payload = await parseUpdateBody(c);
+
+    const { db } = writeDb(c, dbFor);
+    const [owner] = await db
+      .select({ vendorId: billingAccounts.vendorId })
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+      .where(eq(licenses.id, licenseId))
+      .limit(1);
+    if (!owner) throw notFoundError('license', { id: licenseId });
+    const [vendor, vendorLicenses] = await Promise.all([
+      db.query.vendors.findFirst({
+        columns: { id: true, slug: true, companyName: true, verified: true },
+        where: eq(vendors.id, owner.vendorId),
+      }),
+      loadVendorLicenses(db, owner.vendorId),
+    ]);
+    const before = vendorLicenses.find((l) => l.id === licenseId);
+    if (!vendor || !before) throw notFoundError('license', { id: licenseId });
+
+    if (before.endedAt !== null) {
+      throw new ApiError(
+        422,
+        ApiErrorCode.INVALID_STATE_TRANSITION,
+        'This license has ended. An ended license cannot be changed; grant a new one instead.',
+        { details: { state: 'ended', ended_at: before.endedAt } },
+      );
+    }
+
+    const now = new Date().toISOString();
+    const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
+    const base = {
+      vendorId: vendor.id,
+      now,
+      ...actor,
+      vendorLicenses,
+      vendorWasVerified: vendor.verified,
+    };
+
+    let batch: LicenseBatch;
+    let after: LicenseBefore;
+    let notice: AuditLogEntry | null = null;
+    let product: { id: string; slug: string; name: string } | null = null;
+
+    switch (payload.action) {
+      case 'extend': {
+        if (before.source === 'stripe') throw stripeRefusal();
+        const endsAt = toIsoTimestamp(payload.ends_at);
+        // Instants, not strings (Paid Tiers §5.5). No end date yet: after now and the start.
+        const floor = before.endsAt
+          ? Date.parse(before.endsAt)
+          : Math.max(Date.parse(now), Date.parse(before.startsAt));
+        if (Date.parse(endsAt) <= floor) {
+          throw new ApiError(
+            400,
+            ApiErrorCode.VALIDATION_FAILED,
+            before.endsAt
+              ? 'ends_at must be after the current end date.'
+              : 'ends_at must be after today and after the start date.',
+            { field: 'ends_at' },
+          );
+        }
+        batch = setLicensesTermStatements(db, {
+          ...base,
+          licenseIds: [before.id],
+          endsAt,
+          extraMetadata: { change: 'extend' },
+        });
+        after = { ...before, endsAt };
+        break;
+      }
+      case 'reference': {
+        if (before.source === 'stripe') throw stripeRefusal();
+        if (before.source !== 'invoice') {
+          throw new ApiError(
+            422,
+            ApiErrorCode.INVALID_STATE_TRANSITION,
+            'Only an invoice license carries a reference. Nothing was changed.',
+            { details: { source: before.source } },
+          );
+        }
+        batch = setLicensesTermStatements(db, {
+          ...base,
+          licenseIds: [before.id],
+          endsAt: before.endsAt,
+          reference: payload.reference,
+          extraMetadata: { change: 'reference' },
+        });
+        after = { ...before, reference: payload.reference };
+        break;
+      }
+      case 'revoke': {
+        if (before.assignedProductId) {
+          const row = await db.query.products.findFirst({
+            columns: { id: true, slug: true, name: true },
+            where: eq(products.id, before.assignedProductId),
+          });
+          product = row ?? null;
+        }
+        batch = endLicensesStatements(db, {
+          ...base,
+          target: { licenseIds: [before.id] },
+          endReason: 'revoked',
+          extraMetadata: vendorVisibleReasonMetadata(payload),
+        });
+        after = { ...before, endedAt: now, endReason: 'revoked' };
+        notice = aeciOverrideNotificationAudit('portal-license-revoked-by-aeci', actor, {
+          event: 'license_revoked',
+          vendorId: vendor.id,
+          reason: payload.reason,
+          billingAccountId: before.billingAccountId,
+          licenseId: before.id,
+          product,
+        });
+        break;
+      }
+    }
+
+    const respond = (changed: boolean, license: LicenseBefore): Response => {
+      const body: UpdateLicenseResponse = {
+        vendor_id: vendor.id,
+        billing_account_id: before.billingAccountId,
+        action: payload.action,
+        changed,
+        license: toUpdatedLicense(license),
+      };
+      validateResponseInDev(c.env, () => UpdateLicenseResponseSchema.parse(body));
+      return json(body);
+    };
+
+    if (batch.stmts.length === 0) return respond(false, before);
+
+    await db.batch([...batch.stmts, ...(notice ? [auditInsert(db, notice)] : [])] as BatchTuple);
+    forwardAuditBatch(c, [...batch.auditEntries, notice], [], 'admin-licenses');
+
+    if (payload.action === 'revoke') {
+      // The product's plan changed (assigned), or the vendor's mirror did (last live
+      // license). Either way the vendor set; the product's own tags when assigned,
+      // which the vendor set may miss for a product it no longer owns.
+      if (product || batch.verifiedFlipped) {
+        const tags = new Set(await vendorPurgeTags(db, vendor));
+        if (product) {
+          tags.add(`product:${product.slug}`);
+          tags.add('index:products');
+        }
+        c.executionCtx.waitUntil(purgeTags(c, [...tags], 'moderation'));
+      }
+      if (product) {
+        c.executionCtx.waitUntil(
+          emailManagedEnded(
+            c,
+            db,
+            {
+              licenseId: before.id,
+              vendorId: vendor.id,
+              vendorName: vendor.companyName,
+              billingAccountId: before.billingAccountId,
+              product: { slug: product.slug, name: product.name },
+              reason: payload.reason,
+            },
+            fetchSeatEmails,
+            sendEnded,
+          ),
+        );
+      }
+    }
+
+    return respond(true, after);
+  };
+}
+
+/**
+ * The `managed-ended` fan-out for one revoked license: every unbanned seat, plus the
+ * billing email when set, each address once. Never throws: the revoke is committed
+ * whatever happens here, and the ledger records every send.
+ */
+export async function emailManagedEnded(
+  c: EmailContext,
+  db: Db,
+  input: {
+    licenseId: string;
+    vendorId: string;
+    vendorName: string;
+    billingAccountId: string;
+    product: { slug: string; name: string };
+    reason: string;
+  },
+  fetchSeatEmails: FetchSeatEmails,
+  send: SendManagedEnded,
+): Promise<void> {
+  try {
+    const addresses = await billingRecipients(
+      c,
+      db,
+      input.vendorId,
+      input.billingAccountId,
+      fetchSeatEmails,
+      'managed-ended',
+    );
+    if (addresses.length === 0) {
+      warn(c, 'managed-ended: no recipient; nobody was emailed about the revoke');
+      return;
+    }
+    // One at a time: a handful of seats, and the Worker's connection limit is six.
+    for (const to of addresses) {
+      await send(c, {
+        to,
+        vendorName: input.vendorName,
+        products: [input.product],
+        cause: 'revoked',
+        reason: input.reason,
+        dedupeKey: await managedEndedDedupeKey(input.licenseId, to),
+        entity: { type: 'billing_account', id: input.billingAccountId },
+      });
+    }
+  } catch (error) {
+    warn(c, 'managed-ended email failed', error instanceof Error ? error.message : String(error));
   }
 }

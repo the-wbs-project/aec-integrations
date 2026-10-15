@@ -16,6 +16,9 @@
  *     (AECI-1237, §11d.5): the admin field correction with a lock, and its lift. To
  *     the vendor that holds the record.
  *
+ *   - `portal-license-revoked-by-aeci` (AECI-1371, E4.2): the admin license revoke.
+ *     To the vendor whose billing account held the license, which is its seats.
+ *
  * The fourth override, the admin retire and restore, keeps its `integration_retire`
  * row and adds the reason to the owner's row (`lib/integration-retire.ts`).
  *
@@ -48,6 +51,7 @@ export const AECI_OVERRIDE_NOTIFICATION_IDS = {
   seat_revoked: 'portal-seat-revoked-by-aeci',
   field_corrected: 'portal-field-corrected-by-aeci',
   field_lock_lifted: 'portal-field-lock-lifted-by-aeci',
+  license_revoked: 'portal-license-revoked-by-aeci',
 } as const satisfies Record<AeciOverrideNotificationEvent, PortalNotificationId>;
 
 export type AeciOverridePortalNotificationId =
@@ -80,6 +84,10 @@ export interface AeciOverrideNotificationMetadata {
   value?: string | null;
   /** `field_corrected` / `field_lock_lifted`: the `field_overrides` row. */
   overrideId?: string;
+  /** `license_revoked` (AECI-1371): the license, and the product it was on (`null`
+   *  when unassigned). */
+  licenseId?: string;
+  licenseProduct?: { slug: string; name: string } | null;
 }
 
 type Actor = { actorId: string | null; actorType: AuditLogEntry['actorType'] };
@@ -122,7 +130,15 @@ type EventInput =
           integrationName: string | null;
           pairSlugs: readonly [string, string] | null;
         }
-    ));
+    ))
+  | {
+      event: 'license_revoked';
+      /** Files under the account, like every license row (`lib/license.ts`). */
+      billingAccountId: string;
+      licenseId: string;
+      /** The product the license was on. `null`: it was unassigned. */
+      product: { id: string; slug: string; name: string } | null;
+    };
 
 /**
  * The `notification.sent` row for one AECi override, to one vendor. Push it into the
@@ -182,6 +198,16 @@ export function aeciOverrideNotificationAudit(
       };
       entity = { entityType: input.entityType, entityId: input.entityId };
       break;
+    case 'license_revoked':
+      metadata = {
+        ...base,
+        licenseId: input.licenseId,
+        licenseProduct: input.product
+          ? { slug: input.product.slug, name: input.product.name }
+          : null,
+      };
+      entity = { entityType: 'billing_account', entityId: input.billingAccountId };
+      break;
   }
   return {
     actorId: actor.actorId,
@@ -197,6 +223,7 @@ export function aeciOverrideNotificationAudit(
     input.entityType === 'product'
       ? { productId: input.entityId }
       : {}),
+    ...(input.event === 'license_revoked' && input.product ? { productId: input.product.id } : {}),
     metadata,
   };
 }

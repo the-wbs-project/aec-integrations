@@ -104,6 +104,10 @@ export const ApiErrorCode = {
   // or billing account), or a grant that lost a race on the license ids (409).
   // Nothing was written. An exact repeat is a 200 replay, never this.
   LICENSE_GRANT_CONFLICT: 'LICENSE_GRANT_CONFLICT',
+  // AECI-1371: `PATCH /api/admin/licenses/:id` `extend` or `reference` on a license
+  // whose source is `stripe` (409). Stripe owns that license's term and its invoice.
+  // Nothing was written. A revoke of a Stripe license is allowed.
+  LICENSE_SOURCE_STRIPE: 'LICENSE_SOURCE_STRIPE',
   // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
   // owner's restore of a row AECi retired: only an admin restores an admin retire.
   // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner

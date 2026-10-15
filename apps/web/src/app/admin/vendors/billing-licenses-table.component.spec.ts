@@ -1,10 +1,11 @@
 /**
  * AECI-1372 (E4.3): the Billing tab body. Flags, the ban banner, the dash cells for
- * absent Stripe fields, the empty states, and the E4.2 row-actions seam.
+ * absent Stripe fields, the empty states, and the E4.2 row-actions seam, with the
+ * AECI-1371 `LicenseRowActions` mounted in it.
  */
 import { Component, TemplateRef, provideZonelessChangeDetection, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { AdminBillingLicense, AdminVendorBillingResponse } from '@aeci/shared';
 
@@ -13,6 +14,8 @@ import {
   toBillingLicenseRow,
   type BillingLicenseRowContext,
 } from './billing-licenses-table';
+import { AdminLicensesApi } from './admin-licenses-api';
+import { LicenseRowActions } from './license-row-actions';
 
 function makeLicense(over: Partial<AdminBillingLicense> = {}): AdminBillingLicense {
   return {
@@ -143,11 +146,13 @@ describe('BillingLicensesTable', () => {
     expect(el.textContent).toContain('Ended Oct 10, 2026, lapsed');
   });
 
-  it('says "No billing account" plainly and lists no licenses', () => {
+  it('says the vendor has no billing account, that it is a bug to file, and lists no licenses', () => {
     const { el } = mount(makeBilling({ billing_account: null, licenses: [] }));
-    expect(el.querySelector('[data-testid="billing-no-account"]')?.textContent).toContain(
-      'No billing account',
-    );
+    const note = el.querySelector('[data-testid="billing-no-account"]')?.textContent ?? '';
+    expect(note).toContain('This vendor has no billing account.');
+    expect(note).toContain('The E1.5 back-fill should have created one');
+    expect(note).toContain('this is a bug: file it in Linear');
+    expect(note).not.toContain('Report it to the team');
     expect(el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]')).toBeNull();
   });
 
@@ -228,6 +233,58 @@ describe('BillingLicensesTable', () => {
     expect(buttons.map((b) => b.textContent?.trim())).toEqual([
       'Act on 00000000-0000-4000-8000-000000000001',
     ]);
+  });
+
+  it('with the E4.2 row actions (AECI-1371): live rows act, Stripe revokes only, ended rows offer nothing', () => {
+    @Component({
+      imports: [BillingLicensesTable, LicenseRowActions],
+      template: `
+        <ng-template #actions let-row>
+          <aec-license-row-actions [row]="row" [idPrefix]="'l-' + row.license.id" />
+        </ng-template>
+        <aec-billing-licenses-table
+          [billing]="billing"
+          [loading]="false"
+          [failed]="false"
+          [rowActions]="actions"
+        />
+      `,
+    })
+    class Host {
+      billing = makeBilling({
+        licenses: [
+          makeLicense({ id: 'live-invoice' }),
+          makeLicense({ id: 'live-stripe', source: 'stripe', reference: null }),
+          makeLicense({
+            id: 'ended',
+            live: false,
+            ended_at: '2026-10-10T00:00:00.000Z',
+            end_reason: 'revoked',
+          }),
+        ],
+      });
+      readonly actions = viewChild<TemplateRef<BillingLicenseRowContext>>('actions');
+    }
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        { provide: AdminLicensesApi, useValue: { updateLicense: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+    const rows = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[data-testid="billing-license-row"]',
+      ),
+    ];
+    const labels = rows.map((r) =>
+      [...r.querySelectorAll('aec-license-row-actions button')].map((b) => b.textContent?.trim()),
+    );
+    expect(labels).toEqual([['Extend', 'Change reference', 'Revoke'], ['Revoke'], []]);
+    expect(rows[2]!.textContent).toContain('Ended Oct 10, 2026, revoked by AEC Integrations');
+    expect(rows[2]!.textContent).toContain('No actions on an ended license');
   });
 });
 

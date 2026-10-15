@@ -384,6 +384,12 @@ describe('VendorNotificationsList', () => {
       'AEC Integrations removed a seat from your vendor account',
       'Pat Example',
     ],
+    [
+      'license_revoked',
+      { license_product: { slug: 'summit', name: 'Summit Field' } },
+      'AEC Integrations ended a Managed license',
+      'Summit Field is on the Free plan now. Everything you entered stays live',
+    ],
   ] as const)(
     'renders an AECi override `%s` row with its reason and the dispute route (AECI-1159)',
     async (event, extra, title, detail) => {
@@ -451,6 +457,32 @@ describe('VendorNotificationsList', () => {
       expect(body).not.toContain('The new logo is live');
     },
   );
+
+  it('says an unassigned license revoke changed no plan (AECI-1371)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c2f9',
+          event: 'license_revoked',
+          reason: 'Granted by mistake.',
+          integration_id: null,
+          integration_name: null,
+          field: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          license_product: null,
+          created_at: '2026-10-04T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations ended a Managed license');
+    expect(body).toContain('The license was not on a product, so no product changed plan.');
+    expect(body).toContain('Reason: Granted by mistake.');
+    expect(body).not.toContain('Free plan');
+  });
 
   it('names the overwritten field in the note (AECI-1159)', async () => {
     getNotifications.mockResolvedValue({

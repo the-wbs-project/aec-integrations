@@ -9,6 +9,7 @@ import {
 } from '../entitlements';
 
 import { EntitlementTermDateSchema } from './admin-entitlements';
+import { AdminOverrideReasonSchema } from './admin-reason';
 
 /**
  * Admin license grant contracts (AECI-1370, E4.1; `docs/VENDOR_SIGNUP_PROCESS.md` §3
@@ -95,3 +96,74 @@ export const GrantLicensesResponseSchema = z.object({
   warnings: z.array(GrantLicensesWarningSchema),
 });
 export type GrantLicensesResponse = z.infer<typeof GrantLicensesResponseSchema>;
+
+// ─── PATCH /api/admin/licenses/:id (AECI-1371, E4.2) ────────────────────────
+//
+// Edit one license: move its end date, change its invoice reference, or revoke it.
+// `docs/VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 11, decisions 11 and 14;
+// `STAGE_2_PAID_TIERS_SPEC.md` §5.2.
+//
+// Every action is refused on an ended license (422 `INVALID_STATE_TRANSITION`): there
+// is no un-end, and a new license is a new grant. A Stripe license refuses `extend`
+// and `reference` (409 `LICENSE_SOURCE_STRIPE`): Stripe owns its term and its invoice.
+
+/**
+ * `extend`: a new scheduled end. It must fall strictly after the current end, as
+ * instants. A license with no end date (an open-ended complimentary back-fill, ruled
+ * 2026-10-14) takes any end after now and after its start: this is how AECi sets the
+ * date it deferred.
+ */
+export const ExtendLicenseSchema = z
+  .object({
+    action: z.literal('extend'),
+    ends_at: EntitlementTermDateSchema,
+  })
+  .strict();
+
+/** `reference`: a new invoice number or PO. Invoice licenses only. Never blank. */
+export const ReferenceLicenseSchema = z
+  .object({
+    action: z.literal('reference'),
+    reference: z.string().trim().min(1).max(LICENSE_GRANT_REFERENCE_MAX),
+  })
+  .strict();
+
+/**
+ * `revoke`: end the license now (`end_reason = 'revoked'`). Mirrors
+ * `AdminRevokeSeatSchema`: `reason` is required and the vendor reads it in its portal
+ * messages; `internalNote` is optional and stays in the audit row. The license keeps
+ * its product as history (decision 14). The product drops to Free because no live
+ * license holds it any more.
+ */
+export const RevokeLicenseSchema = AdminOverrideReasonSchema.extend({
+  action: z.literal('revoke'),
+}).strict();
+
+/** Body for `PATCH /api/admin/licenses/:id`. Discriminated on `action`. */
+export const UpdateLicenseSchema = z.discriminatedUnion('action', [
+  ExtendLicenseSchema,
+  ReferenceLicenseSchema,
+  RevokeLicenseSchema,
+]);
+export type UpdateLicenseInput = z.infer<typeof UpdateLicenseSchema>;
+/** What a client sends: `internalNote` may be absent (the parsed type always has the key). */
+export type UpdateLicenseBody = z.input<typeof UpdateLicenseSchema>;
+export type UpdateLicenseAction = UpdateLicenseInput['action'];
+
+/** One license as it stands after the edit. */
+export const AdminUpdatedLicenseSchema = AdminGrantedLicenseSchema.extend({
+  ended_at: z.string().nullable(),
+  end_reason: z.string().nullable(),
+});
+export type AdminUpdatedLicense = z.infer<typeof AdminUpdatedLicenseSchema>;
+
+/** Response for `PATCH /api/admin/licenses/:id` (200). */
+export const UpdateLicenseResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  action: z.enum(['extend', 'reference', 'revoke']),
+  /** `false`: the license already stood as asked (the same reference). Nothing written. */
+  changed: z.boolean(),
+  license: AdminUpdatedLicenseSchema,
+});
+export type UpdateLicenseResponse = z.infer<typeof UpdateLicenseResponseSchema>;

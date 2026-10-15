@@ -43,6 +43,7 @@ import { GrantLicensesControl } from './grant-licenses-control';
 import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BillingLicensesTable } from './billing-licenses-table';
+import { LicenseRowActions } from './license-row-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
@@ -141,6 +142,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     PlanPricingControl,
     GrantLicensesControl,
     BillingLicensesTable,
+    LicenseRowActions,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
@@ -384,6 +386,13 @@ export class VendorDetail {
   /** A grant wrote N licenses and one `license.granted` row per license
    *  (AECI-1370). The Billing tab's license list and the audit trail both reload. */
   protected onLicensesGranted(): void {
+    void this.loadBilling();
+    void this.loadAudit();
+  }
+
+  /** A license was extended, re-referenced or revoked (AECI-1371). Each writes an
+   *  audit row and changes the license row, so both reload. */
+  protected onLicenseChanged(): void {
     void this.loadBilling();
     void this.loadAudit();
   }

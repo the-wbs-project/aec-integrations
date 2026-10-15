@@ -1588,6 +1588,95 @@ export function sendLicensesGrantedEmail(
   });
 }
 
+// ─── Managed ended (AECI-1371, E4.2) ──────────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §3 step 10: "Managed has ended for <products>." A license
+// on a product ended, so the product is on Free (decision 14, the hand-back). Sent
+// post-commit by the admin revoke (`PATCH /api/admin/licenses/:id`) to every unbanned
+// seat and to the billing email when set. E6's term-end job reuses this sender for a
+// lapse, so the subject takes several products and a cause, not a revoke's fields.
+
+/** Why the license ended. The `LICENSE_END_REASONS` vocabulary. */
+export type ManagedEndedCause = 'revoked' | 'lapsed' | 'released';
+
+/** What one `managed-ended` email describes. */
+export interface ManagedEndedSubject {
+  to: string;
+  vendorName: string;
+  /** The products that left Managed. One for a revoke; a lapse may end several. */
+  products: readonly { slug: string; name: string }[];
+  cause: ManagedEndedCause;
+  /** AECi's vendor-visible reason, on a revoke. Never an internal note. */
+  reason: string | null;
+}
+
+/** "A", "A and B", "A, B and C". */
+function listNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * `managed-ended`: tells a vendor that one or more of its products left Managed, why,
+ * and that nothing it entered is removed. Replies go to `SUPPORT_EMAIL`, because the
+ * way back to Managed is a reply until E9 ships a buy button.
+ */
+export function sendManagedEndedEmail(
+  c: EmailContext,
+  opts: ManagedEndedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const names = opts.products.map((p) => p.name.trim() || p.slug);
+  const subjectNames = listNames(names) || 'your product';
+  const one = names.length <= 1;
+  const company = opts.vendorName.trim();
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const others = company ? `${company}'s other products` : 'Your other products';
+  const lead = `Managed has ended for ${subjectNames} on AEC Integrations. ${one ? 'It is' : 'They are'} on the Free plan from today. ${others} keep their plans.`;
+  const license = one ? 'the license' : 'the licenses';
+  const reason = opts.reason?.trim();
+  const why =
+    opts.cause === 'revoked'
+      ? reason
+        ? `AEC Integrations ended ${license}. Reason: ${reason}`
+        : `AEC Integrations ended ${license}.`
+      : opts.cause === 'lapsed'
+        ? `${one ? 'The license' : 'The licenses'} reached ${one ? 'its' : 'their'} end date and ${one ? 'was' : 'were'} not renewed.`
+        : `${one ? 'The license was' : 'The licenses were'} released.`;
+  const handback =
+    'Everything your team entered stays live, and nothing is deleted. Your team can no longer edit the Managed fields, and AEC Integrations may update them again.';
+  const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
+
+  const render = (link: LinkTagger): EmailContent => {
+    const paragraphs = [lead, why, handback, back];
+    const textParagraphs = [...paragraphs];
+    const htmlParagraphs = paragraphs.map(escapeHtml);
+    for (const [i, product] of opts.products.entries()) {
+      const url = productUrl(c.env, product.slug);
+      if (!url) continue;
+      const tagged = link(url);
+      textParagraphs.push(`${names[i]}: ${tagged}`);
+      htmlParagraphs.push(`<a href="${escapeHtml(tagged)}">${escapeHtml(names[i] ?? '')}</a>`);
+    }
+    const portal = portalUrl(c.env);
+    if (portal) {
+      const tagged = link(portal);
+      textParagraphs.push(`Open the vendor portal: ${tagged}`);
+      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
+    }
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'managed-ended',
+    subject: `Managed has ended for ${subjectNames}`,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
  *  captured from `session.email` BEFORE the `auth.users` row is erased. */
 export function sendAccountDeletionEmail(

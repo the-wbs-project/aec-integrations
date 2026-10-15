@@ -56,6 +56,7 @@ import {
   sendReviewRejectedEmail,
   sendProductRequestDecidedEmail,
   sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
   vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
@@ -3549,5 +3550,77 @@ describe('licenses-granted (AECI-1370)', () => {
       string
     >;
     expect(headers['Idempotency-Key']).toContain('licenses-granted:g-1:hash');
+  });
+});
+
+describe('managed-ended (AECI-1371)', () => {
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+  const base = {
+    to: 'seat@bentley.example',
+    vendorName: 'Bentley',
+    dedupeKey: 'managed-ended:lic-1:hash',
+  };
+
+  it('a revoke: names the product, the reason, Free, and that nothing is removed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [{ slug: 'microstation', name: 'MicroStation' }],
+      cause: 'revoked',
+      reason: 'The invoice was <not> paid.',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Managed has ended for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('Managed has ended for MicroStation on AEC Integrations.');
+    expect(text).toContain('It is on the Free plan from today.');
+    expect(text).toContain("Bentley's other products keep their plans.");
+    expect(text).toContain(
+      'AEC Integrations ended the license. Reason: The invoice was <not> paid.',
+    );
+    expect(text).toContain('Everything your team entered stays live, and nothing is deleted.');
+    expect(text).toContain('https://www.aecintegrations.com/products/microstation');
+    expect(String(body.html)).toContain('&lt;not&gt;');
+    expect(String(body.html)).not.toContain('<not>');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    const headers = (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers as Record<
+      string,
+      string
+    >;
+    expect(headers['Idempotency-Key']).toContain('managed-ended:lic-1:hash');
+  });
+
+  it('a lapse of several products (E6): lists them and has no reason line', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [
+        { slug: 'a', name: 'Alpha' },
+        { slug: 'b', name: 'Beta' },
+        { slug: 'c', name: 'Gamma' },
+      ],
+      cause: 'lapsed',
+      reason: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Managed has ended for Alpha, Beta and Gamma');
+    const text = String(body.text);
+    expect(text).toContain('They are on the Free plan from today.');
+    expect(text).toContain('The licenses reached their end date and were not renewed.');
+    expect(text).not.toContain('Reason:');
+  });
+
+  it('a release reads in the singular', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [{ slug: 'a', name: 'Alpha' }],
+      cause: 'released',
+      reason: null,
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('The license was released.');
   });
 });

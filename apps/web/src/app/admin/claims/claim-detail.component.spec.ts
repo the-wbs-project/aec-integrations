@@ -481,10 +481,10 @@ describe('ClaimDetail', () => {
     });
   });
 
-  it('points "Manage entitlement" at the vendor Billing tab (AECI-1372)', async () => {
+  it('points "Manage billing" at the vendor Billing tab (AECI-1372)', async () => {
     const { el } = await setup(makeApiMock(makeDetail()));
     const link = [...el.querySelectorAll('a')].find(
-      (a) => a.textContent?.trim() === 'Manage entitlement',
+      (a) => a.textContent?.trim() === 'Manage billing',
     );
     expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=billing`);
   });

@@ -29,13 +29,17 @@ import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { seedBillingAccount, seedLicense } from '../test/licenses';
-import { racingFactory } from '../test/racing-factory';
+import { loadOwnedProductLicenseState } from '../lib/license';
+import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
   LICENSE_GRANT_NAMESPACE,
   createGrantLicensesHandler,
+  createUpdateLicenseHandler,
   grantLicenseIds,
   licensesGrantedDedupeKey,
+  managedEndedDedupeKey,
   type SendLicensesGranted,
+  type SendManagedEnded,
 } from './admin-licenses';
 
 vi.mock('../posthog', () => ({
@@ -61,6 +65,7 @@ const END_ISO = '2027-06-30T00:00:00.000Z';
 let t: TestDb;
 let fetchSeatEmails: ReturnType<typeof vi.fn>;
 let sendGranted: ReturnType<typeof vi.fn>;
+let sendEnded: ReturnType<typeof vi.fn>;
 let queueSend: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
@@ -71,6 +76,7 @@ beforeEach(async () => {
       new Map(ids.map((id) => [id, `seat-${id.slice(-3)}@bentley.example`])),
   );
   sendGranted = vi.fn(async () => 'sent' as const);
+  sendEnded = vi.fn(async () => 'sent' as const);
   queueSend = vi.fn(async () => undefined);
   await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
   await t.db.insert(vendors).values([
@@ -106,6 +112,10 @@ function app(factory: DbFactory = t.factory) {
       fetchSeatEmails,
       sendGranted as unknown as SendLicensesGranted,
     ),
+  );
+  a.patch(
+    '/api/admin/licenses/:id',
+    createUpdateLicenseHandler(factory, fetchSeatEmails, sendEnded as unknown as SendManagedEnded),
   );
   return a;
 }
@@ -563,5 +573,421 @@ describe('authorization', () => {
     const token = await jwks.mintToken({ sub: ADMIN, supabaseUrl: SUPABASE_URL });
     expect((await call(token)).status).toBe(201);
     expect(await readLicenses()).toHaveLength(2);
+  });
+});
+
+// ─── PATCH /api/admin/licenses/:id (AECI-1371, E4.2) ────────────────────────
+
+describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
+  const PRODUCT = u(40);
+  const TERM_END = '2027-01-31T00:00:00.000Z';
+
+  async function patch(licenseId: string, body: unknown, factory?: DbFactory) {
+    const execCtx = fakeExecutionContext();
+    const res = await app(factory).request(
+      `/api/admin/licenses/${licenseId}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      },
+      ENV,
+      execCtx,
+    );
+    const json = (await res.json()) as JsonBody;
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+    return { status: res.status, body: json };
+  }
+
+  /** A license on VENDOR with the given source, end and reference. Live by default. */
+  async function license(
+    over: {
+      source?: string;
+      endsAt?: string | null;
+      reference?: string | null;
+      productId?: string | null;
+      endedAt?: string | null;
+    } = {},
+  ) {
+    const id = await seedLicense(t.db, VENDOR, {
+      source: over.source ?? 'invoice',
+      endsAt: over.endsAt === undefined ? TERM_END : over.endsAt,
+      productId: over.productId ?? null,
+      endedAt: over.endedAt ?? null,
+      endReason: over.endedAt ? 'lapsed' : null,
+    });
+    const reference = over.reference === undefined ? 'PO-1' : over.reference;
+    await t.db.update(licenses).set({ reference }).where(eq(licenses.id, id));
+    return id;
+  }
+
+  async function ownProduct() {
+    await t.db.insert(products).values({ id: PRODUCT, slug: 'microstation', name: 'MicroStation' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: VENDOR });
+  }
+
+  const licenseRow = async (id: string) =>
+    (await t.db.select().from(licenses).where(eq(licenses.id, id)))[0]!;
+
+  // ── extend ────────────────────────────────────────────────────────────────
+
+  it('extends the end date: one license.term_changed row, no purge, no email', async () => {
+    const id = await license();
+    const { status, body } = await patch(id, { action: 'extend', ends_at: END });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      vendor_id: VENDOR,
+      action: 'extend',
+      changed: true,
+      license: { id, ends_at: END_ISO, ended_at: null, source: 'invoice' },
+    });
+    expect((await licenseRow(id)).endsAt).toBe(END_ISO);
+    const audits = await readAudit();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: 'license.term_changed',
+      entityType: 'billing_account',
+      entityId: body.billing_account_id,
+      vendorId: VENDOR,
+      actorId: ADMIN,
+    });
+    expect(audits[0]!.metadata).toMatchObject({ license_id: id, change: 'extend' });
+    expect(queueSend).not.toHaveBeenCalled();
+    expect(sendEnded).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['equal to', '2027-01-31'],
+    ['before', '2026-12-31'],
+  ])('refuses an end %s the current end with 400, nothing written', async (_label, endsAt) => {
+    const id = await license();
+    const { status, body } = await patch(id, { action: 'extend', ends_at: endsAt });
+    expect(status).toBe(400);
+    expect(body.error).toMatchObject({ code: ApiErrorCode.VALIDATION_FAILED, field: 'ends_at' });
+    expect((await licenseRow(id)).endsAt).toBe(TERM_END);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  it('refuses extend on a Stripe license with 409 LICENSE_SOURCE_STRIPE, nothing written', async () => {
+    const id = await license({ source: 'stripe', reference: null });
+    const { status, body } = await patch(id, { action: 'extend', ends_at: '2099-01-01' });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.LICENSE_SOURCE_STRIPE);
+    expect((await licenseRow(id)).endsAt).toBe(TERM_END);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  it('sets a first end date on an open-ended license, after today only', async () => {
+    const id = await license({ source: 'complimentary', endsAt: null, reference: null });
+    const past = await patch(id, { action: 'extend', ends_at: '2026-02-01' });
+    expect(past.status).toBe(400);
+    expect(past.body.error.field).toBe('ends_at');
+    expect((await licenseRow(id)).endsAt).toBeNull();
+
+    const { status } = await patch(id, { action: 'extend', ends_at: '2099-06-30' });
+    expect(status).toBe(200);
+    expect((await licenseRow(id)).endsAt).toBe('2099-06-30T00:00:00.000Z');
+  });
+
+  // ── reference ─────────────────────────────────────────────────────────────
+
+  it('changes an invoice reference, and the same reference again writes nothing', async () => {
+    const id = await license();
+    const first = await patch(id, { action: 'reference', reference: ' INV-2 ' });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ changed: true, license: { reference: 'INV-2' } });
+    expect((await licenseRow(id)).reference).toBe('INV-2');
+    const audits = await readAudit();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({ license_id: id, change: 'reference' });
+    expect(audits[0]!.afterState).toMatchObject({ reference: 'INV-2', ends_at: TERM_END });
+
+    const again = await patch(id, { action: 'reference', reference: 'INV-2' });
+    expect(again.status).toBe(200);
+    expect(again.body.changed).toBe(false);
+    expect(await readAudit()).toHaveLength(1);
+  });
+
+  it('refuses a reference on a complimentary license (422) and on Stripe (409)', async () => {
+    const comp = await license({ source: 'complimentary', reference: null });
+    const a = await patch(comp, { action: 'reference', reference: 'INV-9' });
+    expect(a.status).toBe(422);
+    expect(a.body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+
+    const stripe = await license({ source: 'stripe', reference: null });
+    const b = await patch(stripe, { action: 'reference', reference: 'INV-9' });
+    expect(b.status).toBe(409);
+    expect(b.body.error.code).toBe(ApiErrorCode.LICENSE_SOURCE_STRIPE);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  it('refuses a blank reference with 400', async () => {
+    const id = await license();
+    const { status } = await patch(id, { action: 'reference', reference: '   ' });
+    expect(status).toBe(400);
+    expect((await licenseRow(id)).reference).toBe('PO-1');
+  });
+
+  // ── refusals shared by every action ───────────────────────────────────────
+
+  it.each([
+    { action: 'extend', ends_at: '2099-01-01' },
+    { action: 'reference', reference: 'INV-3' },
+    { action: 'revoke', reason: 'Not paid.' },
+  ])('refuses $action on an ended license with 422, nothing written', async (body) => {
+    const id = await license({ endedAt: '2026-06-01T00:00:00.000Z' });
+    const before = await licenseRow(id);
+    const { status, body: res } = await patch(id, body);
+    expect(status).toBe(422);
+    expect(res.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(await licenseRow(id)).toEqual(before);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendEnded).not.toHaveBeenCalled();
+  });
+
+  it('404s an unknown license', async () => {
+    const { status, body } = await patch(u(999), { action: 'revoke', reason: 'x' });
+    expect(status).toBe(404);
+    expect(body.error.details).toMatchObject({ resource: 'license' });
+  });
+
+  it.each([
+    ['an unknown action', { action: 'delete' }],
+    ['extend with no date', { action: 'extend' }],
+    ['an extra field', { action: 'revoke', reason: 'x', ends_at: '2099-01-01' }],
+  ])('400s %s', async (_label, body) => {
+    const id = await license();
+    expect((await patch(id, body)).status).toBe(400);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  // ── revoke ────────────────────────────────────────────────────────────────
+
+  it.each([
+    ['missing', { action: 'revoke' }],
+    ['blank', { action: 'revoke', reason: '   ' }],
+  ])('refuses a revoke with a %s reason with 400, nothing written', async (_label, body) => {
+    const id = await license();
+    const { status, body: res } = await patch(id, body);
+    expect(status).toBe(400);
+    expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    expect((await licenseRow(id)).endedAt).toBeNull();
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  it('revokes an assigned license in one batch: ended, product kept as history, product on Free', async () => {
+    await ownProduct();
+    await seedSeats();
+    const id = await license({ productId: PRODUCT });
+    // A second live license keeps the vendor verified, so only the product changes plan.
+    await license();
+    await t.db.update(vendors).set({ verified: true }).where(eq(vendors.id, VENDOR));
+    expect(await loadOwnedProductLicenseState(t.db, VENDOR)).toEqual([
+      { productId: PRODUCT, licensed: true },
+    ]);
+
+    let batches = 0;
+    const counting = wrappedFactory(t.factory, (_attempt, run) => {
+      batches += 1;
+      return run();
+    });
+    const { status, body } = await patch(
+      id,
+      { action: 'revoke', reason: 'The invoice was not paid.', internalNote: 'Ticket 42' },
+      counting,
+    );
+    expect(status).toBe(200);
+    expect(batches).toBe(1);
+    expect(body).toMatchObject({
+      action: 'revoke',
+      changed: true,
+      license: { id, end_reason: 'revoked', assigned_product_id: PRODUCT },
+    });
+
+    // Ruling P1: ended with the reason, the assignment kept as history (decision 14).
+    const row = await licenseRow(id);
+    expect(row.endedAt).not.toBeNull();
+    expect(row).toMatchObject({ endReason: 'revoked', assignedProductId: PRODUCT });
+    expect(await loadOwnedProductLicenseState(t.db, VENDOR)).toEqual([
+      { productId: PRODUCT, licensed: false },
+    ]);
+
+    const audits = await readAudit();
+    expect(audits.map((a) => a.action).sort()).toEqual(['license.revoked', 'notification.sent']);
+    const revoked = audits.find((a) => a.action === 'license.revoked')!;
+    expect(revoked).toMatchObject({
+      entityType: 'billing_account',
+      entityId: body.billing_account_id,
+      vendorId: VENDOR,
+      productId: PRODUCT,
+    });
+    expect(revoked.metadata).toMatchObject({
+      license_id: id,
+      reason: 'The invoice was not paid.',
+      reasonVisibility: 'vendor',
+      internalNote: 'Ticket 42',
+    });
+    const notice = audits.find((a) => a.action === 'notification.sent')!;
+    expect(notice).toMatchObject({ vendorId: VENDOR, productId: PRODUCT });
+    expect(notice.metadata).toMatchObject({
+      kind: 'aeci_override',
+      notificationId: 'portal-license-revoked-by-aeci',
+      event: 'license_revoked',
+      reason: 'The invoice was not paid.',
+      reasonVisibility: 'vendor',
+      licenseId: id,
+      licenseProduct: { slug: 'microstation', name: 'MicroStation' },
+    });
+    expect(JSON.stringify(notice.metadata)).not.toContain('Ticket 42');
+
+    // Post-commit: the product's tags and the vendor's.
+    expect(queueSend).toHaveBeenCalledTimes(1);
+    const purged = (queueSend.mock.calls[0]![0] as { tags: string[] }).tags;
+    expect(purged).toEqual(
+      expect.arrayContaining(['product:microstation', 'index:products', 'vendor:bentley']),
+    );
+
+    // The managed-ended email, to each unbanned seat, keyed per license and address.
+    const sent = sendEnded.mock.calls.map((call) => call[1] as JsonBody);
+    expect(sent.map((s) => s.to).sort()).toEqual([
+      'seat-500@bentley.example',
+      'seat-501@bentley.example',
+    ]);
+    expect(sent[0]).toMatchObject({
+      vendorName: 'Bentley',
+      products: [{ slug: 'microstation', name: 'MicroStation' }],
+      cause: 'revoked',
+      reason: 'The invoice was not paid.',
+      entity: { type: 'billing_account', id: body.billing_account_id },
+    });
+    expect(sent[0]!.dedupeKey).toBe(await managedEndedDedupeKey(id, sent[0]!.to));
+    expect(JSON.stringify(sent)).not.toContain('Ticket 42');
+  });
+
+  it('names no products column in the revoke batch: Managed content is untouched', async () => {
+    await ownProduct();
+    const id = await license({ productId: PRODUCT });
+    const [productBefore] = await t.db.select().from(products);
+    const sqls: string[] = [];
+    const capturing = wrappedFactory(t.factory, (_attempt, run, stmts) => {
+      for (const stmt of stmts as unknown as { toSQL(): { sql: string } }[]) {
+        sqls.push(stmt.toSQL().sql);
+      }
+      return run();
+    });
+    expect((await patch(id, { action: 'revoke', reason: 'Abuse.' }, capturing)).status).toBe(200);
+    expect(sqls.length).toBeGreaterThan(0);
+    expect(sqls.filter((sql) => /"products"/.test(sql))).toEqual([]);
+    const licenseUpdate = sqls.find((sql) => /^update "licenses"/.test(sql))!;
+    expect(licenseUpdate).not.toContain('"assigned_product_id" =');
+    expect((await t.db.select().from(products))[0]).toEqual(productBefore);
+  });
+
+  it('revokes an unassigned license: Messages row, no purge, no email', async () => {
+    await seedSeats();
+    const id = await license();
+    await license();
+    await t.db.update(vendors).set({ verified: true }).where(eq(vendors.id, VENDOR));
+    const { status } = await patch(id, { action: 'revoke', reason: 'Granted by mistake.' });
+    expect(status).toBe(200);
+    const audits = await readAudit();
+    expect(audits.map((a) => a.action).sort()).toEqual(['license.revoked', 'notification.sent']);
+    const notice = audits.find((a) => a.action === 'notification.sent')!;
+    expect(notice.metadata).toMatchObject({ event: 'license_revoked', licenseProduct: null });
+    expect(notice.productId).toBeNull();
+    expect(queueSend).not.toHaveBeenCalled();
+    expect(sendEnded).not.toHaveBeenCalled();
+  });
+
+  it('an unassigned revoke of the last live license flips verified and purges the vendor set', async () => {
+    const id = await license();
+    await t.db.update(vendors).set({ verified: true }).where(eq(vendors.id, VENDOR));
+    expect((await patch(id, { action: 'revoke', reason: 'Pilot ended early.' })).status).toBe(200);
+    const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(v!.verified).toBe(false);
+    expect(queueSend).toHaveBeenCalledWith({ tags: ['vendor:bentley'], source: 'moderation' });
+    expect(sendEnded).not.toHaveBeenCalled();
+  });
+
+  it('allows a revoke of a Stripe license', async () => {
+    const id = await license({ source: 'stripe', reference: null });
+    expect((await patch(id, { action: 'revoke', reason: 'Chargeback.' })).status).toBe(200);
+    expect((await licenseRow(id)).endReason).toBe('revoked');
+  });
+
+  it('a failing managed-ended send never fails the revoke', async () => {
+    await ownProduct();
+    await seedSeats();
+    sendEnded.mockRejectedValue(new Error('resend down'));
+    const id = await license({ productId: PRODUCT });
+    expect((await patch(id, { action: 'revoke', reason: 'Abuse.' })).status).toBe(200);
+    expect((await licenseRow(id)).endReason).toBe('revoked');
+  });
+});
+
+describe('PATCH /api/admin/licenses/:id authorization', () => {
+  const SUPABASE_URL = 'https://test-project.supabase.co';
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
+
+  let jwks: TestJwks;
+  let licenseId: string;
+  beforeAll(async () => {
+    jwks = await makeTestJwks();
+  });
+  beforeEach(async () => {
+    licenseId = await seedLicense(t.db, VENDOR, { endsAt: '2027-01-31T00:00:00.000Z' });
+  });
+
+  const call = (token?: string) => {
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.patch(
+      '/api/admin/licenses/:id',
+      requireAdmin({ getKey: jwks.getKey, dbFor: t.factory }),
+      createUpdateLicenseHandler(
+        t.factory,
+        fetchSeatEmails,
+        sendEnded as unknown as SendManagedEnded,
+      ),
+    );
+    return a.request(
+      `/api/admin/licenses/${licenseId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'revoke', reason: 'Abuse.' }),
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+      },
+      AUTHZ_ENV,
+      fakeExecutionContext(),
+    );
+  };
+  const stillLive = async () => expect((await t.db.select().from(licenses))[0]!.endedAt).toBeNull();
+
+  it('401s with no token', async () => {
+    expect((await call()).status).toBe(401);
+    await stillLive();
+  });
+
+  it('403s a vendor_admin of the license holder', async () => {
+    await t.db.insert(profiles).values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR });
+    const token = await jwks.mintToken({ sub: SEAT_A, supabaseUrl: SUPABASE_URL });
+    expect((await call(token)).status).toBe(403);
+    await stillLive();
+  });
+
+  it('403s a banned admin', async () => {
+    await t.db.insert(profiles).values({ id: u(911), role: 'admin', bannedAt: OLD_TS });
+    const token = await jwks.mintToken({ sub: u(911), supabaseUrl: SUPABASE_URL });
+    expect((await call(token)).status).toBe(403);
+    await stillLive();
+  });
+
+  it('200s an admin', async () => {
+    const token = await jwks.mintToken({ sub: ADMIN, supabaseUrl: SUPABASE_URL });
+    expect((await call(token)).status).toBe(200);
+    expect((await t.db.select().from(licenses))[0]!.endReason).toBe('revoked');
   });
 });

@@ -127,10 +127,12 @@ export function toBillingLicenseRow(
  * ── SEAMS ────────────────────────────────────────────────────────────────────
  *  - The grant control is PROJECTED into the Licenses section (`[billingGrant]`), so
  *    the page keeps wiring it to the live region and the refetch.
- *  - `rowActions` is a template rendered in an Actions column when set. E4.2 (AECI-1371)
- *    puts extend, re-reference and revoke there. Without it there is no Actions column.
+ *  - `rowActions` is a template rendered in an Actions column when set. The page puts
+ *    `LicenseRowActions` there (AECI-1371, E4.2: extend, re-reference, revoke). Without
+ *    it there is no Actions column.
  *
- * Read-only. Nothing here changes ranking or reviews, and assignment is the vendor's.
+ * Read-only itself: the writes live in the projected grant control and the row actions.
+ * Nothing here changes ranking or reviews, and assignment is the vendor's.
  * Light theme only.
  */
 @Component({

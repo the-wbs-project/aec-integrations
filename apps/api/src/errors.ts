@@ -60,6 +60,8 @@ type ResourceKind =
   // A vendor with no billing account yet, on the admin license grant (AECI-1370).
   // `details.id` is the VENDOR id: the account has none until one exists.
   | 'billing_account'
+  // One license, on the admin license edit (AECI-1371). Admin-only.
+  | 'license'
   | 'category'
   | 'audience'
   | 'phase'

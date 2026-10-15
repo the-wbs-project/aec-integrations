@@ -296,6 +296,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
 | `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
+| `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
@@ -3310,6 +3311,81 @@ A failed send never fails the response.
 | 400 | `MALFORMED_REQUEST` | the body is not JSON |
 | 404 | `NOT_FOUND` | unknown vendor (`details.resource = 'vendor'`), or the vendor has no billing account (`details.resource = 'billing_account'`, `details.id` = the vendor id) |
 | 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names licenses that do not match this request, or a racing repeat won the ids. Nothing written |
+
+Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
+rate limit's 429.
+
+#### `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2)
+
+Edit one license: move its end date, change its invoice reference, or revoke it. Behind
+`requireAdmin()` and `rateLimit('write')`. Source of truth:
+`packages/shared/src/api/admin-licenses.ts`, `apps/api/src/routes/admin-licenses.ts`;
+process: `VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 11, decisions 11 and 14.
+
+```typescript
+export const UpdateLicenseSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('extend'), ends_at: EntitlementTermDateSchema }).strict(),
+  z.object({ action: z.literal('reference'), reference: z.string().trim().min(1).max(200) }).strict(),
+  // AdminOverrideReasonSchema, as on the seat revoke: reason 1 to 1000, internalNote optional
+  z.object({ action: z.literal('revoke'), reason: AdminReasonSchema,
+    internalNote: AdminInternalNoteSchema }).strict(),
+]);
+
+export const UpdateLicenseResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  action: z.enum(['extend', 'reference', 'revoke']),
+  changed: z.boolean(), // false: the same reference again; nothing written
+  license: AdminGrantedLicenseSchema.extend({
+    ended_at: z.string().nullable(), end_reason: z.string().nullable(),
+  }),
+});
+```
+
+**Refusals, in order.** Nothing is written on any of them.
+
+1. The body fails the schema: `400`. A revoke with a missing or blank `reason` is one.
+2. No license with this id: `404`, `details.resource = 'license'`.
+3. The license has ended: `422 INVALID_STATE_TRANSITION` for every action. There is no
+   un-end; a new license is a new grant.
+4. `extend` or `reference` on a Stripe license: `409 LICENSE_SOURCE_STRIPE`.
+5. `reference` on a complimentary license: `422 INVALID_STATE_TRANSITION`
+   (`details.source`). Only an invoice license carries a reference.
+6. `extend` whose `ends_at` is not strictly after the current end, compared as instants:
+   `400 VALIDATION_FAILED`, `field: 'ends_at'`. A license with no end date yet (an
+   open-ended complimentary back-fill, ruled 2026-10-14) takes any `ends_at` after now and
+   after its start. That is how AECi sets the date it deferred.
+
+**`extend` and `reference`.** One batch from `setLicensesTermStatements`: a guarded UPDATE
+(`WHERE ended_at IS NULL`), one `license.term_changed` audit row with `metadata.change`
+naming the action, and the mirror reconcile. A moved end clears `expiry_notice_sent_at`,
+so the new term earns its own 30-day notice. A live license stays live, so no plan
+changes: no purge, no email. The same reference again is a `200` with `changed: false`.
+
+**`revoke`.** One batch: `endLicensesStatements({ endReason: 'revoked' })` stamps
+`ended_at` and `end_reason` and **never names `assigned_product_id`**, so an assigned
+license keeps its product as history (decision 14). The product drops to Free because no
+live license holds it. The batch also carries the `license.revoked` audit row
+(`metadata.reason` with `reasonVisibility = 'vendor'`, `metadata.internalNote` when given),
+the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
+(`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
+never the internal note). No statement names `products`: the Managed-field content stays.
+A Stripe license can be revoked; its subscription is not touched (E9).
+
+**Post-commit, assigned license only.** Purge `product:{slug}`, `index:products` and the
+vendor set (`vendorPurgeTags`), and send `managed-ended` to every unbanned seat and the
+billing email when set, keyed `managed-ended:{licenseId}:{recipient hash}`
+(`docs/NOTIFICATIONS.md`). An unassigned revoke purges nothing and sends no email, unless
+it ends the vendor's last live license: the mirror then flips and the vendor set is purged,
+as the grant does. A failed send never fails the response.
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | written, or `changed: false` for the same reference |
+| 400 | `VALIDATION_FAILED` / `MALFORMED_REQUEST` | refusal 1 or 6 |
+| 404 | `NOT_FOUND` | refusal 2 |
+| 409 | `LICENSE_SOURCE_STRIPE` | refusal 4 |
+| 422 | `INVALID_STATE_TRANSITION` | refusal 3 or 5 |
 
 Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
 rate limit's 429.
@@ -6822,7 +6898,7 @@ export const VendorReviewResponseNotificationSchema = z.object({  // AECI-1180
 
 Both join `VendorNotificationSchema` ahead of the attestation member, beside `integration_create` and `claim_added`, which the union block above predates.
 
-**The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`. `isAttestationNotification` names the member.
+**The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`, plus `portal-field-corrected-by-aeci` and `portal-field-lock-lifted-by-aeci` (AECI-1237) and `portal-license-revoked-by-aeci` (AECI-1371). `isAttestationNotification` names the member.
 
 ```typescript
 export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
@@ -6838,6 +6914,9 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
     .nullable().default(null),                                    // logo_overridden
   logo_cleared: z.boolean().default(false),                       // logo_overridden: removed, not replaced
   seat_name: z.string().nullable().default(null),                 // seat_revoked
+  // AECI-1237 adds field_corrected / field_lock_lifted, record_subject and value.
+  license_product: z.object({ slug: z.string(), name: z.string() })
+    .nullable().default(null),       // license_revoked (AECI-1371): its product, null when unassigned
   created_at: z.string(),
 });
 ```

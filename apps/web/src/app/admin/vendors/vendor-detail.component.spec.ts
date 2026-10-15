@@ -458,11 +458,58 @@ describe('VendorDetail', () => {
       expect(api.listAudit).toHaveBeenCalledTimes(1);
     });
 
+    it('mounts the license row actions in each license row (AECI-1371)', async () => {
+      const api = makeApiMock(makeVendor());
+      api.getBilling.mockResolvedValue(
+        makeBilling({
+          licenses: [
+            {
+              id: '00000000-0000-4000-8000-0000000000l1',
+              source: 'invoice',
+              starts_at: '2026-10-01T00:00:00.000Z',
+              ends_at: '2027-09-30T00:00:00.000Z',
+              ended_at: null,
+              end_reason: null,
+              live: true,
+              reference: 'PO-77',
+              assigned_product: null,
+              assigned_at: null,
+              release_at_renewal: false,
+              cancel_at_term_end: false,
+              cancel_reason: null,
+              stripe_subscription_id: null,
+              terms_version: null,
+              granted_by: null,
+              created_at: '2026-10-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
+      const rows = el.querySelectorAll('[data-testid="billing-license-row"]');
+      expect(rows.length).toBe(1);
+      for (const row of rows) expect(row.querySelector('aec-license-row-actions')).not.toBeNull();
+    });
+
+    it('refetches the billing view and the audit trail after a license edit (AECI-1371)', async () => {
+      const { fixture, api } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'billing',
+      );
+      api.getBilling.mockClear();
+      api.listAudit.mockClear();
+      fixture.componentInstance['onLicenseChanged']();
+      await settle();
+      expect(api.getBilling).toHaveBeenCalledTimes(1);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+    });
+
     it('offers no grant control when the vendor has no billing account', async () => {
       const api = makeApiMock(makeVendor());
       api.getBilling.mockResolvedValue(makeBilling({ billing_account: null }));
       const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
-      expect(el.textContent).toContain('No billing account');
+      expect(el.textContent).toContain('This vendor has no billing account.');
       expect(
         el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]'),
       ).toBeNull();

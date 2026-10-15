@@ -53,7 +53,7 @@ import {
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
-import { createGrantLicensesHandler } from './routes/admin-licenses';
+import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes/admin-licenses';
 import { createSetVendorPlanPricingHandler } from './routes/admin-plan-pricing';
 import {
   createAdminRevokeSeatHandler,
@@ -673,6 +673,12 @@ app.route('/', authActivity);
 //     unassigned complimentary or invoice licenses on the billing account, one
 //     `license.granted` audit row each, in one batch. Idempotent on `grant_id`.
 //     Post-commit `licenses-granted` email; purge only on a `verified` mirror flip.
+//   - PATCH  /api/admin/licenses/:id             (AECI-1371, E4.2) — `extend`,
+//     `reference` (invoice only) or `revoke` one license. Stripe refuses the first
+//     two (409); an ended license refuses all three (422). A revoke ends the license
+//     (it keeps its product as history) with `license.revoked` and the vendor's
+//     Messages row in one batch; when it was on a product, post-commit purge of the
+//     product and vendor tags and the `managed-ended` email.
 //   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
@@ -957,6 +963,15 @@ authAdmin.post(
   requireAdmin(),
   rateLimit('write'),
   createGrantLicensesHandler(),
+);
+// AECI-1371 (E4.2): extend, re-reference or revoke one license, through
+// `setLicensesTermStatements` / `endLicensesStatements` (`lib/license.ts`). A write,
+// so `rateLimit('write')` after the guard.
+authAdmin.patch(
+  '/api/admin/licenses/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateLicenseHandler(),
 );
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',

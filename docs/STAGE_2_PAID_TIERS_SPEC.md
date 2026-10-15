@@ -454,14 +454,15 @@ Implementation is the nine-move `createBanReviewerHandler` clone: preload gate (
 
 ### 5.2 Entitlement vs seat-revoke vs ban — three orthogonal actions
 
-After this epic there are three distinct "take it away" actions (a fourth row since AECI-1374 spells out what the ban of a vendor's last unbanned seat adds), and an admin clicking the wrong one expecting a different effect is a foreseeable incident. The admin UI copy must make this table true on screen:
+After this epic there are three distinct "take it away" actions (a fourth row since AECI-1374 spells out what the ban of a vendor's last unbanned seat adds, and a fifth since AECI-1371 is the license revoke, which replaces the entitlement clear at E4.6), and an admin clicking the wrong one expecting a different effect is a foreseeable incident. The admin UI copy must make this table true on screen:
 
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected. A ban of the last active seat moves open owner contests to AECi until the unban, and hands nothing back (AECI-989) | **No** |
 | **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side; **requires a body `{ reason }` since AECI-1191**, with an optional `internalNote` and a vendor-visible reason since AECI-1159; the portal revoke takes none) | one `profiles` row; the vendor's record too when it is the **last** seat (admin-side only, AECI-989) | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner`. The last seat also hands the record back to AECi: marker to `'aeci'`, claimed integrations un-claimed, owner contests to AECi (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9) | **No** |
 | **Ban the last unbanned seat** ("ban a vendor", ruled 2026-10-14, AECI-1374) | `PATCH /api/admin/reviewers/:id` | every live license on the vendor's billing accounts, any source | the seat ban above, plus every live license is flagged `cancel_at_term_end`, `cancel_reason = 'vendor-banned'`, one `license.cancel_at_term_end_set` audit row each, in the ban's batch. Nothing ends now: no plan change, no purge, no email. A license already flagged keeps its own reason. The unban clears only `vendor-banned` flags, and so does a new unbanned seat from the admin provision, the claim grant or the invite redeem (ruled 2026-10-15: a banned vendor is one with no unbanned seat). A seat **revoke**, last seat included, writes nothing in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15) | **No** (verified untouched: no license ends) |
-| **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads the same in every state since AECI-1266, "Claim <Company>" since AECI-1365, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
+| **Revoke a license** (AECI-1371, E4.2) | `PATCH /api/admin/licenses/:id` `{ action: 'revoke', reason, internalNote? }` | one license | ends the license now (`ended_at`, `end_reason = 'revoked'`). It keeps its product as history (decision 14), and the product drops to Free because no live license holds it. Its Managed text stays live; the vendor loses the edit right. The vendor's seats read the reason in Messages. When the license was on a product they also get the `managed-ended` email, and the product and vendor pages are purged. Seats untouched. Nothing refunded | **Only when it ends the vendor's last live license** (the mirror reconcile) |
+| **Clear an entitlement** (stays until E4.6) | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads the same in every state since AECI-1266, "Claim <Company>" since AECI-1365, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and ~~its claim is routed to the partnership track rather than granted here~~ *(retired 2026-10-15, AECI-1367: its claim is approved like any other and lands on Free, `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2)*. "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants nothing beyond the Free plan (zero capabilities before AECI-1214), and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
 
@@ -507,7 +508,7 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Eight (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Nine (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372, `PATCH /api/admin/licenses/:id` by AECI-1371), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
@@ -519,6 +520,7 @@ Eight (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. Requires a JSON body `{ reason, internalNote? }` (AECI-1191, AECI-1159). |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
 | `POST /api/admin/vendors/:id/licenses` | Grant N unassigned complimentary or invoice licenses on the billing account (AECI-1370, E4.1; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). In `routes/admin-licenses.ts`, through `grantLicensesStatements`. Assigns nothing. Idempotent on `grant_id`. Its batch ends with the `vendors.verified` reconcile, so a first grant turns the mirror on. Contract in `API_CONTRACTS.md` §6.10. |
+| `PATCH /api/admin/licenses/:id` | Extend, re-reference or revoke one license (AECI-1371, E4.2; `VENDOR_SIGNUP_PROCESS.md` §3 step 11). In `routes/admin-licenses.ts`, through `setLicensesTermStatements` and `endLicensesStatements`. A revoke keeps the product as history and the product drops to Free (§5.2). Contract in `API_CONTRACTS.md` §6.10. |
 
 **The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
 
@@ -661,8 +663,9 @@ Since AECI-1046 and AECI-1372 it has five, in this order: **Vendor** / **Billing
   acceptances and the early-unassign requests (empty until E4.4). A live license flagged
   `cancel_at_term_end` reads "Cancels at term end: vendor banned", and a banner tops the tab
   while any is flagged. The E4.1 grant control lives here. The Entitlement and Plan price
-  sections stay on Vendor until E4.6. `/admin/claims` "Manage entitlement" links open this
-  tab. Read-only otherwise: nothing on it changes ranking or reviews.
+  sections stay on Vendor until E4.6. `/admin/claims` "Manage billing" links (named "Manage
+  entitlement" until AECI-1371) open this tab. Each live license row carries the AECI-1371
+  actions: Extend, Change reference (invoice only) and Revoke (`ADMIN_PANEL_SPEC.md` §5.7). Read-only otherwise: nothing on it changes ranking or reviews.
 - **Integrations** (AECI-1046) is described in `ADMIN_PANEL_SPEC.md` §5.7.
 
 Three decisions worth recording:

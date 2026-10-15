@@ -2019,6 +2019,15 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   nothing. A racing repeat loses on the primary key and rolls back whole. The grant's
   `notes` go in each audit row's `metadata.notes` with `metadata.grant_id`; `licenses` has
   no notes column.
+- **The admin edit (AECI-1371, E4.2).** `PATCH /api/admin/licenses/:id`. `extend` and
+  `reference` go through `setLicensesTermStatements`; their `license.term_changed` row
+  carries `metadata.change` (`extend` or `reference`). `revoke` goes through
+  `endLicensesStatements` with `end_reason = 'revoked'`: `assigned_product_id` is kept, so
+  the ended license still names its product. Its `license.revoked` row carries
+  `metadata.reason`, `metadata.reasonVisibility = 'vendor'` and, when given,
+  `metadata.internalNote`. The vendor's Messages row (`notification.sent`, `kind =
+  'aeci_override'`, event `license_revoked`) files under the billing account too, with
+  `metadata.licenseId` and `metadata.licenseProduct`, never the internal note.
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit

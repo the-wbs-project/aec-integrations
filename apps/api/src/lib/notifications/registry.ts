@@ -651,6 +651,25 @@ export const NOTIFICATIONS = {
       "Tells a vendor's seats and its billing email that AECi granted it N complimentary or invoice Managed licenses, with the end date.",
     note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. Stripe wording waits for E9.',
   },
+  // AECI-1371 (E4.2). E6's term-end job reuses the sender for a lapse.
+  'managed-ended': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key managed-ended:{licenseId}:{recipient hash}, so one email per address per ended license.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Tells a vendor's seats and its billing email that Managed has ended for a product, why, and that its content stays live.",
+    note: 'Sent only when the ended license was on a product: an unassigned license changes no plan. A revoke carries the vendor-visible reason. Always on: the vendor learns its product left Managed only here and in portal messages.',
+  },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────
   'digest-data-quality': {
@@ -1046,6 +1065,24 @@ export const NOTIFICATIONS = {
     summary:
       'Tells a vendor that AECi lifted a field lock, so it can edit the field again, and why.',
     note: 'Goes to the vendor named on the lock when it was set. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email.',
+  },
+  // AECI-1371 (E4.2): the admin license revoke.
+  'portal-license-revoked-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per revoke, in the revoke batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      'Tells a vendor that AECi ended one of its Managed licenses now, which product it was on, and why.',
+    note: 'Goes to the vendor whose billing account held the license, on every revoke, assigned or not. Carries the reason, never the internal note. The managed-ended email goes too when the license was on a product. Not pausable: a portal row, not email.',
   },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────

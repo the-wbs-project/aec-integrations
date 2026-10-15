@@ -74,7 +74,7 @@ type FormMode = 'approve' | 'reject';
  * surface that could reach a vendor at all. **AECI-652 §5.6 moved the control
  * out** to `/admin/vendors/:id` — the surface that can reach EVERY vendor,
  * including one that never filed a claim, which is what concierge onboarding
- * needs. What is left here is a readout plus a "Manage entitlement" link.
+ * needs. What is left here is a readout plus a "Manage billing" link (AECI-1371 renamed it).
  *
  * The move is not tidying. The control carries three sentences whose drift is a
  * foreseeable incident rather than a typo — clearing is not a seat revoke and not

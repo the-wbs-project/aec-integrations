@@ -773,13 +773,22 @@
   } @else if (tab() === 'billing') {
 
   <!-- ── Billing (AECI-1372) ─────────────────────────────────────────────────
-       Read-only, plus the E4.1 grant control projected into the Licenses
-       section. The Entitlement and Plan price sections stay on the Vendor tab
-       until E4.6. -->
+       The E4.1 grant control projected into the Licenses section, and the E4.2
+       per-license actions (AECI-1371) through the table's rowActions seam. The
+       Entitlement and Plan price sections stay on the Vendor tab until E4.6. -->
+  <ng-template #licenseActions let-row>
+    <aec-license-row-actions
+      [row]="row"
+      [idPrefix]="'license-' + row.license.id"
+      (changed)="onLicenseChanged()"
+      (announce)="onAnnounce($event)"
+    />
+  </ng-template>
   <aec-billing-licenses-table
     [billing]="billing()"
     [loading]="billingLoading()"
     [failed]="billingFailed()"
+    [rowActions]="licenseActions"
     (retry)="retryBilling()"
   >
     <div billingGrant>

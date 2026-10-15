@@ -45,6 +45,7 @@ import {
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
   sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
   sendPlanInquiryAlert,
   sendListingRequestAlert,
   sendProductRequestAlert,
@@ -598,6 +599,17 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         source: 'invoice',
         endsAt: '2027-11-01T00:00:00.000Z',
         reference: 'PO-1234',
+      }),
+  },
+  'managed-ended': {
+    links: true,
+    send: (c) =>
+      sendManagedEndedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        products: [{ slug: 'microstation', name: 'MicroStation' }],
+        cause: 'revoked',
+        reason: 'The invoice was not paid.',
       }),
   },
   'entitlement-expiring-admin': {

@@ -19,7 +19,7 @@
  * since AECI-1180 an approved review of an owned product (`metadata.kind =
  * 'review'`), to every owning vendor, and AECi's decision on a vendor's reply
  * (`metadata.kind = 'review_response'`), to the reply's vendor, and since AECI-1159
- * an AECi override of a field, a logo or a seat (`metadata.kind = 'aeci_override'`),
+ * an AECi override of a field, a logo, a seat or (since AECI-1371) a license (`metadata.kind = 'aeci_override'`),
  * to the vendor that held it, with AECi's vendor-visible reason, and since AECI-1377
  * AECi's decision on a product the vendor asked us to add (`metadata.kind =
  * 'product_request'`), to the requesting vendor, with the decline reason.
@@ -540,6 +540,7 @@ function toAeciOverrideNotification(row: {
     seat_name: null,
     record_subject: null,
     value: null,
+    license_product: null,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {
@@ -575,6 +576,14 @@ function toAeciOverrideNotification(row: {
         ...base,
         event: 'seat_revoked',
         seat_name: typeof meta.seatName === 'string' ? meta.seatName : null,
+      };
+    // AECI-1371: an admin license revoke. `license_product` is the product it was on,
+    // `null` when it was unassigned.
+    case 'license_revoked':
+      return {
+        ...base,
+        event: 'license_revoked',
+        license_product: productRef(meta.licenseProduct),
       };
     // AECI-1237 (§11d.5): a field correction with a lock, and its lift. A company or
     // product row names the record in `record_subject`; an integration row uses the
