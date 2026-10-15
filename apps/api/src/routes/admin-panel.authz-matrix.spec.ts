@@ -15,8 +15,9 @@
  * `GET /api/admin/claims/:id`, by AECI-1276 with `GET /api/admin/claims/:id/audit`,
  * by AECI-859 with `GET /api/admin/subscribers`, by
  * AECI-1008 with `GET /api/admin/contests`, by AECI-1177 with
- * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, and by
- * AECI-1188 with `GET /api/admin/reindex/submissions`.
+ * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, by
+ * AECI-1188 with `GET /api/admin/reindex/submissions`, and by AECI-1362 with
+ * `GET /api/admin/vendors/:id/acceptances`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -70,6 +71,7 @@ import {
   createAdminVendorsListHandler,
 } from './admin-vendors';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
+import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
@@ -131,6 +133,11 @@ const ROUTES = [
     url: `/api/admin/vendors/${VENDOR}/products`,
   },
   { name: 'GET /api/admin/vendors/:id/audit', url: `/api/admin/vendors/${VENDOR}/audit` },
+  // AECI-1362 — the vendor's agreement acceptances, with their evidence columns.
+  {
+    name: 'GET /api/admin/vendors/:id/acceptances',
+    url: `/api/admin/vendors/${VENDOR}/acceptances`,
+  },
   // AECI-692 — the §5.8 user surface. Two reads; ban/reinstate is not here at
   // all, it reuses `PATCH /api/admin/reviewers/:id` unchanged, so this file
   // stays `get()`-shaped. The detail 404s on an unknown id and this matrix
@@ -287,6 +294,11 @@ function makeApp() {
     '/api/admin/vendors/:id/audit',
     requireAdmin(guard),
     createAdminVendorAuditHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/vendors/:id/acceptances',
+    requireAdmin(guard),
+    createAdminVendorAcceptancesHandler(t.factory),
   );
   // AECI-692. Same reasoning as `noEmails`: the record seam's default would
   // reach GoTrue, and `available: true` with an empty map is the "seam up, no
