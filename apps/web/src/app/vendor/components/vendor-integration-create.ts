@@ -56,7 +56,10 @@ import { editValueMessage } from './vendor-integration-ownership-labels';
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
  * (`/preview/vendor-dashboard/products/<slug>/integrations?create=open`), so `npx impeccable detect`, which reads
- * the first render, can see the form. Nothing in the product provides it.
+ * the first render, can see the form. Nothing in the product provides it. Since
+ * AECI-1377 the routed tab also honours `?create=open` itself (see {@link
+ * VendorIntegrationCreate.deepLink}); the token still covers the preview's other
+ * child routes and the single-page concept.
  */
 export const VENDOR_CREATE_FORM_START_OPEN = new InjectionToken<boolean>(
   'VENDOR_CREATE_FORM_START_OPEN',
