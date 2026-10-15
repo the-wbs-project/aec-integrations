@@ -1,7 +1,7 @@
 /**
  * AECI-237 / Phase 7.2 — `/legal/*` end-to-end coverage.
  *
- * The four legal pages are static, indexable, CACHEABLE content pages (§3.1: 24h
+ * The legal pages are static, indexable, CACHEABLE content pages (§3.1: 24h
  * edge), SSR-rendered from Markdown. Per page this pins the real HTTP 200, the §4
  * static-page cache headers (`s-maxage=86400`, `max-age=3600`, `Cache-Tag:
  * route:index`), that the body actually SSR-renders (no empty hydration shell),
@@ -46,6 +46,20 @@ const PAGES = [
     heading: 'Listing Accuracy Policy',
     footerLink: 'Listing accuracy',
     bodyMarker: 'Requesting a correction',
+  },
+  {
+    path: '/legal/vendor-terms',
+    title: 'Vendor Terms · AEC Integrations',
+    heading: 'Vendor Terms',
+    footerLink: 'Vendor terms',
+    bodyMarker: 'Who may claim',
+  },
+  {
+    path: '/legal/managed-plan-agreement',
+    title: 'Managed Plan Agreement · AEC Integrations',
+    heading: 'Managed Plan Agreement',
+    footerLink: 'Managed plan agreement',
+    bodyMarker: 'Renewal notice',
   },
 ] as const;
 

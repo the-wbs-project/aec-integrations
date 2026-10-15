@@ -2,6 +2,7 @@ import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
+import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
 import { LegalPage } from './legal-page';
 import type { LegalSlug } from './legal-content';
@@ -82,6 +83,131 @@ describe('LegalPage', () => {
     expect(text).toContain('We do not publish anything about a review');
   });
 
+  // The ToS `## Disputes` governing-law paragraph. Both vendor agreements copy it
+  // verbatim (AECI-1359 / AECI-1360). No arbitration, no class-action waiver
+  // (AECI-312).
+  const GOVERNING_LAW =
+    'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. The state courts located in Martin County, Florida, and the United States District Court for the Southern District of Florida have exclusive jurisdiction over any dispute arising from these terms or the service, and you consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.';
+  // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
+  const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
+
+  function paragraphs(article: Element): string[] {
+    return Array.from(article.querySelectorAll('p')).map((p) =>
+      (p.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+  }
+
+  function h2s(article: Element): string[] {
+    return Array.from(article.querySelectorAll('h2')).map((h) => h.textContent?.trim() ?? '');
+  }
+
+  it('governing law in the ToS is the sentence the vendor agreements copy', () => {
+    const article = render('terms').host.querySelector('article.aec-prose')!;
+    expect(paragraphs(article)).toContain(GOVERNING_LAW);
+  });
+
+  describe.each(['vendor-terms', 'managed-plan-agreement'] as const)(
+    '%s (AECI-1359/1360)',
+    (slug) => {
+      it('renders as an unapproved draft: one h1, version 1.0, last updated, no effective date', () => {
+        const { host } = render(slug);
+        expect(host.querySelectorAll('h1')).toHaveLength(1);
+        expect(host.textContent).toContain('Version 1.0');
+        expect(host.textContent).toContain('Last updated');
+        expect(host.textContent).not.toContain('Effective');
+        const article = host.querySelector('article.aec-prose')!;
+        expect(article.querySelector('blockquote')?.textContent).toContain('pending legal review');
+      });
+
+      it('carries the ToS governing law verbatim, the ranking sentence, and no arbitration', () => {
+        const article = render(slug).host.querySelector('article.aec-prose')!;
+        expect(paragraphs(article)).toContain(GOVERNING_LAW);
+        expect(article.textContent).toContain(RANKING);
+        expect(h2s(article)).toContain('Plans never affect ranking or reviews');
+        expect(article.textContent?.toLowerCase()).not.toContain('arbitration');
+        expect(article.textContent?.toLowerCase()).not.toContain('class action');
+        // Sits under the ToS and references it rather than restating it.
+        expect(article.querySelector('a[href="/legal/terms"]')).not.toBeNull();
+      });
+    },
+  );
+
+  it('vendor terms: a heading per VENDOR_SIGNUP_PROCESS §4 bullet and the claim-box sentence', () => {
+    const article = render('vendor-terms').host.querySelector('article.aec-prose')!;
+    expect(h2s(article)).toEqual(
+      expect.arrayContaining([
+        'Who may claim',
+        'Truthfulness',
+        'Your content and our license to publish it',
+        'We may edit or remove content',
+        'Plans never affect ranking or reviews',
+        'When Managed ends on a product',
+        'Seats and revocation',
+        'Disputes',
+      ]),
+    );
+    const text = article.textContent ?? '';
+    expect(text).toContain('"I represent this company and accept the vendor terms."');
+    // No seat exists at claim time: acceptance is against the claimant first.
+    expect(text).toContain('your email address and your claim request');
+    expect(text).toContain('recorded against your seat');
+    expect(article.querySelector('a[href="/legal/managed-plan-agreement"]')).not.toBeNull();
+  });
+
+  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, then Disputes', () => {
+    const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
+    expect(h2s(article)).toEqual([
+      'What a license is and does',
+      'Prices and billing options',
+      'Annual renewal',
+      'Monthly billing',
+      'Refunds',
+      'Licenses stay assigned until renewal',
+      'When Managed ends',
+      'Suspension and non-payment',
+      'Limit of liability',
+      'Changes to this agreement',
+      'Plans never affect ranking or reviews',
+      'Renewal notice',
+      'Disputes',
+      'Contact',
+    ]);
+  });
+
+  it('managed plan agreement: prices come from the entitlement constants, terms from §1', () => {
+    const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
+    const text = (article.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain(`$${MANAGED_ANNUAL_PRICE_CENTS / 100} a year`);
+    expect(text).toContain(`$${MANAGED_LIST_PRICE_CENTS / 100} a month`);
+    expect(text).toContain('14 days of the first charge');
+    expect(text).toContain('30 days before the renewal date');
+    expect(text).toContain('no commitment');
+    expect(text).toContain('twelve months');
+    expect(text).toContain('an AECi-recorded grant');
+    expect(text).toContain('"I have read and accept the Managed plan agreement."');
+    // Decision 6: invoice-sourced licenses are an AECi-recorded grant.
+    expect(text.toLowerCase()).not.toContain('purchase order');
+    // Counsel-open items say "Pending", never a bracketed placeholder.
+    expect(text).not.toMatch(/\[[A-Z ]+\]/);
+  });
+
+  it('managed plan agreement: the renewal notice lists date, price, count, terms change, opt-out', () => {
+    const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
+    const heading = Array.from(article.querySelectorAll('h2')).find(
+      (h) => h.textContent?.trim() === 'Renewal notice',
+    )!;
+    let list: Element | null = heading.nextElementSibling;
+    while (list && list.tagName !== 'UL') list = list.nextElementSibling;
+    const items = Array.from(list!.querySelectorAll('li')).map((li) => li.textContent?.trim());
+    expect(items).toEqual([
+      'the renewal or end date,',
+      'the price,',
+      'the number of licenses,',
+      'any change to this agreement that will bind at renewal,',
+      'how to opt out or reduce.',
+    ]);
+  });
+
   it('sets the per-slug document title chrome via MetaService', () => {
     expect(render('terms').title.getTitle()).toBe('Terms of Service · AEC Integrations');
     expect(render('privacy').title.getTitle()).toBe('Privacy Policy · AEC Integrations');
@@ -90,6 +216,10 @@ describe('LegalPage', () => {
     );
     expect(render('listing-accuracy').title.getTitle()).toBe(
       'Listing Accuracy Policy · AEC Integrations',
+    );
+    expect(render('vendor-terms').title.getTitle()).toBe('Vendor Terms · AEC Integrations');
+    expect(render('managed-plan-agreement').title.getTitle()).toBe(
+      'Managed Plan Agreement · AEC Integrations',
     );
   });
 

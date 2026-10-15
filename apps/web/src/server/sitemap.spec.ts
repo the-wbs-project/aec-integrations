@@ -286,10 +286,18 @@ describe('resolveSitemapEntries', () => {
     });
   });
 
-  it('includes the four static legal pages (AECI-237), without a lastmod', async () => {
+  it('includes the six static legal pages (AECI-237, AECI-1359/1360), without a lastmod', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const byLoc = (loc: string) => entries.find((e) => e.loc === loc);
-    for (const slug of ['terms', 'privacy', 'review-guidelines', 'listing-accuracy']) {
+    expect(entries.filter((e) => e.loc.includes('/legal/'))).toHaveLength(6);
+    for (const slug of [
+      'terms',
+      'privacy',
+      'review-guidelines',
+      'listing-accuracy',
+      'vendor-terms',
+      'managed-plan-agreement',
+    ]) {
       const entry = byLoc(`https://aecintegrations.com/legal/${slug}`);
       expect(entry, slug).toBeDefined();
       expect(entry?.changefreq).toBe('yearly');

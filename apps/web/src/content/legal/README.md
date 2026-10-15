@@ -1,6 +1,7 @@
 # Legal documents
 
-Markdown source of truth for the four launch-required legal pages (AECI-237, Phase 7.2).
+Markdown source of truth for the `/legal/*` pages: the four launch-required ones (AECI-237, Phase 7.2)
+and the two vendor agreements from `docs/VENDOR_SIGNUP_PROCESS.md` §4 (AECI-1359, AECI-1360).
 These files are the **canonical, versioned source** for the `/legal/*` pages — the site renders
 the current version of each on SSR. See `STAGE_1_SPEC.md` §13 (required documents) and §27
 (lifecycle) for the governing spec.
@@ -15,12 +16,14 @@ the current version of each on SSR. See `STAGE_1_SPEC.md` §13 (required documen
 The route slug (short, public, set by the footer links) maps to a long filename per spec §27.1.
 The mapping lives in `legal-content.ts`:
 
-| Route (public)              | Source file                   | Frontmatter `title`     |
-| --------------------------- | ----------------------------- | ----------------------- |
-| `/legal/terms`              | `terms-of-service.md`         | Terms of Service        |
-| `/legal/privacy`            | `privacy-policy.md`           | Privacy Policy          |
-| `/legal/review-guidelines`  | `review-guidelines.md`        | Review Guidelines       |
-| `/legal/listing-accuracy`   | `listing-accuracy-policy.md`  | Listing Accuracy Policy |
+| Route (public)                  | Source file                   | Frontmatter `title`     |
+| ------------------------------- | ----------------------------- | ----------------------- |
+| `/legal/terms`                  | `terms-of-service.md`         | Terms of Service        |
+| `/legal/privacy`                | `privacy-policy.md`           | Privacy Policy          |
+| `/legal/review-guidelines`      | `review-guidelines.md`        | Review Guidelines       |
+| `/legal/listing-accuracy`       | `listing-accuracy-policy.md`  | Listing Accuracy Policy |
+| `/legal/vendor-terms`           | `vendor-terms.md`             | Vendor Terms            |
+| `/legal/managed-plan-agreement` | `managed-plan-agreement.md`   | Managed Plan Agreement  |
 
 ## Frontmatter
 

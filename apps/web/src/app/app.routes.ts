@@ -586,6 +586,18 @@ export const routes: Routes = [
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'listing-accuracy' },
   },
+  // AECI-1359 / AECI-1360: the two vendor agreements (`docs/VENDOR_SIGNUP_PROCESS.md`
+  // §4), on the same LegalPage and the same `/legal/*` cache rules.
+  {
+    path: 'legal/vendor-terms',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'vendor-terms' },
+  },
+  {
+    path: 'legal/managed-plan-agreement',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'managed-plan-agreement' },
+  },
   // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
   // behind `ngDevMode` so the optimized build folds this to `[]` and never
   // references the chunk: `@angular/build` substitutes the literal `false` when

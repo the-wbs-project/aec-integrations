@@ -2163,7 +2163,7 @@ This decision is intentionally deferred — easier to introduce retention later 
 
 ## 27. Legal Document Lifecycle
 
-Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow.
+Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy, and since AECI-1359/1360 the Vendor Terms and the Managed Plan Agreement from `docs/VENDOR_SIGNUP_PROCESS.md` §4) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow.
 
 ### 27.1 Source of truth
 
@@ -2174,7 +2174,9 @@ apps/web/src/content/legal/
 ├── terms-of-service.md
 ├── privacy-policy.md
 ├── review-guidelines.md
-└── listing-accuracy-policy.md
+├── listing-accuracy-policy.md
+├── vendor-terms.md
+└── managed-plan-agreement.md
 ```
 
 Each file includes frontmatter with version and effective date:
