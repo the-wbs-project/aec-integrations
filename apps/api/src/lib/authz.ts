@@ -35,8 +35,8 @@
  * AECI-611 adds a FOURTH thing to the session, on the `requireVendor()` branch
  * only: the caller's plan (`STAGE_2_PAID_TIERS_SPEC.md` §4). Since AECI-1355 (E1.6)
  * the plan is read from `licenses`, not `vendor_entitlements`: that branch's
- * profile re-fetch becomes a three-statement `db.batch` (the profile, the vendor's
- * licenses, and its owned products holding a live license), so the plan arrives in the SAME round-trip the guard was
+ * profile re-fetch becomes a two-statement `db.batch` (the profile and the vendor's
+ * own licenses), so the plan arrives in the SAME round-trip the guard was
  * already paying for, and `requireCapability()` / `requireProductCapability()`
  * below are pure in-memory assertions. The ban check still runs FIRST — a banned
  * seat is rejected before any plan question is asked (AECI-524).

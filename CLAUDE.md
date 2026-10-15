@@ -66,7 +66,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Account onboarding ("About you", `/welcome`, review pre-fill) | `docs/ACCOUNT_ONBOARDING_SPEC.md` |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
-| Stage 2 Paid Tiers & Entitlements (`vendor_entitlements`, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
+| Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
 | Stage 2 Real-Time / Live Portal: scoped client revalidation, not sockets (ADR 0023); `GET /api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
@@ -74,7 +74,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
-| Vendor claim, licenses and billing: the agreed process (not built; epics E1 to E10) | `docs/VENDOR_SIGNUP_PROCESS.md` |
+| Vendor claim, licenses and billing: the agreed process (E1 built through E1.7; E2 to E10 not built) | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
 | Stage 2.5: retired as a stage; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md` |

@@ -1631,7 +1631,11 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   compared by parsed instant, and a date-only value reads as UTC midnight. A null `period_end` is
   perpetual and never lapses. `expired`, `revoked`, `pending` and `none` are recorded as stored.
   This is a record rule only. Session authorization and `tierFor` still trust the stored status,
-  so the write is authorized exactly as before.
+  so the write is authorized exactly as before. Since AECI-1355 the same rule runs in
+  `licensePlanSnapshot`: live licenses whose `ends_at` are all at or before the write time record
+  `expired`, and a null `ends_at` (monthly) never lapses on the clock. The vendor path reads
+  `ends_at` from the session's `licenses`, the admin path from `loadVendorLicenses`. Session
+  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants.
 - **Columns, not metadata.** The plan was stored in columns so it is typed and filterable inside
   the `vendor_id` slice, and so it cannot drift in spelling the way metadata keys did.
 - **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted
@@ -1887,10 +1891,13 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
 and 18). Licenses carry their own dates. There is no subscription table: a Stripe
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
-`apps/api/src/lib/license.ts` (AECI-1352). Its only callers today are the entitlement
-builders' dual-write (AECI-1353, below). The one-off back-fill (AECI-1354, below) also
+`apps/api/src/lib/license.ts` (AECI-1352). Its callers are the entitlement builders'
+dual-write (AECI-1353, below) and, since AECI-1356, the 11:00 expiry sweep's fence stamp
+(`expiryNoticeStampStatements`). The one-off back-fill (AECI-1354, below) also
 inserts rows, in raw SQL. `ops:retract-product` NULLs `assigned_product_id` in raw SQL when
-it retracts a product (below). E1's later issues move plan resolution onto the table.
+it retracts a product (below). **Since AECI-1355 (E1.6, 2026-10-14) this table is the truth
+for plan resolution**: a product is Managed for a vendor exactly when a live license on that
+vendor's own billing account is assigned to it (`AUTH_AND_RLS.md` §4.2b).
 
 ```sql
 create table licenses (
@@ -1987,7 +1994,10 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   live license is past its `ends_at`), else the latest ended license is `revoked` when its
   `end_reason` is `revoked` and `expired` otherwise, and no license is `none` / `none`.
 - **The dual-write period (AECI-1353, E1.4).** Until E1.6 switches the readers over,
-  `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. The three builders
+  `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. *As built: E1.6
+  (AECI-1355) switched the readers on 2026-10-14. The admin entitlement routes still write
+  `vendor_entitlements`, and this dual-write is how they reach `licenses`, until E4 replaces
+  them.* The three builders
   in `apps/api/src/lib/vendor-entitlement.ts` append the matching license batch to their
   own, in the same `db.batch`, and take a second pre-read (`loadLicenseDualWrite`: the
   account, the vendor's licenses, its owned products with their live-license state).
@@ -2214,6 +2224,9 @@ Notes:
   check is the proof the backfill actually landed on every tier.
 - **No public or read path may query this table** (§4.1). It is written by the sole-writer
   module, read by the authz guard and the two admin/vendor surfaces, and by nothing else.
+  Since AECI-1355 the authz guard and the vendor surfaces read `licenses` instead. What still
+  reads this table is the admin and retirement set that `drizzle-helpers.read-path.spec.ts`
+  pins exactly (`STAGE_2_PAID_TIERS_SPEC.md` §2.5).
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 
@@ -4495,7 +4508,7 @@ create table vendor_activity_daily (
   active_users_7d integer not null,
   active_users_30d integer not null,
   entitlement_tier text,             -- 'verified' when the vendor holds or held a license; null = never (Free)
-  entitlement_status text,           -- raw vendor_entitlements.status; null = no row
+  entitlement_status text,           -- from licenses via sessionPlanFromLicenses (AECI-1355); null = never held a license
   effective_tier text not null,      -- 'verified' iff any live license, else 'unclaimed' (Free)
   open_contests_owned integer not null,
   open_contests_filed integer not null,
@@ -4686,7 +4699,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
