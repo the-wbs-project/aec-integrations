@@ -1060,10 +1060,10 @@ Audit trail section, so the note help text's promise is kept where the note is w
 `AdminClaim.granted` is `status = 'resolved' AND resolved_by_id IS NOT NULL`. The label reads
 "Account exists (claim granted)" only when `granted` is true. A resolved claim with `granted`
 false reads "Resolved without a grant". The Linear webhook resolves a claim with
-`resolved_by_id` null, and before this it read as granted. **Known gap, not closed by
-AECI-1367:** `PATCH /api/admin/requests/:id` with `action: 'resolve'` still accepts claim
-rows and stamps `resolved_by_id`. A claim resolved that way reads as granted with no seat
-behind it. Closing that path is a separate change.
+`resolved_by_id` null, and before this it read as granted. Since AECI-1322
+(2026-10-15) the generic `PATCH /api/admin/requests/:id` refuses a claim with 422 for
+both resolve and reject. Grant and Reject here are the only site path that ends a claim,
+so `granted` is true only for a claim an operator granted.
 
 **What this screen deliberately cannot do:**
 

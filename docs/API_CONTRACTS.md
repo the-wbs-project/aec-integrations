@@ -1953,8 +1953,19 @@ export type ModerateRequestResponse = AdminVendorRequest;
 `resolved_by`/`resolved_at`, append an `audit_log` + a `workflow_transitions` row,
 and (post-commit, best-effort) push the change to the linked Linear issue (§6.5).
 
-Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
-not `open`/`in_review` (already terminal, or a concurrent action moved it).
+Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` (422) if the request is
+a claim, or is not `open`/`in_review` (already terminal, or a concurrent action moved it).
+
+*As built 2026-10-15 (AECI-1322):* this endpoint refuses every claim row
+(`kind = 'claim'`) with 422 `INVALID_STATE_TRANSITION`, for both `resolve` and
+`reject` and at any status. The message tells the operator to use Grant or Reject on
+`/admin/claims` (`PATCH /api/admin/claims/:id`). Nothing is written, no Linear sync
+fires, and the moderation counter records `outcome:invalid_state`. The kind check runs
+before the status gate. A claim therefore reaches a terminal status only through the
+claims endpoint or the inbound Linear webhook, which keeps `AdminClaim.granted`
+truthful. The endpoint has no `in_review` action, so there was nothing to keep. The
+`/admin/requests` queue already lists corrections only, so it offers no claim action.
+This is the mirror of the claims endpoint's 422 on a non-claim request.
 
 #### `GET /api/admin/listing-requests` and `PATCH /api/admin/listing-requests/:id` (AECI-1293)
 
@@ -2054,8 +2065,8 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // resolved_by_id IS NOT NULL`. The Linear webhook resolves a claim with a null
   // resolved_by_id, so it reads false. The "Claimant account" label reads "Account
   // exists (claim granted)" only when true, else "Resolved without a grant".
-  // KNOWN GAP: `PATCH /api/admin/requests/:id` action resolve still accepts claim rows
-  // and stamps resolved_by_id, so a claim resolved there reads as granted.
+  // Since AECI-1322 the generic `PATCH /api/admin/requests/:id` refuses claims, so
+  // only the claims endpoint stamps resolved_by_id on a claim.
   granted: z.boolean(),
 });
 
