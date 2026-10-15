@@ -155,15 +155,7 @@ export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
 export type ClaimDialogEntry = PlanCtaPlacement;
 
 /** A claim dialog step (`claim_dialog_step.step`). */
-export type ClaimDialogStep = 'find' | 'you' | 'plan' | 'comments' | 'done';
-
-/** The plan answer as an event property: `none` when not answered (§15.7). */
-export type PlanInterestProperty = 'free' | 'managed' | 'not_sure' | 'none';
-
-/** Map a form's `plan_interest` (`''` or an answer) to its event property. */
-export function planInterestProperty(value: string): PlanInterestProperty {
-  return value === 'free' || value === 'managed' || value === 'not_sure' ? value : 'none';
-}
+export type ClaimDialogStep = 'find' | 'you' | 'comments' | 'done';
 
 @Injectable({ providedIn: 'root' })
 export class Analytics {
@@ -316,13 +308,7 @@ export class Analytics {
   /** §14.1 names `vendor_id`, but the request form holds only `(target_type,
    *  slug)` and the response returns only `request_id` — so we record the
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
-  claimRequested(input: {
-    target_type: string;
-    slug: string;
-    request_id: string;
-    /** AECI-1293: the claimant's plan answer, `none` when not answered. */
-    plan_interest: PlanInterestProperty;
-  }): void {
+  claimRequested(input: { target_type: string; slug: string; request_id: string }): void {
     this.capture('claim_requested', { ...input });
   }
 
@@ -348,12 +334,11 @@ export class Analytics {
 
   /**
    * A typed-in listing request the API accepted (`POST /api/requests/listing` → 201,
-   * AECI-1293). Only the plan answer and the page: the name, website and email the
-   * visitor typed never leave the form. The `listing_requests` table stays the
-   * authoritative count.
+   * AECI-1293). Only the page: the name, website and email the visitor typed never
+   * leave the form. The `listing_requests` table stays the authoritative count.
    */
-  listingRequested(input: { plan_interest: PlanInterestProperty; page: PlanCtaPage }): void {
-    this.capture('listing_requested', { plan_interest: input.plan_interest, page: input.page });
+  listingRequested(input: { page: PlanCtaPage }): void {
+    this.capture('listing_requested', { page: input.page });
   }
 
   correctionRequested(input: { target_type: string; slug: string; request_id: string }): void {

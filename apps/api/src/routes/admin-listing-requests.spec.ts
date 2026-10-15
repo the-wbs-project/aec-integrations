@@ -62,7 +62,6 @@ function row(o: Partial<typeof listingRequests.$inferInsert> = {}) {
     submitterName: 'Pat Lee',
     submitterRole: 'Founder',
     submitterLinkedinUrl: null,
-    planInterest: 'managed',
     body: 'Two products.',
     status: 'open',
     createdAt: '2026-10-12T08:00:00.000Z',
@@ -119,7 +118,6 @@ describe('GET /api/admin/listing-requests', () => {
       listing_name: 'Site Diary Pro',
       website: 'https://sitediary.example.com',
       submitter_email: 'pat@sitediary.example.com',
-      plan_interest: 'managed',
       body: 'Two products.',
     });
   });
@@ -132,10 +130,12 @@ describe('GET /api/admin/listing-requests', () => {
     expect(parsed.data.map((r) => r.id)).toEqual([REQ_B]);
   });
 
-  it('reads a stored value outside the vocabulary as null, not a 500', async () => {
-    await t.db.insert(listingRequests).values(row({ planInterest: 'gold' }));
-    const parsed = ListListingRequestsResponseSchema.parse(await (await list()).json());
-    expect(parsed.data[0]!.plan_interest).toBeNull();
+  // AECI-1365: a row saved before the plan question was retired keeps its answer in
+  // the deprecated column, but the queue no longer returns it.
+  it('leaves a legacy stored plan answer out of the response', async () => {
+    await t.db.insert(listingRequests).values(row({ planInterest: 'managed' }));
+    const body = (await (await list()).json()) as { data: Array<Record<string, unknown>> };
+    expect(body.data[0]).not.toHaveProperty('plan_interest');
   });
 });
 

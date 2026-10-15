@@ -1311,9 +1311,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
-//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
-//                     plan_interest ('' | 'free' | 'managed' | 'not_sure',
-//                                    key omittable, AECI-1293) }
+//                     submitter_linkedin_url ('' or a LinkedIn URL ≤200) }
 ```
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
@@ -1327,7 +1325,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 
 A correction keeps its product or vendor target.
 
-**`plan_interest` (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The claimant's answer to "Which plan are you interested in?", asked by the claim dialog, the claim page and the claim drawer. Optional: `''` means not answered and is stored as `NULL` in `vendor_requests.plan_interest`. The KEY carries `.default('')`, like `submitter_linkedin_url`, because the endpoint already serves production traffic. It is informational for the reviewer and never preselects the approve form's plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The column has no CHECK, so `PlanInterestSchema` is the only place the vocabulary is enforced. The dialog's "Additional comments" is this endpoint's `body`; there is no separate comments field.
+**No plan field (AECI-1365, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** AECI-1293 added an optional `plan_interest`. AECI-1365 removed it (`VENDOR_SIGNUP_PROCESS.md` decision 2). Zod strips unknown keys, so a body that still carries `plan_interest` validates, returns `201`, and the key is dropped. Nothing writes `vendor_requests.plan_interest` any more. The dialog's "Additional comments" is this endpoint's `body`. There is no separate comments field.
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
 
@@ -1361,7 +1359,7 @@ export const ListingRequestSchema = ClaimFormSchema.extend({
 // No target: the listing is not in the catalog yet.
 ```
 
-Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `plan_interest` and `has_linkedin`, never the typed name, website or email. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id; nothing goes to the submitter. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `has_linkedin`, never the typed name, website or email. It held `plan_interest` too until AECI-1365 removed the field. A body that still sends it returns `201` and the key is dropped. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id; nothing goes to the submitter. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
 
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
 
@@ -1893,9 +1891,7 @@ export const AdminVendorRequestSchema = z.object({
   // any claim predating the column. `/admin/claims` renders it as the reviewer's
   // primary person link and falls back to the built name-search URL when null.
   submitter_linkedin_url: z.string().nullable(),
-  // AECI-1293: the claimant's plan answer, `free | managed | not_sure`, or null when
-  // not answered, for a correction, or before the column. Informational only.
-  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
+  // AECI-1365 removed `plan_interest` (the AECI-1293 plan answer) from this shape.
   // Surfaced VERBATIM from the DB (`pending|match|no_match|manual_review`). This
   // deviates from §7.1's yes/no framing; computing it is a 6.8 (AECI-215)
   // concern, so until that lands every row reads `pending`.
@@ -1986,7 +1982,7 @@ export const AdminListingRequestSchema = z.object({
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
   submitter_linkedin_url: z.string().nullable(),
-  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
+  // AECI-1365 removed `plan_interest` from this shape.
   body: z.string(), // "Additional comments", '' when none
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),

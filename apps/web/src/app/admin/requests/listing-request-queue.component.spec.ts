@@ -25,7 +25,6 @@ function row(over: Partial<AdminListingRequest> = {}): AdminListingRequest {
     submitter_name: 'Pat Lee',
     submitter_role: 'Founder',
     submitter_linkedin_url: null,
-    plan_interest: 'managed',
     body: 'Two products.',
     created_at: '2026-10-12T08:00:00.000Z',
     resolved_at: null,
@@ -74,7 +73,7 @@ describe('ListingRequestQueue', () => {
     expect(text(card.querySelector('h3'))).toBe('Site Diary Pro');
     expect(text(card)).toContain('https://sitediary.example.com');
     expect(text(card)).toContain('pat@sitediary.example.com · Pat Lee · Founder');
-    expect(text(card)).toMatch(/Plan interest\s*Managed/);
+    expect(text(card)).not.toContain('Plan interest');
     expect(text(card)).toContain('Comments Two products.');
     const site = card.querySelector('a')!;
     expect(site.getAttribute('target')).toBe('_blank');

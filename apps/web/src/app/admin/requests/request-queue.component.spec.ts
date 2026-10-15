@@ -48,7 +48,6 @@ function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminV
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
     submitter_linkedin_url: over.submitter_linkedin_url ?? null,
-    plan_interest: over.plan_interest ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,

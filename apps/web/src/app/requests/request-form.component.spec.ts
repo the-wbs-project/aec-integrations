@@ -410,36 +410,27 @@ describe('RequestForm', () => {
     });
   });
 
-  // ── AECI-1293: the plan question and "Additional comments" (spec §15.6) ─────
-  it('asks the optional plan question with nothing preselected, and relabels the note', () => {
+  // ── AECI-1365: no plan question; the note reads "Additional comments" ───────
+  it('asks no plan question, and labels the note "Additional comments"', () => {
     const { el } = setup('product', 'claim');
-    const fieldset = el.querySelector('aec-plan-interest-field fieldset')!;
-    expect(fieldset.querySelector('legend')?.textContent).toContain(
-      'Which plan are you interested in?',
-    );
-    const radios = [...fieldset.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios.map((r) => r.value)).toEqual(['free', 'managed', 'not_sure']);
-    expect(radios.every((r) => !r.checked)).toBe(true);
+    expect(el.textContent).not.toContain('Which plan are you interested in?');
+    expect(el.querySelector('input[type="radio"]')).toBeNull();
     expect(el.querySelector('label[for="claim-body"]')?.textContent).toContain(
       'Additional comments',
     );
-    // A correction asks no plan question.
-    TestBed.resetTestingModule();
-    const correction = setup('product', 'correction');
-    expect(correction.el.querySelector('aec-plan-interest-field')).toBeNull();
   });
 
-  it('submits the chosen plan with the claim', async () => {
+  it('submits a claim with no plan answer', async () => {
     const { fixture, el, api } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
-    el.querySelector<HTMLInputElement>('input[type="radio"][value="managed"]')!.click();
     await settle();
     fixture.detectChanges();
     (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
     await settle();
     fixture.detectChanges();
-    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ plan_interest: 'managed' });
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    expect(api.submitClaim.mock.calls[0]![1]).not.toHaveProperty('plan_interest');
   });
 
   // ── AECI-847: the optional LinkedIn profile field ─────────────────────────

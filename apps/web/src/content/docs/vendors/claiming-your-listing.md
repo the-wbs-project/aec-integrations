@@ -12,7 +12,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 ## Send a claim
 
-Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose **Claim this listing**. A claim is also how you join your company's account when a colleague already has a seat.
+Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose the claim button. It names your company, for example **Claim Acme Software**. A claim is also how you join your company's account when a colleague already has a seat.
 
 If your product or company is not listed, choose **Not listed? Type it in** and give its name and website. We add it to the directory, then email you so you can finish your claim.
 
@@ -21,7 +21,6 @@ The form asks for:
 - **Your name** and **Your role at the company**.
 - **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
-- **Which plan are you interested in? (optional)** Free, Managed or not sure yet. It helps us plan the conversation. We still confirm the plan with you before anything is billed. [Plans](/docs/vendors/plans) explains both.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
 
 Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next.

@@ -399,8 +399,10 @@ describe('POST /api/requests/claim', () => {
   });
 });
 
-// ─── AECI-1293: the plan answer and the comments ─────────────────────────────
-describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
+// ─── AECI-1365: the retired plan question ─────────────────────────────────────
+// An old client may still send the plan answer. The schema strips it, so the claim
+// still lands (201) and nothing stores or records it.
+describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-1365)', () => {
   const body = {
     target_type: 'vendor',
     slug: 'acme-co',
@@ -416,52 +418,19 @@ describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
       fakeExecutionContext(),
     );
 
-  it('stores the plan answer and the comments, and records the answer in the audit row', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: 'managed', body: 'We have four products.' });
-    expect(res.status).toBe(201);
-    const { row } = await createdRow(res);
-    expect(row?.planInterest).toBe('managed');
-    expect(row?.body).toBe('We have four products.');
-    const [audit] = await t.db.select().from(auditLog);
-    expect(audit!.metadata).toMatchObject({ plan_interest: 'managed' });
-  });
-
-  it('stores NULL when the key is absent, so a body that predates the field still validates', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({});
-    expect(res.status).toBe(201);
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
-  });
-
-  it('stores NULL for "" (not answered)', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: '' });
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
-  });
-
-  it('rejects a value outside the vocabulary and writes nothing', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: 'enterprise' });
-    expect(res.status).toBe(400);
-    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
-  });
-
-  it('leaves the key off a correction audit row', async () => {
-    await seedProduct({ slug: 'acme-build' });
-    const res = await submitCorrection({
-      target_type: 'product',
-      slug: 'acme-build',
-      body: 'The founding year on this listing is wrong; it should read 2009.',
-      source_url: '',
-      submitter_email: 'reporter@example.com',
-    });
-    expect(res.status).toBe(201);
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
-    const [audit] = await t.db.select().from(auditLog);
-    expect(audit!.metadata).not.toHaveProperty('plan_interest');
-  });
+  it.each(['managed', '', 'enterprise'])(
+    'returns 201 for plan_interest %j and stores and audits nothing for it',
+    async (value) => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submit({ plan_interest: value, body: 'We have four products.' });
+      expect(res.status).toBe(201);
+      const { row } = await createdRow(res);
+      expect(row?.planInterest).toBeNull();
+      expect(row?.body).toBe('We have four products.');
+      const [audit] = await t.db.select().from(auditLog);
+      expect(audit!.metadata).not.toHaveProperty('plan_interest');
+    },
+  );
 });
 
 // ─── AECI-1364: a claim is on the company ──────────────────────────────────────
@@ -815,7 +784,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     expect(sent.text).toContain('dana@acme.com');
   });
 
-  it('carries the plan answer as a row (AECI-1293)', async () => {
+  it('has no plan row, even when an old client sends the key (AECI-1365)', async () => {
     const fetchMock = resendOkFetch();
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
@@ -829,7 +798,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
       text: string;
     };
-    expect(sent.text).toContain('Plan interest: Not sure yet');
+    expect(sent.text).not.toContain('Plan interest');
   });
 
   it('carries the Linear permalink and the admin deep link (AECI-861)', async () => {

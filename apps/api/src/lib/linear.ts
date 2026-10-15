@@ -51,7 +51,6 @@ import { integrationFieldChallenges, vendorRequests, workflowInstances } from '.
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
-import { planInterestText } from './email';
 import type { LinearNotificationId } from './notifications/registry';
 import { adminContestUrl, adminRequestUrl, environmentHost, publicPairUrl } from './request-links';
 
@@ -417,8 +416,6 @@ export interface LinearIssueInput {
   submitterRole?: string | null;
   /** AECI-847 identity signal (claims only): the claimant's own LinkedIn profile. */
   submitterLinkedinUrl?: string | null;
-  /** AECI-1293: "Which plan are you interested in?" (claims only), or null. */
-  planInterest?: string | null;
   /** AECI-1364: the product page a claim came from (`vendor_requests.context_product_id`),
    *  or null. The target is the company; this names where the claimant started. */
   contextProduct?: { name: string; slug: string } | null;
@@ -1042,7 +1039,6 @@ function buildDescription(env: Env, input: LinearIssueInput): string {
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
   if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
   if (input.submitterLinkedinUrl) lines.push(`**LinkedIn:** ${input.submitterLinkedinUrl}`);
-  if (input.planInterest) lines.push(`**Plan interest:** ${planInterestText(input.planInterest)}`);
   lines.push(`**Domain match:** ${input.domainMatch ?? 'pending'}`);
 
   const host = environmentHost(env);

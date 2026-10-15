@@ -3,8 +3,9 @@
  *
  * Both paths against a mocked search index and mocked submit endpoints, so nothing
  * leaves the machine and no row is written: a found listing sends
- * `POST /api/requests/claim` with the plan answer and the comments, a typed-in listing
- * sends `POST /api/requests/listing`. Then the dialog's own behaviour (Escape, focus,
+ * `POST /api/requests/claim` with the comments, a typed-in listing sends
+ * `POST /api/requests/listing`. Three steps since AECI-1365 removed the plan step, and
+ * neither body carries a plan answer. Then the dialog's own behaviour (Escape, focus,
  * the full-screen sheet below `sm`) and axe with the dialog open at 375 and 1280.
  *
  * Set `CLAIM_DIALOG_SHOTS` to a directory to save a screenshot of each step at both
@@ -104,9 +105,7 @@ const axe = (page: Page) =>
 
 test.describe('/vendor-program claim dialog (AECI-1293)', () => {
   for (const width of [375, 1280]) {
-    test(`found listing: search, you, plan preselected from the Managed card, comments, receipt at ${width}px`, async ({
-      page,
-    }) => {
+    test(`found listing: search, you, comments, receipt at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 375 ? 740 : 900 });
       await mockSearch(page);
       const sent = await mockSubmits(page);
@@ -115,7 +114,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
       const dialog = await openFromManagedCard(page);
       await expect(dialog.getByRole('heading', { name: 'Find your listing' })).toBeVisible();
-      await expect(dialog).toContainText('Step 1 of 4');
+      await expect(dialog).toContainText('Step 1 of 3');
       expect((await axe(page)).violations).toEqual([]);
       await shot(page, '1-find');
 
@@ -144,28 +143,25 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await shot(page, '2-you');
       await dialog.getByRole('button', { name: 'Continue' }).click();
 
-      await expect(dialog.getByRole('heading', { name: 'Your plan' })).toBeFocused();
-      await expect(dialog.getByRole('radio', { name: 'Managed' })).toBeChecked();
-      expect((await axe(page)).violations).toEqual([]);
-      await shot(page, '3-plan');
-      await dialog.getByRole('button', { name: 'Continue' }).click();
-
+      // AECI-1365: no plan step. "About you" goes straight to the comments.
+      await expect(dialog.getByRole('heading', { name: 'Anything to add?' })).toBeFocused();
+      await expect(dialog).toContainText('Step 3 of 3');
+      await expect(dialog.getByRole('radio')).toHaveCount(0);
       await dialog.getByLabel('Additional comments').fill('We make four products.');
       expect((await axe(page)).violations).toEqual([]);
-      await shot(page, '4-comments');
+      await shot(page, '3-comments');
       await dialog.getByRole('button', { name: 'Send claim' }).click();
 
       await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toBeFocused();
       await expect(dialog).toContainText('dana@procore.example');
       expect((await axe(page)).violations).toEqual([]);
-      await shot(page, '5-done');
+      await shot(page, '4-done');
       expect(sent.claim).toEqual([
         {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@procore.example',
           submitter_role: 'Head of Partnerships',
           submitter_linkedin_url: '',
-          plan_interest: 'managed',
           body: 'We make four products.',
           target_type: 'product',
           slug: 'fixture-procore',
@@ -194,8 +190,6 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await shot(page, '2-typed');
     }
     await dialog.getByRole('button', { name: 'Continue' }).click();
-    await dialog.getByRole('radio', { name: 'Not sure yet' }).check();
-    await dialog.getByRole('button', { name: 'Continue' }).click();
     await dialog.getByRole('button', { name: 'Send request' }).click();
 
     await expect(dialog.getByRole('heading', { name: 'Request sent' })).toBeVisible();
@@ -204,7 +198,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     );
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: width === 375 ? 740 : 900 });
-      await shot(page, '5-typed-done');
+      await shot(page, '4-typed-done');
     }
     expect(sent.listing).toEqual([
       {
@@ -212,7 +206,6 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         submitter_email: 'dana@procore.example',
         submitter_role: 'Head of Partnerships',
         submitter_linkedin_url: '',
-        plan_interest: 'not_sure',
         body: '',
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',

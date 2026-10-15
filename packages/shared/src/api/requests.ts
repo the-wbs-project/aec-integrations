@@ -45,24 +45,12 @@ export type RequestTargetType = z.infer<typeof RequestTargetTypeSchema>;
 export const RequestKindSchema = z.enum(['claim', 'correction']);
 export type RequestKind = z.infer<typeof RequestKindSchema>;
 
-/**
- * The claimant's answer to "Which plan are you interested in?" (AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15). Informational for the reviewer: the operator
- * still picks the plan at approval, with nothing preselected
- * (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Stored in `vendor_requests.plan_interest` and
- * `listing_requests.plan_interest`, both nullable with NO CHECK (a CHECK change is a
- * D1 table recreate), so this enum is the only place the vocabulary is enforced.
+/*
+ * The "Which plan are you interested in?" question (AECI-1293) was removed by
+ * AECI-1365. The claim and listing schemas no longer carry the plan-interest key. Zod
+ * strips unknown keys, so an old client that still sends it validates and the key
+ * is dropped. The two nullable columns stay in `schema.ts` until E10 drops them.
  */
-export const PlanInterestSchema = z.enum(['free', 'managed', 'not_sure']);
-export type PlanInterest = z.infer<typeof PlanInterestSchema>;
-
-/**
- * The form-side `plan_interest`: one of the three answers, or `''` for "not
- * answered" (stored as NULL). A concrete string so the Signal Forms field is never
- * `undefined`, and `.default('')` so the KEY is omittable: the claim endpoint already
- * serves production traffic, and a body that predates the field must still validate.
- */
-const PlanInterestFieldSchema = z.union([z.literal(''), PlanInterestSchema]).default('');
 
 // ─── Correction ──────────────────────────────────────────────────────────────
 
@@ -177,8 +165,6 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
-  /** AECI-1293: "Which plan are you interested in?" `''` = not answered. */
-  plan_interest: PlanInterestFieldSchema,
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
 /** The wire body before defaults: every defaulted key may be omitted. */

@@ -8,8 +8,8 @@
  * (`DESIGN.md` "Inputs / Fields"), and its id stays in `aria-describedby` from
  * first render, with the error id appended when the error shows.
  *
- * Users today: the claim dialog flow, `ClaimantFields`, `PlanInterestField`,
- * `ProfileDetailsForm`, `/welcome` and the `/account` "About you" section.
+ * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
+ * `/welcome` and the `/account` "About you" section.
  * Light only. The strings are byte-identical to what the claim dialog had
  * inline, so moving them here changed no rendered class.
  */

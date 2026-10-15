@@ -1663,7 +1663,8 @@ badge.
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
   Rejected filter. Each row shows the name, the website as text plus a new-tab link
   (`rel="noopener noreferrer nofollow"`), the submitter's email, name, role and LinkedIn, the
-  plan interest, the comments and the date, with Resolve and Reject. The list loads the first
+  comments and the date, with Resolve and Reject. The "Plan interest" row was removed by
+  AECI-1365 (2026-10-15). The list loads the first
   100 rows. Past that it says "Showing the first N of M listing requests", like the corrections
   section. A filter change ignores any response for a filter the admin already left.
 - **The badge.** `pending_requests` counts open corrections plus open listing requests, so
@@ -1671,11 +1672,10 @@ badge.
 - **What Resolve means.** The operator added the listing upstream (the review app, then
   promote) and replied to the `listing-request-alert` email, whose reply-to is the
   submitter. Resolving creates nothing.
-- **Claims.** The claim queue and the claim detail (§5.10) show the claimant's plan answer as
-  "Plan interest", and the queue's approve form repeats it ("They
-  asked about: Managed") when the claimant answered. Since AECI-1367 (2026-10-15) the plan
-  radios are gone, the line sits outside any fieldset and every approval lands on Free
-  (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). E3.2 removes the line later.
+- **Claims.** The claim queue and the claim detail (§5.10) show no plan answer. AECI-1293
+  added a "Plan interest" row and a "They asked about" line on the approve form. AECI-1365
+  (2026-10-15) removed both with the plan question. Since AECI-1367 (2026-10-15) the plan
+  radios are gone too, and every approval lands on Free (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
 - **"Came from" (AECI-1364, 2026-10-15).** A claim is on the company, so a claim sent from
   a product page is stored with the vendor as its target. The queue card and the claim

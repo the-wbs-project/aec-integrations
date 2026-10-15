@@ -1,8 +1,8 @@
 /**
  * `POST /api/requests/listing` (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4):
  * "Not listed? Type it in" in the claim dialog. A visitor names a product or company
- * the catalog does not list, with the claim form's identity fields, a plan answer and
- * optional comments, so AECi can add the listing and then invite them to claim it.
+ * the catalog does not list, with the claim form's identity fields and optional
+ * comments, so AECi can add the listing and then invite them to claim it.
  *
  * Public, no session, like the claim route beside it. Contract: `ListingRequestSchema`.
  *
@@ -12,8 +12,8 @@
  * (`docs/migrations.md` §0). See the table's comment in `db/schema.ts`.
  *
  * **One atomic `db.batch`**: the insert and its `listing_request.created` audit row
- * (ADR 0022: a request is domain state). The metadata holds the plan answer and
- * whether a LinkedIn profile was given, never the typed name, website or email: those
+ * (ADR 0022: a request is domain state). The metadata holds whether a LinkedIn
+ * profile was given, never the typed name, website or email: those
  * are on the row, and the audit forward leaves the Worker. No `workflow_instances` row,
  * because that table's `workflow_type` is CHECK-constrained; the audit rows are the
  * history. The §26.5 forward runs post-commit.
@@ -76,7 +76,6 @@ export function createListingRequestHandler(
       submitterRole: payload.submitter_role,
       // Optional fields: `''` is "not supplied", stored as NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url || null,
-      planInterest: payload.plan_interest || null,
       body: payload.body,
     };
 
@@ -87,7 +86,6 @@ export function createListingRequestHandler(
       entityId: requestId,
       metadata: {
         source: 'claim-dialog',
-        plan_interest: row.planInterest,
         has_linkedin: row.submitterLinkedinUrl !== null,
       },
     };
@@ -111,7 +109,6 @@ export function createListingRequestHandler(
           submitterName: row.submitterName,
           submitterRole: row.submitterRole,
           submitterLinkedinUrl: row.submitterLinkedinUrl,
-          planInterest: row.planInterest,
           body: row.body,
         },
         dedupeKey: `listing-request-alert:${requestId}`,

@@ -292,7 +292,6 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
           submitterName: 'Pat',
           submitterRole: 'Founder',
           submitterLinkedinUrl: null,
-          planInterest: 'managed',
           body: '',
         },
       }),

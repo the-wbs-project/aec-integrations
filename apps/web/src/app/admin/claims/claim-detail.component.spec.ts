@@ -63,7 +63,6 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',
     submitter_linkedin_url: null,
-    plan_interest: null,
     domain_match: 'match',
     body: 'We build this product and would like to claim the listing.',
     source_url: null,
@@ -261,14 +260,10 @@ describe('ClaimDetail', () => {
     });
   });
 
-  // AECI-1293: the plan answer and the claimant's comments, labelled.
-  it('shows the plan interest and the comments (AECI-1293)', async () => {
-    const { el } = await setup(
-      makeApiMock(makeDetail({ plan_interest: 'not_sure', body: 'We make four products.' })),
-    );
-    expect(el.querySelector('[data-testid="claim-detail-plan-interest"]')?.textContent).toContain(
-      'Not sure yet',
-    );
+  // AECI-1293: the claimant's comments, labelled. AECI-1365 removed the plan row.
+  it('shows the comments and no plan interest row', async () => {
+    const { el } = await setup(makeApiMock(makeDetail({ body: 'We make four products.' })));
+    expect(el.textContent).not.toContain('Plan interest');
     const comments = el.querySelector('[data-testid="claim-detail-comments"]')!;
     expect(comments.textContent).toContain('Comments');
     expect(comments.textContent).toContain('We make four products.');

@@ -53,7 +53,6 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
     submitter_linkedin_url: over.submitter_linkedin_url ?? null,
-    plan_interest: over.plan_interest ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,
@@ -623,27 +622,17 @@ describe('ClaimQueue', () => {
     expect(buttonByText(card, 'Confirm grant').disabled).toBe(false);
   });
 
-  // AECI-1293: the claimant's answer stays on the approve form until E3.2 removes it.
-  it('still shows what the claimant asked about, outside any fieldset', async () => {
+  // AECI-1365: the plan question is gone, so neither the card nor the approve form
+  // carries a plan answer.
+  it('shows no plan interest row and no "They asked about" line', async () => {
     const { el, fixture } = await setup(
-      makeApiMock([makeClaim({ id: 'c1', plan_interest: 'managed', body: 'Four products.' })]),
+      makeApiMock([makeClaim({ id: 'c1', body: 'Four products.' })]),
     );
     const card = cardFor(el, 'Procore');
-    expect(card.querySelector('[data-testid="claim-plan-interest"]')?.textContent).toContain(
-      'Managed',
-    );
+    expect(card.textContent).not.toContain('Plan interest');
     expect(card.textContent).toContain('Four products.');
     openApprove(fixture, card);
-    const asked = card.querySelector('[data-testid="claim-plan-asked"]');
-    expect(asked?.textContent?.trim()).toBe('They asked about: Managed');
-    expect(asked?.closest('fieldset')).toBeNull();
-  });
-
-  it('says "Not answered" when the claimant gave no plan', async () => {
-    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', plan_interest: null })]));
-    expect(
-      cardFor(el, 'Procore').querySelector('[data-testid="claim-plan-interest"]')?.textContent,
-    ).toContain('Not answered');
+    expect(card.textContent).not.toContain('They asked about');
   });
 
   it('Enter-to-submit approves too', async () => {

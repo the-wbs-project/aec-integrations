@@ -23,12 +23,11 @@ import {
   validateStandardSchema,
 } from '@angular/forms/signals';
 
-import { ClaimFormSchema, ListingRequestFormSchema, type PlanInterest } from '@aeci/shared';
+import { ClaimFormSchema, ListingRequestFormSchema } from '@aeci/shared';
 
-import { Analytics, planInterestProperty, type ClaimDialogStep } from '../../analytics/analytics';
+import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
 import { ClaimantFields } from '../../requests/claimant-fields';
-import { PlanInterestField } from '../../requests/plan-interest-field';
 import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
@@ -45,8 +44,9 @@ import {
   type ClaimListing,
 } from './claim-dialog.service';
 
-/** The four numbered steps, in order. `done` is the receipt, outside the count. */
-const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'plan', 'comments'];
+/** The three numbered steps, in order. `done` is the receipt, outside the count. The
+ *  plan step was removed by AECI-1365. */
+const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'comments'];
 
 /** A step's field: its model key, the control to focus on error, and the field tree. */
 type StepField = [keyof ClaimDialogModel, string, FieldTree<string>];
@@ -59,17 +59,17 @@ interface ClaimDialogModel {
   submitter_email: string;
   submitter_role: string;
   submitter_linkedin_url: string;
-  plan_interest: '' | PlanInterest;
   body: string;
 }
 
 /**
  * The claim dialog's steps (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2):
- * find it, you, plan, additional comments, done. `ClaimDialog` is the BrnDialog shell
- * around it; this component holds the state, so its spec needs no overlay.
+ * find it, you, additional comments, done. AECI-1365 removed the plan step.
+ * `ClaimDialog` is the BrnDialog shell around it; this component holds the state, so
+ * its spec needs no overlay.
  *
  * **Two paths.** A catalog listing (`found`) submits `POST /api/requests/claim` with
- * the plan answer and the comments as the claim's `body`. A typed-in listing
+ * the comments as the claim's `body`. A typed-in listing
  * (`typed`, "Not listed? Type it in") submits `POST /api/requests/listing`. One model
  * holds both; the active path picks the shared Zod schema that validates it
  * (`ClaimFormSchema` or `ListingRequestFormSchema`), so the LinkedIn host allowlist and
@@ -80,8 +80,8 @@ interface ClaimDialogModel {
  * the step heading on every change, so a screen reader hears where it is.
  *
  * **Analytics** (§15.7). `claim_dialog_step` once per step shown, with the page, the
- * control that opened it and the path. `claim_requested` (with `plan_interest`) or
- * `listing_requested` on a `201`. Never the search text, a typed name, a website or an
+ * control that opened it and the path. `claim_requested` or `listing_requested` on a
+ * `201`. Never the search text, a typed name, a website or an
  * email.
  *
  * Signed-in visitors get the email prefill `RequestFormBody` gives them, one-shot and
@@ -89,7 +89,7 @@ interface ClaimDialogModel {
  */
 @Component({
   selector: 'aec-claim-dialog-flow',
-  imports: [ClaimantFields, FormField, PlanInterestField, SearchAutocomplete],
+  imports: [ClaimantFields, FormField, SearchAutocomplete],
   host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
     @if (step() !== 'done') {
@@ -350,21 +350,6 @@ interface ClaimDialogModel {
                   [email]="form.submitter_email"
                 />
               }
-              @case ('plan') {
-                <h3
-                  #stepHeading
-                  tabindex="-1"
-                  [class]="headingClass"
-                  i18n="@@claimDialog.plan.heading"
-                >
-                  Your plan
-                </h3>
-                <aec-plan-interest-field
-                  class="mt-4"
-                  idPrefix="claim-dialog"
-                  [field]="form.plan_interest"
-                />
-              }
               @case ('comments') {
                 <h3
                   #stepHeading
@@ -524,7 +509,6 @@ export class ClaimDialogFlow implements OnInit {
     submitter_email: '',
     submitter_role: '',
     submitter_linkedin_url: '',
-    plan_interest: '',
     body: '',
   });
 
@@ -542,8 +526,6 @@ export class ClaimDialogFlow implements OnInit {
         return $localize`:@@claimDialog.stepName.find:Find it`;
       case 'you':
         return $localize`:@@claimDialog.stepName.you:You`;
-      case 'plan':
-        return $localize`:@@claimDialog.stepName.plan:Plan`;
       default:
         return $localize`:@@claimDialog.stepName.comments:Comments`;
     }
@@ -578,8 +560,6 @@ export class ClaimDialogFlow implements OnInit {
   }
 
   ngOnInit(): void {
-    const opening = this.opening();
-    if (opening.plan) this.model.update((m) => ({ ...m, plan_interest: opening.plan ?? '' }));
     this.show('find', false);
   }
 
@@ -633,10 +613,7 @@ export class ClaimDialogFlow implements OnInit {
   protected async primary(): Promise<void> {
     switch (this.step()) {
       case 'you':
-        if (this.checkFields(this.youFields())) this.show('plan');
-        return;
-      case 'plan':
-        this.show('comments');
+        if (this.checkFields(this.youFields())) this.show('comments');
         return;
       case 'comments':
         if (this.checkFields([['body', 'claim-dialog-comments', this.form.body]]))
@@ -696,7 +673,6 @@ export class ClaimDialogFlow implements OnInit {
         submitter_email: v.submitter_email,
         submitter_role: v.submitter_role,
         submitter_linkedin_url: v.submitter_linkedin_url,
-        plan_interest: v.plan_interest,
         body: v.body,
       };
       const listing = this.listing();
@@ -710,7 +686,6 @@ export class ClaimDialogFlow implements OnInit {
             target_type: listing.targetType,
             slug: listing.slug,
             request_id: res.request_id,
-            plan_interest: planInterestProperty(v.plan_interest),
           });
         } else {
           await this.api.submitListing({
@@ -718,10 +693,7 @@ export class ClaimDialogFlow implements OnInit {
             listing_name: v.listing_name,
             website: v.website,
           });
-          this.analytics.listingRequested({
-            plan_interest: planInterestProperty(v.plan_interest),
-            page: opening.page,
-          });
+          this.analytics.listingRequested({ page: opening.page });
         }
         this.sentTo.set(v.submitter_email.trim());
         this.sentName.set(v.listing_name.trim());

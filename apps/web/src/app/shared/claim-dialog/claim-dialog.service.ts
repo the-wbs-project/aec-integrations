@@ -1,6 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 
-import type { PlanInterest, RequestTargetType } from '@aeci/shared';
+import type { RequestTargetType } from '@aeci/shared';
 
 import type { ClaimDialogEntry, PlanCtaPage } from '../../analytics/analytics';
 
@@ -36,8 +36,6 @@ export interface ClaimListing {
 export interface ClaimDialogOpening {
   readonly page: PlanCtaPage;
   readonly entry: ClaimDialogEntry;
-  /** Seeds step 3: Managed from a Managed control, Free from the Free card. */
-  readonly plan?: PlanInterest | null;
 }
 
 /**

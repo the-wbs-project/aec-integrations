@@ -1328,7 +1328,10 @@ export const vendorRequests = sqliteTable(
     // (STAGE_2_PAID_TIERS_SPEC.md §13.6). Deliberately NO CHECK: a CHECK change is a
     // drizzle-kit table recreate, and this table has FK children
     // (`vendor_entitlements.source_request_id`), so the recreate is the cascade
-    // hazard of docs/migrations.md §0. `PlanInterestSchema` enforces the vocabulary.
+    // hazard of docs/migrations.md §0.
+    // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
+    // column any more. Existing rows keep their old answers. E10 of
+    // docs/VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
     planInterest: text('plan_interest'),
     // AECI-1364: the product page a claim came from. Since decision 1 of
     // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
@@ -1393,8 +1396,7 @@ export const vendorRequests = sqliteTable(
 /**
  * Listing requests (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or
  * company a visitor typed into the claim dialog because it is not in the catalog
- * ("Not listed? Type it in"). The claim form's identity fields, the plan answer and
- * the comments, plus the name and website they typed. Written by
+ * ("Not listed? Type it in"). The claim form's identity fields and the comments, plus the name and website they typed. Written by
  * `POST /api/requests/listing`, moderated on `/admin/requests`.
  *
  * **Its own table, not a `vendor_requests` kind.** A typed-in listing has no target,
@@ -1422,6 +1424,8 @@ export const listingRequests = sqliteTable(
     submitterName: text('submitter_name'),
     submitterRole: text('submitter_role'),
     submitterLinkedinUrl: text('submitter_linkedin_url'),
+    /** DEPRECATED (AECI-1365): the plan question is gone; nothing reads or writes this
+     *  column. E10 of docs/VENDOR_SIGNUP_PROCESS.md drops it. */
     planInterest: text('plan_interest'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
