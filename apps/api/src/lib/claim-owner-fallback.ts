@@ -83,7 +83,8 @@ export interface ClaimOwnerFallbackDeps {
 export interface ClaimOwnerFallbackResult {
   /** Claims moved to AECi this run. */
   moved: number;
-  /** Claims past the window that the cap left for the next run. */
+  /** 1 when more claims past the window remain for the next run (the read takes one
+   *  row past the cap to tell), else 0. Not a count of them. */
   capped: number;
   /** The digest outcome, or `null` when nothing moved and nothing was sent. */
   alert: EmailOutcome | null;
