@@ -2176,7 +2176,10 @@ apps/web/src/content/legal/
 ├── review-guidelines.md
 ├── listing-accuracy-policy.md
 ├── vendor-terms.md
-└── managed-plan-agreement.md
+├── managed-plan-agreement.md
+└── versions/                    # superseded versions, copied unchanged (§27.3)
+    ├── terms/v1.0.md
+    └── privacy/v1.0.md
 ```
 
 Each file includes frontmatter with version and effective date:
@@ -2193,7 +2196,7 @@ linear_issue: AECI-128
 ---
 ```
 
-The site renders the current versions on `/legal/*` routes. Frontmatter is displayed at the top of each rendered page (version, effective date).
+The site renders the current versions on `/legal/*` routes and each superseded version at `/legal/<slug>/v<version>` (§27.3). Frontmatter is displayed at the top of each rendered page (version, effective date). Frontmatter stays scalar-only.
 
 ### 27.2 Change workflow
 
@@ -2201,17 +2204,21 @@ The site renders the current versions on `/legal/*` routes. Frontmatter is displ
 2. **Linear issue created** — describes the change rationale, scope, urgency
 3. **Branch + PR** — proposed text changes committed to a branch, PR opened linking the Linear issue
 4. **Counsel review** — counsel reviews the PR (or the rendered page on staging); their approval is captured in the Linear issue
-5. **Frontmatter updated** — `version` bumped, `effective_date` set, `counsel_approved_by` and `counsel_approved_on` filled in
+5. **Frontmatter updated** — `version` bumped, `effective_date` set, `counsel_approved_by` and `counsel_approved_on` filled in. On a bump, the superseded text is archived and the change history updated in the same PR (§27.3)
 6. **PR merged** — new version goes live on next deploy
 7. **Linear issue closed** — completed with link to the merged PR and effective date
 
 ### 27.3 Version history
 
-Git history serves as the version log. Every change is a traceable commit linked to a Linear issue and (when applicable) a counsel approval record.
+Every version of a legal document has a stable URL on the site (AECI-1361). The repo is private, so its history is not a public record. Git still holds the editorial trail, linked to Linear and any counsel approval.
 
-For users who care about historical versions:
-- Each version's permalink is the commit hash on GitHub
-- A `/legal/versions` index page (optional, low priority) could list historical versions and their effective dates
+- **Current version:** `/legal/<slug>`, rendered from `apps/web/src/content/legal/<name>.md`. Indexable, canonical, in `sitemap.xml`.
+- **Superseded version:** `/legal/<slug>/v<version>`, rendered from `apps/web/src/content/legal/versions/<slug>/v<version>.md`. That file is the superseded version's final text, copied unchanged. The page opens with "This is version X, superseded on <date>. Read the current version." It sets `robots: noindex` and canonicalises to `/legal/<slug>`. It gets `X-Robots-Tag: noindex, nofollow` in every env (`NOINDEX_PATH_PREFIXES`). It is left out of `sitemap.xml` and shares the `/legal/*` cache rules (`Cache-Tag: route:index`). An unknown version falls through to the 404 route.
+- **Current pointer:** the current file's frontmatter `version`, exposed as `currentLegalVersion(slug)` in `apps/web/src/app/legal/legal-content.ts`. A spec asserts the shared agreement version map (`LEGAL_AGREEMENT_CURRENT_VERSIONS`, AECI-1362) equals it.
+- **Change history:** every current file ends with `## Change history`. It has one line per version with its effective date, or "draft, never in force". A superseded version's line also carries its superseded date and archive link.
+- **Registry checks:** `legal-versions.ts` runs at module init and throws on a version collision, a filename/frontmatter mismatch, or an archive missing from the `LEGAL_ARCHIVES` manifest. It also throws when an archived version is not listed in the change history, or when a listed version or link does not resolve. Any of these fails `ng test`.
+
+**Superseded (AECI-1361):** the earlier plan here was a GitHub commit-hash permalink per version, plus an optional `/legal/versions` index page. The per-version URLs above replace both. There is no `/legal/versions` index; the on-page change history does that job.
 
 ### 27.4 Significant changes
 

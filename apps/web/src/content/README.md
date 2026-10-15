@@ -32,8 +32,9 @@ and summary, an audience and an order. A declared section with no pages is invis
 sitemap entry. It appears the moment its first page is listed in `SECTION_PAGES`. A brand-new section
 means widening `DocsSectionId` and adding its `SECTION_META` entry. Mark it `singlePage: true` if it
 is one page served at `/docs/<section>` with no index (`faq` is). Whether a path is indexable is
-decided by `NOINDEX_PATH_PREFIXES` in `src/app/docs/docs-indexing.ts`, not by the page. The list is
-empty since AECI-1253, so every page is indexable.
+decided by `NOINDEX_PATH_PREFIXES` in `src/app/docs/docs-indexing.ts`, not by the page. The list holds
+no docs path since AECI-1253, so every page is indexable. Its only entries are the archived legal
+versions (AECI-1361).
 
 **Two guides (AECI-1265, AECI-1271).** A section's `guide` is `help` (the default: the General guide,
 the `/docs` home and its sidebar) or `vendor` (the For vendors guide, which has its own landing page

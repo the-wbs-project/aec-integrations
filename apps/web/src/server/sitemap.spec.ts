@@ -2,6 +2,7 @@ import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
+import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
 import type { ServerApiClient } from '../server-api-client';
 import { buildSitemapXml, resolveSitemapEntries, type SitemapEntry } from './sitemap';
 
@@ -303,6 +304,18 @@ describe('resolveSitemapEntries', () => {
       expect(entry?.changefreq).toBe('yearly');
       expect(entry?.lastmod).toBeUndefined();
     }
+  });
+
+  it('leaves out every archived legal version (AECI-1361)', async () => {
+    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    expect(LEGAL_ARCHIVE_PATHS.length).toBeGreaterThan(0);
+    for (const path of LEGAL_ARCHIVE_PATHS) {
+      expect(
+        entries.some((e) => e.loc.endsWith(path)),
+        path,
+      ).toBe(false);
+    }
+    expect(entries.some((e) => /\/legal\/[^/]+\/v\d/.test(e.loc))).toBe(false);
   });
 
   it('includes /methodology (AECI-804), listed alongside the legal set and the docs', async () => {

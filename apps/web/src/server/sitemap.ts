@@ -196,6 +196,8 @@ export async function resolveSitemapEntries(
     // Static legal pages (AECI-237). Indexable, rarely change — low priority,
     // yearly changefreq. Their canonicals are self-referential against the same
     // serving origin, so sitemap `<loc>` ⇄ page canonical stay consistent.
+    // Current versions only: an archived `/legal/<slug>/v<version>` is noindex
+    // and canonicalises here, so it is never listed (AECI-1361).
     { loc: `${base}/legal/terms`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },

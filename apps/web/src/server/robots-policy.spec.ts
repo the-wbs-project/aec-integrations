@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { NOINDEX_PATH_PREFIXES as APP_NOINDEX_PATH_PREFIXES } from '../app/docs/docs-indexing';
+import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
 import {
   NOINDEX_DIRECTIVE,
   NOINDEX_PATH_PREFIXES,
@@ -30,7 +31,7 @@ describe('NOINDEX_DIRECTIVE', () => {
   });
 });
 
-describe('pathForcesNoindex (AECI-1104, AECI-1248; emptied by AECI-1253)', () => {
+describe('pathForcesNoindex (AECI-1104, AECI-1248; docs emptied by AECI-1253; legal archives AECI-1361)', () => {
   it('holds nothing out since AECI-1253: the vendor guide and every help page are indexable', () => {
     for (const path of [
       '/',
@@ -46,7 +47,26 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; emptied by AECI-1253)', () =>
     }
   });
 
-  // The live list is empty, so the matching rule is pinned with an explicit list.
+  it('holds every archived legal version out (AECI-1361)', () => {
+    expect(pathForcesNoindex('/legal/terms/v1.0')).toBe(true);
+    expect(pathForcesNoindex('/legal/privacy/v1.0')).toBe(true);
+    for (const path of LEGAL_ARCHIVE_PATHS) expect(pathForcesNoindex(path), path).toBe(true);
+  });
+
+  it('keeps every current legal page indexable, including slugs that share a prefix', () => {
+    for (const path of [
+      '/legal/terms',
+      '/legal/privacy',
+      '/legal/vendor-terms',
+      '/legal/managed-plan-agreement',
+      '/legal/review-guidelines',
+      '/legal/listing-accuracy',
+    ]) {
+      expect(pathForcesNoindex(path), path).toBe(false);
+    }
+  });
+
+  // The live list holds no docs path, so the matching rule is pinned with an explicit list.
   it('covers a prefix and everything below it, the bare section index included', () => {
     expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
     expect(pathForcesNoindex('/docs/vendors', ['/docs/vendors'])).toBe(true);
@@ -59,6 +79,7 @@ describe('pathForcesNoindex (AECI-1104, AECI-1248; emptied by AECI-1253)', () =>
 
   it('is one list, re-exported from the app module (STAGE_2_PRODUCT_DOCS_SPEC.md §3)', () => {
     expect(NOINDEX_PATH_PREFIXES).toBe(APP_NOINDEX_PATH_PREFIXES);
-    expect(NOINDEX_PATH_PREFIXES).toEqual([]);
+    // No docs path since AECI-1253. The legal archives are the only entries.
+    expect(NOINDEX_PATH_PREFIXES).toEqual(LEGAL_ARCHIVE_PATHS);
   });
 });

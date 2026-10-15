@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: October 10, 2026
+last_updated: October 15, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -57,4 +57,8 @@ If you believe a published review breaches these guidelines, for example it is f
 
 ## Changes to these guidelines
 
-We may update these guidelines from time to time. The current version and its effective date are shown at the top of this page, and the full change history is the public commit log of this repository.
+We may update these guidelines from time to time. The current version and its effective date are shown at the top of this page, and every version is listed under Change history at the end of this page, with a link to the full text of each earlier version.
+
+## Change history
+
+- **Version 1.0** (this version): draft, not yet in force.
