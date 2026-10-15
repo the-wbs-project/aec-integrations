@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 13, 2026
+last_updated: October 15, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -107,8 +107,13 @@ The service is intended for professional use and is not directed at children und
 
 ## Changes to this policy
 
-We may update this policy from time to time. The current version and its effective date are shown at the top of this page, and the full change history is the public commit log of this repository. Where a change materially affects how we use your personal data, we will take additional steps to make it prominent.
+We may update this policy from time to time. The current version and its effective date are shown at the top of this page, and every version is listed under Change history at the end of this page, with a link to the full text of each earlier version. Where a change materially affects how we use your personal data, we will take additional steps to make it prominent.
 
 ## Contact
 
 Privacy questions or requests: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+
+## Change history
+
+- **Version 1.1** (this version): draft, not yet in force.
+- [Version 1.0](/legal/privacy/v1.0): draft, never in force. Superseded October 13, 2026.

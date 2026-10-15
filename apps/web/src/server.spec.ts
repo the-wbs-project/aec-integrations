@@ -476,6 +476,41 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     },
   );
 
+  it.each(['/legal/terms/v1.0', '/legal/privacy/v1.0'])(
+    'stamps the archived legal version %s even where ALLOW_INDEXING is "true" (AECI-1361)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
+
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+      // Same cache rules as the current version.
+      expect(res.headers.get('Cache-Tag')).toContain('route:index');
+    },
+  );
+
+  it.each(['/legal/terms', '/legal/vendor-terms'])(
+    'leaves the current legal page %s indexable where ALLOW_INDEXING is "true" (AECI-1361)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
+
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.headers.get('X-Robots-Tag')).toBeNull();
+    },
+  );
+
   it('stamps redirects too (301 → /products) so removed URLs drop from the index', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });

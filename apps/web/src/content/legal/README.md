@@ -14,7 +14,7 @@ the current version of each on SSR. See `STAGE_1_SPEC.md` §13 (required documen
 ## Files ↔ routes
 
 The route slug (short, public, set by the footer links) maps to a long filename per spec §27.1.
-The mapping lives in `legal-content.ts`:
+The mapping lives in `LEGAL_SOURCE_FILES` (`app/legal/legal-manifest.ts`):
 
 | Route (public)                  | Source file                   | Frontmatter `title`     |
 | ------------------------------- | ----------------------------- | ----------------------- |
@@ -24,6 +24,8 @@ The mapping lives in `legal-content.ts`:
 | `/legal/listing-accuracy`       | `listing-accuracy-policy.md`  | Listing Accuracy Policy |
 | `/legal/vendor-terms`           | `vendor-terms.md`             | Vendor Terms            |
 | `/legal/managed-plan-agreement` | `managed-plan-agreement.md`   | Managed Plan Agreement  |
+| `/legal/terms/v1.0` (archive)   | `versions/terms/v1.0.md`      | Terms of Service        |
+| `/legal/privacy/v1.0` (archive) | `versions/privacy/v1.0.md`    | Privacy Policy          |
 
 ## Frontmatter
 
@@ -69,10 +71,52 @@ US-primary rewrite (with GDPR deferred) lands via **AECI-309**.
 **Arbitration / class-action waiver: decided against** (AECI-312, October 14, 2026). Disputes go
 to the courts named above. Rationale is on the issue; revisit if user volume grows.
 
-## Change / versioning workflow (spec §27.2)
+## Versions and URLs (spec §27.3, AECI-1361)
 
-Git history **is** the version log (§27.3); each version's permalink is its commit hash. To change
-a legal document:
+Every version has a stable URL. The repo is private, so git history is not the public version log.
+
+| What                | Where                                   | URL                          |
+| ------------------- | --------------------------------------- | ---------------------------- |
+| Current version     | `<name>.md` (this folder)               | `/legal/<slug>`              |
+| Superseded version  | `versions/<slug>/v<version>.md`         | `/legal/<slug>/v<version>`   |
+
+- An archive file is the superseded version's **final text, copied unchanged**, frontmatter
+  included. Recover it with `git show <sha>:apps/web/src/content/legal/<name>.md`, where `<sha>`
+  is the last commit before the bump.
+- The current pointer is the current file's frontmatter `version`. `currentLegalVersion(slug)` in
+  `app/legal/legal-content.ts` reads it. The shared agreement map
+  (`LEGAL_AGREEMENT_CURRENT_VERSIONS`, `packages/shared/src/api/agreements.ts`) must equal it for
+  the vendor terms and the Managed plan agreement; a spec checks this.
+- Each archive is listed in `LEGAL_ARCHIVES` (`app/legal/legal-manifest.ts`) with its superseded
+  date: the date of the commit that bumped the current file. That manifest generates the archive
+  routes and holds them out of the index (`NOINDEX_PATH_PREFIXES`).
+- An archive page opens with "This is version X, superseded on <date>. Read the current version."
+  It is noindex, canonicalises to the current page, and is not in `sitemap.xml`.
+- Every current file **ends with** `## Change history`: one list line per version, naming
+  `Version X.Y` once. Give the effective date, or say "draft, never in force" for a version that
+  never took effect. A superseded version's line links its archive URL and gives its superseded
+  date. For example:
+
+  ```markdown
+  ## Change history
+
+  - **Version 1.1** (this version): draft, not yet in force.
+  - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.
+  ```
+
+- The registry (`app/legal/legal-versions.ts`) checks all of this at module init. A version
+  collision, a filename/frontmatter mismatch, an archive missing from the manifest, an archive not
+  listed in the change history, or a listed version or link that does not resolve throws and
+  fails `ng test`.
+
+**When to bump.** Once a version is in force (`effective_date` set), any text change is a new
+version: bump and archive. While a document is still a draft that never took effect, a wording
+fix may be made in place without a bump; update `last_updated`. AECI-1361 did this for the four
+launch documents when it replaced the "public commit log" sentence.
+
+## Change workflow (spec §27.2)
+
+To change a legal document:
 
 1. **Proposed change** — identify the needed update (regulatory change, terminology fix, a new
    feature requiring a policy update).
@@ -81,7 +125,8 @@ a legal document:
    Reviewers (and counsel) can read the rendered change from the diff, or by running the branch locally. There is no per-PR preview deploy (retired 2026-10-10, AECI-1268).
 4. **Counsel review** — counsel reviews the PR diff; capture their approval in the Linear issue.
 5. **Bump frontmatter** — increment `version`, set `effective_date`, fill `counsel_approved_by` /
-   `counsel_approved_on`, update `last_updated`, and remove the draft notice.
+   `counsel_approved_on`, update `last_updated`, and remove the draft notice. Archive the
+   superseded text and add its `## Change history` line in the same PR (see above).
 6. **Merge** — the new version goes live on the next deploy.
 7. **Close the Linear issue** — link the merged PR and note the effective date.
 

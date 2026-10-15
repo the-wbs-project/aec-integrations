@@ -162,3 +162,57 @@ test.describe('/legal/* — unknown slug', () => {
     expect(res.headers()['cache-tag'] ?? '').toContain('route:404');
   });
 });
+
+test.describe('/legal/terms/v1.0 — archived version (AECI-1361)', () => {
+  const ARCHIVE = '/legal/terms/v1.0';
+
+  test('returns 200 on the /legal/* cache rules with X-Robots-Tag noindex', async ({ request }) => {
+    const res = await request.get(ARCHIVE, { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['cache-control'] ?? '').toContain('s-maxage=86400');
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
+    // Stamped in every env, the indexed one included (`NOINDEX_PATH_PREFIXES`).
+    expect(res.headers()['x-robots-tag']).toBe('noindex, nofollow');
+  });
+
+  test('SSR-renders the 1.0 text under the superseded notice, noindex, canonical to current', async ({
+    page,
+    request,
+  }) => {
+    const html = await (await request.get(ARCHIVE)).text();
+    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    expect(html).toContain('Version 1.0');
+    expect(html).not.toContain('State of Florida');
+
+    await page.goto(ARCHIVE);
+    const notice = page.getByTestId('legal-superseded');
+    await expect(notice).toContainText('This is version 1.0, superseded on October 14, 2026.');
+    await expect(page.locator('head link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      /\/legal\/terms$/,
+    );
+    await notice.getByRole('link', { name: 'Read the current version.' }).click();
+    await expect(page).toHaveURL(/\/legal\/terms$/);
+    await expect(page.getByTestId('legal-superseded')).toHaveCount(0);
+  });
+
+  test('has zero axe violations at WCAG AA', async ({ page }) => {
+    await page.goto(ARCHIVE);
+    await expect(page.locator('app-root')).toBeAttached();
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test('an unknown version on a known slug 404s', async ({ request }) => {
+    const res = await request.get('/legal/terms/v9.9', { maxRedirects: 0 });
+    expect(res.status()).toBe(404);
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:404');
+  });
+
+  test('the current page links the archive from its change history', async ({ request }) => {
+    const html = await (await request.get('/legal/terms')).text();
+    expect(html).toContain('href="/legal/terms/v1.0"');
+  });
+});

@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: October 14, 2026
+last_updated: October 15, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -58,8 +58,13 @@ These terms are governed by the laws of the State of Florida, without regard to 
 
 ## Changes to these terms
 
-We may update these terms from time to time. Material changes are versioned and dated; the current version and its effective date are shown at the top of this page, and the change history is the public commit log of this repository. Your continued use of the service after an update constitutes acceptance of the revised terms.
+We may update these terms from time to time. Material changes are versioned and dated; the current version and its effective date are shown at the top of this page, and every version is listed under Change history at the end of this page, with a link to the full text of each earlier version. Your continued use of the service after an update constitutes acceptance of the revised terms.
 
 ## Contact
 
 Questions about these terms: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+
+## Change history
+
+- **Version 1.1** (this version): draft, not yet in force.
+- [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

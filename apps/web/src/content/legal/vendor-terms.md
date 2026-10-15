@@ -71,3 +71,7 @@ We may update these terms. Each version is numbered and dated at the top of this
 ## Contact
 
 Questions about these terms: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+
+## Change history
+
+- **Version 1.0** (this version): draft, not yet in force.

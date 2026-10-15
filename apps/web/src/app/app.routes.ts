@@ -1,11 +1,12 @@
 import { inject } from '@angular/core';
-import { Router, Routes } from '@angular/router';
+import { type Route, Router, Routes } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
+import { LEGAL_ARCHIVES, legalArchivePath } from './legal/legal-manifest';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { productsIndexResolver } from './products/products-index.resolver';
@@ -598,6 +599,19 @@ export const routes: Routes = [
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'managed-plan-agreement' },
   },
+  // AECI-1361 — superseded versions at `/legal/<slug>/v<version>`, one explicit
+  // route per entry in the `.md`-free `LEGAL_ARCHIVES` manifest (still no
+  // `legal/:slug` param route, so an unknown slug or version falls through to the
+  // `**` 404). Same LegalPage, same `/legal/*` cache rules. The page sets
+  // `robots: noindex` and a canonical to the current version; the SSR egress
+  // stamps `X-Robots-Tag` (`NOINDEX_PATH_PREFIXES`); the sitemap leaves them out.
+  ...LEGAL_ARCHIVES.map(
+    ({ slug, version }): Route => ({
+      path: legalArchivePath(slug, version).slice(1),
+      loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+      data: { slug, version },
+    }),
+  ),
   // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
   // behind `ngDevMode` so the optimized build folds this to `[]` and never
   // references the chunk: `@angular/build` substitutes the literal `false` when

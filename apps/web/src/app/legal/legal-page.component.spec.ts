@@ -2,19 +2,27 @@ import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  type LegalAgreementDocument,
+} from '@aeci/shared/api/agreements';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
 import { LegalPage } from './legal-page';
-import type { LegalSlug } from './legal-content';
+import { type LegalSlug, LEGAL_SLUGS, currentLegalVersion, getLegalVersion } from './legal-content';
+import { LEGAL_ARCHIVES } from './legal-manifest';
 
-function render(slug: LegalSlug): { host: HTMLElement; title: Title } {
+function render(slug: LegalSlug, version?: string): { host: HTMLElement; title: Title } {
   // Reset first so a test can render several slugs in sequence (each needs a
   // fresh, not-yet-instantiated module).
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
-      { provide: ActivatedRoute, useValue: { snapshot: { data: { slug } } } },
+      {
+        provide: ActivatedRoute,
+        useValue: { snapshot: { data: version === undefined ? { slug } : { slug, version } } },
+      },
     ],
   });
   const fixture = TestBed.createComponent(LegalPage);
@@ -154,7 +162,7 @@ describe('LegalPage', () => {
     expect(article.querySelector('a[href="/legal/managed-plan-agreement"]')).not.toBeNull();
   });
 
-  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, then Disputes', () => {
+  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, Disputes, Contact, Change history', () => {
     const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
     expect(h2s(article)).toEqual([
       'What a license is and does',
@@ -171,6 +179,8 @@ describe('LegalPage', () => {
       'Renewal notice',
       'Disputes',
       'Contact',
+      // AECI-1361: every current legal file ends with its change history.
+      'Change history',
     ]);
   });
 
@@ -227,5 +237,93 @@ describe('LegalPage', () => {
     render('privacy');
     const link = document.head.querySelector('link[rel="canonical"]');
     expect(link?.getAttribute('href')).toMatch(/\/legal\/privacy$/);
+  });
+
+  it('the current page shows no superseded notice and no robots meta', () => {
+    const { host } = render('terms');
+    expect(host.querySelector('[data-testid="legal-superseded"]')).toBeNull();
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+
+  describe('archived versions (AECI-1361)', () => {
+    it('/legal/terms/v1.0 renders the archived ToS 1.0 text with the superseded notice', () => {
+      const { host } = render('terms', '1.0');
+      expect(host.querySelectorAll('h1')).toHaveLength(1);
+      expect(host.textContent).toContain('Version 1.0');
+      const notice = host.querySelector('[data-testid="legal-superseded"]');
+      expect(notice?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'This is version 1.0, superseded on October 14, 2026. Read the current version.',
+      );
+      expect(notice?.querySelector('a')?.getAttribute('href')).toBe('/legal/terms');
+      const article = host.querySelector('article.aec-prose')!;
+      // 1.0 predates AECI-312's governing-law fill and the change history.
+      expect(article.textContent).not.toContain('State of Florida');
+      expect(article.textContent).not.toContain('Change history');
+    });
+
+    it('canonicalises to the current version and sets robots noindex', () => {
+      render('privacy', '1.0');
+      const link = document.head.querySelector('link[rel="canonical"]');
+      expect(link?.getAttribute('href')).toMatch(/\/legal\/privacy$/);
+      expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe(
+        'noindex',
+      );
+    });
+
+    it('a client nav back to the current page clears the robots meta', () => {
+      render('terms', '1.0');
+      render('terms');
+      expect(document.head.querySelector('meta[name="robots"]')).toBeNull();
+    });
+
+    it('every manifest entry resolves to its archived text', () => {
+      for (const { slug, version, supersededOn } of LEGAL_ARCHIVES) {
+        const doc = getLegalVersion(slug, version);
+        expect(doc?.frontmatter.version, `${slug} ${version}`).toBe(version);
+        expect(doc?.supersededOn).toBe(supersededOn);
+      }
+      expect(getLegalVersion('terms', '9.9')).toBeUndefined();
+    });
+  });
+
+  describe('## Change history (AECI-1361)', () => {
+    it('is the last section of every current page, and links each archived version', () => {
+      for (const slug of LEGAL_SLUGS) {
+        const article = render(slug).host.querySelector('article.aec-prose')!;
+        expect(h2s(article).at(-1), slug).toBe('Change history');
+        expect(article.textContent, slug).toContain(`Version ${currentLegalVersion(slug)}`);
+      }
+      const terms = render('terms').host.querySelector('article.aec-prose')!;
+      expect(terms.querySelector('a[href="/legal/terms/v1.0"]')).not.toBeNull();
+    });
+
+    it('the ToS "Changes to these terms" paragraph points at the on-page history', () => {
+      const article = render('terms').host.querySelector('article.aec-prose')!;
+      const text = (article.textContent ?? '').replace(/\s+/g, ' ');
+      expect(text).toContain(
+        'every version is listed under Change history at the end of this page',
+      );
+      expect(text).not.toMatch(/commit log/i);
+    });
+
+    // The API refuses an acceptance of any version but the one in this shared map
+    // (AECI-1362). A Markdown bump without a map bump, or the reverse, fails here.
+    it('the shared agreement version map equals the frontmatter of each agreement', () => {
+      const slugFor: Record<LegalAgreementDocument, LegalSlug> = {
+        vendor_terms: 'vendor-terms',
+        managed_plan: 'managed-plan-agreement',
+      };
+      for (const [document, version] of Object.entries(LEGAL_AGREEMENT_CURRENT_VERSIONS)) {
+        expect(currentLegalVersion(slugFor[document as LegalAgreementDocument]), document).toBe(
+          version,
+        );
+      }
+    });
+
+    it('currentLegalVersion reads the frontmatter', () => {
+      expect(currentLegalVersion('terms')).toBe('1.1');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.0');
+      expect(currentLegalVersion('managed-plan-agreement')).toBe('1.0');
+    });
   });
 });

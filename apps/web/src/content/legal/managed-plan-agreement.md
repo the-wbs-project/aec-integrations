@@ -109,3 +109,7 @@ These terms are governed by the laws of the State of Florida, without regard to 
 ## Contact
 
 Questions about this agreement: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+
+## Change history
+
+- **Version 1.0** (this version): draft, not yet in force.
