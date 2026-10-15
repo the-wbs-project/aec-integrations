@@ -1359,8 +1359,10 @@ create table vendor_requests (
   -- AECI-1293 (migration 0070): the claimant's answer to "Which plan are you
   -- interested in?" ('free' | 'managed' | 'not_sure'), NULL when not answered, for
   -- a correction, or before the column. NO CHECK on purpose: a CHECK change is a
-  -- drizzle-kit table recreate, and this table has FK children. PlanInterestSchema
-  -- enforces the vocabulary. Informational; never preselects the approve form.
+  -- drizzle-kit table recreate, and this table has FK children.
+  -- DEPRECATED (AECI-1365, 2026-10-15): the plan question is removed. Nothing reads
+  -- or writes this column. Old rows keep their answers. E10 of
+  -- VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
   plan_interest text,
 
   -- AECI-1364 (migration 0075): the product page a CLAIM came from. A claim is on
@@ -1437,7 +1439,7 @@ create table listing_requests (
   submitter_name         text,
   submitter_role         text,
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
-  plan_interest          text,                  -- 'free' | 'managed' | 'not_sure' | NULL
+  plan_interest          text,                  -- DEPRECATED (AECI-1365): unread and unwritten; E10 drops it
   body                   text not null default '', -- "Additional comments"
   status                 text not null default 'open', -- 'open' | 'resolved' | 'rejected'
   created_at             text not null,
@@ -1456,7 +1458,8 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
 - **No FK and no CHECK**, the `field_overrides` precedent. `resolved_by` has no FK to
   `profiles`, so it is not one of `AUTH_AND_RLS.md`'s inbound FKs and the erasure batch
   has nothing new to null; an admin's id stays on the row as it does in audit metadata.
-  The `status` and `plan_interest` vocabularies are enforced by Zod.
+  The `status` vocabulary is enforced by Zod. `plan_interest` is deprecated
+  (AECI-1365): nothing writes it, and E10 drops it.
 - **Domain state, audited.** The insert writes `listing_request.created`, and each
   moderation `listing_request.resolved` / `listing_request.rejected`, in the same
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is

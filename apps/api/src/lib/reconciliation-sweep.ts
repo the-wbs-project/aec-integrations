@@ -162,8 +162,6 @@ type StuckRow = {
    *  AECI-847 LinkedIn row when the sweep created it rather than the request
    *  handler. */
   submitterLinkedinUrl: string | null;
-  /** AECI-1293: the plan answer, so the rebuilt issue and the recovery alert carry it. */
-  planInterest: string | null;
   /** AECI-1364: the product page a claim came from, so the rebuilt issue and the
    *  recovery alert say "Came from" exactly as the submit-time ones do. */
   contextProductId: string | null;
@@ -258,7 +256,6 @@ export async function runReconciliationSweep(
       submitterName: true,
       submitterRole: true,
       submitterLinkedinUrl: true,
-      planInterest: true,
       contextProductId: true,
       body: true,
       sourceUrl: true,
@@ -346,7 +343,6 @@ export async function runReconciliationSweep(
         submitterName: row.submitterName,
         submitterRole: row.submitterRole,
         submitterLinkedinUrl: row.submitterLinkedinUrl,
-        planInterest: row.planInterest,
         contextProduct,
         body: row.body,
         sourceUrl: row.sourceUrl,
@@ -377,7 +373,6 @@ export async function runReconciliationSweep(
           submitterName: row.submitterName,
           submitterRole: row.submitterRole,
           submitterLinkedinUrl: row.submitterLinkedinUrl,
-          planInterest: row.planInterest,
           contextProduct,
           domainMatch: row.domainMatch,
           duplicateOfRequestId: row.duplicateOfRequestId,

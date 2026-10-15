@@ -7,8 +7,9 @@
  *
  * A typed-in listing from the claim dialog (`POST /api/requests/listing`, AECI-1293) is
  * NOT a kind here: it has no target, so it lives in `listing_requests`
- * (`routes/listing-requests.ts`). A claim carries the dialog's plan answer as
- * `plan_interest`, and its "Additional comments" as the existing `body`.
+ * (`routes/listing-requests.ts`). A claim carries the dialog's "Additional comments"
+ * as the existing `body`. The plan question is gone (AECI-1365): an old client may
+ * still send the key, and the schema strips it.
  *
  * Contracts: `CorrectionRequestSchema` / `ClaimRequestSchema` from `@aeci/shared`.
  * Rows land in `vendor_requests` (Phase 2 Spec §5.1) with `status:'open'` and
@@ -256,8 +257,6 @@ interface RequestInsert {
   /** AECI-847: claimant-supplied LinkedIn profile, an identity signal for the
    *  reviewer. Claim-only — the correction handler always passes `null`. */
   submitterLinkedinUrl: string | null;
-  /** AECI-1293: the claimant's plan answer, or null (not answered, or a correction). */
-  planInterest: string | null;
   body: string;
   sourceUrl: string | null;
 }
@@ -295,10 +294,8 @@ async function createRequest(
     slug,
     domain_match: domainMatch,
     duplicate_of_request_id: duplicate?.id ?? null,
-    // AECI-1293: claims only. A correction carries no plan answer, so the key is left
-    // out rather than recorded as null on every correction's audit row.
-    ...(kind === 'claim' ? { plan_interest: insert.planInterest } : {}),
-    // AECI-1364: the product page a claim came from. Claims only, like the plan answer.
+    // AECI-1364: the product page a claim came from. Claims only: a correction's
+    // audit row leaves the keys out rather than recording them as null.
     ...(kind === 'claim'
       ? {
           context_product_id: contextProduct?.id ?? null,
@@ -375,7 +372,6 @@ async function createRequest(
     submitterName: insert.submitterName,
     submitterRole: insert.submitterRole,
     submitterLinkedinUrl: insert.submitterLinkedinUrl,
-    planInterest: insert.planInterest,
     contextProduct,
     body: insert.body,
     sourceUrl: insert.sourceUrl,
@@ -420,7 +416,6 @@ async function createRequest(
         submitterName: insert.submitterName,
         submitterRole: insert.submitterRole,
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
-        planInterest: insert.planInterest,
         contextProduct,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
@@ -461,7 +456,6 @@ export function createCorrectionSubmitHandler(
       submitterName: null,
       submitterRole: null,
       submitterLinkedinUrl: null,
-      planInterest: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
     });
@@ -491,8 +485,6 @@ export function createClaimSubmitHandler(
       // Optional field: the form submits `''` when the claimant skipped it, and an
       // empty string is not an absent signal to anything downstream. Store NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
-      // AECI-1293: `''` is "not answered", stored as NULL like the LinkedIn field.
-      planInterest: payload.plan_interest ? payload.plan_interest : null,
       body: payload.body,
       sourceUrl: null,
     });

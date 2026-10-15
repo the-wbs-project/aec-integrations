@@ -1960,9 +1960,6 @@ export function sendClaimSubmittedNotification(
     /** AECI-847 identity signal: the claimant's own LinkedIn profile, or null when
      *  they skipped the optional field. */
     submitterLinkedinUrl: string | null;
-    /** AECI-1293: the claimant's plan answer (`free` | `managed` | `not_sure`), or
-     *  null when not answered. Optional so a caller that predates it still compiles. */
-    planInterest?: string | null;
     /** AECI-1364: the product page the claim came from, or null. The claim itself is
      *  on the company (`targetName`). Optional so a caller that predates it compiles. */
     contextProduct?: { name: string; slug: string } | null;
@@ -1993,7 +1990,6 @@ export function sendClaimSubmittedNotification(
     ['Name', opts.submitterName ?? '—'],
     ['Role', opts.submitterRole ?? '—'],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied'],
-    ['Plan interest', planInterestText(opts.planInterest ?? null)],
     ['Domain match', opts.domainMatch],
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
     ['Request id', opts.requestId],
@@ -2622,23 +2618,6 @@ export function sendPlanInquiryAlert(
   });
 }
 
-/**
- * A plan answer from the claim dialog or the claim form (AECI-1293), as the operator
- * reads it. `null` is "not answered", never a default plan.
- */
-export function planInterestText(value: string | null): string {
-  switch (value) {
-    case 'free':
-      return 'Free';
-    case 'managed':
-      return 'Managed';
-    case 'not_sure':
-      return 'Not sure yet';
-    default:
-      return 'not answered';
-  }
-}
-
 /** A typed-in listing as `POST /api/requests/listing` saved it (AECI-1293). */
 export interface ListingRequestSummary {
   /** The `listing_requests.id` of the saved row. */
@@ -2649,7 +2628,6 @@ export interface ListingRequestSummary {
   submitterName: string | null;
   submitterRole: string | null;
   submitterLinkedinUrl: string | null;
-  planInterest: string | null;
   /** "Additional comments", `''` when none. */
   body: string;
 }
@@ -2679,7 +2657,6 @@ export function sendListingRequestAlert(
     ['Name', request.submitterName ?? '—', { plain: true }],
     ['Role', request.submitterRole ?? '—', { plain: true }],
     ['LinkedIn', request.submitterLinkedinUrl ?? 'not supplied', { plain: true }],
-    ['Plan interest', planInterestText(request.planInterest)],
     ['Comments', request.body || '(none)', { plain: true }],
     ['Request id', request.requestId],
   ];

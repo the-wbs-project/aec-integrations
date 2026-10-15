@@ -58,8 +58,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  * No account or plan label in the hero (AECI-1264, marketing review B1). The
  * "Active on AEC Integrations" badge is gone: it implied a vendor without it was
  * inactive, and it marked publicly who pays. The claim CTA below is stateless
- * too (AECI-1266): every listing reads "Claim this listing", and `VendorDetail`
- * no longer carries the plan mirror at all.
+ * too (AECI-1266): every listing reads "Claim <Company>" (AECI-1365), and
+ * `VendorDetail` no longer carries the plan mirror at all.
  *
  * "Funding stage badge" from the AECI-59 acceptance criteria is omitted:
  * `VendorDetail` has no `funding_stage` field today. A follow-up issue would
@@ -317,8 +317,9 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                <ng-container i18n="@@vendors.detail.metadata.claim"
-                  >Claim this listing</ng-container
+                <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3). -->
+                <ng-container i18n="@@vendors.detail.metadata.claimCompany"
+                  >Claim {{ v.company_name }}</ng-container
                 >
               </a>
               <a

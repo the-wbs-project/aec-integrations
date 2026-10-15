@@ -1,8 +1,9 @@
 /**
  * The claim dialog's steps (`claim-dialog-flow.ts`, AECI-1293,
- * `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): each step, Back, the plan preselect,
- * both submit paths, the 404 fallback and the analytics payloads. The BrnDialog shell
- * and the triggers are pinned in `claim-dialog.component.spec.ts`.
+ * `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): each of the three steps (AECI-1365
+ * removed the plan step), Back, both submit paths, the 404 fallback and the
+ * analytics payloads. The BrnDialog shell and the triggers are pinned in
+ * `claim-dialog.component.spec.ts`.
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
@@ -81,8 +82,6 @@ function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}
     fill('claim-dialog-role', 'Head of Partnerships');
     fill('claim-dialog-email', 'dana@acme.example');
   };
-  const checkedPlan = () =>
-    host.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value ?? null;
   return {
     fixture,
     host,
@@ -94,7 +93,6 @@ function setup(opening: ClaimDialogOpening, opts: { email?: string | null } = {}
     back,
     choose,
     fillYou,
-    checkedPlan,
     analytics,
     api,
   };
@@ -114,7 +112,7 @@ describe('ClaimDialogFlow', () => {
   it('starts at step 1 with the search box, no Back and no footer', () => {
     const { $, heading, progress, analytics } = setup({ page: 'vendor_program', entry: 'top' });
     expect(heading()).toBe('Find your listing');
-    expect(progress()).toBe('Step 1 of 4 · Find it');
+    expect(progress()).toBe('Step 1 of 3 · Find it');
     expect($('#claim-dialog-search')).not.toBeNull();
     expect(text($('label[for="claim-dialog-search"]'))).toBe('Your product or company');
     expect($('[data-testid="claim-dialog-footer"]')).toBeNull();
@@ -144,11 +142,11 @@ describe('ClaimDialogFlow', () => {
     expect(t.api.submitListing).not.toHaveBeenCalled();
   });
 
-  it('walks a found listing through every step and sends the claim with the plan and comments', async () => {
-    const t = setup({ page: 'vendor_program', entry: 'card', plan: 'managed' });
+  it('walks a found listing through every step and sends the claim with the comments', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'card' });
     t.choose(PRODUCT);
     expect(t.heading()).toBe('About you');
-    expect(t.progress()).toBe('Step 2 of 4 · You');
+    expect(t.progress()).toBe('Step 2 of 3 · You');
     expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Acme Takeoff');
 
     // Continue checks this step's fields and stays on an error.
@@ -166,12 +164,10 @@ describe('ClaimDialogFlow', () => {
     t.fill('claim-dialog-linkedin', '');
     await t.primary();
 
-    expect(t.heading()).toBe('Your plan');
-    // Opened from a Managed control: Managed is preselected.
-    expect(t.checkedPlan()).toBe('managed');
-    await t.primary();
-
+    // AECI-1365: no plan step. "About you" goes straight to the comments.
     expect(t.heading()).toBe('Anything to add?');
+    expect(t.progress()).toBe('Step 3 of 3 · Comments');
+    expect(t.host.querySelector('input[type="radio"]')).toBeNull();
     expect(text(t.$('label[for="claim-dialog-comments"]'))).toBe('Additional comments (optional)');
     t.fill('claim-dialog-comments', 'We make four products.');
     expect(text(t.$('[data-testid="claim-dialog-primary"]'))).toBe('Send claim');
@@ -184,7 +180,6 @@ describe('ClaimDialogFlow', () => {
         submitter_email: 'dana@acme.example',
         submitter_role: 'Head of Partnerships',
         submitter_linkedin_url: '',
-        plan_interest: 'managed',
         body: 'We make four products.',
       },
     );
@@ -196,12 +191,10 @@ describe('ClaimDialogFlow', () => {
       target_type: 'product',
       slug: 'acme-takeoff',
       request_id: 'req-1',
-      plan_interest: 'managed',
     });
     expect(t.analytics.claimDialogStep.mock.calls.map(([c]) => [c.step, c.path])).toEqual([
       ['find', undefined],
       ['you', 'found'],
-      ['plan', 'found'],
       ['comments', 'found'],
       ['done', 'found'],
     ]);
@@ -212,12 +205,7 @@ describe('ClaimDialogFlow', () => {
     t.choose(PRODUCT);
     t.fillYou();
     await t.primary();
-    await t.primary();
     expect(t.heading()).toBe('Anything to add?');
-    t.back();
-    expect(t.heading()).toBe('Your plan');
-    // Nothing preselected from the hero.
-    expect(t.checkedPlan()).toBeNull();
     t.back();
     expect(t.heading()).toBe('About you');
     expect(t.host.querySelector<HTMLInputElement>('#claim-dialog-name')!.value).toBe('Dana Reyes');
@@ -225,23 +213,14 @@ describe('ClaimDialogFlow', () => {
     expect(t.heading()).toBe('Find your listing');
   });
 
-  it('preselects Free from the Free card', async () => {
-    const t = setup({ page: 'vendor_program', entry: 'card', plan: 'free' });
-    t.choose(PRODUCT);
-    t.fillYou();
-    await t.primary();
-    expect(t.checkedPlan()).toBe('free');
-  });
-
-  it('sends an unanswered plan as "" and reports it as none', async () => {
+  it('sends and reports no plan answer (AECI-1365)', async () => {
     const t = setup({ page: 'vendor_program', entry: 'top' });
     t.choose(PRODUCT);
     t.fillYou();
     await t.primary();
     await t.primary();
-    await t.primary();
-    expect(t.api.submitClaim.mock.calls[0]![1].plan_interest).toBe('');
-    expect(t.analytics.claimRequested.mock.calls[0]![0].plan_interest).toBe('none');
+    expect(t.api.submitClaim.mock.calls[0]![1]).not.toHaveProperty('plan_interest');
+    expect(t.analytics.claimRequested.mock.calls[0]![0]).not.toHaveProperty('plan_interest');
   });
 
   // AECI-1364: a claim is on the company. A product hit names its vendor (from the
@@ -319,9 +298,6 @@ describe('ClaimDialogFlow', () => {
     expect(t.$('#claim-dialog-website-error')).not.toBeNull();
     t.fill('claim-dialog-website', 'https://sitediary.example.com');
     await t.primary();
-    t.host.querySelector<HTMLInputElement>('input[value="not_sure"]')!.click();
-    t.fixture.detectChanges();
-    await t.primary();
     expect(text(t.$('[data-testid="claim-dialog-primary"]'))).toBe('Send request');
     await t.primary();
 
@@ -330,7 +306,6 @@ describe('ClaimDialogFlow', () => {
       submitter_email: 'dana@acme.example',
       submitter_role: 'Head of Partnerships',
       submitter_linkedin_url: '',
-      plan_interest: 'not_sure',
       body: '',
       listing_name: 'Site Diary Pro',
       website: 'https://sitediary.example.com',
@@ -340,10 +315,7 @@ describe('ClaimDialogFlow', () => {
     expect(text(t.host)).toContain(
       "We'll add Site Diary Pro to the directory, then email dana@acme.example so you can finish your claim.",
     );
-    expect(t.analytics.listingRequested).toHaveBeenCalledWith({
-      plan_interest: 'not_sure',
-      page: 'vendor_program',
-    });
+    expect(t.analytics.listingRequested).toHaveBeenCalledWith({ page: 'vendor_program' });
     // Never a typed value in any event.
     const payloads = JSON.stringify([
       ...t.analytics.claimDialogStep.mock.calls,
@@ -361,7 +333,6 @@ describe('ClaimDialogFlow', () => {
     t.fillYou();
     await t.primary();
     await t.primary();
-    await t.primary();
     expect(text(t.$('[role="alert"]'))).toContain('That listing is no longer available.');
     [...t.host.querySelectorAll('button')].find((b) => text(b) === 'Type it in instead')!.click();
     t.fixture.detectChanges();
@@ -375,7 +346,6 @@ describe('ClaimDialogFlow', () => {
     t.api.submitClaim.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
     t.choose(PRODUCT);
     t.fillYou();
-    await t.primary();
     await t.primary();
     await t.primary();
     expect(t.heading()).toBe('Anything to add?');

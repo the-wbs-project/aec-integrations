@@ -35,7 +35,6 @@ const validBody = {
   submitter_name: 'Pat Lee',
   submitter_email: 'pat@sitediary.example.com',
   submitter_role: 'Founder',
-  plan_interest: 'managed',
   body: 'We make two products.',
 };
 
@@ -65,7 +64,7 @@ describe('POST /api/requests/listing', () => {
       submitterName: 'Pat Lee',
       submitterRole: 'Founder',
       submitterLinkedinUrl: null,
-      planInterest: 'managed',
+      planInterest: null,
       body: 'We make two products.',
       status: 'open',
     });
@@ -81,7 +80,6 @@ describe('POST /api/requests/listing', () => {
     // Never the typed name, website or email in the audit metadata.
     expect(audits[0]!.metadata).toEqual({
       source: 'claim-dialog',
-      plan_interest: 'managed',
       has_linkedin: false,
     });
 
@@ -98,12 +96,25 @@ describe('POST /api/requests/listing', () => {
   });
 
   it('stores "" optional answers as NULL and an omitted body as ""', async () => {
-    const { plan_interest: _p, body: _b, ...minimal } = validBody;
+    const { body: _b, ...minimal } = validBody;
     const res = await post({ ...minimal, submitter_linkedin_url: '' });
     expect(res.status).toBe(201);
     const [row] = await t.db.select().from(listingRequests);
-    expect(row).toMatchObject({ planInterest: null, submitterLinkedinUrl: null, body: '' });
+    expect(row).toMatchObject({ submitterLinkedinUrl: null, body: '' });
   });
+
+  // AECI-1365: the plan question is retired. An old client may still send the key.
+  it.each(['managed', 'gold'])(
+    'returns 201 for a retired plan_interest %j and stores and audits nothing for it',
+    async (value) => {
+      const res = await post({ ...validBody, plan_interest: value });
+      expect(res.status).toBe(201);
+      const [row] = await t.db.select().from(listingRequests);
+      expect(row!.planInterest).toBeNull();
+      const [audit] = await t.db.select().from(auditLog);
+      expect(audit!.metadata).not.toHaveProperty('plan_interest');
+    },
+  );
 
   it.each([
     ['a missing name', { listing_name: '' }],
@@ -111,7 +122,6 @@ describe('POST /api/requests/listing', () => {
     ['a website that is not a URL', { website: 'sitediary' }],
     ['a non-LinkedIn profile', { submitter_linkedin_url: 'https://example.com/in/pat' }],
     ['a missing role', { submitter_role: '' }],
-    ['an unknown plan answer', { plan_interest: 'gold' }],
     ['comments over 2000 characters', { body: 'x'.repeat(2001) }],
   ])('rejects %s with VALIDATION_FAILED and writes nothing', async (_label, patch) => {
     const res = await post({ ...validBody, ...patch });
@@ -136,7 +146,7 @@ describe('POST /api/requests/listing', () => {
     );
   });
 
-  it('emails SUPPORT_EMAIL after commit, reply-to the submitter, with the plan answer', async () => {
+  it('emails SUPPORT_EMAIL after commit, reply-to the submitter, with no plan row', async () => {
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response('{"id":"re_1"}', { status: 200 }),
@@ -164,7 +174,7 @@ describe('POST /api/requests/listing', () => {
     expect(String(sent.to)).toContain('support@aecintegrations.com');
     expect(sent.subject).toContain('[AECi] Listing request: Site Diary Pro');
     expect(String(sent.reply_to)).toContain('pat@sitediary.example.com');
-    expect(sent.text).toContain('Plan interest: Managed');
+    expect(sent.text).not.toContain('Plan interest');
     expect(sent.text).toContain('https://sitediary.example.com');
   });
 

@@ -104,7 +104,7 @@ describe('DocsPlansComparisonComponent', () => {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'card', plan: 'managed' });
+    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'card' });
     expect(planCtaClicked).toHaveBeenCalledWith({
       plan: 'managed',
       placement: 'card',

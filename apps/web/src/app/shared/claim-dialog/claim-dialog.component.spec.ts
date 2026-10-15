@@ -122,11 +122,7 @@ describe('ClaimDialog', () => {
 
 @Component({
   imports: [ClaimDialogTrigger],
-  template: `<a
-    [href]="href"
-    aecClaimDialogTrigger="card"
-    aecClaimDialogPage="vendor_program"
-    aecClaimDialogPlan="managed"
+  template: `<a [href]="href" aecClaimDialogTrigger="card" aecClaimDialogPage="vendor_program"
     >Start with Managed</a
   >`,
 })
@@ -152,12 +148,13 @@ describe('ClaimDialogTrigger', () => {
     expect(link.getAttribute('href')).toBe('/search');
   });
 
-  it('opens the dialog with its entry, page and plan on a plain click', () => {
+  // AECI-1365: "Start with Managed" still opens the dialog, with no plan seed.
+  it('opens the dialog with its entry and page on a plain click', () => {
     const { service, link } = render(true);
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    expect(service.opening()).toEqual({ page: 'vendor_program', entry: 'card', plan: 'managed' });
+    expect(service.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
   });
 
   it('leaves the link alone with no host, or on a new-tab click', () => {

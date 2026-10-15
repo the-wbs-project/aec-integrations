@@ -14,7 +14,6 @@ import type {
 
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
-import { planInterestLabel } from './plan-interest-label';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -106,8 +105,6 @@ type FormMode = 'approve' | 'reject';
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {
-  /** AECI-1293: the claimant's plan answer, as the reviewer reads it. */
-  protected readonly planInterestLabel = planInterestLabel;
   private readonly api = inject(AdminClaimsApi);
   private readonly locale = inject(LOCALE_ID);
   private readonly summaryStore = inject(AdminSummaryStore);

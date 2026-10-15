@@ -318,6 +318,8 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 
 The same labels apply on `/docs/vendors/plans` through the shared `shared/plan-cta/` components. The docs Free card's "Claim your listing" now opens the dialog too.
 
+**As built, AECI-1365 (2026-10-15).** Nothing is preselected any more: the plan step is gone (§15.2). "Start with Managed" and the Free card open the same dialog with no seed. The `aecClaimDialogPlan` input and `ClaimDialogOpening.plan` are removed. E8 retires the "Start with Managed" label.
+
 **Signed-in vendor (§5).** A vendor seat sees "Go to your portal" (`/vendor`) wherever a control would open the dialog. That includes "Start with Managed". The pricing link stays, because a Free company asking about Managed is the inquiry form's job. A Managed company keeps §5's rule: no phone bar, no Managed button in the panel.
 
 **No-JS fallback.** Every dialog trigger is an `<a href="/search">` (`CLAIM_DIALOG_FALLBACK_HREF`). Without JS, before hydration, with no host on the page, or on a modified click, the link is followed. Changed 2026-10-12 from `/vendor-program#find-your-product` when that section was removed. `/search` is where the header search box falls back too, and it is the page equivalent of the dialog's Find it step: a visitor searches, opens the listing, and uses its own claim form. A new-tab click has JS, so search works there in full. Without JS the page renders its box and no results, the same as the header path.
@@ -340,11 +342,15 @@ One BrnDialog, the plan inquiry dialog's shell (`shared/plan-inquiry/plan-inquir
 - Never opened from an `effect()` (NG0602): the service holds an opener callback, as `PlanInquiryService` does.
 - A submit failure keeps the visitor on step 4 with "Something went wrong. Please try again." A `404` on a found listing (the listing was unpublished since the search) says the listing is no longer available and offers "Type it in instead".
 
+**As built, AECI-1365 (2026-10-15): no plan step** (`docs/VENDOR_SIGNUP_PROCESS.md` decision 2). The dialog has three steps: Find it, You, Comments. The indicator reads "Step N of 3". Step 3 above is gone, and "Continue" on You goes to Additional comments. A submit failure keeps the visitor on the Comments step. `PlanInterestField` is deleted.
+
 **As built, AECI-1364 (2026-10-15): a claim is on the company** (`docs/VENDOR_SIGNUP_PROCESS.md` decision 1). Choosing a product suggestion pre-fills the company from the search record's `vendor_name`. The record carries no vendor slug, so the dialog shows the name only and posts the product slug as before. The server resolves the company (§15.3). `ClaimDialogService.company` holds the name for the title. The flow sets it on every step change and clears it on the Find step. A product with no vendor row answers `404`, so the visitor gets the "Type it in instead" path above.
 
 ### 15.3 A found listing: `POST /api/requests/claim`
 
 **As built, AECI-1364 (2026-10-15).** The endpoint still accepts `target_type: 'product'`, and its response is unchanged. It stores every claim on the company: `target_type = 'vendor'`, the product's primary vendor (else any `product_vendors` row), and the product in the new nullable `vendor_requests.context_product_id`. Migration 0075 is one `ALTER TABLE ... ADD COLUMN`, with no CHECK and no FK. A product with no vendor row returns the existing `404`. The audit row, the genesis transition, the Linear issue, `claim-submitted-alert` and `AdminClaim.context_product` ("Came from: <Product>" on `/admin/claims` and the claim detail) all carry the product. The duplicate probe keys on the company, so product-page and company-page claims on one company dedupe together. Contract: `API_CONTRACTS.md` §6.7.
+
+**As built, AECI-1365 (2026-10-15): the plan field is removed.** `ClaimFormSchema` no longer has `plan_interest`, and `PlanInterestSchema` is deleted. Zod strips unknown keys, so a body that still sends the key validates and returns `201`, and the key is dropped. The API writes nothing to `vendor_requests.plan_interest`. The audit metadata, the genesis transition, the Linear line and the "Plan interest" row of `claim-submitted-alert` are gone, including on the §6.7 sweep's rebuilt issue and recovery alert. The column stays in `schema.ts`, marked deprecated, and E10 drops it. No migration. The text below is the AECI-1293 history.
 
 The existing endpoint and `ClaimRequestSchema`, plus one field:
 
@@ -384,6 +390,8 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 
 **The write.** One `db.batch`: the insert and its `audit_log` row (`listing_request.created`, entity type `listing_request`, metadata `plan_interest` and `has_linkedin`, never the typed name, email or website). It is domain state (requests), so the row is required (ADR 0022). No `workflow_instances` row: the workflow vocabulary is CHECK-constrained (above), and the audit rows are the history. The §26.5 forward runs post-commit.
 
+**As built, AECI-1365 (2026-10-15).** `ListingRequestFormSchema` lost `plan_interest` with the claim schema, and a body that still sends it returns `201`. The route writes nothing to `listing_requests.plan_interest`. The audit metadata is `{ source, has_linkedin }`, and the alert has no "Plan interest" row. The column stays, deprecated, until E10.
+
 **Rate limit.** The path sits under `/api/requests/*`, so zone Rule A already caps it at the claim route's rate (5 per minute per IP, with a one-hour block). Like the claim route, it carries no in-Worker bucket (`docs/waf-rate-limits.md` §6.2: "Rule A already covers them"). The only key the Worker holds is a typed email, which rotates for free.
 
 **Notification.** A new operator alert, `listing-request-alert`, to `SUPPORT_EMAIL`, fire-and-forget in `ctx.waitUntil` after commit. Reply-to is the submitter, so a reply answers them. The table carries the name, website (plain text, never linked), submitter fields, plan interest, comments and the row id, with a CTA to `/admin/requests`. Key `listing-request-alert:{id}`. Pausable: the request waits in `/admin/requests` either way. **No email to the visitor**, as with a claim: the address is typed, not verified, and the on-screen receipt is the receipt. No Linear issue: the alert and the admin queue are the record.
@@ -392,12 +400,15 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 
 - **Claims.** `AdminVendorRequest` gains `plan_interest` (`'free' | 'managed' | 'not_sure' | null`). The `/admin/claims` queue row and the claim detail show "Plan interest" with the answer, or "Not answered". In the queue's approve form the answer sits beside the plan radios as "They asked about: Managed", shown only when the claimant answered. **The radios stay unselected** whatever the claimant said (`STAGE_2_PAID_TIERS_SPEC.md` §13.6, "nothing preselected"). The claimant's comments are the body the queue and the detail already show, now under the label "Comments".
 - **Listing requests.** `/admin/requests` gains a second section, "Listing requests", under the corrections. Each row shows the name, website (plain text, with a copy-safe link that opens in a new tab), submitter name, role, email and LinkedIn, plan interest, comments and age, with Resolve and Reject. It reads `GET /api/admin/listing-requests` (`status` and page params, like `GET /api/admin/requests`) and moderates through `PATCH /api/admin/listing-requests/:id` (`ModerateRequestSchema`). Each moderation is one `db.batch`: the guarded update and its `listing_request.resolved` or `listing_request.rejected` audit row. Both are behind `requireAdmin()`.
+- **As built, AECI-1365 (2026-10-15).** `AdminVendorRequest`, `AdminClaim` and `AdminListingRequest` no longer carry `plan_interest`. The claim queue row, the claim detail and the listing request queue drop the "Plan interest" row. The approve form drops "They asked about". `plan-interest-label.ts` is deleted.
 - **The badge.** `pending_requests` becomes open corrections plus open listing requests, so the Requests count matches the screen. Claims stay out of it (`admin-queue-counts.ts`).
 - Resolving a listing request does not create the listing. The operator adds it upstream (the review app, then promote) and emails the submitter to claim it. That is the "we add it, then email you" in the receipt.
 
 ### 15.6 Per-listing claim pages
 
 `/products/:slug/claim`, `/vendors/:slug/claim` and the in-place claim drawer keep working. They are step 2 onward on one form: the identity fields, then the plan question, then "Anything we should know?" relabelled "Additional comments". The plan question and the comments are both optional. They submit to `POST /api/requests/claim` as before, with `plan_interest`.
+
+**As built, AECI-1365 (2026-10-15).** The plan question is gone from all three, so the form is the identity fields, then "Additional comments". The "Claim this listing" button on product and vendor detail pages now reads "Claim <Company>" (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 1). A product page uses its vendor's name, and "Claim your company" when the product has no vendor. The detail pages are cached on staging, so the deploy purges `route:detail`, which covers every `product:<slug>` and `vendor:<slug>` page (`apps/web/src/server/cache-tags.ts`).
 
 **As built, AECI-1364 (2026-10-15).** All three are titled "Claim <Company>", and "Claim your company" when the company is unknown. The page `<title>` follows. The routed pages read the company from the existing reads: `GET /api/products/:slug` (its `vendor`) and `GET /api/vendors/:slug` (`claim-target.resolver.ts`, no page view, no `Cache-Tag`). A product page adds "From the <Product> page". The drawer takes the names from the detail page that opened it. The eyebrow reads "Vendor claim". The subtitle and the comments hint say "company", not "listing". The routed claim pages stay `private, no-store` with no `Cache-Tag`, so the copy change needs no purge. A slug that resolves to nothing now answers `404` with the form still rendered, as `/products/:slug/review` does.
 
@@ -410,6 +421,8 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 | `listing_requested` (new) | `plan_interest`, `page` | A typed-in request the API accepted. |
 | `plan_cta_clicked` | unchanged shape. `plan: 'free'` now means a "Claim your listing" click and `plan: 'managed'` a "Start with Managed" click. Both open the claim dialog, so it counts opens. | Every plan call to action. |
 | `plan_inquiry_submitted` | unchanged. It now counts inquiries from the "Questions about Managed or pricing? Talk to us" link and `/contact`. | |
+
+**As built, AECI-1365 (2026-10-15).** `claim_dialog_step.step` is `find`, `you`, `comments` or `done`, never `plan`. `claim_requested` and `listing_requested` no longer carry `plan_interest`. `listing_requested` carries `page` only. `docs/ANALYTICS.md` §4 is the event truth.
 
 Never the search text, a typed name, a website or an email. The dialog's Find step does not fire `vendor_product_search`. That event was the inline section's count, and it is retired with the section (§9, 2026-10-12).
 

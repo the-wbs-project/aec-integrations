@@ -127,11 +127,6 @@
           <dd>{{ c.resolved_at | date: 'medium' }}</dd>
         </div>
         }
-        <!-- AECI-1293: the claimant's plan answer. Informational only. -->
-        <div class="flex gap-1.5" data-testid="claim-detail-plan-interest">
-          <dt class="font-bold" i18n="@@admin.claims.detail.meta.planInterest">Plan interest</dt>
-          <dd>{{ planInterestLabel(c.plan_interest) }}</dd>
-        </div>
       </dl>
 
       @if (c.body) {
