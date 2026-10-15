@@ -44,6 +44,7 @@ import {
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
+  sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
   sendPlanInquiryAlert,
@@ -610,6 +611,23 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         products: [{ slug: 'microstation', name: 'MicroStation' }],
         cause: 'revoked',
         reason: 'The invoice was not paid.',
+      }),
+  },
+  'license-release-request-alert': {
+    links: true,
+    send: (c) =>
+      sendLicenseReleaseRequestAlert(c, {
+        request: {
+          requestId: 'lrr-1',
+          licenseId: 'lic-1',
+          vendorName: 'Bentley',
+          productName: 'MicroStation',
+          licenseSource: 'invoice',
+          endsAt: '2027-11-01T00:00:00.000Z',
+          reason: 'We retired the product',
+          requesterEmail: 'owner@vendor.example',
+        },
+        dedupeKey: 'license-release-request-alert:lrr-1',
       }),
   },
   'entitlement-expiring-admin': {

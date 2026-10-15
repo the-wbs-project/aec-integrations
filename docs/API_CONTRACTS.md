@@ -316,6 +316,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
+| `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a license that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the license ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
+| `RELEASE_REQUEST_OPEN` | 409 | `POST /api/vendor/licenses/:id/release-request` while the license already has an open request (AECI-1373), including the loser of two racing asks (the partial unique index `license_release_requests_open_license_key`). `details.request_id` names the open one |
+| `RELEASE_REQUEST_NOT_OPEN` | 409 | `PATCH /api/admin/license-release-requests/:id` on a request already approved or declined, including one another admin decided between the read and the batch (AECI-1373). Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -2074,6 +2077,75 @@ decline reason is shown to the vendor. Errors: `NOT_FOUND` (unknown id),
 `INVALID_STATE_TRANSITION` (422, not `open`, or lost the race), `PRODUCT_NOT_PROMOTED`
 (422), `VALIDATION_FAILED`. No cache purge: nothing public changes.
 
+#### `GET /api/admin/license-release-requests` and `PATCH /api/admin/license-release-requests/:id` (AECI-1373)
+
+The early-unassign queue on `/admin/requests` (`VENDOR_SIGNUP_PROCESS.md` decision 11,
+`ADMIN_PANEL_SPEC.md` §5.17). Behind `requireAdmin()`. The GET is never rate-limited and
+writes no audit row. The PATCH is behind `rateLimit('write')`. Source of truth:
+`packages/shared/src/api/license-release-requests.ts`; handlers in
+`apps/api/src/routes/admin-license-release-requests.ts`.
+
+```typescript
+export const ListLicenseReleaseRequestsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'approved', 'declined']).default('open'),
+});
+export const AdminLicenseReleaseRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'approved', 'declined']),
+  license_id: z.string(),
+  vendor_id: z.string(),
+  vendor: LinkRefSchema.nullable(),          // joined; null when the vendor row is gone
+  billing_account_id: z.string(),
+  product_id: z.string().nullable(),         // the product the license was on when asked
+  product: LinkRefSchema.nullable(),         // joined; null when gone
+  requested_by: z.string().nullable(),       // the owner seat; no FK; null after erasure
+  reason: z.string(),
+  created_at: z.string(),
+  decided_by: z.string().nullable(),         // no FK; null after erasure
+  decided_at: z.string().nullable(),
+  decision_note: z.string().nullable(),      // a decline's reason; shown to the vendor
+  license: z.object({                        // the license as it stands NOW
+    source: z.string(),
+    starts_at: z.string(),
+    ends_at: z.string().nullable(),
+    ended_at: z.string().nullable(),
+    assigned_product_id: z.string().nullable(),
+  }).nullable(),
+});
+// GET → paginatedResponseSchema(AdminLicenseReleaseRequestSchema), newest first, `id` tiebreak.
+export const DecideLicenseReleaseRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('approve') }).strict(),
+  z.object({ action: z.literal('decline'), reason: AdminReasonSchema }).strict(), // 1..1000
+]);
+// PATCH → AdminLicenseReleaseRequest, re-read after commit.
+```
+
+**Approve.** One `db.batch`: the request `UPDATE … WHERE status = 'open'`, a `changes()`
+sentinel, the license UPDATE from `unassignLicenseStatements` (`lib/license.ts`) with the
+action overridden to `license.release_approved`, a second sentinel, that audit row, the
+`vendors.verified` mirror reconcile, and the vendor's `portal-license-release-approved-by-aeci`
+`notification.sent` row. The license stays live (`ended_at` NULL), keeps `starts_at` and
+`ends_at`, loses its product, and has `release_at_renewal` cleared. The product resolves to
+Free. After commit the handler purges `product:{slug}`, `index:products` and
+`vendor:{slug}`.
+
+**The license must still be on the product the owner asked about.** If it ended, was
+unassigned, or moved to another product, before the read or between the read and the
+batch, the approve answers `409 LICENSE_NOT_ASSIGNED` and nothing is written. The request
+stays open. The operator declines it instead.
+
+**Decline.** One `db.batch`: the guarded request UPDATE (with `decision_note`), the
+sentinel, the `license.release_declined` audit row (`vendor_tier` and
+`vendor_entitlement_status` from the license snapshot), and the vendor's
+`portal-license-release-declined-by-aeci` row carrying the reason. No license write, no
+purge.
+
+Audit rows file under `entity_type = 'billing_account'`, `entity_id` = the billing account,
+with `metadata.license_id` and `metadata.request_id`, `vendor_id` and the request-time
+`product_id`. Errors: `NOT_FOUND` (unknown id), `RELEASE_REQUEST_NOT_OPEN` (409: decided, or
+another admin decided it first; nothing written), `LICENSE_NOT_ASSIGNED` (409, approve only),
+`VALIDATION_FAILED`, `MALFORMED_REQUEST`.
+
 #### `GET /api/admin/claims` (Stage 2 — AECI-521)
 
 The **claim-review queue**: pending vendor **claims** enriched with the reviewer-assist
@@ -2865,16 +2937,8 @@ export const AdminBillingLicenseSchema = z.object({
   created_at: z.string(),
 });
 
-export const AdminLicenseReleaseRequestSchema = z.object({
-  id: z.string(),
-  license_id: z.string(),
-  status: z.enum(['open', 'approved', 'declined']),
-  reason: z.string(),
-  requested_by: z.string().nullable(),
-  created_at: z.string(),
-  decided_at: z.string().nullable(),
-  decision_note: z.string().nullable(),
-});
+// AdminLicenseReleaseRequestSchema: the queue's own row shape (AECI-1373), in
+// `license-release-requests.ts`. See "GET /api/admin/license-release-requests" below.
 
 export const AdminVendorBillingResponseSchema = z.object({
   vendor_id: z.string(),
@@ -2883,7 +2947,7 @@ export const AdminVendorBillingResponseSchema = z.object({
   licenses_truncated: z.boolean(),
   acceptances: z.array(AdminAgreementAcceptanceSchema),
   acceptances_truncated: z.boolean(),
-  release_requests: z.array(AdminLicenseReleaseRequestSchema),   // [] until E4.4
+  release_requests: z.array(AdminLicenseReleaseRequestSchema),   // open first, ≤ 50
 });
 ```
 
@@ -2899,7 +2963,9 @@ export const AdminVendorBillingResponseSchema = z.object({
   tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
 - **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
   read. The UI labels the known values.
-- **`release_requests`** is `[]` until E4.4 (AECI-1373) adds `license_release_requests`.
+- **`release_requests`** (AECI-1373) is the vendor's early-unassign requests, the same row
+  shape as the queue: open first, then decided, newest first within each, `id` tiebreak,
+  at most `ADMIN_BILLING_RELEASE_REQUESTS_MAX` (50). A sixth read in the same batch.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
 
@@ -6503,7 +6569,7 @@ Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silen
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` + `license-release-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` + `vendor-license-release.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6920,6 +6986,15 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
   created_at: z.string(),
 });
 ```
+
+**Later events.** AECI-1237 added `field_corrected` and `field_lock_lifted`, with
+`record_subject` and `value` (`packages/shared/src/api/vendor-notifications.ts` is the
+current schema). AECI-1373 added `license_release_approved` and `license_release_declined`
+(registry ids `portal-license-release-approved-by-aeci` and
+`portal-license-release-declined-by-aeci`), the decision on an early-unassign request.
+`record_subject` names the product the license was on, `null` when it is gone. The approve
+row's `reason` echoes the owner's own request reason, because the approve takes none. The
+decline row's `reason` is AECi's. Both rows are filed under the billing account.
 
 #### Change history: `GET /api/vendor/history` and `GET /api/vendor/history.csv` (AECI-1194)
 
@@ -8090,6 +8165,37 @@ export const VendorProductRequestSchema = z.object({
 **The list** is every request of the caller's vendor, whichever seat asked. It re-reads when the `notifications` scope of `GET /api/vendor/updates` moves, because every decision writes its portal row (`STAGE_2_REALTIME_SPEC.md` §2.3).
 
 **The decision** reads on `GET /api/vendor/notifications` as `{ kind: 'product_request', id, event: 'added' | 'already_listed' | 'declined', request_id, request_name, product: { slug, name } | null, context_product: { slug, name } | null, reason: string | null, created_at }`. `product` is the linked catalog product, `null` on `declined`. `reason` is the decline reason, `null` otherwise.
+
+#### Early unassign — `POST /api/vendor/licenses/:id/release-request`
+
+AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner. E5 ships the portal button. Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/licenses/:id/release-request` | seat, `rateLimit('write')`, then `requireSeatOwner()` in the handler | `201 { request }` |
+
+```typescript
+export const CreateLicenseReleaseRequestSchema = z
+  .object({ reason: z.string().trim().min(1).max(1000) })
+  .strict();
+export const VendorLicenseReleaseRequestSchema = z.object({
+  id: z.string().uuid(),
+  license_id: z.string(),
+  product_id: z.string().nullable(),
+  status: z.enum(['open', 'approved', 'declined']),
+  reason: z.string(),
+  created_at: z.string(),
+  decided_at: z.string().nullable(),
+  decision_note: z.string().nullable(),
+});
+// POST → { request: VendorLicenseReleaseRequest }
+```
+
+**Order: owner → shape → license → state → open request.** A member seat is `403 FORBIDDEN`. A shape error or an unknown key is `400`. A license not on the caller's billing account, or no such license, is the same `404`. An ended or unassigned license is `409 LICENSE_NOT_ASSIGNED`. A license with an open request is `409 RELEASE_REQUEST_OPEN` with `details.request_id`. The partial unique index `license_release_requests_open_license_key` is the race guard, and the loser of two racing asks gets the same `409`.
+
+**One batch.** The INSERT (`status = 'open'`, `requested_by` = the seat, `product_id` = the license's product) and the `license.release_requested` audit row, filed under the billing account with `metadata = { source: 'vendor-portal', license_id, request_id }`. Never the typed reason. **After commit:** the forward and the `license-release-request-alert` email to `SUPPORT_EMAIL`, reply-to the seat's session email. No purge: nothing public changes until an approve.
+
+**The decision** reads on `GET /api/vendor/notifications` as an `aeci_override` row with `event: 'license_release_approved' | 'license_release_declined'` and `record_subject` naming the product (`null` when it is gone). On an approve, `reason` echoes the owner's own request reason. On a decline it is AECi's reason.
 
 #### Integration retire and restore — `POST /api/vendor/integrations/:id/retire` + `/restore`
 

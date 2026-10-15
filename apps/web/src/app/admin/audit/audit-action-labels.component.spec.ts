@@ -111,6 +111,10 @@ const EMITTED_ACTIONS = [
   'license.released',
   'license.revoked',
   'license.term_changed',
+  // AECI-1373, early-unassign requests.
+  'license.release_requested',
+  'license.release_approved',
+  'license.release_declined',
   // AECI-1356 cutover, `ops:backfill-licenses` stamp reconcile.
   'license.expiry_stamp_reconciled',
   // AECI-1356, lib/entitlement-expiry.ts.

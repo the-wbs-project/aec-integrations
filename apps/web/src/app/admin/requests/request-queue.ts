@@ -9,6 +9,7 @@ import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
+import { LicenseReleaseQueue } from './license-release-queue';
 import { ListingRequestQueue } from './listing-request-queue';
 import { ProductRequestQueue } from './product-request-queue';
 
@@ -59,10 +60,22 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * The third section, `ProductRequestQueue`: vendors asking us to add the other
  * product of an integration (`ADMIN_PANEL_SPEC.md` §5.16). The badge counts its open
  * rows too, and a decision decrements it.
+ *
+ * ── EARLY-UNASSIGN REQUESTS (AECI-1373) ──────────────────────────────────────
+ * The fourth section, `LicenseReleaseQueue`: vendor owners asking us to free a license
+ * before renewal (`ADMIN_PANEL_SPEC.md` §5.17). Counted in the badge and decremented on
+ * a committed approve or decline, never on a lost race.
  */
 @Component({
   selector: 'aec-request-queue',
-  imports: [DatePipe, ListingRequestQueue, NewTabIcon, ProductRequestQueue, RouterLink],
+  imports: [
+    DatePipe,
+    LicenseReleaseQueue,
+    ListingRequestQueue,
+    NewTabIcon,
+    ProductRequestQueue,
+    RouterLink,
+  ],
   templateUrl: './request-queue.html',
 })
 export class RequestQueue {

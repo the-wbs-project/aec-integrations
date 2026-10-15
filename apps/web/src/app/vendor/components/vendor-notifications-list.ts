@@ -398,11 +398,15 @@ export class VendorNotificationsList {
               : // AECI-1371: a license revoke names the product it was on.
                 notification.event === 'license_revoked'
                 ? [notification.license_product?.name]
-                : // AECI-1237: a correction or a lift names the field and the record.
-                  [
-                    notification.field ? fieldOverrideLabel(notification.field) : null,
-                    notification.record_subject?.name ?? notification.integration_name,
-                  ];
+                : notification.event === 'license_release_approved' ||
+                    notification.event === 'license_release_declined'
+                  ? // AECI-1373: an early-unassign decision names the product.
+                    [notification.record_subject?.name]
+                  : // AECI-1237: a correction or a lift names the field and the record.
+                    [
+                      notification.field ? fieldOverrideLabel(notification.field) : null,
+                      notification.record_subject?.name ?? notification.integration_name,
+                    ];
       return parts.filter((part): part is string => !!part);
     }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
@@ -510,6 +514,11 @@ function titleOf(notification: VendorNotification): string {
       // AECI-1371 (E4.2).
       case 'license_revoked':
         return $localize`:@@vendor.override.notify.licenseRevoked:AEC Integrations ended a Managed license`;
+      // AECI-1373: the decision on an early-unassign request.
+      case 'license_release_approved':
+        return $localize`:@@vendor.override.notify.releaseApproved:AEC Integrations took a license off a product early, as you asked`;
+      case 'license_release_declined':
+        return $localize`:@@vendor.override.notify.releaseDeclined:AEC Integrations declined your request to free a license early`;
     }
   }
   if (notification.kind === 'review_response') {
@@ -612,6 +621,16 @@ function reasonSentence(reason: string): string {
  * last sentence names the dispute route (§11d.4).
  */
 function overrideNote(notification: VendorAeciOverrideNotification): string {
+  // AECI-1373: an early-unassign decision is an answer to the vendor's own request,
+  // not a change AECi made unasked, so it carries no dispute line. The approve echoes
+  // the vendor's own reason, so it is not repeated back as AECi's.
+  if (notification.event === 'license_release_approved') {
+    return $localize`:@@vendor.override.notify.note.releaseApproved:The license is back in your pool, still live, with its term dates unchanged. The product is on the Free plan until you assign a license to it.`;
+  }
+  if (notification.event === 'license_release_declined') {
+    const stays = $localize`:@@vendor.override.notify.note.releaseDeclined:The license stays on the product until it renews.`;
+    return `${stays} ${reasonSentence(notification.reason)}`;
+  }
   let meaning: string;
   switch (notification.event) {
     case 'field_overridden':

@@ -15,9 +15,13 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminLicenseReleaseRequest,
   AdminListingRequest,
   AdminProductRequest,
+  DecideLicenseReleaseRequest,
   DecideProductRequest,
+  ListLicenseReleaseRequestsQuery,
+  ListLicenseReleaseRequestsResponse,
   ListProductRequestsQuery,
   ListProductRequestsResponse,
   ProductsListResponse,
@@ -95,6 +99,35 @@ export class AdminRequestsApi {
     return firstValueFrom(
       this.http.patch<AdminProductRequest>(
         `/api/admin/product-requests/${encodeURIComponent(id)}`,
+        input,
+      ),
+    );
+  }
+
+  /** `GET /api/admin/license-release-requests` (AECI-1373): owners asking to free a
+   *  license before renewal. */
+  listLicenseReleaseRequests(
+    query: Partial<ListLicenseReleaseRequestsQuery> = {},
+  ): Promise<ListLicenseReleaseRequestsResponse> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) params = params.set(key, String(value));
+    }
+    return firstValueFrom(
+      this.http.get<ListLicenseReleaseRequestsResponse>('/api/admin/license-release-requests', {
+        params,
+      }),
+    );
+  }
+
+  /** `PATCH /api/admin/license-release-requests/:id` — approve or decline an open one. */
+  decideLicenseReleaseRequest(
+    id: string,
+    input: DecideLicenseReleaseRequest,
+  ): Promise<AdminLicenseReleaseRequest> {
+    return firstValueFrom(
+      this.http.patch<AdminLicenseReleaseRequest>(
+        `/api/admin/license-release-requests/${encodeURIComponent(id)}`,
         input,
       ),
     );

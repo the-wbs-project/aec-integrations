@@ -160,6 +160,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'license.released': $localize`:@@admin.audit.action.licenseReleased:License released`,
   'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:License revoked`,
   'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:License term changed`,
+  // AECI-1373: early-unassign requests. Filed under the billing account like the rest.
+  'license.release_requested': $localize`:@@admin.audit.action.licenseReleaseRequested:Early unassign requested`,
+  'license.release_approved': $localize`:@@admin.audit.action.licenseReleaseApproved:Early unassign approved, license back in the pool`,
+  'license.release_declined': $localize`:@@admin.audit.action.licenseReleaseDeclined:Early unassign declined`,
   // AECI-1356 cutover: the back-fill copied the entitlement's expiry-notice stamp onto
   // the vendor's live licenses (`metadata.license_ids`).
   'license.expiry_stamp_reconciled': $localize`:@@admin.audit.action.licenseExpiryStampReconciled:Plan-ending notice marked as sent on licenses`,

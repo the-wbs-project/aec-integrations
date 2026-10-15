@@ -55,6 +55,7 @@ import {
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendProductRequestDecidedEmail,
+  sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
   vendorProductIntegrationsUrl,
@@ -3622,5 +3623,72 @@ describe('managed-ended (AECI-1371)', () => {
       reason: null,
     });
     expect(String(lastBody(fetchSpy).text)).toContain('The license was released.');
+  });
+});
+
+describe('license-release-request-alert (AECI-1373)', () => {
+  const request = {
+    requestId: 'req-1',
+    licenseId: 'lic-1',
+    vendorName: 'Bentley',
+    productName: 'MicroStation',
+    licenseSource: 'invoice',
+    endsAt: '2027-06-30T00:00:00.000Z',
+    reason: 'We retired <MicroStation> in favour of <b>OpenRoads</b>',
+    requesterEmail: 'owner@bentley.example',
+  };
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+
+  it('sends the request to SUPPORT_EMAIL with reply-to set to the seat', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLicenseReleaseRequestAlert(fakeContext(env), {
+      request,
+      dedupeKey: 'license-release-request-alert:req-1',
+      entity: { type: 'billing_account', id: 'ba-1' },
+    });
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.reply_to).toBe('owner@bentley.example');
+    expect(body.subject).toBe('[AECi] Early unassign request: Bentley, MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('Bentley asked us to take its license off MicroStation before renewal.');
+    expect(text).toContain('Term ends: 2027-06-30');
+    expect(text).toContain('License id: lic-1');
+    expect(text).toContain('Request id: req-1');
+    expect(text).toContain('/admin/requests');
+    expect(String(body.html)).not.toContain('<b>OpenRoads</b>');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:license-release-request-alert']]);
+    const headers = (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers as Record<
+      string,
+      string
+    >;
+    expect(headers['Idempotency-Key']).toContain('license-release-request-alert:req-1');
+  });
+
+  it('says monthly for a license with no end, and sends no reply-to without a seat email', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicenseReleaseRequestAlert(fakeContext(env), {
+      request: { ...request, endsAt: null, requesterEmail: null },
+      dedupeKey: 'license-release-request-alert:req-2',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.reply_to).toBeUndefined();
+    expect(String(body.text)).toContain('Term ends: monthly, no end date');
+    expect(String(body.text)).toContain('Seat: not known');
+  });
+
+  it('skips when SUPPORT_EMAIL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(
+      await sendLicenseReleaseRequestAlert(fakeContext(), {
+        request,
+        dedupeKey: 'license-release-request-alert:req-3',
+      }),
+    ).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -660,7 +660,8 @@ Since AECI-1046 and AECI-1372 it has five, in this order: **Vendor** / **Billing
 - **Billing** (AECI-1372, E4.3; `?tab=billing`) reads `GET /api/admin/vendors/:id/billing`
   lazily on first open. It shows the billing account and its owner seats, every license
   (live first, then ended; dates through `formatTermDate`, §5.8), the agreement
-  acceptances and the early-unassign requests (empty until E4.4). A live license flagged
+  acceptances and the early-unassign requests (AECI-1373; decided on `/admin/requests`,
+  `ADMIN_PANEL_SPEC.md` §5.17). A live license flagged
   `cancel_at_term_end` reads "Cancels at term end: vendor banned", and a banner tops the tab
   while any is flagged. The E4.1 grant control lives here. The Entitlement and Plan price
   sections stay on Vendor until E4.6. `/admin/claims` "Manage billing" links (named "Manage

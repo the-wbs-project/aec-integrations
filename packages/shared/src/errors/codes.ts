@@ -156,6 +156,15 @@ export const ApiErrorCode = {
   // `added` or `already_listed` decision whose `product_id` is not a promoted product.
   PRODUCT_REQUEST_EXISTS: 'PRODUCT_REQUEST_EXISTS',
   PRODUCT_NOT_PROMOTED: 'PRODUCT_NOT_PROMOTED',
+  // AECI-1373 early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` decision 11), all 409.
+  // `LICENSE_NOT_ASSIGNED`: the license is ended or on no product, so there is nothing to
+  // free (the vendor ask), or it ended, was unassigned or moved product since the owner
+  // asked (the admin approve). `RELEASE_REQUEST_OPEN`: the license already has an open
+  // request; `details.request_id` names it. `RELEASE_REQUEST_NOT_OPEN`: the admin
+  // decided a request another admin already decided.
+  LICENSE_NOT_ASSIGNED: 'LICENSE_NOT_ASSIGNED',
+  RELEASE_REQUEST_OPEN: 'RELEASE_REQUEST_OPEN',
+  RELEASE_REQUEST_NOT_OPEN: 'RELEASE_REQUEST_NOT_OPEN',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

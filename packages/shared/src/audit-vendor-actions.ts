@@ -131,6 +131,11 @@ export const AUDIT_VENDOR_ACTIONS = {
   'license.revoked': { kind: 'aeci-override', receipt: false },
   // AECI-1353: a license's term moved (the entitlement renewal's dual-write).
   'license.term_changed': { kind: 'aeci-override', receipt: false },
+  // AECI-1373 (E4.4): an owner asked to free a license early, and AECi's decision. The
+  // approve row is written by the license builder (`unassignLicenseStatements`).
+  'license.release_requested': { kind: 'vendor-edit', receipt: false },
+  'license.release_approved': { kind: 'aeci-override', receipt: false },
+  'license.release_declined': { kind: 'aeci-override', receipt: false },
   // AECI-1356 cutover: `ops:backfill-licenses` copied the entitlement's expiry-notice
   // stamp onto a vendor's live licenses of the same term. One row per vendor. An ops
   // tool, so `system`. Not a receipt.

@@ -398,7 +398,7 @@
   }
 </section>
 
-<!-- ── Early-unassign requests (decision 11; E4.4 fills this) ───────────── -->
+<!-- ── Early-unassign requests (decision 11; AECI-1373) ───────────────────── -->
 <section class="mt-6" aria-labelledby="admin-vendor-billing-releases">
   <h3
     id="admin-vendor-billing-releases"
@@ -413,11 +413,22 @@
     No early-unassign requests. A license stays on its product until renewal unless the vendor asks
     AEC Integrations to take it off sooner.
   </p>
-  } @else {
+  } @else { @if (hasOpenRelease()) {
+  <p class="mt-2 text-sm text-(--text-secondary)" data-testid="billing-release-open-note">
+    <span i18n="@@admin.vendors.billing.releases.openNote"
+      >Approve or decline an open request on the requests screen.</span
+    >{{ ' ' }}<a
+      href="/admin/requests"
+      class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.vendors.billing.releases.openLink"
+      >Open requests</a
+    >
+  </p>
+  }
   <div class="mt-2 overflow-x-auto">
     <table class="w-full min-w-[40rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.billing.releases.caption">
-        Early-unassign requests, newest first
+      <caption class="sr-only" i18n="@@admin.vendors.billing.releases.caption2">
+        Early-unassign requests, open first, then newest first
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -427,6 +438,13 @@
             i18n="@@admin.vendors.billing.releases.col.requested"
           >
             Requested
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.releases.col.product"
+          >
+            Product
           </th>
           <th
             scope="col"
@@ -457,6 +475,15 @@
           <th scope="row" class="py-2.5 pe-4 text-start font-medium text-(--text-primary)">
             {{ date(r.created_at) }}
           </th>
+          <td class="py-2.5 pe-4 text-(--text-primary)">
+            @if (r.product; as product) { {{ product.name }} } @else {
+            <span
+              class="text-(--text-secondary)"
+              i18n="@@admin.vendors.billing.releases.productGone"
+              >No longer on record</span
+            >
+            }
+          </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ r.reason }}</td>
           <td class="py-2.5 pe-4 text-(--text-primary)">{{ releaseStatusLabel(r.status) }}</td>
           <td class="py-2.5 text-(--text-secondary)">

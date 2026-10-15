@@ -622,6 +622,18 @@ function toAeciOverrideNotification(row: {
         pair_path: pairPathFor(pairSlugs),
       };
     }
+    // AECI-1373: an early-unassign decision names the product the license was on, or
+    // nothing when the product is gone.
+    case 'license_release_approved':
+    case 'license_release_declined': {
+      const subject = meta.recordSubject as Partial<AeciOverrideLogoSubject> | undefined;
+      const ref = subject ? productRef(subject) : null;
+      return {
+        ...base,
+        event: meta.event as 'license_release_approved' | 'license_release_declined',
+        record_subject: ref && subject?.type === 'product' ? { type: 'product', ...ref } : null,
+      };
+    }
     default:
       return null;
   }

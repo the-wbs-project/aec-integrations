@@ -163,6 +163,79 @@ describe('BillingLicensesTable', () => {
     expect(el.textContent).toContain('No early-unassign requests.');
   });
 
+  it('renders early-unassign requests with the product, and points open ones at the queue (AECI-1373)', () => {
+    const request = {
+      id: '00000000-0000-4000-8000-000000000301',
+      status: 'open' as const,
+      license_id: 'l1',
+      vendor_id: 'v1',
+      vendor: null,
+      billing_account_id: 'ba1',
+      product_id: 'p1',
+      product: { id: '00000000-0000-4000-8000-000000000101', slug: 'revit', name: 'Revit' },
+      requested_by: 'u1',
+      reason: 'We retired Revit.',
+      created_at: '2026-10-05T00:00:00.000Z',
+      decided_by: null,
+      decided_at: null,
+      decision_note: null,
+      license: null,
+    };
+    const { el } = mount(
+      makeBilling({
+        release_requests: [
+          request,
+          {
+            ...request,
+            id: '00000000-0000-4000-8000-000000000302',
+            status: 'declined',
+            product: null,
+            decided_by: 'admin-1',
+            decided_at: '2026-10-06T00:00:00.000Z',
+            decision_note: 'Not before renewal.',
+          },
+        ],
+      }),
+    );
+    const section = el.querySelector('section[aria-labelledby="admin-vendor-billing-releases"]')!;
+    const rows = section.querySelectorAll('tbody tr');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain('Revit');
+    expect(rows[0]!.textContent).toContain('We retired Revit.');
+    expect(rows[0]!.textContent).toContain('Open');
+    expect(rows[1]!.textContent).toContain('No longer on record');
+    expect(rows[1]!.textContent).toContain('Not before renewal.');
+    const note = section.querySelector('[data-testid="billing-release-open-note"]');
+    expect(note?.querySelector('a')?.getAttribute('href')).toBe('/admin/requests');
+  });
+
+  it('shows no queue pointer when every request is decided', () => {
+    const { el } = mount(
+      makeBilling({
+        release_requests: [
+          {
+            id: '00000000-0000-4000-8000-000000000303',
+            status: 'approved',
+            license_id: 'l1',
+            vendor_id: 'v1',
+            vendor: null,
+            billing_account_id: 'ba1',
+            product_id: null,
+            product: null,
+            requested_by: null,
+            reason: 'Done.',
+            created_at: '2026-10-05T00:00:00.000Z',
+            decided_by: 'admin-1',
+            decided_at: '2026-10-06T00:00:00.000Z',
+            decision_note: null,
+            license: null,
+          },
+        ],
+      }),
+    );
+    expect(el.querySelector('[data-testid="billing-release-open-note"]')).toBeNull();
+  });
+
   it('renders acceptances with a dash for an unrecorded IP', () => {
     const { el } = mount(
       makeBilling({

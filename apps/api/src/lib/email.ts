@@ -3207,6 +3207,76 @@ export function sendProductRequestAlert(
   });
 }
 
+/** An early-unassign request as `POST /api/vendor/licenses/:id/release-request` saved
+ *  it (AECI-1373). */
+export interface LicenseReleaseRequestSummary {
+  /** The `license_release_requests.id` of the saved row. */
+  requestId: string;
+  licenseId: string;
+  vendorName: string;
+  /** The product the license is on. */
+  productName: string;
+  /** `LICENSE_SOURCES`. */
+  licenseSource: string;
+  /** The license's scheduled end, ISO. `null` = monthly. */
+  endsAt: string | null;
+  /** The owner's reason. */
+  reason: string;
+  /** The requesting seat's session email, or `null` when the session carried none. */
+  requesterEmail: string | null;
+}
+
+/**
+ * Operator alert: an owner seat asked AECi to take a license off its product before
+ * renewal (AECI-1373, `VENDOR_SIGNUP_PROCESS.md` decision 11, `ADMIN_PANEL_SPEC.md`
+ * §5.17). To `SUPPORT_EMAIL`, reply-to the requesting seat, the `listing-request-alert`
+ * shape. The CTA opens `/admin/requests`, where the request waits either way, which is
+ * why the entry is pausable.
+ *
+ * The reason is vendor-typed, so it is `plain` (the AECI-1197 rule), as are the
+ * vendor and product names.
+ */
+export function sendLicenseReleaseRequestAlert(
+  c: EmailContext,
+  opts: { request: LicenseReleaseRequestSummary } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { request } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const rows: EmailTableRow[] = [
+    ['Vendor', request.vendorName, { plain: true }],
+    ['Product', request.productName, { plain: true }],
+    ['License source', request.licenseSource],
+    ['Term ends', request.endsAt ? request.endsAt.slice(0, 10) : 'monthly, no end date'],
+    ['Seat', request.requesterEmail ?? 'not known', { plain: true }],
+    ['Reason', request.reason, { plain: true }],
+    ['License id', request.licenseId],
+    ['Request id', request.requestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+
+  const vendor = subjectSafe(request.vendorName);
+  const product = subjectSafe(request.productName);
+  const intro = `${vendor} asked us to take its license off ${product} before renewal. Approve it to put the license back in their pool, or decline it with a reason, on the requests screen.`;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: `Early unassign request: ${product}`,
+    table: rows,
+    ...(base
+      ? { cta: { label: 'Open the requests queue', url: link(`${base}/admin/requests`) } }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'license-release-request-alert',
+    subject: `[AECi] Early unassign request: ${vendor}, ${product}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    ...(request.requesterEmail ? { replyTo: request.requesterEmail } : {}),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /** What the decision email says (AECI-1377). One template, three outcomes. */
 export type ProductRequestDecision =
   | { outcome: 'added'; productName: string; productSlug: string }

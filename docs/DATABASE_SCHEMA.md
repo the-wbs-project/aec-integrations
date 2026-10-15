@@ -2204,6 +2204,69 @@ create unique index agreement_acceptances_stripe_session_key
   action is registered in `packages/shared/src/audit-vendor-actions.ts`, not as a vendor
   receipt. Nothing updates or deletes a row. No `relations()` entry.
 
+### 8.6e `license_release_requests` (AECI-1373, migration 0079)
+
+Early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license
+stays on its product until renewal. An owner seat can ask AECi to take it off sooner, and an
+operator approves or declines on `/admin/requests` (`ADMIN_PANEL_SPEC.md` §5.17).
+
+```sql
+create table license_release_requests (
+  id text primary key,
+  license_id text not null references licenses(id),   -- NO ACTION
+  vendor_id text not null,          -- snapshot at request time; NO FK
+  billing_account_id text not null, -- snapshot; NO FK
+  product_id text,                  -- the product the license was on when asked; NO FK
+  requested_by text,                -- the owner seat's profiles.id; NO FK; nulled on erasure
+  reason text not null,             -- the owner's reason, 1 to 1,000 chars
+  status text not null default 'open'
+    constraint license_release_requests_status_check
+    check (status in ('open', 'approved', 'declined')),
+  decided_by text,                  -- the admin's profiles.id; NO FK; nulled on erasure
+  decided_at text,
+  decision_note text,               -- a decline's reason, shown to the vendor; null on approve
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index license_release_requests_open_license_key
+  on license_release_requests(license_id) where status = 'open';
+create index license_release_requests_status_created_idx
+  on license_release_requests(status, created_at);
+create index license_release_requests_vendor_created_idx
+  on license_release_requests(vendor_id, created_at);
+```
+
+- **One open request per license.** The partial unique index is the race guard. A second
+  ask while one is open is `409 RELEASE_REQUEST_OPEN`. A concurrent ask that loses at the
+  index answers the same. A decided request does not block a new one.
+- **Writers.** `POST /api/vendor/licenses/:id/release-request` inserts the row with its
+  `license.release_requested` audit row. `PATCH /api/admin/license-release-requests/:id`
+  sets `status`, `decided_by`, `decided_at` and, on a decline, `decision_note`. The UPDATE is
+  guarded on `status = 'open'` and followed by a sentinel, so a lost race writes nothing.
+- **An approve writes the license through `lib/license.ts`.** `unassignLicenseStatements`
+  with the action overridden to `license.release_approved`. The license stays live
+  (`ended_at` stays NULL), keeps `starts_at` and `ends_at`, loses `assigned_product_id` and
+  `assigned_at`, and has `release_at_renewal` cleared. It is not `endLicensesStatements`.
+- **The CHECK on `status` is deliberate.** This table is new, so the CHECK costs nothing
+  today. A later vocabulary change is a table recreate (`docs/migrations.md` §0). Nothing
+  references this table, so that recreate would cascade into nothing.
+- **`license_id` makes this an FK child of `licenses`.** NO ACTION, and nothing deletes a
+  license. A future recreate of `licenses` would have its `DROP` refused while request rows
+  exist, rather than cascade (`docs/migrations.md` §0).
+- **Erasure.** `requested_by` and `decided_by` have no FK, so the `DELETE /api/account`
+  batch nulls both, with `updated_at` pinned (`AUTH_AND_RLS.md` §8). The request survives.
+- **Domain state.** Each insert and decision writes its `audit_log` row in the same batch:
+  `license.release_requested`, `license.release_approved` or `license.release_declined`,
+  filed under `entity_type = 'billing_account'`, `entity_id` = the billing account,
+  `metadata.license_id` and `metadata.request_id`, with `vendor_id` and the request-time
+  `product_id`. The decision also writes the vendor's `notification.sent` row
+  (`portal-license-release-approved-by-aeci` or `portal-license-release-declined-by-aeci`).
+- **Readers.** `GET /api/admin/license-release-requests` (the queue) and
+  `GET /api/admin/vendors/:id/billing` (`release_requests`), through one joined select in
+  `apps/api/src/lib/license-release-requests.ts`. `pending_requests` in
+  `lib/admin-queue-counts.ts` counts open rows. No `relations()` entry.
+
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
 A pending self-serve seat invite. A row is an **INTENT, never an account**: this

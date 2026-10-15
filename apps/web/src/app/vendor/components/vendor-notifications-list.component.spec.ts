@@ -427,6 +427,50 @@ describe('VendorNotificationsList', () => {
   );
 
   it.each([
+    [
+      'license_release_approved',
+      'AEC Integrations took a license off a product early, as you asked',
+      'The license is back in your pool',
+      false,
+    ],
+    [
+      'license_release_declined',
+      'AEC Integrations declined your request to free a license early',
+      'The license stays on the product until it renews. Reason: Not before renewal.',
+      true,
+    ],
+  ] as const)(
+    'renders an early-unassign decision `%s` row, with no dispute line (AECI-1373)',
+    async (event, title, note, showsReason) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'aeci_override',
+            id: '00000000-0000-4000-8000-00000000c2f3',
+            event,
+            reason: 'Not before renewal.',
+            integration_id: null,
+            integration_name: null,
+            field: null,
+            pair_path: null,
+            logo_subject: null,
+            seat_name: null,
+            record_subject: { type: 'product', slug: 'summit', name: 'Summit Coordination' },
+            created_at: '2026-10-04T12:00:00.000Z',
+          },
+        ],
+      });
+      const fixture = await create();
+      const body = text(fixture);
+      expect(body).toContain(title);
+      expect(body).toContain('Summit Coordination');
+      expect(body).toContain(note);
+      expect(body.includes('Reason: Not before renewal.')).toBe(showsReason);
+      expect(body).not.toContain('If you think this is wrong');
+    },
+  );
+
+  it.each([
     ['vendor', 'AEC Integrations removed your company logo'],
     ['product', 'AEC Integrations removed a product logo'],
   ] as const)(

@@ -84,6 +84,11 @@ import {
   createVendorProductRequestHandler,
 } from './routes/vendor-product-requests';
 import {
+  createAdminLicenseReleaseRequestsListHandler,
+  createDecideLicenseReleaseRequestHandler,
+} from './routes/admin-license-release-requests';
+import { createVendorLicenseReleaseRequestHandler } from './routes/vendor-license-release';
+import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
@@ -790,6 +795,21 @@ authAdmin.patch(
   '/api/admin/product-requests/:id',
   requireAdmin(),
   createDecideProductRequestHandler(),
+);
+// AECI-1373 (E4.4, ADMIN_PANEL_SPEC.md §5.17): early-unassign requests, the fourth
+// section of /admin/requests. The read is never rate-limited and audits nothing. The
+// decision is a write: an approve unassigns the license through lib/license.ts, and
+// both outcomes write their audit and portal rows in one batch with race sentinels.
+authAdmin.get(
+  '/api/admin/license-release-requests',
+  requireAdmin(),
+  createAdminLicenseReleaseRequestsListHandler(),
+);
+authAdmin.patch(
+  '/api/admin/license-release-requests/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createDecideLicenseReleaseRequestHandler(),
 );
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.
@@ -1583,6 +1603,15 @@ authVendor.get(
   '/api/vendor/billing/acceptances',
   requireVendor(),
   createVendorBillingAcceptancesHandler(),
+);
+// AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
+// seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`
+// inside the handler. E5 ships the portal button.
+authVendor.post(
+  '/api/vendor/licenses/:id/release-request',
+  requireVendor(),
+  rateLimit('write'),
+  createVendorLicenseReleaseRequestHandler(),
 );
 app.route('/', authVendor);
 

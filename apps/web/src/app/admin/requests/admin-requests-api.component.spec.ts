@@ -62,4 +62,24 @@ describe('AdminRequestsApi', () => {
     req.flush({ id: 'a/b', status: 'rejected' });
     await promise;
   });
+
+  it('GETs /api/admin/license-release-requests with the status (AECI-1373)', async () => {
+    const promise = api.listLicenseReleaseRequests({ status: 'approved', page: 1, perPage: 100 });
+    const req = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === '/api/admin/license-release-requests',
+    );
+    expect(req.request.params.get('status')).toBe('approved');
+    expect(req.request.params.get('perPage')).toBe('100');
+    req.flush({ data: [], page: 1, perPage: 100, total: 0 });
+    await promise;
+  });
+
+  it('PATCHes a release decision to its URL-encoded id', async () => {
+    const promise = api.decideLicenseReleaseRequest('a/b', { action: 'decline', reason: 'No' });
+    const req = httpMock.expectOne('/api/admin/license-release-requests/a%2Fb');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ action: 'decline', reason: 'No' });
+    req.flush({});
+    await promise;
+  });
 });

@@ -366,6 +366,25 @@ export const NOTIFICATIONS = {
       'Tells the seat that asked whether AECi added the product, found it already listed, or declined it with the reason.',
     note: 'Always on: a decision, like claim-rejected and the review decisions. One template with three outcome variants. Not sent when the seat is gone, and the portal row is then the record.',
   },
+  // AECI-1373 (E4.4): an owner seat asks AECi to take a license off its product early.
+  'license-release-request-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/licenses/:id/release-request (routes/vendor-license-release.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'Key license-release-request-alert:{requestId}, so at most one alert per saved request.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
+    summary:
+      'Tells SUPPORT_EMAIL an owner seat asked to free a license early, with the reason and reply-to set to the seat.',
+    note: 'Pausable: an operator alert. The request waits in /admin/requests either way.',
+  },
   'contest-submitted-alert': {
     channel: 'email',
     audience: 'operator',
@@ -1083,6 +1102,41 @@ export const NOTIFICATIONS = {
     summary:
       'Tells a vendor that AECi ended one of its Managed licenses now, which product it was on, and why.',
     note: 'Goes to the vendor whose billing account held the license, on every revoke, assigned or not. Carries the reason, never the internal note. The managed-ended email goes too when the license was on a product. Not pausable: a portal row, not email.',
+  },
+  // AECI-1373 (E4.4): the admin decision on an early-unassign request.
+  'portal-license-release-approved-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/license-release-requests/:id (routes/admin-license-release-requests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per approve, in the approve batch. A request is decided once.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
+    summary:
+      'Tells a vendor that AECi took a license off its product early, as it asked, and that the license is back in its pool.',
+    note: "Goes to the vendor that asked. Every plan, no tier rule. Echoes the owner's own request reason. Not pausable: a portal row, not email.",
+  },
+  'portal-license-release-declined-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/license-release-requests/:id (routes/admin-license-release-requests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per decline, in the decline batch. A request is decided once.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
+    summary:
+      'Tells a vendor that AECi declined its early-unassign request, so the license stays on the product until renewal, and why.',
+    note: 'Goes to the vendor that asked. Every plan, no tier rule. Carries the decline reason. Not pausable: a portal row, not email.',
   },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────

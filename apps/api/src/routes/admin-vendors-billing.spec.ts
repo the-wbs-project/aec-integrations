@@ -15,7 +15,15 @@ import { eq } from 'drizzle-orm';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, products, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  licenseReleaseRequests,
+  licenses,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import worker from '../index';
@@ -239,6 +247,64 @@ describe('GET /api/admin/vendors/:id/billing', () => {
     const parsed = AdminVendorBillingResponseSchema.parse(body);
     expect(parsed.licenses).toHaveLength(ADMIN_BILLING_LICENSES_MAX);
     expect(parsed.licenses_truncated).toBe(true);
+  });
+
+  it("lists the vendor's early-unassign requests, open first, then newest (AECI-1373)", async () => {
+    const accountId = await seedBillingAccount(t.db, VENDOR);
+    const licenseId = await seedLicense(t.db, VENDOR, { productId: PRODUCT });
+    const otherLicense = await seedLicense(t.db, OTHER_VENDOR);
+    const otherAccount = await seedBillingAccount(t.db, OTHER_VENDOR);
+    const base = { licenseId, vendorId: VENDOR, billingAccountId: accountId, reason: 'Retired' };
+    await t.db.insert(licenseReleaseRequests).values([
+      {
+        ...base,
+        id: uuid(800),
+        status: 'declined',
+        decisionNote: 'Not yet.',
+        decidedBy: ADMIN_USER,
+        decidedAt: '2026-10-03T00:00:00.000Z',
+        createdAt: '2026-10-02T00:00:00.000Z',
+      },
+      {
+        ...base,
+        id: uuid(801),
+        status: 'approved',
+        createdAt: '2026-10-04T00:00:00.000Z',
+      },
+      {
+        ...base,
+        id: uuid(802),
+        productId: PRODUCT,
+        requestedBy: OWNER,
+        status: 'open',
+        createdAt: '2026-10-01T00:00:00.000Z',
+      },
+      // Another vendor's request never leaks in.
+      {
+        id: uuid(803),
+        licenseId: otherLicense,
+        vendorId: OTHER_VENDOR,
+        billingAccountId: otherAccount,
+        reason: 'Theirs',
+      },
+    ]);
+
+    const { body } = await call(VENDOR);
+    const parsed = AdminVendorBillingResponseSchema.parse(body);
+    expect(parsed.release_requests.map((r) => r.id)).toEqual([uuid(802), uuid(801), uuid(800)]);
+    expect(parsed.release_requests[0]).toMatchObject({
+      status: 'open',
+      license_id: licenseId,
+      product: { id: PRODUCT, slug: 'acme-build', name: 'Acme Build' },
+      requested_by: OWNER,
+      reason: 'Retired',
+      license: { assigned_product_id: PRODUCT, ended_at: null },
+    });
+    expect(parsed.release_requests[2]).toMatchObject({
+      status: 'declined',
+      decision_note: 'Not yet.',
+      decided_by: ADMIN_USER,
+    });
   });
 
   it('404s an unknown vendor', async () => {

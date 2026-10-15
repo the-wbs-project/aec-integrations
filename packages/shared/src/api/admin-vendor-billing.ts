@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AdminAgreementAcceptanceSchema } from './agreements';
+import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
 
 /**
  * The admin Billing view contract (AECI-1372, E4.3; `docs/VENDOR_SIGNUP_PROCESS.md`
@@ -11,7 +12,7 @@ import { AdminAgreementAcceptanceSchema } from './agreements';
  *
  * One payload for the Billing tab on `/admin/vendors/:id`: the vendor's billing account
  * with its owner seats, every license on it, the agreement acceptances, and the
- * early-unassign requests (E4.4 fills these; the array ships empty until then).
+ * early-unassign requests (AECI-1373, `license-release-requests.ts`).
  *
  * ── `billing_account: null` IS A DEFECT, NOT A STATE ─────────────────────────────
  * Every vendor with a seat or an entitlement was back-filled a billing account (E1,
@@ -109,31 +110,9 @@ export const AdminBillingLicenseSchema = z.object({
 });
 export type AdminBillingLicense = z.infer<typeof AdminBillingLicenseSchema>;
 
-/**
- * The early-unassign request states (decision 11). E4.4 (AECI-1373) writes them. Defined
- * here so the Billing payload is typed before the table exists.
- */
-export const LICENSE_RELEASE_REQUEST_STATUSES = ['open', 'approved', 'declined'] as const;
-export const LicenseReleaseRequestStatusSchema = z.enum(LICENSE_RELEASE_REQUEST_STATUSES);
-export type LicenseReleaseRequestStatus = z.infer<typeof LicenseReleaseRequestStatusSchema>;
-
-/**
- * One early-unassign request: a vendor owner asks AECi to take a license off its
- * product before renewal (decision 11). The minimal shape the Billing tab renders.
- * E4.4 (AECI-1373) may extend it.
- */
-export const AdminLicenseReleaseRequestSchema = z.object({
-  id: z.string(),
-  license_id: z.string(),
-  status: LicenseReleaseRequestStatusSchema,
-  reason: z.string(),
-  /** The requesting owner seat's `profiles.id`. `null` after an erasure. */
-  requested_by: z.string().nullable(),
-  created_at: z.string(),
-  decided_at: z.string().nullable(),
-  decision_note: z.string().nullable(),
-});
-export type AdminLicenseReleaseRequest = z.infer<typeof AdminLicenseReleaseRequestSchema>;
+/** The most early-unassign requests one Billing read returns: every open one plus the
+ *  most recent decided ones, up to this many in all. */
+export const ADMIN_BILLING_RELEASE_REQUESTS_MAX = 50;
 
 /** `GET /api/admin/vendors/:id/billing`. */
 export const AdminVendorBillingResponseSchema = z.object({
@@ -147,7 +126,8 @@ export const AdminVendorBillingResponseSchema = z.object({
    *  the vendor directly. */
   acceptances: z.array(AdminAgreementAcceptanceSchema),
   acceptances_truncated: z.boolean(),
-  /** Empty until E4.4 (AECI-1373). */
+  /** The vendor's early-unassign requests (AECI-1373): open first, then decided, newest
+   *  first within each, capped at {@link ADMIN_BILLING_RELEASE_REQUESTS_MAX}. */
   release_requests: z.array(AdminLicenseReleaseRequestSchema),
 });
 export type AdminVendorBillingResponse = z.infer<typeof AdminVendorBillingResponseSchema>;

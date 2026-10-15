@@ -183,6 +183,11 @@ export class BillingLicensesTable {
     () => this.billing()?.release_requests ?? [],
   );
 
+  /** AECI-1373: an open request is decided on `/admin/requests`, so say where. */
+  protected readonly hasOpenRelease = computed(() =>
+    this.releaseRequests().some((r) => r.status === 'open'),
+  );
+
   protected rowContext(row: BillingLicenseRow): BillingLicenseRowContext {
     return { $implicit: row };
   }
