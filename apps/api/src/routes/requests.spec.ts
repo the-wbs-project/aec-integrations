@@ -10,9 +10,11 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   auditLog,
   productVendors,
   products,
+  profiles,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -22,7 +24,11 @@ import { LABEL_IDS } from '../lib/linear';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
-import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
+import {
+  createClaimSubmitHandler,
+  createClaimTargetHandler,
+  createCorrectionSubmitHandler,
+} from './requests';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
@@ -241,6 +247,7 @@ describe('POST /api/requests/claim', () => {
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
 
@@ -399,14 +406,17 @@ describe('POST /api/requests/claim', () => {
   });
 });
 
-// ─── AECI-1293: the plan answer and the comments ─────────────────────────────
-describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
+// ─── AECI-1365: the retired plan question ─────────────────────────────────────
+// An old client may still send the plan answer. The schema strips it, so the claim
+// still lands (201) and nothing stores or records it.
+describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-1365)', () => {
   const body = {
     target_type: 'vendor',
     slug: 'acme-co',
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
   };
   const submit = (extra: Record<string, unknown>) =>
     claimApp().request(
@@ -416,40 +426,150 @@ describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
       fakeExecutionContext(),
     );
 
-  it('stores the plan answer and the comments, and records the answer in the audit row', async () => {
+  it.each(['managed', '', 'enterprise'])(
+    'returns 201 for plan_interest %j and stores and audits nothing for it',
+    async (value) => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submit({ plan_interest: value, body: 'We have four products.' });
+      expect(res.status).toBe(201);
+      const { row } = await createdRow(res);
+      expect(row?.planInterest).toBeNull();
+      expect(row?.body).toBe('We have four products.');
+      const [audit] = await t.db.select().from(auditLog);
+      expect(audit!.metadata).not.toHaveProperty('plan_interest');
+    },
+  );
+});
+
+// ─── AECI-1364: a claim is on the company ──────────────────────────────────────
+describe('POST /api/requests/claim → product target normalised to the company (AECI-1364)', () => {
+  const body = {
+    target_type: 'product',
+    slug: 'acme-build',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+  };
+  const submit = (
+    extra: Record<string, unknown> = {},
+    env = TEST_ENV,
+    execCtx = fakeExecutionContext(),
+  ) => claimApp().request('/api/requests/claim', postInit({ ...body, ...extra }), env, execCtx);
+
+  async function vendorOf(slug: string) {
+    const v = await t.db.query.vendors.findFirst({ where: eq(vendors.slug, slug) });
+    return v!;
+  }
+
+  it('stores the vendor as the target and the product as context; the response is unchanged', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const vendor = await vendorOf('v-acme-build');
+
+    const res = await submit();
+    expect(res.status).toBe(201);
+    const json = (await res.clone().json()) as Record<string, unknown>;
+    expect(Object.keys(json).sort()).toEqual(['message', 'request_id']);
+    expect(json.message).toBe(
+      'Your claim has been received. We will review it and follow up by email.',
+    );
+
+    const { request_id, row } = await createdRow(res);
+    expect(row).toMatchObject({
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: vendor.id,
+      contextProductId: PRODUCT_ID,
+      // The domain check still compares against the company's website.
+      domainMatch: 'match',
+    });
+
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit).toMatchObject({ action: 'vendor_request.created', entityId: request_id });
+    expect(audit!.metadata).toMatchObject({
+      target_type: 'vendor',
+      target_id: vendor.id,
+      slug: 'v-acme-build',
+      context_product_id: PRODUCT_ID,
+      context_product_slug: 'acme-build',
+    });
+    const [transition] = await t.db.select().from(workflowTransitions);
+    expect(transition!.metadata).toMatchObject({
+      target_type: 'vendor',
+      context_product_id: PRODUCT_ID,
+    });
+  });
+
+  it('records no context product on a company-page claim', async () => {
     await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: 'managed', body: 'We have four products.' });
+    const res = await submit({ target_type: 'vendor', slug: 'acme-co' });
     expect(res.status).toBe(201);
     const { row } = await createdRow(res);
-    expect(row?.planInterest).toBe('managed');
-    expect(row?.body).toBe('We have four products.');
+    expect(row).toMatchObject({ targetType: 'vendor', targetId: VENDOR_ID });
+    expect(row?.contextProductId).toBeNull();
     const [audit] = await t.db.select().from(auditLog);
-    expect(audit!.metadata).toMatchObject({ plan_interest: 'managed' });
+    expect(audit!.metadata).toMatchObject({ context_product_id: null });
   });
 
-  it('stores NULL when the key is absent, so a body that predates the field still validates', async () => {
+  it('falls back to any product_vendors row when there is no primary', async () => {
+    await seedProduct({ slug: 'acme-build' });
     await seedVendor({ slug: 'acme-co' });
-    const res = await submit({});
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: false });
+
+    const res = await submit();
     expect(res.status).toBe(201);
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({
+      targetType: 'vendor',
+      targetId: VENDOR_ID,
+      contextProductId: PRODUCT_ID,
+    });
   });
 
-  it('stores NULL for "" (not answered)', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: '' });
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
+  it('prefers the primary vendor over another linked vendor', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: null });
+    const primary = await vendorOf('v-acme-build');
+    await seedVendor({ slug: 'reseller-co' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: false });
+
+    const res = await submit();
+    expect((await createdRow(res)).row?.targetId).toBe(primary.id);
   });
 
-  it('rejects a value outside the vocabulary and writes nothing', async () => {
-    await seedVendor({ slug: 'acme-co' });
-    const res = await submit({ plan_interest: 'enterprise' });
-    expect(res.status).toBe(400);
+  it('404s when the product has no vendor row, and writes nothing', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submit();
+    expect(res.status).toBe(404);
+    const err = (await res.json()) as { error: { code: string } };
+    expect(err.error.code).toBe('NOT_FOUND');
     expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
-  it('leaves the key off a correction audit row', async () => {
+  it('404s when the product does not exist', async () => {
+    const res = await submit();
+    expect(res.status).toBe(404);
+  });
+
+  it('dedupes a product-page claim against an open company-page claim on the same company', async () => {
     await seedProduct({ slug: 'acme-build' });
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+
+    const first = await submit({ target_type: 'vendor', slug: 'acme-co' });
+    const { request_id: firstId } = await createdRow(first);
+    const second = await submit({ submitter_email: 'someone-else@acme.com' });
+    expect((await createdRow(second)).row?.duplicateOfRequestId).toBe(firstId);
+  });
+
+  it('keeps a correction on its product target', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
     const res = await submitCorrection({
       target_type: 'product',
       slug: 'acme-build',
@@ -458,9 +578,44 @@ describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
       submitter_email: 'reporter@example.com',
     });
     expect(res.status).toBe(201);
-    expect((await createdRow(res)).row?.planInterest).toBeNull();
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ targetType: 'product', targetId: PRODUCT_ID });
+    expect(row?.contextProductId).toBeNull();
     const [audit] = await t.db.select().from(auditLog);
-    expect(audit!.metadata).not.toHaveProperty('plan_interest');
+    expect(audit!.metadata).not.toHaveProperty('context_product_id');
+  });
+
+  it('names the company and the product page in the claim alert', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+      const execCtx = fakeExecutionContext();
+      const res = await submit(
+        {},
+        {
+          ...TEST_ENV,
+          RESEND_API_KEY: 'rk_test',
+          EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+          SUPPORT_EMAIL: 'support@aecintegrations.com',
+        },
+        execCtx,
+      );
+      expect(res.status).toBe(201);
+      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+      const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+        subject: string;
+        text: string;
+      };
+      expect(sent.subject).toContain('co-acme-build');
+      expect(sent.text).toContain('Claimed: co-acme-build (vendor)');
+      expect(sent.text).toContain('Came from: name-acme-build (product)');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -507,6 +662,7 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
         }),
         TEST_ENV,
@@ -547,6 +703,7 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing.',
         }),
         TEST_ENV,
@@ -589,6 +746,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
   const correctionBody = {
@@ -638,7 +796,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     expect(sent.text).toContain('dana@acme.com');
   });
 
-  it('carries the plan answer as a row (AECI-1293)', async () => {
+  it('has no plan row, even when an old client sends the key (AECI-1365)', async () => {
     const fetchMock = resendOkFetch();
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
@@ -652,7 +810,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
       text: string;
     };
-    expect(sent.text).toContain('Plan interest: Not sure yet');
+    expect(sent.text).not.toContain('Plan interest');
   });
 
   it('carries the Linear permalink and the admin deep link (AECI-861)', async () => {
@@ -913,5 +1071,288 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
       variables: { input: { labelIds: string[] } };
     };
     expect(sent.variables.input.labelIds).toContain(LABEL_IDS.domainCheckPending);
+  });
+});
+
+// ─── AECI-1368: claims routed to the company's owners ────────────────────────
+
+describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const validBody = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+    body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+  };
+  const submit = (execCtx = fakeExecutionContext()) =>
+    claimApp().request('/api/requests/claim', postInit(validBody), TEST_ENV, execCtx);
+
+  it('sets routed_to_owners_at when the company has an unbanned owner seat, status stays open', async () => {
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+
+    const res = await submit();
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+    expect(row?.ownerFallbackAt).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(true);
+  });
+
+  it('does not route when the only owner seat is banned', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db.insert(profiles).values({
+      id: OWNER_ID,
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      seatOwner: true,
+      bannedAt: '2026-10-01T00:00:00.000Z',
+    });
+
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+  });
+
+  it('does not route when the company has only a member seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: false });
+
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+  });
+
+  it('does not route a claim on a company with no seats', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const { row } = await createdRow(await submit());
+    expect(row?.routedToOwnersAt).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect((audit!.metadata as Record<string, unknown>).routed_to_owners).toBe(false);
+  });
+});
+
+describe('GET /api/requests/claim-target/:type/:slug (AECI-1368)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const targetApp = () =>
+    buildAppWithHandler({
+      method: 'get',
+      path: '/api/requests/claim-target/:type/:slug',
+      handler: createClaimTargetHandler(t.factory),
+    });
+  const get = (path: string) =>
+    targetApp().request(path, { method: 'GET' }, TEST_ENV, fakeExecutionContext());
+
+  it('returns the vendor and has_seats false for a company with no owner seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await get('/api/requests/claim-target/vendor/acme-co');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('no-store');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: false });
+  });
+
+  it('returns has_seats true when the company has an unbanned owner seat', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    const res = await get('/api/requests/claim-target/vendor/acme-co');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: true });
+  });
+
+  it('resolves a product to its company, the one the claim would be stored on', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'acme-build', name: 'Acme Build' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+    const res = await get('/api/requests/claim-target/product/acme-build');
+    expect(await res.json()).toEqual({ vendor_id: VENDOR_ID, has_seats: false });
+  });
+
+  it.each([
+    ['/api/requests/claim-target/vendor/nope'],
+    ['/api/requests/claim-target/product/nope'],
+    ['/api/requests/claim-target/integration/acme-co'],
+  ])('404s like the claim route for %s', async (path) => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await get(path);
+    expect(res.status).toBe(404);
+  });
+
+  it('404s a product with no company to claim', async () => {
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'orphan', name: 'Orphan' });
+    const res = await get('/api/requests/claim-target/product/orphan');
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── AECI-1366: the vendor terms box, the acceptance and the receipt ──────────
+
+describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI-1366)', () => {
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const body = {
+    target_type: 'product',
+    slug: 'acme-build',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+  };
+  /** Production, so the tier policy delivers the receipt to the outside address. */
+  const PROD_ENV = {
+    ...TEST_ENV,
+    ENV: 'production' as const,
+    RESEND_API_KEY: 'rk_test',
+    EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const submit = (
+    extra: Record<string, unknown> = {},
+    env = TEST_ENV,
+    execCtx = fakeExecutionContext(),
+    headers: Record<string, string> = {},
+  ) =>
+    claimApp().request(
+      '/api/requests/claim',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ ...body, ...extra }),
+      },
+      env,
+      execCtx,
+    );
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records the acceptance on the claim with the current version, IP and user agent', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const res = await submit({}, TEST_ENV, fakeExecutionContext(), {
+      'cf-connecting-ip': '198.51.100.7',
+      'user-agent': 'Mozilla/5.0 (test)',
+    });
+    expect(res.status).toBe(201);
+    const { request_id } = await createdRow(res);
+
+    const rows = await t.db.select().from(agreementAcceptances);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email: 'dana@acme.com',
+      vendorRequestId: request_id,
+      listingRequestId: null,
+      profileId: null,
+      vendorId: null,
+      billingAccountId: null,
+      ip: '198.51.100.7',
+      userAgent: 'Mozilla/5.0 (test)',
+    });
+    const actions = (await t.db.select().from(auditLog)).map((a) => a.action);
+    expect(actions).toEqual(
+      expect.arrayContaining(['vendor_request.created', 'agreement.accepted']),
+    );
+  });
+
+  it('commits the claim, its workflow, both audit rows and the acceptance in ONE db.batch', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const batch = vi.spyOn(t.db, 'batch');
+    await submit();
+    expect(batch).toHaveBeenCalledTimes(1);
+    // claim, workflow instance, genesis transition, claim audit, acceptance, its audit
+    expect(batch.mock.calls[0]![0]).toHaveLength(6);
+  });
+
+  it('writes neither the claim nor the acceptance when the batch fails', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    vi.spyOn(t.db, 'batch').mockRejectedValueOnce(new Error('D1 down'));
+    const res = await submit();
+    expect(res.status).toBe(500);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['false', false],
+    ['the string "true"', 'true'],
+  ])('rejects accepted_terms %s with 400 VALIDATION_FAILED on the field', async (_l, value) => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const res = await submit({ accepted_terms: value });
+    expect(res.status).toBe(400);
+    const { error } = (await res.json()) as { error: { code: string; field?: string } };
+    expect(error).toMatchObject({ code: 'VALIDATION_FAILED', field: 'accepted_terms' });
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
+  });
+
+  function resendFetch() {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return () =>
+      fetchMock.mock.calls
+        .filter(([url]) => String(url).includes('resend'))
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init!.body)) as { to: string; subject: string; text: string },
+        );
+  }
+
+  it('sends the alert, then the claimant a receipt naming the company and the product', async () => {
+    const sent = resendFetch();
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const execCtx = fakeExecutionContext();
+    expect((await submit({}, PROD_ENV, execCtx)).status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const mails = sent();
+    expect(mails.map((m) => String(m.to))).toEqual([
+      'support@aecintegrations.com',
+      'dana@acme.com',
+    ]);
+    const receipt = mails[1]!;
+    expect(receipt.subject).toBe('We got your claim for co-acme-build');
+    expect(receipt.text).toContain('name-acme-build');
+    expect(receipt.text).toContain('A person at AEC Integrations reviews every claim.');
+    expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
+    // Nothing that grants anything: no sign-in, no portal, no token.
+    expect(receipt.text).not.toContain('/auth/');
+    expect(receipt.text).not.toMatch(/\/vendor(\?|\/|\s|$)/);
+    // The unrouted alert has no owners line.
+    expect(mails[0]!.text).not.toContain('Sent to the owners at');
+  });
+
+  it('routed claim: the receipt says their team confirms, the alert says when AECi steps in', async () => {
+    const sent = resendFetch();
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    const execCtx = fakeExecutionContext();
+    const res = await submit({ target_type: 'vendor', slug: 'acme-co' }, PROD_ENV, execCtx);
+    expect(res.status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const mails = sent();
+    const alert = mails.find((m) => String(m.to) === 'support@aecintegrations.com')!;
+    const receipt = mails.find((m) => String(m.to) === 'dana@acme.com')!;
+    expect(alert.text).toMatch(/Sent to the owners at co-acme-co; AECi steps in on .+ UTC\./);
+    expect(receipt.text).toContain('The team at co-acme-co has been asked to confirm you.');
+    expect(receipt.text).toContain(
+      'If nobody answers within 7 days, we review your claim and write to you.',
+    );
   });
 });

@@ -12,7 +12,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 ## Send a claim
 
-Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose **Claim this listing**. A claim is also how you join your company's account when a colleague already has a seat.
+Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose the claim button. It names your company, for example **Claim Acme Software**. A claim is also how you join your company's account when a colleague already has a seat.
 
 If your product or company is not listed, choose **Not listed? Type it in** and give its name and website. We add it to the directory, then email you so you can finish your claim.
 
@@ -21,10 +21,12 @@ The form asks for:
 - **Your name** and **Your role at the company**.
 - **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
-- **Which plan are you interested in? (optional)** Free, Managed or not sure yet. It helps us plan the conversation. We still confirm the plan with you before anything is billed. [Plans](/docs/vendors/plans) explains both.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
+- **I represent this company and accept the vendor terms.** You must tick this box to send a claim. It links to the [vendor terms](/legal/vendor-terms). We record the version you accepted, with the time.
 
-Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next.
+Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next. We also email that address a receipt that says what you claimed and what happens next. One address gets at most one receipt a day. If you did not send a claim and got a receipt, you can ignore it. Nothing changes on any account until a person approves a claim.
+
+If your company already has a team on AEC Integrations, the form tells you before you send. Your claim goes to that team first, and they confirm you. If they do not answer within 7 days, we step in and review it ourselves.
 
 A claim on a product page is a claim on the vendor that makes the product. The seat you get covers the whole vendor account, not one product.
 
@@ -43,7 +45,7 @@ We do not promise a time for a decision. Some claims take longer to confirm than
 
 ## What happens next
 
-**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with a one-time link sent to the same address. Approval also puts your company on a plan, Free or Managed. The email tells you what your account can do. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
+**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. Approval puts your company on the Free plan, and the email tells you what your account can do. Managed is a separate step. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
 
 **If we cannot approve it,** you get an email saying so. You are welcome to send a new claim with more detail about your role.
 

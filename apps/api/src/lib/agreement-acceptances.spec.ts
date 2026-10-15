@@ -13,17 +13,28 @@ import { ApiErrorCode, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { agreementAcceptances, auditLog, billingAccounts, vendors } from '../db/schema';
+import {
+  agreementAcceptances,
+  auditLog,
+  billingAccounts,
+  listingRequests,
+  profiles,
+  vendorRequests,
+  vendors,
+} from '../db/schema';
 import { ApiError } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import type { BatchTuple } from './audit';
 import {
   AGREEMENT_ACCEPTANCE_ENTITY_TYPE,
   AGREEMENT_ACCEPTED_ACTION,
+  AGREEMENT_LINKED_ACTION,
   USER_AGENT_MAX_LENGTH,
   acceptanceRequestEvidence,
   agreementAcceptanceStatements,
+  linkClaimAcceptanceStatements,
   listVendorAcceptances,
+  loadClaimAcceptanceIds,
   truncateUserAgent,
   type AgreementAcceptanceParams,
 } from './agreement-acceptances';
@@ -106,6 +117,7 @@ describe('agreementAcceptanceStatements', () => {
       vendorId: VENDOR,
       billingAccountId: null,
       vendorRequestId: null,
+      listingRequestId: null,
       stripeCheckoutSessionId: null,
       acceptedAt: NOW,
       ip: '203.0.113.7',
@@ -195,6 +207,30 @@ describe('agreementAcceptanceStatements', () => {
     ).toEqual([]);
   });
 
+  // AECI-1366: the typed-in listing path has no claim row to name.
+  it('records an acceptance against a listing request, and the audit row names it', async () => {
+    const LISTING = u(40);
+    await t.db.insert(listingRequests).values({
+      id: LISTING,
+      listingName: 'Site Diary Pro',
+      website: 'https://sitediary.example.com',
+      submitterEmail: 'pat@sitediary.example.com',
+    });
+    const out = agreementAcceptanceStatements(
+      t.db,
+      claim({ vendorId: null, listingRequestId: LISTING }),
+    );
+    await t.db.batch(out.stmts as BatchTuple);
+    const [row] = await t.db.select().from(agreementAcceptances);
+    expect(row).toMatchObject({ listingRequestId: LISTING, vendorRequestId: null });
+    expect(out.auditEntry.afterState).toMatchObject({ listing_request_id: LISTING });
+
+    // ON DELETE SET NULL: deleting the request leaves the evidence standing.
+    await t.db.delete(listingRequests).where(eq(listingRequests.id, LISTING));
+    const [after] = await t.db.select().from(agreementAcceptances);
+    expect(after).toMatchObject({ id: out.acceptanceId, listingRequestId: null });
+  });
+
   it('lets many acceptances carry no Stripe session id', async () => {
     for (let i = 0; i < 2; i++) {
       const out = agreementAcceptanceStatements(t.db, claim());
@@ -236,5 +272,103 @@ describe('request evidence helpers', () => {
     expect(truncateUserAgent('   ')).toBeNull();
     expect(truncateUserAgent(undefined)).toBeNull();
     expect(truncateUserAgent(' curl/8 ')).toBe('curl/8');
+  });
+});
+
+// ─── AECI-1367: the approval links the claim's acceptances ───────────────────
+
+describe('linkClaimAcceptanceStatements', () => {
+  const CLAIM = u(20);
+  const OTHER_CLAIM = u(21);
+  const SEAT = u(30);
+  const ADMIN = u(31);
+
+  beforeEach(async () => {
+    // `audit_log.actor_id` references `profiles`.
+    await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
+    await t.db.insert(vendorRequests).values(
+      [CLAIM, OTHER_CLAIM].map((id) => ({
+        id,
+        kind: 'claim',
+        status: 'open',
+        targetType: 'vendor',
+        targetId: VENDOR,
+        submitterEmail: 'ada@procore.com',
+        body: 'We build this.',
+      })),
+    );
+  });
+
+  const linkArgs = (acceptanceIds: readonly string[]) => ({
+    vendorRequestId: CLAIM,
+    acceptanceIds,
+    profileId: SEAT,
+    vendorId: VENDOR,
+    billingAccountId: ACCOUNT,
+    actorId: ADMIN,
+    actorType: 'admin' as const,
+    vendorPlan: { tier: 'none', status: 'none' as const },
+    source: 'admin-moderation',
+  });
+
+  /** A claim-time acceptance: the email and the claim, nothing else. */
+  async function acceptOn(vendorRequestId: string): Promise<string> {
+    const batch = agreementAcceptanceStatements(t.db, claim({ vendorId: null, vendorRequestId }));
+    await t.db.batch(batch.stmts as BatchTuple);
+    return batch.acceptanceId;
+  }
+
+  it('loads the claim’s acceptance ids and nothing else', async () => {
+    const mine = await acceptOn(CLAIM);
+    await acceptOn(OTHER_CLAIM);
+    expect(await loadClaimAcceptanceIds(t.db, CLAIM)).toEqual([mine]);
+    expect(await loadClaimAcceptanceIds(t.db, u(99))).toEqual([]);
+  });
+
+  it('is a no-op with no statement and no audit row when the claim has no acceptances', () => {
+    const link = linkClaimAcceptanceStatements(t.db, linkArgs([]));
+    expect(link.stmts).toEqual([]);
+    expect(link.auditEntry).toBeNull();
+  });
+
+  it('fills profile, vendor and billing account on this claim’s rows only, with one audit row', async () => {
+    const mine = await acceptOn(CLAIM);
+    const theirs = await acceptOn(OTHER_CLAIM);
+
+    const link = linkClaimAcceptanceStatements(t.db, linkArgs([mine]));
+    expect(link.stmts).toHaveLength(2);
+    await t.db.batch(link.stmts as BatchTuple);
+
+    const rows = await t.db.select().from(agreementAcceptances);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(mine)).toMatchObject({
+      profileId: SEAT,
+      vendorId: VENDOR,
+      billingAccountId: ACCOUNT,
+      // The evidence is untouched.
+      email: 'ada@procore.com',
+      ip: '203.0.113.7',
+    });
+    expect(byId.get(theirs)).toMatchObject({
+      profileId: null,
+      vendorId: null,
+      billingAccountId: null,
+    });
+
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, AGREEMENT_LINKED_ACTION));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      entityType: 'vendor_request',
+      entityId: CLAIM,
+      vendorId: VENDOR,
+    });
+    expect(link.auditEntry!.afterState).toMatchObject({
+      acceptance_ids: [mine],
+      profile_id: SEAT,
+      billing_account_id: ACCOUNT,
+    });
   });
 });

@@ -15,8 +15,21 @@ import type { AdminClaim } from '@aeci/shared';
  *
  * `null` is UNKNOWN (absent creds or a failed lookup) and is never rendered as
  * "no account" (`STAGE_2_VENDOR_PORTAL_SPEC.md` §2).
+ *
+ * AECI-1322: a resolved claim says "(claim granted)" only when `granted` is true.
+ * The Linear webhook resolves a claim without a grant, and that claim reads
+ * "Resolved without a grant" whatever the account lookup says, because no seat
+ * came from it. `granted` is known from the database, so it wins over an unknown
+ * account lookup.
  */
-export function claimantAccountLabel(status: AdminClaim['status'], value: boolean | null): string {
+export function claimantAccountLabel(
+  status: AdminClaim['status'],
+  value: boolean | null,
+  granted: boolean,
+): string {
+  if (status === 'resolved' && !granted) {
+    return $localize`:@@admin.claims.account.resolved.noGrant:Resolved without a grant`;
+  }
   if (value === null) {
     return $localize`:@@admin.claims.account.unknown:Account status unknown`;
   }

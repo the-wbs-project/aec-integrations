@@ -6,7 +6,6 @@ import type { AdminListingRequest } from '@aeci/shared';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminSummaryStore } from '../admin-summary.store';
-import { planInterestLabel } from '../claims/plan-interest-label';
 import { AdminRequestsApi } from './admin-requests-api';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
@@ -18,7 +17,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * Listing requests (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.5): the second
  * section of `/admin/requests`. A visitor typed a product or company into the claim
  * dialog because the catalog does not list it. Each row shows what they typed, who
- * they are, their plan answer and comments, with Resolve and Reject.
+ * they are and their comments, with Resolve and Reject.
  *
  * Resolving does not create the listing. The operator adds it upstream (the review
  * app, then promote) and emails the submitter to claim it; the support alert's
@@ -148,10 +147,6 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                       }
                     </dd>
                   </div>
-                  <div class="flex flex-wrap gap-1.5">
-                    <dt class="font-bold" i18n="@@admin.claims.meta.planInterest">Plan interest</dt>
-                    <dd>{{ planInterestLabel(r.plan_interest) }}</dd>
-                  </div>
                   @if (r.submitter_linkedin_url) {
                     <div class="flex flex-wrap gap-1.5">
                       <dt class="font-bold" i18n="@@admin.listingRequests.linkedin">LinkedIn</dt>
@@ -226,7 +221,6 @@ export class ListingRequestQueue {
   private readonly api = inject(AdminRequestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
 
-  protected readonly planInterestLabel = planInterestLabel;
   protected readonly rows = signal<readonly AdminListingRequest[]>([]);
   /** The server's count for the filter. More than `rows` means the page is capped. */
   protected readonly total = signal(0);

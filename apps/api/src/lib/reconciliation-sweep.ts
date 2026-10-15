@@ -72,6 +72,7 @@ import {
   drizzleLinearStore,
 } from './linear';
 import { NOTIFIED_REQUEST_KINDS } from './request-links';
+import { claimTargetIsPureConnector } from './vendor-product-roles';
 import type { Db } from '../db/client';
 import {
   auditLog,
@@ -161,8 +162,9 @@ type StuckRow = {
    *  AECI-847 LinkedIn row when the sweep created it rather than the request
    *  handler. */
   submitterLinkedinUrl: string | null;
-  /** AECI-1293: the plan answer, so the rebuilt issue and the recovery alert carry it. */
-  planInterest: string | null;
+  /** AECI-1364: the product page a claim came from, so the rebuilt issue and the
+   *  recovery alert say "Came from" exactly as the submit-time ones do. */
+  contextProductId: string | null;
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
@@ -170,6 +172,8 @@ type StuckRow = {
    *  post the §7.2 duplicate note, which is a separate decision. The email merely must
    *  not claim "no duplicate" about a row that has one. */
   duplicateOfRequestId: string | null;
+  /** AECI-1366: the recovery alert names the owner routing as the submit-time one does. */
+  routedToOwnersAt: string | null;
   createdAt: string;
 };
 
@@ -254,11 +258,12 @@ export async function runReconciliationSweep(
       submitterName: true,
       submitterRole: true,
       submitterLinkedinUrl: true,
-      planInterest: true,
+      contextProductId: true,
       body: true,
       sourceUrl: true,
       domainMatch: true,
       duplicateOfRequestId: true,
+      routedToOwnersAt: true,
       createdAt: true,
     },
     where: stuckWhere,
@@ -320,6 +325,10 @@ export async function runReconciliationSweep(
         });
         continue;
       }
+      // AECI-1364: a product that has since gone just drops the "Came from" line.
+      const contextProduct = row.contextProductId
+        ? await resolveTargetById(db, 'product', row.contextProductId)
+        : null;
       retried++;
       wasRetried.add(row.id);
       // Idempotent retry of §6.4 — the same function the request handler runs.
@@ -337,7 +346,7 @@ export async function runReconciliationSweep(
         submitterName: row.submitterName,
         submitterRole: row.submitterRole,
         submitterLinkedinUrl: row.submitterLinkedinUrl,
-        planInterest: row.planInterest,
+        contextProduct,
         body: row.body,
         sourceUrl: row.sourceUrl,
         domainMatch: row.domainMatch,
@@ -355,6 +364,8 @@ export async function runReconciliationSweep(
       // inside the per-row `try`, so a mail error never aborts the batch.
       if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
         await sendClaimAlert(c, {
+          // AECI-1367: the same connector flag the intake send carries. Never throws.
+          connectorVendor: await claimTargetIsPureConnector(db, row.targetType, row.targetId),
           dedupeKey: `claim-submitted-alert:${row.id}`,
           entity: { type: 'vendor_request', id: row.id },
           requestId: row.id,
@@ -365,10 +376,11 @@ export async function runReconciliationSweep(
           submitterName: row.submitterName,
           submitterRole: row.submitterRole,
           submitterLinkedinUrl: row.submitterLinkedinUrl,
-          planInterest: row.planInterest,
+          contextProduct,
           domainMatch: row.domainMatch,
           duplicateOfRequestId: row.duplicateOfRequestId,
           linearIssueUrl: outcome.issueUrl,
+          routedToOwnersAt: row.routedToOwnersAt,
         });
       }
     } catch (error) {

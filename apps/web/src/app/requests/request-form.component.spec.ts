@@ -1,7 +1,8 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,9 +17,9 @@ import { RequestsApi } from './requests-api';
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
 
-function mockRoute(entity: Entity, kind: Kind, slug: string): ActivatedRoute {
+function mockRoute(entity: Entity, kind: Kind, slug: string, target?: unknown): ActivatedRoute {
   return {
-    snapshot: { data: { entity, kind }, paramMap: convertToParamMap({ slug }) },
+    snapshot: { data: { entity, kind, target }, paramMap: convertToParamMap({ slug }) },
   } as unknown as ActivatedRoute;
 }
 
@@ -31,6 +32,7 @@ function settle(): Promise<void> {
 interface ApiMock {
   submitCorrection: ReturnType<typeof vi.fn>;
   submitClaim: ReturnType<typeof vi.fn>;
+  getClaimTarget: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(): ApiMock {
@@ -38,6 +40,8 @@ function makeApiMock(): ApiMock {
   return {
     submitCorrection: vi.fn(async () => ok),
     submitClaim: vi.fn(async () => ok),
+    // AECI-1366: the claim form's seat lookup. No seat unless a test says so.
+    getClaimTarget: vi.fn(async () => ({ vendor_id: 'v-1', has_seats: false })),
   };
 }
 
@@ -54,8 +58,17 @@ function makeSessionStub(email: string | null) {
   };
 }
 
-function setup(entity: Entity, kind: Kind, slug = 'acme', sessionEmail: string | null = null) {
-  const api = makeApiMock();
+function setup(
+  entity: Entity,
+  kind: Kind,
+  slug = 'acme',
+  sessionEmail: string | null = null,
+  /** AECI-1364: what the claim route's resolver returned (a product or vendor read). */
+  target?: unknown,
+  /** AECI-1366: replace API mocks before the first render (the seat lookup runs then). */
+  apiOverrides: Partial<ApiMock> = {},
+) {
+  const api = { ...makeApiMock(), ...apiOverrides };
   const session = makeSessionStub(sessionEmail);
   TestBed.configureTestingModule({
     providers: [
@@ -63,7 +76,7 @@ function setup(entity: Entity, kind: Kind, slug = 'acme', sessionEmail: string |
       provideHttpClient(),
       provideHttpClientTesting(),
       provideRouter([]),
-      { provide: ActivatedRoute, useValue: mockRoute(entity, kind, slug) },
+      { provide: ActivatedRoute, useValue: mockRoute(entity, kind, slug, target) },
       { provide: RequestsApi, useValue: api },
       { provide: SessionStatus, useValue: session.stub },
     ],
@@ -78,6 +91,13 @@ function setup(entity: Entity, kind: Kind, slug = 'acme', sessionEmail: string |
     session,
     el: fixture.nativeElement as HTMLElement,
   };
+}
+
+/** AECI-1366: tick (or untick) the required vendor terms box. */
+function toggleTerms(fixture: ComponentFixture<unknown>) {
+  (
+    (fixture.nativeElement as HTMLElement).querySelector('#claim-terms') as HTMLInputElement
+  ).click();
 }
 
 function type(el: ComponentFixture<unknown>, selector: string, value: string) {
@@ -112,6 +132,51 @@ describe('RequestForm', () => {
     expect(el.querySelector('#correction-body')).toBeNull();
     expect(el.querySelector('button[type="submit"]')?.textContent).toContain('Send claim');
     httpMock.verify();
+  });
+
+  // AECI-1364: a claim is on the company, so the page names it once known.
+  describe('the "Claim <Company>" title', () => {
+    it("names the product's vendor and the product page on a product claim page", () => {
+      const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
+        name: 'Acme Takeoff',
+        vendor: { id: 'v1', name: 'Acme Software', slug: 'acme-software', logo_url: null },
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim Acme Software');
+      expect(
+        el
+          .querySelector('[data-testid="request-context-product"]')
+          ?.textContent?.replace(/\s+/g, ' ')
+          .trim(),
+      ).toBe('From the Acme Takeoff page');
+      expect(TestBed.inject(Title).getTitle()).toBe('Claim Acme Software · AEC Integrations');
+      expect(el.textContent).not.toContain('listing');
+      httpMock.verify();
+    });
+
+    it('names the company on a company claim page, with no product line', () => {
+      const { el, httpMock } = setup('vendor', 'claim', 'acme-software', null, {
+        company_name: 'Acme Software',
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim Acme Software');
+      expect(el.querySelector('[data-testid="request-context-product"]')).toBeNull();
+      httpMock.verify();
+    });
+
+    it('reads "Claim your company" when the company is unknown', () => {
+      const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
+        name: 'Acme Takeoff',
+        vendor: null,
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim your company');
+      expect(TestBed.inject(Title).getTitle()).toBe('Claim your company · AEC Integrations');
+      httpMock.verify();
+    });
+
+    it('reads "Claim your company" when the entity did not resolve', () => {
+      const { el, httpMock } = setup('vendor', 'claim', 'gone', null, null);
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim your company');
+      httpMock.verify();
+    });
   });
 
   it('disables submit while the form is invalid', async () => {
@@ -199,6 +264,7 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    toggleTerms(fixture);
     type(fixture, '#claim-email', 'dana@acme.example');
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
     await settle();
@@ -267,6 +333,7 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    toggleTerms(fixture);
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
     await settle();
     fixture.detectChanges();
@@ -286,6 +353,7 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    toggleTerms(fixture);
     await settle();
     fixture.detectChanges();
 
@@ -341,6 +409,7 @@ describe('RequestForm', () => {
       const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co');
       type(fixture, '#claim-name', 'Dana Reyes');
       type(fixture, '#claim-role', 'Head of Partnerships');
+      toggleTerms(fixture);
       type(fixture, '#claim-email', 'dana@outlook.com');
       await settle();
       fixture.detectChanges();
@@ -357,36 +426,28 @@ describe('RequestForm', () => {
     });
   });
 
-  // ── AECI-1293: the plan question and "Additional comments" (spec §15.6) ─────
-  it('asks the optional plan question with nothing preselected, and relabels the note', () => {
+  // ── AECI-1365: no plan question; the note reads "Additional comments" ───────
+  it('asks no plan question, and labels the note "Additional comments"', () => {
     const { el } = setup('product', 'claim');
-    const fieldset = el.querySelector('aec-plan-interest-field fieldset')!;
-    expect(fieldset.querySelector('legend')?.textContent).toContain(
-      'Which plan are you interested in?',
-    );
-    const radios = [...fieldset.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios.map((r) => r.value)).toEqual(['free', 'managed', 'not_sure']);
-    expect(radios.every((r) => !r.checked)).toBe(true);
+    expect(el.textContent).not.toContain('Which plan are you interested in?');
+    expect(el.querySelector('input[type="radio"]')).toBeNull();
     expect(el.querySelector('label[for="claim-body"]')?.textContent).toContain(
       'Additional comments',
     );
-    // A correction asks no plan question.
-    TestBed.resetTestingModule();
-    const correction = setup('product', 'correction');
-    expect(correction.el.querySelector('aec-plan-interest-field')).toBeNull();
   });
 
-  it('submits the chosen plan with the claim', async () => {
+  it('submits a claim with no plan answer', async () => {
     const { fixture, el, api } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
-    el.querySelector<HTMLInputElement>('input[type="radio"][value="managed"]')!.click();
+    toggleTerms(fixture);
     await settle();
     fixture.detectChanges();
     (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
     await settle();
     fixture.detectChanges();
-    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ plan_interest: 'managed' });
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    expect(api.submitClaim.mock.calls[0]![1]).not.toHaveProperty('plan_interest');
   });
 
   // ── AECI-847: the optional LinkedIn profile field ─────────────────────────
@@ -395,6 +456,7 @@ describe('RequestForm', () => {
     function fillRequiredClaimFields(fixture: ComponentFixture<unknown>) {
       type(fixture, '#claim-name', 'Dana Reyes');
       type(fixture, '#claim-role', 'Head of Partnerships');
+      toggleTerms(fixture);
       type(fixture, '#claim-email', 'dana@acme.example');
     }
 
@@ -576,6 +638,7 @@ describe('RequestFormBody drawer confirmation', () => {
   async function submitClaim(fixture: ComponentFixture<RequestFormBody>, el: HTMLElement) {
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    toggleTerms(fixture);
     type(fixture, '#claim-email', '  dana@acme.example ');
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
     await settle();
@@ -600,5 +663,152 @@ describe('RequestFormBody drawer confirmation', () => {
     await settle();
     expect(document.activeElement).toBe(done);
     httpMock.verify();
+  });
+});
+
+// ── AECI-1366: the vendor terms box, the seat disclosure and the receipt ────────
+describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const squash = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+
+  async function fillClaim(fixture: ComponentFixture<unknown>, terms = true) {
+    type(fixture, '#claim-name', 'Dana Reyes');
+    type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-email', 'dana@acme.example');
+    if (terms) toggleTerms(fixture);
+    await settle();
+    fixture.detectChanges();
+  }
+
+  async function send(fixture: ComponentFixture<unknown>, el: HTMLElement) {
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+  }
+
+  it('renders the box unchecked with a link to the vendor terms, and submit stays disabled until it is ticked', async () => {
+    const { fixture, el } = setup('vendor', 'claim', 'acme-co');
+    const box = el.querySelector('#claim-terms') as HTMLInputElement;
+    expect(box.type).toBe('checkbox');
+    expect(box.checked).toBe(false);
+    const label = el.querySelector('label[for="claim-terms"]')!;
+    expect(squash(label.textContent)).toContain(
+      'I represent this company and accept the vendor terms',
+    );
+    const link = label.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
+    expect(link.getAttribute('target')).toBe('_blank');
+
+    await fillClaim(fixture, false);
+    const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    toggleTerms(fixture);
+    await settle();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
+
+  it('ties the error to the box with aria-describedby once it is left unticked', async () => {
+    const { fixture, el, api } = setup('vendor', 'claim', 'acme-co');
+    await fillClaim(fixture);
+    toggleTerms(fixture);
+    (el.querySelector('#claim-terms') as HTMLInputElement).dispatchEvent(new Event('blur'));
+    await settle();
+    fixture.detectChanges();
+
+    const box = el.querySelector('#claim-terms') as HTMLInputElement;
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-error');
+    expect(el.querySelector('#claim-terms-error')?.getAttribute('role')).toBe('alert');
+    await send(fixture, el);
+    expect(api.submitClaim).not.toHaveBeenCalled();
+  });
+
+  it('sends accepted_terms: true and says the receipt was emailed', async () => {
+    const { fixture, el, api } = setup('vendor', 'claim', 'acme-co');
+    await fillClaim(fixture);
+    await send(fixture, el);
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ accepted_terms: true });
+    expect(squash(el.textContent)).toContain(
+      "We've emailed a receipt to dana@acme.example. We'll write to you there with our decision.",
+    );
+  });
+
+  it('shows the ruled disclosure when the company has an owner seat, and the routed receipt', async () => {
+    const { fixture, el, api } = setup(
+      'vendor',
+      'claim',
+      'acme-co',
+      null,
+      { company_name: 'Acme Software' },
+      { getClaimTarget: vi.fn(async () => ({ vendor_id: 'v-1', has_seats: true })) },
+    );
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(api.getClaimTarget).toHaveBeenCalledWith({ targetType: 'vendor', slug: 'acme-co' });
+    expect(squash(el.querySelector('[data-testid="claim-routed-notice"]')?.textContent)).toBe(
+      'Acme Software already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+    );
+
+    await fillClaim(fixture);
+    await send(fixture, el);
+    expect(squash(el.querySelector('[data-testid="request-sent-routed"]')?.textContent)).toBe(
+      'The team at Acme Software has been asked to confirm you.',
+    );
+    expect(squash(el.textContent)).toContain("We've emailed a receipt to dana@acme.example.");
+    expect(squash(el.textContent)).toContain(
+      'If they accept, you get an invitation email to join. If nobody answers within 7 days, we review your claim and write to you.',
+    );
+    expect(el.textContent).not.toContain('Nothing is granted automatically');
+    expect(el.textContent).not.toContain('with our decision');
+    expect(el.textContent).not.toContain('link to your vendor portal');
+  });
+
+  it('a failed lookup shows no disclosure and never blocks the submit', async () => {
+    const { fixture, el, api } = setup('vendor', 'claim', 'acme-co', null, undefined, {
+      getClaimTarget: vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    });
+    await settle();
+    fixture.detectChanges();
+    expect(api.getClaimTarget).toHaveBeenCalledTimes(1);
+    expect(el.querySelector('[data-testid="claim-routed-notice"]')).toBeNull();
+    await fillClaim(fixture);
+    await send(fixture, el);
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a 400 on accepted_terms (a stale bundle) to the box, not the generic failure', async () => {
+    const { fixture, el, api } = setup('vendor', 'claim', 'acme-co');
+    api.submitClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'Request failed validation',
+            field: 'submitter_role',
+            details: { issues: [{ path: ['submitter_role'] }, { path: ['accepted_terms'] }] },
+          },
+        },
+      }),
+    );
+    await fillClaim(fixture);
+    await send(fixture, el);
+
+    const box = el.querySelector('#claim-terms') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(el.querySelector('#claim-terms-error')).not.toBeNull();
+    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-error');
+    expect(el.textContent).not.toContain('Something went wrong');
+    expect(document.activeElement).toBe(box);
   });
 });

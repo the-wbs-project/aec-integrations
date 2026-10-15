@@ -100,7 +100,7 @@ test.describe('product detail — 404 path', () => {
 test.describe('product detail — claim/correction request forms (AECI-128)', () => {
   test('GET /products/<slug>/claim renders the claim form', async ({ page }) => {
     await page.goto('/products/anything/claim');
-    await expect(page.getByRole('heading', { name: 'Claim this listing' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Claim your company' })).toBeVisible();
     await expect(page.locator('#claim-email')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send claim' })).toBeVisible();
   });

@@ -58,22 +58,19 @@ describe('PlanCardsComponent', () => {
 
   // AECI-1293 (spec §15.1): both cards open the claim dialog, each preselecting its
   // plan; the pricing question under Managed opens the inquiry dialog.
-  it('opens the claim dialog from both cards with the plan preselected', () => {
+  // AECI-1365: no plan is seeded any more; both cards open the same dialog.
+  it('opens the claim dialog from both cards', () => {
     const { cards, planCtaClicked, claimDialog, inquiry } = render({ page: 'vendor_program' });
     const claim = cards[0].querySelector('a')!;
     expect(claim.textContent?.trim()).toBe('Claim your listing');
     expect(claim.getAttribute('href')).toBe('/search');
     expect(click(claim)).toBe(true);
-    expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card', plan: 'free' });
+    expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
 
     const [start, pricing] = [...cards[1].querySelectorAll('a')];
     expect(start.textContent?.trim()).toBe('Start with Managed');
     expect(click(start)).toBe(true);
-    expect(claimDialog.opening()).toEqual({
-      page: 'vendor_program',
-      entry: 'card',
-      plan: 'managed',
-    });
+    expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
 
     expect(pricing.textContent?.trim()).toBe('Talk to us');
     expect(cards[1].textContent).toContain('Questions about Managed or pricing?');

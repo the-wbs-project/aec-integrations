@@ -533,6 +533,27 @@
       "when": 1792036152676,
       "tag": "0075_legal_aqueduct",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1792043232077,
+      "tag": "0076_clever_baron_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1792043245548,
+      "tag": "0077_chief_lethal_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1792043246400,
+      "tag": "0078_past_whirlwind",
+      "breakpoints": true
     }
   ]
 }

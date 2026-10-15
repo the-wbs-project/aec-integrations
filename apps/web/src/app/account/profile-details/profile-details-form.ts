@@ -84,8 +84,8 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
  *
  * Single choices use the shared `AecSelect` (Angular Aria combobox, ADR 0010).
  * Layout follows the claim dialog (`shared/form-field/form-field-classes.ts`):
- * label, control, then hint, fields `space-y-6` apart, and audiences as the
- * plan question's choice cards. The host and every `aec-select` are `block`,
+ * label, control, then hint, fields `space-y-6` apart, and audiences as choice
+ * cards. The host and every `aec-select` are `block`,
  * because an inline host takes no `space-y` margin.
  *
  * Audiences are a filterable checkbox list in a `fieldset`: 36 terms is too many

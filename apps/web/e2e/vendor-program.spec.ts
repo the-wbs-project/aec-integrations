@@ -142,7 +142,7 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await expect(claim).toHaveAttribute('href', '/search');
     await expect(async () => {
       await claim.click();
-      await expect(page.getByRole('dialog', { name: 'Claim your listing' })).toBeVisible({
+      await expect(page.getByRole('dialog', { name: 'Claim your company' })).toBeVisible({
         timeout: 2000,
       });
     }).toPass();

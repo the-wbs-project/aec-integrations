@@ -175,6 +175,14 @@ Four decisions are load-bearing:
    `vendor_requests.status` from here would be a domain write needing its own `audit_log` row in the
    same batch (§26.1) and a decision about which side wins. That is its own issue.
 
+**As amended (AECI-1368, 2026-10-15): a claim with the company's owners is not stale.** A claim on a
+company that already has an unbanned owner seat is routed to its owners at submit
+(`vendor_requests.routed_to_owners_at`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). They have 7 days to
+decide it, so an un-started ticket in that window is expected. The eligibility read adds
+`routed_to_owners_at IS NULL`. When the `claim_owner_fallback` cron hands the claim back to AECi it
+clears that column, and from the next run the claim counts again, aged from `created_at` like any
+other. It is then past 24 hours, so it enters the daily repeat band at once.
+
 Minute 25 is not cosmetic: `scheduled.ts` switches on the raw `controller.cron` string, so two jobs
 cannot share an expression, and minute 0 would have collided with the `*/15` sweep, the `*/20`
 IndexNow drain (daily at `5 0` since AECI-1136) and the hourly WAF poll at once.

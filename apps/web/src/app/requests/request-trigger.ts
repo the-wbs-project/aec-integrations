@@ -33,6 +33,10 @@ export class RequestTrigger {
    *  trigger whose only context is the target itself — the request already
    *  carries that. See `RequestDrawerTarget.bodyPrefill`. */
   readonly bodyPrefill = input<string | null>(null);
+  /** AECI-1364: the company a claim is on, for the drawer's "Claim <Company>" title. */
+  readonly company = input<string | null>(null);
+  /** AECI-1364: the product page a claim is opened from ("from the <Product> page"). */
+  readonly contextProduct = input<string | null>(null);
 
   protected onClick(event: MouseEvent): void {
     if (!this.isBrowser) return;
@@ -47,6 +51,8 @@ export class RequestTrigger {
       kind: this.kind(),
       slug: this.slug(),
       bodyPrefill: this.bodyPrefill() ?? undefined,
+      company: this.company() ?? undefined,
+      contextProduct: this.contextProduct() ?? undefined,
     });
   }
 }

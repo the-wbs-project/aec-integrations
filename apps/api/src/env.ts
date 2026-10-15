@@ -85,7 +85,10 @@ export type ScheduledJob =
   | 'vendor_snapshot'
   // AECI-1236: the daily Google URL Inspection run. Queue-backed and self-chaining
   // (`GSC_INSPECT_QUEUE`): one run outlives a single consumer invocation.
-  | 'gsc_inspect';
+  | 'gsc_inspect'
+  // AECI-1368: the daily 14:00 UTC claim owner fallback. Queue-less, like
+  // `protest_reply_reminder`: the guarded UPDATE is its own fence.
+  | 'claim_owner_fallback';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

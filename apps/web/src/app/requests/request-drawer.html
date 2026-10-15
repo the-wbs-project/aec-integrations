@@ -39,7 +39,7 @@
               } @else {
               <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
                 @switch (t.kind) { @case ('claim') {
-                <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
+                <ng-container i18n="@@requests.claim.eyebrow">Vendor claim</ng-container>
                 } @case ('correction') {
                 <ng-container i18n="@@requests.correction.eyebrow"
                   >Suggest a correction</ng-container
@@ -55,9 +55,11 @@
                 <ng-container i18n="@@requests.sent.claim.title">Claim sent</ng-container>
                 } @case ('correction') {
                 <ng-container i18n="@@requests.sent.correction.title">Correction sent</ng-container>
-                } } } @else { @switch (t.kind) { @case ('claim') {
-                <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
-                } @case ('correction') {
+                } } } @else { @switch (t.kind) { @case ('claim') { @if (t.company; as name) {
+                <ng-container i18n="@@requests.claim.title.company">Claim {{ name }}</ng-container>
+                } @else {
+                <ng-container i18n="@@requests.claim.title">Claim your company</ng-container>
+                } } @case ('correction') {
                 <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
                 } } }
               </h2>
@@ -86,24 +88,36 @@
           </div>
 
           <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
-            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') {
-            <ng-container i18n="@@requests.sent.claim.subtitle"
-              >We'll email
-              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong> with
-              our decision.</ng-container
+            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') { @if (sentRouted()) {
+            <ng-container i18n="@@requests.sent.claim.subtitle.routed"
+              >We've emailed a receipt to
+              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong
+              >.</ng-container
             >
-            } @case ('correction') {
+            } @else {
+            <ng-container i18n="@@requests.sent.claim.subtitle"
+              >We've emailed a receipt to
+              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong>. We'll
+              write to you there with our decision.</ng-container
+            >
+            } } @case ('correction') {
             <ng-container i18n="@@requests.sent.correction.subtitle"
               >Thanks. We'll check it against the source. If we have questions, we'll email
               <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong
               >.</ng-container
             >
-            } } } @else { @switch (t.kind) { @case ('claim') {
-            <ng-container i18n="@@requests.claim.subtitle"
-              >Work at this company? Tell us about your connection to this listing and we'll review
-              your claim.</ng-container
+            } } } @else { @switch (t.kind) { @case ('claim') { @if (t.contextProduct; as product) {
+            <ng-container i18n="@@requests.claim.fromProduct.drawer"
+              >From the
+              <strong class="font-semibold text-(--text-primary)">{{ product }}</strong> page. Work
+              at this company? Tell us about your role and we'll verify your claim.</ng-container
             >
-            } @case ('correction') {
+            } @else {
+            <ng-container i18n="@@requests.claim.subtitle"
+              >Work at this company? Tell us about your role and we'll verify your
+              claim.</ng-container
+            >
+            } } @case ('correction') {
             <ng-container i18n="@@requests.correction.subtitle"
               >Spotted something inaccurate? Describe what's wrong and we'll review
               it.</ng-container
@@ -128,7 +142,9 @@
           [kind]="t.kind"
           [slug]="t.slug"
           [bodyPrefill]="t.bodyPrefill ?? null"
+          [company]="t.company ?? null"
           variant="drawer"
+          (sentRouted)="sentRouted.set($event)"
           (sent)="sentTo.set($event)"
           (done)="drawer.close()"
         />

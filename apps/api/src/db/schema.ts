@@ -1110,10 +1110,11 @@ export const profiles = sqliteTable(
      * is inert noise on a `reviewer`/`admin` profile and nothing reads it there.
      *
      * `true` = this seat may invite colleagues and remove seats. Set by
-     * `grantSeatStatements` (an AECi-reviewed claim grant IS the owner event) and
-     * cleared by `revokeSeatStatements`; a seat created by ACCEPTING an invite
-     * gets `false`, which is what stops an unbounded transitive invite chain from
-     * one reviewed human.
+     * `grantSeatStatements` only when the vendor has no unbanned owner seat yet
+     * (AECI-1367: decided in SQL at commit, never demoting an existing owner), and
+     * by the admin provision; cleared by `revokeSeatStatements`. A seat created by
+     * ACCEPTING an invite gets `false`, which is what stops an unbounded transitive
+     * invite chain from one reviewed human.
      *
      * The `0025` migration backfills every pre-existing `vendor_admin` to `true`
      * — they were all admin-granted, and a default-`false` rollout would ship the
@@ -1327,8 +1328,33 @@ export const vendorRequests = sqliteTable(
     // (STAGE_2_PAID_TIERS_SPEC.md §13.6). Deliberately NO CHECK: a CHECK change is a
     // drizzle-kit table recreate, and this table has FK children
     // (`vendor_entitlements.source_request_id`), so the recreate is the cascade
-    // hazard of docs/migrations.md §0. `PlanInterestSchema` enforces the vocabulary.
+    // hazard of docs/migrations.md §0.
+    // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
+    // column any more. Existing rows keep their old answers. E10 of
+    // docs/VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
     planInterest: text('plan_interest'),
+    // AECI-1364: the product page a claim came from. Since decision 1 of
+    // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
+    // `target_type: 'product'` is stored with `target_type = 'vendor'` and the
+    // product's vendor id, and the product lands here so the reviewer still sees
+    // where the claimant started. NULL for a vendor-page claim, a correction, or a
+    // claim stored before the normalisation (those keep `target_type = 'product'`).
+    // Deliberately NO FK and no CHECK, the `target_id` precedent: an FK or CHECK
+    // change is a drizzle-kit table recreate, and this table has FK children
+    // (docs/migrations.md §0). Readers resolve it like `target_id`, tolerating a
+    // product that has since gone.
+    contextProductId: text('context_product_id'),
+    // AECI-1368: when a claim on a company that already has an unbanned owner seat
+    // was routed to those owners (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10). Set at submit,
+    // cleared by the `claim_owner_fallback` sweep once 7 days pass with no decision.
+    // NULL for every other claim. While set, the owners' Seats section lists the claim
+    // and the claim-stale-check skips it.
+    routedToOwnersAt: text('routed_to_owners_at'),
+    // AECI-1368: when the `claim_owner_fallback` sweep handed a routed claim back to
+    // AECi after 7 days with no owner decision. NULL otherwise. Both columns are plain
+    // nullable ADD COLUMNs, never a CHECK: this table has FK children
+    // (docs/migrations.md §0).
+    ownerFallbackAt: text('owner_fallback_at'),
 
     domainMatch: text('domain_match').notNull().default('pending'),
 
@@ -1381,8 +1407,7 @@ export const vendorRequests = sqliteTable(
 /**
  * Listing requests (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or
  * company a visitor typed into the claim dialog because it is not in the catalog
- * ("Not listed? Type it in"). The claim form's identity fields, the plan answer and
- * the comments, plus the name and website they typed. Written by
+ * ("Not listed? Type it in"). The claim form's identity fields and the comments, plus the name and website they typed. Written by
  * `POST /api/requests/listing`, moderated on `/admin/requests`.
  *
  * **Its own table, not a `vendor_requests` kind.** A typed-in listing has no target,
@@ -1410,6 +1435,8 @@ export const listingRequests = sqliteTable(
     submitterName: text('submitter_name'),
     submitterRole: text('submitter_role'),
     submitterLinkedinUrl: text('submitter_linkedin_url'),
+    /** DEPRECATED (AECI-1365): the plan question is gone; nothing reads or writes this
+     *  column. E10 of docs/VENDOR_SIGNUP_PROCESS.md drops it. */
     planInterest: text('plan_interest'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
@@ -1779,7 +1806,8 @@ export const licenses = sqliteTable(
  *
  * `billing_account_id` is NO ACTION, like `licenses.billing_account_id`: nothing deletes
  * a billing account. `vendor_request_id` is SET NULL, so a deleted claim leaves the
- * acceptance standing. The partial unique index on `stripe_checkout_session_id` makes a
+ * acceptance standing. `listing_request_id` (AECI-1366, migration 0078) is the same for a
+ * typed-in listing request: a claim-source acceptance names exactly one of the two. The partial unique index on `stripe_checkout_session_id` makes a
  * replayed checkout webhook fail its batch instead of writing a second acceptance.
  *
  * Domain state: every insert carries its `agreement.accepted` audit row in the same
@@ -1802,6 +1830,11 @@ export const agreementAcceptances = sqliteTable(
     vendorId: text('vendor_id'),
     billingAccountId: text('billing_account_id').references(() => billingAccounts.id),
     vendorRequestId: text('vendor_request_id').references(() => vendorRequests.id, {
+      onDelete: 'set null',
+    }),
+    /** AECI-1366: the typed-in listing request this acceptance was given on (the
+     *  "Not listed? Type it in" path has no claim row). SET NULL, like the claim link. */
+    listingRequestId: text('listing_request_id').references(() => listingRequests.id, {
       onDelete: 'set null',
     }),
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),

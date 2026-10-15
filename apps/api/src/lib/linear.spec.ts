@@ -223,22 +223,57 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
   });
 
-  // AECI-1293: the same wording the claim alert email uses, never the raw token.
-  it('writes the plan answer as the operator reads it', async () => {
+  // AECI-1365: the plan question is retired, so a claim issue has no plan line.
+  it('writes no plan line on a claim issue', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(ctx(), store, { ...INPUT, kind: 'claim' }, fetchImpl);
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input.description).not.toContain('Plan interest');
+  });
+
+  // AECI-1364: a claim is on the company; the product page it came from is a line.
+  it('names the product page a company claim came from', async () => {
     const fetchImpl = mockFetch();
     const { store } = makeStore();
 
     await createLinearIssueForRequest(
       ctx(),
       store,
-      { ...INPUT, kind: 'claim', planInterest: 'not_sure' },
+      {
+        ...INPUT,
+        kind: 'claim',
+        targetType: 'vendor',
+        targetName: 'Acme Corp',
+        slug: 'acme-corp',
+        contextProduct: { name: 'Acme Build', slug: 'acme-build' },
+      },
       fetchImpl,
     );
 
     const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
       variables: { input: Record<string, unknown> };
     };
-    expect(sent.variables.input.description).toContain('**Plan interest:** Not sure yet');
+    expect(sent.variables.input.title).toBe('Claim: Acme Corp (vendor)');
+    expect(sent.variables.input.description).toContain(
+      '**Came from:** Acme Build (product, `acme-build`)',
+    );
+  });
+
+  it('omits the "Came from" line when there is no context product', async () => {
+    const fetchImpl = mockFetch();
+    const { store } = makeStore();
+
+    await createLinearIssueForRequest(ctx(), store, { ...INPUT, kind: 'claim' }, fetchImpl);
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input.description).not.toContain('**Came from:**');
   });
 
   it('omits the LinkedIn line when the claimant supplied nothing', async () => {

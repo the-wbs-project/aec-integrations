@@ -279,6 +279,23 @@ export const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 export const GSC_INSPECT_CRON = '0 13 * * *';
 
 /**
+ * Daily claim owner fallback (AECI-1368 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).
+ * **14:00 UTC**, the next free daily slot after the 13:00 URL Inspection run. The
+ * hourly WAF poll fires at 14:00 too, under its own expression.
+ *
+ * A claim on a company that already has an owner seat goes to those owners first. A
+ * routed claim still open 7 days later with no owner decision is handed to AECi:
+ * the run clears `routed_to_owners_at` into `owner_fallback_at`, writes one audit row
+ * per claim in the same batch, and sends one operator digest. A second run finds
+ * nothing to move, so it is a no-op.
+ *
+ * Queue-less and inline, following the `protest_reply_reminder` precedent: one
+ * indexed read, one batch and one fail-open email. A missed day costs one day of
+ * latency, and the next run moves what this one missed.
+ */
+export const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -302,6 +319,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'protest-reply-reminder': PROTEST_REMINDER_CRON,
   'vendor-snapshot': VENDOR_SNAPSHOT_CRON,
   'gsc-inspect': GSC_INSPECT_CRON,
+  'claim-owner-fallback': CLAIM_OWNER_FALLBACK_CRON,
 };
 
 /**
@@ -333,6 +351,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   protest_reply_reminder: 'protest-reply-reminder',
   vendor_snapshot: 'vendor-snapshot',
   gsc_inspect: 'gsc-inspect',
+  claim_owner_fallback: 'claim-owner-fallback',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -358,6 +377,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'entitlement-expiry',
   'protest-reply-reminder',
   'gsc-inspect',
+  'claim-owner-fallback',
   'request-reconcile',
   'waf-poll',
   'indexnow-drain',

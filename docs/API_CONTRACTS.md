@@ -273,6 +273,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
+| `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333) |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
 | `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/vendors/:id/entitlement` `clear` (AECI-1092), when the vendor's open owner-routed contests changed twice while it re-routed them; nothing was written, try again |
@@ -1314,17 +1315,45 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
 //                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
-//                     plan_interest ('' | 'free' | 'managed' | 'not_sure',
-//                                    key omittable, AECI-1293) }
+//                     accepted_terms (literal true, required; AECI-1366) }
 ```
 
-**`plan_interest` (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The claimant's answer to "Which plan are you interested in?", asked by the claim dialog, the claim page and the claim drawer. Optional: `''` means not answered and is stored as `NULL` in `vendor_requests.plan_interest`. The KEY carries `.default('')`, like `submitter_linkedin_url`, because the endpoint already serves production traffic. It is informational for the reviewer and never preselects the approve form's plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The column has no CHECK, so `PlanInterestSchema` is the only place the vocabulary is enforced. The dialog's "Additional comments" is this endpoint's `body`; there is no separate comments field.
+**The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
+
+**A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
+
+- The company is the product's `is_primary` vendor, else any `product_vendors` row (lowest vendor id). That is the vendor `GET /api/products/:slug` returns as `vendor`.
+- The row stores `target_type = 'vendor'` and that vendor's id. The product id goes to `vendor_requests.context_product_id`.
+- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Type it in instead".
+- The `vendor_request.created` audit row and the genesis transition carry `target_type: 'vendor'`, the company's `slug`, `context_product_id` and `context_product_slug` (`null` on a company-page claim).
+- The Linear issue and `claim-submitted-alert` name the company as the target and add a "Came from" line with the product.
+- The §7.2 duplicate probe keys on the company, so a product-page claim and a company-page claim on one company dedupe together. A claim stored before migration 0076 keeps its product target and does not match a new one.
+
+A correction keeps its product or vendor target.
+
+**No plan field (AECI-1365, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** AECI-1293 added an optional `plan_interest`. AECI-1365 removed it (`VENDOR_SIGNUP_PROCESS.md` decision 2). Zod strips unknown keys, so a body that still carries `plan_interest` validates, returns `201`, and the key is dropped. Nothing writes `vendor_requests.plan_interest` any more. The dialog's "Additional comments" is this endpoint's `body`. There is no separate comments field.
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
 
 Unlike the other submitter fields, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
 
 **`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
+
+**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
+
+#### `GET /api/requests/claim-target/:type/:slug` (AECI-1368)
+
+Which company a claim on `(type, slug)` would be stored against, and whether it already has a team. Public, read-only, `Cache-Control: private, no-store` (the answer changes the moment a seat is granted), no `rateLimit()` (a read, §6.3 of `waf-rate-limits.md`; zone Rule A matches `POST` only).
+
+```typescript
+export const ClaimTargetResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  has_seats: z.boolean(),   // the vendor has an unbanned owner seat: a claim
+                            // submitted now is routed to the owners first
+});
+```
+
+`type` is `product` or `vendor`. A product resolves exactly as `POST /api/requests/claim` resolves it (`resolveClaimTarget`): the primary vendor, else any `product_vendors` row. A missing slug, a product with no vendor row, or an unknown `type` is `404 NOT_FOUND`, the claim route's answer. `has_seats` says nothing about plan: since `VENDOR_SIGNUP_PROCESS.md` decision 2 every approved claim lands on Free with an owner seat (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a). Web client: `RequestsApi.getClaimTarget`.
 
 #### `POST /api/requests/correction`
 
@@ -1352,7 +1381,9 @@ export const ListingRequestSchema = ClaimFormSchema.extend({
 // No target: the listing is not in the catalog yet.
 ```
 
-Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `plan_interest` and `has_linkedin`, never the typed name, website or email. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id; nothing goes to the submitter. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has no target, and admitting it there would force a D1 table recreate) and its `listing_request.created` audit row in one `db.batch`. The audit metadata holds `has_linkedin`, never the typed name, website or email. It held `plan_interest` too until AECI-1365 removed the field. A body that still sends it returns `201` and the key is dropped. No workflow rows. After commit it sends `listing-request-alert` to `SUPPORT_EMAIL`, reply-to the submitter, keyed on the row id. Rate limit: zone Rule A covers `/api/requests/*`; no in-Worker bucket, like the claim route (`docs/waf-rate-limits.md` §6.2).
+
+**As built, AECI-1366 (2026-10-15).** The schema extends `ClaimFormSchema`, so it requires `accepted_terms: true` exactly as the claim does. The batch adds the acceptance row (`listing_request_id` = the new row, `vendor_request_id` null, migration 0078) and its `agreement.accepted` audit row, four statements in all. After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded.
 
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
 
@@ -1885,9 +1916,7 @@ export const AdminVendorRequestSchema = z.object({
   // any claim predating the column. `/admin/claims` renders it as the reviewer's
   // primary person link and falls back to the built name-search URL when null.
   submitter_linkedin_url: z.string().nullable(),
-  // AECI-1293: the claimant's plan answer, `free | managed | not_sure`, or null when
-  // not answered, for a correction, or before the column. Informational only.
-  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
+  // AECI-1365 removed `plan_interest` (the AECI-1293 plan answer) from this shape.
   // Surfaced VERBATIM from the DB (`pending|match|no_match|manual_review`). This
   // deviates from §7.1's yes/no framing; computing it is a 6.8 (AECI-215)
   // concern, so until that lands every row reads `pending`.
@@ -1945,8 +1974,19 @@ export type ModerateRequestResponse = AdminVendorRequest;
 `resolved_by`/`resolved_at`, append an `audit_log` + a `workflow_transitions` row,
 and (post-commit, best-effort) push the change to the linked Linear issue (§6.5).
 
-Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
-not `open`/`in_review` (already terminal, or a concurrent action moved it).
+Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` (422) if the request is
+a claim, or is not `open`/`in_review` (already terminal, or a concurrent action moved it).
+
+*As built 2026-10-15 (AECI-1322):* this endpoint refuses every claim row
+(`kind = 'claim'`) with 422 `INVALID_STATE_TRANSITION`, for both `resolve` and
+`reject` and at any status. The message tells the operator to use Grant or Reject on
+`/admin/claims` (`PATCH /api/admin/claims/:id`). Nothing is written, no Linear sync
+fires, and the moderation counter records `outcome:invalid_state`. The kind check runs
+before the status gate. A claim therefore reaches a terminal status only through the
+claims endpoint or the inbound Linear webhook, which keeps `AdminClaim.granted`
+truthful. The endpoint has no `in_review` action, so there was nothing to keep. The
+`/admin/requests` queue already lists corrections only, so it offers no claim action.
+This is the mirror of the claims endpoint's 422 on a non-claim request.
 
 #### `GET /api/admin/listing-requests` and `PATCH /api/admin/listing-requests/:id` (AECI-1293)
 
@@ -1967,7 +2007,7 @@ export const AdminListingRequestSchema = z.object({
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
   submitter_linkedin_url: z.string().nullable(),
-  plan_interest: z.enum(['free', 'managed', 'not_sure']).nullable(),
+  // AECI-1365 removed `plan_interest` from this shape.
   body: z.string(), // "Additional comments", '' when none
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),
@@ -2083,6 +2123,26 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // no note. On the LIST as well as the detail, deliberately — a parked claim has
   // to be legible from the queue, which is where the operator looks.
   admin_notes: z.string().nullable(),
+
+  // AECI-1364: the product page the claim was sent from ("Came from" on the queue
+  // and the detail), hydrated from vendor_requests.context_product_id. REQUIRED-
+  // nullable (R10); null on a company-page claim, a claim stored before migration
+  // 0076 (its target is still the product), or a product that has since gone.
+  context_product: LinkRefSchema.nullable(),
+  // AECI-1322 (shipped with AECI-1367, 2026-10-15). `status = 'resolved' AND
+  // resolved_by_id IS NOT NULL`. The Linear webhook resolves a claim with a null
+  // resolved_by_id, so it reads false. The "Claimant account" label reads "Account
+  // exists (claim granted)" only when true, else "Resolved without a grant".
+  // Since AECI-1322 the generic `PATCH /api/admin/requests/:id` refuses claims, so
+  // only the claims endpoint stamps resolved_by_id on a claim.
+  granted: z.boolean(),
+  // AECI-1368: owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10). REQUIRED-
+  // nullable (R10). routed_to_owners_at is set while the company's owners decide;
+  // the queue shows "With owners until" it + 7 days, and Grant / Reject stay
+  // enabled. owner_fallback_at is set once the 7-day cron handed it back to AECi.
+  // An owner-accepted claim reads granted: true (the owner is resolved_by_id).
+  routed_to_owners_at: z.string().nullable(),
+  owner_fallback_at: z.string().nullable(),
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -2109,8 +2169,9 @@ the shared `requireAdmin()` 401/403.
 **The role signal answers §5.2 step 1 in the console (AECI-738).** `STAGE_2_SPEC.md`
 §8.8(1)'s payer test is *"does this vendor own any product with
 `product_role IN ('application','hybrid')`?"* — `hybrid` counts as an endpoint, and only
-a vendor **all** of whose products are `'connector'` routes to the partnership track,
-where **Grant and Reject are both wrong**. Derived from `product_vendors ⋈ products`
+a vendor **all** of whose products are `'connector'` was routed to the partnership track,
+where **Grant and Reject were both wrong** *(retired 2026-10-15, AECI-1367: it is approved
+like any other and only flagged)*. Derived from `product_vendors ⋈ products`
 in one grouped scan over the page's resolved vendors (the same `entitlement_vendor` a
 grant would touch), **never from a per-vendor marker** — `vendors` carries none, and
 Autodesk, Trimble, Deltek and Sage Group each own connector-role products while being
@@ -2121,15 +2182,20 @@ of the intent. Ownership counts every `product_vendors` row, not just `is_primar
 payer clause on 2026-09-18: a pure connector vendor that owns integrations it manages
 (`built_by_vendor_id`) is a paying third-party owner and takes the ordinary Grant
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a). So `is_pure_connector_vendor: true` alone no longer
-means "park". Read it with `owned_integrations.total`:
+meant "park" (and since AECI-1367 nothing is parked). Read it with `owned_integrations.total`:
 
 | `is_pure_connector_vendor` | `owned_integrations` | Reading |
 |---|---|---|
-| `true` | `total > 0` | Paying owner if it wants to manage them: Grant |
-| `true` | `total === 0` | §8.9 connector vendor: park, do not Grant or Reject |
-| `true` | `null` | Count unavailable: check step 1a before parking |
+| `true` | `total > 0` | Paying owner if it wants to manage them |
+| `true` | `total === 0` | §8.9 connector vendor |
+| `true` | `null` | Count unavailable |
 | `false` | any | The connector carve-out does not apply |
-| `null` | any | Role signal unavailable: no connector banner |
+| `null` | any | Role signal unavailable: no connector flag |
+
+*(Reading retired 2026-10-15, AECI-1367: the table used to say park, do not Grant or Reject.
+Every row is approved like any other claim. `/admin/claims` shows one neutral flag,
+"Connector vendor: contact them directly", where `is_pure_connector_vendor === true`, and
+the claim alert email adds the same line. The fields themselves are unchanged.)*
 
 `owned_integrations` counts **both** delivered-tier tables by `built_by_vendor_id`:
 live rows only in both, `retired_at IS NULL` on `integrations` (AECI-1010) and on
@@ -2185,58 +2251,36 @@ fail-open like every send.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
-**The grant brings the billing account (AECI-1351).** On Free and Managed alike, when the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged.
+**The grant brings the billing account (AECI-1351).** When the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged. (Since AECI-1367 this is the only account-level write beside the seat.)
+
+**As built 2026-10-15 (AECI-1367, epic AECI-1333 E3.4): every approval lands on Free.** The Free or Managed choice (AECI-1215) is superseded (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The `plan` and `entitlement` request fields and the `plan` and `entitlement_created` response fields are gone. The pre-AECI-1367 contract is in git history.
 
 ```typescript
-export const ClaimEntitlementSchema = z.object({
-  // The offline PO/invoice arrangement. Since AECI-612 this is written to the
-  // `vendor_entitlements` ROW as well as the grant's audit_log metadata — the audit
-  // log stays the renewal ledger, so the metadata write is the history, not a
-  // duplicate. `amount` is free-form (currency-agnostic).
-  payer: z.string().max(200).optional(),
-  amount: z.string().max(100).optional(),
-  terms: z.string().max(500).optional(),
-  arranged_by: z.string().max(200).optional(),
-  invoice_ref: z.string().max(200).optional(),   // added AECI-612
-  notes: z.string().max(1000).optional(),
-  // Term boundaries, added AECI-612. ISO-8601; date-only is accepted (what a date
-  // picker submits) alongside a full timestamp.
-  period_start: EntitlementTermDateSchema.optional(),
-  period_end: EntitlementTermDateSchema.optional(),
-});
-
-// AECI-1215 (STAGE_2_PAID_TIERS_SPEC.md §13.6). Free is the seat alone; Managed is
-// the seat plus the `verified` entitlement row. Not an EntitlementTier: `free` is
-// not a tier id (§13.2).
-export const ClaimGrantPlanSchema = z.enum(['free', 'managed']);
-
+// `plan` and `entitlement` are retired. Both are `z.never().optional()`, so a body
+// that names either fails validation on THAT field instead of being silently ignored.
 // Discriminated on `action`. `reason` is an internal transition + audit note only;
 // never emailed to the claimant (the claim-rejected email is deliberately neutral,
 // AECI-528).
-export const ModerateClaimSchema = z
-  .discriminatedUnion('action', [
-    z.object({
-      action: z.literal('approve'),
-      plan: ClaimGrantPlanSchema,                       // AECI-1215 — REQUIRED, no default
-      reason: z.string().max(500).optional(),
-      entitlement: ClaimEntitlementSchema.optional(),   // valid with plan 'managed' only
-    }),
-    z.object({
-      action: z.literal('reject'),
-      reason: z.string().max(500).optional(),
-    }),
-  ])
-  .superRefine(/* entitlement with plan 'free' → issue on path ['entitlement'] */);
+export const ModerateClaimSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('approve'),
+    reason: z.string().max(500).optional(),
+    plan: RETIRED_APPROVE_FIELD,          // z.never().optional()
+    entitlement: RETIRED_APPROVE_FIELD,   // z.never().optional()
+  }),
+  z.object({
+    action: z.literal('reject'),
+    reason: z.string().max(500).optional(),
+  }),
+]);
 
 export const ClaimGrantSummarySchema = z.object({
   user_id: z.string().uuid(),
   vendor_id: z.string().uuid(),
-  verified: z.boolean(),
+  verified: z.boolean(),                    // the vendor's existing mirror; the grant never moves it
   identity_outcome: z.enum(['linked', 'invited']), // linked existing vs provisioned
   seat_created: z.boolean(),                // a new profiles row was written
-  tier: EntitlementTierSchema,              // AECI-612 — REQUIRED
-  entitlement_created: z.boolean(),         // AECI-612 — REQUIRED; false on a second seat and on every Free grant
-  plan: ClaimGrantPlanSchema,               // AECI-1215 — REQUIRED; the plan the operator chose, not the resulting tier
+  tier: EntitlementTierSchema,              // REQUIRED; the vendor's live state via `tierFor`
 });
 
 export const ModerateClaimResponseSchema = z.object({
@@ -2245,54 +2289,48 @@ export const ModerateClaimResponseSchema = z.object({
 });
 ```
 
-`tier`, `entitlement_created` and `plan` are **required, not optional** (R10), so
-`validateResponseInDev` catches a construction site that forgets one; the web `ClaimQueue`
-ignores unknown keys, which would otherwise hide it.
+| Request body (approve) | Result |
+|---|---|
+| `{ action: 'approve' }` or with `reason` | Grants. Lands on Free. |
+| names `plan` | `400 VALIDATION_FAILED`, `field: 'plan'`. Nothing is written. |
+| names `entitlement` | `400 VALIDATION_FAILED`, `field: 'entitlement'`. Nothing is written. |
 
-**The plan choice (AECI-1215, `STAGE_2_PAID_TIERS_SPEC.md` §13.6).** Every approve names a
-`plan`. There is no default. An approve without one is a **400 `VALIDATION_FAILED`** with
-`field: 'plan'`, and nothing is resolved or written. `entitlement` with `plan: 'free'` is a
-400 on `field: 'entitlement'`, because Free writes no row for it to land in.
+`tier` is **required, not optional** (R10), so `validateResponseInDev` catches a
+construction site that forgets it; the web `ClaimQueue` ignores unknown keys, which would
+otherwise hide it. The grant writes no entitlement, so `tier` is `unclaimed` unless the
+vendor already held an `active` row. `verified` is whatever the vendor already had.
 
-| | `plan: 'free'` | `plan: 'managed'` |
-|---|---|---|
-| Seat, request resolve, workflow | yes | yes |
-| `vendor_entitlements` row | none written; an existing row, active or ended, is left alone | opened or reactivated (none on a second seat) |
-| `vendors.verified` | untouched | flipped by the guarded mirror UPDATE |
-| Billing account | inserted when the vendor has none (AECI-1351) | same; the license dual-write creates it first (AECI-1353) |
-| Licenses | none | one per owned product, or one unassigned (AECI-1353); a second seat adds none |
-| Audit rows | `vendor_claim.granted`, plus `billing_account.created` when the account is new | `vendor_claim.granted` + `vendor_entitlement.granted`, plus `billing_account.created` and one `license.granted` per license when new |
-| `metadata.plan` | `'free'` | `'managed'` on both rows |
-| Cache purge | none (no cacheable page renders a seat) | vendor + its products, as below |
-| Approved email | Free variant | Managed variant |
+`approve`: resolve the claimant's auth-user id (link or provision, AECI-527), then in one
+atomic `db.batch`:
 
-`plan` reports the choice, and `tier` reports the result. A Free second seat on a vendor that
-already holds an active entitlement answers `plan: 'free'`, `tier: 'verified'`. The
-idempotent re-grant echoes the requested `plan`, since it writes nothing.
+1. `grantSeatStatements`: upsert the `profiles` seat (`role='vendor_admin'`, `vendor_id`;
+   no-clobber, except that an empty `display_name` is filled from `submitter_name`,
+   AECI-1280), the guarded request resolve, the `vendor_claim` workflow instance and
+   transition, and the `vendor_claim.granted` audit row.
+2. `ensureBillingAccountStatements`: the billing account and its `billing_account.created`
+   audit row, or nothing when the vendor has one.
+3. `linkClaimAcceptanceStatements`: `UPDATE agreement_acceptances SET profile_id, vendor_id,
+   billing_account_id WHERE vendor_request_id = <claim id>`, plus one `agreement.linked`
+   audit row filed under `entity_type = 'vendor_request'` and `entity_id` = the claim id,
+   with the `acceptance_ids` in `afterState`. The audit row is emitted only when a pre-read
+   (`loadClaimAcceptanceIds`) finds rows (`DATABASE_SCHEMA.md` §8.6d).
+4. The AECI-989 seat return, with `entitledAfterBatch: false`.
 
-`approve` with `plan: 'managed'`: resolve the claimant's auth-user id (link or provision
-— AECI-527), then in one atomic `db.batch` upsert the `profiles` seat
-(`role='vendor_admin'`, `vendor_id`; no-clobber, except that an empty `display_name` is
-filled from `submitter_name`, AECI-1280), **open the `vendor_entitlements` row
-and flip `vendors.verified=true`** (+ `updated_at`; guarded so a second seat doesn't
-re-flip), resolve the request, advance the `vendor_claim` workflow, and audit.
-Post-commit (best-effort): enqueue a Cache-Tag purge for the vendor **and its
-products** (`{ tags: ['vendor:<slug>', 'product:<slug>'…, 'index:products'], source:
-'moderation' }`) and fire the claim-approved email. `plan: 'free'` runs the same steps
-without the entitlement row, the mirror flip, the second audit row and the purge. A `target_type='product'` claim
-grants the product's **primary** vendor. Re-granting an already-granted claim is a
-**200 no-op** (no duplicate audit).
+No entitlement row is written, `vendors.verified` is not touched, and **nothing is purged**.
+Post-commit (best-effort): fire the claim-approved email. A `target_type='product'` claim
+grants the product's **primary** vendor. Re-granting an already-granted claim is a **200
+no-op** (no duplicate audit).
 
-**Since AECI-612 a first Managed grant writes TWO audit rows, not one:** `vendor_claim.granted`
-(the seat) and `vendor_entitlement.granted` (the entitlement + the mirror), both in the
-same batch and sharing `metadata.source: 'admin-moderation'`. The second row is not
-optional bookkeeping — `audit_log` **is** the entitlement ledger, so suppressing it would
-leave every claim-originated grant missing from the trail that renewals and disputes are
-read out of. A **second seat** on an already-active entitlement writes only the claim row:
-the entitlement builder emits no statement and no audit entry, so the mirror does not churn
-and `entitlement_created` is `false`. `vendors.verified` is no longer written by
-`grantSeatStatements` at all (a regression test asserts it emits no statement touching
-`vendors`); the grant now *composes* the sole-writer module rather than duplicating it.
+**Owner rule (AECI-1367, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.4).** The claimant becomes an
+owner (`profiles.seat_owner`) only when the vendor has no unbanned owner seat. The test is a
+`NOT EXISTS` subquery in the INSERT's `seat_owner` value, so two concurrent first approvals
+cannot both become owners. On conflict the upsert never demotes: a row that is already a
+`vendor_admin` owner of this vendor keeps `seat_owner = 1`, and any other row takes the
+computed value. A later claimant on a seated vendor joins as a non-owner colleague.
+
+**Audit metadata.** `vendor_claim.granted` no longer carries `plan` or `entitlement`. It keeps
+`verified_flipped: false` as a constant and adds `billing_account_created: boolean`. Before
+and after `vendor_verified` are equal.
 
 `reject`: resolve the request to `rejected`, advance the workflow, audit
 (`vendor_claim.rejected`); no vendor mutation, no purge, no identity resolution;
@@ -2309,12 +2347,14 @@ Errors:
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
+- `CLAIM_ALREADY_DECIDED` (409) — another decision (an admin, or an owner of a routed
+  claim) committed between this handler's read and its batch. The batch's first
+  statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
+  `details.status` is the claim's status now (AECI-1333).
 - `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
-- `ENTITLEMENT_CHANGED` (409) — a Managed grant whose entitlement activate lost a race: another
-  approval or an admin `set` activated the vendor's entitlement between this request's read and
-  its batch (AECI-1353). Nothing was written, seat included. Retry: the grant is then a second
-  seat on an active entitlement. When the batch also carried a seat-return sentinel, the route
-  re-reads the row to tell the two aborts apart.
+- ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
+  never activates an entitlement, so there is no activate to lose a race. The seat-return
+  sentinel still gives `VENDOR_SEATS_CHANGED` above.
 
 #### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
 
@@ -2324,9 +2364,9 @@ no room for: which open claims are causing this one's duplicate chip. Behind
 `packages/shared/src/api/admin-claims.ts`, `apps/api/src/routes/admin-claims.ts`; model:
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6.
 
-Why it exists: §5.2 tells an operator to **park** a pure-connector vendor's claim as
-`open` and route it to the partnership track out of band, because Grant and Reject are
-both wrong for it. Until this route the product had nowhere to record that decision —
+Why it exists: §5.2 told an operator to **park** a pure-connector vendor's claim as
+`open` and route it to the partnership track out of band, because Grant and Reject were
+both wrong for it (retired 2026-10-15, AECI-1367). Until this route the product had nowhere to record that decision —
 step 6 sent the conversation to Linear comments — so the console showed a lengthening
 queue of open claims with no visible reason why any of them was parked.
 
@@ -2872,7 +2912,7 @@ export const ProvisionVendorSeatResponseSchema = z.object({
 **This is the only route that writes `role = 'vendor_admin'` on its own, and it opens
 no `vendor_entitlements` row.** (The role is also written by `PATCH /api/admin/claims/:id` as
 part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite redeem; both of
-those need a claim or an existing owner seat behind them. The first opens an entitlement on a Managed approve only. Since AECI-1215 a Free approve opens none.) That combination is the entire point. §8.9(1) settled that a
+those need a claim or an existing owner seat behind them. The first opens no entitlement: AECI-1215 let a Free approve skip it and AECI-1367 made every approve Free.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
 mirrors off `status = 'active'` rather than `tier`. So any active row flips the
@@ -2882,9 +2922,9 @@ AECI-1266 on 2026-10-12 the mirror is never public. It only drives the API's pai
 version-diff gate.) Every prior path to a seat opened
 one on the way (`approveClaim` composed `grantSeatStatements` with
 `activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
-operators not to press Grant and to park the claim instead. AECI-1215 since gave the claim
-grant a Free choice that writes the seat alone. `POST` here is how a parked claim
-finally resolves.
+operators not to press Grant and to park the claim instead. AECI-1215 gave the claim
+grant a Free choice that writes the seat alone, and AECI-1367 (2026-10-15) made Free the only
+outcome and retired the parking. `POST` here stays; E4 decides its future.
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
 type: an edit that composed this path with an entitlement writer could not report the truth
@@ -2899,7 +2939,7 @@ or **provisions one** — a connector-lane contact typically has no AECi account
 them to sign up first would reintroduce the round trip this action removes. The cost is that
 the seam needs `SUPABASE_SERVICE_ROLE_KEY`, so **503 is the default outcome on local dev**, exactly as on `PATCH /api/admin/claims/:id`.
 
-**`seat_owner` is `true`.** Same rule `grantSeatStatements` follows (§11a): an AECi-reviewed
+**`seat_owner` is `true`.** Unchanged by AECI-1367. The claim grant no longer always matches it: a claim makes an owner only when the vendor has no unbanned owner seat (§11a.4). This route still writes the owner bit, because an AECi-reviewed
 seat IS the owner event, and it is what makes the shipped `POST /api/vendor/seats/invites`
 flow usable by the vendor without a second admin action per colleague.
 
@@ -4587,7 +4627,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all eighteen
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all nineteen
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -6312,8 +6352,38 @@ export const ListVendorSeatsResponseSchema = z.object({
   pending_invites: z.array(ManageableSeatInviteSchema),  // live only: not accepted,
                                                          // not revoked, not expired
   can_manage_seats: z.boolean(),                         // the caller's seat_owner
+  pending_claims: z.array(PendingSeatClaimSchema),       // AECI-1368, owners only
+});
+
+// AECI-1368: a claim routed to this company's owners (§11a.10).
+export const PendingSeatClaimSchema = z.object({
+  id: z.string().uuid(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  submitter_email: z.string(),               // accepting invites this address
+  submitter_linkedin_url: z.string().nullable(),
+  comments: z.string(),                      // vendor_requests.body
+  created_at: z.string().datetime(),
+  routed_to_owners_at: z.string().datetime(),
+  context_product_name: z.string().nullable(),
 });
 ```
+
+**`pending_claims` (AECI-1368).** The open or `in_review` claims on this vendor with `routed_to_owners_at` set, oldest first, then `id`. **Owner seats only**: when `can_manage_seats` is false the array is `[]`, because each row is a claimant's contact details. A claim leaves the list when it is decided (by an owner or by AECi) and stays on it until then, even past the 7-day deadline, until the `claim_owner_fallback` cron clears `routed_to_owners_at`. The 7 days are `CLAIM_OWNER_REVIEW_DAYS` in `@aeci/shared`.
+
+#### `POST /api/vendor/seats/claims/:id/accept` (AECI-1368)
+
+An owner accepts a claim routed to their company (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). No body. **201** `{ invite: ManageableSeatInvite, invite_sent: boolean }` (`AcceptSeatClaimResponseSchema`). `invite_sent` is `true` when accept created the invite and mailed it, and `false` when the address already had a live invite, which is reused and not mailed again (AECI-1333).
+
+One `db.batch`: a `vendor_seat_invites` row to the claim's `submitter_email` (normalized), invited by the owner, audit `vendor_seat.invited`; and the claim resolved with `resolved_by_id` = the owner, the `vendor_claim` workflow completed, its transition, audit `vendor_claim.owner_accepted`. Then the ordinary `vendor-seat-invite` email. No `profiles` row is written: the claimant becomes a member seat by redeeming the invite. If the address already has a live invite, no new invite is created and no email is sent. The claim resolves against that invite, which is echoed. An accepted claim reads `granted: true` on `/admin/claims`, because `resolved_by_id` is set.
+
+Gates: `requireVendor()`, `rateLimit('write', { by: 'vendor' })`, `requireSeatOwner()` in the handler.
+
+Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `CLAIM_ALREADY_DECIDED` (409, the claim was decided by AECi or another owner, or the 7-day fallback took it back, after the handler read it; the batch opens with `claimUndecidedSentinel` guarding undecided AND routed, so nothing is written and no email is sent) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
+
+#### `POST /api/vendor/seats/claims/:id/decline` (AECI-1368)
+
+An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the neutral `claim-rejected` email, which does not say who declined. Same gates and the same `403` / `404` / `409 CLAIM_ALREADY_DECIDED` / `429` as accept. The decline batch uses the same routed guard as accept (`rejectClaimStatements` with `requireRouted`).
 
 #### `POST /api/vendor/seats/invites`
 
@@ -6583,7 +6653,7 @@ The vendor's own change history: what its seats changed, what AECi changed on it
 
 **Scope.** `WHERE audit_log.vendor_id = <session vendor> AND action IN (<receipt actions>) ORDER BY created_at DESC, id DESC`.
 
-- The receipt actions are the `receipt: true` entries of `@aeci/shared/audit-vendor-actions`. `notification.sent`, a seat's mute setting and `vendor.deleted` are not receipts.
+- The receipt actions are the `receipt: true` entries of `@aeci/shared/audit-vendor-actions`. `notification.sent`, a seat's mute setting, `vendor.deleted`, and the two owner-routing claim rows `vendor_claim.owner_accepted` and `vendor_claim.owner_fallback` (AECI-1368) are not receipts.
 - The query never joins through `entity_id` to the entity's current owner. A co-owned product therefore shows each owner only the rows stamped with its own id. A row stays with the vendor it named after ownership moves.
 - Rows written before AECI-1192 carry a null `vendor_id` and never appear. There is no backfill.
 

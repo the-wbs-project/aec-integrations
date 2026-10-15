@@ -23,13 +23,14 @@ import {
   validateStandardSchema,
 } from '@angular/forms/signals';
 
-import { ClaimFormSchema, ListingRequestFormSchema, type PlanInterest } from '@aeci/shared';
+import { CLAIM_OWNER_REVIEW_DAYS, ClaimFormSchema, ListingRequestFormSchema } from '@aeci/shared';
 
-import { Analytics, planInterestProperty, type ClaimDialogStep } from '../../analytics/analytics';
+import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
+import { ClaimRoutedNotice } from '../../requests/claim-routed-notice';
 import { ClaimantFields } from '../../requests/claimant-fields';
-import { PlanInterestField } from '../../requests/plan-interest-field';
 import { RequestsApi } from '../../requests/requests-api';
+import { VendorTermsBox, isAcceptedTermsRejection } from '../../requests/vendor-terms-box';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
 import {
@@ -39,13 +40,18 @@ import {
   FIELD_LABEL_CLASS,
 } from '../form-field/form-field-classes';
 
-import type { ClaimDialogOpening, ClaimListing } from './claim-dialog.service';
+import {
+  ClaimDialogService,
+  type ClaimDialogOpening,
+  type ClaimListing,
+} from './claim-dialog.service';
 
-/** The four numbered steps, in order. `done` is the receipt, outside the count. */
-const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'plan', 'comments'];
+/** The three numbered steps, in order. `done` is the receipt, outside the count. The
+ *  plan step was removed by AECI-1365. */
+const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'comments'];
 
 /** A step's field: its model key, the control to focus on error, and the field tree. */
-type StepField = [keyof ClaimDialogModel, string, FieldTree<string>];
+type StepField = [keyof ClaimDialogModel, string, FieldTree<string> | FieldTree<boolean>];
 
 /** Every field either path can send. One model, one `form()`. */
 interface ClaimDialogModel {
@@ -55,17 +61,19 @@ interface ClaimDialogModel {
   submitter_email: string;
   submitter_role: string;
   submitter_linkedin_url: string;
-  plan_interest: '' | PlanInterest;
   body: string;
+  /** AECI-1366: the vendor terms box, on the You step of both paths. */
+  accepted_terms: boolean;
 }
 
 /**
  * The claim dialog's steps (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2):
- * find it, you, plan, additional comments, done. `ClaimDialog` is the BrnDialog shell
- * around it; this component holds the state, so its spec needs no overlay.
+ * find it, you, additional comments, done. AECI-1365 removed the plan step.
+ * `ClaimDialog` is the BrnDialog shell around it; this component holds the state, so
+ * its spec needs no overlay.
  *
  * **Two paths.** A catalog listing (`found`) submits `POST /api/requests/claim` with
- * the plan answer and the comments as the claim's `body`. A typed-in listing
+ * the comments as the claim's `body`. A typed-in listing
  * (`typed`, "Not listed? Type it in") submits `POST /api/requests/listing`. One model
  * holds both; the active path picks the shared Zod schema that validates it
  * (`ClaimFormSchema` or `ListingRequestFormSchema`), so the LinkedIn host allowlist and
@@ -76,16 +84,21 @@ interface ClaimDialogModel {
  * the step heading on every change, so a screen reader hears where it is.
  *
  * **Analytics** (§15.7). `claim_dialog_step` once per step shown, with the page, the
- * control that opened it and the path. `claim_requested` (with `plan_interest`) or
- * `listing_requested` on a `201`. Never the search text, a typed name, a website or an
+ * control that opened it and the path. `claim_requested` or `listing_requested` on a
+ * `201`. Never the search text, a typed name, a website or an
  * email.
+ *
+ * **Vendor terms** (AECI-1366). The You step carries the required terms box on both
+ * paths, so Continue stops on it. A found listing also looks up whether the company
+ * already has an owner seat (`RequestsApi.getClaimTarget`) and, if so, shows the routed
+ * notice and the routed receipt. The lookup fails quiet and never blocks the submit.
  *
  * Signed-in visitors get the email prefill `RequestFormBody` gives them, one-shot and
  * browser-only. Every string is `i18n` / `$localize`. Light only.
  */
 @Component({
   selector: 'aec-claim-dialog-flow',
-  imports: [ClaimantFields, FormField, PlanInterestField, SearchAutocomplete],
+  imports: [ClaimantFields, ClaimRoutedNotice, FormField, SearchAutocomplete, VendorTermsBox],
   host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
     @if (step() !== 'done') {
@@ -168,11 +181,11 @@ interface ClaimDialogModel {
               class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
               i18n="@@claimDialog.done.typed.body"
             >
-              We'll add
+              We've emailed a receipt to
+              <strong class="font-semibold break-all text-(--text-primary)">{{ sentTo() }}</strong
+              >. We'll add
               <strong class="font-semibold text-(--text-primary)">{{ sentName() }}</strong> to the
-              directory, then email
-              <strong class="font-semibold break-all text-(--text-primary)">{{ sentTo() }}</strong>
-              so you can finish your claim.
+              directory, then write to you there so you can finish your claim.
             </p>
           } @else {
             <h3
@@ -183,14 +196,25 @@ interface ClaimDialogModel {
             >
               Claim sent
             </h3>
-            <p
-              class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@requests.sent.claim.subtitle"
-            >
-              We'll email
-              <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong> with
-              our decision.
-            </p>
+            @if (routed()) {
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@requests.sent.claim.subtitle.routed"
+              >
+                We've emailed a receipt to
+                <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+                >.
+              </p>
+            } @else {
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@requests.sent.claim.subtitle"
+              >
+                We've emailed a receipt to
+                <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+                >. We'll write to you there with our decision.
+              </p>
+            }
             <div
               class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
             >
@@ -203,17 +227,39 @@ interface ClaimDialogModel {
               <ol
                 class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)"
               >
-                <li i18n="@@requests.sent.claim.step1">
-                  A person at AEC Integrations reviews every claim. Nothing is granted
-                  automatically.
-                </li>
-                <li i18n="@@requests.sent.claim.step2">
-                  We check your email domain against your company's website, and your LinkedIn if
-                  you added it.
-                </li>
-                <li i18n="@@requests.sent.claim.step3">
-                  If we approve it, we email you a link to your vendor portal.
-                </li>
+                @if (routed()) {
+                  <!-- AECI-1366: the company's team decides first (AECI-1368). -->
+                  <li data-testid="claim-dialog-sent-routed">
+                    @if (routedCompany(); as name) {
+                      <ng-container i18n="@@requests.sent.claim.routed"
+                        >The team at {{ name }} has been asked to confirm you.</ng-container
+                      >
+                    } @else {
+                      <ng-container i18n="@@requests.sent.claim.routed.unnamed"
+                        >The team at this company has been asked to confirm you.</ng-container
+                      >
+                    }
+                  </li>
+                  <li i18n="@@requests.sent.claim.routed.accept">
+                    If they accept, you get an invitation email to join.
+                  </li>
+                  <li i18n="@@requests.sent.claim.routed.fallback">
+                    If nobody answers within {{ reviewDays }} days, we review your claim and write
+                    to you.
+                  </li>
+                } @else {
+                  <li i18n="@@requests.sent.claim.step1">
+                    A person at AEC Integrations reviews every claim. Nothing is granted
+                    automatically.
+                  </li>
+                  <li i18n="@@requests.sent.claim.step2">
+                    We check your email domain against your company's website, and your LinkedIn if
+                    you added it.
+                  </li>
+                  <li i18n="@@requests.sent.claim.step3">
+                    If we approve it, we email you a link to your vendor portal.
+                  </li>
+                }
               </ol>
             </div>
           }
@@ -235,10 +281,28 @@ interface ClaimDialogModel {
                     class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-(--radius-md) bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
                     data-testid="claim-dialog-listing"
                   >
-                    <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claiming"
-                      >Claiming</span
-                    >
-                    <strong class="font-semibold">{{ listing()?.name }}</strong>
+                    <!-- AECI-1364: the claim is on the company. A product hit names
+                         the company and the product page it came from. -->
+                    @if (listing(); as l) {
+                      @if (l.company && l.product) {
+                        <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claimingFrom"
+                          >Claiming
+                          <strong class="font-semibold text-(--text-primary)">{{
+                            l.company
+                          }}</strong>
+                          from the
+                          <strong class="font-semibold text-(--text-primary)">{{
+                            l.product
+                          }}</strong>
+                          page</span
+                        >
+                      } @else {
+                        <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claiming"
+                          >Claiming</span
+                        >
+                        <strong class="font-semibold">{{ l.company ?? l.name }}</strong>
+                      }
+                    }
                     <button
                       type="button"
                       (click)="toFind()"
@@ -248,6 +312,11 @@ interface ClaimDialogModel {
                       Change
                     </button>
                   </p>
+                  <aec-claim-routed-notice
+                    class="mt-3"
+                    [show]="routed()"
+                    [company]="routedCompany()"
+                  />
                 } @else {
                   <p class="mt-1 text-sm text-(--text-secondary)">
                     <span i18n="@@claimDialog.you.typedLede"
@@ -327,20 +396,11 @@ interface ClaimDialogModel {
                   [linkedin]="form.submitter_linkedin_url"
                   [email]="form.submitter_email"
                 />
-              }
-              @case ('plan') {
-                <h3
-                  #stepHeading
-                  tabindex="-1"
-                  [class]="headingClass"
-                  i18n="@@claimDialog.plan.heading"
-                >
-                  Your plan
-                </h3>
-                <aec-plan-interest-field
-                  class="mt-4"
+                <aec-vendor-terms-box
+                  class="mt-6"
                   idPrefix="claim-dialog"
-                  [field]="form.plan_interest"
+                  [field]="form.accepted_terms"
+                  [rejected]="termsRejected()"
                 />
               }
               @case ('comments') {
@@ -477,6 +537,7 @@ export class ClaimDialogFlow implements OnInit {
   private readonly session = inject(SessionStatus);
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
+  private readonly dialog = inject(ClaimDialogService);
 
   /** How the dialog was opened. Read once, in `ngOnInit`. */
   readonly opening = input.required<ClaimDialogOpening>();
@@ -492,6 +553,17 @@ export class ClaimDialogFlow implements OnInit {
   protected readonly sentTo = signal('');
   protected readonly sentName = signal('');
 
+  /** AECI-1366: the chosen company has an owner seat, so its team confirms first. */
+  protected readonly routed = signal(false);
+  /** AECI-1366: the server refused the submit on `accepted_terms` (a stale bundle). */
+  protected readonly termsRejected = signal(false);
+  protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
+  /** The company named by the routed notice and receipt. */
+  protected readonly routedCompany = computed(() => {
+    const l = this.listing();
+    return l ? (l.company ?? l.name) : null;
+  });
+
   private readonly stepHeading = viewChild<ElementRef<HTMLElement>>('stepHeading');
 
   private readonly model = signal<ClaimDialogModel>({
@@ -501,8 +573,8 @@ export class ClaimDialogFlow implements OnInit {
     submitter_email: '',
     submitter_role: '',
     submitter_linkedin_url: '',
-    plan_interest: '',
     body: '',
+    accepted_terms: false,
   });
 
   /** Validated against the shared schema of the active path: the API's own rules. */
@@ -519,8 +591,6 @@ export class ClaimDialogFlow implements OnInit {
         return $localize`:@@claimDialog.stepName.find:Find it`;
       case 'you':
         return $localize`:@@claimDialog.stepName.you:You`;
-      case 'plan':
-        return $localize`:@@claimDialog.stepName.plan:Plan`;
       default:
         return $localize`:@@claimDialog.stepName.comments:Comments`;
     }
@@ -555,8 +625,6 @@ export class ClaimDialogFlow implements OnInit {
   }
 
   ngOnInit(): void {
-    const opening = this.opening();
-    if (opening.plan) this.model.update((m) => ({ ...m, plan_interest: opening.plan ?? '' }));
     this.show('find', false);
   }
 
@@ -564,15 +632,48 @@ export class ClaimDialogFlow implements OnInit {
   protected choose(hit: AutocompleteSuggestion): void {
     const slug = hit.routerLink.at(-1);
     if (!slug) return;
-    this.listing.set({ targetType: hit.kind, slug, name: hit.title });
+    // AECI-1364: a claim is on the company. A vendor hit IS the company. A product
+    // hit names its vendor in `subtitle` (the record's `vendor_name`); the API
+    // resolves that vendor's id from the product slug, so no vendor slug is needed.
+    this.listing.set(
+      hit.kind === 'vendor'
+        ? { targetType: 'vendor', slug, name: hit.title, company: hit.title, product: null }
+        : {
+            targetType: 'product',
+            slug,
+            name: hit.title,
+            company: hit.subtitle,
+            product: hit.title,
+          },
+    );
     this.path.set('found');
     this.submitError.set(null);
+    this.routed.set(false);
+    void this.loadClaimTarget(this.listing()!);
     this.show('you');
+  }
+
+  /**
+   * AECI-1366: whether the chosen company already has an owner seat. Fails quiet: an
+   * error leaves the notice off and the submit open. A reply for a listing the visitor
+   * has since changed is dropped.
+   */
+  private async loadClaimTarget(listing: ClaimListing): Promise<void> {
+    try {
+      const target = await this.api.getClaimTarget({
+        targetType: listing.targetType,
+        slug: listing.slug,
+      });
+      if (this.listing() === listing) this.routed.set(target.has_seats);
+    } catch {
+      // No disclosure. Never block the submit.
+    }
   }
 
   protected typeItIn(): void {
     this.path.set('typed');
     this.submitError.set(null);
+    this.routed.set(false);
     this.show('you');
   }
 
@@ -597,10 +698,7 @@ export class ClaimDialogFlow implements OnInit {
   protected async primary(): Promise<void> {
     switch (this.step()) {
       case 'you':
-        if (this.checkFields(this.youFields())) this.show('plan');
-        return;
-      case 'plan':
-        this.show('comments');
+        if (this.checkFields(this.youFields())) this.show('comments');
         return;
       case 'comments':
         if (this.checkFields([['body', 'claim-dialog-comments', this.form.body]]))
@@ -627,6 +725,7 @@ export class ClaimDialogFlow implements OnInit {
       ['submitter_role', 'claim-dialog-role', this.form.submitter_role],
       ['submitter_linkedin_url', 'claim-dialog-linkedin', this.form.submitter_linkedin_url],
       ['submitter_email', 'claim-dialog-email', this.form.submitter_email],
+      ['accepted_terms', 'claim-dialog-terms', this.form.accepted_terms],
     );
     return fields;
   }
@@ -651,17 +750,20 @@ export class ClaimDialogFlow implements OnInit {
 
   private async send(): Promise<void> {
     this.submitError.set(null);
+    this.termsRejected.set(false);
     this.submitting.set(true);
     await submit(this.form, async (f) => {
       const v = f().value();
+      // The schema already refused an unchecked box; this narrows the type.
+      if (!v.accepted_terms) return undefined;
       const opening = this.opening();
       const identity = {
         submitter_name: v.submitter_name,
         submitter_email: v.submitter_email,
         submitter_role: v.submitter_role,
         submitter_linkedin_url: v.submitter_linkedin_url,
-        plan_interest: v.plan_interest,
         body: v.body,
+        accepted_terms: true as const,
       };
       const listing = this.listing();
       try {
@@ -674,7 +776,6 @@ export class ClaimDialogFlow implements OnInit {
             target_type: listing.targetType,
             slug: listing.slug,
             request_id: res.request_id,
-            plan_interest: planInterestProperty(v.plan_interest),
           });
         } else {
           await this.api.submitListing({
@@ -682,15 +783,22 @@ export class ClaimDialogFlow implements OnInit {
             listing_name: v.listing_name,
             website: v.website,
           });
-          this.analytics.listingRequested({
-            plan_interest: planInterestProperty(v.plan_interest),
-            page: opening.page,
-          });
+          this.analytics.listingRequested({ page: opening.page });
         }
         this.sentTo.set(v.submitter_email.trim());
         this.sentName.set(v.listing_name.trim());
         this.show('done');
       } catch (err) {
+        if (isAcceptedTermsRejection(err)) {
+          // AECI-1366: back to the You step, with the box's own error and focus on it.
+          this.termsRejected.set(true);
+          this.model.update((m) => ({ ...m, accepted_terms: false }));
+          this.show('you', false);
+          afterNextRender(() => this.document.getElementById('claim-dialog-terms')?.focus(), {
+            injector: this.injector,
+          });
+          return undefined;
+        }
         this.submitError.set(
           err instanceof HttpErrorResponse && err.status === 404 && this.path() === 'found'
             ? 'gone'
@@ -707,6 +815,11 @@ export class ClaimDialogFlow implements OnInit {
     this.step.set(step);
     const opening = this.opening();
     const path = this.path();
+    // AECI-1364: "Claim <Company>" once a found listing names it. The Find step and
+    // the typed-in path read "Claim your company".
+    this.dialog.setCompany(
+      step !== 'find' && path === 'found' ? (this.listing()?.company ?? null) : null,
+    );
     this.analytics.claimDialogStep({
       step,
       page: opening.page,

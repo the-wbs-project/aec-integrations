@@ -2,5 +2,12 @@
   class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24"
   aria-labelledby="request-title"
 >
-  <aec-request-form-body [entity]="entity" [kind]="kind" [slug]="slug" variant="page" />
+  <aec-request-form-body
+    [entity]="entity"
+    [kind]="kind"
+    [slug]="slug"
+    [company]="context.company"
+    [contextProduct]="context.product"
+    variant="page"
+  />
 </section>

@@ -914,7 +914,7 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
 
 /**
  * The Actions-sidebar claim CTA is stateless (AECI-1266). Every listing reads
- * "Claim this listing" with no note, whatever plan the built-by vendor holds: a
+ * "Claim <Company>" (AECI-1365: a claim is on the company) with no note, whatever plan the built-by vendor holds: a
  * state-dependent wording told visitors which vendors pay. It opens the same
  * `kind:'claim'` request for a first claim and for a colleague joining an account
  * someone already holds. Seats are admin-granted and multi-seat
@@ -927,11 +927,12 @@ describe('ProductDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
 
-  it('always offers to claim the listing, with no note', () => {
+  it("always offers to claim the product's company, with no note", () => {
     const { el } = setup(buildProduct());
     const section = actions(el);
 
-    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).toContain('Claim Procore Technologies');
+    expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
     // AECI-1131: the vendor card no longer carries the account label.
@@ -941,12 +942,12 @@ describe('ProductDetailPage claim CTA', () => {
     expect(cta).toBeTruthy();
   });
 
-  it('keeps the claim copy when the product has no vendor at all', () => {
+  it('falls back to "Claim your company" when the product has no vendor at all', () => {
     // `ProductDetail.vendor` is nullable (no DB constraint forces one).
     const { el } = setup(buildProduct({ vendor: null }));
     const section = actions(el);
 
-    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).toContain('Claim your company');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });
 

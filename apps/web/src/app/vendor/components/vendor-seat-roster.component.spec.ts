@@ -4,7 +4,11 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_SEATS_FIXTURE, VENDOR_SEAT_INVITES_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
+  VENDOR_SEATS_FIXTURE,
+  VENDOR_SEAT_INVITES_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorSeatRoster } from './vendor-seat-roster';
 
@@ -407,5 +411,159 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Revoke it and invite them again');
     expect(text).not.toContain('Give it a few minutes');
+  });
+});
+
+/**
+ * "Wants to join" (AECI-1368 / §11a.10): claims routed to the company's owners. The
+ * list carries a stranger's contact details, so it renders for an owner only, and
+ * every decision is pessimistic and re-read like the rest of the roster.
+ */
+describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
+  let getSeats: ReturnType<typeof vi.fn>;
+  let acceptSeatClaim: ReturnType<typeof vi.fn>;
+  let declineSeatClaim: ReturnType<typeof vi.fn>;
+  const CLAIM = VENDOR_PENDING_SEAT_CLAIMS_FIXTURE[0]!;
+
+  function setup(canManage: boolean) {
+    getSeats = vi.fn().mockResolvedValue({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: [],
+      can_manage_seats: canManage,
+      pending_claims: VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
+    });
+    acceptSeatClaim = vi.fn().mockResolvedValue({
+      invite: { ...VENDOR_SEAT_INVITES_FIXTURE[0]!, email: CLAIM.submitter_email },
+      invite_sent: true,
+    });
+    declineSeatClaim = vi.fn().mockResolvedValue(undefined);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        {
+          provide: VendorApi,
+          useValue: {
+            getSeats,
+            acceptSeatClaim,
+            declineSeatClaim,
+            removeSeat: vi.fn(),
+            revokeInvite: vi.fn(),
+            resendInvite: vi.fn(),
+            inviteSeat: vi.fn(),
+          } as Partial<VendorApi>,
+        },
+        VendorPortalStore,
+      ],
+    });
+  }
+
+  async function render(): Promise<ComponentFixture<VendorSeatRoster>> {
+    const fixture = TestBed.createComponent(VendorSeatRoster);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const button = (fixture: ComponentFixture<VendorSeatRoster>, label: string) =>
+    ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).find((b) =>
+      b.textContent?.trim().startsWith(label),
+    );
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('lists the claimant to an owner with Accept and Decline', async () => {
+    setup(true);
+    const fixture = await render();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Wants to join');
+    expect(text).toContain('Riley Chen');
+    expect(text).toContain('riley@summitbim.example.com');
+    expect(text).toContain('Summit Coordinate');
+    const linkedin = fixture.nativeElement.querySelector(
+      'a[href="https://www.linkedin.com/in/riley-chen-example"]',
+    ) as HTMLAnchorElement | null;
+    expect(linkedin?.rel).toContain('noopener');
+    expect(button(fixture, 'Accept')).toBeDefined();
+    expect(button(fixture, 'Decline')).toBeDefined();
+  });
+
+  it('shows nothing to a member seat', async () => {
+    setup(false);
+    const fixture = await render();
+    expect(fixture.nativeElement.textContent).not.toContain('Wants to join');
+  });
+
+  it('accepts, announces the invite in the status region and re-reads the list', async () => {
+    setup(true);
+    const fixture = await render();
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(acceptSeatClaim).toHaveBeenCalledWith(CLAIM.id);
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    expect(status?.textContent).toContain('A seat invite was sent to riley@summitbim.example.com');
+    expect(getSeats).toHaveBeenCalledTimes(2);
+  });
+
+  it('says no email went out when the claimant already held an invite', async () => {
+    setup(true);
+    acceptSeatClaim.mockResolvedValueOnce({
+      invite: { ...VENDOR_SEAT_INVITES_FIXTURE[0]!, email: CLAIM.submitter_email },
+      invite_sent: false,
+    });
+    const fixture = await render();
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    expect(status?.textContent).toContain(
+      'riley@summitbim.example.com already has a seat invite, so no new email was sent.',
+    );
+    expect(status?.textContent).not.toContain('A seat invite was sent');
+  });
+
+  it('declines and announces it', async () => {
+    setup(true);
+    const fixture = await render();
+    button(fixture, 'Decline')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(declineSeatClaim).toHaveBeenCalledWith(CLAIM.id);
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    expect(status?.textContent).toContain('Declined the request from Riley Chen');
+  });
+
+  it('says the invite cap was hit when an accept is rate limited', async () => {
+    setup(true);
+    const fixture = await render();
+    acceptSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 429, error: { error: { code: 'RATE_LIMITED' } } }),
+    );
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alert?.textContent).toContain('most invites allowed today');
+  });
+
+  it('says the request was already decided when a decline loses the race (409)', async () => {
+    setup(true);
+    const fixture = await render();
+    declineSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 409, error: { error: { code: 'CLAIM_ALREADY_DECIDED' } } }),
+    );
+    button(fixture, 'Decline')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alert?.textContent).toContain('already decided');
   });
 });

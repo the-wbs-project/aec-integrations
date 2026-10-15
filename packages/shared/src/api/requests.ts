@@ -45,24 +45,12 @@ export type RequestTargetType = z.infer<typeof RequestTargetTypeSchema>;
 export const RequestKindSchema = z.enum(['claim', 'correction']);
 export type RequestKind = z.infer<typeof RequestKindSchema>;
 
-/**
- * The claimant's answer to "Which plan are you interested in?" (AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15). Informational for the reviewer: the operator
- * still picks the plan at approval, with nothing preselected
- * (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Stored in `vendor_requests.plan_interest` and
- * `listing_requests.plan_interest`, both nullable with NO CHECK (a CHECK change is a
- * D1 table recreate), so this enum is the only place the vocabulary is enforced.
+/*
+ * The "Which plan are you interested in?" question (AECI-1293) was removed by
+ * AECI-1365. The claim and listing schemas no longer carry the plan-interest key. Zod
+ * strips unknown keys, so an old client that still sends it validates and the key
+ * is dropped. The two nullable columns stay in `schema.ts` until E10 drops them.
  */
-export const PlanInterestSchema = z.enum(['free', 'managed', 'not_sure']);
-export type PlanInterest = z.infer<typeof PlanInterestSchema>;
-
-/**
- * The form-side `plan_interest`: one of the three answers, or `''` for "not
- * answered" (stored as NULL). A concrete string so the Signal Forms field is never
- * `undefined`, and `.default('')` so the KEY is omittable: the claim endpoint already
- * serves production traffic, and a body that predates the field must still validate.
- */
-const PlanInterestFieldSchema = z.union([z.literal(''), PlanInterestSchema]).default('');
 
 // ─── Correction ──────────────────────────────────────────────────────────────
 
@@ -177,14 +165,22 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
-  /** AECI-1293: "Which plan are you interested in?" `''` = not answered. */
-  plan_interest: PlanInterestFieldSchema,
+  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3): "I represent this
+  // company and accept the vendor terms". Required on every claim and listing request:
+  // missing or `false` is `400 VALIDATION_FAILED` with `field: 'accepted_terms'`. The
+  // version accepted is stamped by the server, never sent by the client.
+  accepted_terms: z.literal(true, {
+    error: 'Confirm you represent this company and accept the vendor terms.',
+  }),
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
-/** The wire body before defaults: every defaulted key may be omitted. */
+/** The wire body before defaults: every defaulted key may be omitted. `accepted_terms`
+ *  has no default, so it is always sent. */
 export type ClaimFormInput = z.input<typeof ClaimFormSchema>;
 
-/** Wire body for `POST /api/requests/claim`. */
+/** Wire body for `POST /api/requests/claim`. `target_type` still takes `'product'`,
+ *  but a claim is on the company (AECI-1364): the API stores it with the product's
+ *  vendor as the target and the product in `vendor_requests.context_product_id`. */
 export const ClaimRequestSchema = ClaimFormSchema.extend({
   target_type: RequestTargetTypeSchema,
   slug: z.string().min(1),
@@ -227,3 +223,22 @@ export const RequestSubmitResponseSchema = z.object({
   message: z.string(),
 });
 export type RequestSubmitResponse = z.infer<typeof RequestSubmitResponseSchema>;
+
+// ─── GET /api/requests/claim-target/:type/:slug ──────────────────────────────
+
+/**
+ * The company a claim on `(type, slug)` would land on, and whether it already
+ * has a team (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a and §11a.10).
+ *
+ * A product resolves to its primary vendor, else any `product_vendors` row: the
+ * same company `POST /api/requests/claim` would store. `has_seats` is the one owner
+ * predicate, "the vendor has an unbanned owner seat", so it is true exactly when a
+ * claim submitted now would be routed to the owners first. The claim form reads it
+ * to show the routed disclosure before submit. Public, read-only,
+ * `Cache-Control: no-store`.
+ */
+export const ClaimTargetResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  has_seats: z.boolean(),
+});
+export type ClaimTargetResponse = z.infer<typeof ClaimTargetResponseSchema>;

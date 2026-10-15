@@ -46,13 +46,30 @@ describe('ClaimDialog', () => {
     await stable();
     const dialog = document.querySelector('[role="dialog"]')!;
     const title = panel()!.querySelector('h2')!;
-    expect(title.textContent?.trim()).toBe('Claim your listing');
+    // AECI-1364: a claim is on the company; it is unnamed on the Find step.
+    expect(title.textContent?.trim()).toBe('Claim your company');
     expect(dialog.getAttribute('aria-labelledby')).toBe(title.id);
     // Copy ruling 2026-10-12: free, and approval sets up the account.
     expect(title.nextElementSibling?.textContent?.trim()).toBe(
       'Claiming is free. We set up your account when we approve your claim.',
     );
     expect(panel()!.querySelector('h3')?.textContent?.trim()).toBe('Find your listing');
+  });
+
+  // AECI-1364: "Claim <Company>" once the flow names the company.
+  it('titles itself with the company once it is known, and resets on the next open', async () => {
+    const service = mount();
+    service.open({ page: 'vendor_program', entry: 'top' });
+    const fixture = TestBed.createComponent(ClaimDialog);
+    fixture.detectChanges();
+    await stable();
+    service.setCompany('Acme Software');
+    fixture.detectChanges();
+    await stable();
+    expect(panel()!.querySelector('h2')!.textContent?.trim()).toBe('Claim Acme Software');
+    service.close();
+    service.open({ page: 'vendor_program', entry: 'top' });
+    expect(service.company()).toBeNull();
   });
 
   it('is a full-screen sheet below sm and a centred panel from sm', async () => {
@@ -105,11 +122,7 @@ describe('ClaimDialog', () => {
 
 @Component({
   imports: [ClaimDialogTrigger],
-  template: `<a
-    [href]="href"
-    aecClaimDialogTrigger="card"
-    aecClaimDialogPage="vendor_program"
-    aecClaimDialogPlan="managed"
+  template: `<a [href]="href" aecClaimDialogTrigger="card" aecClaimDialogPage="vendor_program"
     >Start with Managed</a
   >`,
 })
@@ -135,12 +148,13 @@ describe('ClaimDialogTrigger', () => {
     expect(link.getAttribute('href')).toBe('/search');
   });
 
-  it('opens the dialog with its entry, page and plan on a plain click', () => {
+  // AECI-1365: "Start with Managed" still opens the dialog, with no plan seed.
+  it('opens the dialog with its entry and page on a plain click', () => {
     const { service, link } = render(true);
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    expect(service.opening()).toEqual({ page: 'vendor_program', entry: 'card', plan: 'managed' });
+    expect(service.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
   });
 
   it('leaves the link alone with no host, or on a new-tab click', () => {

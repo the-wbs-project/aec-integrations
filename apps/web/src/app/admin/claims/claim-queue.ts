@@ -5,25 +5,22 @@ import { RouterLink } from '@angular/router';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
-import type {
-  AdminClaim,
-  ClaimGrantPlan,
-  ListVendorClaimsQuery,
-  ModerateClaimInput,
-  VendorEntitlementResponse,
+import {
+  CLAIM_OWNER_REVIEW_DAYS,
+  claimOwnerReviewDeadline,
+  type AdminClaim,
+  type ListVendorClaimsQuery,
+  type ModerateClaimInput,
+  type VendorEntitlementResponse,
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
-import { planInterestLabel } from './plan-interest-label';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
-import {
-  connectorPayerState,
-  ownedIntegrationsLabel,
-} from '../product-roles/owned-integrations-label';
+import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -56,13 +53,10 @@ type FormMode = 'approve' | 'reject';
  * deferred DPA/GDPR decision, §8.3(4)). A signal that couldn't be computed
  * (`null`) renders "unavailable" and the review still proceeds.
  *
- * Approve triggers the AECI-519 grant (`PATCH …/:id {action:'approve', plan}`).
- * Since AECI-1215 (`STAGE_2_PAID_TIERS_SPEC.md` §13.6) the form asks for the plan,
- * Free or Managed, with nothing preselected, and "Confirm grant" stays disabled
- * until one is picked. Only Managed shows the free-text arrangement note (the
- * offline PO/invoice record, §8.1(5) — recorded verbatim in the grant's audit
- * metadata as `entitlement.notes`), because Free writes no entitlement; reject
- * runs the reject path. A successful action drops the row. **Approve returns 503
+ * Approve triggers the AECI-519 grant (`PATCH …/:id {action:'approve'}`). Since
+ * AECI-1367 every approval lands on Free, so the form asks for nothing: AECI-1215's
+ * plan radios and the Managed arrangement note are gone, and "Confirm grant" is
+ * enabled at once. Reject runs the reject path. A successful action drops the row. **Approve returns 503
  * wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local dev, since
  * AECI-530 CI-pushes it on staging/demo/production** — surfaced as an inline
  * "grant unavailable" message (reject still works). A 409 is
@@ -94,11 +88,12 @@ type FormMode = 'approve' | 'reject';
  * vendor — and it stays visible on RESOLVED and REJECTED rows too, since renewing
  * or clearing a vendor granted months ago is the ordinary case.
  *
- * AECI-739 added three things to the queue, all of them about the §5.2 PARKED
- * claim — the one an operator deliberately leaves `open` because Grant and Reject
- * are both wrong for a pure-connector vendor:
+ * AECI-739 added three things to the queue. They were built for the PARKED
+ * connector claim, which AECI-1367 retired: a pure-connector vendor is approved
+ * like anyone else, and its row shows a neutral "Connector vendor: contact them
+ * directly" flag instead of a parking banner. The three stay useful:
  *  - the **operator note** renders on the card. It lives on the detail page, but
- *    the queue is where the operator actually looks, so a parked claim has to be
+ *    the queue is where the operator actually looks, so the note has to be
  *    legible without opening anything;
  *  - each card links to **`/admin/claims/:id`**, where the note is written and the
  *    duplicate chip is explained;
@@ -112,8 +107,6 @@ type FormMode = 'approve' | 'reject';
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {
-  /** AECI-1293: the claimant's plan answer, as the reviewer reads it. */
-  protected readonly planInterestLabel = planInterestLabel;
   private readonly api = inject(AdminClaimsApi);
   private readonly locale = inject(LOCALE_ID);
   private readonly summaryStore = inject(AdminSummaryStore);
@@ -131,13 +124,10 @@ export class ClaimQueue {
   /** The claim + mode whose action form is open (one at a time). */
   protected readonly formOpenId = signal<string | null>(null);
   protected readonly formMode = signal<FormMode | null>(null);
-  /** The shared free-text field: approve → arrangement notes, reject → an INTERNAL
-   *  decision note (recorded in the audit log, never emailed — the claimant email
-   *  is neutral, §9). */
+  /** The reject form's free text: an INTERNAL decision note (recorded in the audit
+   *  log, never emailed — the claimant email is neutral, §9). The approve form has
+   *  no field since AECI-1367. */
   protected readonly formText = signal('');
-  /** The plan picked in the approve form (AECI-1215 / §13.6). `null` until the
-   *  operator chooses: there is no default, so the confirm button waits on it. */
-  protected readonly grantPlan = signal<ClaimGrantPlan | null>(null);
   /** Id + message of the claim whose last action failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -201,6 +191,11 @@ export class ClaimQueue {
 
   /** Relative age (e.g. "3 d", "5 h", "12 min"). Browser-only — the list is empty
    *  during SSR, so `Date.now()` is never read server-side. */
+  /** When a routed claim comes back to AECi (AECI-1368): the shared 7-day rule. */
+  protected ownerDeadline(routedToOwnersAt: string): string {
+    return claimOwnerReviewDeadline(routedToOwnersAt);
+  }
+
   protected age(createdAt: string): string {
     const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
     if (minutes < 60) return $localize`:@@admin.claims.age.minutes:${minutes}:COUNT: min`;
@@ -262,14 +257,12 @@ export class ClaimQueue {
    *  `/admin/claims/:id` and `/admin/vendors/:id`. */
   protected readonly ownedLabel = ownedIntegrationsLabel;
 
-  /** Which connector banner, if any, sits above Grant/Reject. A pure connector
-   *  vendor that owns integrations is a paying owner (§8.10), not a park. */
-  protected payerState(r: AdminClaim) {
-    return connectorPayerState(r.is_pure_connector_vendor, r.owned_integrations);
-  }
-
   /** Display name, else email (AECI-1277) — the rule shared with the roster. */
   protected readonly seatLabel = seatLabel;
+
+  /** The owners' review window, in days, for the "did not decide" line (AECI-1368).
+   *  Read from the shared constant so the copy cannot drift from the fallback cron. */
+  protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
 
   /**
    * A pre-built LinkedIn people-search URL from the claimant's name (falling back
@@ -289,11 +282,10 @@ export class ClaimQueue {
 
   // ── Moderation actions ─────────────────────────────────────────────────────
 
-  /** Open the inline approve form (arrangement-note capture) for a row. */
+  /** Open the inline approve confirmation for a row. */
   protected openApprove(id: string): void {
     this.failedActionId.set(null);
     this.formText.set('');
-    this.grantPlan.set(null);
     this.formMode.set('approve');
     this.formOpenId.set(id);
   }
@@ -310,36 +302,18 @@ export class ClaimQueue {
     this.formOpenId.set(null);
     this.formMode.set(null);
     this.formText.set('');
-    this.grantPlan.set(null);
-  }
-
-  protected onPlanChange(plan: ClaimGrantPlan): void {
-    this.grantPlan.set(plan);
   }
 
   protected onFormInput(event: Event): void {
     this.formText.set((event.target as HTMLTextAreaElement).value);
   }
 
+  /** Every approval lands on Free (AECI-1367), so the body names no plan. */
   protected async confirmApprove(id: string): Promise<void> {
-    const plan = this.grantPlan();
-    // The button is disabled until a plan is picked. This guards Enter-to-submit.
-    if (!plan) return;
-    if (plan === 'free') {
-      await this.moderate(
-        id,
-        { action: 'approve', plan },
-        $localize`:@@admin.claims.announce.approvedFree:Claim approved on the Free plan: vendor access was activated.`,
-      );
-      return;
-    }
-    // Notes are a Managed-only field: Free writes no entitlement row to hold them,
-    // and the API refuses `entitlement` with `plan: 'free'`.
-    const notes = this.formText().trim();
     await this.moderate(
       id,
-      { action: 'approve', plan, ...(notes ? { entitlement: { notes } } : {}) },
-      $localize`:@@admin.claims.announce.approvedManaged:Claim approved on the Managed plan: vendor access was activated.`,
+      { action: 'approve' },
+      $localize`:@@admin.claims.announce.approvedFree:Claim approved on the Free plan: vendor access was activated.`,
     );
   }
 
@@ -384,6 +358,8 @@ export class ClaimQueue {
 
   /**
    * A 422 means another admin moderated it first (or it's terminal) — drop the row.
+   * So does a 409 `CLAIM_ALREADY_DECIDED` (AECI-1368: an owner or another decider won
+   * the race between load and commit).
    * A 409 is an identity conflict (the claimant is already an admin, or claims a
    * different vendor); a 503 is the AECI-530 state (identity resolution isn't
    * configured — reject still works). Both keep the row + form so the reviewer can
@@ -391,7 +367,9 @@ export class ClaimQueue {
    */
   private handleModerateError(id: string, err: unknown): void {
     if (err instanceof HttpErrorResponse) {
-      if (err.status === 422) {
+      // A 409 CLAIM_ALREADY_DECIDED is the same outcome reached by a race: a company
+      // owner, another admin or the fallback cron decided it between load and commit.
+      if (err.status === 422 || errorCode(err) === 'CLAIM_ALREADY_DECIDED') {
         this.removeRow(id);
         this.closeForm();
         this.liveMessage.set(
@@ -462,4 +440,9 @@ export class ClaimQueue {
   protected entitlementTerm(e: VendorEntitlementResponse): string {
     return entitlementTermLabel(e.period_end, this.locale);
   }
+}
+
+/** The API error envelope's `error.code`, or null. */
+function errorCode(err: HttpErrorResponse): string | null {
+  return (err.error as { error?: { code?: string } } | null)?.error?.code ?? null;
 }

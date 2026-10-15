@@ -131,6 +131,20 @@
 
         <!-- Submitter -->
         <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+          <!-- AECI-1364: the product page the claim was sent from. The claim is on the
+               company above; this says where the claimant started. -->
+          @if (r.context_product; as product) {
+          <div class="flex gap-1.5" data-testid="claim-context-product">
+            <dt class="font-bold" i18n="@@admin.claims.meta.cameFrom">Came from</dt>
+            <dd>
+              <a
+                [routerLink]="['/products', product.slug]"
+                class="text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ product.name }}</a
+              >
+            </dd>
+          </div>
+          }
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.claims.meta.submitter">Submitter</dt>
             <dd>
@@ -144,11 +158,6 @@
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.claims.meta.submitted">Submitted</dt>
             <dd>{{ r.created_at | date: 'medium' }}</dd>
-          </div>
-          <!-- AECI-1293: the claimant's plan answer. Informational only. -->
-          <div class="flex gap-1.5" data-testid="claim-plan-interest">
-            <dt class="font-bold" i18n="@@admin.claims.meta.planInterest">Plan interest</dt>
-            <dd>{{ planInterestLabel(r.plan_interest) }}</dd>
           </div>
         </dl>
 
@@ -196,7 +205,7 @@
                 Claimant account
               </dt>
               <dd class="mt-1 text-xs text-(--text-primary)">
-                {{ accountLabel(r.status, r.has_auth_account) }}
+                {{ accountLabel(r.status, r.has_auth_account, r.granted) }}
               </dd>
             </div>
 
@@ -436,11 +445,10 @@
         }
 
         <!--
-          Operator note (AECI-739 / §5.2 step 6). Rendered on the CARD, not only on
-          the detail page: §5.2's prescribed handling for a pure-connector vendor is
-          to leave the claim `open` and route it out of band, and a queue of open
-          claims with no visible reason why any of them is parked is the exact
-          problem the note exists to solve. Read-only here — it is written on
+          Operator note (AECI-739). Rendered on the CARD, not only on the detail
+          page, because the queue is where the operator looks. It was built for the
+          parked connector claim, which AECI-1367 retired. It stays as the record of
+          what was said out of band. Read-only here: it is written on
           `/admin/claims/:id`, so the field has one home.
         -->
         @if (r.admin_notes; as note) {
@@ -482,75 +490,59 @@
         </div>
         }
 
-        <!-- §5.2: on a pure-connector vendor that owns NO integrations, BOTH
-             actions are wrong, so the warning repeats here rather than only in
-             the signals list above. The mistake is made at these buttons and it
-             is one-way (Grant opens a paid entitlement and shows the account
-             label; Reject sends a real decline email). A pure-connector vendor
-             that DOES own integrations is a paying third-party owner (§5.2 step
-             1a, AECI-1041), so for it the banner says Grant is right. The
-             buttons stay enabled in every case: `product_role` is curated
-             upstream, and a mis-roled record must not hard-block a claim. -->
-        @if (isActionable(r.status)) { @switch (payerState(r)) { @case ('third-party-owner') {
+        <!-- AECI-1368: the company already has an owner seat, so its owners decide
+             first. A warning, never a gate: Grant and Reject below stay enabled. -->
+        @if (isActionable(r.status) && r.routed_to_owners_at; as routedAt) {
         <div
-          class="mt-5 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-muted) p-4"
+          class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          data-testid="claim-owner-routed"
         >
-          <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.claims.ownerGuard.title">
-            Connector vendor that owns integrations: a paying owner
+          <p class="text-sm font-bold text-(--text-primary)">
+            <ng-container i18n="@@admin.claims.ownerRouted.title">With owners until</ng-container>
+            {{ ownerDeadline(routedAt) | date: 'medium' }}
           </p>
           <p
             class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
-            i18n="@@admin.claims.ownerGuard.body"
+            i18n="@@admin.claims.ownerRouted.body"
           >
-            Every product this vendor owns is a connector, but it is the recorded owner of live
-            integrations (see Integrations owned above). If it wants to manage them through the
-            portal, it pays like any other vendor: Grant, with payment arranged offline. If it only
-            wants its connector catalogue maintained, leave the claim open and add a seat on the
-            vendor page instead. Before arranging payment, tell the claimant that in v1 the seat
-            cannot yet claim, edit or retire connector-powered integrations.
+            This company already has an owner seat, so its owners were asked to accept or decline
+            this claim from their Seats page. You can still grant or reject it. If they have not
+            decided by then, it comes back to this queue.
           </p>
         </div>
-        } @case ('catalogue-only') {
-        <div
-          class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
-        >
-          <p
-            class="text-sm font-bold text-(--text-primary)"
-            i18n="@@admin.claims.connectorGuard.title"
+        } @else if (isActionable(r.status) && r.owner_fallback_at) {
+        <p class="mt-5 text-xs text-(--text-secondary)" data-testid="claim-owner-fallback">
+          <ng-container i18n="@@admin.claims.ownerFallback"
+            >The company's owners did not decide within {{ reviewDays }} days. Handed
+            back</ng-container
           >
-            Pure connector vendor — do not Grant or Reject
-          </p>
-          <p
-            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
-            i18n="@@admin.claims.connectorGuard.body"
-          >
-            Every product this vendor owns is a connector, so paid vendor access is not sold to
-            them. Granting opens a paid entitlement; rejecting sends a real decline email. Leave
-            this claim open, keep the linked Linear issue in an unstarted state, and reply directly
-            about the partnership track.
-          </p>
-        </div>
-        } @case ('owner-unknown') {
+          {{ r.owner_fallback_at | date: 'medium' }}
+        </p>
+        }
+
+        <!-- AECI-1367 (Chris's ruling 2026-10-14): a pure-connector vendor is approved
+             like anyone else. This is a neutral flag, not a warning and not a gate.
+             The claim-submitted-alert email carries the same line. -->
+        @if (isActionable(r.status) && r.is_pure_connector_vendor === true) {
         <div
-          class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
+          class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          data-testid="claim-connector-flag"
         >
           <p
             class="text-sm font-bold text-(--text-primary)"
-            i18n="@@admin.claims.connectorGuard.unknownTitle"
+            i18n="@@admin.claims.connectorFlag.title"
           >
-            Pure connector vendor: check what it owns before you act
+            Connector vendor: contact them directly
           </p>
           <p
             class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
-            i18n="@@admin.claims.connectorGuard.unknownBody"
+            i18n="@@admin.claims.connectorFlag.body"
           >
-            Every product this vendor owns is a connector, and we could not read how many
-            integrations it owns. If it owns none, do not Grant or Reject: leave the claim open and
-            reply about the partnership track. If it owns integrations and wants to manage them, it
-            is a paying owner and Grant is right. Reload, or check the vendor page, before deciding.
+            Every product this vendor lists is a connector. Approve the claim as usual, and reach
+            out to them about how they want to use their listing.
           </p>
         </div>
-        } } }
+        }
 
         <!-- Actions (open / in-review only) -->
         @if (isActionable(r.status)) {
@@ -575,93 +567,21 @@
           </button>
         </div>
 
-        <!-- Approve form: the required plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md 13.6),
-             then, on Managed only, the free-text arrangement notes (the offline PO/invoice record) -->
+        <!-- Approve confirmation. Every approval lands on Free (AECI-1367), so there is
+             no plan to pick and no arrangement to record. -->
         @if (formOpenId() === r.id && formMode() === 'approve') {
         <form
           novalidate
           (submit)="$event.preventDefault(); confirmApprove(r.id)"
           class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
         >
-          <fieldset class="space-y-2" [attr.aria-describedby]="'claim-plan-help-' + r.id">
-            <legend
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.claims.approve.plan.legend"
-            >
-              Plan (required)
-            </legend>
-            <p
-              [id]="'claim-plan-help-' + r.id"
-              class="text-xs text-(--text-secondary)"
-              i18n="@@admin.claims.approve.plan.help"
-            >
-              Free grants the seat only. Managed also opens the paid entitlement and the verified
-              badge.
-            </p>
-            <!-- AECI-1293: what the claimant said, beside the radios. The radios stay
-                 unselected whatever it says (STAGE_2_PAID_TIERS_SPEC.md 13.6). -->
-            @if (r.plan_interest) {
-            <p
-              class="text-xs font-medium text-(--text-primary)"
-              data-testid="claim-plan-asked"
-              i18n="@@admin.claims.approve.plan.asked"
-            >
-              They asked about: {{ planInterestLabel(r.plan_interest) }}
-            </p>
-            }
-            <div class="flex flex-wrap gap-x-6 gap-y-2">
-              <label
-                class="inline-flex cursor-pointer items-center gap-2 text-sm text-(--text-primary)"
-              >
-                <input
-                  type="radio"
-                  [name]="'claim-plan-' + r.id"
-                  value="free"
-                  required
-                  [checked]="grantPlan() === 'free'"
-                  (change)="onPlanChange('free')"
-                  class="accent-(--accent-primary)"
-                />
-                <span i18n="@@admin.claims.approve.plan.free">Free</span>
-              </label>
-              <label
-                class="inline-flex cursor-pointer items-center gap-2 text-sm text-(--text-primary)"
-              >
-                <input
-                  type="radio"
-                  [name]="'claim-plan-' + r.id"
-                  value="managed"
-                  required
-                  [checked]="grantPlan() === 'managed'"
-                  (change)="onPlanChange('managed')"
-                  class="accent-(--accent-primary)"
-                />
-                <span i18n="@@admin.claims.approve.plan.managed">Managed</span>
-              </label>
-            </div>
-          </fieldset>
-          @if (grantPlan() === 'managed') {
-          <div class="space-y-2">
-            <label
-              [attr.for]="'claim-notes-' + r.id"
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.claims.approve.label"
-            >
-              Payment / arrangement notes (optional)
-            </label>
-            <textarea
-              [id]="'claim-notes-' + r.id"
-              rows="3"
-              [value]="formText()"
-              (input)="onFormInput($event)"
-              class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ></textarea>
-          </div>
-          }
+          <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.approve.freeHelp">
+            The vendor starts on the Free plan. They can buy Managed licenses later from Billing.
+          </p>
           <div class="flex flex-wrap gap-3 pt-1">
             <button
               type="submit"
-              [disabled]="pendingActionId() === r.id || grantPlan() === null"
+              [disabled]="pendingActionId() === r.id"
               class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
             >
               @if (pendingActionId() === r.id) {

@@ -22,7 +22,9 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
+import { sql, type SQL } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
+import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import { auditLog, workflowTransitions } from '../db/schema';
@@ -66,6 +68,51 @@ export function auditInsert(db: Db, entry: AuditLogEntry): BatchStmt {
     vendorTier: entry.vendorPlan?.tier ?? null,
     vendorEntitlementStatus: entry.vendorPlan?.status ?? null,
   });
+}
+
+/**
+ * {@link auditInsert}, but the row lands only when `where` matches a row of `from`
+ * at commit time (AECI-1333). An `INSERT … SELECT … FROM <from> WHERE <where>`, so
+ * a batch can audit a guarded UPDATE that may match nothing, without aborting the
+ * rest of the batch the way a `json()` sentinel would. Use it when one batch holds
+ * many independent guarded writes (a cron sweep), so one lost row costs one row.
+ *
+ * Every value is bound as a parameter. `created_at` is set here, because a
+ * `$defaultFn` does not run on an INSERT … SELECT. The caller must re-read which
+ * rows its guard matched before it forwards the entries post-commit. `where` must
+ * match at most one row: the entry has one `id`, so a second match trips the PK.
+ */
+export function auditInsertWhere(
+  db: Db,
+  entry: AuditLogEntry,
+  guard: { from: SQLiteTable; where: SQL | undefined },
+): BatchStmt {
+  entry.id ??= crypto.randomUUID();
+  const json = (v: unknown) => (v === undefined || v === null ? null : JSON.stringify(v));
+  const val = (v: string | null) => sql`${v}`;
+  return db.insert(auditLog).select(
+    db
+      .select({
+        id: val(entry.id).as('id'),
+        actorId: val(entry.actorId ?? null).as('actor_id'),
+        actorType: val(entry.actorType).as('actor_type'),
+        action: val(entry.action).as('action'),
+        entityType: val(entry.entityType ?? null).as('entity_type'),
+        entityId: val(entry.entityId ?? null).as('entity_id'),
+        beforeState: val(json(entry.beforeState)).as('before_state'),
+        afterState: val(json(entry.afterState)).as('after_state'),
+        metadata: val(json(entry.metadata)).as('metadata'),
+        vendorId: val(entry.vendorId ?? null).as('vendor_id'),
+        productId: val(entry.productId ?? null).as('product_id'),
+        vendorTier: val(entry.vendorPlan?.tier ?? null).as('vendor_tier'),
+        vendorEntitlementStatus: val(entry.vendorPlan?.status ?? null).as(
+          'vendor_entitlement_status',
+        ),
+        createdAt: val(new Date().toISOString()).as('created_at'),
+      })
+      .from(guard.from)
+      .where(guard.where),
+  );
 }
 
 /**

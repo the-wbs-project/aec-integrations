@@ -60,6 +60,7 @@ import {
 
 import type {
   ListVendorContestsResponse,
+  PendingSeatClaim,
   OwnedIntegration,
   VendorIntegration,
   VendorMeResponse,
@@ -329,6 +330,13 @@ export class VendorPortalStore {
   private readonly manageSeats = signal(false);
   readonly seatInvites: Signal<readonly ManageableSeatInvite[]> = this.invites.asReadonly();
   readonly canManageSeats: Signal<boolean> = this.manageSeats.asReadonly();
+  /**
+   * Claims routed to this company's owners (AECI-1368 / §11a.10), the "Wants to
+   * join" list. Same fetch as the roster, so a plain signal like the two above. The
+   * server sends rows to owner seats only; a member seat always holds `[]`.
+   */
+  private readonly claims = signal<readonly PendingSeatClaim[]>([]);
+  readonly pendingSeatClaims: Signal<readonly PendingSeatClaim[]> = this.claims.asReadonly();
 
   /**
    * The rows the vendor owns that the attestable list does not carry (AECI-1089):
@@ -764,6 +772,9 @@ export class VendorPortalStore {
           // the whole Seats section down. Fail closed on the capability bit.
           this.invites.set(payload.pending_invites ?? []);
           this.manageSeats.set(payload.can_manage_seats ?? false);
+          // AECI-1368: defaulted for the same rollout reason. An older API sends no
+          // list, which renders as "nobody waiting".
+          this.claims.set(payload.pending_claims ?? []);
           break;
         }
       }

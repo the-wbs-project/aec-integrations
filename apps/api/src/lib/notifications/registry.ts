@@ -297,7 +297,25 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: CATALOGUE,
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to the owners at <Company>; AECi steps in on <date>" (AECI-1366). Pausable: operator alert. The claim waits in /admin/claims either way.',
+  },
+  'claim-received': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/claim (routes/requests.ts) and POST /api/requests/listing (routes/listing-requests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key claim-received:{recipientHash}:{YYYY-MM-DD}: at most one receipt per address per UTC day, across claims and listing requests. A request has one address and sends once post-commit, so the key is also the per-request bound.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
+    summary:
+      'Tells the person who sent a claim or a typed-in listing request that we have it, what they claimed, and what happens next.',
+    note: "Sent after the operator alert, in the same waitUntil. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
   },
   'listing-request-alert': {
     channel: 'email',
@@ -311,7 +329,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.4',
     summary:
       'Tells SUPPORT_EMAIL a visitor typed in a product or company we do not list, from the claim dialog, with reply-to set to them.',
-    note: 'No email goes to the visitor: the address is typed, not verified, and the dialog shows the receipt. Pausable: operator alert. The request waits in /admin/requests either way.',
+    note: 'The visitor gets claim-received, bounded per address per day (AECI-1366). Pausable: operator alert. The request waits in /admin/requests either way.',
   },
   'product-request-alert': {
     channel: 'email',
@@ -446,7 +464,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event. Both end with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
@@ -493,6 +511,21 @@ export const NOTIFICATIONS = {
     summary: 'Re-sends a pending seat invite.',
     note: 'Same template as vendor-seat-invite. Always on: an owner asked for it again.',
   },
+  'claim-owner-review': {
+    channel: 'email',
+    audience: 'external',
+    trigger: { kind: 'route', ref: 'POST /api/requests/claim (routes/requests.ts)' },
+    envRule: 'production-external',
+    dedupe:
+      'One per owner seat per claim: key claim-owner-review:{requestId}:{profileId}. Per vendor per UTC day, only the first 5 routed claims send it (OWNER_REVIEW_DAILY_LIMIT, a D1 count of routed_to_owners_at); later claims still route and still list in Seats.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10',
+    summary:
+      "Asks each unbanned owner seat of a company to accept or decline someone who claimed it, with the claimant's details and the 7-day deadline.",
+    note: 'Sent only when the claimed company has an unbanned owner seat, after the claim insert commits. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). The claim route is anonymous, so the daily per-vendor bound caps what a stranger can make us send to a company. Always on: the owners have 7 days to decide, and pausing it would hand every claim to the fallback.',
+  },
   'stuck-request-alert': {
     channel: 'email',
     audience: 'operator',
@@ -523,6 +556,24 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4a',
     summary: 'Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours.',
     note: 'Production only since AECI-1220. Staging and demo create no Linear issues, so a stale ticket there is a rehearsal row. Before AECI-1220 it went to founders@. Pausable: operator alert.',
+  },
+  'claim-owner-fallback-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: '0 14 claim owner fallback (lib/claim-owner-fallback.ts runClaimOwnerFallback)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'One digest per run, keyed claim-owner-fallback-alert:{sorted requestIds}, so each claim is named once. The run moves the claims out of the routed state in the same batch as their audit rows, so a second run reads nothing and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10',
+    summary:
+      "Tells SUPPORT_EMAIL which claims the company's owners left undecided for 7 days, now in the claim queue for AECi.",
+    note: 'Sent after the batch commits, so a failed send does not put the claims back with the owners. Pausable: operator digest. The claims wait in /admin/claims either way, and claim-stale-check counts them again.',
   },
   'attestation-digest': {
     channel: 'email+portal',

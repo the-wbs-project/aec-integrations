@@ -115,6 +115,40 @@ function requiredParam(c: VendorContext, name: string): string {
   return value;
 }
 
+/**
+ * The per-vendor invite cap: {@link INVITE_DAILY_LIMIT} invites in the rolling 24 h,
+ * counted over the table we already have rather than a KV counter or a new binding.
+ * Every path that issues an invite sends mail on a customer's command, the classic
+ * abuse amplifier, so the create route and the owner's claim accept (AECI-1368) both
+ * spend this one budget. Throws the 429.
+ */
+export async function assertInviteDailyCap(
+  db: ReturnType<DbFactory>['db'],
+  vendorId: string,
+  now: string,
+): Promise<void> {
+  const since = new Date(Date.parse(now) - 86_400_000).toISOString();
+  const [recent] = await db
+    .select({ value: count() })
+    .from(vendorSeatInvites)
+    .where(and(eq(vendorSeatInvites.vendorId, vendorId), gte(vendorSeatInvites.createdAt, since)));
+  if ((recent?.value ?? 0) >= INVITE_DAILY_LIMIT) {
+    throw new ApiError(
+      429,
+      ApiErrorCode.RATE_LIMITED,
+      'Too many invites sent today. Try again tomorrow.',
+      // AECI-773: `API_CONTRACTS.md` §4.1 has promised `Retry-After` on 429
+      // since Phase 2.8 and this 429 shipped without it, because `ApiError`
+      // had no header channel until now. The window is a ROLLING 24 h, so the
+      // exact wait is until the oldest invite in the window ages out —
+      // computing it would cost a second aggregate on the same query. The
+      // full window is a correct upper bound and one read is not worth the
+      // precision, so the contract holds with no silent exception.
+      { retryAfterSeconds: 86_400 },
+    );
+  }
+}
+
 // ─── POST /api/vendor/seats/invites ──────────────────────────────────────────
 
 export function createSeatInviteHandler(
@@ -181,31 +215,9 @@ export function createSeatInviteHandler(
       );
     }
 
-    // Rate limit: per-vendor invites in the rolling 24h, counted over the table we
-    // already have rather than a KV counter or a new binding. This endpoint sends
-    // mail on a customer's command, which is the classic abuse amplifier.
-    const since = new Date(Date.parse(now) - 86_400_000).toISOString();
-    const [recent] = await db
-      .select({ value: count() })
-      .from(vendorSeatInvites)
-      .where(
-        and(eq(vendorSeatInvites.vendorId, vendorId), gte(vendorSeatInvites.createdAt, since)),
-      );
-    if ((recent?.value ?? 0) >= INVITE_DAILY_LIMIT) {
-      throw new ApiError(
-        429,
-        ApiErrorCode.RATE_LIMITED,
-        'Too many invites sent today. Try again tomorrow.',
-        // AECI-773: `API_CONTRACTS.md` §4.1 has promised `Retry-After` on 429
-        // since Phase 2.8 and this 429 shipped without it, because `ApiError`
-        // had no header channel until now. The window is a ROLLING 24 h, so the
-        // exact wait is until the oldest invite in the window ages out —
-        // computing it would cost a second aggregate on the same query. The
-        // full window is a correct upper bound and one read is not worth the
-        // precision, so the contract holds with no silent exception.
-        { retryAfterSeconds: 86_400 },
-      );
-    }
+    // Rate limit: per-vendor invites in the rolling 24h. Shared with the owner's
+    // claim accept (AECI-1368), which issues an invite too.
+    await assertInviteDailyCap(db, vendorId, now);
 
     const expiresAt = inviteExpiryFrom(now);
     const inviteId = crypto.randomUUID();

@@ -26,7 +26,6 @@ import {
   Analytics,
   INTERNAL_PERSON_PROPERTY,
   VENDOR_GROUP_TYPE,
-  planInterestProperty,
   type PlanCtaPage,
   type PlanCtaPlacement,
 } from './analytics';
@@ -107,7 +106,6 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
       target_type: 'vendor',
       slug: 'autodesk',
       request_id: 'req-1',
-      plan_interest: 'none',
     });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
@@ -314,26 +312,19 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     expect(Object.keys(calls[1]![1] as object)).not.toContain('path');
   });
 
-  it('fires listing_requested with the plan answer and page only', async () => {
+  // AECI-1365: the plan question is gone, so the page is the only property.
+  it('fires listing_requested with the page only', async () => {
     const { analytics, client } = setup();
     TestBed.tick();
-    analytics.listingRequested({ plan_interest: 'managed', page: 'vendor_program' });
+    analytics.listingRequested({ page: 'vendor_program' });
     await flush();
     const props = client.capture.mock.calls.find(
       (call) => call[0] === 'listing_requested',
     )![1] as Record<string, unknown>;
-    expect(props).toEqual(
-      expect.objectContaining({ plan_interest: 'managed', page: 'vendor_program' }),
-    );
-    for (const key of ['listing_name', 'website', 'email', 'name']) {
+    expect(props).toEqual(expect.objectContaining({ page: 'vendor_program' }));
+    for (const key of ['plan_interest', 'listing_name', 'website', 'email', 'name']) {
       expect(Object.keys(props)).not.toContain(key);
     }
-  });
-
-  it('maps a form plan answer to its event property', () => {
-    expect(planInterestProperty('')).toBe('none');
-    expect(planInterestProperty('not_sure')).toBe('not_sure');
-    expect(planInterestProperty('bogus')).toBe('none');
   });
 
   it('does not fire plan_inquiry_submitted before consent is granted', async () => {
@@ -836,7 +827,6 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
       target_type: 'vendor',
       slug: 'autodesk',
       request_id: 'req-1',
-      plan_interest: 'none',
     });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({

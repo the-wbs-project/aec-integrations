@@ -86,6 +86,12 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_seat.provisioned': { kind: 'aeci-override', receipt: true },
   'vendor_claim.granted': { kind: 'aeci-override', receipt: true },
   'vendor_claim.seat_revoked': { kind: 'aeci-override', receipt: true },
+  // A claim routed to the company's owners (AECI-1368, STAGE_2_VENDOR_PORTAL_SPEC.md
+  // §11a.10). Both rows carry `vendor_id` = the claimed company. Not receipts: an
+  // owner accept rides the same batch as the `vendor_seat.invited` receipt when it
+  // mails an invite, and the fallback only moves who decides an undecided claim.
+  'vendor_claim.owner_accepted': { kind: 'vendor-edit', receipt: false },
+  'vendor_claim.owner_fallback': { kind: 'system', receipt: false },
   'vendor_admin.banned': { kind: 'aeci-override', receipt: true },
   'vendor_admin.unbanned': { kind: 'aeci-override', receipt: true },
   // A seat's own mute setting. About the seat, not the listing.
@@ -138,6 +144,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   // row per notice, filed under the account. A receipt, like the
   // `vendor_entitlement.expiry_warned` it replaces: "we warned you on date X".
   'license.expiry_warned': { kind: 'system', receipt: true },
+  // A claim's acceptances linked to the seat, vendor and billing account at approval
+  // (AECI-1367, `linkClaimAcceptanceStatements`). Filed under the claim. Not a receipt.
+  'agreement.linked': { kind: 'aeci-override', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

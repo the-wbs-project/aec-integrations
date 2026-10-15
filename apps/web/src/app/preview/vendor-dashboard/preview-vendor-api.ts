@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  AcceptSeatClaimResponse,
   ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
@@ -118,6 +119,7 @@ import {
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
   VENDOR_SEATS_FIXTURE,
   VENDOR_TAXONOMY_FIXTURE,
+  VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
   VENDOR_SEAT_INVITES_FIXTURE,
   NOTHING_CHECKED,
   productChecklistFixture,
@@ -423,8 +425,31 @@ export class PreviewVendorApi extends VendorApi {
       seats: clone(this.seats),
       pending_invites: clone([...VENDOR_SEAT_INVITES_FIXTURE]),
       can_manage_seats: true,
+      // AECI-1368: one claim routed to the owners, so "Wants to join" renders.
+      pending_claims: clone([...VENDOR_PENDING_SEAT_CLAIMS_FIXTURE]),
     };
   }
+
+  /** AECI-1368, fixture-side: an accept echoes the invite the real handler issues. */
+  override async acceptSeatClaim(claimId: string): Promise<AcceptSeatClaimResponse> {
+    const claim =
+      VENDOR_PENDING_SEAT_CLAIMS_FIXTURE.find((c) => c.id === claimId) ??
+      VENDOR_PENDING_SEAT_CLAIMS_FIXTURE[0]!;
+    return {
+      invite: {
+        id: 'preview-claim-invite',
+        email: claim.submitter_email,
+        invited_by: 'Dana Ruiz',
+        expires_at: '2099-01-01T00:00:00.000Z',
+        created_at: '2026-08-26T00:00:00.000Z',
+        last_sent_at: null,
+        resend_state: 'cooling_down',
+      },
+      invite_sent: true,
+    };
+  }
+
+  override async declineSeatClaim(): Promise<void> {}
 
   /** The §11a writes, fixture-side: no-ops that resolve, so the preview can click
    *  through the controls without a vendor session or a live D1. */

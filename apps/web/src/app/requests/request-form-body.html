@@ -35,13 +35,18 @@
   } }
 </h1>
 <p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
-  @switch (kind()) { @case ('claim') {
-  <ng-container i18n="@@requests.sent.claim.subtitle"
-    >We'll email
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong> with our
-    decision.</ng-container
+  @switch (kind()) { @case ('claim') { @if (routed()) {
+  <ng-container i18n="@@requests.sent.claim.subtitle.routed"
+    >We've emailed a receipt to
+    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
   >
-  } @case ('correction') {
+  } @else {
+  <ng-container i18n="@@requests.sent.claim.subtitle"
+    >We've emailed a receipt to
+    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. We'll write
+    to you there with our decision.</ng-container
+  >
+  } } @case ('correction') {
   <ng-container i18n="@@requests.sent.correction.subtitle"
     >Thanks. We'll check it against the source. If we have questions, we'll email
     <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
@@ -57,6 +62,26 @@
     What happens next
   </p>
   <ol class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)">
+    @if (routed()) {
+    <!-- AECI-1366: the company's team decides first (AECI-1368). -->
+    <li data-testid="request-sent-routed">
+      @if (company(); as name) {
+      <ng-container i18n="@@requests.sent.claim.routed"
+        >The team at {{ name }} has been asked to confirm you.</ng-container
+      >
+      } @else {
+      <ng-container i18n="@@requests.sent.claim.routed.unnamed"
+        >The team at this company has been asked to confirm you.</ng-container
+      >
+      }
+    </li>
+    <li i18n="@@requests.sent.claim.routed.accept">
+      If they accept, you get an invitation email to join.
+    </li>
+    <li i18n="@@requests.sent.claim.routed.fallback">
+      If nobody answers within {{ reviewDays }} days, we review your claim and write to you.
+    </li>
+    } @else {
     <li i18n="@@requests.sent.claim.step1">
       A person at AEC Integrations reviews every claim. Nothing is granted automatically.
     </li>
@@ -66,6 +91,7 @@
     <li i18n="@@requests.sent.claim.step3">
       If we approve it, we email you a link to your vendor portal.
     </li>
+    }
   </ol>
 </div>
 <a
@@ -107,23 +133,34 @@
 @if (variant() === 'page') {
 <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
   @switch (kind()) { @case ('claim') {
-  <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
+  <ng-container i18n="@@requests.claim.eyebrow">Vendor claim</ng-container>
   } @case ('correction') {
   <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
   } }
 </p>
 <h1 id="request-title" class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
-  @switch (kind()) { @case ('claim') {
-  <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
-  } @case ('correction') {
+  @switch (kind()) { @case ('claim') { @if (company(); as name) {
+  <ng-container i18n="@@requests.claim.title.company">Claim {{ name }}</ng-container>
+  } @else {
+  <ng-container i18n="@@requests.claim.title">Claim your company</ng-container>
+  } } @case ('correction') {
   <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
   } }
 </h1>
+@if (kind() === 'claim' && contextProduct()) {
+<!-- AECI-1364: the claim is on the company. This names the page it was sent from. -->
+<p class="mt-2 text-sm text-(--text-secondary)" data-testid="request-context-product">
+  <ng-container i18n="@@requests.claim.fromProduct"
+    >From the
+    <strong class="font-semibold text-(--text-primary)">{{ contextProduct() }}</strong>
+    page</ng-container
+  >
+</p>
+}
 <p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
   @switch (kind()) { @case ('claim') {
   <ng-container i18n="@@requests.claim.subtitle"
-    >Work here? Tell us about your connection to this listing and we'll verify your
-    claim.</ng-container
+    >Work at this company? Tell us about your role and we'll verify your claim.</ng-container
   >
   } @case ('correction') {
   <ng-container i18n="@@requests.correction.subtitle"
@@ -284,6 +321,9 @@
   novalidate
   (submit)="$event.preventDefault(); onSubmit()"
 >
+  <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
+  <aec-claim-routed-notice [show]="routed()" [company]="company()" />
+
   <!-- Name, role, LinkedIn, work email: shared with the claim dialog (AECI-1293). -->
   <aec-claimant-fields
     [name]="form.submitter_name"
@@ -291,9 +331,6 @@
     [linkedin]="form.submitter_linkedin_url"
     [email]="form.submitter_email"
   />
-
-  <!-- AECI-1293: the plan question, optional (VENDOR_PROGRAM_PAGE_SPEC.md §15.6). -->
-  <aec-plan-interest-field [field]="form.plan_interest" />
 
   <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->
   <div class="space-y-1.5">
@@ -318,8 +355,8 @@
       class="text-xs text-(--text-secondary)"
       i18n="@@requests.claim.body.hint"
     >
-      Tell us how you're connected to this listing: the team you work on, what you do with the
-      product, or anything else that helps us verify you.
+      Tell us how you're connected to the company: the team you work on, the products you make, or
+      anything else that helps us verify you.
     </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
@@ -332,6 +369,9 @@
     </p>
     }
   </div>
+
+  <!-- AECI-1366: required. Submit stays disabled until it is checked. -->
+  <aec-vendor-terms-box [field]="form.accepted_terms" [rejected]="termsRejected()" />
 
   <!--
     AECI-847: in the drawer the submit control is pinned to the bottom of the
