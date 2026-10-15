@@ -2715,6 +2715,8 @@ The account label landing on the detail pages exposed a copy contradiction: the 
 
 **As revised (AECI-1364, 2026-10-15): the claim is on the company** (`VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.6). The drawer and both routed claim pages are titled "Claim <Company>", or "Claim your company" when the company is unknown. A product page adds "From the <Product> page". The routed pages now resolve the entity through the existing product and vendor reads, for the name only. The subtitle reads "Work at this company? Tell us about your role and we'll verify your claim." The detail-page buttons still read "Claim this listing". Nothing reads `verified`, so the AECI-1266 rule holds.
 
+**As revised (AECI-1365, 2026-10-15).** The detail-page buttons now read "Claim <Company>": the vendor's name on a vendor page, the product's vendor on a product page, and "Claim your company" when a product has no vendor. The wording names the company in the URL's entity, never the viewer, and reads no plan, so the AECI-1266 rule still holds.
+
 ---
 
 ### 8.2 Search surfaces (AECI-529)

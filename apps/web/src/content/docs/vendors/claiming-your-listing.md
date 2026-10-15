@@ -12,7 +12,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 ## Send a claim
 
-Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose **Claim this listing**. A claim is also how you join your company's account when a colleague already has a seat.
+Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose the claim button. It names your company, for example **Claim Acme Software**. A claim is also how you join your company's account when a colleague already has a seat.
 
 If your product or company is not listed, choose **Not listed? Type it in** and give its name and website. We add it to the directory, then email you so you can finish your claim.
 

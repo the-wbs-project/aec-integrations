@@ -75,7 +75,7 @@ A public landing page for AEC software vendors at **`/vendor-program`**.
 | From | Link | Note |
 |---|---|---|
 | Footer, Company column (`layout/site-footer.ts`) | "For vendors" | After Methodology. |
-| Product detail page, beside "Claim this listing" | "Is this your product?" → `/vendor-program` | Visitor-neutral, so it stays in the cached HTML. |
+| Product detail page, beside the claim button ("Claim <Company>" since AECI-1365) | "Is this your product?" → `/vendor-program` | Visitor-neutral, so it stays in the cached HTML. |
 | `/docs/vendors/plans` | A line in the intro | §10. |
 | The `claim-approved` email | One line with the link | An approved claimant is on a plan and can act on it. `claim-rejected` gets no link, and `claim-submitted-alert` goes to support. Edit the template, then run `pnpm docs:notifications` (`apps/api/src/lib/notifications/registry.ts`). |
 
