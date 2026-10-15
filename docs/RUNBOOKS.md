@@ -1849,6 +1849,11 @@ it. You are executing a decision, not making one.
    `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
    bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
    refuses the upstream delete while a supabase id is attached.
+   If the dry run lists a **live license** on the product, it refuses without `--force`
+   (AECI-1350). Retracting the product frees a Managed slot the vendor pays for. Tell the vendor,
+   or move the license to another product, before you re-run with `--force`. With `--force` every
+   license on the product is unassigned and keeps its billing account. Each one gets a
+   `license.unassigned` audit row in the same batch. An ended license never blocks.
 2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
    prints the plan, the cascade, the affected products and the rollback path.
    ```

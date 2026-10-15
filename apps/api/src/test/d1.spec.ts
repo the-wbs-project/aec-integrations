@@ -51,6 +51,12 @@ import {
   loadVendorLicenses,
   type LicenseBatch,
 } from '../lib/license';
+import {
+  activateEntitlementStatements,
+  isEntitlementChangedError,
+  loadEntitlement,
+  loadLicenseDualWrite,
+} from '../lib/vendor-entitlement';
 import { makeTestDb, type TestDb } from './d1';
 
 describe('in-memory D1 harness (AECI-253)', () => {
@@ -1473,6 +1479,103 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
       const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
       expect(vendor!.verified).toBe(false);
       expect(vendor!.updatedAt).toBe(NOW);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+// AECI-1353: two activates built from ONE pre-read of a revoked vendor (two admins
+// pressing `set`, or two Managed claim approvals). The entitlement UPDATE is guarded on
+// `status <> 'active'`, so the second matches no row. Its license INSERTs are not
+// guarded, so before the sentinel they still committed: a second set of live
+// licenses, or a `licenses_live_product_idx` failure. The second batch must now roll
+// back whole, recognisably.
+describe('activate race on a revoked vendor (AECI-1353)', () => {
+  const NOW = '2026-10-15T12:00:00.000Z';
+
+  async function seed(t: TestDb, withProduct: boolean): Promise<void> {
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(vendorEntitlements).values({
+      vendorId: 'v1',
+      tier: 'verified',
+      status: 'revoked',
+      grantedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-06-01T00:00:00.000Z',
+    });
+    await t.db.insert(billingAccounts).values({ id: 'ba1', vendorId: 'v1', name: 'Acme' });
+    // The revoked term's license, ended: no live license is left.
+    await t.db.insert(licenses).values({
+      id: 'l-old',
+      billingAccountId: 'ba1',
+      source: 'complimentary',
+      startsAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-06-01T00:00:00.000Z',
+      endReason: 'revoked',
+      assignedProductId: null,
+    });
+    if (withProduct) {
+      await t.db
+        .insert(products)
+        .values({ id: 'p1', slug: 'acme-one', name: 'Acme One', promotionStatus: 'promoted' });
+      await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1' });
+    }
+  }
+
+  async function twoBatchesFromOnePreRead(t: TestDb) {
+    const existing = await loadEntitlement(t.db, 'v1');
+    const licensesBefore = await loadLicenseDualWrite(t.db, 'v1');
+    const build = () =>
+      activateEntitlementStatements(t.db, {
+        vendorId: 'v1',
+        tier: 'verified',
+        now: NOW,
+        actorId: null,
+        actorType: 'system',
+        existing,
+        vendorWasVerified: false,
+        licenses: licensesBefore,
+        vendorName: 'Acme',
+      });
+    return [build(), build()] as const;
+  }
+
+  const counts = async (t: TestDb) => ({
+    licenses: (await t.db.select().from(licenses)).length,
+    audits: (await t.db.select().from(auditLog)).length,
+    accounts: (await t.db.select().from(billingAccounts)).length,
+  });
+
+  it.each([
+    ['no products: one unassigned license', false],
+    ['an unlicensed owned product', true],
+  ])('%s: the second batch aborts and writes nothing', async (_label, withProduct) => {
+    const t = await makeTestDb();
+    try {
+      await seed(t, withProduct);
+      const [first, second] = await twoBatchesFromOnePreRead(t);
+      expect(second.raceGuarded).toBe(true);
+
+      await t.db.batch(first.stmts as BatchTuple);
+      const afterFirst = await counts(t);
+
+      const error = await t.db.batch(second.stmts as BatchTuple).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(isEntitlementChangedError(error)).toBe(true);
+      // No partial writes: every table is exactly as the first batch left it.
+      expect(await counts(t)).toEqual(afterFirst);
+
+      const live = (await t.db.select().from(licenses)).filter((l) => l.endedAt === null);
+      expect(live).toHaveLength(1);
+      expect(live[0]!.assignedProductId).toBe(withProduct ? 'p1' : null);
+      const sets = (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === 'vendor_entitlement.set',
+      );
+      expect(sets).toHaveLength(1);
+      const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
+      expect(vendor!.verified).toBe(true);
     } finally {
       t.dispose();
     }

@@ -152,6 +152,8 @@ import {
 } from '../lib/vendor-handback';
 import {
   activateEntitlementStatements,
+  entitlementChangedError,
+  isEntitlementChangedError,
   loadEntitlement,
   loadLicenseDualWrite,
   type EntitlementBefore,
@@ -661,6 +663,22 @@ async function approveClaim(
       ...(returned?.stmts ?? []),
     ] as BatchTuple);
   } catch (error) {
+    // AECI-1353: a Managed grant that reactivates the entitlement carries a sentinel
+    // that aborts when another activate committed first, and one that opens it trips
+    // the entitlement's unique key. A second seat writes no entitlement and cannot
+    // lose that race. The seat-return sentinels raise the same "malformed JSON", so
+    // when both ride the batch the row decides: it is active now only if the activate
+    // race is what aborted it.
+    if ((ent?.raceGuarded || ent?.entitlementCreated) && isEntitlementChangedError(error)) {
+      const raced =
+        !returned ||
+        !isSeatsChangedError(error) ||
+        (await loadEntitlement(db, vendor.id))?.status === 'active';
+      if (raced) {
+        emitClaimModeration(c, 'approve', 'conflict');
+        throw entitlementChangedError();
+      }
+    }
     if (returned && isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
   }

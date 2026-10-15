@@ -1,6 +1,8 @@
 /**
  * The `vendor_entitlements` ↔ `vendors.verified` mirror — the SOLE writer of either
- * side (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1/§2.3).
+ * side (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1/§2.3). During the license
+ * transition `lib/license.ts` is a second writer of `verified` only, through its
+ * mirror reconcile (AECI-1352), and this module leaves `MIRROR_WRITE_EXEMPT` at E1.9.
  *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts` and `lib/vendor-grant.ts`, each builder RETURNS the Drizzle
@@ -18,7 +20,8 @@
  * concurrency without a transaction. An ESLint `no-restricted-syntax` rule
  * (`eslint.config.base.mjs`) rejects a `.set({ verified })` / `.values({ verified })`
  * on `vendors` anywhere else (Guard 1); the `entitlement_mirror_drift` data-quality
- * check (`lib/data-quality.ts`, 04:00 UTC) is the run-time backstop (Guard 2).
+ * check (`lib/data-quality.ts`, 04:00 UTC) is the run-time backstop (Guard 2), and
+ * `license_mirror_drift` (AECI-1354) checks the same bit against live licenses.
  *
  * ── `vendors.updated_at` MOVES IFF `vendors.verified` MOVES (R2) ────────────────
  * It is stamped EXPLICITLY, never left to `$onUpdate`, and it rides inside the same
@@ -65,19 +68,37 @@
  * carry their own audit rows (`entity_type = 'billing_account'`), returned in
  * `licenseAuditEntries` for the caller to forward. A no-op entitlement write is a
  * no-op on both sides. `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.3.
+ *
+ * ── A LOST ACTIVATE RACE WRITES NOTHING (AECI-1353) ────────────────────────────
+ * A reactivation's entitlement UPDATE is guarded on `status <> 'active'`, but the
+ * license INSERTs that follow it are not guarded on anything. Two `set`s (or two
+ * Managed claim approvals) built from one pre-read of a revoked vendor would both
+ * grant: the loser's UPDATE matches no row while its licenses still land, which
+ * leaves two sets of live licenses, or trips `licenses_live_product_idx`. So the
+ * reactivation branch puts {@link entitlementActivatedSentinel} directly after its
+ * UPDATE, and the loser's whole batch rolls back. The caller answers
+ * `409 ENTITLEMENT_CHANGED` ({@link isEntitlementChangedError}). The INSERT branch
+ * needs no sentinel: the loser's second INSERT trips `vendor_entitlements_vendor_key`
+ * and rolls its batch back on its own, and the same predicate recognises that error.
+ * Renew and deactivate keep no sentinel. Their license writes are UPDATEs guarded on
+ * `ended_at IS NULL`, so a lost race changes no license, and only the audit rows the
+ * `license.ts` header accepts land.
  */
 
+import { ApiErrorCode } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
+import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt } from './audit';
 import {
   ensureBillingAccountStatements,
   loadBillingAccount,
   type BillingAccountBefore,
 } from './billing-account';
+import { ONE_ROW } from './integration-claims';
 import {
   endLicensesStatements,
   grantLicensesStatements,
@@ -187,6 +208,11 @@ export interface EntitlementBatch {
    *  approval) passes it as that builder's `existing`, so exactly one account INSERT
    *  lands in the batch. */
   billingAccountCreatedId: string | null;
+  /** The batch carries {@link entitlementActivatedSentinel}: a reactivation that
+   *  aborts when another writer activated the row first. A caller that sees the
+   *  batch fail checks {@link isEntitlementChangedError} and answers
+   *  {@link entitlementChangedError}. */
+  raceGuarded: boolean;
 }
 
 /** The shared no-op result. Frozen, arrays included, so a caller cannot mutate it. */
@@ -198,7 +224,58 @@ const NO_OP: EntitlementBatch = Object.freeze({
   reactivated: false,
   licenseAuditEntries: Object.freeze([]) as unknown as AuditLogEntry[],
   billingAccountCreatedId: null,
+  raceGuarded: false,
 });
+
+/** The token {@link entitlementActivatedSentinel} raises on. */
+const ENTITLEMENT_CHANGED_TOKEN = 'entitlement-changed';
+
+/**
+ * A batch statement that ABORTS an activate whose guarded UPDATE matched no row. Put
+ * it directly after that UPDATE: `changes()` reads the statement before it. It fires
+ * when another activate committed between this batch's pre-read and its commit, so
+ * the license grant behind it cannot land a second set of licenses.
+ *
+ * `json('entitlement-changed')` is malformed JSON, so the whole batch rolls back.
+ * Same mechanism as `claimRaceSentinel` (`lib/integration-claims.ts`), and FROM a
+ * one-row constant for the same reason: the guard always evaluates exactly once.
+ */
+export function entitlementActivatedSentinel(db: Db): BatchStmt {
+  return db
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json(${ENTITLEMENT_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * True for the error a lost activate race raises, in D1 or SQLite: the
+ * {@link entitlementActivatedSentinel} abort on the reactivation branch, or the
+ * `vendor_entitlements_vendor_key` violation on the INSERT branch. SQLite reports
+ * the sentinel only as "malformed JSON", so a caller must use this only on a batch
+ * whose other statements call `json()` nowhere, or disambiguate first
+ * (`routes/admin-claims.ts` re-reads the row).
+ */
+export function isEntitlementChangedError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/malformed JSON/i.test(text) || text.includes(ENTITLEMENT_CHANGED_TOKEN)) return true;
+    if (/UNIQUE constraint failed: vendor_entitlements\.vendor_id/i.test(text)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** `409 ENTITLEMENT_CHANGED`: another writer activated the entitlement first, and
+ *  this batch wrote nothing. */
+export function entitlementChangedError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.ENTITLEMENT_CHANGED,
+    "This vendor's entitlement changed while the request ran, so nothing was saved. Reload and try again.",
+  );
+}
 
 export interface ActivateEntitlementParams {
   vendorId: string;
@@ -512,8 +589,12 @@ export function activateEntitlementStatements(
   // so the `vendors` flip below runs before the license reconcile. Both land on
   // `verified = true`: the flip moves the bit (and `updated_at`), and the reconcile
   // then finds `verified` equal to EXISTS(live license) and matches no row (R2).
+  //
+  // The sentinel sits directly after a reactivation's guarded UPDATE, before any
+  // license statement: a lost race aborts the batch instead of granting a second set.
   const stmts: BatchStmt[] = [
     entitlementStmt,
+    ...(reactivated ? [entitlementActivatedSentinel(db)] : []),
     db
       .update(vendors)
       .set({ verified: true, updatedAt: p.now })
@@ -534,6 +615,7 @@ export function activateEntitlementStatements(
       ...licenseBatch.auditEntries,
     ],
     billingAccountCreatedId: account.billingAccountId,
+    raceGuarded: reactivated,
   };
 }
 
@@ -682,6 +764,7 @@ export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): E
     reactivated: false,
     licenseAuditEntries: licenseBatch.auditEntries,
     billingAccountCreatedId: null,
+    raceGuarded: false,
   };
 }
 
@@ -779,5 +862,6 @@ export function deactivateEntitlementStatements(
     reactivated: false,
     licenseAuditEntries: licenseBatch.auditEntries,
     billingAccountCreatedId: null,
+    raceGuarded: false,
   };
 }

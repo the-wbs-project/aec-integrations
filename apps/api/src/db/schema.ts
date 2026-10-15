@@ -1587,7 +1587,9 @@ export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
  * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.
  * Domain state: every write carries its `audit_log` row (`entity_type =
  * 'billing_account'`) in the same `db.batch`. Written by `lib/billing-account.ts`
- * (AECI-1351) in the owner-seat grant batch. No UI reads it yet.
+ * (AECI-1351), composed into the owner-seat grant batch and into the entitlement
+ * activate's license dual-write (`lib/vendor-entitlement.ts`, AECI-1353). The one-off
+ * `ops:backfill-licenses` script (AECI-1354) inserts the rest. No UI reads it yet.
  */
 export const billingAccounts = sqliteTable(
   'billing_accounts',
@@ -1623,9 +1625,11 @@ export const billingAccounts = sqliteTable(
  * is the scheduled end that E6's daily job turns into `ended_at`. Never compute "live"
  * from `ends_at` at read time.
  *
- * ASSIGNMENT. `assigned_product_id` is the product the slot is on. `ON DELETE SET NULL`:
- * deleting a product frees the slot and keeps the license (`PRODUCT_FK_HANDLING` outcome
- * `fk-action` in `lib/retract-product.ts`). The partial unique index lets a product hold
+ * ASSIGNMENT. `assigned_product_id` is the product the slot is on. `ON DELETE SET NULL`
+ * is only the backstop: the product-retraction lane NULLs it explicitly, with a
+ * `license.unassigned` audit row, and a live license needs `--force`
+ * (`PRODUCT_FK_HANDLING` outcome `force-detach` in `lib/retract-product.ts`). The license
+ * stays on its billing account. The partial unique index lets a product hold
  * at most ONE live license, while ended licenses keep their assignment as history (the
  * hand-back, decision 14, stamps `ended_at` and leaves `assigned_product_id`).
  *
@@ -1638,8 +1642,13 @@ export const billingAccounts = sqliteTable(
  * refuses on one), so no license can be orphaned by a cascade.
  *
  * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
- * (`entity_type = 'billing_account'`, `metadata.license_id`). Nothing reads or writes it
- * yet.
+ * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
+ * `lib/license.ts` (AECI-1352), whose only caller today is the entitlement builders'
+ * dual-write (`lib/vendor-entitlement.ts`, AECI-1353), and by the one-off
+ * `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
+ * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Read by those pre-reads and the
+ * `license_mirror_drift` data-quality check. Plan resolution does not read it until
+ * E1.6 (AECI-1355).
  */
 export const licenses = sqliteTable(
   'licenses',

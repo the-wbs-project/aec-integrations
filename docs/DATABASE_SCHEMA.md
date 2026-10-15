@@ -218,7 +218,7 @@ create table vendors (
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Operational
-  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, plus apps/api/src/lib/license.ts during the license transition (AECI-1352, §8.6c: reconciled to EXISTS(live license)), enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
+  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, plus apps/api/src/lib/license.ts during the license transition (AECI-1352, §8.6c: reconciled to EXISTS(live license)), enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift and license_mirror_drift checks. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -1802,7 +1802,10 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `billing_email` stays NULL; `created_by` is the approving admin. No statement names
   `vendors`, so `vendors.updated_at` never moves for it. Two first approvals racing on one
   vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
-  batch, seat included, rolls back.
+  batch, seat included, rolls back. The entitlement activate's license dual-write (AECI-1353,
+  §8.6c) composes the same builder, so `PATCH /api/admin/vendors/:id/entitlement` on a vendor
+  with no seat creates the account too. On a Managed claim the dual-write creates it first
+  and the route treats it as existing, so the batch carries one INSERT.
 - **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
   which is decision 10's owner flag. `ownerSeatsOf(vendorId)` in
   `apps/api/src/routes/vendor-shared.ts` is the predicate. Claim-granted and
@@ -1828,8 +1831,9 @@ One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 
 and 18). Licenses carry their own dates. There is no subscription table: a Stripe
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
 `apps/api/src/lib/license.ts` (AECI-1352). Its only callers today are the entitlement
-builders' dual-write (AECI-1353, below). E1's later issues move plan resolution onto the
-table.
+builders' dual-write (AECI-1353, below). The one-off back-fill (AECI-1354, below) also
+inserts rows, in raw SQL. `ops:retract-product` NULLs `assigned_product_id` in raw SQL when
+it retracts a product (below). E1's later issues move plan resolution onto the table.
 
 ```sql
 create table licenses (
@@ -1877,10 +1881,18 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **Hand-back keeps the assignment** (decision 14). The lapse stamps `ended_at` and leaves
   `assigned_product_id`, which the partial unique index allows. The product's edit right
   goes because the gate finds no live license.
-- **Product retraction frees the slot.** `PRODUCT_FK_HANDLING` in
-  `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to `fk-action`:
-  the `ON DELETE SET NULL` NULLs it and the license survives on its account. The retraction
-  plan never names the table.
+- **Product retraction frees the slot, explicitly and audited.** `PRODUCT_FK_HANDLING` in
+  `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to
+  `force-detach`. The `ON DELETE SET NULL` is only a backstop. The FK action alone would
+  unassign a paid slot with no `audit_log` row and no `updated_at` bump. A live license on
+  the product refuses the retraction without `--force`. With it, the plan writes what
+  `unassignLicenseStatements` writes (`assigned_product_id`, `assigned_at`,
+  `release_at_renewal`, `updated_at`) and one `license.unassigned` row per license, in
+  `license.ts`'s shape. An ended license is counted but never refuses. The plan NULLs only
+  its `assigned_product_id` and bumps `updated_at`, with its own `license.unassigned` row.
+  The license survives on its account in both cases, and its liveness does not change, so
+  `vendors.verified` cannot move. Every license statement carries the product DELETE's
+  refusal guard. The plan names the table only where it exists (`LICENSES_TABLE_SQL`).
 - **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
   `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
   NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`,
@@ -1929,7 +1941,12 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `period_start` when set, else the grant time; a re-term never moves it. The entitlement module's
   guarded `vendors` flip runs before the license reconcile and both land on the same
   value, so the reconcile matches no row. The license audit rows carry
-  `metadata.dual_write = 'vendor_entitlement'`. The local seeds (`catalog.sql`,
+  `metadata.dual_write = 'vendor_entitlement'`. The license INSERTs are not guarded, so
+  activate ties them to its entitlement write: a reactivation puts a `changes() = 0`
+  sentinel directly after its guarded UPDATE, and a first grant relies on
+  `vendor_entitlements_vendor_key`. Two activates from one pre-read therefore commit one
+  set of licenses, and the loser rolls back whole and answers `409 ENTITLEMENT_CHANGED`
+  (`d1.spec.ts`). The local seeds (`catalog.sql`,
   `phase2-fixtures.sql`) carry matching accounts and licenses, idempotent on fixed ids.
   E1.5's back-fill (AECI-1354) covers the deployed environments.
 - **The back-fill (AECI-1354, E1.5).** `ops:backfill-licenses` (`apps/api/scripts/`,
@@ -4535,7 +4552,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): `billing_accounts` is written only by the admin seat grants (`requireAdmin()`, AECI-1351); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

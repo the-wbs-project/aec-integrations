@@ -74,6 +74,8 @@ import { vendorPurgeTags } from '../lib/vendor-cache-tags';
 import {
   activateEntitlementStatements,
   deactivateEntitlementStatements,
+  entitlementChangedError,
+  isEntitlementChangedError,
   loadEntitlement,
   loadLicenseDualWrite,
   renewEntitlementStatements,
@@ -379,6 +381,13 @@ export function createSetVendorEntitlementHandler(
         rerouteAudits.push(...(reroute?.audits ?? []));
         break;
       } catch (error) {
+        // AECI-1353: a `set` that lost a race with another activate of this vendor
+        // wrote nothing, licenses included. Only `set` builds that batch, and it
+        // carries no re-route, so the abort is unambiguous.
+        if (action === 'set' && isEntitlementChangedError(error)) {
+          emitEntitlementAction(c, action, 'invalid_state');
+          throw entitlementChangedError();
+        }
         if (!reroute || !isContestRaceError(error)) throw error;
         if (attempt >= 2) {
           throw new ApiError(

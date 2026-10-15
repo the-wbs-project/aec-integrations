@@ -693,6 +693,40 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(entAudit.metadata).toMatchObject({ reactivated: true, entitlement_created: false });
   });
 
+  it('a Managed grant that loses the reactivation race answers 409 ENTITLEMENT_CHANGED and writes nothing (AECI-1353)', async () => {
+    await seedVendor({ verified: false, updatedAt: OLD_TS });
+    await seedEntitlement('revoked');
+    await seedRequest();
+    // Another approval (or an admin `set`) activates the row between this request's
+    // pre-read and its batch. Without the sentinel this batch's license INSERT would
+    // still land, beside a guarded UPDATE that matched nothing.
+    const original = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db
+        .update(vendorEntitlements)
+        .set({ status: 'active', endedAt: null })
+        .where(eq(vendorEntitlements.vendorId, VENDOR_ID));
+      return original(stmts);
+    });
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+    });
+    spy.mockRestore();
+
+    expect(status).toBe(409);
+    expect((body as unknown as { error: { code: string } }).error.code).toBe(
+      ApiErrorCode.ENTITLEMENT_CHANGED,
+    );
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    // The seat rolled back with it, and the claim is still open for the retry.
+    expect(await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID))).toHaveLength(0);
+    expect((await t.db.select().from(vendorRequests))[0]!.status).not.toBe('resolved');
+  });
+
   it('composes both builders into ONE db.batch (D1 has no interactive transactions)', async () => {
     // The load-bearing structural claim of §6.3. Two batches would mean a window in
     // which a seat exists with no entitlement — and no way to roll the first back.

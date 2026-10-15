@@ -204,6 +204,44 @@ describe('PATCH …/entitlement — set', () => {
     expect(meta.reactivated).toBe(true);
   });
 
+  // AECI-1353: another admin's `set` commits between this request's read and its
+  // batch. The loser must write nothing, licenses included, and say so.
+  it.each([
+    ['reactivation (the sentinel)', true],
+    ['first grant (the unique key)', false],
+  ])(
+    '409s ENTITLEMENT_CHANGED when a concurrent set wins the %s race, writing nothing',
+    async (_label, revoked) => {
+      await seedVendor();
+      if (revoked) await seedEntitlement({ status: 'revoked', endedAt: OLD_TS });
+      await t.db.insert(billingAccounts).values({ id: 'ba-1', vendorId: VENDOR, name: 'A' });
+      const original = t.db.batch.bind(t.db);
+      const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+        if (revoked) {
+          await t.db
+            .update(vendorEntitlements)
+            .set({ status: 'active', endedAt: null })
+            .where(eq(vendorEntitlements.vendorId, VENDOR));
+        } else {
+          await seedEntitlement();
+        }
+        return original(stmts);
+      });
+
+      const res = await patch(VENDOR, { action: 'set', period_end: '2027-09-01' });
+      spy.mockRestore();
+
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'ENTITLEMENT_CHANGED',
+      );
+      expect(await t.db.select().from(licenses)).toHaveLength(0);
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+      expect((await readVendor()).updatedAt).toBe(OLD_TS);
+      expect(entitlementActions()).toEqual([['action:set', 'outcome:invalid_state']]);
+    },
+  );
+
   it('422s on a vendor that already has an active entitlement', async () => {
     await seedVendor({ verified: true });
     await seedEntitlement();

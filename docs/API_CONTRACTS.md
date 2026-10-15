@@ -294,6 +294,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -2259,6 +2260,11 @@ Errors:
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
 - `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
+- `ENTITLEMENT_CHANGED` (409) — a Managed grant whose entitlement activate lost a race: another
+  approval or an admin `set` activated the vendor's entitlement between this request's read and
+  its batch (AECI-1353). Nothing was written, seat included. Retry: the grant is then a second
+  seat on an active entitlement. When the batch also carried a seat-return sentinel, the route
+  re-reads the row to tell the two aborts apart.
 
 #### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
 
@@ -2970,7 +2976,14 @@ The three actions:
 One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified` +
 `updated_at` flip, and the `audit_log` row (`vendor_entitlement.set` / `.renewed` /
 `.cleared`, `entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id,
-`actor_type: 'admin'`, `metadata.source: 'admin-entitlement'`). **No `workflow_instances`
+`actor_type: 'admin'`, `metadata.source: 'admin-entitlement'`). Since AECI-1353 the same
+batch also carries the license dual-write: the billing account when `set` finds none, and
+the licenses granted, re-termed or ended to match the row, each with its own audit row under
+`entity_type: 'billing_account'` (`DATABASE_SCHEMA.md` §8.6c). The wire shape is unchanged.
+A `set` that loses a race with another activate writes nothing and answers `409
+ENTITLEMENT_CHANGED`. Before AECI-1353's sentinel it answered 200 with an audit row for a write
+that did not happen.
+**No `workflow_instances`
 row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-effort: metric
 `aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
@@ -2989,6 +3002,7 @@ Errors:
 | 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
 | 403 | `FORBIDDEN` | Not an admin — or a `tier` that grants **no capabilities**. The second case is unreachable today (Zod rejects `unclaimed` first) and is kept as the semantic rule, so it keeps biting if a future rung joins `PAID_TIERS` before its capabilities do |
 | 404 | `NOT_FOUND` | Unknown vendor id |
+| 409 | `ENTITLEMENT_CHANGED` | `set` that lost a race: another activate committed between this request's read and its batch (AECI-1353). The whole batch rolled back, so no second set of licenses lands. Reload; the entitlement is now active, so renew it if the term should change |
 | 422 | `INVALID_STATE_TRANSITION` | `set` on an already-`active` entitlement (renew it, or clear it first); `renew`/`clear` on one that is not active (the message distinguishes "no entitlement on record" from "entitlement is `<status>`, not active") |
 
 Search freshness is **nightly, in both directions**: a flip bumps `vendors.updated_at`, so the

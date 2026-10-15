@@ -63,10 +63,9 @@ function fksInto(snapshot: Snapshot, tables: Set<string>): string[] {
   return [...new Set(keys)].sort();
 }
 
-/** Tables the delete plan removes rows from, read off the plan itself so a new
- *  delete target is covered without editing this spec. */
-function deletedTables(): Set<string> {
-  const stmts = buildDeleteStatements({
+/** The widest plan, every optional table and column present. */
+function planStatements(): string[] {
+  return buildDeleteStatements({
     product: { id: 'p', slug: 'p', name: 'p', promotion_status: 'promoted' },
     // Only the tombstone JSON reads the footprint; its values do not shape the plan.
     footprint: parseFootprint({} as RawFootprintRow),
@@ -75,8 +74,13 @@ function deletedTables(): Set<string> {
     // The widest plan: with the flag, the pair table is a delete target too.
     deleteEvidencedPairs: true,
   });
+}
+
+/** Tables the delete plan removes rows from, read off the plan itself so a new
+ *  delete target is covered without editing this spec. */
+function deletedTables(): Set<string> {
   const out = new Set<string>();
-  for (const s of stmts) {
+  for (const s of planStatements()) {
     const m = /^DELETE FROM "([a-z_]+)"/.exec(s);
     if (m) out.add(m[1]!);
   }
@@ -130,15 +134,28 @@ describe('retract-product FK coverage (AECI-687)', () => {
     expect(deletedTables().has('page_views')).toBe(false);
   });
 
-  it('leaves a license to its SET NULL and never names licenses in the plan (AECI-1350)', () => {
-    expect(PRODUCT_FK_HANDLING['licenses.assigned_product_id']).toBe('fk-action');
+  it('takes a license off the product explicitly, never by its SET NULL (AECI-1350)', () => {
+    expect(PRODUCT_FK_HANDLING['licenses.assigned_product_id']).toBe('force-detach');
     const fk = Object.values(snapshot.tables.licenses?.foreignKeys ?? {}).find(
       (f) => f.tableTo === 'products',
     );
     expect(fk?.onDelete).toBe('set null');
-    for (const [key, outcome] of Object.entries(PRODUCT_FK_HANDLING)) {
-      if (outcome !== 'fk-action') continue;
-      expect(deletedTables().has(key.split('.')[0]!), key).toBe(false);
+    // A license is domain state: the plan NULLs it with an audit row, never deletes it.
+    expect(deletedTables().has('licenses')).toBe(false);
+  });
+
+  it('NULLs every detached FK column explicitly, before the product DELETE', () => {
+    const stmts = planStatements();
+    const productDelete = stmts.findIndex((s) => s.startsWith('DELETE FROM "products"'));
+    for (const [key, outcome] of Object.entries({
+      ...PRODUCT_FK_HANDLING,
+      ...CASCADE_CHILD_HANDLING,
+    })) {
+      if (outcome !== 'detach' && outcome !== 'force-detach') continue;
+      const [table, column] = key.split('.');
+      const at = stmts.findIndex((s) => s.startsWith(`UPDATE "${table}" SET "${column}" = NULL`));
+      expect(at, key).toBeGreaterThanOrEqual(0);
+      expect(at, key).toBeLessThan(productDelete);
     }
   });
 

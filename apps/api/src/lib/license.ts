@@ -2,7 +2,16 @@
  * The license write module (AECI-1352, E1.3; `docs/VENDOR_SIGNUP_PROCESS.md` §2
  * decisions 5, 6, 11, 12, 14, 15 and §3 steps 5 to 7). The ONE module that writes
  * `licenses`: E4 (admin grants and approvals), E5 (vendor assignment), E6 (term end)
- * and E9 (Stripe) call these builders and add no second license writer.
+ * and E9 (Stripe) call these builders and add no second license writer. Two ops
+ * lanes reach a deployed D1 only through raw SQL over `wrangler d1 execute`, so they
+ * are the exceptions: the one-off E1.5 back-fill (`lib/backfill-licenses.ts`,
+ * AECI-1354), which reuses {@link licenseTermsForEntitlement} so the two cannot map
+ * one row two ways, and `ops:retract-product` (`lib/retract-product.ts`), which
+ * unassigns a retracted product's licenses with `license.unassigned` rows in this
+ * module's shape. The `DELETE /api/account` erasure batch (`routes/account.ts`) also
+ * nulls `granted_by`, the AUTH_AND_RLS.md §8 rule for no-FK actor columns. Today the
+ * only caller is the entitlement builders' dual-write (`lib/vendor-entitlement.ts`,
+ * AECI-1353).
  *
  * Like `lib/vendor-entitlement.ts`, every builder is PURE: it takes the state the
  * caller pre-read plus `now`, and RETURNS the Drizzle statements and the audit
@@ -44,10 +53,16 @@
  * ── GUARDED WRITES, AND WHAT A LOST RACE COSTS ─────────────────────────────────
  * Each license UPDATE is guarded on the state it expects (`ended_at IS NULL`, and
  * `assigned_product_id IS NULL` for an assign), so a concurrent write cannot be
- * double-applied or resurrect an ended license. The pre-read is the no-op gate. As
- * in `vendor-entitlement.ts`, a race lost between the read and the commit leaves the
- * guarded UPDATE matching zero rows while its audit row still lands. That is the
- * accepted cost of D1 having no interactive transactions.
+ * double-applied or resurrect an ended license. The pre-read is the no-op gate. A
+ * race lost between the read and the commit leaves the guarded UPDATE matching zero
+ * rows while its audit row still lands. That is the accepted cost of D1 having no
+ * interactive transactions.
+ *
+ * `grantLicensesStatements` is the exception: its INSERTs have no guard, so two
+ * grants from one pre-read both land. A caller must tie a grant to a write that can
+ * only apply once. The entitlement activate does (AECI-1353): its reactivation
+ * carries `entitlementActivatedSentinel` and its first grant the entitlement's
+ * unique key, so the losing batch rolls back whole (`vendor-entitlement.ts`).
  *
  * ── DATES ──────────────────────────────────────────────────────────────────────
  * Every date written goes through {@link toIsoTimestamp} (`new Date(x).toISOString()`).

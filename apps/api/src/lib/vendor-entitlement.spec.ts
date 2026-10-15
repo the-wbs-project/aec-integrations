@@ -38,6 +38,8 @@ import { type BatchStmt, type BatchTuple } from './audit';
 import {
   activateEntitlementStatements,
   deactivateEntitlementStatements,
+  entitlementChangedError,
+  isEntitlementChangedError,
   loadEntitlement,
   loadLicenseDualWrite,
   renewEntitlementStatements,
@@ -287,6 +289,58 @@ describe('activateEntitlementStatements — the §2.3 matrix', () => {
   });
 });
 
+// ─── the activate race (AECI-1353) ───────────────────────────────────────────
+
+describe('activateEntitlementStatements — a lost race writes nothing', () => {
+  const sqlOf = (stmt: BatchStmt) => (stmt as unknown as { toSQL(): { sql: string } }).toSQL().sql;
+
+  it('puts the sentinel directly after a reactivation UPDATE, and only there', () => {
+    const revoked = { id: 'e1', tier: 'verified', status: 'revoked', periodEnd: null };
+    const reactivation = activateEntitlementStatements(t.db, activateArgs(revoked, false));
+    expect(reactivation.raceGuarded).toBe(true);
+    expect(sqlOf(reactivation.stmts[0]!)).toMatch(/^update "vendor_entitlements"/i);
+    expect(sqlOf(reactivation.stmts[1]!)).toMatch(/changes\(\) = 0 then json\(/i);
+
+    // The INSERT branch is fenced by `vendor_entitlements_vendor_key` instead.
+    const first = activateEntitlementStatements(t.db, activateArgs(null, false));
+    expect(first.raceGuarded).toBe(false);
+    expect(first.stmts.map(sqlOf).some((q) => /^select /i.test(q))).toBe(false);
+  });
+
+  it.each([
+    ['reactivation', true],
+    ['first grant', false],
+  ])('two %s batches from one pre-read: the second aborts, recognisably', async (_l, revoked) => {
+    await seedVendor();
+    await seedAdmin();
+    if (revoked) await seedEntitlement('revoked');
+    const existing = await loadEntitlement(t.db, VENDOR_ID);
+    const licenses = await loadLicenseDualWrite(t.db, VENDOR_ID);
+    const [a, b] = [0, 1].map(() =>
+      activateEntitlementStatements(t.db, activateArgs(existing, false, licenses)),
+    );
+
+    await t.db.batch(a!.stmts as BatchTuple);
+    const error = await t.db.batch(b!.stmts as BatchTuple).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).not.toBeNull();
+    expect(isEntitlementChangedError(error)).toBe(true);
+    expect(entitlementChangedError()).toMatchObject({
+      status: 409,
+      code: 'ENTITLEMENT_CHANGED',
+    });
+    expect(await entitlementAudits()).toHaveLength(1);
+  });
+
+  it('does not mistake an unrelated failure for the race', () => {
+    expect(isEntitlementChangedError(new Error('UNIQUE constraint failed: licenses.id'))).toBe(
+      false,
+    );
+  });
+});
+
 // ─── deactivate ──────────────────────────────────────────────────────────────
 
 describe('deactivateEntitlementStatements', () => {
@@ -425,7 +479,10 @@ describe('the mirror invariant — never one side of the iff without the other',
         deactivateArgs({ id: 'e1', tier: 'verified', status: 'active', periodEnd: null }, true),
       ),
     ]) {
-      const [entitlement, mirror, audit] = batch.stmts.map(sqlOf);
+      // A reactivation's race sentinel (a SELECT, AECI-1353) writes nothing; skip it.
+      const [entitlement, mirror, audit] = batch.stmts
+        .map(sqlOf)
+        .filter((q) => !/^select /i.test(q));
       expect(entitlement).toMatch(/^(insert into|update) "vendor_entitlements"/i);
       expect(mirror).toMatch(/^update "vendors" set "verified" = \?/i);
       expect(audit).toMatch(/^insert into "audit_log"/i);

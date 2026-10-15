@@ -57,8 +57,11 @@ const STAMPED_DOWNSTREAM: Record<string, string> = {
   'routes/promote-contests.ts': 'AECi promote; contest withdrawals on a promote move',
   'lib/promote-claims.ts': 'AECi promote of claims and attestations',
   // An ops retraction deletes the product's `product_vendors` rows in the same plan,
-  // so no holder is left to name. Its tombstones carry `product_id` instead.
-  'lib/retract-product.ts': 'ops retraction; tombstones carry `product_id`, no holder survives',
+  // so no holder is left to name. Its tombstones carry `product_id` instead. Its
+  // `license.unassigned` rows (AECI-1350) are raw SQL and DO carry `vendor_id`, read
+  // from the license's billing account inside the INSERT.
+  'lib/retract-product.ts':
+    'ops retraction; tombstones carry `product_id`, no holder survives; `license.unassigned` rows take `vendor_id` from the billing account in SQL',
 };
 
 /**
