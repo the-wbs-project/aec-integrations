@@ -1313,6 +1313,14 @@ checks live in the Phase 6 form submission handler. Rationale: keeps room for
 Stage 2 to add claim/correction for additional entity types without another
 migration. See Phase 2 Spec §5.2.
 
+**Claims target the company (AECI-1364, 2026-10-15).** New claim rows always carry
+`target_type = 'vendor'`. A claim sent from a product page records the product in
+`context_product_id`. Claims stored before migration 0075 may still carry
+`target_type = 'product'`, so every claim reader (`resolveTargetVendor` on approve,
+the `/admin/claims` enrichment, the vendor portal's `vendorRequestsWhere`, the §6.7
+sweep and the stale-claim check) keeps handling both. Corrections keep their
+product or vendor target.
+
 ```sql
 create table vendor_requests (
   id uuid primary key default gen_random_uuid(),
@@ -1352,6 +1360,15 @@ create table vendor_requests (
   -- drizzle-kit table recreate, and this table has FK children. PlanInterestSchema
   -- enforces the vocabulary. Informational; never preselects the approve form.
   plan_interest text,
+
+  -- AECI-1364 (migration 0075): the product page a CLAIM came from. A claim is on
+  -- the company (VENDOR_SIGNUP_PROCESS.md decision 1): one posted with
+  -- target_type 'product' is stored with target_type 'vendor' and the product's
+  -- vendor id (primary, else any product_vendors row), and the product lands here.
+  -- NULL for a company-page claim, a correction (corrections keep their product
+  -- target), or a claim stored before 0075 (those keep target_type 'product').
+  -- NO FK and NO CHECK, like target_id: either is a drizzle-kit recreate here.
+  context_product_id text,
 
   -- Status
   status text not null default 'open'

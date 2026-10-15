@@ -1661,6 +1661,11 @@ badge.
   "Plan interest", and the queue's approve form repeats it beside the plan radios ("They
   asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
+- **"Came from" (AECI-1364, 2026-10-15).** A claim is on the company, so a claim sent from
+  a product page is stored with the vendor as its target. The queue card and the claim
+  detail show "Came from: <Product>", linked to the product page, from
+  `AdminClaim.context_product`. A company-page claim, or a claim stored before migration
+  0075, shows no such line.
 
 ## 6. API surface
 

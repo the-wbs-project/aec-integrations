@@ -1959,6 +1959,9 @@ export function sendClaimSubmittedNotification(
     /** AECI-1293: the claimant's plan answer (`free` | `managed` | `not_sure`), or
      *  null when not answered. Optional so a caller that predates it still compiles. */
     planInterest?: string | null;
+    /** AECI-1364: the product page the claim came from, or null. The claim itself is
+     *  on the company (`targetName`). Optional so a caller that predates it compiles. */
+    contextProduct?: { name: string; slug: string } | null;
     /** §6.8 signal: `match` | `no_match` | `pending`. */
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
@@ -1974,6 +1977,9 @@ export function sendClaimSubmittedNotification(
   const adminUrl = adminRequestUrl(c.env, 'claim', opts.requestId);
   const rows: Array<[string, string]> = [
     ['Claimed', `${opts.targetName} (${opts.targetType})`],
+    ...(opts.contextProduct
+      ? ([['Came from', `${opts.contextProduct.name} (product)`]] as Array<[string, string]>)
+      : []),
     ['Submitter', opts.submitterEmail],
     ['Name', opts.submitterName ?? '—'],
     ['Role', opts.submitterRole ?? '—'],
@@ -2001,6 +2007,11 @@ export function sendClaimSubmittedNotification(
     return [
       ['Review queue', link(`${base}/admin/claims`)],
       ['Listing', link(`${base}/${path}/${opts.slug}`)],
+      ...(opts.contextProduct
+        ? ([['Product page', link(`${base}/products/${opts.contextProduct.slug}`)]] as Array<
+            [string, string]
+          >)
+        : []),
     ];
   };
 

@@ -107,23 +107,34 @@
 @if (variant() === 'page') {
 <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
   @switch (kind()) { @case ('claim') {
-  <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
+  <ng-container i18n="@@requests.claim.eyebrow">Vendor claim</ng-container>
   } @case ('correction') {
   <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
   } }
 </p>
 <h1 id="request-title" class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
-  @switch (kind()) { @case ('claim') {
-  <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
-  } @case ('correction') {
+  @switch (kind()) { @case ('claim') { @if (company(); as name) {
+  <ng-container i18n="@@requests.claim.title.company">Claim {{ name }}</ng-container>
+  } @else {
+  <ng-container i18n="@@requests.claim.title">Claim your company</ng-container>
+  } } @case ('correction') {
   <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
   } }
 </h1>
+@if (kind() === 'claim' && contextProduct()) {
+<!-- AECI-1364: the claim is on the company. This names the page it was sent from. -->
+<p class="mt-2 text-sm text-(--text-secondary)" data-testid="request-context-product">
+  <ng-container i18n="@@requests.claim.fromProduct"
+    >From the
+    <strong class="font-semibold text-(--text-primary)">{{ contextProduct() }}</strong>
+    page</ng-container
+  >
+</p>
+}
 <p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
   @switch (kind()) { @case ('claim') {
   <ng-container i18n="@@requests.claim.subtitle"
-    >Work here? Tell us about your connection to this listing and we'll verify your
-    claim.</ng-container
+    >Work at this company? Tell us about your role and we'll verify your claim.</ng-container
   >
   } @case ('correction') {
   <ng-container i18n="@@requests.correction.subtitle"
@@ -318,8 +329,8 @@
       class="text-xs text-(--text-secondary)"
       i18n="@@requests.claim.body.hint"
     >
-      Tell us how you're connected to this listing: the team you work on, what you do with the
-      product, or anything else that helps us verify you.
+      Tell us how you're connected to the company: the team you work on, the products you make, or
+      anything else that helps us verify you.
     </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p

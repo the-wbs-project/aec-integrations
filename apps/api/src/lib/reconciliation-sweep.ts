@@ -163,6 +163,9 @@ type StuckRow = {
   submitterLinkedinUrl: string | null;
   /** AECI-1293: the plan answer, so the rebuilt issue and the recovery alert carry it. */
   planInterest: string | null;
+  /** AECI-1364: the product page a claim came from, so the rebuilt issue and the
+   *  recovery alert say "Came from" exactly as the submit-time ones do. */
+  contextProductId: string | null;
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
@@ -255,6 +258,7 @@ export async function runReconciliationSweep(
       submitterRole: true,
       submitterLinkedinUrl: true,
       planInterest: true,
+      contextProductId: true,
       body: true,
       sourceUrl: true,
       domainMatch: true,
@@ -320,6 +324,10 @@ export async function runReconciliationSweep(
         });
         continue;
       }
+      // AECI-1364: a product that has since gone just drops the "Came from" line.
+      const contextProduct = row.contextProductId
+        ? await resolveTargetById(db, 'product', row.contextProductId)
+        : null;
       retried++;
       wasRetried.add(row.id);
       // Idempotent retry of §6.4 — the same function the request handler runs.
@@ -338,6 +346,7 @@ export async function runReconciliationSweep(
         submitterRole: row.submitterRole,
         submitterLinkedinUrl: row.submitterLinkedinUrl,
         planInterest: row.planInterest,
+        contextProduct,
         body: row.body,
         sourceUrl: row.sourceUrl,
         domainMatch: row.domainMatch,
@@ -366,6 +375,7 @@ export async function runReconciliationSweep(
           submitterRole: row.submitterRole,
           submitterLinkedinUrl: row.submitterLinkedinUrl,
           planInterest: row.planInterest,
+          contextProduct,
           domainMatch: row.domainMatch,
           duplicateOfRequestId: row.duplicateOfRequestId,
           linearIssueUrl: outcome.issueUrl,

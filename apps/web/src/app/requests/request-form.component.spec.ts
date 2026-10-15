@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,9 +17,9 @@ import { RequestsApi } from './requests-api';
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
 
-function mockRoute(entity: Entity, kind: Kind, slug: string): ActivatedRoute {
+function mockRoute(entity: Entity, kind: Kind, slug: string, target?: unknown): ActivatedRoute {
   return {
-    snapshot: { data: { entity, kind }, paramMap: convertToParamMap({ slug }) },
+    snapshot: { data: { entity, kind, target }, paramMap: convertToParamMap({ slug }) },
   } as unknown as ActivatedRoute;
 }
 
@@ -54,7 +55,14 @@ function makeSessionStub(email: string | null) {
   };
 }
 
-function setup(entity: Entity, kind: Kind, slug = 'acme', sessionEmail: string | null = null) {
+function setup(
+  entity: Entity,
+  kind: Kind,
+  slug = 'acme',
+  sessionEmail: string | null = null,
+  /** AECI-1364: what the claim route's resolver returned (a product or vendor read). */
+  target?: unknown,
+) {
   const api = makeApiMock();
   const session = makeSessionStub(sessionEmail);
   TestBed.configureTestingModule({
@@ -63,7 +71,7 @@ function setup(entity: Entity, kind: Kind, slug = 'acme', sessionEmail: string |
       provideHttpClient(),
       provideHttpClientTesting(),
       provideRouter([]),
-      { provide: ActivatedRoute, useValue: mockRoute(entity, kind, slug) },
+      { provide: ActivatedRoute, useValue: mockRoute(entity, kind, slug, target) },
       { provide: RequestsApi, useValue: api },
       { provide: SessionStatus, useValue: session.stub },
     ],
@@ -112,6 +120,51 @@ describe('RequestForm', () => {
     expect(el.querySelector('#correction-body')).toBeNull();
     expect(el.querySelector('button[type="submit"]')?.textContent).toContain('Send claim');
     httpMock.verify();
+  });
+
+  // AECI-1364: a claim is on the company, so the page names it once known.
+  describe('the "Claim <Company>" title', () => {
+    it("names the product's vendor and the product page on a product claim page", () => {
+      const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
+        name: 'Acme Takeoff',
+        vendor: { id: 'v1', name: 'Acme Software', slug: 'acme-software', logo_url: null },
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim Acme Software');
+      expect(
+        el
+          .querySelector('[data-testid="request-context-product"]')
+          ?.textContent?.replace(/\s+/g, ' ')
+          .trim(),
+      ).toBe('From the Acme Takeoff page');
+      expect(TestBed.inject(Title).getTitle()).toBe('Claim Acme Software · AEC Integrations');
+      expect(el.textContent).not.toContain('listing');
+      httpMock.verify();
+    });
+
+    it('names the company on a company claim page, with no product line', () => {
+      const { el, httpMock } = setup('vendor', 'claim', 'acme-software', null, {
+        company_name: 'Acme Software',
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim Acme Software');
+      expect(el.querySelector('[data-testid="request-context-product"]')).toBeNull();
+      httpMock.verify();
+    });
+
+    it('reads "Claim your company" when the company is unknown', () => {
+      const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
+        name: 'Acme Takeoff',
+        vendor: null,
+      });
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim your company');
+      expect(TestBed.inject(Title).getTitle()).toBe('Claim your company · AEC Integrations');
+      httpMock.verify();
+    });
+
+    it('reads "Claim your company" when the entity did not resolve', () => {
+      const { el, httpMock } = setup('vendor', 'claim', 'gone', null, null);
+      expect(el.querySelector('h1')?.textContent?.trim()).toBe('Claim your company');
+      httpMock.verify();
+    });
   });
 
   it('disables submit while the form is invalid', async () => {

@@ -1587,6 +1587,26 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(row.entitlement).toBeNull();
   });
 
+  // AECI-1364: a product-page claim is stored on the company with the product as context.
+  it('hydrates context_product for a company claim sent from a product page', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await seedRequest({ contextProductId: PRODUCT_ID });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.target_type).toBe('vendor');
+    expect(row.target?.id).toBe(VENDOR_ID);
+    expect(row.context_product).toEqual({ id: PRODUCT_ID, name: 'Revit', slug: 'revit' });
+  });
+
+  it('reports context_product: null for a company-page claim and a gone product', async () => {
+    await seedVendor();
+    await seedRequest({ contextProductId: '99999999-9999-4999-8999-999999999999' });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.context_product).toBeNull();
+  });
+
   it('reports entitlement: null (not an error) for a vendor that has never been entitled', async () => {
     await seedVendor();
     await seedRequest();
@@ -1962,6 +1982,15 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
       connector_evidenced: 0,
       total: 0,
     });
+  });
+
+  it('carries the "Came from" product (AECI-1364)', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await seedRequest({ contextProductId: PRODUCT_ID });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.context_product).toEqual({ id: PRODUCT_ID, name: 'Revit', slug: 'revit' });
   });
 
   it('404s on an unknown id', async () => {

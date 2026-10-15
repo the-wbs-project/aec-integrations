@@ -39,7 +39,11 @@ import {
   FIELD_LABEL_CLASS,
 } from '../form-field/form-field-classes';
 
-import type { ClaimDialogOpening, ClaimListing } from './claim-dialog.service';
+import {
+  ClaimDialogService,
+  type ClaimDialogOpening,
+  type ClaimListing,
+} from './claim-dialog.service';
 
 /** The four numbered steps, in order. `done` is the receipt, outside the count. */
 const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'plan', 'comments'];
@@ -235,10 +239,28 @@ interface ClaimDialogModel {
                     class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-(--radius-md) bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
                     data-testid="claim-dialog-listing"
                   >
-                    <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claiming"
-                      >Claiming</span
-                    >
-                    <strong class="font-semibold">{{ listing()?.name }}</strong>
+                    <!-- AECI-1364: the claim is on the company. A product hit names
+                         the company and the product page it came from. -->
+                    @if (listing(); as l) {
+                      @if (l.company && l.product) {
+                        <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claimingFrom"
+                          >Claiming
+                          <strong class="font-semibold text-(--text-primary)">{{
+                            l.company
+                          }}</strong>
+                          from the
+                          <strong class="font-semibold text-(--text-primary)">{{
+                            l.product
+                          }}</strong>
+                          page</span
+                        >
+                      } @else {
+                        <span class="text-(--text-secondary)" i18n="@@claimDialog.you.claiming"
+                          >Claiming</span
+                        >
+                        <strong class="font-semibold">{{ l.company ?? l.name }}</strong>
+                      }
+                    }
                     <button
                       type="button"
                       (click)="toFind()"
@@ -477,6 +499,7 @@ export class ClaimDialogFlow implements OnInit {
   private readonly session = inject(SessionStatus);
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
+  private readonly dialog = inject(ClaimDialogService);
 
   /** How the dialog was opened. Read once, in `ngOnInit`. */
   readonly opening = input.required<ClaimDialogOpening>();
@@ -564,7 +587,20 @@ export class ClaimDialogFlow implements OnInit {
   protected choose(hit: AutocompleteSuggestion): void {
     const slug = hit.routerLink.at(-1);
     if (!slug) return;
-    this.listing.set({ targetType: hit.kind, slug, name: hit.title });
+    // AECI-1364: a claim is on the company. A vendor hit IS the company. A product
+    // hit names its vendor in `subtitle` (the record's `vendor_name`); the API
+    // resolves that vendor's id from the product slug, so no vendor slug is needed.
+    this.listing.set(
+      hit.kind === 'vendor'
+        ? { targetType: 'vendor', slug, name: hit.title, company: hit.title, product: null }
+        : {
+            targetType: 'product',
+            slug,
+            name: hit.title,
+            company: hit.subtitle,
+            product: hit.title,
+          },
+    );
     this.path.set('found');
     this.submitError.set(null);
     this.show('you');
@@ -707,6 +743,11 @@ export class ClaimDialogFlow implements OnInit {
     this.step.set(step);
     const opening = this.opening();
     const path = this.path();
+    // AECI-1364: "Claim <Company>" once a found listing names it. The Find step and
+    // the typed-in path read "Claim your company".
+    this.dialog.setCompany(
+      step !== 'find' && path === 'found' ? (this.listing()?.company ?? null) : null,
+    );
     this.analytics.claimDialogStep({
       step,
       page: opening.page,

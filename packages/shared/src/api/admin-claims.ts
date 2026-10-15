@@ -314,6 +314,16 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * current text.
    */
   admin_notes: z.string().nullable(),
+  /**
+   * The product page the claimant came from (AECI-1364), shown as "Came from" on the
+   * queue and the detail. Since `docs/VENDOR_SIGNUP_PROCESS.md` decision 1 a claim is
+   * on the company: a claim sent from a product page is stored with the vendor as its
+   * target and the product in `vendor_requests.context_product_id`. `null` for a
+   * company-page claim, a claim stored before the change (its target is still the
+   * product), or a product that has since been removed. Required, never `undefined`
+   * (R10).
+   */
+  context_product: LinkRefSchema.nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 

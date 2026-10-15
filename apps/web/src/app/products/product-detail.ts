@@ -474,6 +474,8 @@ import { RoleBadge } from './role-badge';
                 [entity]="'product'"
                 [kind]="'claim'"
                 [slug]="p.slug"
+                [company]="p.vendor?.name ?? null"
+                [contextProduct]="p.name"
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5

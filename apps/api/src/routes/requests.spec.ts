@@ -464,6 +464,183 @@ describe('POST /api/requests/claim → plan_interest (AECI-1293)', () => {
   });
 });
 
+// ─── AECI-1364: a claim is on the company ──────────────────────────────────────
+describe('POST /api/requests/claim → product target normalised to the company (AECI-1364)', () => {
+  const body = {
+    target_type: 'product',
+    slug: 'acme-build',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+  };
+  const submit = (
+    extra: Record<string, unknown> = {},
+    env = TEST_ENV,
+    execCtx = fakeExecutionContext(),
+  ) => claimApp().request('/api/requests/claim', postInit({ ...body, ...extra }), env, execCtx);
+
+  async function vendorOf(slug: string) {
+    const v = await t.db.query.vendors.findFirst({ where: eq(vendors.slug, slug) });
+    return v!;
+  }
+
+  it('stores the vendor as the target and the product as context; the response is unchanged', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const vendor = await vendorOf('v-acme-build');
+
+    const res = await submit();
+    expect(res.status).toBe(201);
+    const json = (await res.clone().json()) as Record<string, unknown>;
+    expect(Object.keys(json).sort()).toEqual(['message', 'request_id']);
+    expect(json.message).toBe(
+      'Your claim has been received. We will review it and follow up by email.',
+    );
+
+    const { request_id, row } = await createdRow(res);
+    expect(row).toMatchObject({
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: vendor.id,
+      contextProductId: PRODUCT_ID,
+      // The domain check still compares against the company's website.
+      domainMatch: 'match',
+    });
+
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit).toMatchObject({ action: 'vendor_request.created', entityId: request_id });
+    expect(audit!.metadata).toMatchObject({
+      target_type: 'vendor',
+      target_id: vendor.id,
+      slug: 'v-acme-build',
+      context_product_id: PRODUCT_ID,
+      context_product_slug: 'acme-build',
+    });
+    const [transition] = await t.db.select().from(workflowTransitions);
+    expect(transition!.metadata).toMatchObject({
+      target_type: 'vendor',
+      context_product_id: PRODUCT_ID,
+    });
+  });
+
+  it('records no context product on a company-page claim', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({ target_type: 'vendor', slug: 'acme-co' });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ targetType: 'vendor', targetId: VENDOR_ID });
+    expect(row?.contextProductId).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({ context_product_id: null });
+  });
+
+  it('falls back to any product_vendors row when there is no primary', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: false });
+
+    const res = await submit();
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({
+      targetType: 'vendor',
+      targetId: VENDOR_ID,
+      contextProductId: PRODUCT_ID,
+    });
+  });
+
+  it('prefers the primary vendor over another linked vendor', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: null });
+    const primary = await vendorOf('v-acme-build');
+    await seedVendor({ slug: 'reseller-co' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: false });
+
+    const res = await submit();
+    expect((await createdRow(res)).row?.targetId).toBe(primary.id);
+  });
+
+  it('404s when the product has no vendor row, and writes nothing', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submit();
+    expect(res.status).toBe(404);
+    const err = (await res.json()) as { error: { code: string } };
+    expect(err.error.code).toBe('NOT_FOUND');
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('404s when the product does not exist', async () => {
+    const res = await submit();
+    expect(res.status).toBe(404);
+  });
+
+  it('dedupes a product-page claim against an open company-page claim on the same company', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    await seedVendor({ slug: 'acme-co' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+
+    const first = await submit({ target_type: 'vendor', slug: 'acme-co' });
+    const { request_id: firstId } = await createdRow(first);
+    const second = await submit({ submitter_email: 'someone-else@acme.com' });
+    expect((await createdRow(second)).row?.duplicateOfRequestId).toBe(firstId);
+  });
+
+  it('keeps a correction on its product target', async () => {
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+    const res = await submitCorrection({
+      target_type: 'product',
+      slug: 'acme-build',
+      body: 'The founding year on this listing is wrong; it should read 2009.',
+      source_url: '',
+      submitter_email: 'reporter@example.com',
+    });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ targetType: 'product', targetId: PRODUCT_ID });
+    expect(row?.contextProductId).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).not.toHaveProperty('context_product_id');
+  });
+
+  it('names the company and the product page in the claim alert', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://acme.com' });
+      const execCtx = fakeExecutionContext();
+      const res = await submit(
+        {},
+        {
+          ...TEST_ENV,
+          RESEND_API_KEY: 'rk_test',
+          EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+          SUPPORT_EMAIL: 'support@aecintegrations.com',
+        },
+        execCtx,
+      );
+      expect(res.status).toBe(201);
+      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+      const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+        subject: string;
+        text: string;
+      };
+      expect(sent.subject).toContain('co-acme-build');
+      expect(sent.text).toContain('Claimed: co-acme-build (vendor)');
+      expect(sent.text).toContain('Came from: name-acme-build (product)');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 // ─── Phase 6.8 (AECI-215): domain-match + duplicate signals ─────────────────────
 describe('POST /api/requests/* → Phase 6.8 signals', () => {
   const correctionBody = (over: Record<string, unknown> = {}) => ({

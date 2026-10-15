@@ -2289,6 +2289,9 @@ export const adminVendorRequestConfig = {
     // below would make it invisible with no type error: callers reach these rows
     // through an unchecked `as RawAdminVendorRequestRow` cast. The two move together.
     adminNotes: true,
+    // AECI-1364: the product page a claim came from. Same arrangement as
+    // `adminNotes`: surfaced only by `toAdminClaim`, as `context_product`.
+    contextProductId: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -2315,6 +2318,9 @@ export interface RawAdminVendorRequestRow {
   /** AECI-739 operator note. Read for every vendor request but mapped into a
    *  response only by `toAdminClaim` — the endpoint surface is claim-only. */
   adminNotes: string | null;
+  /** AECI-1364: `vendor_requests.context_product_id`. Mapped into a response only by
+   *  `toAdminClaim`, hydrated to a `LinkRef` by the caller. */
+  contextProductId: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -2450,7 +2456,12 @@ export function toAdminVendorRequest(
  *  `admin_notes` (AECI-739 / §5.2 step 6) comes straight off the row — it is the
  *  CURRENT note, not its history; the history is the `vendor_claim.note_updated`
  *  audit rows. Surfaced on the LIST as well as the detail because a parked claim
- *  has to be legible from the queue, which is where the operator looks. */
+ *  has to be legible from the queue, which is where the operator looks.
+ *
+ *  `contextProduct` (AECI-1364) is the hydrated `context_product_id`: the product
+ *  page the claimant came from ("Came from" on the queue and the detail). `null` for
+ *  a company-page claim, a claim stored before the column, or a product that has
+ *  since gone. */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -2464,6 +2475,7 @@ export function toAdminClaim(
   productRoles: VendorProductRoles | null = null,
   isPureConnectorVendor: boolean | null = null,
   ownedIntegrations: VendorOwnedIntegrations | null = null,
+  contextProduct: LinkRef | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
@@ -2477,6 +2489,7 @@ export function toAdminClaim(
     product_roles: productRoles,
     is_pure_connector_vendor: isPureConnectorVendor,
     owned_integrations: ownedIntegrations,
+    context_product: contextProduct,
   };
 }
 

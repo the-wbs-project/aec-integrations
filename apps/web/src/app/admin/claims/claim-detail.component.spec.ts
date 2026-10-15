@@ -84,6 +84,7 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     is_pure_connector_vendor: false,
     owned_integrations: { integrations: 0, connector_evidenced: 2, total: 2 },
     admin_notes: null,
+    context_product: null,
     duplicate_siblings: [],
     ...over,
   };
@@ -269,6 +270,28 @@ describe('ClaimDetail', () => {
     const comments = el.querySelector('[data-testid="claim-detail-comments"]')!;
     expect(comments.textContent).toContain('Comments');
     expect(comments.textContent).toContain('We make four products.');
+  });
+
+  // AECI-1364: a claim is on the company; the product page it came from is named.
+  it('shows "Came from" with the product page link (AECI-1364)', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeDetail({
+          target_type: 'vendor',
+          target: { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
+          context_product: { id: 'p-1', name: 'Autodesk Construction Cloud', slug: 'acc' },
+        }),
+      ),
+    );
+    const row = el.querySelector('[data-testid="claim-detail-context-product"]');
+    expect(row?.textContent).toContain('Came from');
+    expect(row?.textContent).toContain('Autodesk Construction Cloud');
+    expect(row?.querySelector('a')?.getAttribute('href')).toContain('/products/acc');
+  });
+
+  it('shows no "Came from" on a company-page claim (AECI-1364)', async () => {
+    const { el } = await setup(makeApiMock(makeDetail({ context_product: null })));
+    expect(el.querySelector('[data-testid="claim-detail-context-product"]')).toBeNull();
   });
 
   it('shows the owned-integration count beside the role breakdown (AECI-1041)', async () => {

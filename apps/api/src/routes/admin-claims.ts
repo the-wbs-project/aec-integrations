@@ -863,6 +863,29 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 }
 
 /**
+ * The page's rows plus one `(product, context_product_id)` pseudo-target per claim
+ * that came from a product page (AECI-1364), so `resolveRequestTargets` hydrates the
+ * "Came from" product in the same batched scan as the targets. Product and vendor
+ * ids are both UUIDs, so the one map it returns cannot collide.
+ */
+function withContextProducts(
+  rows: RawAdminVendorRequestRow[],
+): Array<{ targetType: string; targetId: string }> {
+  const extra = rows.flatMap((r) =>
+    r.contextProductId ? [{ targetType: 'product', targetId: r.contextProductId }] : [],
+  );
+  return [...rows, ...extra];
+}
+
+/** The hydrated "Came from" product for one claim, or `null` (AECI-1364). */
+function contextProductFor(
+  row: RawAdminVendorRequestRow,
+  targets: ReadonlyMap<string, LinkRef>,
+): LinkRef | null {
+  return row.contextProductId ? (targets.get(row.contextProductId) ?? null) : null;
+}
+
+/**
  * Each claim's TARGET VENDOR id, keyed by REQUEST id — the page-wide batched form of
  * `resolveTargetVendor`: a `vendor` claim resolves to its target, a `product` claim to
  * that product's PRIMARY vendor. One `IN (...)` scan, no per-row N+1. A claim whose
@@ -1217,7 +1240,8 @@ export function createAdminClaimsListHandler(
       productRolesByVendor,
       ownedIntegrationsByVendor,
     ] = await Promise.all([
-      resolveRequestTargets(db, rows),
+      // AECI-1364: the context products ride the same batched lookup as the targets.
+      resolveRequestTargets(db, withContextProducts(rows)),
       fetchAuthAccounts(c.env, claimEmails),
       vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
       loadRelatedRequests(db, rows, claimEmails).catch(() => null),
@@ -1291,6 +1315,7 @@ export function createAdminClaimsListHandler(
           ...entitlementFor(row),
           ...productRolesFor(row),
           ownedIntegrationsFor(row),
+          contextProductFor(row, targets),
         ),
       ),
       page: query.page,
@@ -1436,7 +1461,7 @@ async function buildClaimDetail(
     ownedIntegrationsByVendor,
     duplicateSiblings,
   ] = await Promise.all([
-    resolveRequestTargets(db, rows),
+    resolveRequestTargets(db, withContextProducts(rows)),
     fetchAuthAccounts(c.env, [row.submitterEmail]),
     vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
     loadRelatedRequests(db, rows, [row.submitterEmail]).catch(() => null),
@@ -1481,6 +1506,7 @@ async function buildClaimDetail(
       roles,
       roles ? isPureConnectorVendor(roles) : null,
       owned,
+      contextProductFor(row, targets),
     ),
     duplicate_siblings: duplicateSiblings,
   };

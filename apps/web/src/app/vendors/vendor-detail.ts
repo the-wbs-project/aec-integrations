@@ -293,6 +293,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [entity]="'vendor'"
                 [kind]="'claim'"
                 [slug]="v.slug"
+                [company]="v.company_name"
                 [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5

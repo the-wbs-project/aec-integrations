@@ -14,6 +14,13 @@
  * Rows land in `vendor_requests` (Phase 2 Spec §5.1) with `status:'open'` and
  * `linear_issue_id:null`.
  *
+ * **A claim is on the company** (AECI-1364, `docs/VENDOR_SIGNUP_PROCESS.md` decision 1).
+ * The wire still accepts `target_type: 'product'`, so every shipped form keeps working,
+ * but `resolveClaimTarget` normalises it: the row is stored with `target_type =
+ * 'vendor'` and the product's vendor id, and the product is kept in
+ * `context_product_id` ("Came from" for the reviewer). A correction is about a listing,
+ * so it keeps its product target.
+ *
  * Each submit is one atomic `db.batch` (the §26.1 invariant, AECI-249): the
  * `vendor_requests` insert + the `workflow_instance` (`vendor_claim` |
  * `correction_request`, `current_state:'open'`) + its genesis `workflow_transitions`
@@ -116,6 +123,79 @@ async function resolveTarget(
   return { id: row.id, name: row.companyName, websiteUrl: row.website ?? null };
 }
 
+/** A product named in a claim, kept as the claim's context (AECI-1364). */
+interface ContextProduct {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Resolve a CLAIM's `(target_type, slug)` to the company it claims (AECI-1364,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` decision 1: a claim is on the company, never a
+ * product). A vendor target resolves as `resolveTarget` does. A product target
+ * resolves to the product's vendor: the `is_primary` row, else any `product_vendors`
+ * row (the lowest vendor id, so the pick is stable). That is the same choice
+ * `GET /api/products/:slug` makes for its `vendor` field, so the name the claim page
+ * shows is the company the row records. The product comes back as `contextProduct`.
+ *
+ * A product with no `product_vendors` row has no company to claim. It returns the
+ * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Type it in
+ * instead" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.2).
+ */
+async function resolveClaimTarget(
+  db: Db,
+  targetType: RequestTargetType,
+  slug: string,
+): Promise<{
+  id: string;
+  name: string;
+  slug: string;
+  websiteUrl: string | null;
+  contextProduct: ContextProduct | null;
+}> {
+  if (targetType === 'vendor') {
+    const row = await db.query.vendors.findFirst({
+      columns: { id: true, companyName: true, slug: true, website: true },
+      where: eq(vendors.slug, slug),
+    });
+    if (!row) throw notFoundError('vendor', { slug });
+    return {
+      id: row.id,
+      name: row.companyName,
+      slug: row.slug,
+      websiteUrl: row.website ?? null,
+      contextProduct: null,
+    };
+  }
+
+  const row = await db.query.products.findFirst({
+    columns: { id: true, name: true, slug: true },
+    where: eq(products.slug, slug),
+    with: {
+      productVendors: {
+        columns: { isPrimary: true },
+        with: {
+          vendor: { columns: { id: true, companyName: true, slug: true, website: true } },
+        },
+      },
+    },
+  });
+  if (!row) throw notFoundError('product', { slug });
+  const links = row.productVendors
+    .filter((pv) => pv.vendor)
+    .sort((a, b) => (a.vendor.id < b.vendor.id ? -1 : a.vendor.id > b.vendor.id ? 1 : 0));
+  const vendor = (links.find((pv) => pv.isPrimary) ?? links[0])?.vendor;
+  if (!vendor) throw notFoundError('product', { slug });
+  return {
+    id: vendor.id,
+    name: vendor.companyName,
+    slug: vendor.slug,
+    websiteUrl: vendor.website ?? null,
+    contextProduct: { id: row.id, name: row.name, slug: row.slug },
+  };
+}
+
 /**
  * Duplicate probe (§7.2 / §23.2): an existing `open` request for the same target
  * (`target_type`+`target_id`) that shares this submit's `kind` OR `submitter_email`.
@@ -123,6 +203,10 @@ async function resolveTarget(
  * `duplicate_of_request_id` at and reference in the Linear note — or `null`.
  * **Informational only**; vendor requests flag duplicates (sometimes legitimate),
  * they never block.
+ *
+ * A claim's target is always the company since AECI-1364, so a claim sent from a
+ * product page and one sent from the company page dedupe together. A claim stored
+ * before that change keeps its product target and does not match a new one.
  */
 async function detectDuplicate(
   db: Db,
@@ -156,8 +240,13 @@ interface RequestInsert {
   targetId: string;
   /** Target display name — Linear issue title only, never stored on the row. */
   targetName: string;
-  /** Carried into the audit metadata for traceability. */
+  /** The TARGET's slug, carried into the audit metadata for traceability. For a
+   *  claim sent from a product page this is the company's slug (AECI-1364). */
   slug: string;
+  /** AECI-1364: the product page a claim came from, or null. Its id is the row's
+   *  `context_product_id`; its name and slug feed the metadata, the Linear issue and
+   *  the claim alert. Always null for a correction. */
+  contextProduct: ContextProduct | null;
   /** Target vendor's website — input to the domain-match check; never stored. */
   websiteUrl: string | null;
   submitterEmail: string;
@@ -194,7 +283,7 @@ async function createRequest(
 
   // `slug`/`targetName` are metadata/title only; `websiteUrl` is a domain-match input.
   // None are columns, so they're stripped before the insert.
-  const { slug, targetName, websiteUrl: _websiteUrl, ...rowData } = insert;
+  const { slug, targetName, websiteUrl: _websiteUrl, contextProduct, ...rowData } = insert;
   const workflowType = kind === 'claim' ? 'vendor_claim' : 'correction_request';
   // Shared metadata for the audit row and the genesis workflow transition.
   const metadata = {
@@ -208,6 +297,13 @@ async function createRequest(
     // AECI-1293: claims only. A correction carries no plan answer, so the key is left
     // out rather than recorded as null on every correction's audit row.
     ...(kind === 'claim' ? { plan_interest: insert.planInterest } : {}),
+    // AECI-1364: the product page a claim came from. Claims only, like the plan answer.
+    ...(kind === 'claim'
+      ? {
+          context_product_id: contextProduct?.id ?? null,
+          context_product_slug: contextProduct?.slug ?? null,
+        }
+      : {}),
   };
 
   // Ids generated up front so the batch needs no return values.
@@ -238,6 +334,7 @@ async function createRequest(
       id: requestId,
       kind,
       ...rowData,
+      contextProductId: contextProduct?.id ?? null,
       domainMatch,
       duplicateOfRequestId: duplicate?.id ?? null,
     }),
@@ -278,6 +375,7 @@ async function createRequest(
     submitterRole: insert.submitterRole,
     submitterLinkedinUrl: insert.submitterLinkedinUrl,
     planInterest: insert.planInterest,
+    contextProduct,
     body: insert.body,
     sourceUrl: insert.sourceUrl,
     // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
@@ -315,6 +413,7 @@ async function createRequest(
         submitterRole: insert.submitterRole,
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
         planInterest: insert.planInterest,
+        contextProduct,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
         linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
@@ -348,6 +447,7 @@ export function createCorrectionSubmitHandler(
       targetId: target.id,
       targetName: target.name,
       slug: payload.slug,
+      contextProduct: null,
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: null,
@@ -366,13 +466,16 @@ export function createClaimSubmitHandler(
   return async (c) => {
     const payload = await parseJsonBody(c, ClaimRequestSchema);
     const { db } = writeDb(c, dbFor);
-    const target = await resolveTarget(db, payload.target_type, payload.slug);
+    // AECI-1364: a product target is normalised to its company here. The response
+    // is unchanged, so the forms and the dialog need no new handling.
+    const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
 
     return createRequest(c, db, 'claim', {
-      targetType: payload.target_type,
+      targetType: 'vendor',
       targetId: target.id,
       targetName: target.name,
-      slug: payload.slug,
+      slug: target.slug,
+      contextProduct: target.contextProduct,
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,

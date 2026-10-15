@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { AdminClaimSchema } from './admin-claims';
 import {
   AdminListingRequestSchema,
   AdminVendorRequestSchema,
@@ -52,6 +53,33 @@ describe('ClaimFormSchema.plan_interest (AECI-1293)', () => {
   it('keeps the 2,000 character cap on body (the "Additional comments")', () => {
     expect(ClaimFormSchema.safeParse({ ...claim, body: 'x'.repeat(2000) }).success).toBe(true);
     expect(ClaimFormSchema.safeParse({ ...claim, body: 'x'.repeat(2001) }).success).toBe(false);
+  });
+});
+
+// AECI-1364: a claim is on the company, but the wire still takes a product target.
+// The API normalises it; the schema must keep accepting both so shipped forms work.
+describe('ClaimRequestSchema target (AECI-1364)', () => {
+  it.each(['product', 'vendor'])('accepts target_type %s', (targetType) => {
+    const parsed = ClaimRequestSchema.parse({ ...claim, target_type: targetType, slug: 'acme' });
+    expect(parsed.target_type).toBe(targetType);
+  });
+
+  it('rejects any other target type', () => {
+    expect(
+      ClaimRequestSchema.safeParse({ ...claim, target_type: 'integration', slug: 'acme' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('AdminClaimSchema.context_product (AECI-1364)', () => {
+  it('is required and nullable, so a missed construction site fails validation', () => {
+    const shape = AdminClaimSchema.shape.context_product;
+    expect(shape.safeParse(null).success).toBe(true);
+    expect(shape.safeParse(undefined).success).toBe(false);
+    expect(
+      shape.safeParse({ id: '00000000-0000-4000-8000-000000000001', name: 'Revit', slug: 'revit' })
+        .success,
+    ).toBe(true);
   });
 });
 

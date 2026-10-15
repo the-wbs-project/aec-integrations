@@ -94,6 +94,19 @@
       </h4>
 
       <dl class="mt-3 grid gap-x-6 gap-y-2 text-xs text-(--text-secondary) sm:grid-cols-2">
+        <!-- AECI-1364: the product page the claim was sent from. -->
+        @if (c.context_product; as product) {
+        <div class="flex gap-1.5" data-testid="claim-detail-context-product">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.cameFrom">Came from</dt>
+          <dd>
+            <a
+              [routerLink]="['/products', product.slug]"
+              class="text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ product.name }}</a
+            >
+          </dd>
+        </div>
+        }
         <div class="flex gap-1.5">
           <dt class="font-bold" i18n="@@admin.claims.detail.meta.submitter">Submitter</dt>
           <dd>

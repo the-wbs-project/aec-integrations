@@ -17,7 +17,7 @@ import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
 import { ClaimDialogFlow } from './claim-dialog-flow';
-import type { ClaimDialogOpening } from './claim-dialog.service';
+import { ClaimDialogService, type ClaimDialogOpening } from './claim-dialog.service';
 
 const PRODUCT: AutocompleteSuggestion = {
   kind: 'product',
@@ -242,6 +242,53 @@ describe('ClaimDialogFlow', () => {
     await t.primary();
     expect(t.api.submitClaim.mock.calls[0]![1].plan_interest).toBe('');
     expect(t.analytics.claimRequested.mock.calls[0]![0].plan_interest).toBe('none');
+  });
+
+  // AECI-1364: a claim is on the company. A product hit names its vendor (from the
+  // search record) and the product page; the dialog title follows.
+  it('names the company and the product page for a product hit, and titles the dialog', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    const service = TestBed.inject(ClaimDialogService);
+    expect(service.company()).toBeNull();
+    t.choose(PRODUCT);
+    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain(
+      'Claiming Acme Software from the Acme Takeoff page',
+    );
+    expect(service.company()).toBe('Acme Software');
+    // The wire still addresses the product; the API resolves the company.
+    const change = [...t.host.querySelectorAll('button')].find((b) => text(b) === 'Change')!;
+    change.click();
+    t.fixture.detectChanges();
+    expect(service.company()).toBeNull();
+  });
+
+  it('names a company hit as the company, with no product line', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose({
+      kind: 'vendor',
+      objectID: 'v1',
+      title: 'Acme Software',
+      subtitle: null,
+      routerLink: ['/vendors', 'acme-software'],
+    });
+    const summary = text(t.$('[data-testid="claim-dialog-listing"]'));
+    expect(summary).toContain('Claiming Acme Software');
+    expect(summary).not.toContain('page');
+    expect(TestBed.inject(ClaimDialogService).company()).toBe('Acme Software');
+  });
+
+  it('falls back to the product name when a product hit has no vendor name', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose({ ...PRODUCT, subtitle: null });
+    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Claiming Acme Takeoff');
+    expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
+  });
+
+  it('keeps "Claim your company" on the typed-in path', () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+    t.fixture.detectChanges();
+    expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
   });
 
   it('a chosen listing shows on step 2, and Change returns to search', () => {

@@ -1316,6 +1316,17 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 //                                    key omittable, AECI-1293) }
 ```
 
+**A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
+
+- The company is the product's `is_primary` vendor, else any `product_vendors` row (lowest vendor id). That is the vendor `GET /api/products/:slug` returns as `vendor`.
+- The row stores `target_type = 'vendor'` and that vendor's id. The product id goes to `vendor_requests.context_product_id`.
+- A product with no vendor row returns the same `404 NOT_FOUND` (`details.resource: 'product'`) as a missing product, so the dialog offers "Type it in instead".
+- The `vendor_request.created` audit row and the genesis transition carry `target_type: 'vendor'`, the company's `slug`, `context_product_id` and `context_product_slug` (`null` on a company-page claim).
+- The Linear issue and `claim-submitted-alert` name the company as the target and add a "Came from" line with the product.
+- The §7.2 duplicate probe keys on the company, so a product-page claim and a company-page claim on one company dedupe together. A claim stored before migration 0075 keeps its product target and does not match a new one.
+
+A correction keeps its product or vendor target.
+
 **`plan_interest` (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The claimant's answer to "Which plan are you interested in?", asked by the claim dialog, the claim page and the claim drawer. Optional: `''` means not answered and is stored as `NULL` in `vendor_requests.plan_interest`. The KEY carries `.default('')`, like `submitter_linkedin_url`, because the endpoint already serves production traffic. It is informational for the reviewer and never preselects the approve form's plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The column has no CHECK, so `PlanInterestSchema` is the only place the vocabulary is enforced. The dialog's "Additional comments" is this endpoint's `body`; there is no separate comments field.
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
@@ -2033,6 +2044,12 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // no note. On the LIST as well as the detail, deliberately — a parked claim has
   // to be legible from the queue, which is where the operator looks.
   admin_notes: z.string().nullable(),
+
+  // AECI-1364: the product page the claim was sent from ("Came from" on the queue
+  // and the detail), hydrated from vendor_requests.context_product_id. REQUIRED-
+  // nullable (R10); null on a company-page claim, a claim stored before migration
+  // 0075 (its target is still the product), or a product that has since gone.
+  context_product: LinkRefSchema.nullable(),
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);

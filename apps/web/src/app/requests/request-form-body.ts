@@ -111,6 +111,17 @@ export class RequestFormBody implements OnInit {
   readonly variant = input<Variant>('page');
 
   /**
+   * AECI-1364: the company a claim is on, for "Claim <Company>" on the routed page.
+   * `null` when unknown (the entity or its vendor did not resolve), which reads
+   * "Claim your company". The drawer supplies its own title and ignores it.
+   */
+  readonly company = input<string | null>(null);
+
+  /** AECI-1364: the product page a claim came from ("from the <Product> page"), or
+   *  `null` on a company page. Display only: the API resolves the company itself. */
+  readonly contextProduct = input<string | null>(null);
+
+  /**
    * Seed text for `body` (AECI-967), supplied by the surface that opened the
    * drawer. Read ONCE in `ngOnInit`, before `form()` is built, and then never
    * again — unlike the `submitter_email` prefill below there is no async probe to

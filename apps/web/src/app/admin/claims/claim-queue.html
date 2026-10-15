@@ -131,6 +131,20 @@
 
         <!-- Submitter -->
         <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+          <!-- AECI-1364: the product page the claim was sent from. The claim is on the
+               company above; this says where the claimant started. -->
+          @if (r.context_product; as product) {
+          <div class="flex gap-1.5" data-testid="claim-context-product">
+            <dt class="font-bold" i18n="@@admin.claims.meta.cameFrom">Came from</dt>
+            <dd>
+              <a
+                [routerLink]="['/products', product.slug]"
+                class="text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ product.name }}</a
+              >
+            </dd>
+          </div>
+          }
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.claims.meta.submitter">Submitter</dt>
             <dd>

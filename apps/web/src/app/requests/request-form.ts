@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
 
+import { claimPageContext, type ClaimPageContext } from './claim-target.resolver';
 import { RequestFormBody } from './request-form-body';
 
 type Entity = 'product' | 'vendor';
@@ -33,6 +34,12 @@ export class RequestForm {
   protected readonly entity = this.route.snapshot.data['entity'] as Entity;
   protected readonly kind = this.route.snapshot.data['kind'] as Kind;
   protected readonly slug = this.route.snapshot.paramMap.get('slug') ?? '';
+  /** AECI-1364: the company the claim names, and the product page it came from,
+   *  off the claim route's resolver. Empty on the correction routes (no resolver). */
+  protected readonly context: ClaimPageContext = claimPageContext(
+    this.entity,
+    this.route.snapshot.data['target'],
+  );
 
   constructor() {
     this.titleSvc.setTitle(this.metaTitle());
@@ -42,8 +49,13 @@ export class RequestForm {
   }
 
   private metaTitle(): string {
-    return this.kind === 'claim'
-      ? $localize`:@@requests.claim.metaTitle:Claim this listing · AEC Integrations`
-      : $localize`:@@requests.correction.metaTitle:Suggest a correction · AEC Integrations`;
+    if (this.kind !== 'claim') {
+      return $localize`:@@requests.correction.metaTitle:Suggest a correction · AEC Integrations`;
+    }
+    // AECI-1364: a claim is on the company, so the title names it once known.
+    const company = this.context.company;
+    return company
+      ? $localize`:@@requests.claim.metaTitle.company:Claim ${company}:company: · AEC Integrations`
+      : $localize`:@@requests.claim.metaTitle:Claim your company · AEC Integrations`;
   }
 }

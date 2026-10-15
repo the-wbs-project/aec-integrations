@@ -77,12 +77,15 @@ async function mockSubmits(page: Page): Promise<{ claim: unknown[]; listing: unk
 
 async function openFromManagedCard(page: Page) {
   const start = page.locator('aec-plan-cards').getByRole('link', { name: 'Start with Managed' });
-  const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
+  // AECI-1364: the dialog's name changes to "Claim <Company>" once a listing is
+  // chosen, so it is located by role and its name asserted separately.
+  const dialog = page.getByRole('dialog');
   // The first click can land before hydration finishes; retry until the dialog opens.
   await expect(async () => {
     await start.click();
     await expect(dialog).toBeVisible({ timeout: 2000 });
   }).toPass();
+  await expect(dialog).toHaveAccessibleName('Claim your company');
   return dialog;
 }
 
@@ -125,7 +128,12 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await dialog.getByLabel('Your product or company').fill('Proc');
       await page.getByRole('option', { name: /Procore/ }).click();
       await expect(dialog.getByRole('heading', { name: 'About you' })).toBeFocused();
-      await expect(dialog.getByTestId('claim-dialog-listing')).toContainText('Procore');
+      // AECI-1364: a product hit names its company (the record's vendor_name) and the
+      // product page, and the dialog is titled for the company.
+      await expect(dialog.getByTestId('claim-dialog-listing')).toContainText(
+        'Claiming Procore Technologies from the Procore page',
+      );
+      await expect(dialog).toHaveAccessibleName('Claim Procore Technologies');
 
       // Continue with nothing filled stays, and names the first bad field.
       await dialog.getByRole('button', { name: 'Continue' }).click();
@@ -251,7 +259,7 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
     await waitForHydrationSettle(page);
     const claim = page.locator('aec-plan-cards').getByRole('link', { name: 'Claim your listing' });
     await expect(claim).toHaveAttribute('href', '/search');
-    const dialog = page.getByRole('dialog', { name: 'Claim your listing' });
+    const dialog = page.getByRole('dialog', { name: 'Claim your company' });
     await expect(async () => {
       await claim.click();
       await expect(dialog).toBeVisible({ timeout: 2000 });

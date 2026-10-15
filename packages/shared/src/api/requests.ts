@@ -184,7 +184,9 @@ export type ClaimForm = z.infer<typeof ClaimFormSchema>;
 /** The wire body before defaults: every defaulted key may be omitted. */
 export type ClaimFormInput = z.input<typeof ClaimFormSchema>;
 
-/** Wire body for `POST /api/requests/claim`. */
+/** Wire body for `POST /api/requests/claim`. `target_type` still takes `'product'`,
+ *  but a claim is on the company (AECI-1364): the API stores it with the product's
+ *  vendor as the target and the product in `vendor_requests.context_product_id`. */
 export const ClaimRequestSchema = ClaimFormSchema.extend({
   target_type: RequestTargetTypeSchema,
   slug: z.string().min(1),

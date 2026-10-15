@@ -28,6 +28,13 @@ export interface RequestDrawerTarget {
    *  The routed `/…/{claim,correction}` fallback page has no equivalent, and that
    *  is deliberate — see `RequestFormBody.bodyPrefill`. */
   readonly bodyPrefill?: string;
+  /** AECI-1364: the company a claim is on, for the "Claim <Company>" title. The
+   *  opening detail page already holds it (a product's vendor, or the vendor
+   *  itself). Absent reads "Claim your company". Display only. */
+  readonly company?: string;
+  /** AECI-1364: the product page a claim was opened from, for "from the <Product>
+   *  page". Absent on a company page. Display only: the API resolves the company. */
+  readonly contextProduct?: string;
 }
 
 /**

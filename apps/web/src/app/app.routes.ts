@@ -11,6 +11,7 @@ import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { productsIndexResolver } from './products/products-index.resolver';
 import { productsPairResolver } from './products/products-pair.resolver';
+import { claimProductResolver, claimVendorResolver } from './requests/claim-target.resolver';
 import { reviewProductResolver } from './reviews/review-product.resolver';
 import {
   categoryBrowseResolver,
@@ -71,10 +72,13 @@ export const routes: Routes = [
   // (entity, slug) and the API resolves the slug, so it works whether landed on
   // (SSR) or reached via a detail-page CTA (client-side `[routerLink]`).
   // Replaced the noindex `PlaceholderPage` stubs (formerly AECI-108).
+  // AECI-1364: the claim routes resolve the entity for the "Claim <Company>" title
+  // (`claim-target.resolver.ts`); the correction routes need no read.
   {
     path: 'products/:slug/claim',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'product', kind: 'claim' },
+    resolve: { target: claimProductResolver },
   },
   {
     path: 'products/:slug/correction',
@@ -139,6 +143,7 @@ export const routes: Routes = [
     path: 'vendors/:slug/claim',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'vendor', kind: 'claim' },
+    resolve: { target: claimVendorResolver },
   },
   {
     path: 'vendors/:slug/correction',

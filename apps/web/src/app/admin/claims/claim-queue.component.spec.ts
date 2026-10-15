@@ -89,6 +89,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         : { integrations: 0, connector_evidenced: 0, total: 0 },
     // AECI-739: the operator note. Default is "no note".
     admin_notes: 'admin_notes' in over ? over.admin_notes! : null,
+    // AECI-1364: the product page the claim came from. Default: a company-page claim.
+    context_product: 'context_product' in over ? over.context_product! : null,
   };
 }
 
@@ -253,6 +255,32 @@ describe('ClaimQueue', () => {
     const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', target: null })]));
     expect(el.querySelector('article h3 a')).toBeNull();
     expect(cardFor(el, 'Unknown product').textContent).toContain('Unknown product');
+  });
+
+  // AECI-1364: a claim sent from a product page is on the company, and names the page.
+  it('shows "Came from" with a link to the product page the claim was sent from', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          target_type: 'vendor',
+          target: { id: 'v1', name: 'Procore Technologies', slug: 'procore-technologies' },
+          context_product: { id: 'p1', name: 'Procore', slug: 'procore' },
+        }),
+      ]),
+    );
+    const row = el.querySelector('[data-testid="claim-context-product"]');
+    expect(row?.textContent).toContain('Came from');
+    expect(row?.textContent).toContain('Procore');
+    expect(row?.querySelector('a')?.getAttribute('href')).toContain('/products/procore');
+    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain(
+      '/vendors/procore-technologies',
+    );
+  });
+
+  it('shows no "Came from" on a company-page claim', async () => {
+    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', context_product: null })]));
+    expect(el.querySelector('[data-testid="claim-context-product"]')).toBeNull();
   });
 
   it('flags a likely duplicate', async () => {

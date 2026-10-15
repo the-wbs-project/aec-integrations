@@ -1329,6 +1329,17 @@ export const vendorRequests = sqliteTable(
     // (`vendor_entitlements.source_request_id`), so the recreate is the cascade
     // hazard of docs/migrations.md §0. `PlanInterestSchema` enforces the vocabulary.
     planInterest: text('plan_interest'),
+    // AECI-1364: the product page a claim came from. Since decision 1 of
+    // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
+    // `target_type: 'product'` is stored with `target_type = 'vendor'` and the
+    // product's vendor id, and the product lands here so the reviewer still sees
+    // where the claimant started. NULL for a vendor-page claim, a correction, or a
+    // claim stored before the normalisation (those keep `target_type = 'product'`).
+    // Deliberately NO FK and no CHECK, the `target_id` precedent: an FK or CHECK
+    // change is a drizzle-kit table recreate, and this table has FK children
+    // (docs/migrations.md §0). Readers resolve it like `target_id`, tolerating a
+    // product that has since gone.
+    contextProductId: text('context_product_id'),
 
     domainMatch: text('domain_match').notNull().default('pending'),
 
