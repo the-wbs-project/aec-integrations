@@ -29,7 +29,7 @@ import {
 import { ID_STYLES } from '../integration-detail/integration-detail-styles';
 import { claimsOnRecord, waitingByProduct } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { vendorHasActiveEntitlement } from '../vendor-capabilities';
+import { integrationCanAuthor, vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCreate } from './vendor-integration-create';
@@ -96,7 +96,7 @@ import {
         their side.
       </p>
 
-      @if (canAuthor() && loaded()) {
+      @if (anyAuthorable() && loaded()) {
         <p class="text-sm text-(--text-secondary)" data-testid="integrations-summary">
           {{ summaryLine() }}
         </p>
@@ -112,7 +112,7 @@ import {
       <!-- AECI-1377: the vendor's product requests. Renders nothing when there are none. -->
       <aec-vendor-product-requests-list #requests [routed]="urlState()" />
 
-      @if (!canAuthor()) {
+      @if (!anyAuthorable()) {
         <div class="rounded-(--radius-md) border border-(--border-default) p-4">
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
             You can review everything on record here. Confirming data flows and adding new ones
@@ -394,7 +394,7 @@ export class VendorIntegrationsSection implements OnInit {
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
 
-  /** Holds `attestation.author` (AECI-623). */
+  /** The screen's product holds `attestation.author` (AECI-623). Rows widen it, see `rowCanAuthor`. */
   readonly canAuthor = input.required<boolean>();
   readonly vendorName = input.required<string>();
 
@@ -423,10 +423,30 @@ export class VendorIntegrationsSection implements OnInit {
     return scope === null ? all : all.filter((i) => i.context_product.id === scope);
   });
 
+  /**
+   * Whether the caller may answer on this row. `canAuthor` is the screen's own
+   * gate; a row also opens when the caller owns both endpoints and the OTHER one
+   * holds `attestation.author`, which is when the server's
+   * `requireAttestationCapability` passes too (AECI-1355). Without the second half
+   * a Free product's tab locked a row its detail page lets the vendor answer.
+   */
+  private readonly rowCanAuthor = computed(() => {
+    const screen = this.canAuthor();
+    const products = this.store.me()?.products ?? [];
+    return (integration: VendorIntegration) =>
+      screen || integrationCanAuthor(integration, products);
+  });
+
+  /** Any row in scope answerable: drives the summary line and the read-only note. */
+  protected readonly anyAuthorable = computed(() => {
+    const can = this.rowCanAuthor();
+    return this.canAuthor() || this.integrations().some(can);
+  });
+
   private readonly statusInputs = computed(() => ({
     contests: this.store.contests(),
     entitled: this.entitled(),
-    canAuthor: this.canAuthor(),
+    canAuthor: this.rowCanAuthor(),
   }));
 
   protected readonly filter = signal<IntegrationFilter>(EMPTY_FILTER);
@@ -488,7 +508,7 @@ export class VendorIntegrationsSection implements OnInit {
   protected readonly summaryLine = computed(() => {
     const integrations = this.integrations();
     const total = claimsOnRecord(integrations).total;
-    const awaiting = waitingByProduct(integrations).total;
+    const awaiting = waitingByProduct(integrations.filter(this.rowCanAuthor())).total;
     return $localize`:@@vendor.im.list.summary:${total}:total: rows of data on record · ${awaiting}:awaiting: need your answer`;
   });
 

@@ -23,6 +23,7 @@ import {
   INTEGRATION_OWNED_CLAIMED,
   VENDOR_INTEGRATIONS_EMPTY_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_PRODUCT_REQUESTS_FIXTURE,
 } from '../vendor-fixtures';
@@ -251,9 +252,26 @@ describe('VendorIntegrationsSection — the load ladder', () => {
   });
 
   it('explains the read-only state without access, and still lists everything', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_DOWNGRADED_FIXTURE);
     const fixture = await create({ canAuthor: false });
     expect(text(fixture)).toContain('opens up with active vendor access');
     expect(rows(fixture)).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+  });
+
+  it('opens an owns-both row on a Free tab when the other endpoint is licensed (AECI-1355)', async () => {
+    const both = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.slots.length === 2)!;
+    const free = VENDOR_ME_DOWNGRADED_FIXTURE.entitlement;
+    TestBed.inject(VendorPortalStore).seed({
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) =>
+        p.id === both.context_product.id ? { ...p, plan: free } : p,
+      ),
+    });
+    expect(VENDOR_ME_FIXTURE.products.some((p) => p.id === both.other_product.id)).toBe(true);
+    // The tab's own product is Free, as `VendorIntegrationsPage` computes it.
+    const fixture = await create({ canAuthor: false, contextProductId: both.context_product.id });
+    expect(text(fixture)).not.toContain('opens up with active vendor access');
+    expect(el(fixture).querySelector('[data-testid="integrations-summary"]')).not.toBeNull();
   });
 
   it('declares no live region of its own', async () => {

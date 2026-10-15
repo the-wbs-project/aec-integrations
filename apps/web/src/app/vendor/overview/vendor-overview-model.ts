@@ -16,6 +16,7 @@ import {
   integrationStatus,
   type IntegrationStatusKey,
 } from '../integration-detail/integration-detail-model';
+import { integrationCanAuthor } from '../vendor-capabilities';
 import type {
   VendorAccount,
   VendorIntegration,
@@ -404,7 +405,11 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
   const paused = !input.canAttest && !input.canEditProducts && !input.canEditProfile;
 
   if (input.canAttest && input.integrationsReady) {
-    const waiting = waitingByProduct(input.integrations)
+    // AECI-1355: plans are per product, so a vendor-level `canAttest` can hold
+    // while this integration's own endpoints are Free. Count only the rows the
+    // server's `requireAttestationCapability` would accept an answer on.
+    const answerable = input.integrations.filter((i) => integrationCanAuthor(i, me.products));
+    const waiting = waitingByProduct(answerable)
       .byProduct.slice()
       .sort((a, b) => b.count - a.count);
     for (const row of waiting.slice(0, PRODUCT_ROW_CAP)) {
@@ -414,7 +419,7 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         product: row.product,
         count: row.count,
         link: linkFor(
-          input.integrations.filter((i) => i.attestable),
+          answerable.filter((i) => i.attestable),
           row.product,
           (claim) => claim.mine.length === 0,
           'needs_answer',
