@@ -1,9 +1,12 @@
 /**
- * The one writer of `agreement_acceptances` (AECI-1362, E2.4 of
+ * The one module that writes `agreement_acceptances` (AECI-1362, E2.4 of
  * `docs/VENDOR_SIGNUP_PROCESS.md` §4; `DATABASE_SCHEMA.md` §8.6d).
  *
- * Two callers, neither built yet: the claim insert (E3, the vendor terms box) and the
- * Stripe checkout webhook (E9, the Managed plan agreement box). Like `lib/audit.ts` and
+ * Three INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
+ * vendor terms box on the claim form), and the Stripe checkout webhook (E9, the Managed
+ * plan agreement box, not built yet). One UPDATE caller:
+ * the claim approval (AECI-1367) links the claim's acceptances to the new seat, the
+ * vendor and its billing account through `linkClaimAcceptanceStatements`. Like `lib/audit.ts` and
  * `lib/billing-account.ts`, this module never runs a batch. It RETURNS the acceptance
  * INSERT plus its `agreement.accepted` audit row, and the caller appends both to its own
  * `db.batch`, so the acceptance commits or rolls back with the claim or the license it
@@ -39,7 +42,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogActorType, AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
-import { desc, eq, inArray, or, type SQL } from 'drizzle-orm';
+import { asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { agreementAcceptances, billingAccounts } from '../db/schema';
@@ -48,6 +51,9 @@ import { auditInsert, type BatchStmt } from './audit';
 
 /** The audit action. Registered in `@aeci/shared/audit-vendor-actions`. */
 export const AGREEMENT_ACCEPTED_ACTION = 'agreement.accepted';
+
+/** The approval link's audit action (AECI-1367). Registered beside the one above. */
+export const AGREEMENT_LINKED_ACTION = 'agreement.linked';
 
 /** `audit_log.entity_type`; `entity_id` is the acceptance id. */
 export const AGREEMENT_ACCEPTANCE_ENTITY_TYPE = 'agreement_acceptance';
@@ -94,6 +100,8 @@ export interface AgreementAcceptanceParams {
   billingAccountId?: string | null;
   /** The claim this acceptance was given on. */
   vendorRequestId?: string | null;
+  /** The typed-in listing request this acceptance was given on (AECI-1366). */
+  listingRequestId?: string | null;
   /** The plan agreement's Stripe Checkout session. Unique when present. */
   stripeCheckoutSessionId?: string | null;
   /** ISO timestamp of the acceptance. Normalised here. */
@@ -176,6 +184,7 @@ export function agreementAcceptanceStatements(
     vendorId: p.vendorId ?? null,
     billingAccountId: p.billingAccountId ?? null,
     vendorRequestId: p.vendorRequestId ?? null,
+    listingRequestId: p.listingRequestId ?? null,
     stripeCheckoutSessionId: p.stripeCheckoutSessionId ?? null,
     acceptedAt,
     ip: evidence.ip,
@@ -191,6 +200,7 @@ export function agreementAcceptanceStatements(
     vendor_id: row.vendorId,
     billing_account_id: row.billingAccountId,
     vendor_request_id: row.vendorRequestId,
+    listing_request_id: row.listingRequestId,
     stripe_checkout_session_id: row.stripeCheckoutSessionId,
   };
   const auditEntry: AuditLogEntry = {
@@ -210,6 +220,102 @@ export function agreementAcceptanceStatements(
     stmts: [db.insert(agreementAcceptances).values(row), auditInsert(db, auditEntry)],
     auditEntry,
     acceptanceId: id,
+  };
+}
+
+/**
+ * The ids of the acceptances given on one claim, in a stable order. The approval reads
+ * them before it builds its batch, so `linkClaimAcceptanceStatements` emits nothing
+ * when there are none. No index on `vendor_request_id`: a claim has at most a handful
+ * of rows, and the read runs once per approval.
+ */
+export async function loadClaimAcceptanceIds(db: Db, vendorRequestId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: agreementAcceptances.id })
+    .from(agreementAcceptances)
+    .where(eq(agreementAcceptances.vendorRequestId, vendorRequestId))
+    .orderBy(asc(agreementAcceptances.id));
+  return rows.map((r) => r.id);
+}
+
+export interface LinkClaimAcceptanceParams {
+  /** The claim the acceptances were given on. */
+  vendorRequestId: string;
+  /** `loadClaimAcceptanceIds`. Empty → the whole call is a no-op. */
+  acceptanceIds: readonly string[];
+  /** The seat the approval granted (`profiles.id`). */
+  profileId: string;
+  vendorId: string;
+  /** The vendor's billing account: the existing one, or the one this batch creates. */
+  billingAccountId: string;
+  /** The approving admin. */
+  actorId: string;
+  actorType: AuditLogActorType;
+  vendorPlan: VendorPlanSnapshot;
+  /** `metadata.source`, so the row reads as part of the approval. */
+  source: string;
+}
+
+export interface LinkClaimAcceptanceBatch {
+  stmts: BatchStmt[];
+  /** `null` when the claim has no acceptances: nothing changed, nothing to audit. */
+  auditEntry: AuditLogEntry | null;
+}
+
+const NO_LINK: LinkClaimAcceptanceBatch = Object.freeze({
+  stmts: Object.freeze([]) as unknown as BatchStmt[],
+  auditEntry: null,
+});
+
+/**
+ * The approval's link (AECI-1367, `DATABASE_SCHEMA.md` §8.6d). At claim time an
+ * acceptance names only the email and the claim. When the claim is approved this fills
+ * `profile_id`, `vendor_id` and `billing_account_id` on every row with that
+ * `vendor_request_id`, so the evidence points at the account it now belongs to. It
+ * changes nothing else: the document, version, time, IP and user agent are the
+ * evidence and stay as accepted.
+ *
+ * One `agreement.linked` audit row covers the claim. It is filed under the claim
+ * (`entity_type = 'vendor_request'`) and names every acceptance id it linked. Returns
+ * the frozen no-op when the claim has no acceptances.
+ */
+export function linkClaimAcceptanceStatements(
+  db: Db,
+  p: LinkClaimAcceptanceParams,
+): LinkClaimAcceptanceBatch {
+  if (p.acceptanceIds.length === 0) return NO_LINK;
+
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: AGREEMENT_LINKED_ACTION,
+    entityType: 'vendor_request',
+    entityId: p.vendorRequestId,
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
+    beforeState: null,
+    afterState: {
+      acceptance_ids: [...p.acceptanceIds],
+      profile_id: p.profileId,
+      vendor_id: p.vendorId,
+      billing_account_id: p.billingAccountId,
+    },
+    metadata: { source: p.source, vendorId: p.vendorId },
+  };
+
+  return {
+    stmts: [
+      db
+        .update(agreementAcceptances)
+        .set({
+          profileId: p.profileId,
+          vendorId: p.vendorId,
+          billingAccountId: p.billingAccountId,
+        })
+        .where(eq(agreementAcceptances.vendorRequestId, p.vendorRequestId)),
+      auditInsert(db, auditEntry),
+    ],
+    auditEntry,
   };
 }
 

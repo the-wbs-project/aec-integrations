@@ -13,9 +13,15 @@
  * `lib/attestation-notify.ts`, because the per-seat nudge mute (AECI-1204) has to
  * filter the seats before their addresses are fetched. A deadline email must not
  * honour that mute, so it reads here.
+ *
+ * {@link loadVendorOwnerRecipients} (AECI-1368) is the OWNER-only variant: the
+ * owner seats of one vendor, by the shared owner predicate (`lib/owner-seat.ts`).
+ * The `claim-owner-review` email carries a claimant's contact details, so it goes
+ * to the seats that may act on it and to no one else.
  */
 
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { unbannedOwnerSeatsOf } from './owner-seat';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
 import type { Env } from '../env';
@@ -85,4 +91,33 @@ export async function loadVendorSeatRecipients(
     else byVendor.set(seat.vendorId, [recipient]);
   }
   return byVendor;
+}
+
+/**
+ * The unbanned OWNER seats of one vendor that have an address on file (AECI-1368).
+ * Same predicate as claim routing and `has_seats` (`unbannedOwnerSeatsOf`), so a vendor that
+ * routes a claim is a vendor this returns owners for, unless GoTrue has no address
+ * for them (or the service-role key is absent, which returns nothing).
+ */
+export async function loadVendorOwnerRecipients(
+  db: Db,
+  env: Env,
+  vendorId: string,
+  fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
+): Promise<SeatRecipient[]> {
+  const owners = await db.query.profiles.findMany({
+    columns: { id: true },
+    where: unbannedOwnerSeatsOf(vendorId),
+  });
+  if (owners.length === 0) return [];
+  const emails = await fetchSeatEmails(
+    env,
+    owners.map((o) => o.id),
+  );
+  const out: SeatRecipient[] = [];
+  for (const owner of owners) {
+    const email = emails.get(owner.id);
+    if (email) out.push({ profileId: owner.id, email });
+  }
+  return out;
 }

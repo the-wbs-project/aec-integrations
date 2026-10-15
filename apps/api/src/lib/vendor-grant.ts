@@ -20,34 +20,31 @@
  * `grantSeatStatements` used to emit `UPDATE vendors SET verified = 1` itself. It
  * does not any more: `vendors.verified` is a denormalized MIRROR of
  * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer.
- * `approveClaim` now composes the two builders —
- * `db.batch([...grant.stmts, ...ent.stmts])` — so the seat, the entitlement row,
- * the mirror flip and both audit rows still commit or roll back as ONE unit. What
- * did NOT change is the audit shape: `vendorWasVerified` is still a parameter and
- * `verified_flipped` / `beforeState.vendor_verified` / `afterState.vendor_verified`
- * are still written. They are pure metadata with no statement behind them, which is
- * why the refactor is invisible to every shipped claim assertion.
+ * Since AECI-1367 `approveClaim` composes no entitlement at all: every approval lands
+ * on Free, so the batch is this module's seat statements, the billing account
+ * (`lib/billing-account.ts`) and the acceptance link (`lib/agreement-acceptances.ts`).
+ * The audit row still records `beforeState.vendor_verified` and
+ * `afterState.vendor_verified` (now always equal) and `verified_flipped: false`, so
+ * a grant row reads the same shape as the older ones beside it.
  *
  * An ESLint `no-restricted-syntax` rule (`eslint.config.base.mjs`, Guard 1) now
  * covers this file, and `vendor-grant.spec.ts` asserts by generated SQL that no
  * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
-import {
-  DISPLAY_NAME_MAX_LENGTH,
-  vendorVisibleReasonMetadata,
-  type ClaimEntitlement,
-  type ClaimGrantPlan,
-} from '@aeci/shared';
+import { ApiErrorCode, DISPLAY_NAME_MAX_LENGTH, vendorVisibleReasonMetadata } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles, vendorRequests, workflowInstances } from '../db/schema';
+import { ApiError } from '../errors';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { ONE_ROW } from './integration-claims';
+import { ownerSeatExistsSql } from './owner-seat';
 
 /** The role a granted seat drops back to on revoke — the `profiles` default. */
 const REVIEWER_ROLE = 'reviewer';
@@ -58,10 +55,9 @@ const REVIEWER_ROLE = 'reviewer';
  * `admin` acting on `/api/admin/*`, so the trail reads alongside the other
  * moderation actions, not the vendor-portal self-service edits (`vendor-portal`).
  *
- * EXPORTED for `routes/admin-claims.ts`, which passes it to
- * `activateEntitlementStatements` so the grant's TWO audit rows —
- * `vendor_claim.granted` here and `vendor_entitlement.granted` there — carry the
- * same `source` tag and read as one action in the trail (§6.3).
+ * EXPORTED for `routes/admin-claims.ts`, which passes it to the billing-account and
+ * acceptance-link builders so every audit row of one grant carries the same `source`
+ * tag and reads as one action in the trail.
  */
 export const CLAIM_AUDIT_SOURCE = 'admin-moderation';
 
@@ -106,11 +102,9 @@ export interface GrantSeatParams {
   resolvedAt: string;
   /** The request's real prior state — `'open' | 'in_review'`. */
   fromStatus: string;
-  /** Whether the vendor was ALREADY verified. AUDIT METADATA ONLY since AECI-612 —
-   *  there is no `vendors` statement behind it here any more; the flip itself is
-   *  emitted by `activateEntitlementStatements` in the same batch (§2.1 / §6). It is
-   *  kept because `verified_flipped` and the before/after `vendor_verified` snapshots
-   *  are what make the claim's audit row self-contained. */
+  /** Whether the vendor was verified. AUDIT METADATA ONLY: no statement here or
+   *  beside it moves the mirror since AECI-1367, so the before and after
+   *  `vendor_verified` snapshots both carry this value. */
   vendorWasVerified: boolean;
   workflowId: string;
   /** Whether a `vendor_claim` workflow instance already exists (update vs insert). */
@@ -124,15 +118,12 @@ export interface GrantSeatParams {
   /** The claim's `submitter_name`. Fills the seat's `display_name` only when that
    *  is null or blank (AECI-1280). */
   submitterName: string | null;
-  /** The offline PO/invoice arrangement — the launch entitlement record (§3). */
-  entitlement?: ClaimEntitlement;
   /**
-   * The plan the operator chose (AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6).
-   * Lands as `metadata.plan`. On `free` no entitlement is activated beside this
-   * batch, so the audit row must not claim a verified flip: `verified_flipped` is
-   * `false` and `afterState.vendor_verified` repeats the before value.
+   * Whether the same batch creates the vendor's billing account (AECI-1367,
+   * `ensureBillingAccountStatements` returned statements). Lands as
+   * `metadata.billing_account_created`, so the grant row says it on its own.
    */
-  plan: ClaimGrantPlan;
+  billingAccountCreated: boolean;
   reason: string | null;
   targetType: string;
   targetId: string;
@@ -149,6 +140,38 @@ export interface RejectClaimParams {
   reason: string | null;
   targetType: string;
   targetId: string;
+  /**
+   * `metadata.source` on the audit row and the transition. Defaults to
+   * {@link CLAIM_AUDIT_SOURCE}. An owner's decline from the Seats section (AECI-1368)
+   * passes `'vendor-portal'`, so the trail tells "AECi rejected" from "the company's
+   * owner declined": the actor type is `'user'` for both.
+   */
+  source?: string;
+  /** The vendor the audit row is about, when the caller knows it (the owner decline). */
+  vendorId?: string;
+  /**
+   * The owner decline (AECI-1368) sets this: the batch then also aborts when the
+   * claim is no longer routed to the owners, because the 7-day fallback moved it to
+   * AECi between the handler's read and the batch (`claimUndecidedSentinel`).
+   */
+  requireRouted?: boolean;
+}
+
+/** An owner accepting a claim routed to their company (AECI-1368, §11a.10). */
+export interface OwnerAcceptClaimParams {
+  requestId: string;
+  /** The owner seat accepting it: the audit actor and `resolved_by_id`. */
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  vendorId: string;
+  resolvedAt: string;
+  fromStatus: string;
+  workflowId: string;
+  existingWf: boolean;
+  /** The seat invite the accept issued (or the live one it reused) to the claimant. */
+  inviteId: string;
+  /** `true` when the batch also creates that invite, `false` when it reused one. */
+  inviteCreated: boolean;
 }
 
 export interface RevokeSeatParams {
@@ -225,20 +248,23 @@ function claimMetadata(
  * `profileBefore` snapshot, so a user who sets a name between that read and this
  * batch keeps it while the row over-reports a fill. That window is accepted.
  *
- * The `vendors.verified` flip that used to be statement (2) moved to
- * `activateEntitlementStatements` (AECI-612 / §6 step 1), which the caller
- * concatenates into the SAME batch. Multi-seat safety is unchanged and now comes
- * from the §2.3 matrix: a second seat on a vendor with an `active` entitlement
- * emits ZERO entitlement statements and ZERO `vendors` statements, so there is no
- * redundant flip and no `updated_at` churn, while the seat + audit still land.
+ * ── WHO BECOMES AN OWNER (AECI-1367, Portal §11a.4) ─────────────────────────
+ * A grant makes the claimant an owner (`seat_owner = 1`) only when the vendor has
+ * no unbanned owner seat at commit time. The test is SQL, not a TS pre-read: the
+ * INSERT's `seat_owner` is a `NOT EXISTS` over `profiles`, evaluated inside the
+ * batch. D1 runs batches one at a time, so of two first approvals on the same
+ * vendor the second sees the first's owner and lands as a non-owner. A later
+ * claimant on a seated vendor joins as a colleague, the same rank an invite gives.
+ *
+ * The conflict path never demotes: an existing row that is already an owner seat of
+ * this vendor keeps `seat_owner = 1` whatever the subquery says. A row that is an
+ * owner of nothing here (a reviewer, a revoked seat) takes the computed value.
+ *
+ * The `vendors.verified` flip that used to be statement (2) left this module in
+ * AECI-612, and since AECI-1367 no claim grant composes an entitlement at all.
  */
 export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
-  // Only a Managed grant activates the entitlement that moves the mirror. A Free
-  // grant leaves `vendors.verified` where it was, and the audit says so (§13.6).
-  const managed = p.plan === 'managed';
-  const verifiedFlipped = managed && !p.vendorWasVerified;
-  const verifiedAfter = managed || p.vendorWasVerified;
-  const hasEntitlement = p.entitlement && Object.keys(p.entitlement).length > 0;
+  // No grant moves the mirror since AECI-1367: every approval lands on Free.
   const fillName = usableSubmitterName(p.submitterName);
   const nameBefore = p.profileBefore?.displayName ?? null;
   const nameFilled = fillName !== null && !nameBefore?.trim();
@@ -247,10 +273,9 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     seat_user_id: p.userId,
     identity_outcome: p.identityOutcome,
     seat_created: p.seatCreated,
-    plan: p.plan,
-    verified_flipped: verifiedFlipped,
+    verified_flipped: false,
+    billing_account_created: p.billingAccountCreated,
     display_name_filled: nameFilled,
-    ...(hasEntitlement ? { entitlement: p.entitlement } : {}),
   });
 
   const auditEntry: AuditLogEntry = {
@@ -270,7 +295,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     },
     afterState: {
       status: 'resolved',
-      vendor_verified: verifiedAfter,
+      vendor_verified: p.vendorWasVerified,
       seat_role: VENDOR_ADMIN_ROLE,
       seat_vendor_id: p.vendorId,
       seat_display_name: nameFilled ? fillName : nameBefore,
@@ -288,10 +313,12 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   };
 
   const stmts: BatchStmt[] = [
-    // `seatOwner: true` (AECI-664 / §11a) — a seat granted through the §5 admin
-    // claim review IS the owner event: a human reviewer confirmed this person
-    // represents this vendor, which is exactly the authority an invite delegates.
-    // A seat created by ACCEPTING an invite gets `false` instead
+    // AECI-1333: first, so a claim decided since the handler's read writes nothing.
+    claimUndecidedSentinel(db, p.requestId),
+    // `seatOwner` (AECI-664 / §11a, narrowed by AECI-1367): the first reviewed
+    // claimant on a vendor is its owner. Later ones join as colleagues. Both halves
+    // are SQL so the decision is made at commit time (see the docblock above). A
+    // seat created by ACCEPTING an invite is always `false`
     // (`lib/vendor-seat-invites.ts`), which is what bounds the invite chain.
     db
       .insert(profiles)
@@ -299,7 +326,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
         id: p.userId,
         role: VENDOR_ADMIN_ROLE,
         vendorId: p.vendorId,
-        seatOwner: true,
+        seatOwner: firstOwnerSql(p.vendorId),
         ...(fillName !== null ? { displayName: fillName } : {}),
       })
       .onConflictDoUpdate({
@@ -307,7 +334,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
         set: {
           role: VENDOR_ADMIN_ROLE,
           vendorId: p.vendorId,
-          seatOwner: true,
+          seatOwner: keepOwnerSql(p.vendorId),
           // Fill-if-empty, never overwrite (AECI-1280). Absent when there is no
           // usable name, so the statement is then exactly the pre-AECI-1280 one.
           ...(fillName !== null
@@ -351,11 +378,118 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   return { stmts, auditEntry, workflowEntry };
 }
 
+/**
+ * `1` when the vendor has no unbanned owner seat, else `0` (AECI-1367). The one
+ * owner predicate: `seat_owner = 1 AND banned_at IS NULL AND vendor_id = <vendor>`.
+ * Aliased so the subquery's columns can never bind to the row being upserted.
+ */
+function firstOwnerSql(vendorId: string) {
+  // AECI-1368: the predicate lives in `lib/owner-seat.ts`, shared with claim routing
+  // and `has_seats`, so the three can never disagree about who is an owner.
+  return sql<boolean>`NOT ${ownerSeatExistsSql(vendorId)}`;
+}
+
+/**
+ * The conflict half of the owner rule: never demote. A row that is already an owner
+ * seat of THIS vendor stays one. Any other row takes the value the INSERT computed
+ * (`excluded.seat_owner`). SQLite evaluates every `SET` expression against the old
+ * row, so `role` and `vendor_id` here are the values before this upsert.
+ */
+function keepOwnerSql(vendorId: string) {
+  return sql<boolean>`CASE WHEN "profiles"."role" = ${VENDOR_ADMIN_ROLE} AND "profiles"."vendor_id" = ${vendorId} AND "profiles"."seat_owner" = 1 THEN 1 ELSE excluded.seat_owner END`;
+}
+
 /** The claim's name as the grant may write it: trimmed, non-empty, and within the
  *  account form's own cap. Anything else is `null` — not filled, never truncated. */
 function usableSubmitterName(name: string | null): string | null {
   const trimmed = name?.trim() ?? '';
   return trimmed.length > 0 && trimmed.length <= DISPLAY_NAME_MAX_LENGTH ? trimmed : null;
+}
+
+// ─── The decision-race sentinel (AECI-1333) ──────────────────────────────────
+
+/** The token the sentinel raises with. `json()` on it is malformed JSON. */
+const CLAIM_DECIDED_TOKEN = 'vendor-claim-decided';
+
+/**
+ * The FIRST statement of every claim decision batch: AECi's approve and reject, and
+ * an owner's accept and decline. It ABORTS the whole batch when the claim is no
+ * longer undecided (`open` or `in_review`), and with `requireRouted` also when it
+ * is no longer routed to the owners (`routed_to_owners_at IS NULL`).
+ *
+ * Why it exists: D1 has no interactive transactions, so a batch cannot branch on
+ * whether its guarded `vendor_requests` UPDATE matched. Before this, the loser of a
+ * decision race (an admin and an owner, two admins, an owner and the fallback cron)
+ * kept its UPDATE a no-op but still committed the seat upsert, the invite, the
+ * workflow write, the transition, the billing account, the acceptance link and the
+ * audit row. The claim then read `rejected` with a granted seat behind it.
+ *
+ * How: the same `json()` abort as `contestStillOpenSentinel`
+ * (`lib/integration-contests.ts`). The CASE reads the claim's own state, not
+ * `changes()`, because it runs first, before any write. It selects FROM a one-row
+ * constant, so a missing claim row also raises rather than passing silently.
+ * {@link isClaimDecidedAbort} recognises the error. The handler re-reads the claim
+ * to tell this abort from any other `json()` sentinel in the same batch.
+ */
+export function claimUndecidedSentinel(
+  db: Db,
+  requestId: string,
+  opts: { requireRouted?: boolean } = {},
+): BatchStmt {
+  const routed = opts.requireRouted
+    ? sql` AND ${vendorRequests.routedToOwnersAt} IS NOT NULL`
+    : sql``;
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${vendorRequests}
+          WHERE ${vendorRequests.id} = ${requestId}
+            AND ${vendorRequests.status} IN ('open', 'in_review')${routed})
+        THEN json(${CLAIM_DECIDED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+}
+
+/** True for the error {@link claimUndecidedSentinel} raises, in D1 or SQLite. Any
+ *  `json()` sentinel raises the same "malformed JSON", so a batch that carries
+ *  another one must re-read the claim to know which fired. */
+export function isClaimDecidedAbort(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/malformed JSON/i.test(text) || text.includes(CLAIM_DECIDED_TOKEN)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * The `409 CLAIM_ALREADY_DECIDED` for a decision batch that rolled back, or `null`
+ * when the `json()` abort was some other sentinel's. The one read on this module's
+ * error path: it re-reads the claim, because D1's error does not carry the token.
+ * The claim is lost to this decision when it is no longer undecided, or, with
+ * `requireRouted`, no longer routed to the owners. `details.status` is what the
+ * re-read found (`null` when the row is gone).
+ */
+export async function claimDecisionRaceError(
+  db: Db,
+  requestId: string,
+  opts: { requireRouted?: boolean } = {},
+): Promise<ApiError | null> {
+  const row = await db.query.vendorRequests.findFirst({
+    columns: { status: true, routedToOwnersAt: true },
+    where: eq(vendorRequests.id, requestId),
+  });
+  const undecided = row?.status === 'open' || row?.status === 'in_review';
+  const lost = !undecided || (opts.requireRouted === true && row?.routedToOwnersAt == null);
+  if (!lost) return null;
+  return new ApiError(
+    409,
+    ApiErrorCode.CLAIM_ALREADY_DECIDED,
+    'This claim changed while you were deciding it, so nothing was saved. Reload to see where it stands.',
+    { details: { status: row?.status ?? null } },
+  );
 }
 
 /**
@@ -364,11 +498,12 @@ function usableSubmitterName(name: string | null): string | null {
  * purge, no identity resolution — a rejected claim provisions nothing.
  */
 export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch {
-  const metadata = claimMetadata(p, {});
+  const metadata = claimMetadata(p, p.source ? { source: p.source } : {});
 
   const auditEntry: AuditLogEntry = {
     actorId: p.actorId,
     actorType: p.actorType,
+    ...(p.vendorId ? { vendorId: p.vendorId } : {}),
     action: 'vendor_claim.rejected',
     entityType: 'vendor_request',
     entityId: p.requestId,
@@ -387,6 +522,9 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
   };
 
   const stmts: BatchStmt[] = [
+    // AECI-1333: first, so a claim decided (or, for an owner decline, taken back by
+    // the fallback) since the handler's read writes nothing.
+    claimUndecidedSentinel(db, p.requestId, { requireRouted: p.requireRouted }),
     db
       .update(vendorRequests)
       .set({ status: 'rejected', resolvedById: p.actorId, resolvedAt: p.resolvedAt })
@@ -412,6 +550,94 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
           currentState: 'rejected',
           completedAt: p.resolvedAt,
           finalOutcome: CLAIM_TERMINAL_OUTCOME.rejected,
+        }),
+    workflowTransitionInsert(db, workflowEntry),
+    auditInsert(db, auditEntry),
+  ];
+
+  return { stmts, auditEntry, workflowEntry };
+}
+
+/**
+ * An owner accepts a claim routed to their company (AECI-1368,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10): resolve the request with the OWNER as
+ * `resolved_by_id`, complete the `vendor_claim` workflow, audit. The caller puts the
+ * seat invite (`createInviteStatements`) in the same batch, AFTER these statements.
+ *
+ * **No seat is written here, and no `vendor_admin` row anywhere.** The claimant gets
+ * a seat only by redeeming the invite (`acceptInviteStatements`), which proves they
+ * control the address and makes them a member seat, never an owner (§11a.4). That is
+ * why the status is `resolved` while no seat exists yet: the claim is decided, and
+ * the invite is the grant. `AdminClaim.granted` reads `true` for it, because the
+ * owner is a non-null `resolved_by_id`.
+ *
+ * The batch opens with {@link claimUndecidedSentinel} on still-undecided AND
+ * still-routed (AECI-1333), so an AECi decision or the 7-day fallback landing first
+ * aborts the whole batch, the caller's invite included. The UPDATE keeps its own
+ * guard as a second line.
+ */
+export function ownerAcceptClaimStatements(db: Db, p: OwnerAcceptClaimParams): ClaimBatch {
+  const metadata = {
+    source: 'vendor-portal',
+    kind: 'claim',
+    target_type: 'vendor',
+    target_id: p.vendorId,
+    decided_by: 'owner',
+    invite_id: p.inviteId,
+    invite_created: p.inviteCreated,
+  };
+
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    vendorId: p.vendorId,
+    action: 'vendor_claim.owner_accepted',
+    entityType: 'vendor_request',
+    entityId: p.requestId,
+    beforeState: { status: p.fromStatus },
+    afterState: { status: 'resolved' },
+    metadata,
+  };
+
+  const workflowEntry: WorkflowTransitionEntry = {
+    workflowId: p.workflowId,
+    fromState: p.fromStatus,
+    toState: 'resolved',
+    actorId: p.actorId,
+    reason: 'accepted by a company owner',
+    metadata,
+  };
+
+  const stmts: BatchStmt[] = [
+    // AECI-1333: first, so the caller's invite statements (pushed after these) never
+    // commit for a claim decided or taken back since the handler's read.
+    claimUndecidedSentinel(db, p.requestId, { requireRouted: true }),
+    db
+      .update(vendorRequests)
+      .set({ status: 'resolved', resolvedById: p.actorId, resolvedAt: p.resolvedAt })
+      .where(
+        and(
+          eq(vendorRequests.id, p.requestId),
+          inArray(vendorRequests.status, ['open', 'in_review']),
+          isNotNull(vendorRequests.routedToOwnersAt),
+        ),
+      ),
+    p.existingWf
+      ? db
+          .update(workflowInstances)
+          .set({
+            currentState: 'resolved',
+            completedAt: p.resolvedAt,
+            finalOutcome: CLAIM_TERMINAL_OUTCOME.resolved,
+          })
+          .where(eq(workflowInstances.id, p.workflowId))
+      : db.insert(workflowInstances).values({
+          id: p.workflowId,
+          workflowType: 'vendor_claim',
+          entityId: p.requestId,
+          currentState: 'resolved',
+          completedAt: p.resolvedAt,
+          finalOutcome: CLAIM_TERMINAL_OUTCOME.resolved,
         }),
     workflowTransitionInsert(db, workflowEntry),
     auditInsert(db, auditEntry),
@@ -525,7 +751,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * `seat_owner`, and nothing else.
  *
  * ── `seatOwner: true` ────────────────────────────────────────────────────────
- * Same rule `grantSeatStatements` follows (AECI-664 / §11a): a seat an AECi
+ * The rule `grantSeatStatements` followed until AECI-1367 narrowed the claim grant to
+ * "first unbanned owner only" (AECI-664 / §11a). This builder keeps it: a seat an AECi
  * operator provisioned by hand IS the owner event — a human confirmed this person
  * represents this vendor, which is exactly the authority an invite delegates. It
  * is also what makes the shipped `/api/vendor/seats/invites` flow usable by the

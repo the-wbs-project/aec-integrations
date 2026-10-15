@@ -122,6 +122,7 @@ import {
   requireCapability,
   type AuthenticatedSession,
 } from '../lib/authz';
+import { loadPendingSeatClaims } from '../lib/claim-owner-routing';
 import { blankLast, textAsc } from '../lib/collation';
 import {
   PRODUCT_OVERRIDE_COLUMNS,
@@ -878,6 +879,7 @@ export function createVendorSeatsHandler(
       rows.map((row) => row.id),
     );
 
+    const callerIsOwner = rows.some((row) => row.id === c.get('auth').userId && row.seatOwner);
     const body: ListVendorSeatsResponse = {
       seats: rows.map(
         (row): VendorSeat => ({
@@ -911,7 +913,10 @@ export function createVendorSeatsHandler(
       // enabled state and the 403 its write would get cannot disagree — the same
       // reason `GET /api/vendor/me` ships resolved `capabilities` instead of a
       // tier the client re-ladders (`vendor-capabilities.ts`).
-      can_manage_seats: rows.some((row) => row.id === c.get('auth').userId && row.seatOwner),
+      can_manage_seats: callerIsOwner,
+      // AECI-1368: the claims routed to this company's owners. Claimant PII, so owner
+      // seats only. Every other seat gets `[]`, never the rows.
+      pending_claims: callerIsOwner ? await loadPendingSeatClaims(db, vendorId) : [],
     };
 
     validateResponseInDev(c.env, () => ListVendorSeatsResponseSchema.parse(body));

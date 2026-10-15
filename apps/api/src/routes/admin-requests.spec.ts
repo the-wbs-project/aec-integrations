@@ -425,10 +425,17 @@ const seedWorkflow = (workflowType: string, entityId = REQUEST_ID, currentState 
     .insert(workflowInstances)
     .values({ id: crypto.randomUUID(), workflowType, entityId, currentState });
 
+/** A correction row. The generic PATCH refuses claims (AECI-1322), so every
+ *  happy-path moderation test runs on a correction. */
+const correctionRow = (overrides: Parameters<typeof reqRow>[0] = {}) =>
+  reqRow({ kind: 'correction', ...overrides });
+
 describe('PATCH /api/admin/requests/:id', () => {
   it('resolves an open request: status, resolver fields, audit, transition, sync', async () => {
-    await seed(reqRow({ linearIssueUrl: 'https://linear.app/aec-integrations/issue/AECI-901' }));
-    await seedWorkflow('vendor_claim');
+    await seed(
+      correctionRow({ linearIssueUrl: 'https://linear.app/aec-integrations/issue/AECI-901' }),
+    );
+    await seedWorkflow('correction_request');
     const sync = vi.fn<SyncRequestToLinear>(async () => {});
 
     const res = await patchReq(moderateApp(sync), { action: 'resolve' });
@@ -473,7 +480,7 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(sync.mock.calls[0]![2]).toMatchObject({
       requestId: REQUEST_ID,
       linearIssueId: null,
-      kind: 'claim',
+      kind: 'correction',
       toStatus: 'resolved',
       fromStatus: 'open',
       reason: null,
@@ -486,11 +493,14 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('rejects an open request: reason recorded in transition/audit, finalOutcome rejected', async () => {
-    await seed(reqRow());
-    await seedWorkflow('vendor_claim');
+    await seed(correctionRow());
+    await seedWorkflow('correction_request');
     const sync = vi.fn<SyncRequestToLinear>(async () => {});
 
-    const res = await patchReq(moderateApp(sync), { action: 'reject', reason: 'Not a real claim' });
+    const res = await patchReq(moderateApp(sync), {
+      action: 'reject',
+      reason: 'Not a real correction',
+    });
     expect(res.status).toBe(200);
     const body = AdminVendorRequestSchema.parse(await res.json());
     expect(body.status).toBe('rejected');
@@ -499,11 +509,11 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(audits[0]!.action).toBe('vendor_request.rejected');
     expect(audits[0]!.metadata).toMatchObject({
       source: 'admin-moderation',
-      reason: 'Not a real claim',
+      reason: 'Not a real correction',
     });
     const transitions = await t.db.select().from(workflowTransitions);
     expect(transitions[0]!.toState).toBe('rejected');
-    expect(transitions[0]!.reason).toBe('Not a real claim');
+    expect(transitions[0]!.reason).toBe('Not a real correction');
     const [wf] = await t.db
       .select()
       .from(workflowInstances)
@@ -511,14 +521,14 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(wf!.finalOutcome).toBe('rejected');
     expect(sync.mock.calls[0]![2]).toMatchObject({
       toStatus: 'rejected',
-      reason: 'Not a real claim',
+      reason: 'Not a real correction',
     });
     expect(requestModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
   });
 
   it('forwards the audit row and the transition in ONE batched request (AECI-1112)', async () => {
-    await seed(reqRow());
-    await seedWorkflow('vendor_claim');
+    await seed(correctionRow());
+    await seedWorkflow('correction_request');
     vi.mocked(logBatchToPosthog).mockClear();
     vi.mocked(logToPosthog).mockClear();
 
@@ -544,8 +554,8 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('allows reject with no reason (reason optional for requests) → reason null', async () => {
-    await seed(reqRow());
-    await seedWorkflow('vendor_claim');
+    await seed(correctionRow());
+    await seedWorkflow('correction_request');
     const res = await patchReq(moderateApp(), { action: 'reject' });
     expect(res.status).toBe(200);
     const transitions = await t.db.select().from(workflowTransitions);
@@ -555,16 +565,16 @@ describe('PATCH /api/admin/requests/:id', () => {
 
   it('hydrates target in the moderation response (AECI-217)', async () => {
     await t.db.insert(products).values({ id: TARGET_ID, slug: 'procore', name: 'Procore' });
-    await seed(reqRow());
-    await seedWorkflow('vendor_claim');
+    await seed(correctionRow());
+    await seedWorkflow('correction_request');
     const res = await patchReq(moderateApp(), { action: 'resolve' });
     const body = AdminVendorRequestSchema.parse(await res.json());
     expect(body.target).toEqual({ id: TARGET_ID, name: 'Procore', slug: 'procore' });
   });
 
   it('resolves from in_review, recording the real prior state', async () => {
-    await seed(reqRow({ status: 'in_review' }));
-    await seedWorkflow('vendor_claim', REQUEST_ID, 'in_review');
+    await seed(correctionRow({ status: 'in_review' }));
+    await seedWorkflow('correction_request', REQUEST_ID, 'in_review');
     const res = await patchReq(moderateApp(), { action: 'resolve' });
     expect(res.status).toBe(200);
     const transitions = await t.db.select().from(workflowTransitions);
@@ -573,12 +583,12 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('creates the workflow instance on the fly when one is missing', async () => {
-    await seed(reqRow()); // no workflow instance seeded
+    await seed(correctionRow()); // no workflow instance seeded
     const res = await patchReq(moderateApp(), { action: 'resolve' });
     expect(res.status).toBe(200);
     const wfs = await t.db.select().from(workflowInstances);
     expect(wfs).toHaveLength(1);
-    expect(wfs[0]!.workflowType).toBe('vendor_claim');
+    expect(wfs[0]!.workflowType).toBe('correction_request');
     expect(wfs[0]!.entityId).toBe(REQUEST_ID);
     expect(wfs[0]!.currentState).toBe('resolved');
     expect(wfs[0]!.finalOutcome).toBe('completed');
@@ -598,7 +608,7 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('returns 422 INVALID_STATE_TRANSITION for an already-terminal request', async () => {
-    await seed(reqRow({ status: 'resolved' }));
+    await seed(correctionRow({ status: 'resolved' }));
     const sync = vi.fn<SyncRequestToLinear>(async () => {});
     const res = await patchReq(moderateApp(sync), { action: 'reject' });
     expect(res.status).toBe(422);
@@ -611,7 +621,7 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('rejects with 400 VALIDATION_FAILED for a missing/unknown action (DB untouched)', async () => {
-    await seed(reqRow());
+    await seed(correctionRow());
     const res = await patchReq(moderateApp(), { action: 'frobnicate' });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
@@ -624,11 +634,62 @@ describe('PATCH /api/admin/requests/:id', () => {
   });
 
   it('rejects with 400 VALIDATION_FAILED when reason exceeds 500 chars', async () => {
-    await seed(reqRow());
+    await seed(correctionRow());
     const res = await patchReq(moderateApp(), { action: 'reject', reason: 'x'.repeat(501) });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; field?: string } };
     expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
     expect(body.error.field).toBe('reason');
+  });
+
+  // ── AECI-1322: claims moderate only via PATCH /api/admin/claims/:id ──────────
+
+  it.each(['resolve', 'reject'] as const)(
+    'refuses to %s an open claim with 422 and writes nothing',
+    async (action) => {
+      await seed(reqRow({ kind: 'claim' }));
+      await seedWorkflow('vendor_claim');
+      const sync = vi.fn<SyncRequestToLinear>(async () => {});
+
+      const res = await patchReq(moderateApp(sync), { action });
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+      expect(body.error.message).toContain('/admin/claims');
+
+      const [row] = await t.db
+        .select()
+        .from(vendorRequests)
+        .where(eq(vendorRequests.id, REQUEST_ID));
+      expect(row!.status).toBe('open');
+      expect(row!.resolvedById).toBeNull();
+      expect(row!.resolvedAt).toBeNull();
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+      expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+      const [wf] = await t.db
+        .select()
+        .from(workflowInstances)
+        .where(eq(workflowInstances.entityId, REQUEST_ID));
+      expect(wf!.currentState).toBe('open');
+      expect(sync).not.toHaveBeenCalled();
+      expect(requestModerationActions()).toEqual([[`action:${action}`, 'outcome:invalid_state']]);
+    },
+  );
+
+  it('refuses an in_review claim with the same pointer', async () => {
+    await seed(reqRow({ kind: 'claim', status: 'in_review' }));
+    const res = await patchReq(moderateApp(), { action: 'resolve' });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('/admin/claims');
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('points an already-terminal claim at /admin/claims too', async () => {
+    await seed(reqRow({ kind: 'claim', status: 'resolved' }));
+    const res = await patchReq(moderateApp(), { action: 'reject' });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('/admin/claims');
   });
 });

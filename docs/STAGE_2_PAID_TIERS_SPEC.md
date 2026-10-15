@@ -163,6 +163,8 @@ auditInsert(…)
 
 **`vendors.updated_at` moves iff `vendors.verified` moves** — stamped explicitly, never left to `$onUpdate`. Both directions matter and only one of them has ever been reasoned about (see R2 in §10).
 
+> **As built 2026-10-15 (AECI-1367): a claim grant no longer calls these builders.** `approveClaim` never calls `activateEntitlementStatements`. This matrix still governs `PATCH /api/admin/vendors/:id/entitlement` and any other entitlement activation, but a claim approval writes no entitlement row and flips no mirror.
+
 **Second-seat matrix** (the case that must not regress — the shipped `admin-claims.spec.ts` asserts a second seat neither re-flips `verified` nor churns `updated_at`):
 
 | Preloaded state | Entitlement stmts | `vendors` stmts | Audit |
@@ -445,9 +447,9 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 |---|---|---|---|---|
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected. A ban of the last active seat moves open owner contests to AECi until the unban, and hands nothing back (AECI-989) | **No** |
 | **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side; **requires a body `{ reason }` since AECI-1191**, with an optional `internalNote` and a vendor-visible reason since AECI-1159; the portal revoke takes none) | one `profiles` row; the vendor's record too when it is the **last** seat (admin-side only, AECI-989) | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner`. The last seat also hands the record back to AECi: marker to `'aeci'`, claimed integrations un-claimed, owner contests to AECi (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9) | **No** |
-| **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads "Claim this listing" in every state since AECI-1266, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
+| **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads the same in every state since AECI-1266, "Claim <Company>" since AECI-1365, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
-**A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and its claim is routed to the partnership track rather than granted here (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants nothing beyond the Free plan (zero capabilities before AECI-1214), and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
+**A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and ~~its claim is routed to the partnership track rather than granted here~~ *(retired 2026-10-15, AECI-1367: its claim is approved like any other and lands on Free, `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2)*. "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants nothing beyond the Free plan (zero capabilities before AECI-1214), and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
 
 **Clearing an entitlement does not revoke seats** — this answers AECI-532's open question. It is consistent with `STAGE_2_SPEC.md` §8.3(2) ("un-verifying a vendor is a separate entitlement action, not a ban") and it is what makes the §4 gate's launch behaviour concrete and testable: writes 403, reads work, the dashboard renders read-only with a renewal notice.
 
@@ -555,8 +557,8 @@ flips on `status = 'active'` and not on `tier`, so *any* entitlement row would f
 sells it verification, while every prior path to a seat opened an entitlement on the way (`approveClaim`
 composed `grantSeatStatements` with `activateEntitlementStatements` at `GRANT_TIER = 'verified'`) —
 which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told operators to park such a claim rather than
-grant it. Since AECI-1215 (§13.6) a claim approval can also choose Free, which writes the seat
-alone.
+grant it. ~~Since AECI-1215 (§13.6) a claim approval can also choose Free, which writes the seat
+alone.~~ Since AECI-1367 (2026-10-15) every claim approval writes the seat alone, so that park advice is retired (§13.6).
 
 Three consequences for this section specifically:
 
@@ -584,7 +586,7 @@ Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_S
 - **It does not close the §5.4 lockout.** AECI-955 later adds a logo-only admin exception. Other fields of a cleared-but-still-seated vendor remain uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
 - **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
 - **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
-- **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stays `open`, because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
+- **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stayed `open` (parking is retired since AECI-1367, 2026-10-15, and a connector claim is now approved like any other), because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
 - **It still cannot ban, and adding a seat is not verifying a vendor.** Both boundaries are asserted in `vendor-detail.component.spec.ts` now that this section carries two write actions rather than one.
 
 ### 5.7 As built (AECI-652 — 2026-08-27)
@@ -713,6 +715,8 @@ The trick that keeps the shipped tests green: **the audit shape does not change 
 7. **`ClaimGrantSummarySchema`** gains `tier` and `entitlement_created: boolean`, both **required** so `validateResponseInDev` catches a construction site that forgets one (the web `ClaimQueue` ignores unknown keys).
 8. **New regression guard:** assert `grantSeatStatements` emits no statement touching `vendors`, so the sole-writer invariant cannot silently regress.
 
+> **Superseded 2026-10-15 by AECI-1367.** The composition above no longer runs on a claim approval. `approveClaim` never calls `activateEntitlementStatements`, so steps 3 and 7 and the `entitlement_created` field are history. See §13.6.
+>
 > **Amended 2026-10-01 by §13.6 (AECI-1212), built 2026-10-02 by AECI-1215.** `approveClaim` takes an explicit `plan: 'free' | 'managed'` on every approve, with no default. Managed is the composition above, unchanged. Free runs `grantSeatStatements` alone: no entitlement row, no `vendors.verified` flip, one audit row, no purge. Steps 3 and 7 above describe the Managed arm only. §13.6 has the as-built detail.
 
 
@@ -838,7 +842,7 @@ Land last, once §2–§8 have settled the details. Each doc gets the sections n
 
 | Doc | Change |
 |---|---|
-| `API_CONTRACTS.md` | §6.10 — `PATCH /api/admin/vendors/:id/entitlement`, plus the `entitlement_vendor` / `entitlement` fields on `AdminClaim` and the `tier` / `entitlement_created` fields on `ClaimGrantSummary`; §6.14 — the `entitlement` block on `GET /api/vendor/me` + the 403 `ENTITLEMENT_REQUIRED` shape + the second (capability) axis on the allow-list invariant; §4 — the error code row |
+| `API_CONTRACTS.md` | §6.10 — `PATCH /api/admin/vendors/:id/entitlement`, plus the `entitlement_vendor` / `entitlement` fields on `AdminClaim` and the `tier` field on `ClaimGrantSummary` (`entitlement_created` removed 2026-10-15, AECI-1367); §6.14 — the `entitlement` block on `GET /api/vendor/me` + the 403 `ENTITLEMENT_REQUIRED` shape + the second (capability) axis on the allow-list invariant; §4 — the error code row |
 | `DATABASE_SCHEMA.md` | new **§8.6** `vendor_entitlements` (Postgres-DDL notation, house style); §3 — the table inventory; §4.1 — rewrite the `vendors.verified` annotation from "sole writer is the claim grant, no un-verify writer yet" to the mirror invariant; §7.1 — a disambiguating pointer next to `profiles.trust_tier` (R4); §18 — the expiry sweep is a second auditing cron |
 | `AUTH_AND_RLS.md` | §3.2 — replace "`vendors.verified` *is* the launch entitlement bit (there is no `entitlements` table)"; **new §4.2b** — the entitlement tier on the session; §4.4 — the new admin endpoint row + capability columns on the vendor writes; §8 — the FK trap table (already **seven** rows; fix the "six inbound references" and "eight-FK trap" prose that disagreed with it); §8.2 — the last-seat edge gains "the entitlement survives, and that is legitimate: verified-but-unclaimed"; §9 — mark the model shipped |
 | `email.md` | catalogue rows for `entitlement-expiring` / `entitlement-expiring-admin`; the `ADMIN_ALERT_EMAIL` row (since AECI-1220: `SUPPORT_EMAIL`) gains the operator copy |
@@ -1030,7 +1034,9 @@ Payment can then no longer raise a product's rank through the edit path. That is
 
 ### 13.6 Claim approval with no plan
 
-This amends §6. AECI-1215 builds it.
+> **Superseded 2026-10-15 by AECI-1367 (epic AECI-1333, E3.4).** The Free or Managed choice below is gone. Every claim approval lands on Free. `PATCH /api/admin/claims/:id` approve takes no `plan` and no `entitlement`, and a body naming either is `400 VALIDATION_FAILED` on that field. `approveClaim` never calls `activateEntitlementStatements`, `GRANT_TIER` is removed, and `ClaimGrantSummary` lost `plan` and `entitlement_created`. A paid plan is bought later as licenses (`VENDOR_SIGNUP_PROCESS.md`). What stays true from AECI-1215: the Free arm is the whole grant, it writes no entitlement row, it flips no `vendors.verified`, it purges nothing, and the AECI-989 seat return reads the vendor's real entitlement (`entitledAfterBatch: false`). Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §3.2. The text below is kept as history.
+
+This amended §6. AECI-1215 built it.
 
 - The operator must choose Free or Managed. There is no default. The approve button stays disabled until a choice is made.
 - The approve request gains a required `plan: 'free' | 'managed'`.
@@ -1040,7 +1046,7 @@ This amends §6. AECI-1215 builds it.
 
 Before AECI-1215, `approveClaim` hardcoded `GRANT_TIER = 'verified'` at `apps/api/src/routes/admin-claims.ts:178`. The provision-seat path already writes a seat with no plan. That is `provisionSeatStatements` in `apps/api/src/lib/vendor-grant.ts`.
 
-#### 13.6.1 As built (AECI-1215 — 2026-10-02)
+#### 13.6.1 As built (AECI-1215 — 2026-10-02; superseded 2026-10-15 by AECI-1367, see §13.6)
 
 - **Wire.** `ModerateClaimSchema` is a discriminated union on `action`. The approve arm requires `plan`. A missing plan is a 400 `VALIDATION_FAILED` on `field: 'plan'`. `entitlement` with `plan: 'free'` is a 400 on `field: 'entitlement'`. `ClaimGrantSummary` gains a required `plan`, which reports the choice. `tier` still reports the result. `API_CONTRACTS.md` has the table.
 - **`GRANT_TIER` has two uses, and both now sit behind Managed.** The constant is passed to `activateEntitlementStatements`, which Free never calls. The response's `tier` uses it only when that call wrote statements. Otherwise it reads `tierFor` on the preloaded row, which on Free is the vendor's existing state.
@@ -1050,7 +1056,7 @@ Before AECI-1215, `approveClaim` hardcoded `GRANT_TIER = 'verified'` at `apps/ap
 - **Free on a vendor that already has a row.** An `active` row stays active, so a Free second seat on a Managed vendor leaves it Managed and answers `plan: 'free'`, `tier: 'verified'`. An ended row stays ended. Free never reactivates.
 - **Email.** One template id, `claim-approved`, with a Free and a Managed capabilities line. `email.md` has the copy.
 - **Admin UI.** `/admin/claims` asks for the plan in a `fieldset` with two native radios and nothing preselected. "Confirm grant" is disabled until one is picked. The arrangement notes field renders for Managed only. A note typed under Managed is not sent if the operator then switches to Free.
-- **The claimant's answer (AECI-1293).** Since the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) a claim may carry `plan_interest` (`free`, `managed`, `not_sure`, or null). The approve form shows it beside the radios as "They asked about: Managed", only when the claimant answered. It never preselects a radio: the operator still chooses, and a claimant who asked about Managed may still be granted Free while the price is agreed.
+- ~~**The claimant's answer (AECI-1293).**~~ **Removed 2026-10-15 (AECI-1365):** the claim forms no longer ask about a plan, and the approve form shows no answer. The AECI-1293 text: since the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15) a claim may carry `plan_interest` (`free`, `managed`, `not_sure`, or null). The approve form shows it beside the radios as "They asked about: Managed", only when the claimant answered. It never preselects a radio: the operator still chooses, and a claimant who asked about Managed may still be granted Free while the price is agreed.
 
 ### 13.7 Per-product plan field
 

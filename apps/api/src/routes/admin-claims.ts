@@ -1,62 +1,54 @@
 /**
- * Admin claim → verified-account grant API (AECI-519 /
+ * Admin claim → vendor-account grant API (AECI-519 /
  * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §3). The admin action behind
- * `requireAdmin()` that turns an approved vendor CLAIM into a live verified
- * vendor account:
+ * `requireAdmin()` that turns an approved vendor CLAIM into a live vendor account
+ * on the Free plan:
  *
  *   PATCH /api/admin/claims/:id — approve (grant) / reject a claim.
  *
  * It also owns the claim-review READ surface and the operator note:
  *
  *   GET   /api/admin/claims           — the review queue (AECI-521 / §5).
- *   GET   /api/admin/claims/:id       — one claim (AECI-739 / §5.2 step 6).
+ *   GET   /api/admin/claims/:id       — one claim (AECI-739).
  *   PATCH /api/admin/claims/:id/notes — write/clear the operator note (AECI-739).
  *   GET   /api/admin/claims/:id/audit — the claim's audit trail (AECI-1276).
  *
- * ── THE OPERATOR NOTE (AECI-739 / §5.2 step 6) ────────────────────────────────
- * §5.2 tells an operator to PARK a pure-connector vendor's claim as `open` and
- * route it out of band, because Grant and Reject are both wrong for it. Until
- * AECI-739 there was nowhere in the product to record that decision — step 6 sent
- * the conversation to Linear comments "so nobody looks for an in-product home that
- * does not exist" — so the console showed a growing queue of `open` claims with no
- * visible reason why any of them was parked. The note is that home: one nullable
- * column, admin-authored, NEVER claimant-facing and never emailed, writable at any
- * status, and audited into the same `db.batch` as its write, which is what makes
- * the audit trail the note's history rather than the column.
+ * ── THE OPERATOR NOTE (AECI-739) ──────────────────────────────────────────────
+ * One nullable column, admin-authored, NEVER claimant-facing and never emailed,
+ * writable at any status, and audited into the same `db.batch` as its write, which
+ * is what makes the audit trail the note's history rather than the column. It was
+ * built for the parked connector claim. AECI-1367 retired parking (connector vendors
+ * are approved like anyone else), and the note stays as the operator's record of
+ * whatever was said out of band.
  *
  * A sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`), not a
  * replacement: corrections still moderate through the requests endpoint; a claim
  * moderates here so `approve` runs the §3 grant batch (link the `vendor_admin`
- * seat, open the entitlement, resolve the request — one atomic `db.batch`)
+ * seat, ensure the billing account, resolve the request — one atomic `db.batch`)
  * instead of a plain resolve. The batch mechanics live in `lib/vendor-grant.ts`;
  * the claimant email→auth-user resolution in `lib/claimant-identity.ts` (AECI-527);
  * this handler owns HTTP, the resolution→status mapping, the idempotency gate, and
- * the post-commit cache purge + claim-decision email seam.
+ * the post-commit claim-decision email seam.
  *
- * ── THE GRANT IS TWO COMPOSED BUILDERS (AECI-612 / §6) ────────────────────────
- * Since AECI-1215 (`STAGE_2_PAID_TIERS_SPEC.md` §13.6) the operator picks a plan on
- * every approve. `plan: 'free'` runs `grantSeatStatements` ALONE: no entitlement
- * row, no `vendors.verified` flip, no cache purge. `plan: 'managed'` is the
- * composition described here. `approveClaim` concatenates `grantSeatStatements(...)` (seat, request resolve,
- * workflow, claim audit) with `activateEntitlementStatements(...)` (the
- * `vendor_entitlements` row, the guarded `vendors.verified` flip, the entitlement
- * audit) into ONE `db.batch([...grant.stmts, ...ent.stmts])`. D1 has no
- * interactive transactions, so composition-into-one-batch is the only way the
- * seat and the entitlement can be atomic with each other.
+ * ── EVERY APPROVAL LANDS ON FREE (AECI-1367, `VENDOR_SIGNUP_PROCESS.md` §3 step 2) ──
+ * The operator no longer picks a plan. `approveClaim` composes three builders into
+ * ONE `db.batch`, and none of them is `activateEntitlementStatements`:
  *
- * Why two modules and not one: `vendors.verified` is a denormalized MIRROR of
- * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer
- * — enforced by an ESLint rule. `grantSeatStatements` no longer names `vendors`
- * at all. The §2.3 second-seat row is what makes this safe: when the vendor
- * already has an `active` entitlement, `ent.stmts` is `[]` and `ent.auditEntry` is
- * `null`, so the batch is exactly today's minus the no-op guarded UPDATE. An
- * unconditional INSERT there would violate `vendor_entitlements_vendor_key` and
- * roll back the entire seat grant.
+ *  1. `grantSeatStatements` (`lib/vendor-grant.ts`): the seat upsert, the request
+ *     resolve, the workflow and the `vendor_claim.granted` audit row. The seat is an
+ *     owner seat only when the vendor has no unbanned owner yet, decided in SQL.
+ *  2. `ensureBillingAccountStatements` (`lib/billing-account.ts`, AECI-1351): the
+ *     vendor's billing account and its `billing_account.created` row, or nothing
+ *     when the vendor already has one.
+ *  3. `linkClaimAcceptanceStatements` (`lib/agreement-acceptances.ts`): fills the
+ *     seat, vendor and billing account on the claim's terms acceptances, or nothing
+ *     when the claim has none.
  *
- * A third builder joins on both plans (AECI-1351): `ensureBillingAccountStatements`
- * (`lib/billing-account.ts`) adds the vendor's billing account and its
- * `billing_account.created` audit row when the vendor has none. It follows the same
- * second-seat rule: an existing account means zero statements and no audit row.
+ * Managed is bought later, as licenses on that billing account (E5, E9). No grant
+ * writes `vendor_entitlements` or moves `vendors.verified`, and
+ * `vendor-admin-role-writers.spec.ts` fences `activateEntitlementStatements` out of
+ * this file. `vendors.verified` stays a MIRROR whose sole writer is
+ * `lib/vendor-entitlement.ts`.
  *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
  * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
@@ -64,12 +56,9 @@
  * tests standalone; the real Resend templates (`lib/email.ts` `sendClaim*Email`)
  * are injected at the route registration in `index.ts`.
  *
- * Cache: unlike request-moderation (which purges nothing — a `vendor_request`
- * renders on no cacheable page), a Managed grant flips `vendors.verified`, so it
- * purges the vendor + its products' `Cache-Tag`s post-commit (§3). A Free grant
- * writes only the seat and the billing account, which no cacheable page renders
- * (the provision-seat route in `admin-vendors.ts` purges nothing for the same
- * reason), so it purges nothing.
+ * Cache: approve purges nothing. It writes a seat, maybe a billing account and the
+ * acceptance link, and no cacheable page renders any of them (the provision-seat
+ * route in `admin-vendors.ts` purges nothing for the same reason).
  */
 
 import {
@@ -85,8 +74,6 @@ import {
   type AdminClaimDetail,
   type AdminVendorSeat,
   type ClaimDuplicateSibling,
-  type ClaimEntitlement,
-  type ClaimGrantPlan,
   type ClaimGrantSummary,
   type LinkRef,
   type ListVendorClaimsResponse,
@@ -96,7 +83,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { tierFor, vendorPlanSnapshot, type EntitlementTier } from '@aeci/shared/entitlements';
+import { tierFor, vendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -119,7 +106,15 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { ensureBillingAccountStatements, type BillingAccountBefore } from '../lib/billing-account';
+import {
+  linkClaimAcceptanceStatements,
+  loadClaimAcceptanceIds,
+} from '../lib/agreement-acceptances';
+import {
+  ensureBillingAccountStatements,
+  loadBillingAccount,
+  type BillingAccountBefore,
+} from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
@@ -136,7 +131,6 @@ import {
   fetchAuthUserEmailsResult,
   type AuthEmailLookup,
 } from '../lib/supabase-admin';
-import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
 import {
   EMPTY_PRODUCT_ROLES,
   foldProductRoleGroups,
@@ -150,18 +144,12 @@ import {
   planSeatGrantReturn,
   seatsChangedError,
 } from '../lib/vendor-handback';
-import {
-  activateEntitlementStatements,
-  entitlementChangedError,
-  isEntitlementChangedError,
-  loadEntitlement,
-  loadLicenseDualWrite,
-  type EntitlementBefore,
-  type LicenseDualWriteBefore,
-} from '../lib/vendor-entitlement';
+import { loadEntitlement, type EntitlementBefore } from '../lib/vendor-entitlement';
 import {
   CLAIM_AUDIT_SOURCE,
+  claimDecisionRaceError,
   grantSeatStatements,
+  isClaimDecidedAbort,
   rejectClaimStatements,
   saveClaimNotesStatements,
 } from '../lib/vendor-grant';
@@ -178,8 +166,11 @@ type ClaimContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
  *
  * `targetName` is the claimed target's display name (the vendor's `companyName`, or
  * the product's `name` for a product claim) — resolved via `resolveRequestTargets`.
- * `identityOutcome` is set only on approve (`invited` → account just provisioned,
- * so the copy explains first-time sign-in; `linked` → an existing account).
+ * `vendorName` (AECI-1367, set on approve) is the granted vendor's company name, which
+ * the approval email names: the account belongs to the vendor even when the claim
+ * named one of its products. `identityOutcome` is set only on approve (`invited` →
+ * account just provisioned, so the copy says the account exists; `linked` → an
+ * existing account).
  */
 export type SendClaimDecisionEmail = (
   c: ClaimContext,
@@ -190,33 +181,12 @@ export type SendClaimDecisionEmail = (
     vendorId: string;
     vendorSlug: string;
     targetName: string;
+    vendorName?: string;
     identityOutcome?: 'linked' | 'invited';
-    /** Set only on approve (AECI-1215): the approved email has a Free and a Managed
-     *  variant, because the two plans unlock different things. */
-    plan?: ClaimGrantPlan;
   },
 ) => Promise<void>;
 
 const noopSendClaimEmail: SendClaimDecisionEmail = async () => {};
-
-/**
- * The tier a MANAGED claim approval grants (AECI-612 / §6.3). `verified` is the paid
- * ENTRY rung (§3.1) and the only one this flow mints — moving a vendor up a future
- * ladder is the admin `PATCH /api/admin/vendors/:id/entitlement` action (§5), not a
- * claim decision. Typed as `EntitlementTier`, so adding a rung to `TIERS` cannot
- * silently turn this into a free-form string. A FREE approval (AECI-1215 / §13.6)
- * mints no tier at all: Free is a seat with no row (§13.2).
- */
-const GRANT_TIER: EntitlementTier = 'verified';
-
-/**
- * `audit_log.action` for the entitlement row a claim approval opens. Distinct from
- * `ENTITLEMENT_ACTION.set` (the §5 admin action) so the `entity_type='vendor_entitlement',
- * entity_id=<vendor_id>` history ledger (§2.1) shows at a glance which grants came
- * from a claim and which an admin recorded by hand. It shares `metadata.source` with
- * the sibling `vendor_claim.granted` row, so the two read as one action.
- */
-const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -255,18 +225,15 @@ function emitClaimModeration(
 /** The preloaded grant target: the vendor a claim seats against, plus its
  *  entitlement row (`null` = never entitled) and its billing account. */
 interface ClaimTarget {
-  /** `companyName` names a billing account created by this grant (AECI-1351). */
-  vendor: TargetVendor & { companyName: string };
-  /** Preloaded so `activateEntitlementStatements` can branch the §2.3 matrix in TS
-   *  rather than with `onConflictDoUpdate` — that branch is what makes the
-   *  second-seat case emit genuinely nothing. */
+  /** `companyName` names a billing account created by this grant (AECI-1351) and
+   *  the vendor in the approval email (AECI-1367). */
+  vendor: { id: string; slug: string; verified: boolean; companyName: string };
+  /** Read, never written: it feeds the audit rows' plan snapshot, the seat return's
+   *  entitlement test and the response's `tier` (the vendor's live state). */
   entitlement: EntitlementBefore | null;
-  /** Preloaded for the same reason (AECI-1351): a vendor that already has an
-   *  account gets no statement and no audit row from `ensureBillingAccountStatements`. */
+  /** Preloaded so a vendor that already has an account gets no statement and no
+   *  audit row from `ensureBillingAccountStatements` (AECI-1351). */
   billingAccount: BillingAccountBefore | null;
-  /** The license side of the Managed dual-write (AECI-1353). Its `billingAccount` is
-   *  the one above: one read, two consumers. */
-  licenses: LicenseDualWriteBefore;
 }
 
 /**
@@ -276,11 +243,8 @@ interface ClaimTarget {
  * `resolveClaimantIdentity` is mandatory — exclusivity compares against
  * `profiles.vendor_id`, which can only ever hold a vendor id (§2).
  *
- * Also preloads the vendor's `vendor_entitlements` row (AECI-612 / §6.4) — one
- * extra single-row lookup on `vendor_entitlements_vendor_key`, on a path that
- * already does five reads. It feeds both the §2.3 activate branch and the
- * idempotent re-grant's `tier` readout, so no caller re-derives the `findFirst`.
- * The billing account (AECI-1351) is read in the same wave.
+ * Also preloads the vendor's `vendor_entitlements` row and its billing account in one
+ * wave, so no caller re-derives either lookup.
  */
 async function resolveTargetVendor(
   db: Db,
@@ -310,11 +274,11 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  const [entitlement, licenses] = await Promise.all([
+  const [entitlement, billingAccount] = await Promise.all([
     loadEntitlement(db, vendorId),
-    loadLicenseDualWrite(db, vendorId),
+    loadBillingAccount(db, vendorId),
   ]);
-  return { vendor, entitlement, billingAccount: licenses.billingAccount, licenses };
+  return { vendor, entitlement, billingAccount };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -333,23 +297,6 @@ async function findClaimWorkflow(
   return wf
     ? { workflowId: wf.id, existingWf: true }
     : { workflowId: crypto.randomUUID(), existingWf: false };
-}
-
-/** Enqueue the vendor + product Cache-Tag purge for a grant (§3). Best-effort:
- *  no-ops without the queue binding; a `queue.send` rejection is logged and
- *  swallowed — a cache miss must never fail a committed grant. */
-async function purgeGrantTags(c: ClaimContext, tags: readonly string[]): Promise<void> {
-  const queue = c.env.CACHE_PURGE_QUEUE;
-  if (!queue || tags.length === 0) return;
-  try {
-    await queue.send({ tags: [...tags], source: 'moderation' });
-  } catch (error) {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'warn',
-      message: `Cache purge enqueue failed for ${tags.join(',')}`,
-      outcome: error instanceof Error ? error.message : String(error),
-    });
-  }
 }
 
 /** Build the response row from the preloaded claim + the values just committed. */
@@ -410,8 +357,6 @@ export function createModerateClaimHandler(
       ? approveClaim(c, db, resolveIdentity, sendClaimDecisionEmail, {
           existing,
           reason,
-          plan: payload.plan,
-          entitlement: payload.entitlement,
           actorId,
           actorType,
         })
@@ -422,10 +367,6 @@ export function createModerateClaimHandler(
 interface ApproveArgs {
   existing: RawAdminVendorRequestRow;
   reason: string | null;
-  /** The operator's choice (AECI-1215 / §13.6). Required by the schema, no default. */
-  plan: ClaimGrantPlan;
-  /** Only ever set with `plan: 'managed'`; the schema refuses it on Free. */
-  entitlement: ClaimEntitlement | undefined;
   actorId: string;
   actorType: ReturnType<typeof auditActorType>;
 }
@@ -435,7 +376,7 @@ async function approveClaim(
   db: Db,
   resolveIdentity: typeof resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail,
-  { existing, reason, plan, entitlement, actorId, actorType }: ApproveArgs,
+  { existing, reason, actorId, actorType }: ApproveArgs,
 ): Promise<Response> {
   // A `rejected` claim was never granted, so it can never be a valid re-grant or an
   // idempotent no-op — refuse it up front, BEFORE `resolveIdentity`, whose provision
@@ -453,7 +394,6 @@ async function approveClaim(
     vendor,
     entitlement: entitlementBefore,
     billingAccount,
-    licenses,
   } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
@@ -514,6 +454,11 @@ async function approveClaim(
   const alreadySeated =
     profileBefore?.role === VENDOR_ADMIN_ROLE && profileBefore.vendorId === vendor.id;
 
+  // The response's `tier` is the vendor's live state. The grant writes no
+  // entitlement, so the pre-batch row IS the post-batch row. `tierFor` fails closed:
+  // a vendor with no `active` row reports `unclaimed` (Free).
+  const tier = tierFor(entitlementBefore);
+
   // Terminal-gate + idempotency. A re-grant of a claim already resolved to this
   // exact seat is a no-op (no batch, no audit noise). A resolved claim whose seat
   // is gone is a genuine invalid transition.
@@ -522,18 +467,14 @@ async function approveClaim(
       emitClaimModeration(c, 'approve', 'noop');
       const targets = await resolveRequestTargets(db, [existing]);
       // No batch is built on this path (§6.5) — the summary is a pure readout of
-      // the preloaded state. `tierFor` fails closed, so a vendor whose entitlement
-      // was cleared (or never backfilled) reports `unclaimed`, not a flattering
-      // `verified` derived from the mirror.
+      // the preloaded state.
       const body = claimResponse(existing, {}, targets.get(existing.targetId) ?? null, {
         user_id: userId,
         vendor_id: vendor.id,
         verified: vendor.verified,
         identity_outcome: identityOutcome,
         seat_created: false,
-        tier: tierFor(entitlementBefore),
-        entitlement_created: false,
-        plan,
+        tier,
       });
       validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
       return json(body);
@@ -547,12 +488,35 @@ async function approveClaim(
   }
 
   const resolvedAt = new Date().toISOString();
-  const { workflowId, existingWf } = await findClaimWorkflow(db, existing.id);
+  // One pre-batch snapshot for every row this grant writes. No second read.
+  const vendorPlan = vendorPlanSnapshot(entitlementBefore, resolvedAt);
+  const [{ workflowId, existingWf }, acceptanceIds] = await Promise.all([
+    findClaimWorkflow(db, existing.id),
+    loadClaimAcceptanceIds(db, existing.id),
+  ]);
+
+  // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2). A vendor
+  // that already has one gets the frozen no-op: no statement, no audit row, and
+  // nothing that names `vendors`, so a second seat leaves `vendors.updated_at` alone.
+  const account = ensureBillingAccountStatements(db, {
+    vendorId: vendor.id,
+    name: vendor.companyName,
+    createdBy: actorId,
+    actorType,
+    existing: billingAccount,
+    now: resolvedAt,
+    vendorPlan,
+    source: CLAIM_AUDIT_SOURCE,
+    sourceRequestId: existing.id,
+  });
+  // Exactly one of the two is set: the account the vendor had, or the one this batch
+  // creates. The acceptance link names it.
+  const billingAccountId = billingAccount?.id ?? account.billingAccountId;
 
   const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
-    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+    vendorPlan,
     requestId: existing.id,
     actorId,
     actorType,
@@ -565,75 +529,31 @@ async function approveClaim(
     seatCreated,
     profileBefore,
     submitterName: existing.submitterName,
-    entitlement,
-    plan,
+    billingAccountCreated: account.billingAccountId !== null,
     reason,
     targetType: existing.targetType,
     targetId: existing.targetId,
   });
 
-  // The entitlement half of the same grant (§6.3), on Managed only. `tier: 'verified'`
-  // is the paid entry rung (§3.1) — the claim flow grants no other. The claim body's
-  // arrangement blob lands in BOTH places on purpose (§6.6): verbatim in the claim
-  // audit metadata (the history ledger) and as columns on the row (the state).
-  //
-  // Per the §2.3 matrix this returns the frozen no-op — zero statements, `null`
-  // audit entry — whenever the vendor already has an `active` row, which is the
-  // second-seat case.
-  //
-  // Free (AECI-1215 / §13.6) skips this call entirely: no row, no mirror flip, no
-  // second audit row. An existing entitlement, active or ended, is left alone.
-  const managed = plan === 'managed';
-  const ent = !managed
-    ? null
-    : activateEntitlementStatements(db, {
+  // The claim's terms acceptances (E3.3 writes them at claim time) now name the seat,
+  // the vendor and the billing account (AECI-1367, `DATABASE_SCHEMA.md` §8.6d). No
+  // acceptances → no statement and no audit row.
+  const acceptances = billingAccountId
+    ? linkClaimAcceptanceStatements(db, {
+        vendorRequestId: existing.id,
+        acceptanceIds,
+        profileId: userId,
         vendorId: vendor.id,
-        tier: GRANT_TIER,
-        now: resolvedAt,
+        billingAccountId,
         actorId,
         actorType,
-        existing: entitlementBefore,
-        vendorWasVerified: vendor.verified,
-        grantedBy: actorId,
-        sourceRequestId: existing.id,
-        arrangement: entitlement,
-        action: ENTITLEMENT_GRANT_ACTION,
+        vendorPlan,
         source: CLAIM_AUDIT_SOURCE,
-        reason,
-        extraMetadata: { plan },
-        licenses,
-        vendorName: vendor.companyName,
-      });
+      })
+    : null;
 
-  // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2), on Free and
-  // Managed alike. A vendor that already has one gets the frozen no-op: no statement,
-  // no audit row, and nothing that names `vendors`, so a second seat leaves
-  // `vendors.updated_at` alone.
-  //
-  // AECI-1353: a Managed grant's dual-write already ensures the account (the license
-  // INSERTs need it first). The account it creates counts as existing here, so the
-  // batch carries exactly one account INSERT. When the activate is a no-op (second
-  // seat on an active vendor), this call still creates a missing account.
-  const createdByEntitlement = ent?.billingAccountCreatedId ?? null;
-  const account = ensureBillingAccountStatements(db, {
-    vendorId: vendor.id,
-    name: vendor.companyName,
-    createdBy: actorId,
-    actorType,
-    existing: billingAccount ?? (createdByEntitlement ? { id: createdByEntitlement } : null),
-    now: resolvedAt,
-    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
-    source: CLAIM_AUDIT_SOURCE,
-    sourceRequestId: existing.id,
-  });
-
-  // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
-  // the mirror flip, the billing account, the Managed licenses (AECI-1353) and every
-  // audit row commit or roll back together (§26.1).
-  // AECI-989: a new active seat returns the contests a ban moved to AECi.
-  // A Managed grant activates the entitlement in this same batch, which the return's
-  // pre-batch read cannot see (AECI-1092 reconciliation), so it says so. A Free grant
-  // activates nothing, so the return reads the vendor's real entitlement instead, the
+  // AECI-989: a new active seat returns the contests a ban moved to AECi. The grant
+  // activates no entitlement, so the return reads the vendor's real entitlement, the
   // same as the provision-seat route: a contest on a connector-powered row only
   // returns to an owner that already holds an active plan.
   const returned = await planSeatGrantReturn(
@@ -644,39 +564,34 @@ async function approveClaim(
       actorType,
       now: resolvedAt,
       source: CLAIM_AUDIT_SOURCE,
-      // The same pre-batch snapshot the grant's own rows carry. No second read.
-      vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+      vendorPlan,
     },
     userId,
-    { entitledAfterBatch: managed },
+    { entitledAfterBatch: false },
   );
 
+  // ONE batch. The seat, the request resolve, the workflow, the billing account, the
+  // acceptance link and every audit row commit or roll back together (§26.1).
+  //
   // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
   // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
   // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
-  // The admin's (or redeemer's) retry then re-plans against the cleared state.
+  // The admin's retry then re-plans against the cleared state.
   try {
     await db.batch([
       ...grant.stmts,
-      ...(ent?.stmts ?? []),
       ...account.stmts,
+      ...(acceptances?.stmts ?? []),
       ...(returned?.stmts ?? []),
     ] as BatchTuple);
   } catch (error) {
-    // AECI-1353: a Managed grant that reactivates the entitlement carries a sentinel
-    // that aborts when another activate committed first, and one that opens it trips
-    // the entitlement's unique key. A second seat writes no entitlement and cannot
-    // lose that race. The seat-return sentinels raise the same "malformed JSON", so
-    // when both ride the batch the row decides: it is active now only if the activate
-    // race is what aborted it.
-    if ((ent?.raceGuarded || ent?.entitlementCreated) && isEntitlementChangedError(error)) {
-      const raced =
-        !returned ||
-        !isSeatsChangedError(error) ||
-        (await loadEntitlement(db, vendor.id))?.status === 'active';
-      if (raced) {
+    // AECI-1333: the batch opens with `claimUndecidedSentinel`. Both it and the
+    // seat-return sentinels raise "malformed JSON", so a re-read says which fired.
+    if (isClaimDecidedAbort(error)) {
+      const decided = await claimDecisionRaceError(db, existing.id);
+      if (decided) {
         emitClaimModeration(c, 'approve', 'conflict');
-        throw entitlementChangedError();
+        throw decided;
       }
     }
     if (returned && isSeatsChangedError(error)) throw seatsChangedError();
@@ -689,17 +604,9 @@ async function approveClaim(
   const targets = await resolveRequestTargets(db, [existing]);
   const targetName = targets.get(existing.targetId)?.name ?? '';
 
-  // Post-commit, best-effort (§3): purge the vendor + its products, send the
-  // claim-approved email (AECI-528 seam), forward audit + workflow to PostHog.
-  //
-  // Managed keeps the purge it always had, second seat included. Free purges
-  // nothing: it wrote a seat and maybe a billing account, and no cacheable page
-  // renders either. A purge there would invalidate pages for a verified flip that
-  // did not happen (AECI-1215).
-  if (managed) {
-    const purgeTags = await vendorPurgeTags(db, vendor);
-    c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
-  }
+  // Post-commit, best-effort (§3): send the claim-approved email (AECI-528 seam) and
+  // forward audit + workflow to PostHog. No cache purge: nothing this batch wrote is
+  // rendered by a cacheable page.
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {
       decision: 'approved',
@@ -708,8 +615,8 @@ async function approveClaim(
       vendorId: vendor.id,
       vendorSlug: vendor.slug,
       targetName,
+      vendorName: vendor.companyName,
       identityOutcome,
-      plan,
     }).catch((error) => {
       try {
         logToPosthog(c.executionCtx, c.env, c.req.raw, {
@@ -724,17 +631,14 @@ async function approveClaim(
   );
   // Every audit row and transition forwards (§26.5) in ONE batched request: the
   // seat return adds a row and a transition per contest, so one `fetch` per row
-  // would run past the connection limit. `ent.auditEntry` is null on the
-  // second-seat path, and `ent` itself is null on Free. The batch skips both, and
-  // `account.auditEntry`, null when the vendor already had a billing account.
+  // would run past the connection limit. The billing-account and acceptance entries
+  // are null on their no-op paths, and the batch skips them.
   forwardAuditBatch(
     c,
     [
       grant.auditEntry,
-      ent?.auditEntry ?? null,
-      // AECI-1353: the Managed dual-write's account and license rows.
-      ...(ent?.licenseAuditEntries ?? []),
       account.auditEntry,
+      acceptances?.auditEntry ?? null,
       ...(returned?.audits ?? []),
     ],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],
@@ -747,24 +651,11 @@ async function approveClaim(
     {
       user_id: userId,
       vendor_id: vendor.id,
-      // Where the MIRROR actually landed, not an assumption. On Managed it is true
-      // on a first grant (the guarded flip fired) and on a second seat (already
-      // true). It is only false in the one drifted state this grant cannot repair —
-      // an `active` entitlement row over `verified = 0`, where the §2.3 matrix emits
-      // nothing and `ops:backfill-entitlements` (Guard 2's remedy) owns the fix.
-      // On Free it is whatever the vendor already had (§13.6).
-      verified: vendor.verified || (ent?.verifiedFlipped ?? false),
+      // No grant moves the mirror (AECI-1367), so this is what the vendor had.
+      verified: vendor.verified,
       identity_outcome: identityOutcome,
       seat_created: seatCreated,
-      // The tier this grant WROTE, or — on the second-seat no-op, where nothing was
-      // written — the tier the pre-existing active row already carries, resolved
-      // fail-closed. Today `TIERS` is binary so both arms say `verified`; the
-      // distinction is what keeps the readout honest once a rung is added (§3.1
-      // makes that a data-only edit).
-      // On Free nothing was written, so this is the pre-existing readout too.
-      tier: ent && ent.stmts.length > 0 ? GRANT_TIER : tierFor(entitlementBefore),
-      entitlement_created: ent?.entitlementCreated ?? false,
-      plan,
+      tier,
     },
   );
   validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
@@ -811,7 +702,20 @@ async function rejectClaim(
     targetId: existing.targetId,
   });
 
-  await db.batch(stmts as BatchTuple);
+  try {
+    await db.batch(stmts as BatchTuple);
+  } catch (error) {
+    // AECI-1333: another decision committed after the read above. The sentinel
+    // rolled the whole batch back, so nothing was written and no email goes out.
+    const decided = isClaimDecidedAbort(error)
+      ? await claimDecisionRaceError(db, existing.id)
+      : null;
+    if (decided) {
+      emitClaimModeration(c, 'reject', 'conflict');
+      throw decided;
+    }
+    throw error;
+  }
   emitClaimModeration(c, 'reject', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email
@@ -860,6 +764,29 @@ async function rejectClaim(
 const DUP_SEP = ' ';
 function dupKey(head: string, targetType: string, targetId: string): string {
   return `${head}${DUP_SEP}${targetType}${DUP_SEP}${targetId}`;
+}
+
+/**
+ * The page's rows plus one `(product, context_product_id)` pseudo-target per claim
+ * that came from a product page (AECI-1364), so `resolveRequestTargets` hydrates the
+ * "Came from" product in the same batched scan as the targets. Product and vendor
+ * ids are both UUIDs, so the one map it returns cannot collide.
+ */
+function withContextProducts(
+  rows: RawAdminVendorRequestRow[],
+): Array<{ targetType: string; targetId: string }> {
+  const extra = rows.flatMap((r) =>
+    r.contextProductId ? [{ targetType: 'product', targetId: r.contextProductId }] : [],
+  );
+  return [...rows, ...extra];
+}
+
+/** The hydrated "Came from" product for one claim, or `null` (AECI-1364). */
+function contextProductFor(
+  row: RawAdminVendorRequestRow,
+  targets: ReadonlyMap<string, LinkRef>,
+): LinkRef | null {
+  return row.contextProductId ? (targets.get(row.contextProductId) ?? null) : null;
 }
 
 /**
@@ -1217,7 +1144,8 @@ export function createAdminClaimsListHandler(
       productRolesByVendor,
       ownedIntegrationsByVendor,
     ] = await Promise.all([
-      resolveRequestTargets(db, rows),
+      // AECI-1364: the context products ride the same batched lookup as the targets.
+      resolveRequestTargets(db, withContextProducts(rows)),
       fetchAuthAccounts(c.env, claimEmails),
       vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
       loadRelatedRequests(db, rows, claimEmails).catch(() => null),
@@ -1291,6 +1219,7 @@ export function createAdminClaimsListHandler(
           ...entitlementFor(row),
           ...productRolesFor(row),
           ownedIntegrationsFor(row),
+          contextProductFor(row, targets),
         ),
       ),
       page: query.page,
@@ -1436,7 +1365,7 @@ async function buildClaimDetail(
     ownedIntegrationsByVendor,
     duplicateSiblings,
   ] = await Promise.all([
-    resolveRequestTargets(db, rows),
+    resolveRequestTargets(db, withContextProducts(rows)),
     fetchAuthAccounts(c.env, [row.submitterEmail]),
     vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
     loadRelatedRequests(db, rows, [row.submitterEmail]).catch(() => null),
@@ -1481,6 +1410,7 @@ async function buildClaimDetail(
       roles,
       roles ? isPureConnectorVendor(roles) : null,
       owned,
+      contextProductFor(row, targets),
     ),
     duplicate_siblings: duplicateSiblings,
   };

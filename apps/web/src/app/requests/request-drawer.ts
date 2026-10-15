@@ -70,6 +70,14 @@ export class RequestDrawer {
     computation: () => null,
   });
 
+  /** AECI-1366: whether the sent claim went to the company's owners first (AECI-1368).
+   *  Drops "We'll write to you there with our decision" from the sent subtitle, because
+   *  the owners decide. Reset with the target, like `sentTo`. */
+  protected readonly sentRouted = linkedSignal<unknown, boolean>({
+    source: () => this.drawer.target(),
+    computation: () => false,
+  });
+
   constructor() {
     // Browser-only: open/close the CDK overlay imperatively when the shared
     // service state changes. `viewChild` resolves after view init, so the dialog

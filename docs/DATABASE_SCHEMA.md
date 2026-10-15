@@ -1084,9 +1084,11 @@ create table profiles (
   work_email_verified boolean not null default false,
   -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
   -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
-  -- remove seats. Set by the admin claim grant and by the AECI-740 admin provision
-  -- (an AECi-reviewed seat IS the owner event), cleared by revoke; a seat created
-  -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
+  -- remove seats. Set by the AECI-740 admin provision (an AECi-reviewed seat IS the
+  -- owner event) and, since AECI-1367, by a claim grant ONLY when the vendor has no
+  -- unbanned owner seat (a later claimant joins as a non-owner colleague). Cleared by
+  -- revoke; a seat created by ACCEPTING an invite gets false, which is what bounds the
+  -- invite chain.
   -- Migration 0020 backfills every pre-existing vendor_admin to true.
   seat_owner boolean not null default false,
   -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
@@ -1314,6 +1316,21 @@ checks live in the Phase 6 form submission handler. Rationale: keeps room for
 Stage 2 to add claim/correction for additional entity types without another
 migration. See Phase 2 Spec §5.2.
 
+**Claims target the company (AECI-1364, 2026-10-15).** New claim rows always carry
+`target_type = 'vendor'`. A claim sent from a product page records the product in
+`context_product_id`. Claims stored before migration 0076 may still carry
+`target_type = 'product'`, so every claim reader (`resolveTargetVendor` on approve,
+the `/admin/claims` enrichment, the vendor portal's `vendorRequestsWhere`, the §6.7
+sweep and the stale-claim check) keeps handling both. Corrections keep their
+product or vendor target.
+
+**Claims routed to the owners (AECI-1368, 2026-10-15).** A claim on a company that
+already has an unbanned owner seat is stored with `routed_to_owners_at` set, and
+stays `open`. The owners accept or decline it from Seats. After 7 days with no
+decision the `claim_owner_fallback` cron clears it into `owner_fallback_at`, with an
+`audit_log` row per claim in the same batch. Neither column changes `status`, so the
+status CHECK is untouched. Migration 0077 is two nullable `ADD COLUMN`s.
+
 ```sql
 create table vendor_requests (
   id uuid primary key default gen_random_uuid(),
@@ -1350,9 +1367,29 @@ create table vendor_requests (
   -- AECI-1293 (migration 0070): the claimant's answer to "Which plan are you
   -- interested in?" ('free' | 'managed' | 'not_sure'), NULL when not answered, for
   -- a correction, or before the column. NO CHECK on purpose: a CHECK change is a
-  -- drizzle-kit table recreate, and this table has FK children. PlanInterestSchema
-  -- enforces the vocabulary. Informational; never preselects the approve form.
+  -- drizzle-kit table recreate, and this table has FK children.
+  -- DEPRECATED (AECI-1365, 2026-10-15): the plan question is removed. Nothing reads
+  -- or writes this column. Old rows keep their answers. E10 of
+  -- VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
   plan_interest text,
+
+  -- AECI-1364 (migration 0076): the product page a CLAIM came from. A claim is on
+  -- the company (VENDOR_SIGNUP_PROCESS.md decision 1): one posted with
+  -- target_type 'product' is stored with target_type 'vendor' and the product's
+  -- vendor id (primary, else any product_vendors row), and the product lands here.
+  -- NULL for a company-page claim, a correction (corrections keep their product
+  -- target), or a claim stored before 0076 (those keep target_type 'product').
+  -- NO FK and NO CHECK, like target_id: either is a drizzle-kit recreate here.
+  context_product_id text,
+
+  -- AECI-1368 (migration 0077): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10).
+  -- routed_to_owners_at: set at submit when the claimed company has an unbanned owner
+  -- seat, so its owners decide first. NULL for every other row.
+  -- owner_fallback_at: set by the claim_owner_fallback cron when it hands a routed
+  -- claim back to AECi after 7 days with no decision. It clears routed_to_owners_at
+  -- in the same statement. Both plain nullable ADD COLUMNs, never a CHECK.
+  routed_to_owners_at text,
+  owner_fallback_at text,
 
   -- Status
   status text not null default 'open'
@@ -1419,7 +1456,7 @@ create table listing_requests (
   submitter_name         text,
   submitter_role         text,
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
-  plan_interest          text,                  -- 'free' | 'managed' | 'not_sure' | NULL
+  plan_interest          text,                  -- DEPRECATED (AECI-1365): unread and unwritten; E10 drops it
   body                   text not null default '', -- "Additional comments"
   status                 text not null default 'open', -- 'open' | 'resolved' | 'rejected'
   created_at             text not null,
@@ -1438,7 +1475,8 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
 - **No FK and no CHECK**, the `field_overrides` precedent. `resolved_by` has no FK to
   `profiles`, so it is not one of `AUTH_AND_RLS.md`'s inbound FKs and the erasure batch
   has nothing new to null; an admin's id stays on the row as it does in audit metadata.
-  The `status` and `plan_interest` vocabularies are enforced by Zod.
+  The `status` vocabulary is enforced by Zod. `plan_interest` is deprecated
+  (AECI-1365): nothing writes it, and E10 drops it.
 - **Domain state, audited.** The insert writes `listing_request.created`, and each
   moderation `listing_request.resolved` / `listing_request.rejected`, in the same
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
@@ -1846,7 +1884,7 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 
 - **Creation point (AECI-1351).** `ensureBillingAccountStatements` in
   `apps/api/src/lib/billing-account.ts` adds the row to the batch that seats an owner: the
-  claim approval (`PATCH /api/admin/claims/:id`, Free and Managed alike) and the admin
+  claim approval (`PATCH /api/admin/claims/:id`, which lands every vendor on Free since AECI-1367) and the admin
   provision (`POST /api/admin/vendors/:id/seats`). The caller preloads the account with
   `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
   so a second seat writes nothing here. `name` is the vendor's `company_name`;
@@ -1859,8 +1897,9 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   and the route treats it as existing, so the batch carries one INSERT.
 - **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
   which is decision 10's owner flag. `ownerSeatsOf(vendorId)` in
-  `apps/api/src/routes/vendor-shared.ts` is the predicate. Claim-granted and
-  admin-provisioned seats are owners; invite-accepted seats stay non-owner.
+  `apps/api/src/routes/vendor-shared.ts` is the predicate. A claim grant
+  makes an owner only when the vendor has no unbanned owner seat (AECI-1367); admin-provisioned
+  seats are always owners; invite-accepted seats stay non-owner.
 - **Vendor retraction refuses.** `VENDOR_FK_HANDLING` in `apps/api/src/lib/retract-vendor.ts`
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
@@ -2041,6 +2080,7 @@ create table agreement_acceptances (
   vendor_id text,                  -- a vendors.id; NO FK
   billing_account_id text references billing_accounts(id),           -- NO ACTION
   vendor_request_id text references vendor_requests(id) on delete set null,
+  listing_request_id text references listing_requests(id) on delete set null, -- AECI-1366, migration 0078
   stripe_checkout_session_id text,
   accepted_at text not null,       -- ISO-8601
   ip text,                         -- CF-Connecting-IP; claim path only
@@ -2060,7 +2100,13 @@ create unique index agreement_acceptances_stripe_session_key
   audit row, plus the audit entry for the post-commit forward. It never runs a batch. The
   claim insert (E3) and the checkout webhook (E9) append both statements to their own
   `db.batch`, so the acceptance commits or rolls back with the claim or license. Neither
-  caller exists yet.
+  caller exists yet. *(As built 2026-10-15, AECI-1367: the claim-time link below is the
+  second builder, `linkClaimAcceptanceStatements`.)* *(As built 2026-10-15, AECI-1366: two
+  callers now exist. `POST /api/requests/claim` writes a `vendor_terms` row with
+  `vendor_request_id` = the new claim, and `POST /api/requests/listing` writes one with
+  `listing_request_id` = the new listing request. Both set `source = 'claim'`, stamp the
+  current version, `CF-Connecting-IP` and the user agent, and put both statements after
+  their own insert in their own batch. The checkout webhook (E9) is still to come.)*
 - **Current version only.** The helper refuses a version other than
   `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
@@ -2069,6 +2115,18 @@ create unique index agreement_acceptances_stripe_session_key
   `User-Agent` from the claim request's headers and cuts the user agent to 512 characters.
   A `checkout` row stores NULL for both even when headers are passed, because the webhook
   request comes from Stripe, not the buyer.
+- **Linked at claim approval (AECI-1367 — 2026-10-15).** A claim-time row is written with
+  `vendor_request_id` set and `profile_id`, `vendor_id` and `billing_account_id` null.
+  `approveClaim` fills them. The second builder, `linkClaimAcceptanceStatements` in
+  `apps/api/src/lib/agreement-acceptances.ts`, returns
+  `UPDATE agreement_acceptances SET profile_id, vendor_id, billing_account_id WHERE
+  vendor_request_id = <claim id>` and one `agreement.linked` audit row. A pre-read,
+  `loadClaimAcceptanceIds`, finds the rows first. The audit row is emitted only when it finds
+  some. It is filed under `entity_type = 'vendor_request'`, `entity_id` = the claim id, and
+  its `afterState` lists the `acceptance_ids`. Both go in the grant's `db.batch`, after
+  `ensureBillingAccountStatements`. `agreement.linked` is registered in
+  `packages/shared/src/audit-vendor-actions.ts` as an aeci-override action with `receipt`
+  false. The `accepted_at`, `email`, `ip` and `user_agent` columns are never touched.
 - **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
   change must never recreate the table (`docs/migrations.md` §0).
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
@@ -2080,6 +2138,13 @@ create unique index agreement_acceptances_stripe_session_key
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
   the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
+- **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0078).** The typed-in listing
+  path ("Not listed? Type it in") has no claim row, so its acceptance names the
+  `listing_requests` row instead. A claim-source row names exactly one of the two. Nullable,
+  `ON DELETE SET NULL`, added by one `ALTER TABLE ... ADD`. drizzle-kit dropped the
+  `ON DELETE` clause from the generated `ADD ... REFERENCES`, so the migration body is
+  hand-written (the 0047 precedent). Nothing links it at approval: a listing request grants
+  no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
   `id`. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
@@ -2938,7 +3003,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the eighteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the nineteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, and the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
@@ -4673,7 +4738,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
 - `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
-- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
+- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

@@ -6,6 +6,8 @@
  *   GET   /api/admin/requests     — the requests queue, filtered by kind/status,
  *                                    paginated.
  *   PATCH /api/admin/requests/:id — resolve / reject an open (or in-review) request.
+ *                                    Refuses a claim with 422 (AECI-1322): claims
+ *                                    moderate only via `PATCH /api/admin/claims/:id`.
  *
  * Source of truth: `docs/API_CONTRACTS.md` §6.10, `STAGE_1_PHASE_6_SPEC.md` §8.1.
  * The shape mirrors `routes/admin-reviews.ts` for the list + PATCH structure, and
@@ -282,6 +284,20 @@ export function createModerateRequestHandler(
       where: eq(vendorRequests.id, id),
     })) as RawAdminVendorRequestRow | undefined;
     if (!existing) throw notFoundError('vendor_request', { id });
+    // AECI-1322: a claim never moderates here, for either action. A generic resolve
+    // stamps `resolved_by_id` with no seat behind it, so `AdminClaim.granted` would
+    // read true for a claim nobody granted. Grant and Reject on /admin/claims
+    // (`PATCH /api/admin/claims/:id`) are the only way a claim reaches a terminal
+    // status from the site. Checked before the status gate so an already-terminal
+    // claim gets the same pointer. The mirror of the 422 in `admin-claims.ts`.
+    if (existing.kind === 'claim') {
+      emitRequestModeration(c, payload.action, 'invalid_state');
+      throw new ApiError(
+        422,
+        ApiErrorCode.INVALID_STATE_TRANSITION,
+        `Request ${id} is a claim; use Grant or Reject on /admin/claims (PATCH /api/admin/claims/:id).`,
+      );
+    }
     if (existing.status === 'resolved' || existing.status === 'rejected') {
       emitRequestModeration(c, payload.action, 'invalid_state');
       throw new ApiError(
@@ -297,7 +313,8 @@ export function createModerateRequestHandler(
     const reason = payload.reason?.trim() ? payload.reason.trim() : null;
     const resolvedAt = new Date().toISOString();
     const fromState = existing.status; // 'open' | 'in_review' — the real prior state.
-    const workflowType = existing.kind === 'claim' ? 'vendor_claim' : 'correction_request';
+    // Claims are refused above (AECI-1322), so every row here is a correction.
+    const workflowType = 'correction_request';
     const metadata = {
       source: 'admin-moderation',
       kind: existing.kind,

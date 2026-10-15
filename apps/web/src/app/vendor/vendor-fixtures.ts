@@ -33,6 +33,7 @@ import type {
   VendorProductConnectorsResponse,
   VendorSeat,
   ManageableSeatInvite,
+  PendingSeatClaim,
   VendorChecklistResponse,
   VendorProductChecklistResponse,
   VendorProductChecklistSummary,
@@ -838,6 +839,25 @@ export const VENDOR_SEAT_INVITES_FIXTURE: readonly ManageableSeatInvite[] = [
     // revoke-and-re-invite rather than at waiting.
     last_sent_at: '2026-08-24T10:00:00.000Z',
     resend_state: 'send_limit',
+  },
+];
+
+/**
+ * One claim routed to the company's owners (AECI-1368 / §11a.10), so the preview
+ * shows the "Wants to join" list with its Accept and Decline controls. Every
+ * optional field is filled, so the row renders at its fullest.
+ */
+export const VENDOR_PENDING_SEAT_CLAIMS_FIXTURE: readonly PendingSeatClaim[] = [
+  {
+    id: '00000000-0000-4000-8000-0000000052d1',
+    submitter_name: 'Riley Chen',
+    submitter_role: 'Integrations lead',
+    submitter_email: 'riley@summitbim.example.com',
+    submitter_linkedin_url: 'https://www.linkedin.com/in/riley-chen-example',
+    comments: 'I maintain our Revit and Procore connectors and would like to keep them current.',
+    created_at: '2026-08-24T15:00:00.000Z',
+    routed_to_owners_at: '2026-08-24T15:00:00.000Z',
+    context_product_name: 'Summit Coordinate',
   },
 ];
 

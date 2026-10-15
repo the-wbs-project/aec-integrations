@@ -32,11 +32,14 @@ import {
   sendAttestationDigestEmail,
   sendAttestationOpsDigestEmail,
   sendClaimApprovedEmail,
+  sendClaimReceivedEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
   sendContestDeclinedProtestWindowEmail,
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
+  sendClaimOwnerFallbackAlert,
+  sendClaimOwnerReviewEmail,
   sendContestSubmittedNotification,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -281,6 +284,20 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
       }),
   },
   // AECI-1293: the queue CTA is ours and tagged. Every visitor-typed value is plain.
+  'claim-received': {
+    links: true,
+    send: (c) =>
+      sendClaimReceivedEmail(c, {
+        to: 'pat@acme.example.com',
+        subject: {
+          kind: 'claim',
+          requestId: 'req-1',
+          companyName: 'Acme',
+          contextProductName: 'Acme Field',
+          routedToOwnersAt: null,
+        },
+      }),
+  },
   'listing-request-alert': {
     links: true,
     verbatim: ['https://sitediary.example.com'],
@@ -294,7 +311,6 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
           submitterName: 'Pat',
           submitterRole: 'Founder',
           submitterLinkedinUrl: null,
-          planInterest: 'managed',
           body: '',
         },
       }),
@@ -413,7 +429,6 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         to: 'claimant@bentley.example',
         vendorName: 'Bentley',
         invited: true,
-        plan: 'free',
       }),
   },
   'claim-rejected': {
@@ -460,6 +475,42 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             ageMinutes: 90,
             retried: true,
             reason: 'timeout',
+          },
+        ],
+      }),
+  },
+  'claim-owner-review': {
+    links: true,
+    send: (c) =>
+      sendClaimOwnerReviewEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'claim-owner-review:req-1:p-1',
+        requestId: 'req-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        submitterEmail: 'claimant@bentley.example',
+        submitterName: 'Casey Claimant',
+        submitterRole: 'Product manager',
+        submitterLinkedinUrl: 'https://www.linkedin.com/in/casey',
+        comments: 'I run the integrations team.',
+        contextProductName: 'MicroStation',
+        decideBy: '2026-10-22T14:30:00.000Z',
+      }),
+  },
+  'claim-owner-fallback-alert': {
+    links: true,
+    send: (c) =>
+      sendClaimOwnerFallbackAlert(c, {
+        to: 'support@aecintegrations.com',
+        rows: [
+          {
+            requestId: 'req-1',
+            vendorName: 'Bentley',
+            submitterEmail: 'claimant@bentley.example',
+            submitterName: 'Casey Claimant',
+            createdAt: '2026-10-08T14:30:00.000Z',
+            routedToOwnersAt: '2026-10-08T14:30:00.000Z',
+            adminUrl: adminRequestUrl(c.env, 'claim', 'req-1'),
           },
         ],
       }),
@@ -702,7 +753,7 @@ describe('the CTA shows one tagged URL everywhere (AECI-1209)', () => {
     await FIXTURES['claim-approved'].send(ctx());
     const { html, text } = captured('claim-approved');
     const [row] = await t.db.select().from(notificationSends);
-    const expected = `${SITE}/vendor?utm_source=email&utm_campaign=claim-approved&n=${row!.id}`;
+    const expected = `${SITE}/auth/login?return=%2Fvendor&utm_source=email&utm_campaign=claim-approved&n=${row!.id}`;
 
     // `<a href>` and `v:roundrect href`, escaped once.
     const escaped = expected.replace(/&/g, '&amp;');
@@ -710,7 +761,7 @@ describe('the CTA shows one tagged URL everywhere (AECI-1209)', () => {
     // The pasteable row.
     expect(html).toContain(`word-break:break-all">${escaped}</div>`);
     // The text part.
-    expect(text).toContain(`Go to your vendor portal: ${expected}`);
+    expect(text).toContain(`Sign in: ${expected}`);
     // Never double-escaped.
     expect(html).not.toContain('&amp;amp;');
   });
@@ -742,7 +793,9 @@ describe('the ledger row id is the n in the links (AECI-1209 + AECI-1202)', () =
 
     expect(await FIXTURES['claim-approved'].send(ctx())).toBe('sent');
     const { text } = captured('claim-approved');
-    expect(text).toContain(`${SITE}/vendor?utm_source=email&utm_campaign=claim-approved\n`);
+    expect(text).toContain(
+      `${SITE}/auth/login?return=%2Fvendor&utm_source=email&utm_campaign=claim-approved\n`,
+    );
   });
 
   it('a duplicate makes no fetch, so nothing is rendered for it', async () => {

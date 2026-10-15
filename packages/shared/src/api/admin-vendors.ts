@@ -548,7 +548,8 @@ export type AdminVendorAuditResponse = z.infer<typeof AdminVendorAuditResponseSc
  * by **no `vendor_entitlements` row**. §8.9(2) then proved every existing path to
  * a seat was foreclosed: `approveClaim` composes `grantSeatStatements` with
  * `activateEntitlementStatements` at `GRANT_TIER = 'verified'` in one batch, so
- * approving such a claim *always* opens an entitlement and flips `verified`; the
+ * approving such a claim *always* opened an entitlement and flipped `verified`
+ * (AECI-1367 has since made every approval land on Free, with no entitlement); the
  * seat-invite redeem needs an existing OWNER seat, which only a grant creates;
  * and no admin route wrote `role = 'vendor_admin'` at all. So
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 was a nine-step operator procedure whose

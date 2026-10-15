@@ -7,22 +7,19 @@
  * A stub middleware sets the `auth` Variable `requireAdmin()` would; the AECI-527
  * identity-resolution seam and the AECI-528 email seam are injected so the grant
  * is exercised without a live Supabase or Resend. The AC matrix: grant builds the
- * atomic batch (seat + verified + request + audit); `updated_at` bumped; the
- * no-clobber upsert preserves owned columns; a second seat doesn't re-flip
- * verified or churn `updated_at`; idempotent re-grant is a 200 no-op; both
+ * atomic batch (seat + request + workflow + billing account + audit); the
+ * no-clobber upsert preserves owned columns; a second seat leaves `verified` and
+ * `updated_at` alone; idempotent re-grant is a 200 no-op; both
  * conflict cases → 409 `GRANT_CONFLICT`; `unavailable`/`error` → 503; reject
  * mutates no vendor and enqueues no purge; a `target_type='product'` claim grants
  * the product's primary vendor; and the revoke mechanic leaves `verified`
  * untouched.
  *
- * AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) folded the entitlement half in: the
- * grant now composes `grantSeatStatements` + `activateEntitlementStatements` into
- * ONE `db.batch`, so the matrix also covers the `vendor_entitlements` row landing
- * with the seat, the §2.3 second-seat NO-OP (zero entitlement statements, zero
- * `vendors` statements — an INSERT there would violate the unique index and roll
- * the seat grant back), reactivation on a re-claim after revoke, and the two audit
- * rows a first grant now writes. `verified` is no longer written from
- * `lib/vendor-grant.ts` at all; `vendor-grant.spec.ts` guards that.
+ * AECI-1367 made every approval land on Free: the grant composes the seat batch,
+ * the billing account and the acceptance link into ONE `db.batch`, and never an
+ * entitlement. The matrix covers the 400 on a body that still names a plan, the
+ * owner rule (first unbanned owner only), the acceptance link, no purge, and a
+ * Managed vendor from before keeping its entitlement on a second seat.
  */
 
 import {
@@ -36,6 +33,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   auditLog,
   billingAccounts,
   connectorEvidencedPairs,
@@ -302,102 +300,68 @@ const requestOf = async (id: string) =>
   (await t.db.select().from(vendorRequests).where(eq(vendorRequests.id, id)))[0];
 
 // ─── Grant (approve) ─────────────────────────────────────────────────────────
+//
+// AECI-1367: every approval lands on Free. The batch is the seat, the request
+// resolve, the workflow, the billing account when absent and the acceptance link.
+// No entitlement row, no `vendors.verified` flip, no purge.
+
+/** A claim-time terms acceptance on the claim, the row E3.3 will write. */
+const seedAcceptance = (id: string, vendorRequestId = REQUEST_ID) =>
+  t.db.insert(agreementAcceptances).values({
+    id,
+    document: 'vendor_terms',
+    version: '1.0',
+    source: 'claim',
+    email: CLAIMANT_EMAIL,
+    vendorRequestId,
+    acceptedAt: '2026-06-01T00:00:00.000Z',
+  });
 
 describe('PATCH /api/admin/claims/:id — grant', () => {
-  it('links the seat, flips verified (+ bumps updated_at), resolves the claim, audits — atomically', async () => {
+  it('lands on Free: seat, resolve, workflow, billing account and audit in one batch; no entitlement, no flip, no purge', async () => {
     await seedVendor();
     await seedRequest();
     await seedWorkflow();
     const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    const batchSpy = vi.spyOn(t.db, 'batch');
 
     const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
       action: 'approve',
-      plan: 'managed',
-      entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
     });
 
     expect(status).toBe(200);
-    expect(body.grant).toMatchObject({
+    expect(body.grant).toEqual({
       user_id: CLAIMANT_ID,
       vendor_id: VENDOR_ID,
-      verified: true,
+      verified: false,
       identity_outcome: 'linked',
       seat_created: true,
-      // AECI-612: the grant opened the entitlement row that `verified` mirrors.
-      tier: 'verified',
-      entitlement_created: true,
-      plan: 'managed',
+      tier: 'unclaimed',
     });
     expect(body.request.status).toBe('resolved');
     expect(body.request.resolved_by).toBe(ADMIN_ID);
 
-    // Seat linked.
+    // The seat, an owner: the vendor had no owner seat.
     const seat = await profileOf(CLAIMANT_ID);
-    expect(seat!.role).toBe('vendor_admin');
-    expect(seat!.vendorId).toBe(VENDOR_ID);
+    expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
 
-    // Verified flipped + updated_at bumped off the seeded value.
+    // No entitlement row, and the vendor row is exactly as seeded.
+    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
     const vendor = await vendorOf(VENDOR_ID);
-    expect(vendor!.verified).toBe(true);
-    expect(vendor!.updatedAt).not.toBe(OLD_TS);
+    expect(vendor!.verified).toBe(false);
+    expect(vendor!.updatedAt).toBe(OLD_TS);
 
-    // Request resolved.
+    // ONE batch: `grantSeatStatements`' six statements (the AECI-1333 sentinel first)
+    // and the billing account's two.
+    // The claim has no acceptances, so the link adds nothing.
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(8);
+    batchSpy.mockRestore();
+
     const req = await requestOf(REQUEST_ID);
-    expect(req!.status).toBe('resolved');
-    expect(req!.resolvedById).toBe(ADMIN_ID);
+    expect(req).toMatchObject({ status: 'resolved', resolvedById: ADMIN_ID });
 
-    // The entitlement row `verified` mirrors, opened in the SAME batch (AECI-612 §6).
-    const ents = await t.db.select().from(vendorEntitlements);
-    expect(ents).toHaveLength(1);
-    expect(ents[0]).toMatchObject({
-      vendorId: VENDOR_ID,
-      tier: 'verified',
-      status: 'active',
-      payer: 'Autodesk AP',
-      amount: 'USD 5,000/yr',
-      grantedBy: ADMIN_ID,
-      sourceRequestId: REQUEST_ID,
-    });
-
-    // FOUR audit rows in the same batch: the claim decision and the entitlement it
-    // opened (AECI-612), the billing account (AECI-1351), and the one license the
-    // Managed dual-write grants a vendor with no products (AECI-1353). The claim row's
-    // shape is unchanged; the entitlement row is what makes
-    // `entity_type='vendor_entitlement'` the history ledger (§2.1).
-    const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(4);
-    const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
-    expect(claimAudit.actorId).toBe(ADMIN_ID);
-    // AECI-1192 / AECI-1193: the column, and the plan BEFORE the grant.
-    expect(claimAudit).toMatchObject({
-      vendorId: VENDOR_ID,
-      vendorTier: 'none',
-      vendorEntitlementStatus: 'none',
-    });
-    expect(claimAudit.metadata).toMatchObject({
-      source: 'admin-moderation',
-      vendorId: VENDOR_ID,
-      identity_outcome: 'linked',
-      verified_flipped: true,
-      entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
-      // AECI-1215: both rows of a Managed grant carry the operator's choice.
-      plan: 'managed',
-    });
-    const entAudit = audits.find((a) => a.action === 'vendor_entitlement.granted')!;
-    expect(entAudit.entityType).toBe('vendor_entitlement');
-    // entity_id is the VENDOR id — that is what makes the ledger queryable.
-    expect(entAudit.entityId).toBe(VENDOR_ID);
-    expect(entAudit.metadata).toMatchObject({
-      // Shares `source` with the claim row, so the two read as one action.
-      source: 'admin-moderation',
-      verified_flipped: true,
-      entitlement_created: true,
-      source_request_id: REQUEST_ID,
-      plan: 'managed',
-    });
-
-    // The billing account, created by the first owner seat (AECI-1351), named for the
-    // vendor and with no billing email until checkout (decision 16).
+    // The billing account, named for the vendor, no billing email until checkout.
     const accounts = await t.db.select().from(billingAccounts);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({
@@ -406,43 +370,138 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       billingEmail: null,
       createdBy: ADMIN_ID,
     });
+
+    // TWO audit rows: the claim decision and the billing account.
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.action).sort()).toEqual([
+      'billing_account.created',
+      'vendor_claim.granted',
+    ]);
+    const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
+    // AECI-1192 / AECI-1193: the column, and the plan BEFORE the grant.
+    expect(claimAudit).toMatchObject({
+      actorId: ADMIN_ID,
+      vendorId: VENDOR_ID,
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
+    });
+    expect(claimAudit.metadata).toMatchObject({
+      source: 'admin-moderation',
+      vendorId: VENDOR_ID,
+      identity_outcome: 'linked',
+      verified_flipped: false,
+      billing_account_created: true,
+    });
+    expect(claimAudit.metadata).not.toHaveProperty('plan');
+    expect(claimAudit.afterState).toMatchObject({ vendor_verified: false });
     const accountAudit = audits.find((a) => a.action === 'billing_account.created')!;
     expect(accountAudit).toMatchObject({
       entityType: 'billing_account',
       entityId: accounts[0]!.id,
-      actorId: ADMIN_ID,
       vendorId: VENDOR_ID,
     });
-    expect(accountAudit.metadata).toMatchObject({
-      source: 'admin-moderation',
-      source_request_id: REQUEST_ID,
-    });
+    expect(accountAudit.metadata).toMatchObject({ source_request_id: REQUEST_ID });
 
     // Workflow completed + transition.
     const [wf] = await t.db
       .select()
       .from(workflowInstances)
       .where(eq(workflowInstances.entityId, REQUEST_ID));
-    expect(wf!.currentState).toBe('resolved');
-    expect(wf!.finalOutcome).toBe('completed');
-    const transitions = await t.db.select().from(workflowTransitions);
-    expect(transitions).toHaveLength(1);
-    expect(transitions[0]!.toState).toBe('resolved');
+    expect(wf).toMatchObject({ currentState: 'resolved', finalOutcome: 'completed' });
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
 
-    // Post-commit: vendor + product purge enqueued (no products here → vendor tag only).
-    expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
-    // Claim-approved email fired to the resolved address, carrying the vendor name
-    // + identity outcome the template branches on (AECI-528).
+    // Approve purges nothing: no cacheable page renders a seat or an account.
+    expect(send).not.toHaveBeenCalled();
+    // The approved email names the vendor, with no plan in the seam.
     expect(email).toHaveBeenCalledTimes(1);
     expect(email.mock.calls[0]![1]).toMatchObject({
       decision: 'approved',
       to: CLAIMANT_EMAIL,
       targetName: 'Autodesk, Inc.',
+      vendorName: 'Autodesk, Inc.',
       identityOutcome: 'linked',
-      plan: 'managed',
     });
+    expect(email.mock.calls[0]![1]).not.toHaveProperty('plan');
 
     expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
+  });
+
+  it.each([
+    ['plan', { plan: 'free' }],
+    ['plan', { plan: 'managed' }],
+    ['entitlement', { entitlement: { notes: 'PO 4417' } }],
+  ])(
+    'refuses an approve that names %s as 400 VALIDATION_FAILED, writing nothing',
+    async (field, extra) => {
+      await seedVendor();
+      await seedRequest();
+      const resolve = resolveThrows();
+
+      const { status, body } = await patchClaim(moderateApp(resolve), {
+        action: 'approve',
+        ...extra,
+      });
+
+      expect(status).toBe(400);
+      expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+      expect(body.error.field).toBe(field);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+      expect((await requestOf(REQUEST_ID))!.status).toBe('open');
+    },
+  );
+
+  it('links the claim’s terms acceptances to the seat, vendor and new billing account in the same batch', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedRequest({ id: REQUEST2_ID, submitterEmail: 'other@vendor.com' });
+    const MINE = 'abababab-abab-4bab-8bab-abababababab';
+    const THEIRS = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+    await seedAcceptance(MINE);
+    await seedAcceptance(THEIRS, REQUEST2_ID);
+    const batchSpy = vi.spyOn(t.db, 'batch');
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    // 6 seat (with the AECI-1333 sentinel) + 2 billing account + 2 acceptance link.
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
+    batchSpy.mockRestore();
+
+    const account = (await t.db.select().from(billingAccounts))[0]!;
+    const rows = new Map(
+      (await t.db.select().from(agreementAcceptances)).map((r) => [r.id, r] as const),
+    );
+    expect(rows.get(MINE)).toMatchObject({
+      profileId: CLAIMANT_ID,
+      vendorId: VENDOR_ID,
+      billingAccountId: account.id,
+    });
+    expect(rows.get(THEIRS)).toMatchObject({ profileId: null, billingAccountId: null });
+
+    const link = (await t.db.select().from(auditLog)).find((a) => a.action === 'agreement.linked')!;
+    expect(link).toMatchObject({
+      entityType: 'vendor_request',
+      entityId: REQUEST_ID,
+      vendorId: VENDOR_ID,
+      actorId: ADMIN_ID,
+    });
+  });
+
+  it('links acceptances to the EXISTING billing account on a vendor that has one', async () => {
+    await seedVendor();
+    await seedBillingAccount();
+    await seedRequest();
+    const MINE = 'abababab-abab-4bab-8bab-abababababab';
+    await seedAcceptance(MINE);
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    const row = (await t.db.select().from(agreementAcceptances))[0]!;
+    expect(row.billingAccountId).toBe(BILLING_ACCOUNT_ID);
   });
 
   it("forwards the grant's audit rows and transition in ONE batched request (connection limit)", async () => {
@@ -450,36 +509,23 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedRequest();
     vi.mocked(logBatchToPosthog).mockClear();
     vi.mocked(logToPosthog).mockClear();
-    const { status } = await patchClaim(moderateApp(resolveInvited()), {
-      action: 'approve',
-      plan: 'managed',
-    });
+    const { status } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
     expect(status).toBe(200);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
     const messages = events.map((e) => e.message);
-    // The claim row, the entitlement row, the billing-account row, the license row
-    // (AECI-1353) and the workflow transition, in one request.
-    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(4);
+    // The claim row, the billing-account row and the workflow transition.
+    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(2);
     expect(messages.filter((m) => m.startsWith('workflow '))).toHaveLength(1);
-    // No per-row forward is left behind.
-    expect(
-      vi
-        .mocked(logToPosthog)
-        .mock.calls.filter((call) =>
-          String((call[3] as { message?: string }).message ?? '').startsWith('audit '),
-        ),
-    ).toEqual([]);
+    expect(perRowAuditForwards()).toEqual([]);
   });
 
   it('provisions a seat for an invited claimant (no prior profile row)', async () => {
     await seedVendor();
     await seedRequest();
     const resolve = resolveInvited();
-    const { status, body } = await patchClaim(moderateApp(resolve), {
-      action: 'approve',
-      plan: 'managed',
-    });
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    const { status, body } = await patchClaim(moderateApp(resolve, email), { action: 'approve' });
 
     expect(status).toBe(200);
     expect(body.grant).toMatchObject({ identity_outcome: 'invited', seat_created: true });
@@ -492,6 +538,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       expect.anything(),
       expect.objectContaining({ provision: true }),
     );
+    expect(email.mock.calls[0]![1]).toMatchObject({ identityOutcome: 'invited' });
   });
 
   it('upgrades an existing profile without clobbering display_name / theme_preference (no-clobber)', async () => {
@@ -513,7 +560,6 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     };
     const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(200);
@@ -539,7 +585,6 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
     const { status } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
-      plan: 'free',
     });
 
     expect(status).toBe(200);
@@ -555,10 +600,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   it('names a provisioned seat, and the first sign-in keeps that name', async () => {
     await seedVendor();
     await seedRequest();
-    const { status } = await patchClaim(moderateApp(resolveInvited()), {
-      action: 'approve',
-      plan: 'free',
-    });
+    const { status } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
     expect(status).toBe(200);
     expect((await profileOf(CLAIMANT_ID))!.displayName).toBe('Sam Submitter');
 
@@ -571,10 +613,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   it('does not fill or truncate a claim name longer than the account cap', async () => {
     await seedVendor();
     await seedRequest({ submitterName: 'N'.repeat(81) });
-    const { status } = await patchClaim(moderateApp(resolveInvited()), {
-      action: 'approve',
-      plan: 'free',
-    });
+    const { status } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
     expect(status).toBe(200);
     expect((await profileOf(CLAIMANT_ID))!.displayName).toBeNull();
     const grantAudit = (await t.db.select().from(auditLog)).find(
@@ -583,49 +622,62 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(grantAudit.metadata).toMatchObject({ display_name_filled: false });
   });
 
-  it('grants a second seat without re-flipping verified or churning updated_at (multi-seat safe)', async () => {
+  it('a second seat on a seated vendor is a non-owner; verified, entitlement and account untouched', async () => {
     await seedVendor({ verified: true, updatedAt: OLD_TS });
-    // The active entitlement the verified vendor already holds — the §2.3 row-2 state.
+    // A Managed vendor from before AECI-1367: an active entitlement and an account.
     await seedEntitlement('active');
-    // And the billing account seat A's approval created (AECI-1351).
     await seedBillingAccount();
-    // Existing seat A.
+    // Existing owner seat A.
     await t.db
       .insert(profiles)
-      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
-    // A second, open claim for the same vendor from a different submitter.
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
     await seedRequest({ id: REQUEST2_ID, submitterEmail: 'second@vendor.com' });
 
     const { status, body } = await patchClaim(
       moderateApp(resolveLinked(null, CLAIMANT2_ID)),
-      { action: 'approve', plan: 'managed' },
+      { action: 'approve' },
       REQUEST2_ID,
     );
 
     expect(status).toBe(200);
-    // Second seat granted.
-    expect((await profileOf(CLAIMANT2_ID))!.role).toBe('vendor_admin');
-    // Verified untouched, updated_at NOT churned (guarded flip was a no-op).
+    // Owner rule (Portal §11a.4): the vendor already had an unbanned owner.
+    expect(await profileOf(CLAIMANT2_ID)).toMatchObject({
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      seatOwner: false,
+    });
+    expect((await profileOf(CLAIMANT_ID))!.seatOwner).toBe(true);
     const vendor = await vendorOf(VENDOR_ID);
     expect(vendor!.verified).toBe(true);
     expect(vendor!.updatedAt).toBe(OLD_TS);
-    // The grant is still audited, but records that it did not flip verification.
-    const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]!.metadata).toMatchObject({ verified_flipped: false });
-
-    // §2.3 row 2 (AECI-612): the entitlement builder emitted NOTHING — no second row
-    // (an INSERT would violate `vendor_entitlements_vendor_key` and roll the whole
-    // seat grant back), no second audit row, and the existing row is untouched.
     const ents = await t.db.select().from(vendorEntitlements);
     expect(ents).toHaveLength(1);
-    expect(ents[0]!.updatedAt).toBe(OLD_TS);
-    expect(body.grant).toMatchObject({ tier: 'verified', entitlement_created: false });
-
-    // AECI-1351: the account seat A's approval created is the only one, untouched.
+    expect(ents[0]).toMatchObject({ status: 'active', updatedAt: OLD_TS });
+    // `tier` is the vendor's live state: still Managed.
+    expect(body.grant).toMatchObject({ tier: 'verified', verified: true });
     const accounts = await t.db.select().from(billingAccounts);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({ id: BILLING_ACCOUNT_ID, updatedAt: OLD_TS });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.action)).toEqual(['vendor_claim.granted']);
+    expect(audits[0]!.metadata).toMatchObject({ billing_account_created: false });
+  });
+
+  it('a claimant on a vendor whose only owner is banned becomes the owner', async () => {
+    await seedVendor();
+    await t.db.insert(profiles).values({
+      id: CLAIMANT2_ID,
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      seatOwner: true,
+      bannedAt: OLD_TS,
+    });
+    await seedRequest();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect((await profileOf(CLAIMANT_ID))!.seatOwner).toBe(true);
   });
 
   it('a seated vendor with no billing account yet gets one with the next seat (pre-back-fill)', async () => {
@@ -640,7 +692,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     const { status } = await patchClaim(
       moderateApp(resolveLinked(null, CLAIMANT2_ID)),
-      { action: 'approve', plan: 'managed' },
+      { action: 'approve' },
       REQUEST2_ID,
     );
 
@@ -654,100 +706,39 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect((await vendorOf(VENDOR_ID))!.updatedAt).toBe(OLD_TS);
   });
 
-  it('re-claiming a revoked vendor REACTIVATES the existing row rather than inserting a second', async () => {
-    // The unique index makes this the only safe shape (§2.3 row 3): a guarded
-    // `UPDATE … WHERE status <> 'active'`, not an INSERT.
-    await seedVendor({ verified: false, updatedAt: OLD_TS });
+  it('leaves an ended entitlement ended rather than reactivating it', async () => {
+    await seedVendor();
     await seedEntitlement('revoked');
     await seedRequest();
 
     const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
       action: 'approve',
-      plan: 'managed',
-      entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
     });
 
     expect(status).toBe(200);
     const ents = await t.db.select().from(vendorEntitlements);
-    expect(ents).toHaveLength(1); // reactivated in place
-    expect(ents[0]).toMatchObject({
-      status: 'active',
-      invoiceRef: 'PO-4471',
-      periodEnd: '2031-01-01',
-      sourceRequestId: REQUEST_ID,
-    });
-    // Reactivation clears the terminal stamp and the §7 expiry-notice fence.
-    expect(ents[0]!.endedAt).toBeNull();
-    expect(ents[0]!.expiryNoticeSentAt).toBeNull();
-
-    // The mirror came back up, and `updated_at` moved with it (R2 — the Algolia
-    // watermark must see a re-verify).
-    const vendor = await vendorOf(VENDOR_ID);
-    expect(vendor!.verified).toBe(true);
-    expect(vendor!.updatedAt).not.toBe(OLD_TS);
-
-    expect(body.grant).toMatchObject({ tier: 'verified', entitlement_created: false });
-    const entAudit = (await t.db.select().from(auditLog)).find(
-      (a) => a.action === 'vendor_entitlement.granted',
-    )!;
-    expect(entAudit.metadata).toMatchObject({ reactivated: true, entitlement_created: false });
+    expect(ents).toHaveLength(1);
+    expect(ents[0]).toMatchObject({ status: 'revoked', updatedAt: OLD_TS });
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(false);
+    expect(body.grant).toMatchObject({ tier: 'unclaimed', verified: false });
   });
 
-  it('a Managed grant that loses the reactivation race answers 409 ENTITLEMENT_CHANGED and writes nothing (AECI-1353)', async () => {
-    await seedVendor({ verified: false, updatedAt: OLD_TS });
-    await seedEntitlement('revoked');
+  it('grants no license, even on a vendor that owns products', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
     await seedRequest();
-    // Another approval (or an admin `set`) activates the row between this request's
-    // pre-read and its batch. Without the sentinel this batch's license INSERT would
-    // still land, beside a guarded UPDATE that matched nothing.
-    const original = t.db.batch.bind(t.db);
-    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
-      await t.db
-        .update(vendorEntitlements)
-        .set({ status: 'active', endedAt: null })
-        .where(eq(vendorEntitlements.vendorId, VENDOR_ID));
-      return original(stmts);
-    });
 
-    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+    const { status, send } = await patchClaim(moderateApp(resolveLinked(null)), {
       action: 'approve',
-      plan: 'managed',
-    });
-    spy.mockRestore();
-
-    expect(status).toBe(409);
-    expect((body as unknown as { error: { code: string } }).error.code).toBe(
-      ApiErrorCode.ENTITLEMENT_CHANGED,
-    );
-    expect(await t.db.select().from(licenses)).toHaveLength(0);
-    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
-    // The seat rolled back with it, and the claim is still open for the retry.
-    expect(await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID))).toHaveLength(0);
-    expect((await t.db.select().from(vendorRequests))[0]!.status).not.toBe('resolved');
-  });
-
-  it('composes both builders into ONE db.batch (D1 has no interactive transactions)', async () => {
-    // The load-bearing structural claim of §6.3. Two batches would mean a window in
-    // which a seat exists with no entitlement — and no way to roll the first back.
-    await seedVendor({ verified: false });
-    await seedRequest();
-    const batchSpy = vi.spyOn(t.db, 'batch');
-
-    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
-      action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(200);
-    expect(batchSpy).toHaveBeenCalledTimes(1);
-    // 5 from `grantSeatStatements` (seat, request, workflow, transition, audit) +
-    // 3 from `activateEntitlementStatements` (entitlement row, mirror flip, audit) +
-    // 2 for the billing account (account row, audit; AECI-1351), which the activate's
-    // dual-write now emits, so the route's own ensure is a no-op (AECI-1353) +
-    // 3 for the license (row, audit, mirror reconcile; AECI-1353).
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(13);
-    batchSpy.mockRestore();
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('is idempotent: re-granting an already-granted claim is a 200 no-op (no audit noise)', async () => {
@@ -761,17 +752,21 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, bannedAt: null };
     const { status, body, send } = await patchClaim(moderateApp(resolveLinked(snapshot), email), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(200);
-    expect(body.grant).toMatchObject({ verified: true, seat_created: false });
     // §6.5: this path returns BEFORE any batch is built, so the summary is a pure
     // readout. This fixture is the drifted pre-backfill state (`verified = 1`, no
     // entitlement row) and `tierFor` fails closed rather than inferring a tier from
     // the mirror — `unclaimed`, not a flattering `verified`.
-    expect(body.grant).toMatchObject({ tier: 'unclaimed', entitlement_created: false });
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    expect(body.grant).toEqual({
+      user_id: CLAIMANT_ID,
+      vendor_id: VENDOR_ID,
+      verified: true,
+      identity_outcome: 'linked',
+      seat_created: false,
+      tier: 'unclaimed',
+    });
     // No new audit / transition rows, no purge, no email.
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
     expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
@@ -780,7 +775,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(claimModerationActions()).toEqual([['action:approve', 'outcome:noop']]);
   });
 
-  it('resolves the product’s primary vendor for a target_type=product claim', async () => {
+  it('resolves the product’s primary vendor for a target_type=product claim, and names the vendor in the email', async () => {
     await seedVendor(); // primary vendor
     await t.db
       .insert(vendors)
@@ -792,10 +787,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     ]);
     await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
     const resolve = resolveLinked(null);
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
 
-    const { status, body, send } = await patchClaim(moderateApp(resolve), {
+    const { status, body, send } = await patchClaim(moderateApp(resolve, email), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(200);
@@ -803,232 +798,13 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     // Resolution was asked about the PRIMARY vendor, not the product id.
     expect(vi.mocked(resolve).mock.calls[0]![2]).toMatchObject({ vendorId: VENDOR_ID });
     expect((await profileOf(CLAIMANT_ID))!.vendorId).toBe(VENDOR_ID);
-    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
-    // Purge covers the vendor + its product page.
-    expect(send).toHaveBeenCalledWith({
-      tags: ['vendor:autodesk', 'product:revit', 'index:products'],
-      source: 'moderation',
-    });
-  });
-});
-
-// ─── The plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6) ──────────
-
-describe('PATCH /api/admin/claims/:id — plan choice', () => {
-  it('refuses an approve with no plan as 400 VALIDATION_FAILED, writing nothing', async () => {
-    await seedVendor();
-    await seedRequest();
-    const resolve = resolveThrows();
-
-    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
-
-    expect(status).toBe(400);
-    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
-    expect(body.error.field).toBe('plan');
-    expect(resolve).not.toHaveBeenCalled();
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
-    expect((await requestOf(REQUEST_ID))!.status).toBe('open');
-  });
-
-  it('refuses entitlement details on a Free approve', async () => {
-    await seedVendor();
-    await seedRequest();
-    const { status, body } = await patchClaim(moderateApp(resolveThrows()), {
-      action: 'approve',
-      plan: 'free',
-      entitlement: { notes: 'PO 4417' },
-    });
-    expect(status).toBe(400);
-    expect(body.error.field).toBe('entitlement');
-  });
-
-  it('Free writes the seat and the billing account: no entitlement row, verified untouched, no purge', async () => {
-    await seedVendor();
-    await seedRequest();
-    await seedWorkflow();
-    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
-    const batchSpy = vi.spyOn(t.db, 'batch');
-
-    const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
-      action: 'approve',
-      plan: 'free',
-    });
-
-    expect(status).toBe(200);
-    expect(body.grant).toMatchObject({
-      user_id: CLAIMANT_ID,
-      vendor_id: VENDOR_ID,
-      verified: false,
-      seat_created: true,
-      tier: 'unclaimed',
-      entitlement_created: false,
-      plan: 'free',
-    });
-    expect(body.request.status).toBe('resolved');
-
-    // The seat landed.
-    const seat = await profileOf(CLAIMANT_ID);
-    expect(seat!.role).toBe('vendor_admin');
-    expect(seat!.vendorId).toBe(VENDOR_ID);
-
-    // No entitlement row, and the vendor row is exactly as seeded.
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
-    const vendor = await vendorOf(VENDOR_ID);
-    expect(vendor!.verified).toBe(false);
-    expect(vendor!.updatedAt).toBe(OLD_TS);
-
-    // `grantSeatStatements`' five statements and the billing account's two
-    // (AECI-1351) went into the one batch.
-    expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(7);
-    batchSpy.mockRestore();
-
-    // Free creates the billing account too (`VENDOR_SIGNUP_PROCESS.md` §3 step 2).
-    const accounts = await t.db.select().from(billingAccounts);
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]).toMatchObject({ vendorId: VENDOR_ID, name: 'Autodesk, Inc.' });
-
-    // TWO audit rows: the claim decision, carrying the plan and no verified flip, and
-    // the billing account.
-    const audits = await t.db.select().from(auditLog);
-    expect(audits.map((a) => a.action).sort()).toEqual([
-      'billing_account.created',
-      'vendor_claim.granted',
-    ]);
-    const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
-    expect(claimAudit.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
-    expect(claimAudit.afterState).toMatchObject({ vendor_verified: false });
-
-    // The request resolved through its workflow, as on Managed.
-    const transitions = await t.db.select().from(workflowTransitions);
-    expect(transitions).toHaveLength(1);
-
-    // No cacheable page renders a seat, and no verified flip happened: no purge.
-    expect(send).not.toHaveBeenCalled();
-
-    // The Free variant of the approved email.
-    expect(email).toHaveBeenCalledTimes(1);
-    expect(email.mock.calls[0]![1]).toMatchObject({
-      decision: 'approved',
-      to: CLAIMANT_EMAIL,
-      plan: 'free',
-    });
-    expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
-  });
-
-  it('Free does not purge even when the vendor owns products', async () => {
-    await seedVendor();
-    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
-    await t.db
-      .insert(productVendors)
-      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
-    await seedRequest();
-
-    const { status, send } = await patchClaim(moderateApp(resolveLinked(null)), {
-      action: 'approve',
-      plan: 'free',
-    });
-
-    expect(status).toBe(200);
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it('Free leaves an ended entitlement ended rather than reactivating it', async () => {
-    await seedVendor();
-    await seedEntitlement('revoked');
-    await seedRequest();
-
-    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
-      action: 'approve',
-      plan: 'free',
-    });
-
-    expect(status).toBe(200);
-    const ents = await t.db.select().from(vendorEntitlements);
-    expect(ents).toHaveLength(1);
-    expect(ents[0]).toMatchObject({ status: 'revoked', updatedAt: OLD_TS });
     expect((await vendorOf(VENDOR_ID))!.verified).toBe(false);
-    expect(body.grant).toMatchObject({ tier: 'unclaimed', entitlement_created: false });
-  });
-
-  it('a Free second seat on a Managed vendor keeps the vendor Managed and reports it', async () => {
-    await seedVendor({ verified: true });
-    await seedEntitlement('active');
-    await seedBillingAccount();
-    await t.db
-      .insert(profiles)
-      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
-    await seedRequest({ id: REQUEST2_ID, submitterEmail: 'second@vendor.com' });
-
-    const { status, body } = await patchClaim(
-      moderateApp(resolveLinked(null, CLAIMANT2_ID)),
-      { action: 'approve', plan: 'free' },
-      REQUEST2_ID,
-    );
-
-    expect(status).toBe(200);
-    expect((await profileOf(CLAIMANT2_ID))!.role).toBe('vendor_admin');
-    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
-    expect((await t.db.select().from(vendorEntitlements))[0]!.status).toBe('active');
-    // The choice and the resulting tier are reported separately.
-    expect(body.grant).toMatchObject({
-      plan: 'free',
-      tier: 'verified',
-      verified: true,
-      entitlement_created: false,
+    expect(send).not.toHaveBeenCalled();
+    // The claim named the product. The account belongs to the vendor.
+    expect(email.mock.calls[0]![1]).toMatchObject({
+      targetName: 'Revit',
+      vendorName: 'Autodesk, Inc.',
     });
-    const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]!.afterState).toMatchObject({ vendor_verified: true });
-  });
-
-  it('Managed writes the entitlement row, flips verified, purges and sends the Managed email', async () => {
-    await seedVendor();
-    await seedRequest();
-    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
-
-    const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
-      action: 'approve',
-      plan: 'managed',
-    });
-
-    expect(status).toBe(200);
-    expect(body.grant).toMatchObject({
-      plan: 'managed',
-      tier: 'verified',
-      verified: true,
-      entitlement_created: true,
-    });
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(1);
-    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
-    const audits = await t.db.select().from(auditLog);
-    // The claim and entitlement rows carry the plan. The billing-account row is the
-    // same on both plans, so it carries none (AECI-1351). Nor do the license rows the
-    // dual-write files under the account (AECI-1353): a license is Managed by definition.
-    expect(audits.filter((a) => a.entityType !== 'billing_account').map((a) => a.metadata)).toEqual(
-      [expect.objectContaining({ plan: 'managed' }), expect.objectContaining({ plan: 'managed' })],
-    );
-    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
-    expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
-    expect(email.mock.calls[0]![1]).toMatchObject({ plan: 'managed' });
-  });
-
-  it('the idempotent re-grant echoes the requested plan', async () => {
-    await seedVendor();
-    await t.db
-      .insert(profiles)
-      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
-    await seedRequest({ status: 'resolved', resolvedById: ADMIN_ID, resolvedAt: OLD_TS });
-    const snapshot = { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, bannedAt: null };
-
-    const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
-      action: 'approve',
-      plan: 'free',
-    });
-
-    expect(status).toBe(200);
-    expect(body.grant).toMatchObject({ plan: 'free', tier: 'unclaimed' });
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 });
 
@@ -1044,7 +820,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
       const { status, body, send } = await patchClaim(moderateApp(resolveConflict(reason), email), {
         action: 'approve',
-        plan: 'managed',
       });
 
       expect(status).toBe(409);
@@ -1070,7 +845,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
     const { status, body } = await patchClaim(moderateApp(resolver()), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(503);
@@ -1089,7 +863,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
     const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
-      plan: 'managed',
     });
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
@@ -1107,7 +880,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
     const { status, body } = await patchClaim(moderateApp(resolve), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(422);
@@ -1131,7 +903,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
     const { status, body } = await patchClaim(moderateApp(resolve), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(422);
@@ -1148,7 +919,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
     const { status, body } = await patchClaim(moderateApp(resolve), {
       action: 'approve',
-      plan: 'managed',
     });
 
     expect(status).toBe(422);
@@ -1159,7 +929,6 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
   it('returns the canonical 404 for an unknown claim id', async () => {
     const { status, body } = await patchClaim(moderateApp(resolveThrows()), {
       action: 'approve',
-      plan: 'managed',
     });
     expect(status).toBe(404);
     expect(body.error.code).toBe('NOT_FOUND');
@@ -1245,6 +1014,77 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+// ─── The decision race (AECI-1333) ───────────────────────────────────────────
+//
+// The handler passes its status read, then a competing decision commits right
+// before its batch. The batch opens with `claimUndecidedSentinel`, so the loser
+// answers 409 CLAIM_ALREADY_DECIDED, writes nothing and sends no email.
+
+describe('PATCH /api/admin/claims/:id — decision race (AECI-1333)', () => {
+  /** Run `first` right before the next `db.batch`, then let that batch run. */
+  function beforeNextBatch(first: () => Promise<unknown>) {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await first();
+      return batch(stmts);
+    }) as unknown as typeof batch);
+  }
+  const actions = async () => (await t.db.select().from(auditLog)).map((a) => a.action).sort();
+
+  it('approve after a reject committed: no seat, billing account, second audit or transition, no email', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    beforeNextBatch(() => patchClaim(moderateApp(resolveThrows(), email), { action: 'reject' }));
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null), email), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'rejected' });
+    expect((await requestOf(REQUEST_ID))!.status).toBe('rejected');
+    expect(await profileOf(CLAIMANT_ID)).toBeUndefined();
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
+    expect(await actions()).toEqual(['vendor_claim.rejected']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    const [wf] = await t.db
+      .select()
+      .from(workflowInstances)
+      .where(eq(workflowInstances.entityId, REQUEST_ID));
+    expect(wf!.currentState).toBe('rejected');
+    // Only the winning reject mailed.
+    expect(email.mock.calls.map((call) => call[1].decision)).toEqual(['rejected']);
+    expect(claimModerationActions()).toContainEqual(['action:approve', 'outcome:conflict']);
+  });
+
+  it('reject after an approve committed: the claim stays granted, no reject row, no email', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    beforeNextBatch(() =>
+      patchClaim(moderateApp(resolveLinked(null), email), { action: 'approve' }),
+    );
+
+    const { status, body } = await patchClaim(moderateApp(resolveThrows(), email), {
+      action: 'reject',
+    });
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'resolved' });
+    expect((await requestOf(REQUEST_ID))!.status).toBe('resolved');
+    expect((await profileOf(CLAIMANT_ID))!.vendorId).toBe(VENDOR_ID);
+    expect(await actions()).toEqual(['billing_account.created', 'vendor_claim.granted']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    expect(email.mock.calls.map((call) => call[1].decision)).toEqual(['approved']);
+    expect(claimModerationActions()).toContainEqual(['action:reject', 'outcome:conflict']);
   });
 });
 
@@ -1428,6 +1268,33 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(body.data[0]!.kind).toBe('claim');
     // `domain_match` is surfaced verbatim from the stored column.
     expect(body.data[0]!.domain_match).toBe('match');
+    // An open claim was never granted.
+    expect(body.data[0]!.granted).toBe(false);
+  });
+
+  // AECI-1322: `granted` separates the grant from a Linear Done (no resolver).
+  it('reports granted only for a claim resolved with a resolving admin', async () => {
+    await seedVendor();
+    await seedRequest({
+      id: REQUEST_ID,
+      status: 'resolved',
+      resolvedById: ADMIN_ID,
+      resolvedAt: OLD_TS,
+      createdAt: '2026-06-02T00:00:00.000Z',
+    });
+    await seedRequest({
+      id: REQUEST2_ID,
+      status: 'resolved',
+      resolvedById: null,
+      resolvedAt: OLD_TS,
+      submitterEmail: 'webhook@vendor.com',
+      createdAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const body = await parseClaims(await getClaims({}, '?status=resolved'));
+    const byId = new Map(body.data.map((d) => [d.id, d.granted] as const));
+    expect(byId.get(REQUEST_ID)).toBe(true);
+    expect(byId.get(REQUEST2_ID)).toBe(false);
   });
 
   it('surfaces the claimed vendor’s active seats, excluding banned ones', async () => {
@@ -1585,6 +1452,26 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     // queue would offer an entitlement control pointed at a product id.
     expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
     expect(row.entitlement).toBeNull();
+  });
+
+  // AECI-1364: a product-page claim is stored on the company with the product as context.
+  it('hydrates context_product for a company claim sent from a product page', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await seedRequest({ contextProductId: PRODUCT_ID });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.target_type).toBe('vendor');
+    expect(row.target?.id).toBe(VENDOR_ID);
+    expect(row.context_product).toEqual({ id: PRODUCT_ID, name: 'Revit', slug: 'revit' });
+  });
+
+  it('reports context_product: null for a company-page claim and a gone product', async () => {
+    await seedVendor();
+    await seedRequest({ contextProductId: '99999999-9999-4999-8999-999999999999' });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.context_product).toBeNull();
   });
 
   it('reports entitlement: null (not an error) for a vendor that has never been entitled', async () => {
@@ -1962,6 +1849,15 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
       connector_evidenced: 0,
       total: 0,
     });
+  });
+
+  it('carries the "Came from" product (AECI-1364)', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await seedRequest({ contextProductId: PRODUCT_ID });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.context_product).toEqual({ id: PRODUCT_ID, name: 'Revit', slug: 'revit' });
   });
 
   it('404s on an unknown id', async () => {
@@ -2366,84 +2262,5 @@ describe('GET /api/admin/claims/:id/audit — the claim trail (AECI-1276)', () =
     await seedClaimTrail();
     await getClaimAudit(REQUEST_ID);
     expect(await t.db.select().from(auditLog)).toHaveLength(AUDIT_IDS.length);
-  });
-});
-
-// ─── The Managed dual-write (AECI-1353, E1.4) ────────────────────────────────
-
-describe('PATCH /api/admin/claims/:id — the license dual-write', () => {
-  const P2 = '33333333-3333-4333-8333-333333333334';
-
-  async function seedOwnedProducts() {
-    await t.db.insert(products).values([
-      { id: PRODUCT_ID, slug: 'revit', name: 'Revit' },
-      { id: P2, slug: 'autocad', name: 'AutoCAD' },
-    ]);
-    await t.db.insert(productVendors).values([
-      { productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true },
-      { productId: P2, vendorId: VENDOR_ID, isPrimary: true },
-    ]);
-  }
-
-  it('Managed grants one license per owned product on ONE new billing account', async () => {
-    await seedVendor();
-    await seedOwnedProducts();
-    await seedRequest();
-
-    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
-      action: 'approve',
-      plan: 'managed',
-      entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
-    });
-    expect(status).toBe(200);
-
-    // Exactly one account INSERT: the activate's dual-write made it, and the route's
-    // own ensure saw it as existing.
-    const accounts = await t.db.select().from(billingAccounts);
-    expect(accounts).toHaveLength(1);
-    expect(
-      (await t.db.select().from(auditLog)).filter((a) => a.action === 'billing_account.created'),
-    ).toHaveLength(1);
-
-    const rows = await t.db.select().from(licenses).orderBy(licenses.assignedProductId);
-    expect(rows.map((l) => l.assignedProductId)).toEqual([PRODUCT_ID, P2]);
-    for (const row of rows) {
-      expect(row).toMatchObject({
-        billingAccountId: accounts[0]!.id,
-        source: 'invoice',
-        endsAt: '2031-01-01T00:00:00.000Z',
-        endedAt: null,
-        reference: 'PO-4471',
-        grantedBy: ADMIN_ID,
-      });
-    }
-    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
-  });
-
-  it('Free grants no license, and a Managed second seat grants none either', async () => {
-    await seedVendor();
-    await seedOwnedProducts();
-    await seedRequest();
-    expect(
-      (await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve', plan: 'free' }))
-        .status,
-    ).toBe(200);
-    expect(await t.db.select().from(licenses)).toHaveLength(0);
-    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
-  });
-
-  it('a Managed second seat on an active vendor writes no license and no account', async () => {
-    await seedVendor({ verified: true });
-    await seedEntitlement('active');
-    await seedBillingAccount();
-    await seedRequest();
-
-    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
-      action: 'approve',
-      plan: 'managed',
-    });
-    expect(status).toBe(200);
-    expect(await t.db.select().from(licenses)).toHaveLength(0);
-    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
   });
 });

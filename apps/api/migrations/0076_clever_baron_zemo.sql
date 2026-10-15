@@ -1,0 +1,1 @@
+ALTER TABLE `vendor_requests` ADD `context_product_id` text;

@@ -20,6 +20,7 @@ import {
   profiles,
   reviews,
   vendorActivityDaily,
+  vendorRequests,
   vendors,
 } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
@@ -147,6 +148,7 @@ const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 const SNAPSHOT_CRON = '15 0 * * *';
 const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 const GSC_INSPECT_CRON = '0 13 * * *';
+const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -937,6 +939,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [SNAPSHOT_CRON, 'metrics-snapshot'],
     // AECI-1210. Log-class and audit-exempt, so it also runs the ADR 0022 assertion.
     [VENDOR_SNAPSHOT_CRON, 'vendor-snapshot'],
+    // AECI-1368. NOT audit-exempt: each claim it moves writes an audit row. On an
+    // empty database it moves nothing, so it is carved out of the exempt table below.
+    [CLAIM_OWNER_FALLBACK_CRON, 'claim-owner-fallback'],
   ];
 
   /**
@@ -949,7 +954,10 @@ describe('job_runs bookkeeping (§7.2)', () => {
    */
   const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(
     ([, job]) =>
-      job !== 'retention-prune' && job !== 'entitlement-expiry' && job !== 'indexnow-drain',
+      job !== 'retention-prune' &&
+      job !== 'entitlement-expiry' &&
+      job !== 'indexnow-drain' &&
+      job !== 'claim-owner-fallback',
   );
 
   // `indexnow-drain` is carved out for the same reason as the prune: its delete is
@@ -1039,6 +1047,45 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // The §13 D11 carve-out, asserted rather than commented: `job_runs` IS the
     // observability record, so auditing it would be auditing the audit.
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('the claim owner fallback runs inline (queue-less) and audits each claim it moves (AECI-1368)', async () => {
+    const vendorId = '33333333-3333-4333-8333-333333333333';
+    const requestId = '44444444-4444-4444-8444-444444444444';
+    await t.db.insert(vendors).values({ id: vendorId, slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(vendorRequests).values({
+      id: requestId,
+      kind: 'claim',
+      status: 'open',
+      targetType: 'vendor',
+      targetId: vendorId,
+      submitterEmail: 'claimant@acme.example',
+      domainMatch: 'match',
+      body: 'Please let me manage this company.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      routedToOwnersAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await scheduled(cronController(CLAIM_OWNER_FALLBACK_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'claim-owner-fallback', outcome: 'ok' });
+    expect(row?.detail).toMatchObject({ job: 'claim-owner-fallback', moved: 1 });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'system',
+      action: 'vendor_claim.owner_fallback',
+      entityId: requestId,
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.claim.owner_fallback.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
   });
 
   it('the retention prune is the ONE cron that DOES audit — the ADR 0022 exception', async () => {

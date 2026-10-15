@@ -7,12 +7,20 @@
  *
  * A typed-in listing from the claim dialog (`POST /api/requests/listing`, AECI-1293) is
  * NOT a kind here: it has no target, so it lives in `listing_requests`
- * (`routes/listing-requests.ts`). A claim carries the dialog's plan answer as
- * `plan_interest`, and its "Additional comments" as the existing `body`.
+ * (`routes/listing-requests.ts`). A claim carries the dialog's "Additional comments"
+ * as the existing `body`. The plan question is gone (AECI-1365): an old client may
+ * still send the key, and the schema strips it.
  *
  * Contracts: `CorrectionRequestSchema` / `ClaimRequestSchema` from `@aeci/shared`.
  * Rows land in `vendor_requests` (Phase 2 Spec §5.1) with `status:'open'` and
  * `linear_issue_id:null`.
+ *
+ * **A claim is on the company** (AECI-1364, `docs/VENDOR_SIGNUP_PROCESS.md` decision 1).
+ * The wire still accepts `target_type: 'product'`, so every shipped form keeps working,
+ * but `resolveClaimTarget` normalises it: the row is stored with `target_type =
+ * 'vendor'` and the product's vendor id, and the product is kept in
+ * `context_product_id` ("Came from" for the reviewer). A correction is about a listing,
+ * so it keeps its product target.
  *
  * Each submit is one atomic `db.batch` (the §26.1 invariant, AECI-249): the
  * `vendor_requests` insert + the `workflow_instance` (`vendor_claim` |
@@ -31,7 +39,11 @@
 
 import {
   ClaimRequestSchema,
+  ClaimTargetResponseSchema,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
+  RequestTargetTypeSchema,
+  type ClaimTargetResponse,
   type RequestKind,
   type RequestSubmitResponse,
   type RequestTargetType,
@@ -54,11 +66,15 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
+import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
-import { writeDb, type DbFactory } from '../lib/handler-utils';
-import { sendClaimSubmittedNotification } from '../lib/email';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { sendClaimReceivedEmail, sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
+import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
+import { emailOwnersOfRoutedClaim } from '../lib/claim-owner-routing';
+import { vendorHasOwnerSeat } from '../lib/owner-seat';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +132,79 @@ async function resolveTarget(
   return { id: row.id, name: row.companyName, websiteUrl: row.website ?? null };
 }
 
+/** A product named in a claim, kept as the claim's context (AECI-1364). */
+interface ContextProduct {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Resolve a CLAIM's `(target_type, slug)` to the company it claims (AECI-1364,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` decision 1: a claim is on the company, never a
+ * product). A vendor target resolves as `resolveTarget` does. A product target
+ * resolves to the product's vendor: the `is_primary` row, else any `product_vendors`
+ * row (the lowest vendor id, so the pick is stable). That is the same choice
+ * `GET /api/products/:slug` makes for its `vendor` field, so the name the claim page
+ * shows is the company the row records. The product comes back as `contextProduct`.
+ *
+ * A product with no `product_vendors` row has no company to claim. It returns the
+ * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Type it in
+ * instead" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.2).
+ */
+async function resolveClaimTarget(
+  db: Db,
+  targetType: RequestTargetType,
+  slug: string,
+): Promise<{
+  id: string;
+  name: string;
+  slug: string;
+  websiteUrl: string | null;
+  contextProduct: ContextProduct | null;
+}> {
+  if (targetType === 'vendor') {
+    const row = await db.query.vendors.findFirst({
+      columns: { id: true, companyName: true, slug: true, website: true },
+      where: eq(vendors.slug, slug),
+    });
+    if (!row) throw notFoundError('vendor', { slug });
+    return {
+      id: row.id,
+      name: row.companyName,
+      slug: row.slug,
+      websiteUrl: row.website ?? null,
+      contextProduct: null,
+    };
+  }
+
+  const row = await db.query.products.findFirst({
+    columns: { id: true, name: true, slug: true },
+    where: eq(products.slug, slug),
+    with: {
+      productVendors: {
+        columns: { isPrimary: true },
+        with: {
+          vendor: { columns: { id: true, companyName: true, slug: true, website: true } },
+        },
+      },
+    },
+  });
+  if (!row) throw notFoundError('product', { slug });
+  const links = row.productVendors
+    .filter((pv) => pv.vendor)
+    .sort((a, b) => (a.vendor.id < b.vendor.id ? -1 : a.vendor.id > b.vendor.id ? 1 : 0));
+  const vendor = (links.find((pv) => pv.isPrimary) ?? links[0])?.vendor;
+  if (!vendor) throw notFoundError('product', { slug });
+  return {
+    id: vendor.id,
+    name: vendor.companyName,
+    slug: vendor.slug,
+    websiteUrl: vendor.website ?? null,
+    contextProduct: { id: row.id, name: row.name, slug: row.slug },
+  };
+}
+
 /**
  * Duplicate probe (§7.2 / §23.2): an existing `open` request for the same target
  * (`target_type`+`target_id`) that shares this submit's `kind` OR `submitter_email`.
@@ -123,6 +212,10 @@ async function resolveTarget(
  * `duplicate_of_request_id` at and reference in the Linear note — or `null`.
  * **Informational only**; vendor requests flag duplicates (sometimes legitimate),
  * they never block.
+ *
+ * A claim's target is always the company since AECI-1364, so a claim sent from a
+ * product page and one sent from the company page dedupe together. A claim stored
+ * before that change keeps its product target and does not match a new one.
  */
 async function detectDuplicate(
   db: Db,
@@ -156,8 +249,13 @@ interface RequestInsert {
   targetId: string;
   /** Target display name — Linear issue title only, never stored on the row. */
   targetName: string;
-  /** Carried into the audit metadata for traceability. */
+  /** The TARGET's slug, carried into the audit metadata for traceability. For a
+   *  claim sent from a product page this is the company's slug (AECI-1364). */
   slug: string;
+  /** AECI-1364: the product page a claim came from, or null. Its id is the row's
+   *  `context_product_id`; its name and slug feed the metadata, the Linear issue and
+   *  the claim alert. Always null for a correction. */
+  contextProduct: ContextProduct | null;
   /** Target vendor's website — input to the domain-match check; never stored. */
   websiteUrl: string | null;
   submitterEmail: string;
@@ -166,10 +264,12 @@ interface RequestInsert {
   /** AECI-847: claimant-supplied LinkedIn profile, an identity signal for the
    *  reviewer. Claim-only — the correction handler always passes `null`. */
   submitterLinkedinUrl: string | null;
-  /** AECI-1293: the claimant's plan answer, or null (not answered, or a correction). */
-  planInterest: string | null;
   body: string;
   sourceUrl: string | null;
+  /** AECI-1368: set when this claim is routed to the company's owners first (the
+   *  vendor has an unbanned owner seat). The submit instant, else null. Always null
+   *  for a correction. A column, so it rides `rowData` into the insert. */
+  routedToOwnersAt: string | null;
 }
 
 /** Insert the row + open its workflow instance/genesis transition + write the
@@ -194,7 +294,7 @@ async function createRequest(
 
   // `slug`/`targetName` are metadata/title only; `websiteUrl` is a domain-match input.
   // None are columns, so they're stripped before the insert.
-  const { slug, targetName, websiteUrl: _websiteUrl, ...rowData } = insert;
+  const { slug, targetName, websiteUrl: _websiteUrl, contextProduct, ...rowData } = insert;
   const workflowType = kind === 'claim' ? 'vendor_claim' : 'correction_request';
   // Shared metadata for the audit row and the genesis workflow transition.
   const metadata = {
@@ -205,14 +305,42 @@ async function createRequest(
     slug,
     domain_match: domainMatch,
     duplicate_of_request_id: duplicate?.id ?? null,
-    // AECI-1293: claims only. A correction carries no plan answer, so the key is left
-    // out rather than recorded as null on every correction's audit row.
-    ...(kind === 'claim' ? { plan_interest: insert.planInterest } : {}),
+    // AECI-1364: the product page a claim came from. Claims only: a correction's
+    // audit row leaves the keys out rather than recording them as null.
+    ...(kind === 'claim'
+      ? {
+          context_product_id: contextProduct?.id ?? null,
+          context_product_slug: contextProduct?.slug ?? null,
+          // AECI-1368: whether the claim went to the company's owners first.
+          routed_to_owners: insert.routedToOwnersAt !== null,
+        }
+      : {}),
   };
 
   // Ids generated up front so the batch needs no return values.
   const requestId = crypto.randomUUID();
   const workflowId = crypto.randomUUID();
+
+  // AECI-1366: a claim carries the vendor terms acceptance ("I represent this company
+  // and accept the vendor terms", `ClaimFormSchema.accepted_terms`). The server stamps
+  // the current version and the request's IP and user agent; the client sends neither.
+  // Profile, vendor and billing account stay null until the approval links them
+  // (`linkClaimAcceptanceStatements`, matched on `vendor_request_id`). The rows ride the
+  // claim's own batch, so a failed batch writes neither the claim nor the acceptance.
+  const acceptance =
+    kind === 'claim'
+      ? agreementAcceptanceStatements(db, {
+          document: 'vendor_terms',
+          version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+          source: 'claim',
+          email: insert.submitterEmail,
+          vendorRequestId: requestId,
+          acceptedAt: new Date().toISOString(),
+          requestHeaders: c.req.raw.headers,
+          actorId: null,
+          actorType: 'user',
+        })
+      : null;
 
   // Phase 6.2 (AECI-209): the workflow instance mirrors the request `status`, then
   // the genesis transition records `null → open`. Lean — no guarded FSM (§26.3).
@@ -238,6 +366,7 @@ async function createRequest(
       id: requestId,
       kind,
       ...rowData,
+      contextProductId: contextProduct?.id ?? null,
       domainMatch,
       duplicateOfRequestId: duplicate?.id ?? null,
     }),
@@ -249,11 +378,18 @@ async function createRequest(
     }),
     workflowTransitionInsert(db, workflowEntry),
     auditInsert(db, auditEntry),
+    // AFTER the claim insert: the acceptance's `vendor_request_id` FK names it.
+    ...(acceptance?.stmts ?? []),
   ];
   await db.batch(stmts as BatchTuple);
 
   // Best-effort §26.5 forwards AFTER the atomic commit, in ONE request (AECI-1112).
-  forwardAuditBatch(c, [auditEntry], [workflowEntry], 'request-form');
+  forwardAuditBatch(
+    c,
+    acceptance ? [auditEntry, acceptance.auditEntry] : [auditEntry],
+    [workflowEntry],
+    'request-form',
+  );
 
   // Phase 6.4 (AECI-211): create the Linear issue out-of-band so it never blocks
   // the 201. `createLinearIssueForRequest` never throws (it logs + meters every
@@ -277,7 +413,7 @@ async function createRequest(
     submitterName: insert.submitterName,
     submitterRole: insert.submitterRole,
     submitterLinkedinUrl: insert.submitterLinkedinUrl,
-    planInterest: insert.planInterest,
+    contextProduct,
     body: insert.body,
     sourceUrl: insert.sourceUrl,
     // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
@@ -293,17 +429,27 @@ async function createRequest(
   // separate claim-only code path, so admitting corrections later is a predicate
   // change here and nothing else. Fail-open (absent
   // `SUPPORT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
-  // fail the 201. The claimant still gets no submit-time mail by design; their only
-  // mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  // fail the 201.
+  //
+  // AECI-1366: the claimant's receipt (`claim-received`) follows the alert in the same
+  // chain. It goes to the typed address, so it is bounded to one per address per UTC
+  // day (`claimReceivedDedupeKey`), and it carries no link that grants anything.
   //
   // The §6.7 sweep re-sends this alert under the same key when its retry creates the
   // issue (AECI-1203). The ledger makes that send a `duplicate` unless Resend refused
   // this one. The stuck-request alert covers a create that never succeeds. The key makes a
   // replayed `waitUntil` a ledger `duplicate`, not a second email.
   c.executionCtx.waitUntil(
-    linearDone.then((outcome) => {
+    linearDone.then(async (outcome) => {
       if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
+      // AECI-1367: the neutral connector-vendor flag. Never throws.
+      const connectorVendor = await claimTargetIsPureConnector(
+        db,
+        insert.targetType,
+        insert.targetId,
+      );
       return sendClaimSubmittedNotification(c, {
+        connectorVendor,
         dedupeKey: `claim-submitted-alert:${requestId}`,
         entity: { type: 'vendor_request', id: requestId },
         requestId,
@@ -314,13 +460,46 @@ async function createRequest(
         submitterName: insert.submitterName,
         submitterRole: insert.submitterRole,
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
-        planInterest: insert.planInterest,
+        contextProduct,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
         linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
-      }).then(() => undefined);
+        routedToOwnersAt: insert.routedToOwnersAt,
+      })
+        .then(() =>
+          sendClaimReceivedEmail(c, {
+            to: insert.submitterEmail,
+            subject: {
+              kind: 'claim',
+              requestId,
+              companyName: targetName,
+              contextProductName: contextProduct?.name ?? null,
+              routedToOwnersAt: insert.routedToOwnersAt,
+            },
+          }),
+        )
+        .then(() => undefined);
     }),
   );
+
+  // AECI-1368: a claim on a company with an owner seat goes to those owners first.
+  // Post-commit and best-effort: the claim is in their Seats section whatever the
+  // mail does. Bounded per vendor per day (`lib/claim-owner-routing.ts`).
+  if (insert.routedToOwnersAt !== null) {
+    c.executionCtx.waitUntil(
+      emailOwnersOfRoutedClaim(c, db, {
+        requestId,
+        vendorId: insert.targetId,
+        routedToOwnersAt: insert.routedToOwnersAt,
+        submitterEmail: insert.submitterEmail,
+        submitterName: insert.submitterName,
+        submitterRole: insert.submitterRole,
+        submitterLinkedinUrl: insert.submitterLinkedinUrl,
+        body: insert.body,
+        contextProductName: contextProduct?.name ?? null,
+      }),
+    );
+  }
 
   const body: RequestSubmitResponse = {
     request_id: requestId,
@@ -348,14 +527,15 @@ export function createCorrectionSubmitHandler(
       targetId: target.id,
       targetName: target.name,
       slug: payload.slug,
+      contextProduct: null,
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: null,
       submitterRole: null,
       submitterLinkedinUrl: null,
-      planInterest: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
+      routedToOwnersAt: null,
     });
   };
 }
@@ -366,13 +546,20 @@ export function createClaimSubmitHandler(
   return async (c) => {
     const payload = await parseJsonBody(c, ClaimRequestSchema);
     const { db } = writeDb(c, dbFor);
-    const target = await resolveTarget(db, payload.target_type, payload.slug);
+    // AECI-1364: a product target is normalised to its company here. The response
+    // is unchanged, so the forms and the dialog need no new handling.
+    const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
+    // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`.
+    const routedToOwnersAt = (await vendorHasOwnerSeat(db, target.id))
+      ? new Date().toISOString()
+      : null;
 
     return createRequest(c, db, 'claim', {
-      targetType: payload.target_type,
+      targetType: 'vendor',
       targetId: target.id,
       targetName: target.name,
-      slug: payload.slug,
+      slug: target.slug,
+      contextProduct: target.contextProduct,
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,
@@ -380,10 +567,47 @@ export function createClaimSubmitHandler(
       // Optional field: the form submits `''` when the claimant skipped it, and an
       // empty string is not an absent signal to anything downstream. Store NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
-      // AECI-1293: `''` is "not answered", stored as NULL like the LinkedIn field.
-      planInterest: payload.plan_interest ? payload.plan_interest : null,
       body: payload.body,
       sourceUrl: null,
+      routedToOwnersAt,
     });
+  };
+}
+
+// ─── GET /api/requests/claim-target/:type/:slug (AECI-1368) ──────────────────
+
+/**
+ * The company a claim on `(type, slug)` would be stored against, and whether it has
+ * an unbanned owner seat (`has_seats`), so the claim form can tell the claimant
+ * before submit that the company's team decides first
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.1a and §11a.10).
+ *
+ * It resolves through `resolveClaimTarget`, the same function the submit uses, so
+ * the two cannot disagree about the company, and a slug the submit would 404 is a
+ * 404 here. `has_seats` is `vendorHasOwnerSeat`, the predicate the submit routes on.
+ *
+ * Public and read-only. `json()` sets `private, no-store`: the answer changes the
+ * moment a seat is granted, so no layer may cache it. No `rateLimit()`, because reads
+ * are never rate-limited (`waf-rate-limits.md` §6). Zone Rule A matches POST only, so
+ * it does not apply to this GET either.
+ */
+export function createClaimTargetHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const type = RequestTargetTypeSchema.safeParse(c.req.param('type'));
+    const slug = c.req.param('slug') ?? '';
+    // An unknown type is a 404 like an unknown slug: there is nothing to claim there.
+    if (!type.success || slug.length === 0) {
+      throw notFoundError('product', { slug });
+    }
+    const { db } = dbFor(c.env);
+    const target = await resolveClaimTarget(db, type.data, slug);
+    const body: ClaimTargetResponse = {
+      vendor_id: target.id,
+      has_seats: await vendorHasOwnerSeat(db, target.id),
+    };
+    validateResponseInDev(c.env, () => ClaimTargetResponseSchema.parse(body));
+    return json(body);
   };
 }

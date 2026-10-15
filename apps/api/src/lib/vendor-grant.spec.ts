@@ -10,8 +10,8 @@
  * *iff* it encodes is only safe under D1's no-interactive-transactions model if both
  * sides move inside one `db.batch`, so exactly one module emits both —
  * `lib/vendor-entitlement.ts`. AECI-519 originally shipped the flip here, and AECI-612
- * deleted it; `routes/admin-claims.ts` now concatenates
- * `activateEntitlementStatements` into the same batch.
+ * deleted it. Since AECI-1367 no claim grant composes an entitlement at all: every
+ * approval lands on Free.
  *
  * Two independent guards, because each catches what the other cannot:
  *
@@ -81,10 +81,9 @@ function vendorsStatements(stmts: BatchStmt[]): string[] {
 
 const grantArgs = (
   vendorWasVerified: boolean,
-  plan: 'free' | 'managed' = 'managed',
   over: Partial<GrantSeatParams> = {},
 ): GrantSeatParams => ({
-  plan,
+  billingAccountCreated: false,
   userId: CLAIMANT_ID,
   vendorId: VENDOR_ID,
   vendorPlan: { tier: 'none', status: 'none' as const },
@@ -132,12 +131,14 @@ const vendorOf = async () =>
 // ─── Guard 1: structural — no statement names `vendors` ──────────────────────
 
 describe('the claim builders never emit a `vendors` statement (§6 step 8)', () => {
-  it('grantSeatStatements emits five statements, none of them on vendors', () => {
+  it('grantSeatStatements emits six statements, none of them on vendors', () => {
     const { stmts } = grantSeatStatements(t.db, grantArgs(false));
 
     // The flip AECI-519 shipped here lived at index 1. It is gone.
     expect(vendorsStatements(stmts)).toEqual([]);
-    expect(stmts).toHaveLength(5);
+    expect(stmts).toHaveLength(6);
+    // AECI-1333: the decision-race sentinel is first, ahead of every write.
+    expect(sqlOf(stmts[0]!)).toMatch(/json\(/);
     // Positively: the seat, the request resolve, the workflow + its transition, the audit.
     const sql = stmts.map(sqlOf).join('\n');
     expect(sql).toContain('"profiles"');
@@ -194,60 +195,175 @@ describe('running the grant batch alone leaves `vendors` byte-identical', () => 
     expect((await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0]!.role).toBe(
       'vendor_admin',
     );
-    // …and the vendor row is exactly as seeded. `verified` moves only when
-    // `activateEntitlementStatements` is composed in (routes/admin-claims.ts).
+    // …and the vendor row is exactly as seeded. No claim grant moves `verified`
+    // since AECI-1367.
     expect(after!.verified).toBe(false);
     expect(after!.updatedAt).toBe(OLD_TS);
     expect(after).toEqual(before);
   });
 });
 
-// ─── The audit shape is UNCHANGED (§6 step 2) ────────────────────────────────
+// ─── The audit row (AECI-1367: every approval lands on Free) ─────────────────
 
-describe('the claim audit row still records the verification outcome', () => {
-  it('keeps verified_flipped + the before/after vendor_verified snapshots', async () => {
+describe('the claim audit row', () => {
+  it('records no verified flip, equal before/after snapshots and no plan', async () => {
     await seed(false);
     const { stmts, auditEntry } = grantSeatStatements(t.db, grantArgs(false));
     await t.db.batch(stmts as BatchTuple);
 
-    // Pure metadata with no statement behind it — which is exactly why deleting the
-    // `vendors` UPDATE was invisible to every shipped claim assertion.
     expect(auditEntry.beforeState).toMatchObject({ vendor_verified: false });
-    expect(auditEntry.afterState).toMatchObject({ vendor_verified: true });
-    expect(auditEntry.metadata).toMatchObject({ verified_flipped: true });
+    expect(auditEntry.afterState).toMatchObject({ vendor_verified: false });
+    expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
+    expect(auditEntry.metadata).not.toHaveProperty('plan');
+    expect(auditEntry.metadata).not.toHaveProperty('entitlement');
 
     const rows = await t.db.select().from(auditLog);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.action).toBe('vendor_claim.granted');
-    expect(rows[0]!.metadata).toMatchObject({ verified_flipped: true });
   });
 
-  it('reports verified_flipped: false for a second seat on an already-verified vendor', () => {
+  it('keeps vendor_verified: true on an already-verified vendor', () => {
     const { auditEntry } = grantSeatStatements(t.db, grantArgs(true));
-    expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
     expect(auditEntry.beforeState).toMatchObject({ vendor_verified: true });
-  });
-
-  // AECI-1215 / §13.6: a Free grant activates no entitlement, so nothing moves the
-  // mirror and the audit row must not say it did.
-  it('records plan: managed on a Managed grant', () => {
-    const { auditEntry } = grantSeatStatements(t.db, grantArgs(false, 'managed'));
-    expect(auditEntry.metadata).toMatchObject({ plan: 'managed', verified_flipped: true });
-  });
-
-  it('records plan: free and no verified flip on a Free grant', () => {
-    const { auditEntry, stmts } = grantSeatStatements(t.db, grantArgs(false, 'free'));
-    expect(auditEntry.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
-    expect(auditEntry.afterState).toMatchObject({ vendor_verified: false });
-    // Same five statements as Managed; the plan changes only what is composed beside it.
-    expect(stmts).toHaveLength(5);
-    expect(vendorsStatements(stmts)).toEqual([]);
-  });
-
-  it('keeps vendor_verified: true after a Free grant on an already-verified vendor', () => {
-    const { auditEntry } = grantSeatStatements(t.db, grantArgs(true, 'free'));
     expect(auditEntry.afterState).toMatchObject({ vendor_verified: true });
     expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
+  });
+
+  it.each([true, false])('says billing_account_created: %s', (created) => {
+    const { auditEntry } = grantSeatStatements(
+      t.db,
+      grantArgs(false, { billingAccountCreated: created }),
+    );
+    expect(auditEntry.metadata).toMatchObject({ billing_account_created: created });
+  });
+});
+
+// ─── AECI-1367: the claimant is an owner only when the vendor has none ───────
+
+describe('grantSeatStatements owner rule (Portal §11a.4)', () => {
+  const OTHER_ID = '66666666-6666-4666-8666-666666666666';
+  const OTHER_VENDOR_ID = '77777777-7777-4777-8777-777777777777';
+
+  const ownerOf = async (id: string) =>
+    (await t.db.select().from(profiles).where(eq(profiles.id, id)))[0]!.seatOwner;
+
+  /** A second claim on the same vendor, so the second grant's resolve has a row. */
+  async function seedSecondClaim(requestId: string) {
+    await t.db.insert(vendorRequests).values({
+      id: requestId,
+      kind: 'claim',
+      status: 'open',
+      targetType: 'vendor',
+      targetId: VENDOR_ID,
+      submitterEmail: 'second@vendor.com',
+      body: 'Me too.',
+    });
+  }
+
+  it('makes the first claimant on a vendor with no owner an owner', async () => {
+    await seed(false);
+    await t.db.batch(grantSeatStatements(t.db, grantArgs(false)).stmts as BatchTuple);
+    expect(await ownerOf(CLAIMANT_ID)).toBe(true);
+  });
+
+  it('makes a later claimant on a vendor with an unbanned owner a non-owner', async () => {
+    await seed(false);
+    await t.db
+      .insert(profiles)
+      .values({ id: OTHER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    await t.db.batch(grantSeatStatements(t.db, grantArgs(false)).stmts as BatchTuple);
+
+    expect(await ownerOf(CLAIMANT_ID)).toBe(false);
+    expect(await ownerOf(OTHER_ID)).toBe(true);
+  });
+
+  it('ignores a banned owner, a non-owner seat and another vendor’s owner', async () => {
+    await seed(false);
+    await t.db.insert(vendors).values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'Other' });
+    await t.db.insert(profiles).values([
+      {
+        id: OTHER_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        seatOwner: true,
+        bannedAt: NOW,
+      },
+      {
+        id: '88888888-8888-4888-8888-888888888888',
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        seatOwner: false,
+      },
+      {
+        id: '99999999-9999-4999-8999-999999999999',
+        role: 'vendor_admin',
+        vendorId: OTHER_VENDOR_ID,
+        seatOwner: true,
+      },
+    ]);
+    await t.db.batch(grantSeatStatements(t.db, grantArgs(false)).stmts as BatchTuple);
+
+    expect(await ownerOf(CLAIMANT_ID)).toBe(true);
+  });
+
+  it('two first approvals in sequence: only the first becomes an owner', async () => {
+    // D1 runs one batch at a time. Both batches were BUILT before either ran, the way
+    // two admins' concurrent approvals would be, so only SQL can tell them apart.
+    await seed(false);
+    const SECOND_REQUEST = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await seedSecondClaim(SECOND_REQUEST);
+    const first = grantSeatStatements(t.db, grantArgs(false));
+    const second = grantSeatStatements(
+      t.db,
+      grantArgs(false, {
+        userId: OTHER_ID,
+        requestId: SECOND_REQUEST,
+        workflowId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+    );
+    await t.db.batch(first.stmts as BatchTuple);
+    await t.db.batch(second.stmts as BatchTuple);
+
+    expect(await ownerOf(CLAIMANT_ID)).toBe(true);
+    expect(await ownerOf(OTHER_ID)).toBe(false);
+  });
+
+  it('never demotes an existing owner of this vendor on the conflict path', async () => {
+    await seed(false);
+    // The claimant already holds an owner seat here, and is the vendor's only owner.
+    // The subquery therefore sees an owner (itself) and computes 0. The CASE keeps 1.
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    await t.db.batch(
+      grantSeatStatements(
+        t.db,
+        grantArgs(false, {
+          seatCreated: false,
+          profileBefore: { role: 'vendor_admin', vendorId: VENDOR_ID },
+        }),
+      ).stmts as BatchTuple,
+    );
+    expect(await ownerOf(CLAIMANT_ID)).toBe(true);
+  });
+
+  it('an existing reviewer row takes the computed value on the conflict path', async () => {
+    await seed(false);
+    await t.db
+      .insert(profiles)
+      .values({ id: OTHER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    // A stale `seat_owner = 1` on a reviewer row (owner of nothing here) is not kept.
+    await t.db.insert(profiles).values({ id: CLAIMANT_ID, role: 'reviewer', seatOwner: true });
+    await t.db.batch(
+      grantSeatStatements(
+        t.db,
+        grantArgs(false, {
+          seatCreated: false,
+          profileBefore: { role: 'reviewer', vendorId: null },
+        }),
+      ).stmts as BatchTuple,
+    );
+    expect(await ownerOf(CLAIMANT_ID)).toBe(false);
   });
 });
 
@@ -256,13 +372,13 @@ describe('the claim audit row still records the verification outcome', () => {
 describe('grantSeatStatements fills an empty display_name from the claim (AECI-1280)', () => {
   /** The `ON CONFLICT … DO UPDATE SET` half of the seat upsert. */
   const conflictSet = (p: GrantSeatParams): string =>
-    sqlOf(grantSeatStatements(t.db, p).stmts[0]!).split(/on conflict/i)[1] ?? '';
+    sqlOf(grantSeatStatements(t.db, p).stmts[1]!).split(/on conflict/i)[1] ?? '';
 
   const seatName = async () =>
     (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0]!.displayName;
 
   it('sets display_name only through the fill-if-empty COALESCE, and no other owned column', () => {
-    const conflict = conflictSet(grantArgs(false, 'managed', { submitterName: 'Sam Submitter' }));
+    const conflict = conflictSet(grantArgs(false, { submitterName: 'Sam Submitter' }));
 
     expect(conflict).toMatch(/"display_name" = COALESCE\(NULLIF\(trim\(/);
     for (const forbidden of [
@@ -281,7 +397,7 @@ describe('grantSeatStatements fills an empty display_name from the claim (AECI-1
     ['blank', '   '],
     ['over the account cap', 'x'.repeat(81)],
   ])('leaves display_name out of the set list when the name is %s', (_label, submitterName) => {
-    const p = grantArgs(false, 'managed', { submitterName });
+    const p = grantArgs(false, { submitterName });
     expect(conflictSet(p)).not.toContain('"display_name"');
     expect(grantSeatStatements(t.db, p).auditEntry.metadata).toMatchObject({
       display_name_filled: false,
@@ -296,7 +412,7 @@ describe('grantSeatStatements fills an empty display_name from the claim (AECI-1
     await t.db.insert(profiles).values({ id: CLAIMANT_ID, role: 'reviewer', displayName: before });
     const { stmts, auditEntry } = grantSeatStatements(
       t.db,
-      grantArgs(false, 'managed', {
+      grantArgs(false, {
         seatCreated: false,
         profileBefore: { role: 'reviewer', vendorId: null, displayName: before },
         submitterName: '  Sam Submitter ',
@@ -317,7 +433,7 @@ describe('grantSeatStatements fills an empty display_name from the claim (AECI-1
       .values({ id: CLAIMANT_ID, role: 'reviewer', displayName: 'Jane Doe' });
     const { stmts, auditEntry } = grantSeatStatements(
       t.db,
-      grantArgs(false, 'managed', {
+      grantArgs(false, {
         seatCreated: false,
         profileBefore: { role: 'reviewer', vendorId: null, displayName: 'Jane Doe' },
         submitterName: 'Sam Submitter',
@@ -337,7 +453,7 @@ describe('grantSeatStatements fills an empty display_name from the claim (AECI-1
       .values({ id: CLAIMANT_ID, role: 'reviewer', displayName: 'Set Mid-Flight' });
     const { stmts } = grantSeatStatements(
       t.db,
-      grantArgs(false, 'managed', {
+      grantArgs(false, {
         seatCreated: false,
         // A stale snapshot: the account had no name when the handler read it.
         profileBefore: { role: 'reviewer', vendorId: null, displayName: null },
@@ -353,7 +469,7 @@ describe('grantSeatStatements fills an empty display_name from the claim (AECI-1
     await seed(false);
     const { stmts, auditEntry } = grantSeatStatements(
       t.db,
-      grantArgs(false, 'managed', { submitterName: 'Sam Submitter' }),
+      grantArgs(false, { submitterName: 'Sam Submitter' }),
     );
     await t.db.batch(stmts as BatchTuple);
 
@@ -501,7 +617,7 @@ describe('the seat batch plus ensureBillingAccountStatements', () => {
     await seed(false);
     const before = await vendorOf();
 
-    const grant = grantSeatStatements(t.db, grantArgs(false, 'free'));
+    const grant = grantSeatStatements(t.db, grantArgs(false));
     const account = ensureBillingAccountStatements(t.db, accountArgs(null));
     const stmts = [...grant.stmts, ...account.stmts];
     expect(vendorsStatements(stmts)).toEqual([]);
@@ -515,11 +631,11 @@ describe('the seat batch plus ensureBillingAccountStatements', () => {
   });
 
   it('second seat: the account half adds nothing, so the batch is the seat batch alone', () => {
-    const grant = grantSeatStatements(t.db, grantArgs(true, 'free'));
+    const grant = grantSeatStatements(t.db, grantArgs(true));
     const account = ensureBillingAccountStatements(t.db, accountArgs({ id: 'existing' }));
     expect(account.stmts).toEqual([]);
     expect(account.auditEntry).toBeNull();
-    expect([...grant.stmts, ...account.stmts]).toHaveLength(5);
+    expect([...grant.stmts, ...account.stmts]).toHaveLength(6);
   });
 
   it('provision: the owner seat and the account land together, vendors untouched', async () => {

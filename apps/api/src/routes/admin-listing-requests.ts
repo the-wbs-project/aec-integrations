@@ -40,7 +40,6 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { toPlanInterest } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 
@@ -58,7 +57,6 @@ function toAdminListingRequest(row: ListingRow): AdminListingRequest {
     submitter_name: row.submitterName,
     submitter_role: row.submitterRole,
     submitter_linkedin_url: row.submitterLinkedinUrl,
-    plan_interest: toPlanInterest(row.planInterest),
     body: row.body,
     created_at: row.createdAt,
     resolved_at: row.resolvedAt,

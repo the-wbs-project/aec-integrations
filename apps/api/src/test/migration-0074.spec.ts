@@ -46,7 +46,8 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
     }
   });
 
-  it('wires two foreign keys, and none to profiles or vendors', async () => {
+  // 0078 (AECI-1366) adds the third, listing_request_id; this reads the migrated schema.
+  it('wires its foreign keys, and none to profiles or vendors', async () => {
     const t = await makeTestDb();
     try {
       const fks = t.raw
@@ -58,6 +59,7 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
         .all();
       expect(fks).toEqual([
         { col: 'billing_account_id', target: 'billing_accounts', on_delete: 'NO ACTION' },
+        { col: 'listing_request_id', target: 'listing_requests', on_delete: 'SET NULL' },
         { col: 'vendor_request_id', target: 'vendor_requests', on_delete: 'SET NULL' },
       ]);
     } finally {

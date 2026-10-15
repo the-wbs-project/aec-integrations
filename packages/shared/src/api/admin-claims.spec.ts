@@ -2,47 +2,35 @@ import { describe, expect, it } from 'vitest';
 
 import { ClaimGrantSummarySchema, ModerateClaimSchema } from './admin-claims';
 
-/** AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6: approve must name a plan. */
+/** AECI-1367: every approval lands on Free, so approve takes no plan. */
 describe('ModerateClaimSchema', () => {
-  it.each(['free', 'managed'] as const)('accepts an approve with plan %s', (plan) => {
-    expect(ModerateClaimSchema.parse({ action: 'approve', plan })).toEqual({
+  it('accepts an approve with no plan', () => {
+    expect(ModerateClaimSchema.parse({ action: 'approve' })).toEqual({ action: 'approve' });
+    expect(ModerateClaimSchema.parse({ action: 'approve', reason: 'ok' })).toEqual({
       action: 'approve',
-      plan,
+      reason: 'ok',
     });
   });
 
-  it('refuses an approve with no plan, on field `plan` (there is no default)', () => {
-    const result = ModerateClaimSchema.safeParse({ action: 'approve' });
-    expect(result.success).toBe(false);
-    expect(result.error!.issues[0]!.path).toEqual(['plan']);
-  });
+  it.each(['free', 'managed'] as const)(
+    'refuses an approve that names plan %s, on field `plan`',
+    (plan) => {
+      const result = ModerateClaimSchema.safeParse({ action: 'approve', plan });
+      expect(result.success).toBe(false);
+      expect(result.error!.issues[0]!.path).toEqual(['plan']);
+    },
+  );
 
-  it('refuses a plan outside free | managed', () => {
-    expect(ModerateClaimSchema.safeParse({ action: 'approve', plan: 'verified' }).success).toBe(
-      false,
-    );
-  });
-
-  it('accepts entitlement details with plan managed', () => {
-    const parsed = ModerateClaimSchema.parse({
-      action: 'approve',
-      plan: 'managed',
-      entitlement: { notes: 'PO 4417' },
-    });
-    expect(parsed).toMatchObject({ plan: 'managed', entitlement: { notes: 'PO 4417' } });
-  });
-
-  it('refuses entitlement details with plan free', () => {
+  it('refuses an approve that carries entitlement details, on field `entitlement`', () => {
     const result = ModerateClaimSchema.safeParse({
       action: 'approve',
-      plan: 'free',
       entitlement: { notes: 'PO 4417' },
     });
     expect(result.success).toBe(false);
     expect(result.error!.issues[0]!.path).toEqual(['entitlement']);
   });
 
-  it('accepts a reject with no plan, and strips one if sent', () => {
+  it('accepts a reject, and strips a plan if sent', () => {
     expect(ModerateClaimSchema.parse({ action: 'reject', reason: 'no' })).toEqual({
       action: 'reject',
       reason: 'no',
@@ -61,11 +49,21 @@ describe('ClaimGrantSummarySchema', () => {
     identity_outcome: 'linked',
     seat_created: true,
     tier: 'unclaimed',
-    entitlement_created: false,
   };
 
-  it('requires the chosen plan (R10: a forgotten construction site must fail)', () => {
-    expect(ClaimGrantSummarySchema.safeParse(base).success).toBe(false);
-    expect(ClaimGrantSummarySchema.parse({ ...base, plan: 'free' }).plan).toBe('free');
+  it('requires tier (R10: a forgotten construction site must fail)', () => {
+    const { tier: _tier, ...noTier } = base;
+    expect(ClaimGrantSummarySchema.safeParse(noTier).success).toBe(false);
+    expect(ClaimGrantSummarySchema.parse(base).tier).toBe('unclaimed');
+  });
+
+  it('no longer carries plan or entitlement_created', () => {
+    const parsed = ClaimGrantSummarySchema.parse({
+      ...base,
+      plan: 'free',
+      entitlement_created: false,
+    });
+    expect(parsed).not.toHaveProperty('plan');
+    expect(parsed).not.toHaveProperty('entitlement_created');
   });
 });

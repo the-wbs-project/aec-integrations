@@ -1348,6 +1348,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * URL Inspection API about the re-crawl worklist, closes the rows Google already
  * re-crawled since their last change, and tags the rest. It is queue-backed and
  * chained, because one run outlives a single consumer invocation.
+ *
+ * `claim-owner-fallback` is the nineteenth (AECI-1368): daily at 14:00 UTC it hands
+ * to AECi every claim that was routed to a company's owners 7 days ago and that they
+ * have not decided, with one audit row per claim and one operator digest
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). It reads D1 only.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1368,6 +1373,7 @@ export const AdminCronJobSchema = z.enum([
   'protest-reply-reminder', // 0 12 * * *
   'vendor-snapshot', // 30 0 * * *
   'gsc-inspect', // 0 13 * * *
+  'claim-owner-fallback', // 0 14 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

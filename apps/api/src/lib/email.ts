@@ -84,6 +84,8 @@
  */
 
 import {
+  CLAIM_OWNER_REVIEW_DAYS,
+  claimOwnerReviewDeadline,
   orderedPairSlugs,
   type AttestationDetector,
   type RequestKind,
@@ -789,29 +791,26 @@ export function sendVendorReviewPublishedEmail(
 
 /**
  * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
- * vendor claim was granted, so their vendor account now has active management access. For an
- * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
- * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
- * first login; a `linked` claimant already has an account. Links to the `/vendor`
- * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
- * absent → silent skip. Copy stays account-scoped: access is a status, not a
- * product endorsement, and never touches ranking (no pay-for-placement).
+ * vendor claim was granted, so they can now manage the vendor on AEC Integrations.
+ * Recipient is the claim's `submitter_email`; absent → silent skip. Copy stays
+ * account-scoped: access is a status, not a product endorsement, and never touches
+ * ranking (no pay-for-placement).
  *
- * **The first template on the house layout** (`./email-layout`), which is why it reads
- * as a headline, two short blocks and one Forest button rather than four equal grey
- * paragraphs. The structural change is the CTA: the portal used to be an inline link
- * inside a sentence, and this is the one action the email exists to prompt. Every §9 AC
- * is unchanged — the vendor is named, capabilities are listed, the link appears only
- * when configured, the sign-in line still branches on the identity outcome, and the
- * account-status framing stays account-scoped. (It used to be aligned with the public
- * account label, which AECI-1264 removed on 2026-10-09.)
+ * **One variant since AECI-1367** (`VENDOR_SIGNUP_PROCESS.md` §3 step 2): every
+ * approval lands on Free, so AECI-1215's Managed variant is gone. Three blocks:
  *
- * **Two variants since AECI-1215** (`STAGE_2_PAID_TIERS_SPEC.md` §13.6), one per plan
- * the operator chose. Only the capabilities block differs. Managed keeps the copy
- * above. Free says what a Free seat can do, which is edit company details and the
- * product listing, and names the plan so the claimant is not promised attestations
- * it cannot author. Both share the `claim-approved` template id: it is one event,
- * and the plan is in the audit row.
+ *  1. **Sign in.** The CTA is the sign-in page (`/auth/login?return=/vendor`), never a
+ *     one-time link: the email may be read days later. An `invited` claimant's account
+ *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
+ *     copy tells them it exists and which address to use.
+ *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
+ *  3. **How Managed works:** licenses on the company's billing account, one per
+ *     product, bought later from Billing. No price until E8 rules on the copy.
+ *
+ * It names the vendor (the company the seat belongs to, even when the claim named a
+ * product) and has no "attestations" line: authoring attestations is Managed-only.
+ * Without `PUBLIC_SITE_URL` there is no button, and the sign-in line names the page
+ * instead.
  */
 export function sendClaimApprovedEmail(
   c: EmailContext,
@@ -819,44 +818,46 @@ export function sendClaimApprovedEmail(
     to: string | undefined;
     vendorName: string;
     invited: boolean;
-    plan: 'free' | 'managed';
   },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const portal = portalUrl(c.env);
+  const signInPage = signInUrl(c.env);
 
-  // The button carries the destination, so the sign-in line no longer repeats the URL.
-  // Without a portal link there is no button, and the copy has to stand alone.
+  const opening = `You can now manage ${name} on AEC Integrations. Your company starts on the Free plan.`;
+  const openingHtml = `You can now manage <strong>${escapeHtml(name)}</strong> on AEC Integrations. Your company starts on the Free plan.`;
+
+  // Block 1: sign in. The button carries the destination, so the line does not repeat
+  // the URL. Without a button the line has to name the page.
+  const where = signInPage ? 'the sign-in page' : 'the AEC Integrations sign-in page';
   const signIn = opts.invited
-    ? portal
-      ? 'We created an account for your email address. Sign in by requesting a one-time sign-in link.'
-      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : 'Sign in with your existing account to get started.';
+    ? `We created an account for this email address. Sign in from ${where} with this address to open your vendor portal.`
+    : `Sign in with your existing account from ${where} to open your vendor portal.`;
+
+  // Block 2: what Free includes (§13.3). Every seat holds these on every plan.
+  const free =
+    "The Free plan includes your company details and each product's description, website, logo and categories. You can also check each product's integration list and confirm it looks right.";
+
+  // Block 3: how Managed works. No price: E8 rules on that copy.
+  const managed =
+    "Managed adds more to each product. It is sold as licenses on your company's billing account, and each license is assigned to one product. You can buy licenses later from Billing in your vendor portal.";
 
   const accountStatus =
-    "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
-  const capabilities =
-    opts.plan === 'free'
-      ? 'Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing.'
-      : 'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
-
-  const opening = `Your vendor account is now active on AEC Integrations and can manage the ${name} listing.`;
-  const openingHtml = `Your vendor account is now active on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
+    'A vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and no plan changes where you rank or appear.';
 
   const shared = (link: LinkTagger) => ({
-    preheader: `Your vendor portal for ${name} is open.`,
+    preheader: `You can now manage ${name} on AEC Integrations.`,
     heading: `Your claim for ${name} is approved`,
-    ...(portal ? { cta: { label: 'Go to your vendor portal', url: link(portal) } } : {}),
+    ...(signInPage ? { cta: { label: 'Sign in', url: link(signInPage) } } : {}),
     note: accountStatus,
   });
 
   // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): one line pointing at the public
-  // vendor page. An approved claimant is on a plan and can act on it. It stays an
-  // inline link, so the portal remains the email's one button. Omitted with no host.
+  // vendor page, after the Managed block it expands on. It stays an inline link, so
+  // sign-in remains the email's one button. Omitted with no host.
   const program = vendorProgramUrl(c.env);
   const render = (link: LinkTagger): EmailContent => {
-    const text = [opening, capabilities, signIn];
-    const html = [openingHtml, capabilities, signIn];
+    const text = [opening, signIn, free, managed];
+    const html = [openingHtml, signIn, free, managed];
     if (program) {
       const tagged = link(program);
       text.push(`See what each plan includes on our page for software vendors: ${tagged}`);
@@ -1051,18 +1052,18 @@ export async function sendClaimDecisionEmail(
     decision: 'approved' | 'rejected';
     to: string;
     targetName: string;
+    /** The granted vendor's company name (AECI-1367). Set on approve. */
+    vendorName?: string;
     identityOutcome?: 'linked' | 'invited';
-    plan?: 'free' | 'managed';
   },
 ): Promise<void> {
   if (input.decision === 'approved') {
     await sendClaimApprovedEmail(c, {
       to: input.to,
-      vendorName: input.targetName,
+      // The approval names the vendor the seat belongs to. The claimed target's name
+      // is the fallback for a caller that does not pass it.
+      vendorName: input.vendorName?.trim() || input.targetName,
       invited: input.identityOutcome === 'invited',
-      // The route always sets `plan` on approve. Managed is the fallback only so a
-      // caller that predates AECI-1215 keeps today's copy.
-      plan: input.plan ?? 'managed',
     });
   } else {
     // Neutral by design — the reviewer's `reason` is an internal audit note and is
@@ -1897,6 +1898,11 @@ export function sendLandingSignupNotification(
   });
 }
 
+/** The connector-vendor line on the claim alert (AECI-1367). The queue row's flag says
+ *  the same thing in `apps/web` (`@@admin.claims.connectorFlag.*`). */
+export const CONNECTOR_VENDOR_FLAG =
+  'Connector vendor: contact them directly. Every product this vendor lists is a connector.';
+
 /**
  * Operator alert: someone submitted a vendor claim (`POST /api/requests/claim`).
  *
@@ -1956,17 +1962,26 @@ export function sendClaimSubmittedNotification(
     /** AECI-847 identity signal: the claimant's own LinkedIn profile, or null when
      *  they skipped the optional field. */
     submitterLinkedinUrl: string | null;
-    /** AECI-1293: the claimant's plan answer (`free` | `managed` | `not_sure`), or
-     *  null when not answered. Optional so a caller that predates it still compiles. */
-    planInterest?: string | null;
+    /** AECI-1364: the product page the claim came from, or null. The claim itself is
+     *  on the company (`targetName`). Optional so a caller that predates it compiles. */
+    contextProduct?: { name: string; slug: string } | null;
     /** §6.8 signal: `match` | `no_match` | `pending`. */
     domainMatch: string;
     /** §7.2 signal: the id of an open request this appears to duplicate. */
     duplicateOfRequestId: string | null;
+    /** AECI-1367: every product the claimed vendor lists is a connector
+     *  (`isPureConnectorVendor`). `true` adds the "contact them directly" line.
+     *  `false`, `null` (unknown) and absent add nothing. Informational only: the
+     *  claim is approved like any other. */
+    connectorVendor?: boolean | null;
     /** AECI-861: the created issue's web permalink, or `null` when creation failed
      *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
      *  itself the thing the operator needs to know. */
     linearIssueUrl?: string | null;
+    /** AECI-1366: `vendor_requests.routed_to_owners_at`. Set when the claim went to the
+     *  company's owners first (AECI-1368). Adds the "Sent to the owners at <Company>" line
+     *  with the date AECi steps in. Null or absent adds nothing. */
+    routedToOwnersAt?: string | null;
   } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
@@ -1974,11 +1989,13 @@ export function sendClaimSubmittedNotification(
   const adminUrl = adminRequestUrl(c.env, 'claim', opts.requestId);
   const rows: Array<[string, string]> = [
     ['Claimed', `${opts.targetName} (${opts.targetType})`],
+    ...(opts.contextProduct
+      ? ([['Came from', `${opts.contextProduct.name} (product)`]] as Array<[string, string]>)
+      : []),
     ['Submitter', opts.submitterEmail],
     ['Name', opts.submitterName ?? '—'],
     ['Role', opts.submitterRole ?? '—'],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied'],
-    ['Plan interest', planInterestText(opts.planInterest ?? null)],
     ['Domain match', opts.domainMatch],
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
     ['Request id', opts.requestId],
@@ -2001,11 +2018,27 @@ export function sendClaimSubmittedNotification(
     return [
       ['Review queue', link(`${base}/admin/claims`)],
       ['Listing', link(`${base}/${path}/${opts.slug}`)],
+      ...(opts.contextProduct
+        ? ([['Product page', link(`${base}/products/${opts.contextProduct.slug}`)]] as Array<
+            [string, string]
+          >)
+        : []),
     ];
   };
 
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
   const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
+  // AECI-1367 (Chris's ruling 2026-10-14): the same neutral flag the queue row shows.
+  // It does not say to hold the claim. It says to talk to them.
+  const blocks = opts.connectorVendor === true ? [intro, CONNECTOR_VENDOR_FLAG] : [intro];
+  const htmlBlocks =
+    opts.connectorVendor === true ? [introHtml, escapeHtml(CONNECTOR_VENDOR_FLAG)] : [introHtml];
+  // AECI-1366: a claim routed to the company's owners (AECI-1368) waits for them first.
+  if (opts.routedToOwnersAt) {
+    const routed = claimRoutedAlertLine(opts.targetName, opts.routedToOwnersAt);
+    blocks.push(routed);
+    htmlBlocks.push(escapeHtml(routed));
+  }
   const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New claim for ${opts.targetName}`,
@@ -2017,10 +2050,16 @@ export function sendClaimSubmittedNotification(
     to: c.env.SUPPORT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
-    render: (link) => houseBody(shared(link), [intro], [introHtml]),
+    render: (link) => houseBody(shared(link), blocks, htmlBlocks),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
+}
+
+/** The claim alert's routed line (AECI-1366): who decides first and when AECi steps in. */
+export function claimRoutedAlertLine(companyName: string, routedToOwnersAt: string): string {
+  const stepsIn = formatDeadline(claimOwnerReviewDeadline(routedToOwnersAt));
+  return `Sent to the owners at ${companyName}; AECi steps in on ${stepsIn}.`;
 }
 
 /** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */
@@ -2420,6 +2459,147 @@ export function sendContestDeclinedProtestWindowEmail(
   });
 }
 
+// ─── Claims routed to a company's owners (AECI-1368, §11a.10) ─────────────────
+
+/** The claim facts the owner review email shows. Every value is what the claimant
+ *  typed, so every row is `PLAIN`: nothing they wrote may render as a link. */
+export interface ClaimOwnerReviewFacts {
+  requestId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/seats` button. `null` drops the button. */
+  vendorSlug: string | null;
+  submitterEmail: string;
+  submitterName: string | null;
+  submitterRole: string | null;
+  submitterLinkedinUrl: string | null;
+  comments: string;
+  contextProductName: string | null;
+  /** `routed_to_owners_at` + 7 days, computed by the caller. */
+  decideBy: string;
+}
+
+/** The portal's Seats section for a vendor, or `null`. */
+function vendorSeatsUrl(env: Env, vendorSlug: string | null): string | null {
+  const base = siteUrl(env);
+  return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/seats` : null;
+}
+
+/**
+ * `claim-owner-review`: someone claimed a company that already has owner seats, so
+ * each owner is asked to accept or decline them (AECI-1368,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). Sent from `POST /api/requests/claim` after
+ * the insert commits, one per owner seat, keyed
+ * `claim-owner-review:{requestId}:{profileId}`.
+ *
+ * Every claimant value is `PLAIN`. The LinkedIn URL in particular is the claimant's
+ * own text, so it never becomes a link in a mail that goes to a third party.
+ */
+export function sendClaimOwnerReviewEmail(
+  c: EmailContext,
+  opts: ClaimOwnerReviewFacts & { to: string; dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim() || 'your company';
+  const who = opts.submitterName?.trim() || opts.submitterEmail;
+  const due = formatDeadline(opts.decideBy);
+  const seats = vendorSeatsUrl(c.env, opts.vendorSlug);
+  const lead = `${who} asked to manage ${company} on AEC Integrations. You hold an owner seat for ${company}, so we are asking you first.`;
+  const leadHtml = `${escapeHtml(who)} asked to manage <strong>${escapeHtml(company)}</strong> on AEC Integrations. You hold an owner seat for ${escapeHtml(company)}, so we are asking you first.`;
+  const choice =
+    'Accept sends them a seat invite to the work email below. Their seat will not be an owner seat. Decline tells them the claim was not approved.';
+  const fallback = `If no owner decides by ${due}, AEC Integrations reviews the claim instead.`;
+  const table: EmailTableRow[] = [
+    ['Name', opts.submitterName?.trim() || 'not given', PLAIN],
+    ['Role', opts.submitterRole?.trim() || 'not given', PLAIN],
+    ['Work email', opts.submitterEmail, PLAIN],
+    ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied', PLAIN],
+    ...(opts.contextProductName
+      ? ([['Came from', opts.contextProductName, PLAIN]] as EmailTableRow[])
+      : []),
+    ['Their note', opts.comments, PLAIN],
+    ['Decide by', due],
+  ];
+  const shared = (link: LinkTagger) => ({
+    preheader: `Decide by ${due}.`,
+    heading: `${who} wants to join ${company}`,
+    table,
+    ...(seats ? { cta: { label: 'Review in Seats', url: link(seats) } } : {}),
+    note: `You get this email because you hold an owner seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-owner-review',
+    // Both are typed text (the claimant's name, the company name), so each is
+    // collapsed to one line of at most 80 characters before it reaches a header.
+    subject: `${subjectSafe(who)} wants to join ${subjectSafe(company)} on AEC Integrations`,
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, choice, fallback],
+        [leadHtml, escapeHtml(choice), escapeHtml(fallback)],
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'vendor_request', id: opts.requestId },
+  });
+}
+
+/** One claim the owner fallback handed to AECi, for the operator digest. */
+export interface ClaimOwnerFallbackSummary {
+  requestId: string;
+  /** `null` when the vendor row is gone. */
+  vendorName: string | null;
+  submitterEmail: string;
+  submitterName: string | null;
+  createdAt: string;
+  routedToOwnersAt: string;
+  adminUrl: string | null;
+}
+
+/**
+ * `claim-owner-fallback-alert`: the daily `claim_owner_fallback` cron moved claims the
+ * owners left undecided for 7 days back to AECi (AECI-1368). One digest per run,
+ * keyed on the sorted claim ids, so a replayed run sends nothing. Recipient is
+ * `SUPPORT_EMAIL`; absent, `'skipped'`.
+ */
+export function sendClaimOwnerFallbackAlert(
+  c: EmailContext,
+  opts: { to: string | undefined; rows: readonly ClaimOwnerFallbackSummary[] } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { rows } = opts;
+  const one = rows.length === 1;
+  const plural = one ? '' : 's';
+  const sections = (link: LinkTagger) =>
+    rows.map((r) => {
+      const detail: Array<[string, string]> = [
+        ['Claimant', r.submitterEmail],
+        ['Name', r.submitterName ?? 'not given'],
+        ['Submitted', formatDeadline(r.createdAt)],
+        ['Sent to owners', formatDeadline(r.routedToOwnersAt)],
+        ['Request id', r.requestId],
+      ];
+      if (r.adminUrl) detail.push(['Administer', link(r.adminUrl)]);
+      return { heading: r.vendorName ?? '(company removed)', rows: detail };
+    });
+  const intro =
+    `${rows.length} claim${plural} on ${one ? 'a company' : 'companies'} with owner seats ` +
+    `${one ? 'was' : 'were'} not decided by the owners within 7 days. ` +
+    `${one ? 'It is' : 'They are'} now in the claim queue for AECi to review.`;
+  const base = siteUrl(c.env);
+  const shared = (link: LinkTagger) => ({
+    preheader: `${rows.length} claim${plural} now waiting on AECi.`,
+    heading: `${rows.length} claim${plural} handed back by the owners`,
+    sections: sections(link),
+    ...(base ? { cta: { label: 'Open the claim queue', url: link(`${base}/admin/claims`) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-owner-fallback-alert',
+    subject: `[AECi] ${rows.length} claim${plural} not decided by the owners in 7 days`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *
@@ -2597,23 +2777,6 @@ export function sendPlanInquiryAlert(
   });
 }
 
-/**
- * A plan answer from the claim dialog or the claim form (AECI-1293), as the operator
- * reads it. `null` is "not answered", never a default plan.
- */
-export function planInterestText(value: string | null): string {
-  switch (value) {
-    case 'free':
-      return 'Free';
-    case 'managed':
-      return 'Managed';
-    case 'not_sure':
-      return 'Not sure yet';
-    default:
-      return 'not answered';
-  }
-}
-
 /** A typed-in listing as `POST /api/requests/listing` saved it (AECI-1293). */
 export interface ListingRequestSummary {
   /** The `listing_requests.id` of the saved row. */
@@ -2624,7 +2787,6 @@ export interface ListingRequestSummary {
   submitterName: string | null;
   submitterRole: string | null;
   submitterLinkedinUrl: string | null;
-  planInterest: string | null;
   /** "Additional comments", `''` when none. */
   body: string;
 }
@@ -2637,8 +2799,8 @@ export interface ListingRequestSummary {
  *
  * Every visitor-typed value is `plain`: the name, the website and the email are typed,
  * not verified, so AECi's markup must never turn them into links in the support inbox
- * (the AECI-1197 rule). There is no email to the visitor: the address is unverified,
- * as on a claim, and the dialog's own receipt is the receipt.
+ * (the AECI-1197 rule). The visitor's receipt is `claim-received` (AECI-1366), sent
+ * after this alert and bounded per address per day.
  */
 export function sendListingRequestAlert(
   c: EmailContext,
@@ -2654,7 +2816,6 @@ export function sendListingRequestAlert(
     ['Name', request.submitterName ?? '—', { plain: true }],
     ['Role', request.submitterRole ?? '—', { plain: true }],
     ['LinkedIn', request.submitterLinkedinUrl ?? 'not supplied', { plain: true }],
-    ['Plan interest', planInterestText(request.planInterest)],
     ['Comments', request.body || '(none)', { plain: true }],
     ['Request id', request.requestId],
   ];
@@ -2678,6 +2839,132 @@ export function sendListingRequestAlert(
     replyTo: request.submitterEmail,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
+  });
+}
+
+/**
+ * The per-address, per-day ledger key of the claim receipt (AECI-1366): at most one
+ * `claim-received` per address per UTC day, across claims and listing requests. The key
+ * holds the address's hash, never the address (AECI-1203), as `plan-inquiry-received`
+ * does.
+ *
+ * It is also the per-request bound. A request has one address and sends its receipt
+ * once, post-commit, so no request can send two. A second request from the same address
+ * on the same day gets no receipt: the on-screen receipt still shows, and the claim is
+ * in the queue either way.
+ */
+export async function claimReceivedDedupeKey(
+  email: string,
+  now: Date = new Date(),
+): Promise<string> {
+  return `claim-received:${await recipientHash(email)}:${now.toISOString().slice(0, 10)}`;
+}
+
+/** What a `claim-received` receipt is about. */
+export type ClaimReceivedSubject =
+  | {
+      kind: 'claim';
+      /** The `vendor_requests.id`. */
+      requestId: string;
+      /** The company claimed (a claim is on the company, AECI-1364). */
+      companyName: string;
+      /** The product page the claim came from, or null. */
+      contextProductName: string | null;
+      /** `vendor_requests.routed_to_owners_at`: set when the company's owners decide
+       *  first (AECI-1368). Selects the routed variant. */
+      routedToOwnersAt: string | null;
+    }
+  | {
+      kind: 'listing';
+      /** The `listing_requests.id`. */
+      requestId: string;
+      /** What the visitor typed. Echoed as plain text, never in the subject. */
+      listingName: string;
+    };
+
+/**
+ * The claimant's receipt (AECI-1366, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3 and §15.4). Sent
+ * post-commit to the address typed on a claim or a typed-in listing request. It says what
+ * was claimed and what happens next, and links the vendor terms they accepted and the
+ * help page. It carries NO link that grants anything: no sign-in link, no portal link,
+ * no token. A claim grants nothing until a person approves it.
+ *
+ * The address is typed, not verified, so the send is bounded to one per address per UTC
+ * day ({@link claimReceivedDedupeKey}) and the body says what to do if they did not send
+ * it. The only visitor text it echoes is a typed-in listing name, as plain text in the
+ * body (the AECI-1197 rule), never in the subject.
+ *
+ * Routed variant: when the company's owners decide first, it says the team at the company
+ * has been asked to confirm them, that an accept sends an invitation email, and that AECi
+ * reviews the claim if nobody answers in 7 days.
+ */
+export async function sendClaimReceivedEmail(
+  c: EmailContext,
+  opts: { to: string; subject: ClaimReceivedSubject; now?: Date },
+): Promise<EmailOutcome> {
+  const { subject: about } = opts;
+  const base = siteUrl(c.env);
+  const support = c.env.SUPPORT_EMAIL?.trim() || undefined;
+
+  const review =
+    'A person at AEC Integrations reviews every claim. Nothing is granted automatically. We check your email domain against the company website, and your LinkedIn profile if you added it. We email this address with our decision.';
+  const notYou =
+    'If you did not send this, you can ignore this email. Nothing changes on any account until a person approves a claim.';
+
+  let heading: string;
+  let opening: string;
+  let openingHtml: string;
+  let next: string;
+  const table: EmailTableRow[] = [];
+  if (about.kind === 'claim') {
+    heading = `We got your claim for ${subjectSafe(about.companyName)}`;
+    opening = about.contextProductName
+      ? `Thanks for claiming ${about.companyName} on AEC Integrations. You sent it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
+      : `Thanks for claiming ${about.companyName} on AEC Integrations.`;
+    openingHtml = about.contextProductName
+      ? `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You sent it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
+      : `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
+    next = about.routedToOwnersAt
+      ? `The team at ${about.companyName} has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within ${CLAIM_OWNER_REVIEW_DAYS} days, we review your claim and write to you.`
+      : review;
+    table.push(['Company', about.companyName]);
+    if (about.contextProductName) table.push(['Came from', about.contextProductName]);
+  } else {
+    heading = 'We got your listing request';
+    opening =
+      'Thanks for asking us to add a listing to AEC Integrations. We add it to the directory, then email this address so you can finish your claim.';
+    openingHtml = escapeHtml(opening);
+    next = review;
+    table.push(['Listing', about.listingName, { plain: true }]);
+  }
+
+  const blocks = [opening, next, notYou];
+  const htmlBlocks = [openingHtml, escapeHtml(next), escapeHtml(notYou)];
+  const shared = (link: LinkTagger) => ({
+    preheader: next,
+    heading,
+    table: [
+      ...table,
+      ...(base
+        ? ([
+            ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
+            ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
+          ] as EmailTableRow[])
+        : []),
+    ],
+  });
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-received',
+    subject: heading,
+    render: (link) => houseBody(shared(link), blocks, htmlBlocks),
+    dedupeKey: await claimReceivedDedupeKey(opts.to, opts.now),
+    entity: {
+      type: about.kind === 'claim' ? 'vendor_request' : 'listing_request',
+      id: about.requestId,
+    },
+    ...(support ? { replyTo: support } : {}),
   });
 }
 
@@ -3172,10 +3459,18 @@ function productUrl(env: Env, slug: string): string | null {
 }
 
 /** The vendor portal entry point (`/vendor`, AECI-522) or `null` when
- *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
+ *  `PUBLIC_SITE_URL` is unset; the caller then omits the link. */
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/** The sign-in page, returning to the vendor portal (`/auth/login?return=/vendor`), or
+ *  `null` when `PUBLIC_SITE_URL` is unset. The claim-approved email's one button
+ *  (AECI-1367): a page, never a one-time link, so a late read still works. */
+function signInUrl(env: Env): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/auth/login?return=${encodeURIComponent('/vendor')}` : null;
 }
 
 /** The public vendor landing page (`/vendor-program`, AECI-1283) or `null` when

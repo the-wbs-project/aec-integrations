@@ -1,5 +1,6 @@
 import {
   Component,
+  DOCUMENT,
   type ElementRef,
   Injector,
   type OnInit,
@@ -24,18 +25,19 @@ import {
 import { RouterLink } from '@angular/router';
 
 import {
+  CLAIM_OWNER_REVIEW_DAYS,
   ClaimFormSchema,
   CorrectionFormSchema,
-  type PlanInterest,
   type RequestSubmitResponse,
 } from '@aeci/shared';
 
-import { Analytics, planInterestProperty } from '../analytics/analytics';
+import { Analytics } from '../analytics/analytics';
 import { SessionStatus } from '../auth/session-status';
 
+import { ClaimRoutedNotice } from './claim-routed-notice';
 import { ClaimantFields } from './claimant-fields';
-import { PlanInterestField } from './plan-interest-field';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
+import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -59,8 +61,8 @@ interface RequestModel {
   submitter_linkedin_url: string;
   body: string;
   source_url: string;
-  /** Claim-only (AECI-1293): `''` (not answered) or a `PlanInterest`. */
-  plan_interest: '' | PlanInterest;
+  /** Claim-only (AECI-1366): the vendor terms box. Must be `true` to submit. */
+  accepted_terms: boolean;
 }
 
 /**
@@ -96,7 +98,7 @@ interface RequestModel {
  */
 @Component({
   selector: 'aec-request-form-body',
-  imports: [FormField, RouterLink, ClaimantFields, PlanInterestField],
+  imports: [FormField, RouterLink, ClaimantFields, ClaimRoutedNotice, VendorTermsBox],
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
@@ -104,11 +106,24 @@ export class RequestFormBody implements OnInit {
   private readonly injector = inject(Injector);
   private readonly analytics = inject(Analytics);
   private readonly session = inject(SessionStatus);
+  private readonly document = inject(DOCUMENT);
 
   readonly entity = input.required<Entity>();
   readonly kind = input.required<Kind>();
   readonly slug = input.required<string>();
   readonly variant = input<Variant>('page');
+
+  /**
+   * AECI-1364: the company a claim is on, for "Claim <Company>" on the routed page.
+   * `null` when unknown (the entity or its vendor did not resolve), which reads
+   * "Claim your company". The drawer supplies its own title, and passes the company
+   * only for the routed notice and receipt (AECI-1366).
+   */
+  readonly company = input<string | null>(null);
+
+  /** AECI-1364: the product page a claim came from ("from the <Product> page"), or
+   *  `null` on a company page. Display only: the API resolves the company itself. */
+  readonly contextProduct = input<string | null>(null);
 
   /**
    * Seed text for `body` (AECI-967), supplied by the surface that opened the
@@ -133,6 +148,10 @@ export class RequestFormBody implements OnInit {
    *  "sent" title and email line on it; the routed page renders its own. */
   readonly sent = output<string>();
 
+  /** AECI-1366: emitted just before `sent`, true when the claim went to the company's
+   *  owners first (AECI-1368). The drawer drops its "with our decision" line on it. */
+  readonly sentRouted = output<boolean>();
+
   /** The submitted email, for the routed page's confirmation line. */
   protected readonly sentTo = signal('');
 
@@ -147,6 +166,20 @@ export class RequestFormBody implements OnInit {
    *  (not a form error) so the submit button stays enabled and the user can retry. */
   protected readonly submitFailed = signal(false);
 
+  /** AECI-1366: the server refused the submit on `accepted_terms` (a stale bundle).
+   *  The terms box shows its own error instead of the generic failure. */
+  protected readonly termsRejected = signal(false);
+
+  /**
+   * AECI-1366: the company already has an owner seat (`has_seats` from
+   * `GET /api/requests/claim-target/:type/:slug`), so the claim goes to its team first.
+   * Drives the routed notice on the form and the routed receipt. Loaded in the browser
+   * after first render, never during SSR, so the cached routed page stays neutral. A
+   * failed lookup leaves it false: no notice, and the submit is never blocked.
+   */
+  protected readonly routed = signal(false);
+  protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
+
   private readonly model = signal<RequestModel>({
     submitter_name: '',
     submitter_email: '',
@@ -154,7 +187,7 @@ export class RequestFormBody implements OnInit {
     submitter_linkedin_url: '',
     body: '',
     source_url: '',
-    plan_interest: '',
+    accepted_terms: false,
   });
 
   /** Built in `ngOnInit` (see class doc) — guaranteed assigned before first render. */
@@ -206,19 +239,38 @@ export class RequestFormBody implements OnInit {
       // `source_url` for a claim) are ignored and stay unvalidated.
       this.form = form(this.model, (p) => {
         if (this.kind() === 'claim') {
-          validateStandardSchema(p, ClaimFormSchema);
+          // The function form: the model holds `accepted_terms` as a boolean, which the
+          // schema narrows to `true`, so the schema cannot be the static argument.
+          validateStandardSchema(p, () => ClaimFormSchema);
         } else {
           validateStandardSchema(p, CorrectionFormSchema);
         }
       });
     });
+
+    // AECI-1366: browser-only, after first render (see `routed`).
+    if (this.kind() === 'claim') {
+      afterNextRender(() => void this.loadClaimTarget(), { injector: this.injector });
+    }
+  }
+
+  private async loadClaimTarget(): Promise<void> {
+    try {
+      const target = await this.api.getClaimTarget(this.target());
+      this.routed.set(target.has_seats);
+    } catch {
+      // Fail quiet: no disclosure. The submit still works.
+    }
   }
 
   protected async onSubmit(): Promise<void> {
     this.submitFailed.set(false);
+    this.termsRejected.set(false);
     await submit(this.form, async (f) => {
       const v = f().value();
       const target = this.target();
+      // The schema already refused an unchecked box; this narrows the type.
+      if (this.kind() === 'claim' && !v.accepted_terms) return undefined;
       try {
         const res =
           this.kind() === 'claim'
@@ -228,7 +280,7 @@ export class RequestFormBody implements OnInit {
                 submitter_role: v.submitter_role,
                 submitter_linkedin_url: v.submitter_linkedin_url,
                 body: v.body,
-                plan_interest: v.plan_interest,
+                accepted_terms: true,
               })
             : await this.api.submitCorrection(target, {
                 body: v.body,
@@ -237,6 +289,7 @@ export class RequestFormBody implements OnInit {
               });
         this.sentTo.set(v.submitter_email.trim());
         this.submitted.set(res);
+        this.sentRouted.emit(this.kind() === 'claim' && this.routed());
         this.sent.emit(this.sentTo());
         afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
           injector: this.injector,
@@ -248,17 +301,22 @@ export class RequestFormBody implements OnInit {
           slug: target.slug,
           request_id: res.request_id,
         };
-        if (this.kind() === 'claim') {
-          this.analytics.claimRequested({
-            ...payload,
-            plan_interest: planInterestProperty(v.plan_interest),
-          });
-        } else this.analytics.correctionRequested(payload);
-      } catch {
+        if (this.kind() === 'claim') this.analytics.claimRequested(payload);
+        else this.analytics.correctionRequested(payload);
+      } catch (err) {
         // Surface the failure as a notice, not a form error — returning a
         // `ValidationError` here would mark the form invalid and disable the
         // submit button, blocking the retry the message invites.
-        this.submitFailed.set(true);
+        if (this.kind() === 'claim' && isAcceptedTermsRejection(err)) {
+          // AECI-1366: the box's own error, and focus on the box.
+          this.termsRejected.set(true);
+          this.model.update((m) => ({ ...m, accepted_terms: false }));
+          afterNextRender(() => this.document.getElementById('claim-terms')?.focus(), {
+            injector: this.injector,
+          });
+        } else {
+          this.submitFailed.set(true);
+        }
       }
       return undefined;
     });

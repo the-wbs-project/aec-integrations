@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the eighteen cron expressions and is asserted byte-equal to",
+      "truth for the nineteen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -141,7 +141,12 @@
       "the `pendingFirstHeartbeat` side list, which held protest-reply-reminder and",
       "vendor-snapshot. cron-schedules.spec.ts asserts every cron is in `crons` and every",
       "activeFrom parses. The rule is in README.md §'New crons: activeFrom'. gsc-inspect",
-      "carries one until its first production heartbeat (AECI-1236)."
+      "carries one until its first production heartbeat (AECI-1236).",
+      "",
+      "AECI-1368 added claim-owner-fallback, the nineteenth cron, daily at 14:00 UTC: it hands",
+      "routed claims the owners left undecided for 7 days back to AECi. Its heartbeat",
+      "aeci.claim.owner_fallback.job fires on EVERY run. It carries activeFrom until its first",
+      "production heartbeat."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -299,6 +304,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1236. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h) like every other daily job. The heartbeat fires on every chunk of a run, including skipped (no GSC_SA_KEY_JSON) and quota-halted ones, so a run that stops partway still emits. outcome:quota is a routine Google 429 and is NOT a failure; only outcome:failed (key refused, chain enqueue failed) reaches the cron-failure alert."
+      },
+      {
+        "job": "claim-owner-fallback",
+        "cron": "0 14 * * *",
+        "metric": "aeci.claim.owner_fallback.job",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-01T15:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1368. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that move no claim: aeci.claim.owner_fallback.moved could not serve alone, because zero is its normal value. activeFrom is a placeholder past the expected production promote of epic AECI-1333; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       }
     ]
   }

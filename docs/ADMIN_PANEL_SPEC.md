@@ -651,7 +651,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all eighteen crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all nineteen crons (§7.2).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
@@ -737,12 +737,14 @@ Per §9.3 the four GETs emit no `audit_log` row; the revoke does, in the same `d
 > Three IA notes, in this section's voice:
 >
 > - **It belongs on the vendor, not on the claim or the person.** `/admin/claims/:id` deliberately does not moderate and does not manage the entitlement (§5.10); `/admin/users/:id` deliberately cannot revoke a seat or edit a role (§5.8). This page is the one that shows the blast radius — the other seats, the entitlement state, the `product_role` breakdown — which is the same reason revoke lives here.
-> - **Two write actions, still not one button.** Adding a seat and setting an entitlement stay separate controls. They are the two halves the claim grant fuses, and that fusion is the problem `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 exists to route around; merging them here would recreate it on the surface built to avoid it.
+> - **Two write actions, still not one button.** Adding a seat and setting an entitlement stay separate controls. They were the two halves the claim grant fused, and that fusion was the problem `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 existed to route around. Since AECI-1367 (2026-10-15) a claim grant opens no entitlement, so the two are separate everywhere.
 > - **It warns and never gates.** On a vendor owning endpoint products the control shows a warning above an **enabled** button, and zero products reads as *unknown* rather than exempt — the AECI-738 rule verbatim, for the same reason: `product_role` is curated upstream, so a mis-roled record must not hard-block a legitimate operator. Since AECI-1041 it also warns on a vendor that owns integrations, because such a vendor pays if it wants to manage them (§8.10) and this seat is free.
 >
 > Contract in `API_CONTRACTS.md` §6.10; the owning spec section is `STAGE_2_PAID_TIERS_SPEC.md` §5.6.3 (retitled by this issue), as-built in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.3.
 
-> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'`, and that owns no integration it manages, is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9). One that does own integrations it manages is a paying third-party owner and takes the ordinary Grant (§8.10, AECI-1017). Since **AECI-1041 (2026-09-22)** both screens show an "Integrations owned" count over both delivered-tier tables, and on a pure connector vendor that owns integrations the banner above Grant/Reject reads as a paying owner instead of a park. On `/admin/claims`, Grant would open a `verified` entitlement and flip the public `verified` mirror, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for a pure connector vendor that owns no integrations. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+> **Retired 2026-10-15 (AECI-1367): a connector vendor's claim is approved like anyone else's.** Chris ruled it on 2026-10-14 and scoped it on 2026-10-15. The three parking banners (do not Grant or Reject, owner-unknown, third-party-owner) are replaced by one neutral informational flag, "Connector vendor: contact them directly", on actionable rows where `is_pure_connector_vendor === true`. The `claim-submitted-alert` email adds the same advice. Every approval lands on Free. The note below is history.
+>
+> ~~**Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).**~~ A vendor **all** of whose products are `product_role = 'connector'`, and that owns no integration it manages, is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9). One that does own integrations it manages is a paying third-party owner and takes the ordinary Grant (§8.10, AECI-1017). Since **AECI-1041 (2026-09-22)** both screens show an "Integrations owned" count over both delivered-tier tables, and on a pure connector vendor that owns integrations the banner above Grant/Reject reads as a paying owner instead of a park. On `/admin/claims`, Grant would open a `verified` entitlement and flip the public `verified` mirror, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for a pure connector vendor that owns no integrations. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 > **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
 >
@@ -1008,10 +1010,13 @@ Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
 `API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here because the route,
 the IA and the read-only carve-out are this doc's business.
 
-**Why it exists.** §5.2 is the operator procedure for a **pure-connector vendor's claim**:
-Grant is wrong (it opens an unconditional `verified` entitlement and flips the public `verified` mirror) and
-Reject is wrong (it sends a real decline email to exactly the party we want a relationship
-with), so the claim is **parked `open`** and routed to the partnership track out of band.
+**Why it exists.** §5.2 was the operator procedure for a **pure-connector vendor's claim**:
+Grant was wrong (it opened an unconditional `verified` entitlement and flipped the public `verified` mirror) and
+Reject was wrong (it sends a real decline email to exactly the party we want a relationship
+with), so the claim was **parked `open`** and routed to the partnership track out of band.
+*(Retired 2026-10-15, AECI-1367: nothing is parked now. Every approval lands on Free and a
+connector vendor's claim is approved like any other. The record this screen holds still
+serves any note an operator writes.)*
 AECI-738 made that vendor identifiable from the queue card. What was still missing was the
 *record*: §5.2 step 6 had to send the conversation to Linear comments "so nobody looks for
 an in-product home that does not exist", which meant the console showed a lengthening queue
@@ -1051,15 +1056,24 @@ column. An unchanged re-save is a 200 no-op that writes nothing, deliberately: a
 identical states is not a history. Since AECI-1276 that history shows on this page, in its
 Audit trail section, so the note help text's promise is kept where the note is written.
 
+**The "Claimant account" label follows `granted` (AECI-1322, AECI-1367 — 2026-10-15).**
+`AdminClaim.granted` is `status = 'resolved' AND resolved_by_id IS NOT NULL`. The label reads
+"Account exists (claim granted)" only when `granted` is true. A resolved claim with `granted`
+false reads "Resolved without a grant". The Linear webhook resolves a claim with
+`resolved_by_id` null, and before this it read as granted. Since AECI-1322
+(2026-10-15) the generic `PATCH /api/admin/requests/:id` refuses a claim with 422 for
+both resolve and reject. Grant and Reject here are the only site path that ends a claim,
+so `granted` is true only for a claim an operator granted.
+
 **What this screen deliberately cannot do:**
 
-- **Grant or reject.** Both stay on the queue, where §5.2's pure-connector warning sits
-  beside the buttons that would do the damage. Splitting them would mean two copies of that
-  warning, and those are the sentences whose drift is an incident rather than a typo.
+- **Grant or reject.** Both stay on the queue, beside the neutral connector-vendor flag
+  (AECI-1367 replaced §5.2's three parking banners with it). Splitting them would mean two
+  copies of that flag.
 - **Manage the entitlement.** That moved to `/admin/vendors/:id` (§5.7 / AECI-652) for the
   same reason; this page shows a readout and links there.
-- **Change `is_duplicate`.** §5.2 step 5's trap — a parked-open claim keeps flagging every
-  later claim on that vendor — is made *legible* here, not fixed. The chip's semantics are
+- **Change `is_duplicate`.** §5.2 step 5's trap (parking is retired, but any claim left open
+  still flags every later claim on that vendor) is made *legible* here, not fixed. The chip's semantics are
   unchanged.
 - **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
   available, but the API surface is claim-only. Extending it is a decision, not a migration.
@@ -1649,7 +1663,8 @@ badge.
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
   Rejected filter. Each row shows the name, the website as text plus a new-tab link
   (`rel="noopener noreferrer nofollow"`), the submitter's email, name, role and LinkedIn, the
-  plan interest, the comments and the date, with Resolve and Reject. The list loads the first
+  comments and the date, with Resolve and Reject. The "Plan interest" row was removed by
+  AECI-1365 (2026-10-15). The list loads the first
   100 rows. Past that it says "Showing the first N of M listing requests", like the corrections
   section. A filter change ignores any response for a filter the admin already left.
 - **The badge.** `pending_requests` counts open corrections plus open listing requests, so
@@ -1658,10 +1673,27 @@ badge.
 - **What Resolve means.** The operator added the listing upstream (the review app, then
   promote) and replied to the `listing-request-alert` email, whose reply-to is the
   submitter. Resolving creates nothing.
-- **Claims.** The claim queue and the claim detail (§5.10) show the claimant's plan answer as
-  "Plan interest", and the queue's approve form repeats it beside the plan radios ("They
-  asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
+- **Claims.** The claim queue and the claim detail (§5.10) show no plan answer. AECI-1293
+  added a "Plan interest" row and a "They asked about" line on the approve form. AECI-1365
+  (2026-10-15) removed both with the plan question. Since AECI-1367 (2026-10-15) the plan
+  radios are gone too, and every approval lands on Free (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
+- **"Came from" (AECI-1364, 2026-10-15).** A claim is on the company, so a claim sent from
+  a product page is stored with the vendor as its target. The queue card and the claim
+  detail show "Came from: <Product>", linked to the product page, from
+  `AdminClaim.context_product`. A company-page claim, or a claim stored before migration
+  0076, shows no such line.
+- **"With owners until" (AECI-1368, 2026-10-15).** A claim on a company that already has
+  an unbanned owner seat is routed to its owners first (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+  §11a.10). An actionable queue row with `AdminClaim.routed_to_owners_at` set shows
+  "With owners until <date>" (`routed_to_owners_at` plus `CLAIM_OWNER_REVIEW_DAYS`, 7)
+  and a line saying the owners were asked and the claim comes back after that date.
+  **Grant and Reject stay enabled.** It warns, never gates: AECi can decide a routed claim
+  at any time. Once the daily `claim-owner-fallback` cron hands the claim back,
+  `routed_to_owners_at` is cleared and the row instead says the owners did not decide
+  within 7 days, from `owner_fallback_at`. That cron also sends `claim-owner-fallback-alert`.
+  A claim an owner accepted reads `granted: true`, because the owner is `resolved_by_id`.
+  The seat comes later, through the invite the accept issued.
 
 ### 5.16 Product requests on `/admin/requests` (AECI-1377, 2026-10-15)
 
@@ -2060,9 +2092,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the eighteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the nineteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eighteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the nineteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.

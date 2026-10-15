@@ -19,7 +19,6 @@ import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
-import { planInterestLabel } from './plan-interest-label';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -41,6 +40,9 @@ const AUDIT_PAGE_SIZE = 25;
  * step 6 sent the conversation to Linear comments "so nobody looks for an
  * in-product home that does not exist", and the console showed a lengthening
  * queue of open claims with no visible reason why any of them was parked.
+ * AECI-1367 retired parking: a pure-connector claim is approved like any other,
+ * and the queue shows a neutral "contact them directly" flag. The note stays as
+ * the record of what was said out of band.
  *
  * Six sections, all read together — which is why this is a FLAT child of
  * `/admin` with no per-route resolver, exactly like `/admin/vendors/:id` and
@@ -65,9 +67,8 @@ const AUDIT_PAGE_SIZE = 25;
  *    and stays on `/admin/vendors/:id`.
  *
  * Two boundaries this screen deliberately does NOT cross. **It does not moderate**
- * — Grant and Reject stay on the queue, where the §5.2 pure-connector warning
- * lives beside the buttons that would do the damage; splitting them would mean two
- * copies of that warning. And **it does not manage the entitlement** — that moved
+ * — Grant and Reject stay on the queue, beside the connector flag, so there is
+ * one place to act. And **it does not manage the entitlement** — that moved
  * to `/admin/vendors/:id` (AECI-652 §5.6) precisely so the §5.2/§5.3/§5.4 copy
  * invariants live in one file; this page links there rather than re-rendering it.
  */
@@ -77,8 +78,6 @@ const AUDIT_PAGE_SIZE = 25;
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
-  /** AECI-1293: the claimant's plan answer, as the reviewer reads it. */
-  protected readonly planInterestLabel = planInterestLabel;
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly locale = inject(LOCALE_ID);

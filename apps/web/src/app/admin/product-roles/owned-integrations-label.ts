@@ -25,34 +25,3 @@ export function ownedIntegrationsLabel(owned: VendorOwnedIntegrations): string {
   }
   return $localize`:@@admin.ownedIntegrations.directOnly:${owned.total}:TOTAL: (direct)`;
 }
-
-/**
- * Where a vendor lands on the §5.2 payer test once the owner clause is known
- * (`STAGE_2_SPEC.md` §8.10(1)).
- *
- * - `not-connector`: not a pure connector vendor, or the role signal is
- *   unavailable. The connector carve-out does not apply.
- * - `third-party-owner`: a pure connector vendor that owns live integrations. It
- *   pays if it wants to manage them, and takes the ordinary Grant.
- * - `catalogue-only`: a pure connector vendor that owns none. §8.9 applies: park
- *   the claim and use the catalogue-maintenance seat.
- * - `owner-unknown`: a pure connector vendor whose owned count could not be read.
- *   The operator must check step 1a before parking.
- *
- * The console only answers "is it an owner". Whether it wants to manage those
- * integrations is the claimant's answer, so every surface warns and none gates.
- */
-export type ConnectorPayerState =
-  | 'not-connector'
-  | 'third-party-owner'
-  | 'catalogue-only'
-  | 'owner-unknown';
-
-export function connectorPayerState(
-  isPureConnectorVendor: boolean | null,
-  owned: VendorOwnedIntegrations | null,
-): ConnectorPayerState {
-  if (isPureConnectorVendor !== true) return 'not-connector';
-  if (owned === null) return 'owner-unknown';
-  return owned.total > 0 ? 'third-party-owner' : 'catalogue-only';
-}

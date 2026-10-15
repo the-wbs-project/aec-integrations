@@ -211,12 +211,13 @@ describe('VendorDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="vendor-actions-label"]') as HTMLElement;
 
-  it('always offers to claim the listing, with no note', () => {
+  it('always offers to claim the company by name, with no note (AECI-1365)', () => {
     const { el } = setup(buildVendor());
     const section = actions(el);
 
     expect(section).toBeTruthy();
-    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).toContain('Claim Procore Technologies');
+    expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
   });

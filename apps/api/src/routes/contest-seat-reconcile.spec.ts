@@ -369,12 +369,12 @@ describe('the seat return withholds what the owner may not decide', () => {
     expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
   });
 
-  // AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6: only a MANAGED claim approval
-  // activates an entitlement in its batch. A Free one must not tell the return it did.
+  // AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6. Since AECI-1367 every claim approval
+  // lands on Free and activates nothing, so the return follows the vendor's live plan.
   describe('through a claim approval (AECI-1215)', () => {
     const CLAIM = uuid(40);
-    const approve = (plan: 'free' | 'managed') =>
-      call(AUTH_ADMIN, `/api/admin/claims/${CLAIM}`, { action: 'approve', plan }, 'PATCH');
+    const approve = () =>
+      call(AUTH_ADMIN, `/api/admin/claims/${CLAIM}`, { action: 'approve' }, 'PATCH');
 
     beforeEach(() =>
       t.db.insert(vendorRequests).values({
@@ -388,18 +388,19 @@ describe('the seat return withholds what the owner may not decide', () => {
       }),
     );
 
-    it('Free keeps a connector-row contest with AECi when the owner holds no entitlement', async () => {
+    it('keeps a connector-row contest with AECi when the owner holds no entitlement', async () => {
       const powered = await stampedContest({ integrationId: I_POWERED });
       const plain = await stampedContest({ integrationId: I_PLAIN });
-      expect((await approve('free')).status).toBe(200);
+      expect((await approve()).status).toBe(200);
       expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
       expect(await contest(plain)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
       expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
     });
 
-    it('Managed returns it, because the same batch activates the entitlement', async () => {
+    it('returns it when the vendor already holds an entitlement', async () => {
+      await entitle(VENDOR_B);
       const powered = await stampedContest({ integrationId: I_POWERED });
-      expect((await approve('managed')).status).toBe(200);
+      expect((await approve()).status).toBe(200);
       expect(await contest(powered)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
     });
   });

@@ -474,6 +474,8 @@ import { RoleBadge } from './role-badge';
                 [entity]="'product'"
                 [kind]="'claim'"
                 [slug]="p.slug"
+                [company]="p.vendor?.name ?? null"
+                [contextProduct]="p.name"
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-base) px-4 py-2.5
@@ -497,9 +499,17 @@ import { RoleBadge } from './role-badge';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                <ng-container i18n="@@products.detail.metadata.claim"
-                  >Claim this listing</ng-container
-                >
+                <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3),
+                     so the button names the product's vendor. -->
+                @if (p.vendor?.name; as company) {
+                  <ng-container i18n="@@products.detail.metadata.claimCompany"
+                    >Claim {{ company }}</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@products.detail.metadata.claimYourCompany"
+                    >Claim your company</ng-container
+                  >
+                }
               </a>
               <a
                 aecRequestTrigger
@@ -534,7 +544,7 @@ import { RoleBadge } from './role-badge';
                 >
               </a>
             </div>
-            <!-- AECI-1283: the vendor landing page, beside "Claim this listing"
+            <!-- AECI-1283: the vendor landing page, beside the claim button
                  (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). Visitor-neutral, so it stays in
                  the cached HTML. -->
             <a

@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
-import { PlanInterestSchema } from './requests';
 
 /**
  * Admin requests moderation contracts (AECI-216 / Phase 6.9) — the admin-facing
@@ -72,11 +71,6 @@ export const AdminVendorRequestSchema = z.object({
    *  or that predates the column. `/admin/claims` renders it as the reviewer's
    *  primary person link, falling back to the built name-search URL when null. */
   submitter_linkedin_url: z.string().nullable(),
-  /** AECI-1293: the claimant's answer to "Which plan are you interested in?", or
-   *  `null` when not answered, for a correction, or for a claim that predates the
-   *  column. Shown beside the plan radios on `/admin/claims`, which stay unselected
-   *  whatever it says (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). */
-  plan_interest: PlanInterestSchema.nullable(),
   domain_match: z.string(),
   body: z.string(),
   source_url: z.string().nullable(),
@@ -148,7 +142,6 @@ export const AdminListingRequestSchema = z.object({
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
   submitter_linkedin_url: z.string().nullable(),
-  plan_interest: PlanInterestSchema.nullable(),
   /** "Additional comments". `''` when the visitor wrote none. */
   body: z.string(),
   created_at: z.string().datetime(),

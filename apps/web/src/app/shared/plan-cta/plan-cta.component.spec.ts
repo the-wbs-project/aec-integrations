@@ -73,7 +73,7 @@ describe('Plans calls to action', () => {
     expect(host.getAttribute('data-plans-cta')).toBe('top');
 
     expect(click(claimLink)).toBe(true);
-    expect(claim.opening()).toEqual({ page: 'vendor_program', entry: 'top', plan: null });
+    expect(claim.opening()).toEqual({ page: 'vendor_program', entry: 'top' });
     expect(planCtaClicked).toHaveBeenCalledWith({
       plan: 'free',
       placement: 'top',
@@ -215,7 +215,7 @@ describe('Plans calls to action', () => {
     expect(link.textContent?.trim()).toBe('Start with Managed');
     expect(link.getAttribute('href')).toBe(CLAIM_HREF);
     expect(click(link)).toBe(true);
-    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'rail', plan: 'managed' });
+    expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'rail' });
     expect(planCtaClicked).toHaveBeenCalledWith({
       plan: 'managed',
       placement: 'rail',

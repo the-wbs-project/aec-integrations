@@ -3,10 +3,10 @@
  *
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1 asks: *does this vendor own any
  * product with `product_role IN ('application','hybrid')`?* If yes it is an
- * ordinary paying vendor and takes the ordinary Grant/Reject flow. Only a vendor
- * **all** of whose products are `'connector'` routes to the partnership track —
- * on that claim Grant and Reject are BOTH wrong (§5.2(2)/(3)), so the operator
- * has to be able to see the answer before pressing either.
+ * ordinary paying vendor. A vendor **all** of whose products are `'connector'` is a
+ * pure connector vendor. Until AECI-1367 such a claim was parked. Since Chris's
+ * ruling of 2026-10-14 it is approved like any other, and the answer is an
+ * informational flag: "Connector vendor: contact them directly".
  *
  * ── WHY THIS IS A MODULE AND NOT TWO INLINE QUERIES ──────────────────────────
  * `/admin/claims` and `/admin/vendors/:id` both need it, and `STAGE_1_5_SPEC.md`
@@ -26,7 +26,7 @@
  *     `is_primary`.)
  *  3. **Zero products is UNKNOWN, not exempt.** A vendor with no products is
  *     `total: 0` and `isPureConnectorVendor() === false`. Reading "no
- *     application products" as "pure connector" would park a claim we know
+ *     application products" as "pure connector" would flag a claim we know
  *     nothing about.
  *  4. **`hybrid` is an endpoint.** §8.8(1)'s hybrid rule: a hybrid product is an
  *     endpoint as well as a connector, chargeable on its endpoint side. It
@@ -35,7 +35,7 @@
  */
 
 import type { VendorProductRoles } from '@aeci/shared';
-import { count, eq, inArray, type SQL } from 'drizzle-orm';
+import { count, desc, eq, inArray, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productVendors, products } from '../db/schema';
@@ -117,4 +117,40 @@ export function foldProductRoleGroups(
  */
 export function isPureConnectorVendor(roles: VendorProductRoles): boolean {
   return roles.total > 0 && roles.connector === roles.total;
+}
+
+/**
+ * The connector flag for ONE claim target (AECI-1367): the `claim-submitted-alert`
+ * email carries it at intake, from `routes/requests.ts` and the reconciliation sweep.
+ * A `vendor` target is tested directly. A `product` target is tested on its PRIMARY
+ * vendor, the one a grant would seat (`resolveTargetVendor` in `routes/admin-claims.ts`
+ * resolves it the same way).
+ *
+ * Never throws. A failed read answers `null`, and the alert then omits the line: it
+ * is informational, so a lost flag must not cost the operator the alert itself.
+ */
+export async function claimTargetIsPureConnector(
+  db: Db,
+  targetType: string,
+  targetId: string,
+): Promise<boolean | null> {
+  try {
+    let vendorId: string | undefined;
+    if (targetType === 'vendor') {
+      vendorId = targetId;
+    } else {
+      const pv = await db.query.productVendors.findFirst({
+        columns: { vendorId: true },
+        where: eq(productVendors.productId, targetId),
+        orderBy: [desc(productVendors.isPrimary)],
+      });
+      vendorId = pv?.vendorId;
+    }
+    if (!vendorId) return null;
+    const groups = await selectProductRoleGroups(db, productRolesForVendor(vendorId));
+    const roles = foldProductRoleGroups(groups).get(vendorId) ?? EMPTY_PRODUCT_ROLES;
+    return isPureConnectorVendor(roles);
+  } catch {
+    return null;
+  }
 }

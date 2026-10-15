@@ -50,12 +50,19 @@ import { ClaimDialogService } from './claim-dialog.service';
         >
           <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-3">
             <div>
+              <!-- AECI-1364: a claim is on the company, named once it is known. -->
               <h2
                 brnDialogTitle
                 class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
-                i18n="@@claimDialog.title"
+                data-testid="claim-dialog-title"
               >
-                Claim your listing
+                @if (dialog.company(); as company) {
+                  <ng-container i18n="@@claimDialog.title.company"
+                    >Claim {{ company }}</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@claimDialog.title">Claim your company</ng-container>
+                }
               </h2>
               <p
                 brnDialogDescription
