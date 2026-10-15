@@ -151,9 +151,13 @@ export function isProductRequestRaceError(error: unknown): boolean {
   return false;
 }
 
-/** The trimmed, lower-cased name the open-duplicate check compares. */
-export function productRequestNameKey(name: string): string {
-  return name.trim().toLowerCase();
+/**
+ * The open-duplicate match on name: both sides trimmed and lower-cased by SQLite.
+ * Lowering one side in JavaScript would miss non-ASCII capitals, because SQLite's
+ * `lower()` folds A to Z only. Folding both sides in SQL keeps them consistent.
+ */
+export function productRequestNameMatches(name: string) {
+  return sql`lower(trim(${productRequests.name})) = lower(trim(${name}))`;
 }
 
 /** An open request of this vendor whose name matches, or `undefined`. */
@@ -169,7 +173,7 @@ export async function findOpenDuplicate(
       and(
         eq(productRequests.vendorId, vendorId),
         eq(productRequests.status, 'open'),
-        sql`lower(trim(${productRequests.name})) = ${productRequestNameKey(name)}`,
+        productRequestNameMatches(name),
       ),
     )
     .limit(1);

@@ -988,6 +988,9 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   protected onQuery(query: string): void {
+    // Typing is acting: a deep-link read still in flight must not pull the
+    // vendor to step 2 over what they are searching for.
+    if (query) this.deepLinkSeq++;
     this.query.set(query);
   }
 

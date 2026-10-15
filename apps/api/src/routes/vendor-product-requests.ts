@@ -59,7 +59,7 @@ import {
   PRODUCT_REQUEST_CREATED_ACTION,
   PRODUCT_REQUEST_ENTITY_TYPE,
   productRequestAlertKey,
-  productRequestNameKey,
+  productRequestNameMatches,
 } from '../lib/product-requests';
 import {
   afterVendorWrite,
@@ -128,7 +128,7 @@ function openDuplicateSentinel(db: Db, vendorId: string, name: string) {
       guard: sql`CASE WHEN (SELECT count(*) FROM ${productRequests}
           WHERE ${productRequests.vendorId} = ${vendorId}
             AND ${productRequests.status} = 'open'
-            AND lower(trim(${productRequests.name})) = ${productRequestNameKey(name)}) > 1
+            AND ${productRequestNameMatches(name)}) > 1
         THEN json('product-request-exists') END`,
     })
     .from(ONE_ROW);

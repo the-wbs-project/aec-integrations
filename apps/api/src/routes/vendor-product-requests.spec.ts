@@ -245,6 +245,14 @@ describe('POST /api/vendor/product-requests', () => {
     expect(await t.db.select().from(productRequests)).toHaveLength(1);
   });
 
+  it('answers 409 for a repeat of a name with non-ASCII capitals', async () => {
+    const first = await post(AUTH_A, { ...valid, name: 'Ärzte Suite' });
+    expect(first.status).toBe(201);
+    const second = await post(AUTH_A2, { ...valid, name: ' Ärzte SUITE' });
+    expect(second.status).toBe(409);
+    expect(second.body.error.details).toEqual({ request_id: first.body.request.id });
+  });
+
   it('does not block a new request once the old one is decided, or for another vendor', async () => {
     const first = await post(AUTH_A, valid);
     expect((await post(AUTH_B, { ...valid, context_product_id: P_FOREIGN })).status).toBe(201);
