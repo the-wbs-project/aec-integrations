@@ -11,9 +11,10 @@
  *   4. The list re-reads when the store's notification feed moves, once loaded.
  */
 import { provideHttpClient } from '@angular/common/http';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { Component, provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VendorApi } from '../vendor-api';
@@ -113,5 +114,51 @@ describe('VendorProductRequestsList', () => {
     listProductRequests.mockRejectedValue(new Error('down'));
     const fixture = await create();
     expect(el(fixture).querySelector('[data-testid="product-requests-failed"]')).not.toBeNull();
+  });
+});
+
+@Component({
+  selector: 'aec-test-integrations-tab',
+  imports: [VendorProductRequestsList],
+  template: `<aec-vendor-product-requests-list [routed]="true" />`,
+})
+class IntegrationsTabHost {}
+
+describe('VendorProductRequestsList on the routed Integrations tab', () => {
+  it('links to the portal’s own product tab, not one nested under the current product', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        // The portal's shape: `products/:productSlug` is ONE route of two segments.
+        provideRouter([
+          {
+            path: 'vendor/:vendorSlug',
+            children: [
+              {
+                path: 'products/:productSlug',
+                children: [{ path: 'integrations', component: IntegrationsTabHost }],
+              },
+            ],
+          },
+        ]),
+        {
+          provide: VendorApi,
+          useValue: { listProductRequests, getNotifications } as Partial<VendorApi>,
+        },
+        VendorPortalStore,
+      ],
+    });
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+    const harness = await RouterTestingHarness.create('/vendor/summit/products/other/integrations');
+    await flush();
+    harness.detectChanges();
+    const link = harness.routeNativeElement!.querySelector<HTMLAnchorElement>(
+      '[data-testid="request-add-integration"]',
+    );
+    expect(link?.getAttribute('href')).toBe(
+      '/vendor/summit/products/summit-model-coordination/integrations?create=open&counterpart=autodesk-build',
+    );
   });
 });

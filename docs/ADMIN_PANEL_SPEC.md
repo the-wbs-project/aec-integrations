@@ -1663,6 +1663,53 @@ badge.
   asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
 
+### 5.16 Product requests on `/admin/requests` (AECI-1377, 2026-10-15)
+
+This section does not own its contract. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6 does, and
+`API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here for the screen, the
+decision forms and the badge.
+
+- **What it is.** A seated vendor could not find the other product of an integration in the
+  catalog, so it asked us to add it from "Add an integration" on its Integrations tab. Rows
+  live in `product_requests`, not `listing_requests` or `vendor_requests`. A request never
+  creates an integration. The vendor adds that itself once the product exists.
+- **Where.** The third section of `/admin/requests`
+  (`admin/requests/product-request-queue.ts`), after "Listing requests", with its own `h2`
+  "Product requests from vendors" and its own Open / Added / Already listed / Declined filter.
+  It loads the first 100 rows and says "Showing the first N of M product requests" past
+  that. A filter change ignores any response for a filter the admin already left.
+- **A row.** The typed product name as the heading, and the date. Then the maker, the vendor
+  (a link to `/admin/vendors/:id`), the vendor's own product the request came from ("Their
+  product"), the website as text plus a new-tab link (`rel="noopener noreferrer nofollow"`,
+  the listing-request posture) when there is one, and the note. A vendor or product that is
+  gone reads "No longer on record", because the table has no foreign keys. A decided row
+  shows its outcome ("Added as …", "Already listed as …", "Declined. Reason: …") and no
+  actions.
+- **The three decisions.** Each open row has **Added**, **Already listed** and **Decline**.
+  Each opens one inline form on that row, one row at a time.
+  - **Added** and **Already listed** take "The product in the catalog", picked with the
+    shared `aec-product-combobox` over the public `GET /api/products?sort=name`, which lists
+    promoted products only. The chosen product shows with its logo, vendor and Change.
+    Nothing is sent until one is chosen. The order for Added is create in the review app,
+    promote, then decide. A `422 PRODUCT_NOT_PROMOTED` keeps the form open with "That product
+    is not promoted yet. Promote it from the review app, then try again."
+  - **Decline** takes a required reason (1 to 1,000), with the helper text "The vendor sees
+    this reason." An empty reason sends nothing.
+- **A lost race.** A `422 INVALID_STATE_TRANSITION` (another admin decided it first) or a
+  `404` drops the row and announces "That request was already decided." The badge is not
+  touched, because the winner already decremented it.
+- **The badge.** `pending_requests` counts open product requests with the corrections and the
+  listing requests (§5.0c). A committed decision decrements it.
+- **Announcements.** The section keeps its own polite `role="status"` region, like the two
+  sections above it. The combobox's result count goes out through it.
+- **Preview.** `/preview/admin-product-requests` renders the section over a fixture-backed
+  fake API (`preview/admin-product-requests/`). The catalogue product "Unpromoted" answers
+  `422 PRODUCT_NOT_PROMOTED`, so that message can be reviewed.
+- **Tests.** `product-request-queue.component.spec.ts`: the row, each outcome form, the
+  required product and reason, the `422` for an unpromoted product, the lost race, a decided
+  row, and the filter. `request-queue.component.spec.ts` pins the three `h2`s and filter
+  groups on the screen.
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.

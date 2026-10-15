@@ -92,11 +92,21 @@ If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrati
 
 ## Add an integration
 
-If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. Pick the other product by name, then fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The form lists any integrations already on record for the two products, so you can check first.
+If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. The form has two steps. In the first, find the other product by name. In the second, fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The second step lists any integrations already on record for the two products, so you can check first. **Change** takes you back to the first step and keeps what you typed.
 
 The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
 
 If a similar integration was already listed for the same two products, you are told after you add yours. You are not stopped. If it is the same integration, retire the one you added, then claim the existing one if it is yours or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
+
+### When the other product is not listed
+
+Under the search, choose **Can't find it? Ask us to add it**. Tell us the product's name, the company that makes it, and, if you like, its website and anything we should know. We do not add the integration for you. We decide on the product, then tell you by email and in **Messages**. Your requests and their status are listed under **Add an integration**, in **Products you asked us to add**. There are three outcomes:
+
+- **Added.** We listed the product. Choose **Add the integration** and the form opens with the product already chosen.
+- **Already listed.** The product was in the catalog under another name, which we tell you. **Add the integration** works the same way.
+- **Declined.** We will not list it, and we tell you why.
+
+You can ask for the same product only once while we are deciding. If you ask again, the form tells you it is already in your list.
 
 ## Change requests you receive
 

@@ -66,10 +66,10 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
         data-testid="product-requests"
       >
         <h2 id="vendor-product-requests-heading" class="m-0">
-          <!-- The size lives on the span: styles.css sizes h2 outside any cascade
-               layer, so a text utility on the h2 itself is dead. -->
+          <!-- The size and face live on the span: styles.css sets the h2 size and
+               display face outside any cascade layer, so utilities on the h2 are dead. -->
           <span
-            class="block text-sm font-semibold text-(--text-primary)"
+            class="block font-body text-sm font-semibold text-(--text-primary)"
             i18n="@@vendor.productRequests.heading"
             >Products you asked us to add</span
           >
@@ -201,10 +201,13 @@ export class VendorProductRequestsList {
     const product = request.resolved_product;
     const slug = this.productSlugs().get(request.context_product_id);
     if (!product || !slug) return null;
-    // Routed, this sits on the `integrations` child of `products/:productSlug`,
-    // whose parent is the portal root. Unrouted, the link resolves from the root.
+    // Routed, this sits on `…/products/:productSlug/integrations`, and `..` pops one
+    // URL segment (`products/:productSlug` is one route of two segments), so three
+    // reach the portal root. They go in ONE command: the router reads `..` only in
+    // the first command, and a later `'..'` is a literal segment. Unrouted, the link
+    // resolves from the root.
     const tab = ['products', slug, 'integrations'];
-    const path = this.routed() ? ['..', '..', ...tab] : tab;
+    const path = this.routed() ? ['../../..', ...tab] : tab;
     return { path, queryParams: { create: 'open', counterpart: product.slug } };
   }
 }
