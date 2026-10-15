@@ -24,6 +24,7 @@ vi.mock('../posthog', () => ({
 }));
 
 import { auditLog, vendorRequests, vendors } from '../db/schema';
+import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   OWNER_FALLBACK_ACTION,
@@ -117,6 +118,71 @@ describe('runClaimOwnerFallback', () => {
       }),
     ]);
     expect(payload.dedupeKey).toBe('claim-owner-fallback-alert:req-1');
+  });
+
+  it('audits, forwards and lists only the claims this run moved, when an owner decides one mid-run (AECI-1333)', async () => {
+    await seedClaim({ id: 'req-1' });
+    await seedClaim({ id: 'req-2' });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+    // The owner accepts req-2 after the eligibility read and before the batch.
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await t.db
+        .update(vendorRequests)
+        .set({ status: 'resolved' })
+        .where(eq(vendorRequests.id, 'req-2'));
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const result = await runClaimOwnerFallback(makeCtx(), t.db, {
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ moved: 1, capped: 0, alert: 'sent' });
+    expect((await row('req-2'))?.ownerFallbackAt).toBeNull();
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.entityId)).toEqual(['req-1']);
+    // The INSERT … SELECT writes the same row shape `auditInsert` does.
+    expect(audits[0]).toMatchObject({
+      action: OWNER_FALLBACK_ACTION,
+      vendorId: VENDOR_ID,
+      afterState: { routed_to_owners_at: null, owner_fallback_at: NOW.toISOString() },
+      metadata: expect.objectContaining({ status_unchanged: true }),
+    });
+    const [, payload] = sendAlert.mock.calls[0] as unknown as [
+      unknown,
+      { rows: Array<{ requestId: string }>; dedupeKey: string },
+    ];
+    expect(payload.rows.map((r) => r.requestId)).toEqual(['req-1']);
+    expect(payload.dedupeKey).toBe('claim-owner-fallback-alert:req-1');
+    const forwarded = vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.flatMap((call) => call[3] as Array<{ message: string }>)
+      .map((e) => e.message);
+    expect(forwarded).toEqual([`audit ${OWNER_FALLBACK_ACTION} req-1`]);
+  });
+
+  it('sends nothing when every claim it read was decided before the batch (AECI-1333)', async () => {
+    await seedClaim({ id: 'req-1' });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await t.db
+        .update(vendorRequests)
+        .set({ status: 'rejected' })
+        .where(eq(vendorRequests.id, 'req-1'));
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const result = await runClaimOwnerFallback(makeCtx(), t.db, {
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ moved: 0, capped: 0, alert: null });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(sendAlert).not.toHaveBeenCalled();
   });
 
   it('is a no-op on a second run', async () => {

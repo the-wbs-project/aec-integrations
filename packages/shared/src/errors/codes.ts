@@ -37,6 +37,11 @@ export const ApiErrorCode = {
   // Both passed the pending check, the other batch committed first, and this one
   // rolled back (409). Nothing was written and no email was sent.
   REVIEW_ALREADY_MODERATED: 'REVIEW_ALREADY_MODERATED',
+  // AECI-1333: a claim decision (an AECi approve or reject, an owner accept or
+  // decline) lost a race. The claim was decided, or the 7-day fallback took it from
+  // the owners, between the read and the batch. The whole batch rolled back (409),
+  // `details.status` is the claim's status now. Nothing was written, no email sent.
+  CLAIM_ALREADY_DECIDED: 'CLAIM_ALREADY_DECIDED',
   // AECI-1008 integration field contests (`API_CONTRACTS.md` §4).
   CONTEST_OWN_INTEGRATION: 'CONTEST_OWN_INTEGRATION',
   CONTEST_DUPLICATE: 'CONTEST_DUPLICATE',

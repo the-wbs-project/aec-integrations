@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import {
+  CLAIM_OWNER_REVIEW_DAYS,
   claimOwnerReviewDeadline,
   type AdminClaim,
   type ListVendorClaimsQuery,
@@ -259,6 +260,10 @@ export class ClaimQueue {
   /** Display name, else email (AECI-1277) — the rule shared with the roster. */
   protected readonly seatLabel = seatLabel;
 
+  /** The owners' review window, in days, for the "did not decide" line (AECI-1368).
+   *  Read from the shared constant so the copy cannot drift from the fallback cron. */
+  protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
+
   /**
    * A pre-built LinkedIn people-search URL from the claimant's name (falling back
    * to their email). A LINK only — the reviewer opens it deliberately; no claimant
@@ -353,6 +358,8 @@ export class ClaimQueue {
 
   /**
    * A 422 means another admin moderated it first (or it's terminal) — drop the row.
+   * So does a 409 `CLAIM_ALREADY_DECIDED` (AECI-1368: an owner or another decider won
+   * the race between load and commit).
    * A 409 is an identity conflict (the claimant is already an admin, or claims a
    * different vendor); a 503 is the AECI-530 state (identity resolution isn't
    * configured — reject still works). Both keep the row + form so the reviewer can
@@ -360,7 +367,9 @@ export class ClaimQueue {
    */
   private handleModerateError(id: string, err: unknown): void {
     if (err instanceof HttpErrorResponse) {
-      if (err.status === 422) {
+      // A 409 CLAIM_ALREADY_DECIDED is the same outcome reached by a race: a company
+      // owner, another admin or the fallback cron decided it between load and commit.
+      if (err.status === 422 || errorCode(err) === 'CLAIM_ALREADY_DECIDED') {
         this.removeRow(id);
         this.closeForm();
         this.liveMessage.set(
@@ -431,4 +440,9 @@ export class ClaimQueue {
   protected entitlementTerm(e: VendorEntitlementResponse): string {
     return entitlementTermLabel(e.period_end, this.locale);
   }
+}
+
+/** The API error envelope's `error.code`, or null. */
+function errorCode(err: HttpErrorResponse): string | null {
+  return (err.error as { error?: { code?: string } } | null)?.error?.code ?? null;
 }

@@ -14,9 +14,15 @@
  *    `owner_fallback_at`, and writes a `vendor_claim.owner_fallback` audit row
  *    (§26.1). The UPDATE is guarded on the claim still being routed and undecided,
  *    so an owner who decides between the read and the write wins, and the claim is
- *    left alone.
- * 3. After the commit, sends ONE `claim-owner-fallback-alert` digest to
- *    `SUPPORT_EMAIL`, keyed on the sorted claim ids.
+ *    left alone. The audit row is guarded too (AECI-1333): it is an INSERT … SELECT
+ *    that lands only when the row now carries THIS run's `owner_fallback_at` and no
+ *    `routed_to_owners_at`, so a claim the run did not move gets no audit row. A
+ *    per-claim guard, not a batch-aborting sentinel: one owner deciding in the
+ *    window must not stop the other claims from moving.
+ * 3. After the commit, re-reads which claims carry this run's `owner_fallback_at`.
+ *    Only those are forwarded to PostHog and listed in ONE
+ *    `claim-owner-fallback-alert` digest to `SUPPORT_EMAIL`, keyed on their sorted
+ *    ids.
  *
  * **A second run is a no-op.** The claims step 2 moved no longer match step 1, so the
  * next run reads nothing and sends nothing. That fence is the column itself: no
@@ -32,11 +38,11 @@
 
 import { CLAIM_OWNER_REVIEW_DAYS, claimOwnerReviewDeadline } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, eq, inArray, isNotNull, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { vendorRequests, vendors } from '../db/schema';
-import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
+import { auditInsertWhere, type BatchStmt, type BatchTuple } from './audit';
 import {
   sendClaimOwnerFallbackAlert,
   type ClaimOwnerFallbackSummary,
@@ -99,7 +105,9 @@ export interface OwnerFallbackParams {
 
 /**
  * The two statements for one claim: the guarded column move and its audit row.
- * Pure, so the spec can read the SQL.
+ * The audit row is conditional on the move having happened in this run
+ * (AECI-1333): `owner_fallback_at` is this run's timestamp and the claim is no
+ * longer routed. Pure, so the spec can read the SQL.
  */
 export function ownerFallbackStatements(
   db: Db,
@@ -136,7 +144,14 @@ export function ownerFallbackStatements(
             inArray(vendorRequests.status, [...UNDECIDED]),
           ),
         ),
-      auditInsert(db, auditEntry),
+      auditInsertWhere(db, auditEntry, {
+        from: vendorRequests,
+        where: and(
+          eq(vendorRequests.id, p.requestId),
+          eq(vendorRequests.ownerFallbackAt, p.now),
+          isNull(vendorRequests.routedToOwnersAt),
+        ),
+      }),
     ],
     auditEntry,
   };
@@ -185,7 +200,7 @@ export async function runClaimOwnerFallback(
   if (batch.length === 0) return { moved: 0, capped: 0, alert: null };
 
   const stmts: BatchStmt[] = [];
-  const audits: AuditLogEntry[] = [];
+  const audits = new Map<string, AuditLogEntry>();
   for (const row of batch) {
     const built = ownerFallbackStatements(db, {
       requestId: row.id,
@@ -194,12 +209,33 @@ export async function runClaimOwnerFallback(
       now: nowIso,
     });
     stmts.push(...built.stmts);
-    audits.push(built.auditEntry);
+    audits.set(row.id, built.auditEntry);
   }
   await db.batch(stmts as BatchTuple);
-  forwardAuditBatch(c, audits, [], OWNER_FALLBACK_AUDIT_SOURCE);
 
-  const summaries: ClaimOwnerFallbackSummary[] = batch.map((row) => ({
+  // AECI-1333: the claims THIS run moved. An owner or AECi that decided a claim
+  // between the read and the batch left it unmoved and unaudited, so it is neither
+  // forwarded nor listed in the digest.
+  const movedIds = new Set(
+    (
+      await db
+        .select({ id: vendorRequests.id })
+        .from(vendorRequests)
+        // By the run's timestamp alone, not `id IN (…)`: up to 100 ids would pass
+        // D1's 100-parameter cap. No other run stamps this exact millisecond.
+        .where(eq(vendorRequests.ownerFallbackAt, nowIso))
+    ).map((r) => r.id),
+  );
+  const moved = batch.filter((row) => movedIds.has(row.id));
+  if (moved.length === 0) return { moved: 0, capped, alert: null };
+  forwardAuditBatch(
+    c,
+    moved.map((row) => audits.get(row.id)!),
+    [],
+    OWNER_FALLBACK_AUDIT_SOURCE,
+  );
+
+  const summaries: ClaimOwnerFallbackSummary[] = moved.map((row) => ({
     requestId: row.id,
     vendorName: row.vendorName ?? null,
     submitterEmail: row.submitterEmail,
@@ -211,9 +247,9 @@ export async function runClaimOwnerFallback(
   const alert = await sendAlert(c, {
     to: c.env.SUPPORT_EMAIL,
     rows: summaries,
-    dedupeKey: ownerFallbackDigestKey(batch.map((r) => r.id)),
-    ...(batch.length === 1 ? { entity: { type: 'vendor_request', id: batch[0]!.id } } : {}),
+    dedupeKey: ownerFallbackDigestKey(moved.map((r) => r.id)),
+    ...(moved.length === 1 ? { entity: { type: 'vendor_request', id: moved[0]!.id } } : {}),
   });
 
-  return { moved: batch.length, capped, alert };
+  return { moved: moved.length, capped, alert };
 }

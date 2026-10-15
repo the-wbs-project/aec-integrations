@@ -434,6 +434,7 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     });
     acceptSeatClaim = vi.fn().mockResolvedValue({
       invite: { ...VENDOR_SEAT_INVITES_FIXTURE[0]!, email: CLAIM.submitter_email },
+      invite_sent: true,
     });
     declineSeatClaim = vi.fn().mockResolvedValue(undefined);
     TestBed.resetTestingModule();
@@ -508,6 +509,24 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     expect(getSeats).toHaveBeenCalledTimes(2);
   });
 
+  it('says no email went out when the claimant already held an invite', async () => {
+    setup(true);
+    acceptSeatClaim.mockResolvedValueOnce({
+      invite: { ...VENDOR_SEAT_INVITES_FIXTURE[0]!, email: CLAIM.submitter_email },
+      invite_sent: false,
+    });
+    const fixture = await render();
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    expect(status?.textContent).toContain(
+      'riley@summitbim.example.com already has a seat invite, so no new email was sent.',
+    );
+    expect(status?.textContent).not.toContain('A seat invite was sent');
+  });
+
   it('declines and announces it', async () => {
     setup(true);
     const fixture = await render();
@@ -532,5 +551,19 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
     expect(alert?.textContent).toContain('most invites allowed today');
+  });
+
+  it('says the request was already decided when a decline loses the race (409)', async () => {
+    setup(true);
+    const fixture = await render();
+    declineSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 409, error: { error: { code: 'CLAIM_ALREADY_DECIDED' } } }),
+    );
+    button(fixture, 'Decline')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alert?.textContent).toContain('already decided');
   });
 });

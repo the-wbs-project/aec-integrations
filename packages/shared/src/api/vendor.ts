@@ -573,8 +573,15 @@ export type ListVendorSeatsResponse = z.infer<typeof ListVendorSeatsResponseSche
  * `201` from accept (AECI-1368): the seat invite the accept issued to the
  * claimant's address, so the roster can move the row from "Wants to join" to
  * the pending invites without refetching. Decline returns `204`.
+ *
+ * `invite_sent` is `true` when accept created the invite and mailed it, and
+ * `false` when the address already had a live invite: accept resolved the claim
+ * against that one and sent no email, so the UI must not say it did.
  */
-export const AcceptSeatClaimResponseSchema = z.object({ invite: ManageableSeatInviteSchema });
+export const AcceptSeatClaimResponseSchema = z.object({
+  invite: ManageableSeatInviteSchema,
+  invite_sent: z.boolean(),
+});
 export type AcceptSeatClaimResponse = z.infer<typeof AcceptSeatClaimResponseSchema>;
 
 // ─── POST /api/vendor/seats/invites ──────────────────────────────────────────

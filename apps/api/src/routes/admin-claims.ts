@@ -147,7 +147,9 @@ import {
 import { loadEntitlement, type EntitlementBefore } from '../lib/vendor-entitlement';
 import {
   CLAIM_AUDIT_SOURCE,
+  claimDecisionRaceError,
   grantSeatStatements,
+  isClaimDecidedAbort,
   rejectClaimStatements,
   saveClaimNotesStatements,
 } from '../lib/vendor-grant';
@@ -583,6 +585,15 @@ async function approveClaim(
       ...(returned?.stmts ?? []),
     ] as BatchTuple);
   } catch (error) {
+    // AECI-1333: the batch opens with `claimUndecidedSentinel`. Both it and the
+    // seat-return sentinels raise "malformed JSON", so a re-read says which fired.
+    if (isClaimDecidedAbort(error)) {
+      const decided = await claimDecisionRaceError(db, existing.id);
+      if (decided) {
+        emitClaimModeration(c, 'approve', 'conflict');
+        throw decided;
+      }
+    }
     if (returned && isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
   }
@@ -691,7 +702,20 @@ async function rejectClaim(
     targetId: existing.targetId,
   });
 
-  await db.batch(stmts as BatchTuple);
+  try {
+    await db.batch(stmts as BatchTuple);
+  } catch (error) {
+    // AECI-1333: another decision committed after the read above. The sentinel
+    // rolled the whole batch back, so nothing was written and no email goes out.
+    const decided = isClaimDecidedAbort(error)
+      ? await claimDecisionRaceError(db, existing.id)
+      : null;
+    if (decided) {
+      emitClaimModeration(c, 'reject', 'conflict');
+      throw decided;
+    }
+    throw error;
+  }
   emitClaimModeration(c, 'reject', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email

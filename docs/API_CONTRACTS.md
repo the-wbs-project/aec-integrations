@@ -273,6 +273,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
+| `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333) |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
 | `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/vendors/:id/entitlement` `clear` (AECI-1092), when the vendor's open owner-routed contests changed twice while it re-routed them; nothing was written, try again |
@@ -2296,6 +2297,10 @@ Errors:
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
+- `CLAIM_ALREADY_DECIDED` (409) — another decision (an admin, or an owner of a routed
+  claim) committed between this handler's read and its batch. The batch's first
+  statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
+  `details.status` is the claim's status now (AECI-1333).
 - `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
 - ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
   never activates an entitlement, so there is no activate to lose a race. The seat-return
@@ -6316,17 +6321,17 @@ export const PendingSeatClaimSchema = z.object({
 
 #### `POST /api/vendor/seats/claims/:id/accept` (AECI-1368)
 
-An owner accepts a claim routed to their company (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). No body. **201** `{ invite: ManageableSeatInvite }` (`AcceptSeatClaimResponseSchema`).
+An owner accepts a claim routed to their company (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). No body. **201** `{ invite: ManageableSeatInvite, invite_sent: boolean }` (`AcceptSeatClaimResponseSchema`). `invite_sent` is `true` when accept created the invite and mailed it, and `false` when the address already had a live invite, which is reused and not mailed again (AECI-1333).
 
 One `db.batch`: a `vendor_seat_invites` row to the claim's `submitter_email` (normalized), invited by the owner, audit `vendor_seat.invited`; and the claim resolved with `resolved_by_id` = the owner, the `vendor_claim` workflow completed, its transition, audit `vendor_claim.owner_accepted`. Then the ordinary `vendor-seat-invite` email. No `profiles` row is written: the claimant becomes a member seat by redeeming the invite. If the address already has a live invite, no new invite is created and no email is sent. The claim resolves against that invite, which is echoed. An accepted claim reads `granted: true` on `/admin/claims`, because `resolved_by_id` is set.
 
 Gates: `requireVendor()`, `rateLimit('write', { by: 'vendor' })`, `requireSeatOwner()` in the handler.
 
-Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
+Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `CLAIM_ALREADY_DECIDED` (409, the claim was decided by AECi or another owner, or the 7-day fallback took it back, after the handler read it; the batch opens with `claimUndecidedSentinel` guarding undecided AND routed, so nothing is written and no email is sent) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
 
 #### `POST /api/vendor/seats/claims/:id/decline` (AECI-1368)
 
-An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the neutral `claim-rejected` email, which does not say who declined. Same gates and the same `403` / `404` / `429` as accept.
+An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the neutral `claim-rejected` email, which does not say who declined. Same gates and the same `403` / `404` / `409 CLAIM_ALREADY_DECIDED` / `429` as accept. The decline batch uses the same routed guard as accept (`rejectClaimStatements` with `requireRouted`).
 
 #### `POST /api/vendor/seats/invites`
 
@@ -6596,7 +6601,7 @@ The vendor's own change history: what its seats changed, what AECi changed on it
 
 **Scope.** `WHERE audit_log.vendor_id = <session vendor> AND action IN (<receipt actions>) ORDER BY created_at DESC, id DESC`.
 
-- The receipt actions are the `receipt: true` entries of `@aeci/shared/audit-vendor-actions`. `notification.sent`, a seat's mute setting and `vendor.deleted` are not receipts.
+- The receipt actions are the `receipt: true` entries of `@aeci/shared/audit-vendor-actions`. `notification.sent`, a seat's mute setting, `vendor.deleted`, and the two owner-routing claim rows `vendor_claim.owner_accepted` and `vendor_claim.owner_fallback` (AECI-1368) are not receipts.
 - The query never joins through `entity_id` to the entity's current owner. A co-owned product therefore shows each owner only the rows stamped with its own id. A row stays with the vendor it named after ownership moves.
 - Rows written before AECI-1192 carry a null `vendor_id` and never appear. There is no backfill.
 

@@ -131,12 +131,14 @@ const vendorOf = async () =>
 // ─── Guard 1: structural — no statement names `vendors` ──────────────────────
 
 describe('the claim builders never emit a `vendors` statement (§6 step 8)', () => {
-  it('grantSeatStatements emits five statements, none of them on vendors', () => {
+  it('grantSeatStatements emits six statements, none of them on vendors', () => {
     const { stmts } = grantSeatStatements(t.db, grantArgs(false));
 
     // The flip AECI-519 shipped here lived at index 1. It is gone.
     expect(vendorsStatements(stmts)).toEqual([]);
-    expect(stmts).toHaveLength(5);
+    expect(stmts).toHaveLength(6);
+    // AECI-1333: the decision-race sentinel is first, ahead of every write.
+    expect(sqlOf(stmts[0]!)).toMatch(/json\(/);
     // Positively: the seat, the request resolve, the workflow + its transition, the audit.
     const sql = stmts.map(sqlOf).join('\n');
     expect(sql).toContain('"profiles"');
@@ -370,7 +372,7 @@ describe('grantSeatStatements owner rule (Portal §11a.4)', () => {
 describe('grantSeatStatements fills an empty display_name from the claim (AECI-1280)', () => {
   /** The `ON CONFLICT … DO UPDATE SET` half of the seat upsert. */
   const conflictSet = (p: GrantSeatParams): string =>
-    sqlOf(grantSeatStatements(t.db, p).stmts[0]!).split(/on conflict/i)[1] ?? '';
+    sqlOf(grantSeatStatements(t.db, p).stmts[1]!).split(/on conflict/i)[1] ?? '';
 
   const seatName = async () =>
     (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0]!.displayName;
@@ -633,7 +635,7 @@ describe('the seat batch plus ensureBillingAccountStatements', () => {
     const account = ensureBillingAccountStatements(t.db, accountArgs({ id: 'existing' }));
     expect(account.stmts).toEqual([]);
     expect(account.auditEntry).toBeNull();
-    expect([...grant.stmts, ...account.stmts]).toHaveLength(5);
+    expect([...grant.stmts, ...account.stmts]).toHaveLength(6);
   });
 
   it('provision: the owner seat and the account land together, vendors untouched', async () => {

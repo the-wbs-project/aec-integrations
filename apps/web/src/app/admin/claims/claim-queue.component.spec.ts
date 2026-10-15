@@ -789,6 +789,23 @@ describe('ClaimQueue', () => {
     expect(store.pendingClaims()).toBe(3);
   });
 
+  it('drops the row on a 409 CLAIM_ALREADY_DECIDED (an owner decided first)', async () => {
+    const api = makeApiMock([makeClaim({ id: 'c1' })]);
+    api.moderate.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'CLAIM_ALREADY_DECIDED', message: 'decided' } },
+      }),
+    );
+    const { el, fixture } = await setup(api);
+    openApprove(fixture, cardFor(el, 'Procore'));
+    buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
+  });
+
   it('hides moderation actions on terminal rows', async () => {
     const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', status: 'resolved' })]));
     const labels = [...cardFor(el, 'Procore').querySelectorAll('button')].map((b) =>

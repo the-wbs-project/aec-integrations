@@ -513,7 +513,8 @@
         } @else if (isActionable(r.status) && r.owner_fallback_at) {
         <p class="mt-5 text-xs text-(--text-secondary)" data-testid="claim-owner-fallback">
           <ng-container i18n="@@admin.claims.ownerFallback"
-            >The company's owners did not decide within 7 days. Handed back</ng-container
+            >The company's owners did not decide within {{ reviewDays }} days. Handed
+            back</ng-container
           >
           {{ r.owner_fallback_at | date: 'medium' }}
         </p>

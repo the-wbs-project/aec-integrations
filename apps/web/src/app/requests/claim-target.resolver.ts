@@ -18,30 +18,60 @@
  *
  * A missing entity resolves `null` (and a real 404 on SSR). The form still renders,
  * titled "Claim your company", as it did before this resolver existed.
+ *
+ * Any OTHER failure (a 5xx, a timeout, a network error) also resolves `null`, with no
+ * 404 and no not-found meta. The name is decoration: before this resolver the form
+ * needed no API read, so a failed read must not break SSR or cancel the client
+ * navigation. The scaffold rethrows non-404 errors on both platforms (`fetchOrNull`
+ * on the server, `httpGetOrNull` in the browser), so the guard wraps the whole
+ * resolver rather than its `fetch` option, which the browser path never calls. On a
+ * server failure nothing is stored in `TransferState`, so hydration retries the read
+ * from the browser once.
  */
+import type { ResolveFn } from '@angular/router';
+
 import type { ProductDetail, VendorDetail } from '@aeci/shared';
 
 import { fetchProductBySlug } from '../core/api/products';
 import { fetchVendorBySlug } from '../core/api/vendors';
 import { createDetailResolver } from '../core/create-detail-resolver';
 
-export const claimProductResolver = createDetailResolver<ProductDetail>({
-  statePrefix: 'aeci.claim-product:',
-  paramName: 'slug',
-  pathSegment: 'products',
-  entityKind: 'product',
-  fetch: fetchProductBySlug,
-  trackPageView: false,
-});
+/**
+ * Resolve `null` instead of failing when the wrapped resolver throws. The wrapped
+ * call runs synchronously inside this function, before its first `await`, so the
+ * scaffold's `inject()` calls still see the router's injection context.
+ */
+function nullOnFailure<T>(resolver: ResolveFn<T | null>): ResolveFn<T | null> {
+  return async (route, state) => {
+    try {
+      return await (resolver(route, state) as Promise<T | null>);
+    } catch {
+      return null;
+    }
+  };
+}
 
-export const claimVendorResolver = createDetailResolver<VendorDetail>({
-  statePrefix: 'aeci.claim-vendor:',
-  paramName: 'slug',
-  pathSegment: 'vendors',
-  entityKind: 'vendor',
-  fetch: fetchVendorBySlug,
-  trackPageView: false,
-});
+export const claimProductResolver = nullOnFailure(
+  createDetailResolver<ProductDetail>({
+    statePrefix: 'aeci.claim-product:',
+    paramName: 'slug',
+    pathSegment: 'products',
+    entityKind: 'product',
+    fetch: fetchProductBySlug,
+    trackPageView: false,
+  }),
+);
+
+export const claimVendorResolver = nullOnFailure(
+  createDetailResolver<VendorDetail>({
+    statePrefix: 'aeci.claim-vendor:',
+    paramName: 'slug',
+    pathSegment: 'vendors',
+    entityKind: 'vendor',
+    fetch: fetchVendorBySlug,
+    trackPageView: false,
+  }),
+);
 
 /** The company a claim page names, and the product it came from (if any). */
 export interface ClaimPageContext {

@@ -32,7 +32,7 @@
  * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
-import { DISPLAY_NAME_MAX_LENGTH, vendorVisibleReasonMetadata } from '@aeci/shared';
+import { ApiErrorCode, DISPLAY_NAME_MAX_LENGTH, vendorVisibleReasonMetadata } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
@@ -40,8 +40,10 @@ import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles, vendorRequests, workflowInstances } from '../db/schema';
+import { ApiError } from '../errors';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { ONE_ROW } from './integration-claims';
 import { ownerSeatExistsSql } from './owner-seat';
 
 /** The role a granted seat drops back to on revoke — the `profiles` default. */
@@ -147,6 +149,12 @@ export interface RejectClaimParams {
   source?: string;
   /** The vendor the audit row is about, when the caller knows it (the owner decline). */
   vendorId?: string;
+  /**
+   * The owner decline (AECI-1368) sets this: the batch then also aborts when the
+   * claim is no longer routed to the owners, because the 7-day fallback moved it to
+   * AECi between the handler's read and the batch (`claimUndecidedSentinel`).
+   */
+  requireRouted?: boolean;
 }
 
 /** An owner accepting a claim routed to their company (AECI-1368, §11a.10). */
@@ -305,6 +313,8 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   };
 
   const stmts: BatchStmt[] = [
+    // AECI-1333: first, so a claim decided since the handler's read writes nothing.
+    claimUndecidedSentinel(db, p.requestId),
     // `seatOwner` (AECI-664 / §11a, narrowed by AECI-1367): the first reviewed
     // claimant on a vendor is its owner. Later ones join as colleagues. Both halves
     // are SQL so the decision is made at commit time (see the docblock above). A
@@ -396,6 +406,92 @@ function usableSubmitterName(name: string | null): string | null {
   return trimmed.length > 0 && trimmed.length <= DISPLAY_NAME_MAX_LENGTH ? trimmed : null;
 }
 
+// ─── The decision-race sentinel (AECI-1333) ──────────────────────────────────
+
+/** The token the sentinel raises with. `json()` on it is malformed JSON. */
+const CLAIM_DECIDED_TOKEN = 'vendor-claim-decided';
+
+/**
+ * The FIRST statement of every claim decision batch: AECi's approve and reject, and
+ * an owner's accept and decline. It ABORTS the whole batch when the claim is no
+ * longer undecided (`open` or `in_review`), and with `requireRouted` also when it
+ * is no longer routed to the owners (`routed_to_owners_at IS NULL`).
+ *
+ * Why it exists: D1 has no interactive transactions, so a batch cannot branch on
+ * whether its guarded `vendor_requests` UPDATE matched. Before this, the loser of a
+ * decision race (an admin and an owner, two admins, an owner and the fallback cron)
+ * kept its UPDATE a no-op but still committed the seat upsert, the invite, the
+ * workflow write, the transition, the billing account, the acceptance link and the
+ * audit row. The claim then read `rejected` with a granted seat behind it.
+ *
+ * How: the same `json()` abort as `contestStillOpenSentinel`
+ * (`lib/integration-contests.ts`). The CASE reads the claim's own state, not
+ * `changes()`, because it runs first, before any write. It selects FROM a one-row
+ * constant, so a missing claim row also raises rather than passing silently.
+ * {@link isClaimDecidedAbort} recognises the error. The handler re-reads the claim
+ * to tell this abort from any other `json()` sentinel in the same batch.
+ */
+export function claimUndecidedSentinel(
+  db: Db,
+  requestId: string,
+  opts: { requireRouted?: boolean } = {},
+): BatchStmt {
+  const routed = opts.requireRouted
+    ? sql` AND ${vendorRequests.routedToOwnersAt} IS NOT NULL`
+    : sql``;
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${vendorRequests}
+          WHERE ${vendorRequests.id} = ${requestId}
+            AND ${vendorRequests.status} IN ('open', 'in_review')${routed})
+        THEN json(${CLAIM_DECIDED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+}
+
+/** True for the error {@link claimUndecidedSentinel} raises, in D1 or SQLite. Any
+ *  `json()` sentinel raises the same "malformed JSON", so a batch that carries
+ *  another one must re-read the claim to know which fired. */
+export function isClaimDecidedAbort(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/malformed JSON/i.test(text) || text.includes(CLAIM_DECIDED_TOKEN)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * The `409 CLAIM_ALREADY_DECIDED` for a decision batch that rolled back, or `null`
+ * when the `json()` abort was some other sentinel's. The one read on this module's
+ * error path: it re-reads the claim, because D1's error does not carry the token.
+ * The claim is lost to this decision when it is no longer undecided, or, with
+ * `requireRouted`, no longer routed to the owners. `details.status` is what the
+ * re-read found (`null` when the row is gone).
+ */
+export async function claimDecisionRaceError(
+  db: Db,
+  requestId: string,
+  opts: { requireRouted?: boolean } = {},
+): Promise<ApiError | null> {
+  const row = await db.query.vendorRequests.findFirst({
+    columns: { status: true, routedToOwnersAt: true },
+    where: eq(vendorRequests.id, requestId),
+  });
+  const undecided = row?.status === 'open' || row?.status === 'in_review';
+  const lost = !undecided || (opts.requireRouted === true && row?.routedToOwnersAt == null);
+  if (!lost) return null;
+  return new ApiError(
+    409,
+    ApiErrorCode.CLAIM_ALREADY_DECIDED,
+    'This claim changed while you were deciding it, so nothing was saved. Reload to see where it stands.',
+    { details: { status: row?.status ?? null } },
+  );
+}
+
 /**
  * The reject batch (§3 reject path): resolve the request to `rejected`, advance
  * the `vendor_claim` workflow, audit. No vendor mutation, no seat write, no cache
@@ -426,6 +522,9 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
   };
 
   const stmts: BatchStmt[] = [
+    // AECI-1333: first, so a claim decided (or, for an owner decline, taken back by
+    // the fallback) since the handler's read writes nothing.
+    claimUndecidedSentinel(db, p.requestId, { requireRouted: p.requireRouted }),
     db
       .update(vendorRequests)
       .set({ status: 'rejected', resolvedById: p.actorId, resolvedAt: p.resolvedAt })
@@ -463,7 +562,7 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  * An owner accepts a claim routed to their company (AECI-1368,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10): resolve the request with the OWNER as
  * `resolved_by_id`, complete the `vendor_claim` workflow, audit. The caller puts the
- * seat invite (`createInviteStatements`) in the same batch.
+ * seat invite (`createInviteStatements`) in the same batch, AFTER these statements.
  *
  * **No seat is written here, and no `vendor_admin` row anywhere.** The claimant gets
  * a seat only by redeeming the invite (`acceptInviteStatements`), which proves they
@@ -472,8 +571,10 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  * the invite is the grant. `AdminClaim.granted` reads `true` for it, because the
  * owner is a non-null `resolved_by_id`.
  *
- * The request UPDATE is guarded on still-undecided AND still-routed, so an AECi
- * decision or the 7-day fallback landing first turns this into a no-op on the row.
+ * The batch opens with {@link claimUndecidedSentinel} on still-undecided AND
+ * still-routed (AECI-1333), so an AECi decision or the 7-day fallback landing first
+ * aborts the whole batch, the caller's invite included. The UPDATE keeps its own
+ * guard as a second line.
  */
 export function ownerAcceptClaimStatements(db: Db, p: OwnerAcceptClaimParams): ClaimBatch {
   const metadata = {
@@ -508,6 +609,9 @@ export function ownerAcceptClaimStatements(db: Db, p: OwnerAcceptClaimParams): C
   };
 
   const stmts: BatchStmt[] = [
+    // AECI-1333: first, so the caller's invite statements (pushed after these) never
+    // commit for a claim decided or taken back since the handler's read.
+    claimUndecidedSentinel(db, p.requestId, { requireRouted: true }),
     db
       .update(vendorRequests)
       .set({ status: 'resolved', resolvedById: p.actorId, resolvedAt: p.resolvedAt })

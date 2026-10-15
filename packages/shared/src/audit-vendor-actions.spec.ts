@@ -35,6 +35,17 @@ describe('AUDIT_VENDOR_ACTIONS (AECI-1192)', () => {
     }
   });
 
+  it('registers the owner-routing claim rows, outside the change history (AECI-1368)', () => {
+    expect(AUDIT_VENDOR_ACTIONS['vendor_claim.owner_accepted']).toEqual({
+      kind: 'vendor-edit',
+      receipt: false,
+    });
+    expect(AUDIT_VENDOR_ACTIONS['vendor_claim.owner_fallback']).toEqual({
+      kind: 'system',
+      receipt: false,
+    });
+  });
+
   it('answers membership without inheriting Object.prototype keys', () => {
     expect(isAuditVendorAction('vendor.updated')).toBe(true);
     expect(isAuditVendorAction('toString')).toBe(false);

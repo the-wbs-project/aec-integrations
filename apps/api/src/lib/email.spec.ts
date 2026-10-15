@@ -3248,6 +3248,23 @@ describe('claim owner routing emails (AECI-1368)', () => {
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-owner-review']);
   });
 
+  it('claim-owner-review collapses the typed name and company to one line in the subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimOwnerReviewEmail(fakeContext(SITE), {
+      ...FACTS,
+      submitterName: 'Casey\r\nBcc: victim@example.com',
+      vendorName: `Acme\n${'x'.repeat(200)}`,
+      to: 'owner@acme.com',
+      dedupeKey: 'claim-owner-review:req-1:p-2',
+    });
+    const subject = String(lastBody(fetchSpy).subject);
+    expect(subject).not.toMatch(/[\r\n]/);
+    expect(subject.startsWith('Casey Bcc: victim@example.com wants to join Acme x')).toBe(true);
+    // The company is capped at 80 characters, so the 200-character run never lands whole.
+    expect(subject).not.toContain('x'.repeat(100));
+    expect(subject.endsWith(' on AEC Integrations')).toBe(true);
+  });
+
   it('claim-owner-fallback-alert tells support which claims came back, with the queue link', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimOwnerFallbackAlert(fakeContext(SITE), {

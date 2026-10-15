@@ -502,9 +502,13 @@ export class VendorSeatRoster {
     this.actionError.set(null);
     this.actionStatus.set(null);
     try {
-      const { invite } = await this.api.acceptSeatClaim(claim.id);
+      const { invite, invite_sent } = await this.api.acceptSeatClaim(claim.id);
+      // `invite_sent: false` means the claimant already held a pending invite, so the
+      // server reused it and mailed nothing. Saying "was sent" there would be false.
       this.actionStatus.set(
-        $localize`:@@vendor.seats.claims.accepted:Accepted. A seat invite was sent to ${invite.email}:email:.`,
+        invite_sent
+          ? $localize`:@@vendor.seats.claims.accepted:Accepted. A seat invite was sent to ${invite.email}:email:.`
+          : $localize`:@@vendor.seats.claims.acceptedExistingInvite:Accepted. ${invite.email}:email: already has a seat invite, so no new email was sent.`,
       );
       await this.store.reload('seats');
     } catch (err) {
@@ -587,6 +591,7 @@ function claimErrorFor(err: unknown, action: 'accept' | 'decline'): string {
     case 'FORBIDDEN':
       return $localize`:@@vendor.seats.claims.error.forbidden:Only an account owner can decide who joins.`;
     case 'NOT_FOUND':
+    case 'CLAIM_ALREADY_DECIDED':
       return $localize`:@@vendor.seats.claims.error.gone:That request was already decided. Refresh the list.`;
     default:
       return action === 'accept'

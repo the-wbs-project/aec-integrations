@@ -436,6 +436,7 @@ export class PreviewVendorApi extends VendorApi {
         last_sent_at: null,
         resend_state: 'cooling_down',
       },
+      invite_sent: true,
     };
   }
 

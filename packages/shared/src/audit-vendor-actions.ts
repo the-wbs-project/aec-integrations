@@ -86,6 +86,12 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_seat.provisioned': { kind: 'aeci-override', receipt: true },
   'vendor_claim.granted': { kind: 'aeci-override', receipt: true },
   'vendor_claim.seat_revoked': { kind: 'aeci-override', receipt: true },
+  // A claim routed to the company's owners (AECI-1368, STAGE_2_VENDOR_PORTAL_SPEC.md
+  // §11a.10). Both rows carry `vendor_id` = the claimed company. Not receipts: an
+  // owner accept rides the same batch as the `vendor_seat.invited` receipt when it
+  // mails an invite, and the fallback only moves who decides an undecided claim.
+  'vendor_claim.owner_accepted': { kind: 'vendor-edit', receipt: false },
+  'vendor_claim.owner_fallback': { kind: 'system', receipt: false },
   'vendor_admin.banned': { kind: 'aeci-override', receipt: true },
   'vendor_admin.unbanned': { kind: 'aeci-override', receipt: true },
   // A seat's own mute setting. About the seat, not the listing.

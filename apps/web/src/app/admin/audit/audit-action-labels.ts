@@ -97,6 +97,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_claim.granted': $localize`:@@admin.audit.action.claimGranted:Vendor claim approved`,
   'vendor_claim.rejected': $localize`:@@admin.audit.action.claimRejected:Vendor claim rejected`,
   'vendor_claim.seat_revoked': $localize`:@@admin.audit.action.seatRevoked:Portal seat revoked`,
+  // AECI-1368: a claim routed to the company's owners, accepted by one of them, or
+  // handed back to AECi by the 7-day fallback cron.
+  'vendor_claim.owner_accepted': $localize`:@@admin.audit.action.claimOwnerAccepted:Vendor claim accepted by a company owner`,
+  'vendor_claim.owner_fallback': $localize`:@@admin.audit.action.claimOwnerFallback:Vendor claim handed back to AECi after owner review`,
   // AECI-739. These rows carry the operator note in `before_state`/`after_state`,
   // which is what makes the audit trail the note's HISTORY rather than the column.
   // They surface here because `/admin/vendors/:id`'s trail is scoped partly by

@@ -351,10 +351,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(vendor!.verified).toBe(false);
     expect(vendor!.updatedAt).toBe(OLD_TS);
 
-    // ONE batch: `grantSeatStatements`' five statements and the billing account's two.
+    // ONE batch: `grantSeatStatements`' six statements (the AECI-1333 sentinel first)
+    // and the billing account's two.
     // The claim has no acceptances, so the link adds nothing.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(7);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(8);
     batchSpy.mockRestore();
 
     const req = await requestOf(REQUEST_ID);
@@ -463,9 +464,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
 
     expect(status).toBe(200);
-    // 5 seat + 2 billing account + 2 acceptance link (UPDATE + audit).
+    // 6 seat (with the AECI-1333 sentinel) + 2 billing account + 2 acceptance link.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(9);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
     batchSpy.mockRestore();
 
     const account = (await t.db.select().from(billingAccounts))[0]!;
@@ -1013,6 +1014,77 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+// ─── The decision race (AECI-1333) ───────────────────────────────────────────
+//
+// The handler passes its status read, then a competing decision commits right
+// before its batch. The batch opens with `claimUndecidedSentinel`, so the loser
+// answers 409 CLAIM_ALREADY_DECIDED, writes nothing and sends no email.
+
+describe('PATCH /api/admin/claims/:id — decision race (AECI-1333)', () => {
+  /** Run `first` right before the next `db.batch`, then let that batch run. */
+  function beforeNextBatch(first: () => Promise<unknown>) {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await first();
+      return batch(stmts);
+    }) as unknown as typeof batch);
+  }
+  const actions = async () => (await t.db.select().from(auditLog)).map((a) => a.action).sort();
+
+  it('approve after a reject committed: no seat, billing account, second audit or transition, no email', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    beforeNextBatch(() => patchClaim(moderateApp(resolveThrows(), email), { action: 'reject' }));
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null), email), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'rejected' });
+    expect((await requestOf(REQUEST_ID))!.status).toBe('rejected');
+    expect(await profileOf(CLAIMANT_ID)).toBeUndefined();
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
+    expect(await actions()).toEqual(['vendor_claim.rejected']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    const [wf] = await t.db
+      .select()
+      .from(workflowInstances)
+      .where(eq(workflowInstances.entityId, REQUEST_ID));
+    expect(wf!.currentState).toBe('rejected');
+    // Only the winning reject mailed.
+    expect(email.mock.calls.map((call) => call[1].decision)).toEqual(['rejected']);
+    expect(claimModerationActions()).toContainEqual(['action:approve', 'outcome:conflict']);
+  });
+
+  it('reject after an approve committed: the claim stays granted, no reject row, no email', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    beforeNextBatch(() =>
+      patchClaim(moderateApp(resolveLinked(null), email), { action: 'approve' }),
+    );
+
+    const { status, body } = await patchClaim(moderateApp(resolveThrows(), email), {
+      action: 'reject',
+    });
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'resolved' });
+    expect((await requestOf(REQUEST_ID))!.status).toBe('resolved');
+    expect((await profileOf(CLAIMANT_ID))!.vendorId).toBe(VENDOR_ID);
+    expect(await actions()).toEqual(['billing_account.created', 'vendor_claim.granted']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    expect(email.mock.calls.map((call) => call[1].decision)).toEqual(['approved']);
+    expect(claimModerationActions()).toContainEqual(['action:reject', 'outcome:conflict']);
   });
 });
 

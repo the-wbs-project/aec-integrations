@@ -8,7 +8,7 @@
  * vendor, an unrouted claim or a decided claim is a 404.
  */
 
-import { ListVendorSeatsResponseSchema } from '@aeci/shared';
+import { ApiErrorCode, ListVendorSeatsResponseSchema } from '@aeci/shared';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -182,6 +182,7 @@ describe('POST /api/vendor/seats/claims/:id/accept (AECI-1368)', () => {
     const { status, body } = await accept();
     expect(status).toBe(201);
     expect(body.invite).toMatchObject({ email: 'casey@acme.com', invited_by: 'Dana' });
+    expect(body.invite_sent).toBe(true);
 
     const invites = await t.db.select().from(vendorSeatInvites);
     expect(invites).toHaveLength(1);
@@ -229,6 +230,7 @@ describe('POST /api/vendor/seats/claims/:id/accept (AECI-1368)', () => {
     const { status, body } = await accept();
     expect(status).toBe(201);
     expect(body.invite.id).toBe(uuid(900));
+    expect(body.invite_sent).toBe(false);
     expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(1);
     expect(sentInvite).not.toHaveBeenCalled();
     expect((await claimRow())?.status).toBe('resolved');
@@ -294,6 +296,85 @@ describe('POST /api/vendor/seats/claims/:id/decline (AECI-1368)', () => {
   it("404s another vendor's claim", async () => {
     await seedClaim({ targetId: OTHER_VENDOR });
     expect((await decline()).status).toBe(404);
+    expect(sentDeclined).not.toHaveBeenCalled();
+  });
+});
+
+// ─── The decision race (AECI-1333) ───────────────────────────────────────────
+//
+// Each case lets the handler pass its read, then commits a competing decision
+// right before its batch runs. The batch's first statement is
+// `claimUndecidedSentinel`, so the loser answers 409 and writes and sends nothing.
+
+/** Run `first` right before the next `db.batch`, then let that batch run. */
+function beforeNextBatch(first: () => Promise<unknown>) {
+  const batch = t.db.batch.bind(t.db);
+  vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+    await first();
+    return batch(stmts);
+  }) as unknown as typeof batch);
+}
+
+const auditActions = async () => (await t.db.select().from(auditLog)).map((a) => a.action).sort();
+
+describe('owner decisions lose a race with 409 and write nothing (AECI-1333)', () => {
+  it('accept after another owner declined: no invite, no second audit or transition, no email', async () => {
+    await seedClaim();
+    beforeNextBatch(() => decline());
+
+    const { status, body } = await accept();
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'rejected' });
+    expect(await claimRow()).toMatchObject({ status: 'rejected', resolvedById: OWNER });
+    expect(await auditActions()).toEqual(['vendor_claim.rejected']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
+    expect(sentInvite).not.toHaveBeenCalled();
+    expect(sentDeclined).toHaveBeenCalledOnce();
+  });
+
+  it('decline after another owner accepted: the claim stays resolved, no decline row, no email', async () => {
+    await seedClaim();
+    beforeNextBatch(() => accept());
+
+    const { status, body } = await decline();
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(await claimRow()).toMatchObject({ status: 'resolved' });
+    expect(await auditActions()).toEqual(['vendor_claim.owner_accepted', 'vendor_seat.invited']);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(1);
+    expect(await t.db.select().from(profiles)).toHaveLength(2);
+    expect(sentDeclined).not.toHaveBeenCalled();
+    expect(sentInvite).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['accept', () => accept()],
+    ['decline', () => decline()],
+  ])('%s after the 7-day fallback took the claim back to AECi', async (_label, decide) => {
+    await seedClaim();
+    beforeNextBatch(() =>
+      t.db
+        .update(vendorRequests)
+        .set({ routedToOwnersAt: null, ownerFallbackAt: '2026-10-21T10:00:00.000Z' })
+        .where(eq(vendorRequests.id, CLAIM)),
+    );
+
+    const { status, body } = await decide();
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'open' });
+    expect(await claimRow()).toMatchObject({ status: 'open', resolvedById: null });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+    expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
+    expect(sentInvite).not.toHaveBeenCalled();
     expect(sentDeclined).not.toHaveBeenCalled();
   });
 });

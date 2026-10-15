@@ -52,7 +52,12 @@ import { auditActorType } from '../lib/authz';
 import { routedClaimsOf } from '../lib/claim-owner-routing';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
-import { ownerAcceptClaimStatements, rejectClaimStatements } from '../lib/vendor-grant';
+import {
+  claimDecisionRaceError,
+  isClaimDecidedAbort,
+  ownerAcceptClaimStatements,
+  rejectClaimStatements,
+} from '../lib/vendor-grant';
 import {
   createInviteStatements,
   inviteExpiryFrom,
@@ -114,6 +119,27 @@ async function claimWorkflow(
   return wf
     ? { workflowId: wf.id, existingWf: true }
     : { workflowId: crypto.randomUUID(), existingWf: false };
+}
+
+/**
+ * Run an owner decision batch. When it rolls back on `claimUndecidedSentinel`
+ * (AECI-1333), answer `409 CLAIM_ALREADY_DECIDED`: AECi or another owner decided the
+ * claim, or the fallback took it back, after `loadRoutedClaim` read it. The caller
+ * sends its email only after this returns, so an abort sends nothing.
+ */
+async function runOwnerDecision(
+  db: ReturnType<DbFactory>['db'],
+  requestId: string,
+  stmts: BatchStmt[],
+): Promise<void> {
+  try {
+    await db.batch(stmts as BatchTuple);
+  } catch (error) {
+    const decided = isClaimDecidedAbort(error)
+      ? await claimDecisionRaceError(db, requestId, { requireRouted: true })
+      : null;
+    throw decided ?? error;
+  }
 }
 
 async function vendorName(db: ReturnType<DbFactory>['db'], vendorId: string): Promise<string> {
@@ -190,8 +216,10 @@ export function createAcceptSeatClaimHandler(
       inviteId,
       inviteCreated: invite !== null,
     });
-    const stmts: BatchStmt[] = [...(invite?.stmts ?? []), ...resolve.stmts];
-    await db.batch(stmts as BatchTuple);
+    // The resolve statements go FIRST: they open with the decision-race sentinel
+    // (AECI-1333), so a lost race commits no invite either.
+    const stmts: BatchStmt[] = [...resolve.stmts, ...(invite?.stmts ?? [])];
+    await runOwnerDecision(db, claim.id, stmts);
 
     // Post-commit, best-effort: a send failure must not un-resolve the claim. The
     // owner can re-send the invite from the roster, where it now shows as pending.
@@ -237,6 +265,8 @@ export function createAcceptSeatClaimHandler(
               now,
             ),
           },
+      // AECI-1333: `false` when the live invite was reused and nothing was mailed.
+      invite_sent: invite !== null,
     };
     validateResponseInDev(c.env, () => AcceptSeatClaimResponseSchema.parse(body));
     return json(body, { status: 201 });
@@ -272,8 +302,10 @@ export function createDeclineSeatClaimHandler(
       targetId: vendorId,
       source: SEAT_INVITE_AUDIT_SOURCE,
       vendorId,
+      // AECI-1333: the fallback taking the claim back to AECi also loses the race.
+      requireRouted: true,
     });
-    await db.batch(batch.stmts as BatchTuple);
+    await runOwnerDecision(db, claim.id, batch.stmts);
 
     afterVendorWrite(c, [], batch.auditEntry);
     forwardAuditBatch(c, [], [batch.workflowEntry], SEAT_INVITE_AUDIT_SOURCE);

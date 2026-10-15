@@ -2528,7 +2528,9 @@ export function sendClaimOwnerReviewEmail(
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'claim-owner-review',
-    subject: `${who} wants to join ${company} on AEC Integrations`,
+    // Both are typed text (the claimant's name, the company name), so each is
+    // collapsed to one line of at most 80 characters before it reaches a header.
+    subject: `${subjectSafe(who)} wants to join ${subjectSafe(company)} on AEC Integrations`,
     render: (link) =>
       houseBody(
         shared(link),
