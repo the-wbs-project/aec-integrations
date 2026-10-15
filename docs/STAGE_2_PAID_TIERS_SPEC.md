@@ -507,7 +507,7 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Six (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Seven (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
@@ -517,6 +517,7 @@ Six (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by A
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. Requires a JSON body `{ reason, internalNote? }` (AECI-1191, AECI-1159). |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
+| `POST /api/admin/vendors/:id/licenses` | Grant N unassigned complimentary or invoice licenses on the billing account (AECI-1370, E4.1; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). In `routes/admin-licenses.ts`, through `grantLicensesStatements`. Assigns nothing. Idempotent on `grant_id`. Its batch ends with the `vendors.verified` reconcile, so a first grant turns the mirror on. Contract in `API_CONTRACTS.md` §6.10. |
 
 **The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
 

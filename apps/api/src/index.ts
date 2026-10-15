@@ -53,6 +53,7 @@ import {
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
+import { createGrantLicensesHandler } from './routes/admin-licenses';
 import { createSetVendorPlanPricingHandler } from './routes/admin-plan-pricing';
 import {
   createAdminRevokeSeatHandler,
@@ -667,6 +668,10 @@ app.route('/', authActivity);
 //     operators not to press Grant. Two statements in one batch, neither naming
 //     `vendors`. No email, no purge, no workflow row. Warns on a non-connector
 //     vendor; never gates (§5.2 step 1).
+//   - POST   /api/admin/vendors/:id/licenses     (AECI-1370, E4.1) — grant N
+//     unassigned complimentary or invoice licenses on the billing account, one
+//     `license.granted` audit row each, in one batch. Idempotent on `grant_id`.
+//     Post-commit `licenses-granted` email; purge only on a `verified` mirror flip.
 //   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
@@ -939,6 +944,15 @@ authAdmin.post(
   createAdminRestoreIntegrationHandler(),
 );
 authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
+// AECI-1370 (E4.1): grant N complimentary or invoice licenses on the vendor's billing
+// account, through `grantLicensesStatements` (`lib/license.ts`). Idempotent on the
+// body's `grant_id`. A write, so `rateLimit('write')` after the guard.
+authAdmin.post(
+  '/api/admin/vendors/:id/licenses',
+  requireAdmin(),
+  rateLimit('write'),
+  createGrantLicensesHandler(),
+);
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),

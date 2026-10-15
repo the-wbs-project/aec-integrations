@@ -1508,6 +1508,86 @@ export function sendEntitlementExpiringAdminEmail(
   });
 }
 
+// ─── Licenses granted (AECI-1370, E4.1) ───────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §3 step 5: AECi grants N complimentary or invoice
+// licenses, and the vendor gets the "licenses on" email of step 4 "with the free or
+// invoiced wording". Sent post-commit by `POST /api/admin/vendors/:id/licenses` to
+// every unbanned seat and to the billing email when one is set (decision 16).
+//
+// A grant assigns nothing. Assignment is the vendor's, in the portal Billing tab,
+// which E5 has not built yet. So the copy says AECi will help assign them and asks
+// for a reply, and does not send the vendor to a tab that does not exist. E5 changes
+// that sentence. Stripe wording waits for E9.
+
+/** What one `licenses-granted` email describes. */
+export interface LicensesGrantedSubject {
+  to: string;
+  vendorName: string;
+  /** How many licenses this grant wrote. */
+  count: number;
+  source: 'complimentary' | 'invoice';
+  /** The licenses' `ends_at`, a full ISO timestamp or `YYYY-MM-DD`. */
+  endsAt: string;
+  /** The invoice number or PO. Shown on an invoice grant only. */
+  reference: string | null;
+}
+
+/**
+ * `licenses-granted`: tells a vendor it has N Managed licenses until a date. Wording
+ * keyed by source: complimentary says there is nothing to pay, invoice names the
+ * reference. Replies go to `SUPPORT_EMAIL`, because the ask is a reply.
+ */
+export function sendLicensesGrantedEmail(
+  c: EmailContext,
+  opts: LicensesGrantedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const holder = company || 'Your company';
+  const date = formatLongDay(opts.endsAt);
+  const n = opts.count;
+  const licenses = n === 1 ? '1 Managed license' : `${n} Managed licenses`;
+  const portal = portalUrl(c.env);
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const lead = `${holder} has ${licenses} on AEC Integrations until ${date}.`;
+  const reference = opts.reference?.trim();
+  const how =
+    opts.source === 'complimentary'
+      ? `${n === 1 ? 'It is' : 'They are'} complimentary. There is nothing to pay and no card is needed.`
+      : reference
+        ? `${n === 1 ? 'It is' : 'They are'} covered by your invoice ${reference}.`
+        : `${n === 1 ? 'It is' : 'They are'} covered by your invoice.`;
+  const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. Reply to this email with the products you want on Managed, and we will help you assign them.`;
+  const onEnd = `On ${date} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
+  const stance =
+    "A license changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
+
+  const render = (link: LinkTagger): EmailContent => {
+    const paragraphs = [lead, how, assign, onEnd];
+    const textParagraphs = [...paragraphs];
+    const htmlParagraphs = paragraphs.map(escapeHtml);
+    if (portal) {
+      const tagged = link(portal);
+      textParagraphs.push(`Open the vendor portal: ${tagged}`);
+      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
+    }
+    textParagraphs.push(stance);
+    htmlParagraphs.push(escapeHtml(stance));
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'licenses-granted',
+    // A date, never a day count: a count goes stale in the inbox.
+    subject: `You have ${licenses} until ${date}`,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
  *  captured from `session.email` BEFORE the `auth.users` row is erased. */
 export function sendAccountDeletionEmail(

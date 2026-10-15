@@ -99,6 +99,11 @@ export const ApiErrorCode = {
   // activate of the same vendor's entitlement. The whole batch, licenses included,
   // rolled back (409). Reload: the entitlement is now active.
   ENTITLEMENT_CHANGED: 'ENTITLEMENT_CHANGED',
+  // AECI-1370: `POST /api/admin/vendors/:id/licenses` with a `grant_id` whose licenses
+  // exist but do not match this request (another quantity, source, end date, reference
+  // or billing account), or a grant that lost a race on the license ids (409).
+  // Nothing was written. An exact repeat is a 200 replay, never this.
+  LICENSE_GRANT_CONFLICT: 'LICENSE_GRANT_CONFLICT',
   // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
   // owner's restore of a row AECi retired: only an admin restores an admin retire.
   // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner

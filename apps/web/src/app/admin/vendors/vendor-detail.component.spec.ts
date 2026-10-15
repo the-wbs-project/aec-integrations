@@ -288,7 +288,15 @@ describe('VendorDetail', () => {
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
     // AECI-1237: Field corrections sits between the basics and the entitlement.
-    expect(headings).toEqual(['Basics', 'Field corrections', 'Entitlement', 'Plan price', 'Seats']);
+    // AECI-1370: Licenses sits under the plan price until the Billing tab takes it.
+    expect(headings).toEqual([
+      'Basics',
+      'Field corrections',
+      'Entitlement',
+      'Plan price',
+      'Licenses',
+      'Seats',
+    ]);
   });
 
   describe('vendor logo', () => {

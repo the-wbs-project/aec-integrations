@@ -408,6 +408,29 @@
     </div>
   </section>
 
+  <!-- AECI-1370 (E4.1): grant complimentary or invoice licenses. A grant assigns
+       nothing. Temporary home on the Vendor tab; the Billing tab (E4.3) takes it. -->
+  <section class="mt-6" aria-labelledby="admin-vendor-licenses">
+    <h3
+      id="admin-vendor-licenses"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.licenses"
+    >
+      Licenses
+    </h3>
+    <div class="mt-2">
+      <aec-grant-licenses-control
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        [isPureConnectorVendor]="v.is_pure_connector_vendor"
+        [idPrefix]="'vendor-' + v.id"
+        labelledBy="admin-vendor-licenses"
+        (granted)="onLicensesGranted()"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- ── Seats ────────────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-seats">
     <h3

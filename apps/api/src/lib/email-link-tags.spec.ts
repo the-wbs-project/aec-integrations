@@ -44,6 +44,7 @@ import {
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
+  sendLicensesGrantedEmail,
   sendPlanInquiryAlert,
   sendListingRequestAlert,
   sendProductRequestAlert,
@@ -585,6 +586,18 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         vendorName: 'Bentley',
         periodEndDay: '2026-11-01',
         daysRemaining: 30,
+      }),
+  },
+  'licenses-granted': {
+    links: true,
+    send: (c) =>
+      sendLicensesGrantedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        count: 2,
+        source: 'invoice',
+        endsAt: '2027-11-01T00:00:00.000Z',
+        reference: 'PO-1234',
       }),
   },
   'entitlement-expiring-admin': {

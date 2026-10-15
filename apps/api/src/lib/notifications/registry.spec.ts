@@ -32,8 +32,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1293 added the listing request alert: 57. AECI-1368 added the claim owner review
  * email and the owner fallback digest: 59. AECI-1366 added the claimant's receipt: 60.
  * AECI-1377 added the product request alert, its decision email and its feed row: 63.
+ * AECI-1370 added the licenses-granted email: 64.
  */
-const EXPECTED_COUNT = 63;
+const EXPECTED_COUNT = 64;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -71,8 +72,9 @@ describe('notification registry shape', () => {
       // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`. AECI-1368
       // added `claim-owner-review` and `claim-owner-fallback-alert`. AECI-1366 added
       // `claim-received`. AECI-1377 added `product-request-alert`,
-      // `product-request-decided` and `portal-product-request-decided`.
-      email: 35,
+      // `product-request-decided` and `portal-product-request-decided`. AECI-1370
+      // added `licenses-granted`.
+      email: 36,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 22,

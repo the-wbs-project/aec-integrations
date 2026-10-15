@@ -633,6 +633,24 @@ export const NOTIFICATIONS = {
       'Tells SUPPORT_EMAIL a vendor term ends soon, with the license count, source and reference.',
     note: 'Pausable: operator alert. The vendor notice alone stamps the fence.',
   },
+  'licenses-granted': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/licenses (routes/admin-licenses.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key licenses-granted:{grantId}:{recipient hash}, so one email per address per grant. A replayed grant sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Tells a vendor's seats and its billing email that AECi granted it N complimentary or invoice Managed licenses, with the end date.",
+    note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. Stripe wording waits for E9.',
+  },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────
   'digest-data-quality': {

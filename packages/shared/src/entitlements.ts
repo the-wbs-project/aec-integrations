@@ -251,6 +251,29 @@ export const LICENSE_SOURCES = ['stripe', 'invoice', 'complimentary'] as const;
 export type LicenseSource = (typeof LICENSE_SOURCES)[number];
 
 /**
+ * The sources an admin grant may write (AECI-1370, E4.1; decision 6). `stripe` is
+ * absent: only Stripe's webhook writes it (E9), so `POST /api/admin/vendors/:id/licenses`
+ * rejects it in Zod. Here, in the zod-free registry, so the admin control can list
+ * them without pulling zod into the lazy route.
+ */
+export const ADMIN_GRANT_LICENSE_SOURCES = [
+  'complimentary',
+  'invoice',
+] as const satisfies readonly LicenseSource[];
+
+/** One source an admin grant may write. */
+export type AdminGrantLicenseSource = (typeof ADMIN_GRANT_LICENSE_SOURCES)[number];
+
+/** The most licenses one admin grant writes (AECI-1370). A larger deal is two grants. */
+export const LICENSE_GRANT_QUANTITY_MAX = 50;
+
+/** `reference` cap on an admin grant: an invoice number, PO or deal note. */
+export const LICENSE_GRANT_REFERENCE_MAX = 200;
+
+/** `notes` cap on an admin grant. Recorded in the audit row only. */
+export const LICENSE_GRANT_NOTES_MAX = 1000;
+
+/**
  * The `licenses.end_reason` vocabulary (AECI-1352): why a license ended, written with
  * `ended_at` by `endLicensesStatements` (`apps/api/src/lib/license.ts`), so E4.2
  * (revoke), a reduction (release) and E6 (lapse) share one builder. NULL while live. Like

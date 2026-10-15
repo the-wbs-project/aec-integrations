@@ -38,6 +38,7 @@ import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
+import { GrantLicensesControl } from './grant-licenses-control';
 import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
@@ -127,6 +128,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
     AuditTrail,
     EntitlementControl,
     PlanPricingControl,
+    GrantLicensesControl,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
@@ -348,6 +350,12 @@ export class VendorDetail {
    *  only, so nothing else on the page moves. */
   protected onPlanPricingChanged(planPricing: VendorPlanPricingResponse): void {
     this.vendor.update((v) => (v ? { ...v, plan_pricing: planPricing } : v));
+    void this.loadAudit();
+  }
+
+  /** A grant wrote one `license.granted` row per license (AECI-1370). The detail
+   *  payload carries no license readout yet, so only the audit trail reloads. */
+  protected onLicensesGranted(): void {
     void this.loadAudit();
   }
 

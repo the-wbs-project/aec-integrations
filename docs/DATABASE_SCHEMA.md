@@ -2010,6 +2010,15 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `expiry_notice_sent_at` and `updated_at` only, guarded on the scanned `ends_at`, and is
   the one builder with no audit row of its own and no mirror reconcile (the sweep writes
   one audit row per notice, and the fence cannot move liveness).
+- **The admin grant (AECI-1370, E4.1).** `POST /api/admin/vendors/:id/licenses` writes N
+  unassigned `complimentary` or `invoice` licenses through `grantLicensesStatements`, with
+  `granted_by` set to the admin. Because the INSERTs are unguarded, the ids are not random:
+  each is `uuidv5('license:{grant_id}:{i}')` under a pinned namespace
+  (`LICENSE_GRANT_NAMESPACE` in `routes/admin-licenses.ts`), where `grant_id` is a UUID the
+  admin form mints when it opens. A repeat of the same grant finds its rows and writes
+  nothing. A racing repeat loses on the primary key and rolls back whole. The grant's
+  `notes` go in each audit row's `metadata.notes` with `metadata.grant_id`; `licenses` has
+  no notes column.
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit

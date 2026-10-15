@@ -296,6 +296,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
 | `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
+| `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -3129,6 +3130,93 @@ write a claimed vendor. Clearing an entitlement leaves the seats, so the promote
 force while the portal's writes now 403 — **nobody can edit that vendor.** Un-verify is rare and
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
+
+#### `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1)
+
+Grant N complimentary or invoice Managed licenses on the vendor's billing account.
+Behind `requireAdmin()` and `rateLimit('write')`. **A grant assigns nothing:** the
+licenses land unassigned and no product changes plan; the vendor assigns them (E5).
+Source of truth: `packages/shared/src/api/admin-licenses.ts`,
+`apps/api/src/routes/admin-licenses.ts`; process: `VENDOR_SIGNUP_PROCESS.md` §3 step 5,
+decisions 6, 16, 17.
+
+```typescript
+export const GrantLicensesSchema = z.object({
+  grant_id: z.string().uuid(),                 // minted by the form when it opens
+  quantity: z.number().int().min(1).max(50),
+  source: z.enum(['complimentary', 'invoice']), // 'stripe' is rejected: only E9 writes it
+  starts_at: EntitlementTermDateSchema.optional(), // date-only or ISO; default: now
+  ends_at: EntitlementTermDateSchema,           // required for both sources
+  reference: z.string().trim().max(200).optional(), // required when source = 'invoice'
+  notes: z.string().trim().max(1000).optional(),    // audit metadata.notes only
+});
+
+export const GrantLicensesResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  grant_id: z.string(),
+  replayed: z.boolean(), // true: this grant_id was already granted; nothing written or sent
+  licenses: z.array(z.object({
+    id: z.string(), source: z.enum(LICENSE_SOURCES), starts_at: z.string(),
+    ends_at: z.string().nullable(), reference: z.string().nullable(),
+    assigned_product_id: z.string().nullable(), // always null on a grant
+  })),
+  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })),
+});
+```
+
+```json
+POST /api/admin/vendors/0000…0002/licenses
+{ "grant_id": "1111…1111", "quantity": 2, "source": "invoice",
+  "ends_at": "2027-06-30", "reference": "PO-77" }
+
+201
+{ "vendor_id": "0000…0002", "billing_account_id": "…", "grant_id": "1111…1111",
+  "replayed": false, "warnings": [],
+  "licenses": [{ "id": "…", "source": "invoice", "starts_at": "2026-10-15T09:12:00.000Z",
+    "ends_at": "2027-06-30T00:00:00.000Z", "reference": "PO-77", "assigned_product_id": null }, …] }
+```
+
+**Dates.** `ends_at` must be after the start, compared as instants
+(`STAGE_2_PAID_TIERS_SPEC.md` §5.5). With no `starts_at` the start is the request time,
+so a date-only `ends_at` of today is refused. Both are stored as `toISOString()`.
+
+**Idempotent on `grant_id`.** License ids are `uuidv5('license:{grant_id}:{i}')`, so a
+retry cannot write a second set. If every id of this grant exists on this billing account
+with the same source, end date, reference (and start, when sent), and no further id
+exists, the answer is **200** with `replayed: true` and the stored rows: nothing is
+written and no email is sent. Any other overlap is `409 LICENSE_GRANT_CONFLICT`. A repeat
+that races past the pre-read loses on the `licenses` primary key, rolls back whole and
+answers the same 409.
+
+**Writes.** One `db.batch` from `grantLicensesStatements` (`lib/license.ts`): N INSERTs
+(`granted_by` = the admin), one `license.granted` audit row per license
+(`entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` stamped,
+`metadata.license_id`, `metadata.grant_id`, `metadata.notes` when given), then the
+`vendors.verified` mirror reconcile. **Purge** of the vendor tag set (`vendorPurgeTags`)
+only when the grant is predicted to flip the mirror, because the pair-page version-diff
+gate reads it. No Algolia step.
+
+**Warnings, never a gate.** A vendor whose every owned product is a connector gets a
+`pure_connector_vendor` entry in `warnings`, and the grant still writes (AECI-738).
+
+**Email.** Post-commit in `waitUntil`, `licenses-granted` to every unbanned seat and to
+`billing_accounts.billing_email` when set, each address once, keyed
+`licenses-granted:{grant_id}:{recipient hash}` (`docs/NOTIFICATIONS.md`). With no GoTrue
+service-role key no seat resolves: the billing email still gets it and the route warns.
+A failed send never fails the response.
+
+| Status | Code | When |
+|---|---|---|
+| 201 | — | licenses written |
+| 200 | — | replay of the same `grant_id`: nothing written |
+| 400 | `VALIDATION_FAILED` | `field` names it: missing or invalid `ends_at`, `ends_at` not after the start, `reference` missing on an invoice grant, `quantity` outside 1 to 50, `source` not `complimentary` or `invoice` (including `stripe`), `grant_id` not a UUID. Nothing written |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 404 | `NOT_FOUND` | unknown vendor (`details.resource = 'vendor'`), or the vendor has no billing account (`details.resource = 'billing_account'`, `details.id` = the vendor id) |
+| 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names licenses that do not match this request, or a racing repeat won the ids. Nothing written |
+
+Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
+rate limit's 429.
 
 #### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08)
 

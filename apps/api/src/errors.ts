@@ -57,6 +57,9 @@ type ResourceKind =
   | 'listing_request'
   // A vendor's product request (AECI-1377). Admin-only on the PATCH.
   | 'product_request'
+  // A vendor with no billing account yet, on the admin license grant (AECI-1370).
+  // `details.id` is the VENDOR id: the account has none until one exists.
+  | 'billing_account'
   | 'category'
   | 'audience'
   | 'phase'
