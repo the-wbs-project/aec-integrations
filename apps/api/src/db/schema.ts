@@ -1681,7 +1681,8 @@ export const licenses = sqliteTable(
     /** Decision 15: ends at term end instead of renewing (ban, or an owner cancel). */
     cancelAtTermEnd: integer('cancel_at_term_end', { mode: 'boolean' }).notNull().default(false),
     cancelReason: text('cancel_reason'),
-    /** Pointer to the accepted Managed agreement version. The acceptance record is E2.4's. */
+    /** Pointer to the accepted Managed agreement version. The acceptance record is
+     *  `agreement_acceptances` below (AECI-1362). */
     termsVersion: text('terms_version'),
     grantedBy: text('granted_by'),
     /** The term-end notice job's idempotency fence (E6). */
@@ -1702,6 +1703,71 @@ export const licenses = sqliteTable(
     index('licenses_stripe_subscription_idx')
       .on(t.stripeSubscriptionId)
       .where(sql`"stripe_subscription_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * Agreement acceptances (AECI-1362, E2.4; `VENDOR_SIGNUP_PROCESS.md` §4, decisions 3, 9
+ * and 17). One row is one acceptance of one version of one legal agreement: the vendor
+ * terms at claim (`source = 'claim'`) or the Managed plan agreement at Stripe checkout
+ * (`source = 'checkout'`). This table IS the acceptance record. `licenses.terms_version`
+ * is only a pointer to the version a license was sold under.
+ *
+ * EVIDENCE, NOT AN ACCOUNT LINK. `email` is the accepting person's address and is kept.
+ * `profile_id` has NO FK to `profiles`: there is no profile at claim time (E3 fills it at
+ * approval), and the row must survive the person's erasure as evidence of what they
+ * accepted (`AUTH_AND_RLS.md` §8). `vendor_id` has no FK either, so a vendor retraction
+ * never cascades into it. `ip` and `user_agent` are recorded on the claim path only; the
+ * checkout acceptance is written from the Stripe webhook and has neither.
+ *
+ * `document` and `source` are DELIBERATELY UNCONSTRAINED (the `listing_requests`
+ * precedent above): a CHECK change on D1 is a table recreate (`docs/migrations.md` §0).
+ * The vocabularies are `LEGAL_AGREEMENT_DOCUMENTS` and `AGREEMENT_ACCEPTANCE_SOURCES` in
+ * `packages/shared/src/api/agreements.ts`, enforced by the one writer,
+ * `lib/agreement-acceptances.ts`.
+ *
+ * `billing_account_id` is NO ACTION, like `licenses.billing_account_id`: nothing deletes
+ * a billing account. `vendor_request_id` is SET NULL, so a deleted claim leaves the
+ * acceptance standing. The partial unique index on `stripe_checkout_session_id` makes a
+ * replayed checkout webhook fail its batch instead of writing a second acceptance.
+ *
+ * Domain state: every insert carries its `agreement.accepted` audit row in the same
+ * `db.batch`. Append-only: nothing updates or deletes a row. No `relations()` entry.
+ */
+export const agreementAcceptances = sqliteTable(
+  'agreement_acceptances',
+  {
+    id: uuidPk(),
+    /** `LEGAL_AGREEMENT_DOCUMENTS`: `vendor_terms` | `managed_plan`. No CHECK. */
+    document: text('document').notNull(),
+    /** The version accepted, e.g. `'1.0'`. Must be current at write time. */
+    version: text('version').notNull(),
+    /** `AGREEMENT_ACCEPTANCE_SOURCES`: `claim` | `checkout`. No CHECK. */
+    source: text('source').notNull(),
+    email: text('email').notNull(),
+    /** A `profiles.id`, NO FK. Null at claim time until E3 fills it at approval. */
+    profileId: text('profile_id'),
+    /** A `vendors.id`, NO FK. */
+    vendorId: text('vendor_id'),
+    billingAccountId: text('billing_account_id').references(() => billingAccounts.id),
+    vendorRequestId: text('vendor_request_id').references(() => vendorRequests.id, {
+      onDelete: 'set null',
+    }),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    /** ISO-8601. */
+    acceptedAt: text('accepted_at').notNull(),
+    /** `CF-Connecting-IP` on the claim path. Null on checkout. */
+    ip: text('ip'),
+    /** Truncated to 512 characters. Null on checkout. */
+    userAgent: text('user_agent'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('agreement_acceptances_vendor_idx').on(t.vendorId),
+    index('agreement_acceptances_billing_account_idx').on(t.billingAccountId),
+    uniqueIndex('agreement_acceptances_stripe_session_key')
+      .on(t.stripeCheckoutSessionId)
+      .where(sql`"stripe_checkout_session_id" IS NOT NULL`),
   ],
 );
 
@@ -4760,6 +4826,7 @@ export const schema = {
   vendorEntitlements,
   billingAccounts,
   licenses,
+  agreementAcceptances,
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,

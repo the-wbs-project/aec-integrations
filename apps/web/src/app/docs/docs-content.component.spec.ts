@@ -821,10 +821,11 @@ describe('indexableDocsPaths', () => {
   });
 
   it('holds no docs path out, and the prefix rule still works for a later entry', () => {
-    // NOINDEX_PATH_PREFIXES is empty since AECI-1253. The explicit-list call
-    // pins the matching rule a later entry would rely on.
+    // NOINDEX_PATH_PREFIXES holds no docs path since AECI-1253; its only entries
+    // are the archived legal versions (AECI-1361). The explicit-list call pins
+    // the matching rule a later entry would rely on.
     expect(pathForcesNoindex('/docs/vendors/your-seat', ['/docs/vendors'])).toBe(true);
-    expect(NOINDEX_PATH_PREFIXES).toEqual([]);
+    expect(NOINDEX_PATH_PREFIXES.filter((prefix) => prefix.startsWith('/docs'))).toEqual([]);
     expect(indexableDocsPaths().some((path) => pathForcesNoindex(path))).toBe(false);
   });
 });

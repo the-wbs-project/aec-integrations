@@ -62,6 +62,7 @@ import {
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
+import { createAdminVendorAcceptancesHandler } from './routes/admin-vendor-acceptances';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
@@ -225,6 +226,7 @@ import {
   createRevokeSeatInviteHandler,
   createSeatInviteHandler,
 } from './routes/vendor-seat-invites';
+import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import {
   createAcceptSeatInviteHandler,
   createSeatInvitePreviewHandler,
@@ -855,6 +857,13 @@ authAdmin.get(
   createAdminVendorProductsHandler(),
 );
 authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
+// AECI-1362 (E2.4): one vendor's agreement acceptances with their evidence columns. A
+// read; 404 on an unknown vendor.
+authAdmin.get(
+  '/api/admin/vendors/:id/acceptances',
+  requireAdmin(),
+  createAdminVendorAcceptancesHandler(),
+);
 // AECI-1046: the vendor-held integrations a vendor owns (the Integrations tab), and the
 // admin retire and restore of one. The ninth named write exception in
 // `ADMIN_PANEL_SPEC.md`: a MODERATION write on a vendor's listing, on the owner
@@ -1460,6 +1469,15 @@ authVendor.delete(
   requireVendor(),
   rateLimit('write'),
   createRemoveSeatHandler(),
+);
+// AECI-1362 (E2.4): the vendor's agreement acceptances, for the Billing tab (decision 17,
+// `VENDOR_SIGNUP_PROCESS.md` §2). The seat-management gate order: `requireVendor()`,
+// then `requireSeatOwner()` inside the handler (owner seats only), then the vendor
+// filter. A read, so no `rateLimit()`.
+authVendor.get(
+  '/api/vendor/billing/acceptances',
+  requireVendor(),
+  createVendorBillingAcceptancesHandler(),
 );
 app.route('/', authVendor);
 

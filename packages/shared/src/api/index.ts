@@ -14,6 +14,7 @@ export * from './admin-requests';
 export * from './admin-reviewers';
 export * from './admin-users';
 export * from './admin-vendors';
+export * from './agreements';
 export * from './common';
 export * from './connector-stub-mappings';
 export * from './integrations';

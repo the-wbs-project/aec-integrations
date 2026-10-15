@@ -1,14 +1,23 @@
 /**
- * Legal page (`/legal/{terms,privacy,review-guidelines,listing-accuracy}`,
- * AECI-237 / Phase 7.2). One component renders all four counsel-tracked
- * documents (`STAGE_1_SPEC.md` §13/§27); the route's `data.slug` selects which.
+ * Legal page (`/legal/{terms,privacy,review-guidelines,listing-accuracy,
+ * vendor-terms,managed-plan-agreement}`, AECI-237 / Phase 7.2, AECI-1359/1360).
+ * One component renders every counsel-tracked document (`STAGE_1_SPEC.md`
+ * §13/§27); the route's `data.slug` selects which.
+ *
+ * **Archived versions (AECI-1361, §27.3).** A route with `data.version` renders
+ * that superseded version at `/legal/<slug>/v<version>`. It shows a notice with
+ * the superseded date and a link to the current version, sets `robots: noindex`,
+ * and points its canonical at the current `/legal/<slug>`. The SSR egress also
+ * stamps `X-Robots-Tag` on it (`NOINDEX_PATH_PREFIXES`), and the sitemap leaves
+ * it out. Same cache rules as the current page.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch and no per-visitor state —
  * the Markdown is bundled at build time and parsed once per isolate
  * (`legal-content.ts`), so the HTML is identical on the SSR Worker and after
  * hydration. `/legal/*` carries `Cache-Tag: route:index` (24h edge / 1h browser)
- * via `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`. The pages are indexable,
- * so `setStaticPageMeta` sets title + description + canonical + OG (no `robots`).
+ * via `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`. The current pages are
+ * indexable, so `setStaticPageMeta` sets title + description + canonical + OG
+ * (no `robots`).
  * Meta is set from the constructor (like `About`/`Home`) so it ships in the SSR
  * head AND refreshes on an in-app navigation.
  *
@@ -20,11 +29,12 @@
  * (`accent-warm`) hero band, body measure capped at 70ch. Light theme only.
  */
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-import { type LegalDoc, type LegalSlug, getLegalDoc } from './legal-content';
+import { type LegalDoc, type LegalSlug, getLegalDoc, getLegalVersion } from './legal-content';
+import { legalPath } from './legal-manifest';
 
 interface LegalChrome {
   readonly title: string;
@@ -54,12 +64,23 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
         title: $localize`:@@meta.legalListingAccuracyTitle:Listing Accuracy Policy · AEC Integrations`,
         description: $localize`:@@meta.legalListingAccuracyDescription:Where AEC Integrations listing data comes from, how to request a correction, and why accurate listings are not removed on vendor request.`,
       };
+    case 'vendor-terms':
+      return {
+        title: $localize`:@@meta.legalVendorTermsTitle:Vendor Terms · AEC Integrations`,
+        description: $localize`:@@meta.legalVendorTermsDescription:The terms a vendor accepts when claiming a company on AEC Integrations: who may claim, truthfulness, content, seats, and why plans never affect ranking.`,
+      };
+    case 'managed-plan-agreement':
+      return {
+        title: $localize`:@@meta.legalManagedPlanAgreementTitle:Managed Plan Agreement · AEC Integrations`,
+        description: $localize`:@@meta.legalManagedPlanAgreementDescription:The agreement for Managed licenses on AEC Integrations: prices, annual and monthly billing, renewal notice, refunds, and what happens when Managed ends.`,
+      };
   }
 }
 
 @Component({
   selector: 'app-legal-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Hero: warm Bone accent band (the Surfaces-Are-Neutral treatment, not a
@@ -92,6 +113,20 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
                 >Last updated {{ doc.frontmatter.lastUpdated }}</span
               >
             </div>
+            <!-- AECI-1361: an archived version says so before anything else in
+                 the body, and links to the current text. -->
+            @if (doc.supersededOn) {
+              <p
+                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
+                data-testid="legal-superseded"
+                i18n="@@app.legal.superseded"
+              >
+                This is version {{ doc.frontmatter.version }}, superseded on {{ doc.supersededOn }}.
+                <a class="font-medium text-(--accent-primary) underline" [routerLink]="currentPath"
+                  >Read the current version.</a
+                >
+              </p>
+            }
           </div>
         </div>
       </section>
@@ -108,22 +143,30 @@ export class LegalPage {
   private readonly meta = inject(MetaService);
 
   protected readonly doc: LegalDoc;
+  /** The current version's path: the canonical, and the archive notice's link. */
+  protected readonly currentPath: string;
 
   constructor() {
     const slug = this.route.snapshot.data['slug'] as LegalSlug;
-    const doc = getLegalDoc(slug);
+    const version = this.route.snapshot.data['version'] as string | undefined;
+    const doc = version === undefined ? getLegalDoc(slug) : getLegalVersion(slug, version);
     if (!doc) {
-      // Programming error: a route was registered with a slug that has no
-      // backing document. The four routes only ever pass valid slugs.
-      throw new Error(`No legal document for slug "${slug}"`);
+      // Programming error: a route was registered with a slug or version that
+      // has no backing document. The routes are generated from the registry
+      // manifest, so they only ever pass valid ones.
+      throw new Error(`No legal document for slug "${slug}" version "${version ?? 'current'}"`);
     }
     this.doc = doc;
+    this.currentPath = legalPath(slug);
 
     const chrome = chromeForSlug(slug);
     this.meta.setStaticPageMeta({
       title: chrome.title,
       description: chrome.description,
-      canonical: canonicalUrl(`/legal/${slug}`),
+      // An archived version canonicalises to the current one and stays out of
+      // the index (AECI-1361).
+      canonical: canonicalUrl(this.currentPath),
+      noindex: doc.supersededOn !== undefined,
     });
   }
 }

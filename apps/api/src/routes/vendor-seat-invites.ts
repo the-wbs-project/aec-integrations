@@ -15,8 +15,8 @@
  *
  * ── THE THREE GATES, IN ORDER ───────────────────────────────────────────────
  * 1. `requireVendor()` — establishes WHICH vendor is calling (`c.get('auth')`).
- * 2. `requireSeatOwner()` — `profiles.seat_owner`, re-read from D1 this request
- *    (never trusted from the client, never cached on the token). Non-owners 403.
+ * 2. `requireSeatOwner()` (`vendor-shared.ts`) — `profiles.seat_owner`, re-read from D1
+ *    this request (never trusted from the client, never cached on the token). Non-owners 403.
  * 3. A `vendor_id` filter on every statement. There is no RLS (ADR 0016), so this
  *    IS the authorization, not a belt on top of one.
  *
@@ -81,6 +81,7 @@ import { revokeSeatStatements } from '../lib/vendor-grant';
 import type { BatchTuple } from '../lib/audit';
 import {
   afterVendorWrite,
+  requireSeatOwner,
   sessionVendorId,
   type VendorContext,
   sessionVendorPlan,
@@ -112,34 +113,6 @@ function requiredParam(c: VendorContext, name: string): string {
     throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, `Missing ${name}`, { field: name });
   }
   return value;
-}
-
-/**
- * Gate 2. Re-reads `seat_owner` from D1 rather than reading anything off the
- * session, for the same reason `createAuthzMiddleware` re-reads `banned_at` every
- * request: a demotion has to take effect on the caller's NEXT call, not whenever
- * their token happens to expire.
- *
- * Returns the owner's `display_name` because the invite email names the sender
- * and this read is already paid for.
- */
-async function requireSeatOwner(
-  db: ReturnType<DbFactory>['db'],
-  userId: string,
-  vendorId: string,
-): Promise<{ displayName: string | null }> {
-  const row = await db.query.profiles.findFirst({
-    columns: { displayName: true, seatOwner: true },
-    where: and(
-      eq(profiles.id, userId),
-      eq(profiles.vendorId, vendorId),
-      eq(profiles.role, VENDOR_ADMIN_ROLE),
-    ),
-  });
-  if (!row?.seatOwner) {
-    throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Only a vendor account owner can manage seats');
-  }
-  return { displayName: row.displayName };
 }
 
 // ─── POST /api/vendor/seats/invites ──────────────────────────────────────────

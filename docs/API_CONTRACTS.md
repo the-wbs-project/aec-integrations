@@ -250,7 +250,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 
 | Code | HTTP | Meaning |
 |---|---|---|
-| `VALIDATION_FAILED` | 400 | Request body or query failed schema validation |
+| `VALIDATION_FAILED` | 400 | Request body or query failed schema validation. Also raised by `agreementAcceptanceStatements` (`apps/api/src/lib/agreement-acceptances.ts`, AECI-1362) for a stale or unknown agreement version, an unknown document or source, a blank email or an unparseable acceptance time; `field` names which. Nothing is written |
 | `MALFORMED_REQUEST` | 400 | Request body could not be parsed |
 | `UNAUTHENTICATED` | 401 | No session, or session expired |
 | `PAYLOAD_TOO_LARGE` | 413 | Request body exceeds the endpoint's hard size ceiling (`POST /api/promote`, AECI-563) |
@@ -2692,6 +2692,30 @@ tri-state as the detail endpoint.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id (an empty 200 would read as "this
 vendor has no history"), plus the shared 401/403.
+
+#### `GET /api/admin/vendors/:id/acceptances` (AECI-1362)
+
+Every agreement acceptance of one vendor, with the evidence columns. The admin panel's
+read-only half of decision 17 (`VENDOR_SIGNUP_PROCESS.md` §2). Behind `requireAdmin()`. A
+read: no audit row, never rate-limited, `Cache-Control: private, no-store`. Same filter and
+order as `GET /api/vendor/billing/acceptances` (§6.14).
+
+```typescript
+export const AdminAgreementAcceptanceSchema = VendorAgreementAcceptanceSchema.extend({
+  vendor_id: z.string().nullable(),
+  ip: z.string().nullable(),          // CF-Connecting-IP; claim acceptances only
+  user_agent: z.string().nullable(),  // truncated to 512 chars; claim acceptances only
+  created_at: z.string(),
+});
+
+export const AdminAgreementAcceptancesResponseSchema = z.object({
+  acceptances: z.array(AdminAgreementAcceptanceSchema),
+});
+```
+
+Errors: `404 NOT_FOUND` on an unknown vendor id. An empty 200 would read as "this vendor
+accepted nothing". Plus the shared 401/403. Handler:
+`apps/api/src/routes/admin-vendor-acceptances.ts`.
 
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 
@@ -6118,7 +6142,7 @@ Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silen
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6299,6 +6323,46 @@ Revoke a pending invite. Owner-only, **204**, and a SOFT delete (`revoked_at`) s
 Remove a colleague's seat — the vendor-side counterpart to AECi's ban action, and the first HTTP surface `revokeSeatStatements` has had. Owner-only, **204**. Drops the row to `reviewer`, unlinks `vendor_id`, clears `seat_owner`, and **never touches `vendors.verified` or the entitlement row** (§8.3(2)).
 
 Refuses self-removal (**422**) — someone leaving hands over first, and self-removal is a support conversation rather than a button that can orphan a vendor. A seat on another vendor is a **404**.
+
+#### `GET /api/vendor/billing/acceptances` (AECI-1362)
+
+The vendor's agreement acceptances: the vendor terms accepted at claim and the Managed plan
+agreement accepted at checkout. These are the Billing tab's "acceptance records"
+(`VENDOR_SIGNUP_PROCESS.md` §2 decision 17). Table: `DATABASE_SCHEMA.md` §8.6d. A read: no
+audit row, never rate-limited, `Cache-Control: private, no-store`.
+
+**Owner seats only.** The gates run in the seat-management order: `requireVendor()`, then
+`requireSeatOwner()` (`profiles.seat_owner`, re-read from D1 on every call), then the vendor
+filter. The filter matches rows whose `vendor_id` is the session vendor, or whose
+`billing_account_id` is one of its billing accounts. Not capability-gated: reading your own
+records is never a paid feature.
+
+```typescript
+export const VendorAgreementAcceptanceSchema = z.object({
+  id: z.string(),
+  document: z.enum(['vendor_terms', 'managed_plan']),
+  version: z.string(),
+  source: z.enum(['claim', 'checkout']),
+  email: z.string(),
+  profile_id: z.string().nullable(),
+  billing_account_id: z.string().nullable(),
+  vendor_request_id: z.string().nullable(),
+  stripe_checkout_session_id: z.string().nullable(),
+  accepted_at: z.string(),
+});
+
+export const VendorAgreementAcceptancesResponseSchema = z.object({
+  acceptances: z.array(VendorAgreementAcceptanceSchema),
+});
+```
+
+Ordered `accepted_at DESC, id DESC`, unpaginated. A vendor holds a handful of rows. **Never
+carries `ip` or `user_agent`.** Those are AECi's evidence, and only the admin read returns
+them. Source of truth: `packages/shared/src/api/agreements.ts`, handler
+`apps/api/src/routes/vendor-billing-acceptances.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
+is not an owner).
 
 #### `GET /api/seat-invites/:token`
 
