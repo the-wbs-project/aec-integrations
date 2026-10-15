@@ -74,7 +74,10 @@ import { vendorPurgeTags } from '../lib/vendor-cache-tags';
 import {
   activateEntitlementStatements,
   deactivateEntitlementStatements,
+  entitlementChangedError,
+  isEntitlementChangedError,
   loadEntitlement,
+  loadLicenseDualWrite,
   renewEntitlementStatements,
   type EntitlementBatch,
 } from '../lib/vendor-entitlement';
@@ -205,12 +208,16 @@ export function createSetVendorEntitlementHandler(
     // `verified` comes back here and NOWHERE else: it is the guarded UPDATE's WHERE
     // input and the response readout, never a value the caller supplied.
     const vendor = await db.query.vendors.findFirst({
-      columns: { id: true, slug: true, verified: true },
+      columns: { id: true, slug: true, verified: true, companyName: true },
       where: eq(vendors.id, id),
     });
     if (!vendor) throw notFoundError('vendor', { id });
 
-    const existing = await loadEntitlement(db, vendor.id);
+    // AECI-1353: the license side of the dual-write is pre-read in the same wave.
+    const [existing, licenses] = await Promise.all([
+      loadEntitlement(db, vendor.id),
+      loadLicenseDualWrite(db, vendor.id),
+    ]);
 
     // ── 2. Guardrails ────────────────────────────────────────────────────────
     // Never sell a tier that unlocks nothing. An `active` row flips the
@@ -300,6 +307,8 @@ export function createSetVendorEntitlementHandler(
         grantedBy: actorId,
         arrangement,
         reason: payload.reason ?? null,
+        licenses,
+        vendorName: vendor.companyName,
       });
     } else if (action === 'renew') {
       batch = renewEntitlementStatements(db, {
@@ -310,6 +319,7 @@ export function createSetVendorEntitlementHandler(
         existing,
         arrangement,
         reason: payload.reason ?? null,
+        licenses,
       });
     } else {
       batch = deactivateEntitlementStatements(db, {
@@ -321,6 +331,7 @@ export function createSetVendorEntitlementHandler(
         existing,
         vendorWasVerified: vendor.verified,
         reason: payload.reason ?? null,
+        licenses,
       });
     }
 
@@ -370,6 +381,13 @@ export function createSetVendorEntitlementHandler(
         rerouteAudits.push(...(reroute?.audits ?? []));
         break;
       } catch (error) {
+        // AECI-1353: a `set` that lost a race with another activate of this vendor
+        // wrote nothing, licenses included. Only `set` builds that batch, and it
+        // carries no re-route, so the abort is unambiguous.
+        if (action === 'set' && isEntitlementChangedError(error)) {
+          emitEntitlementAction(c, action, 'invalid_state');
+          throw entitlementChangedError();
+        }
         if (!reroute || !isContestRaceError(error)) throw error;
         if (attempt >= 2) {
           throw new ApiError(
@@ -412,7 +430,13 @@ export function createSetVendorEntitlementHandler(
     // AECI-1092 / AECI-1112: the entitlement row and every re-route row go in ONE
     // request, never one per contest, so a clear that moves many contests cannot run
     // past the Worker connection limit and lose forwards silently (AECI-666).
-    forwardAuditBatch(c, [batch.auditEntry, ...rerouteAudits], [], 'admin-entitlement');
+    // AECI-1353: the dual-write's billing-account and license rows ride in the same request.
+    forwardAuditBatch(
+      c,
+      [batch.auditEntry, ...batch.licenseAuditEntries, ...rerouteAudits],
+      [],
+      'admin-entitlement',
+    );
 
     // ── 9. Response ──────────────────────────────────────────────────────────
     const verified = action === 'set' ? true : action === 'clear' ? false : vendor.verified;

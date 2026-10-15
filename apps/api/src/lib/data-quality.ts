@@ -477,6 +477,46 @@ export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding>
 }
 
 /**
+ * The license half of the mirror: `vendors.verified = 1` XOR a LIVE license
+ * (`ended_at IS NULL`) on any of the vendor's billing accounts (AECI-1354,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` §5 E1, `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1).
+ *
+ * Until the E1.6 switch-over `verified` mirrors BOTH the entitlement row and the
+ * licenses, so this runs beside `entitlement_mirror_drift`, and both read 0 on a
+ * healthy tier. A finding here with none there means the licenses fell out of step:
+ * the `ops:backfill-licenses` run that never happened on this tier, or a hand-written
+ * write to either table. The predicate is the one `reconcileVerifiedMirror` in
+ * `lib/license.ts` writes, so a vendor the reconcile would move is exactly a finding.
+ *
+ * Live is stored state only, never `ends_at` at read time (`DATABASE_SCHEMA.md`
+ * §8.6c). Severity is set in `CHECKS` (`warn` until the back-fill lands). The seeds
+ * carry matching licenses (`d1.spec.ts` proves a fresh local D1 reads 0).
+ */
+export async function checkLicenseMirrorDrift(db: Db): Promise<CheckFinding> {
+  // Spelled out with aliases: on a one-table select Drizzle renders `${col}` without
+  // its table, which is ambiguous ("id") inside a joined subquery.
+  const liveCount = sql<number>`(select count(*) from "licenses" l inner join "billing_accounts" b on b."id" = l."billing_account_id" where b."vendor_id" = "vendors"."id" and l."ended_at" is null)`;
+  const rows = await db
+    .select({
+      slug: vendors.slug,
+      name: vendors.companyName,
+      verified: vendors.verified,
+      live: liveCount.mapWith(Number),
+    })
+    .from(vendors)
+    .where(sql`${vendors.verified} <> (${liveCount} > 0)`)
+    .orderBy(textAsc(vendors.companyName), asc(vendors.id));
+
+  return {
+    lines: rows.map((r) =>
+      r.verified
+        ? `${r.name} (${r.slug}) — verified=1, no live license`
+        : `${r.name} (${r.slug}) — verified=0, ${r.live} live license(s)`,
+    ),
+  };
+}
+
+/**
  * #14 — a retired integration that is not vendor-held (AECI-1010, widened by
  * AECI-1046).
  *
@@ -733,8 +773,8 @@ interface CheckSpec {
 }
 
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
- *  AECI-609 mirror guard and the AECI-868 telemetry tripwire). Severity drives the
- *  digest grouping and is informational on the gauge. */
+ *  AECI-609 and AECI-1354 mirror guards and the AECI-868 telemetry tripwire). Severity
+ *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
     id: 'products_without_vendor',
@@ -802,6 +842,18 @@ export const CHECKS: CheckSpec[] = [
     label: 'Vendors whose `verified` flag disagrees with their entitlement',
     severity: 'error',
     run: ({ db }) => checkEntitlementMirrorDrift(db),
+  },
+  {
+    id: 'license_mirror_drift',
+    label: 'Vendors whose `verified` flag disagrees with their live licenses',
+    // `warn`, not `error`, until the back-fill has run everywhere. This check
+    // deploys before `ops:backfill-licenses`, and until then every verified
+    // vendor has no license, so `error` would trip the production
+    // `data-quality-error` PostHog alert on day one. AECI-1355 (the E1.6
+    // plan-resolution switch-over) raises it to `error` once the back-fill
+    // reads 0 on every tier.
+    severity: 'warn',
+    run: ({ db }) => checkLicenseMirrorDrift(db),
   },
   {
     id: 'arrival_cf_coverage',

@@ -1029,7 +1029,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-609 `entitlement_mirror_drift` guard, and the two telemetry tripwires —
+Algolia drift, the AECI-609 `entitlement_mirror_drift` guard and its AECI-1354 license twin
+`license_mirror_drift`, and the two telemetry tripwires —
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
@@ -1046,6 +1047,29 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > first-promote timestamp (`ADMIN_PANEL_SPEC.md` §13 D6), and the `catalog.*_promoted` keys in
 > `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
+
+> **`license_mirror_drift` on its own means the licenses were never back-filled on that tier.** It
+> counts vendors whose `verified` disagrees with EXISTS(a live license). Until the E1.6 switch-over
+> `entitlement_mirror_drift` checks the same bit against the entitlement row. It is `warn` for now,
+> so it reaches the dashboard and the digest but never the `data-quality-error` alert: it deploys
+> before the back-fill, and every verified vendor reads as drift until that runs. AECI-1355 (E1.6)
+> raises it to `error` once it reads 0 on every tier. When only the license
+> check fails, run `ops:backfill-licenses` on the tier: dry run first, then `--apply`
+> (`--allow-production` on production). The script writes the missing billing accounts and licenses
+> and one `billing_account.backfilled` audit row per vendor, and a re-run writes nothing
+> (`apps/api/scripts/README.md`). It refuses any vendor whose entitlement check is also failing,
+> and lists it. Fix that vendor through the admin entitlement actions first, then re-run. When both
+> checks fail on the same vendor, start with the entitlement one: the back-fill does not touch
+> `verified`.
+>
+> **Cutover order for the license-based expiry sweep (AECI-1356).** Run the back-fill, deploy
+> E1.6/E1.7, then re-run the back-fill before the next 11:00 UTC expiry run. Until that deploy
+> the old sweep stamps `expiry_notice_sent_at` on `vendor_entitlements` only. The re-run's stamp
+> reconcile copies that stamp onto every live license of the same term that lacks it, for every
+> vendor, including vendors already licensed. Skip the re-run and the new sweep sends a second
+> "your plan ends" email for a term already warned. The dry run lists the licenses it would stamp.
+> Each vendor stamped gets one `license.expiry_stamp_reconciled` audit row. A second re-run stamps
+> 0 and writes no audit row.
 
 > **`arrival_cf_coverage` is not a data-repair finding — do not triage it like one.** It fails when
 > full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, which
@@ -1825,6 +1849,11 @@ it. You are executing a decision, not making one.
    `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
    bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
    refuses the upstream delete while a supabase id is attached.
+   If the dry run lists a **live license** on the product, it refuses without `--force`
+   (AECI-1350). Retracting the product frees a Managed slot the vendor pays for. Tell the vendor,
+   or move the license to another product, before you re-run with `--force`. With `--force` every
+   license on the product is unassigned and keeps its billing account. Each one gets a
+   `license.unassigned` audit row in the same batch. An ended license never blocks.
 2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
    prints the plan, the cascade, the affected products and the rollback path.
    ```

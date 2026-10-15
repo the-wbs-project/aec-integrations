@@ -147,6 +147,9 @@ const NO_FORBIDDEN_VARY = [
  * `verified = true` IFF an `active` entitlement row exists — is only safe under D1's
  * no-interactive-transactions model if BOTH sides move inside one `db.batch([...])`,
  * so exactly one module emits both: `apps/api/src/lib/vendor-entitlement.ts`.
+ * AECI-1352 adds the license-era writer, `apps/api/src/lib/license.ts`, whose batches
+ * reconcile `verified` to EXISTS(live license) in the same `db.batch` as the license
+ * write. See `MIRROR_WRITE_EXEMPT` for the transition.
  *
  * This is Guard 1. Guard 2 is the `entitlement_mirror_drift` data-quality check
  * (04:00 UTC), which catches what lint structurally cannot: hand-written D1 SQL
@@ -171,7 +174,7 @@ const NO_FORBIDDEN_VARY = [
  * which is precisely why there are two guards.
  */
 const MIRROR_WRITE_MESSAGE =
-  '`vendors.verified` is a denormalized mirror of `vendor_entitlements`. Only apps/api/src/lib/vendor-entitlement.ts may write it, and never without the entitlement statement in the same db.batch. See docs/STAGE_2_PAID_TIERS_SPEC.md §2.1.';
+  '`vendors.verified` is a denormalized mirror of the plan (`vendor_entitlements`, and live `licenses` since AECI-1352). Only apps/api/src/lib/vendor-entitlement.ts and apps/api/src/lib/license.ts may write it, and never without the plan statement in the same db.batch. See docs/STAGE_2_PAID_TIERS_SPEC.md §2.1.';
 
 const NO_DIRECT_VERIFIED_WRITE = [
   {
@@ -210,9 +213,14 @@ export const CONSTRAINT_SYNTAX_SOURCE_ONLY = [...NO_DARK_THEME, ...NO_FORBIDDEN_
 export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
 
 /**
- * Files exempt from the sole-writer rule — now EXACTLY ONE.
+ * Files exempt from the sole-writer rule — TWO during the license transition.
  *
- * `lib/vendor-entitlement.ts` is the permanent, by-design writer (§2.1).
+ * `lib/vendor-entitlement.ts` is the by-design writer of the entitlement-era mirror
+ * (§2.1). `lib/license.ts` (AECI-1352, E1.3) is its successor: every license batch
+ * ends with the one `reconcileVerifiedMirror` statement, which sets `verified` to
+ * EXISTS(live license). Both writers coexist while E1.4 dual-writes;
+ * `vendor-entitlement.ts` LEAVES this list at E1.9 (AECI-1358), when
+ * `vendor_entitlements` is retired, and the list is back to exactly one entry.
  *
  * `lib/vendor-grant.ts` used to be a second, TEMPORARY baseline carve-out: it still
  * emitted the `verified` flip when AECI-609 landed the rule. **AECI-612 (§6 step 1)
@@ -227,7 +235,12 @@ export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
  * inside `apps/api`, which is how `pnpm -r run lint` runs) and the repo root (editors)
  * — the same reason `TEST_FILES` uses them.
  */
-export const MIRROR_WRITE_EXEMPT = ['**/lib/vendor-entitlement.ts'];
+export const MIRROR_WRITE_EXEMPT = [
+  // Leaves at E1.9 (AECI-1358), with the `vendor_entitlements` table.
+  '**/lib/vendor-entitlement.ts',
+  // AECI-1352: the license module's mirror reconcile. The permanent writer after E1.9.
+  '**/lib/license.ts',
+];
 
 /**
  * Decommissioned and forbidden dependencies (CLAUDE.md): Prisma / Accelerate and

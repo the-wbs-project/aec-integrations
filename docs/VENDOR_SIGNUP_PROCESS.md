@@ -1,6 +1,8 @@
 # Vendor signup, licenses and billing: the process
 
-**Status: agreed in discussion with Chris on 2026-10-14. Not yet built. Epics filed in Linear the same day (AECI-1331 to AECI-1340, project Pilot); parked items are AECI-1341 to AECI-1344.**
+**Status: agreed in discussion with Chris on 2026-10-14. Mostly not yet built. Epics filed in Linear the same day (AECI-1331 to AECI-1340, project Pilot); parked items are AECI-1341 to AECI-1344.**
+
+**Built so far (2026-10-14).** E1.1 to E1.5 (AECI-1350 to AECI-1354): the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. Plan resolution does not read licenses yet. Only the dual-write pre-read and the `license_mirror_drift` data-quality check do. `vendor_entitlements` is still the truth for plan resolution until E1.6 (AECI-1355). Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c.
 This is the one place that describes how a vendor goes from "Claim this company" to products on
 Managed and back to Free. Every other document, help page, email and screen must match this one.
 A flow chart drawn before the license model was agreed exists outside the repo; it will be redrawn

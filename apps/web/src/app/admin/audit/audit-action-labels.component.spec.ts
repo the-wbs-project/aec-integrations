@@ -96,6 +96,23 @@ const EMITTED_ACTIONS = [
   'indexnow.drained',
   'vendor_plan_pricing.set',
   'vendor_plan_pricing.cleared',
+  'billing_account.created',
+  // AECI-1354, `ops:backfill-licenses`.
+  'billing_account.backfilled',
+  // AECI-1352, `LICENSE_ACTION` in lib/license.ts.
+  'license.granted',
+  'license.assigned',
+  'license.unassigned',
+  'license.release_at_renewal_set',
+  'license.release_at_renewal_cleared',
+  'license.cancel_at_term_end_set',
+  'license.cancel_at_term_end_cleared',
+  'license.lapsed',
+  'license.released',
+  'license.revoked',
+  'license.term_changed',
+  // AECI-1356 cutover, `ops:backfill-licenses` stamp reconcile.
+  'license.expiry_stamp_reconciled',
 ] as const;
 
 describe('describeAuditAction', () => {

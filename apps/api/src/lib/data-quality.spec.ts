@@ -13,6 +13,8 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
+  billingAccounts,
+  licenses,
   mailingList,
   pageViews,
   products,
@@ -38,6 +40,7 @@ import {
   checkDuplicateVendors,
   checkEntitlementMirrorDrift,
   checkLandingCfCoverage,
+  checkLicenseMirrorDrift,
   checkLogo404Sample,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
@@ -515,6 +518,68 @@ describe('checkEntitlementMirrorDrift', () => {
     const spec = CHECKS.find((c) => c.id === 'entitlement_mirror_drift');
     expect(spec).toBeDefined();
     expect(spec!.severity).toBe('error');
+  });
+});
+
+// ── license_mirror_drift (AECI-1354) ─────────────────────────────────────────
+
+describe('checkLicenseMirrorDrift', () => {
+  /** Seed a vendor, its billing account, and one license per entry of `ended`
+   *  (`null` = live, a timestamp = ended). */
+  async function seedVendor(
+    id: string,
+    slug: string,
+    verified: boolean,
+    ended: (string | null)[],
+  ): Promise<void> {
+    await t.db.insert(vendors).values({ id, slug, companyName: slug, verified });
+    if (ended.length === 0) return;
+    await t.db.insert(billingAccounts).values({ id: `ba-${id}`, vendorId: id, name: slug });
+    await t.db.insert(licenses).values(
+      ended.map((endedAt, i) => ({
+        id: `l-${id}-${i}`,
+        billingAccountId: `ba-${id}`,
+        source: 'complimentary',
+        startsAt: OLD,
+        endsAt: null,
+        endedAt,
+        endReason: endedAt ? 'revoked' : null,
+      })),
+    );
+  }
+
+  it('flags a verified vendor with no license at all', async () => {
+    await seedVendor('v1', 'autodesk', true, []);
+    const { lines } = await checkLicenseMirrorDrift(t.db);
+    expect(lines).toEqual(['autodesk (autodesk) — verified=1, no live license']);
+  });
+
+  it('flags a verified vendor whose every license has ended', async () => {
+    // Live is stored state: an ended license does not back the mirror.
+    await seedVendor('v1', 'bluebeam', true, [RECENT]);
+    const { lines } = await checkLicenseMirrorDrift(t.db);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('no live license');
+  });
+
+  it('flags the reverse half: a live license on an unverified vendor', async () => {
+    await seedVendor('v1', 'procore', false, [null, null, RECENT]);
+    const { lines } = await checkLicenseMirrorDrift(t.db);
+    expect(lines).toEqual(['procore (procore) — verified=0, 2 live license(s)']);
+  });
+
+  it('is clean for every in-sync shape', async () => {
+    await seedVendor('v1', 'autodesk', true, [null, RECENT]); // live license backs verified
+    await seedVendor('v2', 'free-co', false, []); // Free, no account
+    await seedVendor('v3', 'gone-co', false, [RECENT]); // ended history only
+    expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
+  });
+
+  // `warn` until the back-fill lands on every tier; AECI-1355 raises it to `error`.
+  it('is registered at `warn` severity, right after the entitlement check', () => {
+    const ids = CHECKS.map((c) => c.id);
+    expect(ids.indexOf('license_mirror_drift')).toBe(ids.indexOf('entitlement_mirror_drift') + 1);
+    expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('warn');
   });
 });
 

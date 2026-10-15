@@ -65,6 +65,8 @@ export const DENIED_TABLES: readonly string[] = [
   // Commercial state. `vendor_entitlements` is also the no-pay-for-placement
   // firewall: a model that can read a vendor's plan can be led into ranking by it.
   'vendor_entitlements',
+  'billing_accounts', // AECI-1350: billing email, Stripe customer id.
+  'licenses', // AECI-1350: the per-product plan; same firewall as vendor_entitlements.
   'vendor_seat_invites', // Invite tokens.
   'vendor_requests', // Claim/request workflow, operator-only.
   'integration_field_challenges', // Contests (AECI-1008) — routing is internal.

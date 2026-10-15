@@ -20,6 +20,10 @@
  *   - Dry-run by default; `--apply` performs the writes.
  *   - Refuses a product that has integrations, reviews, or product versions unless
  *     `--force` (those should be merged onto the canonical product, not cascaded away).
+ *   - Refuses a product with a LIVE Managed license assigned unless `--force` (AECI-1350):
+ *     retracting it frees a slot the vendor pays for. With `--force` every license on the
+ *     product, live or ended, is unassigned explicitly with a `license.unassigned` audit
+ *     row; the license stays on its billing account.
  *   - Refuses a product that is the connector or an endpoint of any connector-evidenced
  *     pair unless `--delete-evidenced-pairs`, which `--force` does NOT imply (AECI-904).
  *     The footprint prints the pair count per role. With the flag, the pairs, their
@@ -33,7 +37,8 @@
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
  *   - Writes the §26.1 tombstones itself (`product.deleted`, `integration.deleted`,
- *     `integration.updated`, `review.deleted`, `product_version.deleted`), actor
+ *     `integration.updated`, `review.deleted`, `product_version.deleted`,
+ *     `license.unassigned`), actor
  *     `system`, operator named by `--operator <email>` in `metadata.operator`.
  *
  * USAGE (from apps/api; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
@@ -76,6 +81,7 @@ import {
   ddlHasPageViewPairColumns,
   ddlHasAuditVendorColumns,
   INTEGRATIONS_DDL_SQL,
+  LICENSES_TABLE_SQL,
   buildProductLookupSql,
   classifyRetraction,
   DELETE_EVIDENCED_PAIRS_FLAG,
@@ -310,6 +316,9 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1175: the same for migration 0058's vendor-reply table.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1350: the same for migration 0073's `licenses` table.
+  const licensesTable =
+    (runD1<{ name: string }>(target, LICENSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1192: the same for migration 0063's `audit_log` columns. A tier without them
   // gets tombstones that never name them.
   const auditVendorColumns = ddlHasAuditVendorColumns(
@@ -331,6 +340,7 @@ export async function main(argv: string[]): Promise<number> {
       vendorLinksTable,
       reviewResponsesTable,
       pageViewPairColumns,
+      licensesTable,
     }),
   )[0]?.results[0];
   if (!rawFootprint) {
@@ -374,8 +384,9 @@ export async function main(argv: string[]): Promise<number> {
     if (!force) {
       console.error(
         '\nRefusing without --force. Those integrations/reviews should be MERGED onto the canonical\n' +
-          'product first (the merge-then-retract tool), not cascaded away. Re-run with --force only if\n' +
-          'you intend to delete them along with the product.',
+          'product first (the merge-then-retract tool), not cascaded away. A live license should be\n' +
+          'reassigned, or its vendor told, first. Re-run with --force only if you intend to delete\n' +
+          'them along with the product and free any license slot.',
       );
       return 1;
     }
@@ -412,6 +423,7 @@ export async function main(argv: string[]): Promise<number> {
     vendorHeldPairColumns,
     evidencedContestAnchor,
     auditVendorColumns,
+    licensesTable,
   }).join('\n');
   let results: D1ExecResult<unknown>[];
   try {

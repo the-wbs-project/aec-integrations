@@ -1566,6 +1566,146 @@ export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
 });
 
 /**
+ * Billing accounts (AECI-1350, E1.1 of `docs/VENDOR_SIGNUP_PROCESS.md` §5; decisions 5
+ * and 16 in §2). The thing Managed licenses are sold on: one bill, one term, one Stripe
+ * customer. One row per vendor today, created at claim approval by the seat-grant batch
+ * and back-filled for every vendor with a seat or an entitlement row. Teams may add rows
+ * later, so the one-per-vendor rule is a unique INDEX, not the primary key.
+ *
+ * Owner seats are `profiles.seat_owner` (AECI-664). Decision 10 needs no column here.
+ *
+ * `vendor_id` is NO ACTION on purpose: a billing account is a commercial record, so a
+ * vendor holding one refuses retraction (`VENDOR_FK_HANDLING` in `lib/retract-vendor.ts`)
+ * rather than cascading it away.
+ *
+ * `created_by` has no FK, like `vendor_plan_pricing.updated_by`: an admin's or owner's id
+ * stays on the record and a `profiles` recreate cannot cascade into it. Because there is
+ * no FK, SQLite never clears it, so the `DELETE /api/account` erasure batch nulls it (and
+ * `licenses.granted_by`) explicitly (`AUTH_AND_RLS.md` §8).
+ *
+ * No `relations()` entry (the `STAGE_2_PAID_TIERS_SPEC.md` §2.5 rule, see the note under
+ * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.
+ * Domain state: every write carries its `audit_log` row (`entity_type =
+ * 'billing_account'`) in the same `db.batch`. Written by `lib/billing-account.ts`
+ * (AECI-1351), composed into the owner-seat grant batch and into the entitlement
+ * activate's license dual-write (`lib/vendor-entitlement.ts`, AECI-1353). The one-off
+ * `ops:backfill-licenses` script (AECI-1354) inserts the rest. No UI reads it yet.
+ */
+export const billingAccounts = sqliteTable(
+  'billing_accounts',
+  {
+    id: uuidPk(),
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id),
+    name: text('name').notNull(),
+    /** Nullable until checkout (decision 16). */
+    billingEmail: text('billing_email'),
+    stripeCustomerId: text('stripe_customer_id'),
+    createdBy: text('created_by'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('billing_accounts_vendor_key').on(t.vendorId),
+    uniqueIndex('billing_accounts_stripe_customer_key')
+      .on(t.stripeCustomerId)
+      .where(sql`"stripe_customer_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * Licenses (AECI-1350, E1.1; decisions 5, 6, 11, 15, 18 in `VENDOR_SIGNUP_PROCESS.md`
+ * §2). One row is one Managed slot on a billing account. Licenses carry their own dates;
+ * there is no subscription table. A Stripe subscription of quantity N is N rows sharing
+ * `stripe_subscription_id`.
+ *
+ * DATES. `ends_at` NULL is monthly (renews until cancelled); `ends_at` set is annual,
+ * invoice or complimentary. LIVE means `ended_at IS NULL`, stored state only: `ends_at`
+ * is the scheduled end that E6's daily job turns into `ended_at`. Never compute "live"
+ * from `ends_at` at read time.
+ *
+ * ASSIGNMENT. `assigned_product_id` is the product the slot is on. `ON DELETE SET NULL`
+ * is only the backstop: the product-retraction lane NULLs it explicitly, with a
+ * `license.unassigned` audit row, and a live license needs `--force`
+ * (`PRODUCT_FK_HANDLING` outcome `force-detach` in `lib/retract-product.ts`). The license
+ * stays on its billing account. The partial unique index lets a product hold
+ * at most ONE live license, while ended licenses keep their assignment as history (the
+ * hand-back, decision 14, stamps `ended_at` and leaves `assigned_product_id`).
+ *
+ * `source` is DELIBERATELY UNCONSTRAINED, the `vendor_entitlements.tier` posture: the
+ * vocabulary is `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change on
+ * D1 is a table recreate (`docs/migrations.md` §0). `granted_by` has no FK, as
+ * `billing_accounts.created_by` above.
+ *
+ * `billing_account_id` is NO ACTION: nothing deletes a billing account (the vendor lane
+ * refuses on one), so no license can be orphaned by a cascade.
+ *
+ * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
+ * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
+ * `lib/license.ts` (AECI-1352), whose only caller today is the entitlement builders'
+ * dual-write (`lib/vendor-entitlement.ts`, AECI-1353), and by the one-off
+ * `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
+ * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Read by those pre-reads and the
+ * `license_mirror_drift` data-quality check. Plan resolution does not read it until
+ * E1.6 (AECI-1355).
+ */
+export const licenses = sqliteTable(
+  'licenses',
+  {
+    id: uuidPk(),
+    billingAccountId: text('billing_account_id')
+      .notNull()
+      .references(() => billingAccounts.id),
+    /** `LICENSE_SOURCES`: `stripe` | `invoice` | `complimentary`. No CHECK, see header. */
+    source: text('source').notNull(),
+    /** ISO-8601. */
+    startsAt: text('starts_at').notNull(),
+    /** Scheduled end. NULL = monthly. */
+    endsAt: text('ends_at'),
+    /** Stored end. NULL = live. */
+    endedAt: text('ended_at'),
+    /** Why it ended, set with `ended_at`: `LICENSE_END_REASONS` (`lapsed` | `released` |
+     *  `revoked`) in `@aeci/shared/entitlements`. NULL while live. No CHECK, as `source`.
+     *  Separate from `cancel_reason`, which says why a LIVE license will not renew. */
+    endReason: text('end_reason'),
+    /** Invoice number, PO or grant note for non-Stripe sources. */
+    reference: text('reference'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    assignedProductId: text('assigned_product_id').references(() => products.id, {
+      onDelete: 'set null',
+    }),
+    assignedAt: text('assigned_at'),
+    /** Decision 11: the owner asked to free this slot at the next renewal. */
+    releaseAtRenewal: integer('release_at_renewal', { mode: 'boolean' }).notNull().default(false),
+    /** Decision 15: ends at term end instead of renewing (ban, or an owner cancel). */
+    cancelAtTermEnd: integer('cancel_at_term_end', { mode: 'boolean' }).notNull().default(false),
+    cancelReason: text('cancel_reason'),
+    /** Pointer to the accepted Managed agreement version. The acceptance record is E2.4's. */
+    termsVersion: text('terms_version'),
+    grantedBy: text('granted_by'),
+    /** The term-end notice job's idempotency fence (E6). */
+    expiryNoticeSentAt: text('expiry_notice_sent_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('licenses_account_idx').on(t.billingAccountId),
+    // One live license per product. Ended licenses keep their assignment as history.
+    uniqueIndex('licenses_live_product_idx')
+      .on(t.assignedProductId)
+      .where(sql`"ended_at" IS NULL`),
+    // E6's daily term-end scan. Monthly and ended rows are invisible to it.
+    index('licenses_ends_idx')
+      .on(t.endsAt)
+      .where(sql`"ended_at" IS NULL AND "ends_at" IS NOT NULL`),
+    index('licenses_stripe_subscription_idx')
+      .on(t.stripeSubscriptionId)
+      .where(sql`"stripe_subscription_id" IS NOT NULL`),
+  ],
+);
+
+/**
  * Vendor seat invites — the self-serve half of the §6 seat roster (AECI-664 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A row is an INTENT, never an account:
  * this table is why the vendor portal can add a colleague without the vendor ever
@@ -4618,6 +4758,8 @@ export const schema = {
   vendorRequests,
   listingRequests,
   vendorEntitlements,
+  billingAccounts,
+  licenses,
   vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
@@ -4650,7 +4792,8 @@ export const schema = {
   // Without the relation that line does not compile. The §4 entitlement gate and the
   // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
-  // has no relations entry either.
+  // has no relations entry either. `billingAccounts` and `licenses` (AECI-1350) follow
+  // the same rule: plan resolution reads them with explicit joins, never `with:`.
   //
   // The six `connector*` tables (AECI-714) had none for a weaker reason — deferral,
   // not prohibition. It is now discharged in two steps that both land below: AECI-721

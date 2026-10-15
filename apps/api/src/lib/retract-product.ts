@@ -13,7 +13,7 @@
  * execute` I/O, Algolia credentials, and `console`. Split mirrors
  * `algolia-orphan-purge.ts` / `reconcile-product-counts.ts` / `retract-vendor.ts`.
  *
- * WHAT POINTS AT `products` (schema snapshot `apps/api/migrations/meta/0043_snapshot.json`).
+ * WHAT POINTS AT `products` (the latest migration snapshot, `apps/api/migrations/meta/0073_snapshot.json` today).
  * Every foreign key into the table has an explicit outcome in `PRODUCT_FK_HANDLING`,
  * and `retract-product-fk-coverage.spec.ts` fails when the latest snapshot carries one
  * that does not — so the next table cannot become a silent cascade (AECI-687):
@@ -38,6 +38,28 @@
  *   page_views                 product_id             —           log-class; NULLed, never deleted
  *   page_views                 pair_product_a_id      —           log-class; NULLed, never deleted
  *   page_views                 pair_product_b_id      —           log-class; NULLed, never deleted
+ *   licenses                   assigned_product_id    set null    --force when live; NULLed + audited
+ *
+ * `licenses.assigned_product_id` (AECI-1350, migration 0073) is NULLed by the plan, never
+ * left to its `ON DELETE SET NULL`. A license is domain state, and the FK action would
+ * unassign a paid Managed slot with no `audit_log` row and no `updated_at` bump. The
+ * license itself survives on its billing account, which is the commercial record.
+ *   - A LIVE license on the product is a `--force` blocker: retracting the product frees
+ *     a slot the vendor is paying for, so the operator tells the vendor or reassigns it
+ *     first. With `--force` the plan writes the same change `unassignLicenseStatements`
+ *     in `lib/license.ts` does (`assigned_product_id`, `assigned_at`,
+ *     `release_at_renewal`, `updated_at`) and one `license.unassigned` row per license,
+ *     in that module's shape: filed under the billing account, `metadata.license_id`,
+ *     `vendor_id` and the vendor's plan snapshot before the write.
+ *   - An ENDED license keeps its product as history (decision 14), but the FK would NULL
+ *     that pointer anyway. So it is counted and never blocks, and the plan NULLs only
+ *     `assigned_product_id` (plus `updated_at`) with its own `license.unassigned` row,
+ *     whose `before_state.ended_at` tells it apart from a live one.
+ * Neither changes whether a license is live, so `vendors.verified` cannot move and no
+ * mirror reconcile is needed. Every license statement is guarded on the product
+ * DELETE's own refusal guard, so a refused retraction never frees a slot. The table is
+ * named only where it exists (`licensesTable`, probed by {@link LICENSES_TABLE_SQL}),
+ * because a tier without 0073 would fail the whole batch.
  *
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
@@ -92,7 +114,9 @@
  *     `scripts/ops/2026-09-retraction-consumer/consume.mjs` already writes, with the
  *     claim / attestation / contest counts in `before_state.cascade`;
  *   - `integration.updated`, one per integration whose `powered_by` is NULLed;
- *   - `review.deleted` and `product_version.deleted`, one per row.
+ *   - `review.deleted` and `product_version.deleted`, one per row;
+ *   - `license.unassigned`, one per license whose `assigned_product_id` is NULLed, in
+ *     `lib/license.ts`'s shape (see above).
  * Claims, attestations and facet rows are counted on their parent's tombstone rather
  * than tombstoned themselves, the same granularity `consume.mjs` chose. The per-row
  * tombstones are `INSERT … SELECT`s that run BEFORE their delete, because the rows
@@ -119,7 +143,9 @@ export function escapeSqlLiteral(value: string): string {
  *  - `flag-tombstone`  counted; refused without `--delete-evidenced-pairs` (`--force`
  *                      does not cover it); with it, deleted and tombstoned (AECI-904).
  *  - `force-detach`    counted; refused without `--force`; with it, the column is
- *                      NULLed and every row gets an `*.updated` tombstone.
+ *                      NULLed and every row gets an audit row (`integration.updated`
+ *                      for `powered_by`, `license.unassigned` for a license). An ended
+ *                      license is counted and detached but does not refuse.
  *  - `facet`           counted; always deleted; recorded on the product's tombstone.
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
@@ -160,6 +186,10 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // keeps its credit for the view (§13 D25).
   'page_views.pair_product_a_id': 'detach',
   'page_views.pair_product_b_id': 'detach',
+  // AECI-1350 (0073): a license assigned to the product. NULLed explicitly with a
+  // `license.unassigned` row, never left to the FK's SET NULL; a live one needs
+  // `--force`. The license stays on its billing account. See the header.
+  'licenses.assigned_product_id': 'force-detach',
 };
 
 /** Every FK into a table this lane DELETEs from (other than `products` itself),
@@ -284,6 +314,10 @@ export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE 
  *  does, none when migration 0058 has not reached it. */
 export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_responses';`;
 
+/** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
+ *  none when migration 0073 has not reached it. */
+export const LICENSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'licenses';`;
+
 /** AECI-1092: the contest table's DDL. It carries `evidenced_pair_id` on a tier
  *  migration 0050 has reached, and not before. */
 export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_field_challenges';`;
@@ -326,6 +360,8 @@ export function buildFootprintSql(
     reviewResponsesTable?: boolean;
     /** AECI-929: `page_views` has migration 0067's pair columns. */
     pageViewPairColumns?: boolean;
+    /** AECI-1350: `licenses` exists (migration 0073). */
+    licensesTable?: boolean;
   } = {},
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
@@ -350,6 +386,15 @@ export function buildFootprintSql(
     (opts.pageViewPairColumns ?? true)
       ? `(SELECT count(*) FROM "page_views" WHERE "pair_product_a_id" = ${p} OR "pair_product_b_id" = ${p})`
       : '0';
+  // AECI-1350: licenses assigned to the product, live and ended. Live ones refuse
+  // without --force; both are NULLed and audited.
+  const licensesTable = opts.licensesTable ?? true;
+  const licensesLive = licensesTable
+    ? `(SELECT count(*) FROM "licenses" WHERE "assigned_product_id" = ${p} AND "ended_at" IS NULL)`
+    : '0';
+  const licensesEnded = licensesTable
+    ? `(SELECT count(*) FROM "licenses" WHERE "assigned_product_id" = ${p} AND "ended_at" IS NOT NULL)`
+    : '0';
   // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
   // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
   const vendorHeld = opts.vendorHeldColumns
@@ -381,6 +426,8 @@ export function buildFootprintSql(
     (SELECT count(*) FROM "product_versions" WHERE "product_id" = ${p}) AS product_versions,
     (SELECT count(*) FROM "page_views" WHERE "product_id" = ${p}) AS page_views,
     ${pageViewPairs} AS page_view_pairs,
+    ${licensesLive} AS licenses_live,
+    ${licensesEnded} AS licenses_ended,
     (SELECT count(*) FROM "product_vendors" WHERE "product_id" = ${p}) AS product_vendors,
     (SELECT count(*) FROM "product_categories" WHERE "product_id" = ${p}) AS product_categories,
     (SELECT count(*) FROM "product_audiences" WHERE "product_id" = ${p}) AS product_audiences,
@@ -420,6 +467,9 @@ export interface RawFootprintRow {
   page_views: number;
   /** AECI-929. Optional so a row built before it still parses. */
   page_view_pairs?: number;
+  /** AECI-1350. Optional so a row built before it still parses. */
+  licenses_live?: number;
+  licenses_ended?: number;
   product_vendors: number;
   product_categories: number;
   product_audiences: number;
@@ -462,6 +512,12 @@ export interface RetractFootprint {
   /** Pair-page views naming the product on either side (AECI-929). Detached like
    *  `pageViews`: that side is NULLed and the row is kept. */
   pageViewPairs: number;
+  /** Live licenses assigned to the product (AECI-1350). A `--force` blocker: the plan
+   *  unassigns each one, and the license stays live on its billing account. */
+  licensesLive: number;
+  /** Ended licenses whose history pointer names the product. Counted, never a blocker;
+   *  the plan NULLs the pointer, as the FK would. */
+  licensesEnded: number;
   productVendors: number;
   productCategories: number;
   productAudiences: number;
@@ -501,6 +557,8 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     productVersions: row.product_versions,
     pageViews: row.page_views,
     pageViewPairs: row.page_view_pairs ?? 0,
+    licensesLive: row.licenses_live ?? 0,
+    licensesEnded: row.licenses_ended ?? 0,
     productVendors: row.product_vendors,
     productCategories: row.product_categories,
     productAudiences: row.product_audiences,
@@ -524,7 +582,8 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
  * something this lane must never delete (`refusals` — not overridable)?
  *
  * Blockers are editorial or user content that should normally be re-pointed to the
- * canonical product (the future merge-then-retract tool), not destroyed. Refusals
+ * canonical product (the future merge-then-retract tool), not destroyed, plus a live
+ * Managed license, whose paid slot the retraction would free (AECI-1350). Refusals
  * are the connector-catalogue mirror, which the sync owns (see the header).
  * Facet links and page_views (both `product_id` and the pair sides) are cosmetic and
  * always cleaned up.
@@ -583,6 +642,10 @@ export function classifyRetraction(
   if (footprint.reviews > 0) blockers.push(`${footprint.reviews} review(s)`);
   if (footprint.productVersions > 0)
     blockers.push(`${footprint.productVersions} product version(s)`);
+  if (footprint.licensesLive > 0)
+    blockers.push(
+      `${footprint.licensesLive} live Managed license(s) assigned to it — retracting frees the paid slot; tell the vendor or reassign it first`,
+    );
   const evidencedPairRefusal =
     footprint.evidencedPairs > 0 && !opts.deleteEvidencedPairs
       ? describeEvidencedPairs(footprint)
@@ -637,6 +700,10 @@ export interface ProductDeleteArgs {
    *  the target tier (migration 0050). Defaults to true, the schema at HEAD; the CLI
    *  passes its {@link CONTESTS_DDL_SQL} probe. */
   evidencedContestAnchor?: boolean;
+  /** AECI-1350: whether `licenses` exists on the target tier (migration 0073). Defaults
+   *  to true, the schema at HEAD; the CLI passes its {@link LICENSES_TABLE_SQL} probe so
+   *  a tier without it gets a plan that never names the table. */
+  licensesTable?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -648,7 +715,8 @@ export const RETRACT_VENDOR_HELD_TOKEN = 'retract-product-vendor-held-row-in-sco
  *
  * SQLite reports only "malformed JSON" and never echoes the argument, so the token
  * cannot be matched directly. The match is still unambiguous: the sentinel is the only
- * `json()` call in the plan (the tombstones use `json_object`, which never raises it).
+ * `json()` call in the plan that can raise it. The tombstones use `json_object`, and the
+ * license audit rows call `json()` only on the constants `'true'` and `'false'`.
  * `output` is whatever the failed execute printed, stderr and stdout together.
  */
 export function isVendorHeldAbort(output: string): boolean {
@@ -762,6 +830,9 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
       // AECI-929: pair-page views whose matching side was NULLed. Kept, not deleted.
       page_view_pairs: f.pageViewPairs,
       powered_by: f.poweredBy,
+      // AECI-1350: licenses taken off the product, each with its own audit row.
+      licenses_live: f.licensesLive,
+      licenses_ended: f.licensesEnded,
     },
   };
   const vals = [
@@ -780,6 +851,109 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
   return `INSERT INTO "audit_log" (${auditCols(args)}) SELECT ${vals.join(', ')}${auditProductVal(args)} WHERE ${guard};`;
 }
 
+// ─── Licenses (AECI-1350) ────────────────────────────────────────────────────
+
+/** `lib/license.ts`'s `LICENSE_ENTITY_TYPE` and `LICENSE_ACTION.unassigned`. Not
+ *  imported: that module pulls in Drizzle, and this one is pure SQL text. The spec
+ *  pins the two against it. */
+export const LICENSE_AUDIT_ENTITY_TYPE = 'billing_account';
+export const LICENSE_UNASSIGNED_ACTION = 'license.unassigned';
+
+/** A SQLite integer flag as a JSON boolean, the way `JSON.stringify` writes it. */
+function jsonBool(col: string): string {
+  return `CASE WHEN ${col} THEN json('true') ELSE json('false') END`;
+}
+
+/**
+ * `licenseState` in `lib/license.ts`, as SQL over the row aliased `l`. `overrides`
+ * replaces a key's value expression, for the after-state.
+ */
+function licenseStateJson(overrides: Record<string, string> = {}): string {
+  const cols: Array<[string, string]> = [
+    ['source', 'l."source"'],
+    ['starts_at', 'l."starts_at"'],
+    ['ends_at', 'l."ends_at"'],
+    ['ended_at', 'l."ended_at"'],
+    ['end_reason', 'l."end_reason"'],
+    ['reference', 'l."reference"'],
+    ['stripe_subscription_id', 'l."stripe_subscription_id"'],
+    ['assigned_product_id', 'l."assigned_product_id"'],
+    ['release_at_renewal', jsonBool('l."release_at_renewal"')],
+    ['cancel_at_term_end', jsonBool('l."cancel_at_term_end"')],
+    ['cancel_reason', 'l."cancel_reason"'],
+  ];
+  return `json_object(${cols.map(([k, v]) => `'${k}', ${overrides[k] ?? v}`).join(', ')})`;
+}
+
+/**
+ * `licensePlanSnapshot` from `@aeci/shared/entitlements`, as SQL over every license on
+ * every billing account of the vendor `vendorExpr`, read BEFORE the plan's license
+ * UPDATEs (the plan before the write, as `lib/license.ts` records it). The tier is
+ * always `verified`: the vendor holds at least the license being audited, and every
+ * license snapshot records that one paid rung. Dates compare as parsed instants
+ * (`julianday`); an unparseable `ends_at` keeps a license live, as in the TypeScript.
+ */
+function licensePlanStatusSql(vendorExpr: string, now: string): string {
+  const ofVendor = `FROM "licenses" x JOIN "billing_accounts" xb ON xb."id" = x."billing_account_id" WHERE xb."vendor_id" = ${vendorExpr}`;
+  const notPastTerm = `(x."ends_at" IS NULL OR julianday(x."ends_at") IS NULL OR julianday(x."ends_at") > julianday(${now}))`;
+  return (
+    `CASE WHEN EXISTS (SELECT 1 ${ofVendor} AND x."ended_at" IS NULL) THEN ` +
+    `CASE WHEN EXISTS (SELECT 1 ${ofVendor} AND x."ended_at" IS NULL AND ${notPastTerm}) THEN 'active' ELSE 'expired' END ` +
+    `WHEN (SELECT x."end_reason" ${ofVendor} ORDER BY julianday(x."ended_at") IS NULL, julianday(x."ended_at") DESC LIMIT 1) = 'revoked' THEN 'revoked' ` +
+    `ELSE 'expired' END`
+  );
+}
+
+/**
+ * One `license.unassigned` row per license the plan takes off the product, in
+ * `lib/license.ts`'s shape: filed under the billing account, `metadata.license_id`,
+ * `vendor_id`, `product_id`, the plan snapshot, and `before_state` / `after_state` as
+ * `licenseState`. `live` picks the live or the ended arm (see the header). Gated on
+ * `guard`, the product DELETE's own, so a refused retraction writes none.
+ */
+function licenseUnassignAudit(args: ProductDeleteArgs, guard: string, live: boolean): string {
+  const p = sqlLiteral(args.product.id);
+  const now = sqlLiteral(args.now);
+  const after = live
+    ? licenseStateJson({ assigned_product_id: 'NULL', release_at_renewal: "json('false')" })
+    : licenseStateJson({ assigned_product_id: 'NULL' });
+  const reason = live
+    ? 'assigned product retracted; live license unassigned and kept on its billing account'
+    : "assigned product retracted; ended license's history pointer set to NULL";
+  const metadata = `json_set(${sqlLiteral(
+    JSON.stringify({
+      ...JSON.parse(metadataJson(args, 'licenses', reason)),
+      // Unassigning never changes whether a license is live, so the mirror cannot move.
+      verified_flipped: false,
+    }),
+  )}, '$.license_id', l."id")`;
+  const vendorCols = args.auditVendorColumns ?? true;
+  const cols =
+    `"id","actor_id","actor_type","action","entity_type","entity_id","before_state","after_state","metadata","created_at"` +
+    (vendorCols ? `,"vendor_id","product_id","vendor_tier","vendor_entitlement_status"` : '');
+  const vendorVals = vendorCols
+    ? `, ba."vendor_id", ${p}, 'verified', ${licensePlanStatusSql('ba."vendor_id"', now)}`
+    : '';
+  return (
+    `INSERT INTO "audit_log" (${cols}) SELECT ${SQL_UUID}, NULL, 'system', ` +
+    `${sqlLiteral(LICENSE_UNASSIGNED_ACTION)}, ${sqlLiteral(LICENSE_AUDIT_ENTITY_TYPE)}, l."billing_account_id", ` +
+    `${licenseStateJson()}, ${after}, ${metadata}, ${now}${vendorVals} ` +
+    `FROM "licenses" l JOIN "billing_accounts" ba ON ba."id" = l."billing_account_id" ` +
+    `WHERE l."assigned_product_id" = ${p} AND l."ended_at" IS ${live ? '' : 'NOT '}NULL AND ${guard};`
+  );
+}
+
+/** The license UPDATEs the audit rows above describe. Live: what
+ *  `unassignLicenseStatements` writes. Ended: only the pointer, as the FK would. */
+function licenseUnassignUpdates(args: ProductDeleteArgs, guard: string): string[] {
+  const p = sqlLiteral(args.product.id);
+  const now = sqlLiteral(args.now);
+  return [
+    `UPDATE "licenses" SET "assigned_product_id" = NULL, "assigned_at" = NULL, "release_at_renewal" = 0, "updated_at" = ${now} WHERE "assigned_product_id" = ${p} AND "ended_at" IS NULL AND ${guard};`,
+    `UPDATE "licenses" SET "assigned_product_id" = NULL, "updated_at" = ${now} WHERE "assigned_product_id" = ${p} AND "ended_at" IS NOT NULL AND ${guard};`,
+  ];
+}
+
 // ─── The delete plan ─────────────────────────────────────────────────────────
 
 /**
@@ -791,7 +965,8 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
  * Statements against empty tables are harmless no-ops, so the clean-stub case runs
  * the same list. The product DELETE and its tombstone both carry a guard that is
  * false while a connector catalogue or stub mapping still points at the product, so a
- * refusal the CLI already checked cannot be undone by a row that appeared since.
+ * refusal the CLI already checked cannot be undone by a row that appeared since. The
+ * license audit rows and UPDATEs carry the same guard (AECI-1350).
  */
 export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const p = sqlLiteral(args.product.id);
@@ -802,6 +977,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
   const reviewResponsesTable = args.reviewResponsesTable ?? true;
+  const licensesTable = args.licensesTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
@@ -907,6 +1083,16 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       beforeState: `json_object('table', 'product_versions', 'row', ${rowJson(['id', 'product_id', 'label', 'released_at', 'sunset_at', 'sort_key', 'created_at'])})`,
       from: `FROM "product_versions" WHERE "product_id" = ${p}`,
     }),
+    // AECI-1350: one `license.unassigned` per license on the product, read before the
+    // UPDATEs below. Guarded on the product DELETE's predicate, which no statement in
+    // between can change (the sentinel already aborted on a vendor-held row, and the
+    // catalogue, mapping and unflagged pair tables are never written here).
+    ...(licensesTable
+      ? [
+          licenseUnassignAudit(args, refusalGuard, true),
+          licenseUnassignAudit(args, refusalGuard, false),
+        ]
+      : []),
 
     // 2. Children before parents, explicitly: attestations → claims → edges. Never
     //    left to the FK cascade, which is two levels deep here (ADR 0018).
@@ -960,6 +1146,9 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `DELETE FROM "product_trades" WHERE "product_id" = ${p};`,
     `DELETE FROM "product_vendors" WHERE "product_id" = ${p};`,
     `DELETE FROM "product_extensions" WHERE "product_id" = ${p} OR "host_product_id" = ${p};`,
+    // AECI-1350: take every license off the product explicitly, never by the FK's SET
+    // NULL, so each change has the audit row written in step 1.
+    ...(licensesTable ? licenseUnassignUpdates(args, refusalGuard) : []),
 
     // 3. The product's tombstone, then the product itself.
     productTombstone(
@@ -1017,6 +1206,8 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['product_versions', footprint.productVersions],
     ['page_views (NULLed, kept)', footprint.pageViews],
     ['page_views pair side (NULLed, kept)', footprint.pageViewPairs],
+    ['live licenses (unassigned, kept)', footprint.licensesLive],
+    ['ended licenses (unassigned, kept)', footprint.licensesEnded],
     ['product_vendors', footprint.productVendors],
     ['product_categories', footprint.productCategories],
     ['product_audiences', footprint.productAudiences],

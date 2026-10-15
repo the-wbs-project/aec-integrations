@@ -37,8 +37,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  billingAccounts,
   connectorEvidencedPairs,
   integrations,
+  licenses,
   products,
   productVendors,
   profiles,
@@ -171,6 +173,19 @@ const seedEntitlement = (status: string) =>
     grantedAt: OLD_TS,
     endedAt: status === 'active' ? null : OLD_TS,
     expiryNoticeSentAt: status === 'active' ? null : OLD_TS,
+    createdAt: OLD_TS,
+    updatedAt: OLD_TS,
+  });
+
+/** Seed the vendor's billing account directly, the state a seated vendor is in once
+ *  E1's back-fill has run (AECI-1351). `updated_at` is pinned to `OLD_TS` so a test
+ *  can prove a second seat left it alone. */
+const BILLING_ACCOUNT_ID = '99999999-9999-4999-8999-999999999999';
+const seedBillingAccount = () =>
+  t.db.insert(billingAccounts).values({
+    id: BILLING_ACCOUNT_ID,
+    vendorId: VENDOR_ID,
+    name: 'Autodesk, Inc.',
     createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
@@ -344,11 +359,13 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       sourceRequestId: REQUEST_ID,
     });
 
-    // TWO audit rows in the same batch since AECI-612 — the claim decision and the
-    // entitlement it opened. The claim row's shape is unchanged; the entitlement row
-    // is what makes `entity_type='vendor_entitlement'` the history ledger (§2.1).
+    // FOUR audit rows in the same batch: the claim decision and the entitlement it
+    // opened (AECI-612), the billing account (AECI-1351), and the one license the
+    // Managed dual-write grants a vendor with no products (AECI-1353). The claim row's
+    // shape is unchanged; the entitlement row is what makes
+    // `entity_type='vendor_entitlement'` the history ledger (§2.1).
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(2);
+    expect(audits).toHaveLength(4);
     const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
     expect(claimAudit.actorId).toBe(ADMIN_ID);
     // AECI-1192 / AECI-1193: the column, and the plan BEFORE the grant.
@@ -377,6 +394,28 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       entitlement_created: true,
       source_request_id: REQUEST_ID,
       plan: 'managed',
+    });
+
+    // The billing account, created by the first owner seat (AECI-1351), named for the
+    // vendor and with no billing email until checkout (decision 16).
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      vendorId: VENDOR_ID,
+      name: 'Autodesk, Inc.',
+      billingEmail: null,
+      createdBy: ADMIN_ID,
+    });
+    const accountAudit = audits.find((a) => a.action === 'billing_account.created')!;
+    expect(accountAudit).toMatchObject({
+      entityType: 'billing_account',
+      entityId: accounts[0]!.id,
+      actorId: ADMIN_ID,
+      vendorId: VENDOR_ID,
+    });
+    expect(accountAudit.metadata).toMatchObject({
+      source: 'admin-moderation',
+      source_request_id: REQUEST_ID,
     });
 
     // Workflow completed + transition.
@@ -419,8 +458,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
     const messages = events.map((e) => e.message);
-    // The claim row, the entitlement row and the workflow transition, in one request.
-    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // The claim row, the entitlement row, the billing-account row, the license row
+    // (AECI-1353) and the workflow transition, in one request.
+    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(4);
     expect(messages.filter((m) => m.startsWith('workflow '))).toHaveLength(1);
     // No per-row forward is left behind.
     expect(
@@ -547,6 +587,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedVendor({ verified: true, updatedAt: OLD_TS });
     // The active entitlement the verified vendor already holds — the §2.3 row-2 state.
     await seedEntitlement('active');
+    // And the billing account seat A's approval created (AECI-1351).
+    await seedBillingAccount();
     // Existing seat A.
     await t.db
       .insert(profiles)
@@ -579,6 +621,37 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(ents).toHaveLength(1);
     expect(ents[0]!.updatedAt).toBe(OLD_TS);
     expect(body.grant).toMatchObject({ tier: 'verified', entitlement_created: false });
+
+    // AECI-1351: the account seat A's approval created is the only one, untouched.
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ id: BILLING_ACCOUNT_ID, updatedAt: OLD_TS });
+  });
+
+  it('a seated vendor with no billing account yet gets one with the next seat (pre-back-fill)', async () => {
+    // A vendor seated before AECI-1351 has no account until the back-fill runs. The
+    // next approval creates it: the builder keys on the account, not on the seat count.
+    await seedVendor({ verified: true, updatedAt: OLD_TS });
+    await seedEntitlement('active');
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+    await seedRequest({ id: REQUEST2_ID, submitterEmail: 'second@vendor.com' });
+
+    const { status } = await patchClaim(
+      moderateApp(resolveLinked(null, CLAIMANT2_ID)),
+      { action: 'approve', plan: 'managed' },
+      REQUEST2_ID,
+    );
+
+    expect(status).toBe(200);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    expect((await t.db.select().from(auditLog)).map((a) => a.action).sort()).toEqual([
+      'billing_account.created',
+      'vendor_claim.granted',
+    ]);
+    // Still no `vendors` write: the account row does not touch the vendor.
+    expect((await vendorOf(VENDOR_ID))!.updatedAt).toBe(OLD_TS);
   });
 
   it('re-claiming a revoked vendor REACTIVATES the existing row rather than inserting a second', async () => {
@@ -620,6 +693,40 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(entAudit.metadata).toMatchObject({ reactivated: true, entitlement_created: false });
   });
 
+  it('a Managed grant that loses the reactivation race answers 409 ENTITLEMENT_CHANGED and writes nothing (AECI-1353)', async () => {
+    await seedVendor({ verified: false, updatedAt: OLD_TS });
+    await seedEntitlement('revoked');
+    await seedRequest();
+    // Another approval (or an admin `set`) activates the row between this request's
+    // pre-read and its batch. Without the sentinel this batch's license INSERT would
+    // still land, beside a guarded UPDATE that matched nothing.
+    const original = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db
+        .update(vendorEntitlements)
+        .set({ status: 'active', endedAt: null })
+        .where(eq(vendorEntitlements.vendorId, VENDOR_ID));
+      return original(stmts);
+    });
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+    });
+    spy.mockRestore();
+
+    expect(status).toBe(409);
+    expect((body as unknown as { error: { code: string } }).error.code).toBe(
+      ApiErrorCode.ENTITLEMENT_CHANGED,
+    );
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    // The seat rolled back with it, and the claim is still open for the retry.
+    expect(await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID))).toHaveLength(0);
+    expect((await t.db.select().from(vendorRequests))[0]!.status).not.toBe('resolved');
+  });
+
   it('composes both builders into ONE db.batch (D1 has no interactive transactions)', async () => {
     // The load-bearing structural claim of §6.3. Two batches would mean a window in
     // which a seat exists with no entitlement — and no way to roll the first back.
@@ -635,8 +742,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(status).toBe(200);
     expect(batchSpy).toHaveBeenCalledTimes(1);
     // 5 from `grantSeatStatements` (seat, request, workflow, transition, audit) +
-    // 3 from `activateEntitlementStatements` (entitlement row, mirror flip, audit).
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(8);
+    // 3 from `activateEntitlementStatements` (entitlement row, mirror flip, audit) +
+    // 2 for the billing account (account row, audit; AECI-1351), which the activate's
+    // dual-write now emits, so the route's own ensure is a no-op (AECI-1353) +
+    // 3 for the license (row, audit, mirror reconcile; AECI-1353).
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(13);
     batchSpy.mockRestore();
   });
 
@@ -732,7 +842,7 @@ describe('PATCH /api/admin/claims/:id — plan choice', () => {
     expect(body.error.field).toBe('entitlement');
   });
 
-  it('Free writes the seat only: no entitlement row, verified untouched, no purge', async () => {
+  it('Free writes the seat and the billing account: no entitlement row, verified untouched, no purge', async () => {
     await seedVendor();
     await seedRequest();
     await seedWorkflow();
@@ -767,17 +877,27 @@ describe('PATCH /api/admin/claims/:id — plan choice', () => {
     expect(vendor!.verified).toBe(false);
     expect(vendor!.updatedAt).toBe(OLD_TS);
 
-    // Only `grantSeatStatements`' five statements went into the one batch.
+    // `grantSeatStatements`' five statements and the billing account's two
+    // (AECI-1351) went into the one batch.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(5);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(7);
     batchSpy.mockRestore();
 
-    // ONE audit row, the claim decision, carrying the plan and no verified flip.
+    // Free creates the billing account too (`VENDOR_SIGNUP_PROCESS.md` §3 step 2).
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ vendorId: VENDOR_ID, name: 'Autodesk, Inc.' });
+
+    // TWO audit rows: the claim decision, carrying the plan and no verified flip, and
+    // the billing account.
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]!.action).toBe('vendor_claim.granted');
-    expect(audits[0]!.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
-    expect(audits[0]!.afterState).toMatchObject({ vendor_verified: false });
+    expect(audits.map((a) => a.action).sort()).toEqual([
+      'billing_account.created',
+      'vendor_claim.granted',
+    ]);
+    const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
+    expect(claimAudit.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
+    expect(claimAudit.afterState).toMatchObject({ vendor_verified: false });
 
     // The request resolved through its workflow, as on Managed.
     const transitions = await t.db.select().from(workflowTransitions);
@@ -834,6 +954,7 @@ describe('PATCH /api/admin/claims/:id — plan choice', () => {
   it('a Free second seat on a Managed vendor keeps the vendor Managed and reports it', async () => {
     await seedVendor({ verified: true });
     await seedEntitlement('active');
+    await seedBillingAccount();
     await t.db
       .insert(profiles)
       .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
@@ -881,10 +1002,13 @@ describe('PATCH /api/admin/claims/:id — plan choice', () => {
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(1);
     expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
     const audits = await t.db.select().from(auditLog);
-    expect(audits.map((a) => a.metadata)).toEqual([
-      expect.objectContaining({ plan: 'managed' }),
-      expect.objectContaining({ plan: 'managed' }),
-    ]);
+    // The claim and entitlement rows carry the plan. The billing-account row is the
+    // same on both plans, so it carries none (AECI-1351). Nor do the license rows the
+    // dual-write files under the account (AECI-1353): a license is Managed by definition.
+    expect(audits.filter((a) => a.entityType !== 'billing_account').map((a) => a.metadata)).toEqual(
+      [expect.objectContaining({ plan: 'managed' }), expect.objectContaining({ plan: 'managed' })],
+    );
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
     expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
     expect(email.mock.calls[0]![1]).toMatchObject({ plan: 'managed' });
   });
@@ -2242,5 +2366,84 @@ describe('GET /api/admin/claims/:id/audit — the claim trail (AECI-1276)', () =
     await seedClaimTrail();
     await getClaimAudit(REQUEST_ID);
     expect(await t.db.select().from(auditLog)).toHaveLength(AUDIT_IDS.length);
+  });
+});
+
+// ─── The Managed dual-write (AECI-1353, E1.4) ────────────────────────────────
+
+describe('PATCH /api/admin/claims/:id — the license dual-write', () => {
+  const P2 = '33333333-3333-4333-8333-333333333334';
+
+  async function seedOwnedProducts() {
+    await t.db.insert(products).values([
+      { id: PRODUCT_ID, slug: 'revit', name: 'Revit' },
+      { id: P2, slug: 'autocad', name: 'AutoCAD' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true },
+      { productId: P2, vendorId: VENDOR_ID, isPrimary: true },
+    ]);
+  }
+
+  it('Managed grants one license per owned product on ONE new billing account', async () => {
+    await seedVendor();
+    await seedOwnedProducts();
+    await seedRequest();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+      entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
+    });
+    expect(status).toBe(200);
+
+    // Exactly one account INSERT: the activate's dual-write made it, and the route's
+    // own ensure saw it as existing.
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts).toHaveLength(1);
+    expect(
+      (await t.db.select().from(auditLog)).filter((a) => a.action === 'billing_account.created'),
+    ).toHaveLength(1);
+
+    const rows = await t.db.select().from(licenses).orderBy(licenses.assignedProductId);
+    expect(rows.map((l) => l.assignedProductId)).toEqual([PRODUCT_ID, P2]);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        billingAccountId: accounts[0]!.id,
+        source: 'invoice',
+        endsAt: '2031-01-01T00:00:00.000Z',
+        endedAt: null,
+        reference: 'PO-4471',
+        grantedBy: ADMIN_ID,
+      });
+    }
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
+  });
+
+  it('Free grants no license, and a Managed second seat grants none either', async () => {
+    await seedVendor();
+    await seedOwnedProducts();
+    await seedRequest();
+    expect(
+      (await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve', plan: 'free' }))
+        .status,
+    ).toBe(200);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+  });
+
+  it('a Managed second seat on an active vendor writes no license and no account', async () => {
+    await seedVendor({ verified: true });
+    await seedEntitlement('active');
+    await seedBillingAccount();
+    await seedRequest();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+    });
+    expect(status).toBe(200);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
   });
 });

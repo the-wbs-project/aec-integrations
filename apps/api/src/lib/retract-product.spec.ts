@@ -29,10 +29,14 @@ import {
   parseFootprint,
   VENDOR_LINKS_TABLE_SQL,
   REVIEW_RESPONSES_TABLE_SQL,
+  LICENSES_TABLE_SQL,
+  LICENSE_AUDIT_ENTITY_TYPE,
+  LICENSE_UNASSIGNED_ACTION,
   type ProductRow,
   type RawFootprintRow,
   type RetractFootprint,
 } from './retract-product';
+import { LICENSE_ACTION, LICENSE_ENTITY_TYPE } from './license';
 
 const RAW_EMPTY: RawFootprintRow = {
   connector_catalogs: 0,
@@ -700,6 +704,262 @@ describe('buildDeleteStatements against the migrated schema', () => {
     ).toEqual({ n: 0 });
     t.dispose();
   });
+
+  describe('licenses on the product (AECI-1350)', () => {
+    const LIC_P = 'prod-lic';
+    const seedLicenses = (t: TestDb) => {
+      t.raw.exec(
+        `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES ('${LIC_P}', 'lic', 'lic', ${TS}, ${TS});`,
+      );
+      t.raw.exec(
+        `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES ('v-lic', 'v-lic', 'V', ${TS}, ${TS});`,
+      );
+      t.raw.exec(
+        `INSERT INTO billing_accounts (id, vendor_id, name, created_at, updated_at) VALUES ('ba1', 'v-lic', 'V', ${TS}, ${TS});`,
+      );
+      // l1 live and assigned, flagged to release at renewal; l2 ended, its product kept
+      // as history (decision 14, revoked); l3 live on another product, untouched.
+      t.raw.exec(
+        `INSERT INTO licenses (id, billing_account_id, source, starts_at, ends_at, assigned_product_id, assigned_at, release_at_renewal, created_at, updated_at) VALUES ('l1', 'ba1', 'complimentary', ${TS}, '2027-09-01T00:00:00.000Z', '${LIC_P}', ${TS}, 1, ${TS}, ${TS});`,
+      );
+      t.raw.exec(
+        `INSERT INTO licenses (id, billing_account_id, source, starts_at, ended_at, end_reason, assigned_product_id, assigned_at, created_at, updated_at) VALUES ('l2', 'ba1', 'invoice', ${TS}, '2026-09-10T00:00:00.000Z', 'revoked', '${LIC_P}', ${TS}, ${TS}, ${TS});`,
+      );
+      t.raw.exec(
+        `INSERT INTO licenses (id, billing_account_id, source, starts_at, assigned_product_id, assigned_at, created_at, updated_at) VALUES ('l3', 'ba1', 'complimentary', ${TS}, '${Q}', ${TS}, ${TS}, ${TS});`,
+      );
+    };
+    const product: ProductRow = {
+      id: LIC_P,
+      slug: 'lic',
+      name: 'lic',
+      promotion_status: 'promoted',
+    };
+    type LicenseRow = {
+      id: string;
+      assigned_product_id: string | null;
+      assigned_at: string | null;
+      release_at_renewal: number;
+      updated_at: string;
+    };
+    const licenseRows = (t: TestDb) =>
+      t.raw
+        .prepare(
+          `SELECT id, assigned_product_id, assigned_at, release_at_renewal, updated_at FROM licenses ORDER BY id`,
+        )
+        .all() as LicenseRow[];
+
+    it('counts live and ended licenses, and refuses a live one without --force', async () => {
+      const t = await makeTestDb();
+      seed(t);
+      seedLicenses(t);
+      const fp = footprintOf(t, LIC_P);
+      expect(fp.licensesLive).toBe(1);
+      expect(fp.licensesEnded).toBe(1);
+      const c = classifyRetraction(fp);
+      expect(c.safe).toBe(false);
+      expect(c.refusals).toEqual([]);
+      expect(c.blockers).toEqual([expect.stringContaining('1 live Managed license(s)')]);
+      expect(formatFootprintReport(product, fp)).toContain('live licenses (unassigned, kept)');
+      // An ended license alone never blocks.
+      expect(classifyRetraction({ ...fp, licensesLive: 0 }).safe).toBe(true);
+      t.dispose();
+    });
+
+    it('unassigns every license explicitly, with a license.unassigned row each', async () => {
+      const t = await makeTestDb();
+      seed(t);
+      seedLicenses(t);
+      const fp = footprintOf(t, LIC_P);
+      const plan = buildDeleteStatements({
+        product,
+        footprint: fp,
+        auditId: 'audit-lic',
+        now: NOW,
+        force: true,
+        operator: 'ops@example.com',
+      });
+      // FK enforcement OFF: the SET NULL cannot do the work, so the rows below were
+      // changed by the plan's own statements.
+      t.raw.pragma('foreign_keys = OFF');
+      apply(t, plan);
+      t.raw.pragma('foreign_keys = ON');
+
+      expect(
+        t.raw.prepare(`SELECT count(*) AS n FROM products WHERE id = '${LIC_P}'`).get(),
+      ).toEqual({ n: 0 });
+      expect(t.raw.pragma('foreign_key_check')).toEqual([]);
+      expect(licenseRows(t)).toEqual([
+        // Live: what `unassignLicenseStatements` writes.
+        {
+          id: 'l1',
+          assigned_product_id: null,
+          assigned_at: null,
+          release_at_renewal: 0,
+          updated_at: NOW,
+        },
+        // Ended: only the pointer, as the FK would, plus the bump.
+        {
+          id: 'l2',
+          assigned_product_id: null,
+          assigned_at: '2026-09-01T00:00:00.000Z',
+          release_at_renewal: 0,
+          updated_at: NOW,
+        },
+        {
+          id: 'l3',
+          assigned_product_id: Q,
+          assigned_at: '2026-09-01T00:00:00.000Z',
+          release_at_renewal: 0,
+          updated_at: '2026-09-01T00:00:00.000Z',
+        },
+      ]);
+
+      const rows = t.raw
+        .prepare(
+          `SELECT actor_id, actor_type, action, entity_type, entity_id, before_state, after_state, metadata, vendor_id, product_id, vendor_tier, vendor_entitlement_status, created_at FROM audit_log WHERE action = 'license.unassigned' ORDER BY json_extract(metadata, '$.license_id')`,
+        )
+        .all() as Array<Record<string, string | null>>;
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        expect(r).toMatchObject({
+          actor_id: null,
+          actor_type: 'system',
+          action: LICENSE_ACTION.unassigned,
+          entity_type: LICENSE_ENTITY_TYPE,
+          entity_id: 'ba1',
+          vendor_id: 'v-lic',
+          product_id: LIC_P,
+          // The plan before the write: one live license, term not over.
+          vendor_tier: 'verified',
+          vendor_entitlement_status: 'active',
+          created_at: NOW,
+        });
+        expect(JSON.parse(r.metadata!)).toMatchObject({
+          source: 'ops-cli',
+          issue: 'AECI-687',
+          operator: 'ops@example.com',
+          table: 'licenses',
+          retracted_product_id: LIC_P,
+          force: true,
+          verified_flipped: false,
+        });
+      }
+      const [live, ended] = rows;
+      expect(JSON.parse(live!.metadata!).license_id).toBe('l1');
+      expect(JSON.parse(live!.before_state!)).toEqual({
+        source: 'complimentary',
+        starts_at: '2026-09-01T00:00:00.000Z',
+        ends_at: '2027-09-01T00:00:00.000Z',
+        ended_at: null,
+        end_reason: null,
+        reference: null,
+        stripe_subscription_id: null,
+        assigned_product_id: LIC_P,
+        release_at_renewal: true,
+        cancel_at_term_end: false,
+        cancel_reason: null,
+      });
+      expect(JSON.parse(live!.after_state!)).toMatchObject({
+        assigned_product_id: null,
+        release_at_renewal: false,
+        ended_at: null,
+      });
+      expect(JSON.parse(ended!.metadata!).license_id).toBe('l2');
+      expect(JSON.parse(ended!.before_state!)).toMatchObject({
+        assigned_product_id: LIC_P,
+        ended_at: '2026-09-10T00:00:00.000Z',
+        end_reason: 'revoked',
+      });
+      expect(JSON.parse(ended!.after_state!)).toMatchObject({
+        assigned_product_id: null,
+        ended_at: '2026-09-10T00:00:00.000Z',
+      });
+      expect(
+        JSON.parse(
+          (
+            t.raw
+              .prepare(`SELECT before_state FROM audit_log WHERE action = 'product.deleted'`)
+              .get() as { before_state: string }
+          ).before_state,
+        ).detached,
+      ).toMatchObject({ licenses_live: 1, licenses_ended: 1 });
+      t.dispose();
+    });
+
+    it('records the plan snapshot as expired when every live term is over', async () => {
+      const t = await makeTestDb();
+      seed(t);
+      seedLicenses(t);
+      t.raw.exec(
+        `UPDATE licenses SET ends_at = '2026-09-15T00:00:00.000Z' WHERE ended_at IS NULL;`,
+      );
+      apply(
+        t,
+        buildDeleteStatements({
+          product,
+          footprint: footprintOf(t, LIC_P),
+          auditId: 'audit-lic',
+          now: NOW,
+          force: true,
+        }),
+      );
+      const statuses = t.raw
+        .prepare(
+          `SELECT DISTINCT vendor_entitlement_status AS s FROM audit_log WHERE action = 'license.unassigned'`,
+        )
+        .all();
+      expect(statuses).toEqual([{ s: 'expired' }]);
+      t.dispose();
+    });
+
+    it('frees no license when the product DELETE is refused at write time', async () => {
+      const t = await makeTestDb();
+      seed(t);
+      seedLicenses(t);
+      const fp = footprintOf(t, LIC_P);
+      // A connector catalogue appeared after the dry run.
+      t.raw.exec(
+        `INSERT INTO connector_catalogs (id, connector_product_id, created_at, updated_at) VALUES ('cc-lic', '${LIC_P}', ${TS}, ${TS});`,
+      );
+      const before = licenseRows(t);
+      apply(
+        t,
+        buildDeleteStatements({
+          product,
+          footprint: fp,
+          auditId: 'audit-lic',
+          now: NOW,
+          force: true,
+        }),
+      );
+      expect(licenseRows(t)).toEqual(before);
+      expect(
+        t.raw
+          .prepare(`SELECT count(*) AS n FROM audit_log WHERE action = 'license.unassigned'`)
+          .get(),
+      ).toEqual({ n: 0 });
+      t.dispose();
+    });
+
+    it('never names licenses or billing_accounts on a tier without migration 0073', () => {
+      const plan = buildDeleteStatements(deleteArgs({ licensesTable: false })).join('\n');
+      expect(plan).not.toContain('"licenses"');
+      expect(plan).not.toContain('"billing_accounts"');
+      expect(buildFootprintSql(PRODUCT.id, { licensesTable: false })).not.toContain('"licenses"');
+    });
+
+    it('finds the licenses table with the LICENSES_TABLE_SQL probe on the migrated schema', async () => {
+      const t = await makeTestDb();
+      expect(t.raw.prepare(LICENSES_TABLE_SQL).get()).toEqual({ name: 'licenses' });
+      t.dispose();
+    });
+
+    it("writes lib/license.ts's own entity type and action", () => {
+      expect(LICENSE_AUDIT_ENTITY_TYPE).toBe(LICENSE_ENTITY_TYPE);
+      expect(LICENSE_UNASSIGNED_ACTION).toBe(LICENSE_ACTION.unassigned);
+    });
+  });
 });
 
 describe('vendor-held integrations are refused, --force or not (AECI-1005)', () => {
@@ -713,6 +973,7 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
             reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
             pageViewPairColumns: hasPageViewPairColumns(t),
+            licensesTable: Boolean(t.raw.prepare(LICENSES_TABLE_SQL).get()),
           }),
         )
         .get() as RawFootprintRow,
@@ -785,6 +1046,7 @@ describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
             reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
             pageViewPairColumns: hasPageViewPairColumns(t),
+            licensesTable: Boolean(t.raw.prepare(LICENSES_TABLE_SQL).get()),
           }),
         )
         .get() as RawFootprintRow,
@@ -942,6 +1204,7 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
             vendorLinksTable: false,
             reviewResponsesTable: false,
             pageViewPairColumns: false,
+            licensesTable: false,
           }),
         )
         .get() as RawFootprintRow,
@@ -963,6 +1226,8 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       evidencedContestAnchor: false,
       // AECI-1192: nor 0063's `audit_log` columns.
       auditVendorColumns: false,
+      // AECI-1350: nor 0073's `licenses` table.
+      licensesTable: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);
     expect(statements.join('\n')).not.toMatch(/"product_id"\) SELECT/);

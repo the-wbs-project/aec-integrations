@@ -102,6 +102,33 @@ export const AUDIT_VENDOR_ACTIONS = {
   // row's before/after names the admin's commercial terms, not a vendor record.
   'vendor_plan_pricing.set': { kind: 'aeci-override', receipt: false },
   'vendor_plan_pricing.cleared': { kind: 'aeci-override', receipt: false },
+  // The billing account licenses sit on (AECI-1351, VENDOR_SIGNUP_PROCESS.md §2
+  // decision 18). Created with the first owner seat. Not a receipt: decision 18 shows
+  // nothing for it in the UI yet.
+  'billing_account.created': { kind: 'aeci-override', receipt: false },
+  // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
+  // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
+  'billing_account.backfilled': { kind: 'system', receipt: false },
+  // License changes (AECI-1352, `apps/api/src/lib/license.ts`). Filed under the
+  // billing account, with `vendor_id` filled. Not receipts yet: E5 (the Billing tab)
+  // decides what the vendor sees, and E1.4's dual-write would otherwise show every
+  // grant twice beside `vendor_entitlement.set`.
+  'license.granted': { kind: 'aeci-override', receipt: false },
+  'license.assigned': { kind: 'vendor-edit', receipt: false },
+  'license.unassigned': { kind: 'aeci-override', receipt: false },
+  'license.release_at_renewal_set': { kind: 'vendor-edit', receipt: false },
+  'license.release_at_renewal_cleared': { kind: 'vendor-edit', receipt: false },
+  'license.cancel_at_term_end_set': { kind: 'aeci-override', receipt: false },
+  'license.cancel_at_term_end_cleared': { kind: 'aeci-override', receipt: false },
+  'license.lapsed': { kind: 'system', receipt: false },
+  'license.released': { kind: 'aeci-override', receipt: false },
+  'license.revoked': { kind: 'aeci-override', receipt: false },
+  // AECI-1353: a license's term moved (the entitlement renewal's dual-write).
+  'license.term_changed': { kind: 'aeci-override', receipt: false },
+  // AECI-1356 cutover: `ops:backfill-licenses` copied the entitlement's expiry-notice
+  // stamp onto a vendor's live licenses of the same term. One row per vendor. An ops
+  // tool, so `system`. Not a receipt.
+  'license.expiry_stamp_reconciled': { kind: 'system', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

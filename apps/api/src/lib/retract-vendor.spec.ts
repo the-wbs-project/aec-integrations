@@ -28,6 +28,7 @@ const RAW_CLEAN: RawVendorFootprintRow = {
   profiles: 0,
   entitlements: 0,
   seat_invites: 0,
+  billing_accounts: 0,
   claims: 3,
   attestations: 2,
   page_views: 41,
@@ -87,6 +88,7 @@ describe('buildVendorFootprintSql', () => {
       '"profiles"',
       '"vendor_entitlements"',
       '"vendor_seat_invites"',
+      '"billing_accounts"',
       '"claims"',
       '"attestations"',
       '"page_views"',
@@ -114,6 +116,18 @@ describe('buildVendorFootprintSql', () => {
     const sql = buildVendorFootprintSql('v1', { reviewResponsesTable: false });
     expect(sql).toContain('0 AS review_responses');
     expect(sql).not.toContain('"review_responses"');
+  });
+
+  it('counts billing accounts (AECI-1350)', () => {
+    expect(buildVendorFootprintSql('v1')).toContain(
+      `(SELECT count(*) FROM "billing_accounts" WHERE "vendor_id" = 'v1') AS billing_accounts`,
+    );
+  });
+
+  it('never names billing_accounts on a tier without migration 0073', () => {
+    const sql = buildVendorFootprintSql('v1', { billingAccountsTable: false });
+    expect(sql).toContain('0 AS billing_accounts');
+    expect(sql).not.toContain('"billing_accounts"');
   });
 
   it('counts BOTH edge tables separately — the AECI-721 two-table rule', () => {
@@ -145,6 +159,18 @@ describe('classifyVendorRetraction', () => {
     expect(c.safe).toBe(true);
   });
 
+  it('refuses a vendor that holds a billing account (AECI-1350)', () => {
+    const c = classifyVendorRetraction(parseVendorFootprint({ ...RAW_CLEAN, billing_accounts: 1 }));
+    expect(c.safe).toBe(false);
+    expect(c.blockers).toEqual(['1 billing account(s) — a commercial record exists']);
+  });
+
+  it('parses a footprint row read before AECI-1350 as zero billing accounts', () => {
+    const { billing_accounts, ...old } = RAW_CLEAN;
+    void billing_accounts;
+    expect(parseVendorFootprint(old).billingAccounts).toBe(0);
+  });
+
   it('parses a footprint row read before AECI-1226 as zero replies and contests', () => {
     const { review_responses, field_contests_submitted, field_contests_owned, ...old } = RAW_CLEAN;
     void review_responses;
@@ -163,6 +189,7 @@ describe('classifyVendorRetraction', () => {
     ['profiles', 'profile'],
     ['entitlements', 'entitlement'],
     ['seatInvites', 'seat invite'],
+    ['billingAccounts', 'billing account'],
   ];
 
   for (const [field, needle] of refusalCases) {
@@ -189,8 +216,9 @@ describe('classifyVendorRetraction', () => {
       profiles: 1,
       entitlements: 1,
       seatInvites: 1,
+      billingAccounts: 1,
     });
-    expect(c.blockers).toHaveLength(6);
+    expect(c.blockers).toHaveLength(7);
   });
 });
 
@@ -247,6 +275,7 @@ describe('buildVendorDeleteStatements', () => {
       '"profiles"',
       '"vendor_entitlements"',
       '"vendor_seat_invites"',
+      '"billing_accounts"',
     ]) {
       expect(joined).not.toContain(t);
     }

@@ -53,6 +53,11 @@
  * unconditional INSERT there would violate `vendor_entitlements_vendor_key` and
  * roll back the entire seat grant.
  *
+ * A third builder joins on both plans (AECI-1351): `ensureBillingAccountStatements`
+ * (`lib/billing-account.ts`) adds the vendor's billing account and its
+ * `billing_account.created` audit row when the vendor has none. It follows the same
+ * second-seat rule: an existing account means zero statements and no audit row.
+ *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
  * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
  * in `admin-requests.ts`) whose default here is a no-op, so this endpoint ships +
@@ -62,8 +67,9 @@
  * Cache: unlike request-moderation (which purges nothing — a `vendor_request`
  * renders on no cacheable page), a Managed grant flips `vendors.verified`, so it
  * purges the vendor + its products' `Cache-Tag`s post-commit (§3). A Free grant
- * writes only the seat, which no cacheable page renders (the provision-seat route
- * in `admin-vendors.ts` purges nothing for the same reason), so it purges nothing.
+ * writes only the seat and the billing account, which no cacheable page renders
+ * (the provision-seat route in `admin-vendors.ts` purges nothing for the same
+ * reason), so it purges nothing.
  */
 
 import {
@@ -113,6 +119,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
+import { ensureBillingAccountStatements, type BillingAccountBefore } from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
@@ -145,8 +152,12 @@ import {
 } from '../lib/vendor-handback';
 import {
   activateEntitlementStatements,
+  entitlementChangedError,
+  isEntitlementChangedError,
   loadEntitlement,
+  loadLicenseDualWrite,
   type EntitlementBefore,
+  type LicenseDualWriteBefore,
 } from '../lib/vendor-entitlement';
 import {
   CLAIM_AUDIT_SOURCE,
@@ -242,13 +253,20 @@ function emitClaimModeration(
 }
 
 /** The preloaded grant target: the vendor a claim seats against, plus its
- *  entitlement row (`null` = never entitled). */
+ *  entitlement row (`null` = never entitled) and its billing account. */
 interface ClaimTarget {
-  vendor: TargetVendor;
+  /** `companyName` names a billing account created by this grant (AECI-1351). */
+  vendor: TargetVendor & { companyName: string };
   /** Preloaded so `activateEntitlementStatements` can branch the §2.3 matrix in TS
    *  rather than with `onConflictDoUpdate` — that branch is what makes the
    *  second-seat case emit genuinely nothing. */
   entitlement: EntitlementBefore | null;
+  /** Preloaded for the same reason (AECI-1351): a vendor that already has an
+   *  account gets no statement and no audit row from `ensureBillingAccountStatements`. */
+  billingAccount: BillingAccountBefore | null;
+  /** The license side of the Managed dual-write (AECI-1353). Its `billingAccount` is
+   *  the one above: one read, two consumers. */
+  licenses: LicenseDualWriteBefore;
 }
 
 /**
@@ -262,6 +280,7 @@ interface ClaimTarget {
  * extra single-row lookup on `vendor_entitlements_vendor_key`, on a path that
  * already does five reads. It feeds both the §2.3 activate branch and the
  * idempotent re-grant's `tier` readout, so no caller re-derives the `findFirst`.
+ * The billing account (AECI-1351) is read in the same wave.
  */
 async function resolveTargetVendor(
   db: Db,
@@ -287,11 +306,15 @@ async function resolveTargetVendor(
   }
 
   const vendor = await db.query.vendors.findFirst({
-    columns: { id: true, slug: true, verified: true },
+    columns: { id: true, slug: true, verified: true, companyName: true },
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  return { vendor, entitlement: await loadEntitlement(db, vendorId) };
+  const [entitlement, licenses] = await Promise.all([
+    loadEntitlement(db, vendorId),
+    loadLicenseDualWrite(db, vendorId),
+  ]);
+  return { vendor, entitlement, billingAccount: licenses.billingAccount, licenses };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -426,7 +449,12 @@ async function approveClaim(
     );
   }
 
-  const { vendor, entitlement: entitlementBefore } = await resolveTargetVendor(db, existing);
+  const {
+    vendor,
+    entitlement: entitlementBefore,
+    billingAccount,
+    licenses,
+  } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
   // same-seat no-op, which needs an EXISTING linked account to recognize — so resolve
@@ -573,10 +601,35 @@ async function approveClaim(
         source: CLAIM_AUDIT_SOURCE,
         reason,
         extraMetadata: { plan },
+        licenses,
+        vendorName: vendor.companyName,
       });
 
+  // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2), on Free and
+  // Managed alike. A vendor that already has one gets the frozen no-op: no statement,
+  // no audit row, and nothing that names `vendors`, so a second seat leaves
+  // `vendors.updated_at` alone.
+  //
+  // AECI-1353: a Managed grant's dual-write already ensures the account (the license
+  // INSERTs need it first). The account it creates counts as existing here, so the
+  // batch carries exactly one account INSERT. When the activate is a no-op (second
+  // seat on an active vendor), this call still creates a missing account.
+  const createdByEntitlement = ent?.billingAccountCreatedId ?? null;
+  const account = ensureBillingAccountStatements(db, {
+    vendorId: vendor.id,
+    name: vendor.companyName,
+    createdBy: actorId,
+    actorType,
+    existing: billingAccount ?? (createdByEntitlement ? { id: createdByEntitlement } : null),
+    now: resolvedAt,
+    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+    source: CLAIM_AUDIT_SOURCE,
+    sourceRequestId: existing.id,
+  });
+
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
-  // the mirror flip and both audit rows commit or roll back together (§26.1).
+  // the mirror flip, the billing account, the Managed licenses (AECI-1353) and every
+  // audit row commit or roll back together (§26.1).
   // AECI-989: a new active seat returns the contests a ban moved to AECi.
   // A Managed grant activates the entitlement in this same batch, which the return's
   // pre-batch read cannot see (AECI-1092 reconciliation), so it says so. A Free grant
@@ -606,9 +659,26 @@ async function approveClaim(
     await db.batch([
       ...grant.stmts,
       ...(ent?.stmts ?? []),
+      ...account.stmts,
       ...(returned?.stmts ?? []),
     ] as BatchTuple);
   } catch (error) {
+    // AECI-1353: a Managed grant that reactivates the entitlement carries a sentinel
+    // that aborts when another activate committed first, and one that opens it trips
+    // the entitlement's unique key. A second seat writes no entitlement and cannot
+    // lose that race. The seat-return sentinels raise the same "malformed JSON", so
+    // when both ride the batch the row decides: it is active now only if the activate
+    // race is what aborted it.
+    if ((ent?.raceGuarded || ent?.entitlementCreated) && isEntitlementChangedError(error)) {
+      const raced =
+        !returned ||
+        !isSeatsChangedError(error) ||
+        (await loadEntitlement(db, vendor.id))?.status === 'active';
+      if (raced) {
+        emitClaimModeration(c, 'approve', 'conflict');
+        throw entitlementChangedError();
+      }
+    }
     if (returned && isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
   }
@@ -623,9 +693,9 @@ async function approveClaim(
   // claim-approved email (AECI-528 seam), forward audit + workflow to PostHog.
   //
   // Managed keeps the purge it always had, second seat included. Free purges
-  // nothing: the seat is the only thing it wrote, and no cacheable page renders a
-  // seat. A purge there would invalidate pages for a verified flip that did not
-  // happen (AECI-1215).
+  // nothing: it wrote a seat and maybe a billing account, and no cacheable page
+  // renders either. A purge there would invalidate pages for a verified flip that
+  // did not happen (AECI-1215).
   if (managed) {
     const purgeTags = await vendorPurgeTags(db, vendor);
     c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
@@ -655,10 +725,18 @@ async function approveClaim(
   // Every audit row and transition forwards (§26.5) in ONE batched request: the
   // seat return adds a row and a transition per contest, so one `fetch` per row
   // would run past the connection limit. `ent.auditEntry` is null on the
-  // second-seat path, and `ent` itself is null on Free. The batch skips both.
+  // second-seat path, and `ent` itself is null on Free. The batch skips both, and
+  // `account.auditEntry`, null when the vendor already had a billing account.
   forwardAuditBatch(
     c,
-    [grant.auditEntry, ent?.auditEntry ?? null, ...(returned?.audits ?? [])],
+    [
+      grant.auditEntry,
+      ent?.auditEntry ?? null,
+      // AECI-1353: the Managed dual-write's account and license rows.
+      ...(ent?.licenseAuditEntries ?? []),
+      account.auditEntry,
+      ...(returned?.audits ?? []),
+    ],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
 

@@ -16,17 +16,21 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Db } from '../db/client';
+import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import type { AuthzVariables } from '../lib/authz';
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
 import { enqueueRecrawlCauses } from '../lib/recrawl-causes';
 import { logBatchToPosthog, submitCount } from '../posthog';
+import { makeTestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
+  ownerSeatsOf,
   ownedSideProductId,
+  seatsOf,
   vendorRecrawlEnabled,
   withRecrawlProduct,
   type VendorContext,
@@ -354,5 +358,66 @@ describe('withRecrawlProduct / ownedSideProductId (AECI-1184)', () => {
     expect(ownedSideProductId(['a', 'b'], 'a', 'b')).toBe('a');
     expect(ownedSideProductId(['b'], 'a', 'b')).toBe('b');
     expect(ownedSideProductId([], 'a', 'b')).toBeNull();
+  });
+});
+
+describe('ownerSeatsOf (AECI-1351, decision 10)', () => {
+  it('selects the vendor_admin seats with seat_owner set, banned included', async () => {
+    const t = await makeTestDb();
+    try {
+      const V = '11111111-1111-4111-8111-111111111111';
+      const OTHER = '22222222-2222-4222-8222-222222222222';
+      await t.db.insert(vendors).values([
+        { id: V, slug: 'acme', companyName: 'Acme' },
+        { id: OTHER, slug: 'other', companyName: 'Other' },
+      ]);
+      await t.db.insert(profiles).values([
+        // The claim-approved owner.
+        {
+          id: 'a0000000-0000-4000-8000-000000000001',
+          role: 'vendor_admin',
+          vendorId: V,
+          seatOwner: true,
+        },
+        // A banned owner is still an owner seat, as in `seatsOf`.
+        {
+          id: 'a0000000-0000-4000-8000-000000000002',
+          role: 'vendor_admin',
+          vendorId: V,
+          seatOwner: true,
+          bannedAt: '2026-01-01T00:00:00.000Z',
+        },
+        // An invite-accepted colleague: a seat, not an owner.
+        {
+          id: 'a0000000-0000-4000-8000-000000000003',
+          role: 'vendor_admin',
+          vendorId: V,
+          seatOwner: false,
+        },
+        // A reviewer carrying a stale owner bit and vendor id is not a seat at all.
+        {
+          id: 'a0000000-0000-4000-8000-000000000004',
+          role: 'reviewer',
+          vendorId: V,
+          seatOwner: true,
+        },
+        // Another vendor's owner.
+        {
+          id: 'a0000000-0000-4000-8000-000000000005',
+          role: 'vendor_admin',
+          vendorId: OTHER,
+          seatOwner: true,
+        },
+      ]);
+      const ids = async (where: ReturnType<typeof seatsOf>) =>
+        (await t.db.select({ id: profiles.id }).from(profiles).where(where))
+          .map((r) => r.id.slice(-1))
+          .sort();
+
+      expect(await ids(ownerSeatsOf(V))).toEqual(['1', '2']);
+      expect(await ids(seatsOf(V))).toEqual(['1', '2', '3']);
+    } finally {
+      t.dispose();
+    }
   });
 });

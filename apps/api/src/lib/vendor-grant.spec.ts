@@ -30,9 +30,17 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, profiles, vendorEntitlements, vendorRequests, vendors } from '../db/schema';
+import {
+  auditLog,
+  billingAccounts,
+  profiles,
+  vendorEntitlements,
+  vendorRequests,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
+import { ensureBillingAccountStatements } from './billing-account';
 import {
   grantSeatStatements,
   provisionSeatStatements,
@@ -472,5 +480,63 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
     // `verified = 1` XOR an active row) sees nothing on either side — §8.9(4).
     expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
     expect((await t.db.select().from(auditLog))[0]?.action).toBe('vendor_seat.provisioned');
+  });
+});
+
+// ─── The billing account composes in without touching `vendors` (AECI-1351) ──
+
+describe('the seat batch plus ensureBillingAccountStatements', () => {
+  const accountArgs = (existing: { id: string } | null) => ({
+    vendorId: VENDOR_ID,
+    name: 'Autodesk, Inc.',
+    createdBy: ADMIN_ID,
+    actorType: 'admin' as const,
+    existing,
+    now: NOW,
+    vendorPlan: { tier: 'none', status: 'none' as const },
+    source: 'admin-moderation',
+  });
+
+  it('first owner: the composed batch names no `vendors` and leaves the row byte-identical', async () => {
+    await seed(false);
+    const before = await vendorOf();
+
+    const grant = grantSeatStatements(t.db, grantArgs(false, 'free'));
+    const account = ensureBillingAccountStatements(t.db, accountArgs(null));
+    const stmts = [...grant.stmts, ...account.stmts];
+    expect(vendorsStatements(stmts)).toEqual([]);
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await vendorOf()).toEqual(before);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
+    // The seat the account came with is an owner seat (decision 10's flag).
+    const seat = (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0];
+    expect(seat!.seatOwner).toBe(true);
+  });
+
+  it('second seat: the account half adds nothing, so the batch is the seat batch alone', () => {
+    const grant = grantSeatStatements(t.db, grantArgs(true, 'free'));
+    const account = ensureBillingAccountStatements(t.db, accountArgs({ id: 'existing' }));
+    expect(account.stmts).toEqual([]);
+    expect(account.auditEntry).toBeNull();
+    expect([...grant.stmts, ...account.stmts]).toHaveLength(5);
+  });
+
+  it('provision: the owner seat and the account land together, vendors untouched', async () => {
+    await seed(false);
+    const before = await vendorOf();
+
+    const stmts = [
+      ...provisionSeatStatements(t.db, provisionArgs()).stmts,
+      ...ensureBillingAccountStatements(t.db, accountArgs(null)).stmts,
+    ];
+    expect(vendorsStatements(stmts)).toEqual([]);
+    await t.db.batch(stmts as BatchTuple);
+
+    expect(await vendorOf()).toEqual(before);
+    expect((await t.db.select().from(auditLog)).map((r) => r.action).sort()).toEqual([
+      'billing_account.created',
+      'vendor_seat.provisioned',
+    ]);
   });
 });

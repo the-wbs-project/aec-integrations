@@ -79,6 +79,49 @@ describe('§2.5 — no read path queries vendor_entitlements', () => {
 });
 
 /**
+ * AECI-1350: the same rule for `billing_accounts` and `licenses`. They are the
+ * successor to `vendor_entitlements` (E1, `docs/VENDOR_SIGNUP_PROCESS.md` §5), so the
+ * catalog read paths stay as blind to them as to the table they replace. Plan
+ * resolution reads them in the authz guard with explicit joins, never in a read config.
+ *
+ * `licenses` is an ordinary English word, so the pattern matches only the Drizzle
+ * identifier used as a value (`licenses.`, `(licenses)`, `licenses,` in an import) and
+ * the quoted SQL name, never the word in a comment.
+ */
+const LICENSING_REFERENCE =
+  /\bbillingAccounts\b|\bbilling_accounts\b|\blicenses\s*[.,)}]|\(\s*licenses\b|["'`]licenses["'`]/;
+
+describe('AECI-1350 — no read path queries billing_accounts or licenses', () => {
+  it.each(READ_PATH_MODULES)('%s never references either table', (relPath) => {
+    const source = readFileSync(join(SRC, relPath), 'utf8');
+    expect(
+      source,
+      `${relPath} references billing_accounts or licenses. Plan state never shapes a ` +
+        'catalog read (no pay-for-placement, STAGE_2_PAID_TIERS_SPEC.md §2.5).',
+    ).not.toMatch(LICENSING_REFERENCE);
+  });
+
+  it('the scan would actually catch a violation, and ignores the plain word', () => {
+    expect('db.select().from(licenses)').toMatch(LICENSING_REFERENCE);
+    expect('eq(licenses.assignedProductId, id)').toMatch(LICENSING_REFERENCE);
+    expect("import { licenses, products } from '../db/schema'").toMatch(LICENSING_REFERENCE);
+    expect('LEFT JOIN "licenses" l').toMatch(LICENSING_REFERENCE);
+    expect('db.select().from(billingAccounts)').toMatch(LICENSING_REFERENCE);
+    expect('JOIN "billing_accounts" b').toMatch(LICENSING_REFERENCE);
+    expect('// a vendor buys licenses and assigns them').not.toMatch(LICENSING_REFERENCE);
+    expect('licensesByProduct').not.toMatch(LICENSING_REFERENCE);
+  });
+
+  it('neither table has a relations() entry, so `with:` cannot compile', async () => {
+    const schemaSource = readFileSync(join(SRC, 'db/schema.ts'), 'utf8');
+    expect(schemaSource).not.toMatch(/billingAccountsRelations|licensesRelations/);
+    const { schema } = await import('../db/schema');
+    expect(schema).toHaveProperty('billingAccounts');
+    expect(schema).toHaveProperty('licenses');
+  });
+});
+
+/**
  * AECI-933: the connector's vendor join is a PAIR-read cost only. The pair configs
  * hydrate the connector's `productVendors` so the mapper can set
  * `connector_vendor_id`. The shared list config, which `/api/integrations`, the

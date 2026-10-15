@@ -12,9 +12,9 @@
  * THE RULE (owner ruling, 2026-09-18, AECI-1024). Retractable ⟺ zero products AND zero
  * owned edges, where "owned edges" is BOTH `integrations.built_by_vendor_id` AND
  * `connector_evidenced_pairs.built_by_vendor_id` (the AECI-721 two-table rule). Profiles,
- * entitlements and seat invites refuse too. There is **no `--force`** — a vendor that owns
- * something is not a retraction, it is a merge or a product-level fix. **One refusing
- * vendor refuses the whole run.**
+ * entitlements, seat invites and billing accounts refuse too. There is **no `--force`** — a
+ * vendor that owns something is not a retraction, it is a merge or a product-level fix.
+ * **One refusing vendor refuses the whole run.**
  *
  * WHAT IT DOES (on `--apply`, per vendor, in one `wrangler d1 execute` batch):
  *   1. D1: DELETE the vendor's review replies and the field contests it filed; NULL
@@ -81,6 +81,7 @@ import {
   formatVendorFootprintReport,
   parseVendorFootprint,
   REVIEW_RESPONSES_TABLE_SQL,
+  BILLING_ACCOUNTS_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
   ddlHasAuditVendorColumns,
   VENDOR_ORIGIN_RESIDUE_NOTE,
@@ -348,6 +349,9 @@ export async function main(argv: string[]): Promise<number> {
   //    table would fail the read and the delete batch.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1350: the same for migration 0073's `billing_accounts`.
+  const billingAccountsTable =
+    (runD1<{ name: string }>(target, BILLING_ACCOUNTS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1192: the same for migration 0063's `audit_log` columns.
   const auditVendorColumns = ddlHasAuditVendorColumns(
     runD1<{ sql: string }>(target, AUDIT_LOG_DDL_SQL)[0]?.results[0]?.sql,
@@ -356,7 +360,7 @@ export async function main(argv: string[]): Promise<number> {
   for (const vendor of vendors) {
     const raw = runD1<RawVendorFootprintRow>(
       target,
-      buildVendorFootprintSql(vendor.id, { reviewResponsesTable }),
+      buildVendorFootprintSql(vendor.id, { reviewResponsesTable, billingAccountsTable }),
     )[0]?.results[0];
     if (!raw) {
       console.error(`Could not read footprint for ${vendor.id} (empty result).`);
