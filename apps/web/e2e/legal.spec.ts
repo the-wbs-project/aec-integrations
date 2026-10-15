@@ -1,7 +1,7 @@
 /**
  * AECI-237 / Phase 7.2 — `/legal/*` end-to-end coverage.
  *
- * The four legal pages are static, indexable, CACHEABLE content pages (§3.1: 24h
+ * The legal pages are static, indexable, CACHEABLE content pages (§3.1: 24h
  * edge), SSR-rendered from Markdown. Per page this pins the real HTTP 200, the §4
  * static-page cache headers (`s-maxage=86400`, `max-age=3600`, `Cache-Tag:
  * route:index`), that the body actually SSR-renders (no empty hydration shell),
@@ -10,7 +10,7 @@
  * `/legal/*` 404s with NOT_FOUND_TTL + `Cache-Tag: route:404`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
   attachConsoleCapture,
@@ -47,7 +47,32 @@ const PAGES = [
     footerLink: 'Listing accuracy',
     bodyMarker: 'Requesting a correction',
   },
+  {
+    path: '/legal/vendor-terms',
+    title: 'Vendor Terms · AEC Integrations',
+    heading: 'Vendor Terms',
+    footerLink: 'Vendor terms',
+    bodyMarker: 'Who may claim',
+  },
+  {
+    path: '/legal/managed-plan-agreement',
+    title: 'Managed Plan Agreement · AEC Integrations',
+    heading: 'Managed Plan Agreement',
+    footerLink: 'Managed plan agreement',
+    bodyMarker: 'Renewal notice',
+  },
 ] as const;
+
+/**
+ * Presets a consent decision before any page script runs, so the analytics
+ * consent banner never mounts over the footer (AECI-1359). The key mirrors
+ * `CONSENT_STORAGE_KEY` in `src/app/analytics/consent.ts`.
+ */
+async function presetConsent(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    globalThis.localStorage.setItem('aeci_analytics_consent', 'denied');
+  });
+}
 
 for (const pageDef of PAGES) {
   test.describe(`${pageDef.path} — Phase 7.2 (AECI-237)`, () => {
@@ -93,6 +118,7 @@ for (const pageDef of PAGES) {
     });
 
     test('is reachable from the footer Legal nav', async ({ page }) => {
+      await presetConsent(page);
       await page.goto('/');
       await expect(page.locator('app-root')).toBeAttached();
 
@@ -146,5 +172,59 @@ test.describe('/legal/* — unknown slug', () => {
     expect(cacheControl, `got: ${cacheControl}`).not.toContain('s-maxage=86400');
 
     expect(res.headers()['cache-tag'] ?? '').toContain('route:404');
+  });
+});
+
+test.describe('/legal/terms/v1.0 — archived version (AECI-1361)', () => {
+  const ARCHIVE = '/legal/terms/v1.0';
+
+  test('returns 200 on the /legal/* cache rules with X-Robots-Tag noindex', async ({ request }) => {
+    const res = await request.get(ARCHIVE, { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['cache-control'] ?? '').toContain('s-maxage=86400');
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
+    // Stamped in every env, the indexed one included (`NOINDEX_PATH_PREFIXES`).
+    expect(res.headers()['x-robots-tag']).toBe('noindex, nofollow');
+  });
+
+  test('SSR-renders the 1.0 text under the superseded notice, noindex, canonical to current', async ({
+    page,
+    request,
+  }) => {
+    const html = await (await request.get(ARCHIVE)).text();
+    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    expect(html).toContain('Version 1.0');
+    expect(html).not.toContain('State of Florida');
+
+    await page.goto(ARCHIVE);
+    const notice = page.getByTestId('legal-superseded');
+    await expect(notice).toContainText('This is version 1.0, superseded on October 14, 2026.');
+    await expect(page.locator('head link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      /\/legal\/terms$/,
+    );
+    await notice.getByRole('link', { name: 'Read the current version.' }).click();
+    await expect(page).toHaveURL(/\/legal\/terms$/);
+    await expect(page.getByTestId('legal-superseded')).toHaveCount(0);
+  });
+
+  test('has zero axe violations at WCAG AA', async ({ page }) => {
+    await page.goto(ARCHIVE);
+    await expect(page.locator('app-root')).toBeAttached();
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test('an unknown version on a known slug 404s', async ({ request }) => {
+    const res = await request.get('/legal/terms/v9.9', { maxRedirects: 0 });
+    expect(res.status()).toBe(404);
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:404');
+  });
+
+  test('the current page links the archive from its change history', async ({ request }) => {
+    const html = await (await request.get('/legal/terms')).text();
+    expect(html).toContain('href="/legal/terms/v1.0"');
   });
 });

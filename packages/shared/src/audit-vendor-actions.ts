@@ -129,6 +129,11 @@ export const AUDIT_VENDOR_ACTIONS = {
   // stamp onto a vendor's live licenses of the same term. One row per vendor. An ops
   // tool, so `system`. Not a receipt.
   'license.expiry_stamp_reconciled': { kind: 'system', receipt: false },
+  // A legal agreement accepted (AECI-1362, `lib/agreement-acceptances.ts`): the vendor
+  // terms at claim, the Managed plan agreement at checkout. Filed under the acceptance,
+  // with `vendor_id` filled when the caller knows it. Not a receipt: E5's Billing tab
+  // shows the acceptance rows themselves.
+  'agreement.accepted': { kind: 'vendor-edit', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

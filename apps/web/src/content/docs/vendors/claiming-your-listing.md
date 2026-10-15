@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: October 13, 2026
+last_updated: October 15, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
@@ -19,7 +19,7 @@ If your product or company is not listed, choose **Not listed? Type it in** and 
 The form asks for:
 
 - **Your name** and **Your role at the company**.
-- **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with.
+- **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
 - **Which plan are you interested in? (optional)** Free, Managed or not sure yet. It helps us plan the conversation. We still confirm the plan with you before anything is billed. [Plans](/docs/vendors/plans) explains both.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.

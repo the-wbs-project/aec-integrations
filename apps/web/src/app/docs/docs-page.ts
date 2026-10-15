@@ -28,8 +28,8 @@
  *
  * **Noindex by path.** The robots meta comes from `pathForcesNoindex`
  * (`docs-indexing.ts`), the same list the egress `X-Robots-Tag` stamp and the
- * sitemap read. It has been empty since AECI-1253, so every docs page is
- * indexable.
+ * sitemap read. It holds no docs path since AECI-1253, so every docs page is
+ * indexable. Its only entries are the archived legal versions (AECI-1361).
  *
  * **i18n split.** The Markdown body is content and is not extracted (the
  * `/legal/*` rule, `src/content/README.md`). The chrome below is `i18n` /

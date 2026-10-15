@@ -199,6 +199,24 @@ import { BrandLogo } from './brand-logo';
                   ></a
                 >
               </li>
+              <li>
+                <a
+                  routerLink="/legal/vendor-terms"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.legal.vendorTerms"
+                    >Vendor terms</ng-container
+                  ></a
+                >
+              </li>
+              <li>
+                <a
+                  routerLink="/legal/managed-plan-agreement"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.legal.managedPlanAgreement"
+                    >Managed plan agreement</ng-container
+                  ></a
+                >
+              </li>
             </ul>
           </nav>
           <nav class="text-sm" i18n-aria-label="@@app.footer.company.aria" aria-label="Company">

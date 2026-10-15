@@ -139,6 +139,7 @@ Tables grouped by domain:
 - `vendor_plan_pricing` — per-vendor plan price overrides for the portal's plan panel; display only, never billing (§8.6a, ruling 2026-10-08)
 - `billing_accounts` — one per vendor; the account Managed licenses are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
+- `agreement_acceptances` — one acceptance of one version of the vendor terms or the Managed plan agreement; evidence that survives erasure (§8.6d, AECI-1362)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 - `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
@@ -1480,8 +1481,8 @@ create index product_requests_vendor_created_idx on product_requests(vendor_id, 
   branch on a `source` column.
 - **No FK and no CHECK**, the `listing_requests` precedent. `requested_by` and
   `resolved_by` have no FK to `profiles`, so the erasure batch has nothing new to null.
-  The `status` vocabulary is enforced by Zod. Migration `0074` is exactly the
-  `CREATE TABLE` and its two indexes (`src/test/migration-0074.spec.ts` is the tripwire).
+  The `status` vocabulary is enforced by Zod. Migration `0075` is exactly the
+  `CREATE TABLE` and its two indexes (`src/test/migration-0075.spec.ts` is the tripwire).
 - **One open request per name.** An open row of the same vendor whose `name` matches,
   trimmed and case-insensitive, answers `409 PRODUCT_REQUEST_EXISTS`. The check runs in
   the handler and again as an in-batch sentinel. A decided row blocks nothing.
@@ -1901,7 +1902,7 @@ create table licenses (
   release_at_renewal integer not null default 0, -- decision 11
   cancel_at_term_end integer not null default 0, -- decision 15
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
-  terms_version text,            -- pointer only; the acceptance record is E2.4's table
+  terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
   granted_by text,               -- a profiles.id; NO FK
   expiry_notice_sent_at text,    -- E6's term-end notice fence
   created_at text not null,
@@ -2020,6 +2021,75 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `license.expiry_stamp_reconciled` audit row per vendor stamped), so the
   AECI-1356 sweep never re-warns a term the old sweep warned. Re-run it after the
   E1.6/E1.7 deploy, before the next 11:00 UTC expiry run.
+
+### 8.6d `agreement_acceptances` (AECI-1362, migration 0074)
+
+The acceptance record for the two legal agreements (`VENDOR_SIGNUP_PROCESS.md` §4,
+decisions 3, 9 and 17): the vendor terms, accepted at claim, and the Managed plan
+agreement, accepted at Stripe checkout. One row is one acceptance of one version. This
+table is the record. `licenses.terms_version` (§8.6c) is only a pointer to a version, and
+`licenses` has no `terms_accepted_at` or `terms_accepted_by` column.
+
+```sql
+create table agreement_acceptances (
+  id text primary key,
+  document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
+  version text not null,           -- must be current at write time
+  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout'; NO CHECK
+  email text not null,             -- the accepting person; kept as evidence
+  profile_id text,                 -- a profiles.id; NO FK; null at claim time
+  vendor_id text,                  -- a vendors.id; NO FK
+  billing_account_id text references billing_accounts(id),           -- NO ACTION
+  vendor_request_id text references vendor_requests(id) on delete set null,
+  stripe_checkout_session_id text,
+  accepted_at text not null,       -- ISO-8601
+  ip text,                         -- CF-Connecting-IP; claim path only
+  user_agent text,                 -- truncated to 512 chars; claim path only
+  created_at text not null
+);
+
+create index agreement_acceptances_vendor_idx on agreement_acceptances(vendor_id);
+create index agreement_acceptances_billing_account_idx on agreement_acceptances(billing_account_id);
+create unique index agreement_acceptances_stripe_session_key
+  on agreement_acceptances(stripe_checkout_session_id)
+  where stripe_checkout_session_id is not null;
+```
+
+- **One writer.** `agreementAcceptanceStatements` in
+  `apps/api/src/lib/agreement-acceptances.ts` returns the INSERT and its `agreement.accepted`
+  audit row, plus the audit entry for the post-commit forward. It never runs a batch. The
+  claim insert (E3) and the checkout webhook (E9) append both statements to their own
+  `db.batch`, so the acceptance commits or rolls back with the claim or license. Neither
+  caller exists yet.
+- **Current version only.** The helper refuses a version other than
+  `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
+  an unknown document or source, a blank email and an unparseable `accepted_at`, with
+  `400 VALIDATION_FAILED`.
+- **IP and user agent on the claim path only.** The helper reads `CF-Connecting-IP` and
+  `User-Agent` from the claim request's headers and cuts the user agent to 512 characters.
+  A `checkout` row stores NULL for both even when headers are passed, because the webhook
+  request comes from Stripe, not the buyer.
+- **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
+  change must never recreate the table (`docs/migrations.md` §0).
+- **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
+  has nothing to null and leaves the row, email, IP and user agent included
+  (`AUTH_AND_RLS.md` §8). No FK to `vendors` either, so a vendor retraction never cascades
+  into it. `retract-vendor-fk-coverage.spec.ts` sees no new key.
+- **A replayed checkout fails.** The partial unique index on `stripe_checkout_session_id`
+  makes a second acceptance for one session trip the batch, which rolls back whole.
+- **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
+  the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
+  a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
+- **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
+  whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
+  `id`. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
+  `user_agent`) and `GET /api/admin/vendors/:id/acceptances` (`API_CONTRACTS.md`).
+- **Domain state, append-only.** Every insert carries its `audit_log` row in the same
+  batch: `action = 'agreement.accepted'`, `entity_type = 'agreement_acceptance'`,
+  `entity_id` = the acceptance id, `audit_log.vendor_id` = the row's `vendor_id`. The
+  audit row carries no email, IP or user agent, because it is forwarded to PostHog. The
+  action is registered in `packages/shared/src/audit-vendor-actions.ts`, not as a vendor
+  receipt. Nothing updates or deletes a row. No `relations()` entry.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
@@ -4603,6 +4673,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
 - `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

@@ -966,6 +966,8 @@ Markdown source files in `apps/web/src/content/legal/`, rendered as static SSR p
 
 Initial drafts produced from templates and reviewed by counsel before launch.
 
+**Added after launch (AECI-1359, AECI-1360, 2026-10-15):** the **Vendor Terms** (`/legal/vendor-terms`, accepted at claim) and the **Managed Plan Agreement** (`/legal/managed-plan-agreement`, accepted at checkout). Their content is governed by `docs/VENDOR_SIGNUP_PROCESS.md` §4. Both are counsel-pending v1.0 drafts. Acceptances are stored in `agreement_acceptances` (`DATABASE_SCHEMA.md` §8.6d).
+
 **Document lifecycle, versioning, and change workflow:** see Section 27.
 
 ---
@@ -1406,7 +1408,7 @@ Generated on request by a Cloudflare Worker, not built statically.
 
 > **What actually ships is ONE flat document.** The `<sitemapindex>` split above is the target shape; it was deferred in AECI-63 (see the "Deferred" line in §16 Phase 7) and has never been built. Tracked as **AECI-560**. `apps/web/src/server/sitemap.ts` emits a single `/sitemap.xml` `<urlset>` containing every URL the bullets above describe, edge-cached 1 hour under `Cache-Tag: sitemap,taxonomy`. The split is only needed past the protocol's 50,000-URL cap; the catalog is ~two orders of magnitude below it, and the module warns if that ever changes (`SITEMAP_MAX_URLS`). **Read the sub-sitemap paths above as content groupings, not as routes that resolve.**
 
-> **Static pages are mostly absent, and `/methodology` and the docs are the exceptions (AECI-804, AECI-1248).** The four `/legal/*` documents have always been listed. `/`, `/about`, `/updates` and `/roadmap` are **not** in the sitemap: the first three by omission, `/roadmap` deliberately, since it is `noindex` and advertising a noindexed URL is the same contradiction the trade publication gate exists to prevent. `/methodology` **is** listed (`changefreq: monthly`, `priority: 0.5`), because it is the page a quality rater or an answer engine is meant to find and cite, so discovery is its entire purpose. `/vendor-program` is listed too (`changefreq: monthly`, `priority: 0.5`, AECI-1283). The product docs are listed from the docs manifest (AECI-1248): `/docs`, each indexable section index and each indexable page, with no `<lastmod>` (`changefreq: monthly`, `priority: 0.4`). The vendor guide (`/docs/vendors` and below) is listed too since AECI-1253 emptied the `pathForcesNoindex` list that held it out from AECI-1104. `sitemap.spec.ts` pins both halves — the entry, and the continued absence of the others — so "add every static page" has to be a deliberate change rather than a drift.
+> **Static pages are mostly absent, and `/methodology` and the docs are the exceptions (AECI-804, AECI-1248).** The current `/legal/*` documents have always been listed: four at launch, six since the vendor terms and the Managed plan agreement (AECI-1359, AECI-1360). An archived `/legal/<slug>/v<version>` is never listed (AECI-1361). `/`, `/about`, `/updates` and `/roadmap` are **not** in the sitemap: the first three by omission, `/roadmap` deliberately, since it is `noindex` and advertising a noindexed URL is the same contradiction the trade publication gate exists to prevent. `/methodology` **is** listed (`changefreq: monthly`, `priority: 0.5`), because it is the page a quality rater or an answer engine is meant to find and cite, so discovery is its entire purpose. `/vendor-program` is listed too (`changefreq: monthly`, `priority: 0.5`, AECI-1283). The product docs are listed from the docs manifest (AECI-1248): `/docs`, each indexable section index and each indexable page, with no `<lastmod>` (`changefreq: monthly`, `priority: 0.4`). The vendor guide (`/docs/vendors` and below) is listed too since AECI-1253 emptied the `pathForcesNoindex` list that held it out from AECI-1104. `sitemap.spec.ts` pins both halves — the entry, and the continued absence of the others — so "add every static page" has to be a deliberate change rather than a drift.
 
 > **Trades are the one count-gated facet (AECI-546).** A `/trades/:slug` URL is emitted only once the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — a sub-floor page serves `noindex`, and advertising a `noindex` URL in the sitemap is the contradiction the publication gate exists to prevent. The `/trades` **index** is emitted unconditionally, like its three siblings. Categories, audiences, and phases are never count-gated: those vocabularies are curated against the catalog, so an empty term is a data problem to fix rather than a page to withhold.
 
@@ -1547,6 +1549,8 @@ Embedded in `<head>` on relevant pages:
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
 
+> **Site name in Google results (2026-10-15):** Google shows a site name above each result. It picks it from the home `WebSite.name`, then `WebSite.alternateName`, then `og:site_name`, `<title>` and headings, and falls back to the bare domain when unsure. It showed `aecintegrations.com` even though the home was crawled on 2026-10-13 with `name` in place. So the home `WebSite` also carries `alternateName: ["AECi"]` (`SITE_ALTERNATE_NAMES` in `apps/web/src/app/core/meta.helpers.ts`), and every page carries a static `og:site_name` of `AEC Integrations` from `apps/web/src/index.html`. The `og:site_name` value and the `<title>` brand must stay identical to `SITE_NAME`. Do not change the home `<h1>` for this; the title and logo carry the brand. Recovery steps are in `docs/gsc-reindex-playbook.md` §Home page and site name.
+
 > **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
 ### 20.4 OpenGraph and Twitter Card meta tags
@@ -1555,6 +1559,8 @@ Every product, vendor, and integration page includes:
 
 - `og:title`, `og:description`, `og:image`, `og:url`, `og:type`
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
+
+Every page, not just entity pages, also carries `og:site_name` (`AEC Integrations`). It is static in `apps/web/src/index.html` because it never varies by page or locale (§20.3, site name).
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
 
@@ -2163,7 +2169,7 @@ This decision is intentionally deferred — easier to introduce retention later 
 
 ## 27. Legal Document Lifecycle
 
-Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow.
+Legal pages (Terms, Privacy, Review Guidelines, Listing Accuracy Policy, and since AECI-1359/1360 the Vendor Terms and the Managed Plan Agreement from `docs/VENDOR_SIGNUP_PROCESS.md` §4) require version control, editorial review, and counsel approval. Source of truth is the repo; Linear orchestrates the editorial workflow.
 
 ### 27.1 Source of truth
 
@@ -2174,7 +2180,12 @@ apps/web/src/content/legal/
 ├── terms-of-service.md
 ├── privacy-policy.md
 ├── review-guidelines.md
-└── listing-accuracy-policy.md
+├── listing-accuracy-policy.md
+├── vendor-terms.md
+├── managed-plan-agreement.md
+└── versions/                    # superseded versions, copied unchanged (§27.3)
+    ├── terms/v1.0.md
+    └── privacy/v1.0.md
 ```
 
 Each file includes frontmatter with version and effective date:
@@ -2191,7 +2202,7 @@ linear_issue: AECI-128
 ---
 ```
 
-The site renders the current versions on `/legal/*` routes. Frontmatter is displayed at the top of each rendered page (version, effective date).
+The site renders the current versions on `/legal/*` routes and each superseded version at `/legal/<slug>/v<version>` (§27.3). Frontmatter is displayed at the top of each rendered page (version, effective date). Frontmatter stays scalar-only.
 
 ### 27.2 Change workflow
 
@@ -2199,17 +2210,21 @@ The site renders the current versions on `/legal/*` routes. Frontmatter is displ
 2. **Linear issue created** — describes the change rationale, scope, urgency
 3. **Branch + PR** — proposed text changes committed to a branch, PR opened linking the Linear issue
 4. **Counsel review** — counsel reviews the PR (or the rendered page on staging); their approval is captured in the Linear issue
-5. **Frontmatter updated** — `version` bumped, `effective_date` set, `counsel_approved_by` and `counsel_approved_on` filled in
+5. **Frontmatter updated** — `version` bumped, `effective_date` set, `counsel_approved_by` and `counsel_approved_on` filled in. On a bump, the superseded text is archived and the change history updated in the same PR (§27.3)
 6. **PR merged** — new version goes live on next deploy
 7. **Linear issue closed** — completed with link to the merged PR and effective date
 
 ### 27.3 Version history
 
-Git history serves as the version log. Every change is a traceable commit linked to a Linear issue and (when applicable) a counsel approval record.
+Every version of a legal document has a stable URL on the site (AECI-1361). The repo is private, so its history is not a public record. Git still holds the editorial trail, linked to Linear and any counsel approval.
 
-For users who care about historical versions:
-- Each version's permalink is the commit hash on GitHub
-- A `/legal/versions` index page (optional, low priority) could list historical versions and their effective dates
+- **Current version:** `/legal/<slug>`, rendered from `apps/web/src/content/legal/<name>.md`. Indexable, canonical, in `sitemap.xml`.
+- **Superseded version:** `/legal/<slug>/v<version>`, rendered from `apps/web/src/content/legal/versions/<slug>/v<version>.md`. That file is the superseded version's final text, copied unchanged. The page opens with "This is version X, superseded on <date>. Read the current version." It sets `robots: noindex` and canonicalises to `/legal/<slug>`. It gets `X-Robots-Tag: noindex, nofollow` in every env (`NOINDEX_PATH_PREFIXES`). It is left out of `sitemap.xml` and shares the `/legal/*` cache rules (`Cache-Tag: route:index`). An unknown version falls through to the 404 route.
+- **Current pointer:** the current file's frontmatter `version`, exposed as `currentLegalVersion(slug)` in `apps/web/src/app/legal/legal-content.ts`. A spec asserts the shared agreement version map (`LEGAL_AGREEMENT_CURRENT_VERSIONS`, AECI-1362) equals it.
+- **Change history:** every current file ends with `## Change history`. It has one line per version with its effective date, or "draft, never in force". A superseded version's line also carries its superseded date and archive link.
+- **Registry checks:** `legal-versions.ts` runs at module init and throws on a version collision, a filename/frontmatter mismatch, or an archive missing from the `LEGAL_ARCHIVES` manifest. It also throws when an archived version is not listed in the change history, or when a listed version or link does not resolve. Any of these fails `ng test`.
+
+**Superseded (AECI-1361):** the earlier plan here was a GitHub commit-hash permalink per version, plus an optional `/legal/versions` index page. The per-version URLs above replace both. There is no `/legal/versions` index; the on-page change history does that job.
 
 ### 27.4 Significant changes
 

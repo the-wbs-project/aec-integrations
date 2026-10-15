@@ -1309,8 +1309,9 @@ export function createApp(options: {
     await next();
     const pathname = new URL(c.req.url).pathname;
     // AECI-1104, AECI-1248: a path `pathForcesNoindex` covers stays noindex even
-    // in the indexed env. Same stamp, same bake. The list is empty since
-    // AECI-1253 published the vendor guide.
+    // in the indexed env. Same stamp, same bake. It holds no docs path since
+    // AECI-1253 published the vendor guide. Its only entries are the archived
+    // legal versions (AECI-1361).
     if (indexingAllowed(c.env) && !pathForcesNoindex(stripLocalePrefix(pathname).path)) return;
     if (pathname.startsWith('/api/')) return;
     const res = c.res;

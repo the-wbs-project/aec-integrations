@@ -131,6 +131,9 @@ import {
   createVendorProductRequestHandler,
 } from './vendor-product-requests';
 import { createVendorUpdatesHandler } from './vendor-updates';
+import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
+import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
+import type { BatchTuple } from '../lib/audit';
 import {
   createEditReviewResponseHandler,
   createListVendorReviewsHandler,
@@ -290,8 +293,9 @@ beforeEach(async () => {
     attestedByVendorId: VENDOR_A,
   });
   await t.db.insert(profiles).values([
-    { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR_A },
-    { id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR_B },
+    // Owners (AECI-1362), so the granted-seat cell reaches the owner-only Billing read.
+    { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR_A, seatOwner: true },
+    { id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR_B, seatOwner: true },
     {
       id: SEAT_BANNED,
       role: 'vendor_admin',
@@ -476,6 +480,12 @@ function makeApp() {
     requireVendor(guard),
     createWithdrawReviewResponseHandler(t.factory),
   );
+  // AECI-1362 — seat; the owner rule is inside the handler.
+  app.get(
+    '/api/vendor/billing/acceptances',
+    requireVendor(guard),
+    createVendorBillingAcceptancesHandler(t.factory),
+  );
   return app;
 }
 
@@ -513,6 +523,8 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/history.csv', method: 'GET' },
   { path: `/api/vendor/history/follow-up?ids=${uuid(801)}`, method: 'GET' },
   { path: '/api/vendor/recrawl-submissions', method: 'GET' },
+  // AECI-1362 — owner seats only; SEAT_A is an owner.
+  { path: '/api/vendor/billing/acceptances', method: 'GET' },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
     path: `/api/vendor/products/${PRODUCT_A}`,
@@ -843,6 +855,41 @@ describe('/api/vendor/* — a rejected caller never mutates state', () => {
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
     },
   );
+});
+
+describe('GET /api/vendor/billing/acceptances — owner seats only (AECI-1362)', () => {
+  const accept = (vendorId: string, email: string) =>
+    agreementAcceptanceStatements(t.db, {
+      document: 'vendor_terms',
+      version: '1.0',
+      source: 'claim',
+      email,
+      vendorId,
+      acceptedAt: '2026-10-15T00:00:00.000Z',
+      requestHeaders: new Headers({ 'cf-connecting-ip': '203.0.113.9', 'user-agent': 'UA' }),
+      actorType: 'user',
+    });
+
+  it('rejects a granted seat that is not an owner with 403', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const { status, body } = await call('/api/vendor/billing/acceptances', 'GET', SEAT_A);
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('returns only the caller’s own vendor rows, without IP or user agent', async () => {
+    const a = accept(VENDOR_A, 'a@autodesk.com');
+    const b = accept(VENDOR_B, 'b@bentley.com');
+    await t.db.batch([...a.stmts, ...b.stmts] as BatchTuple);
+
+    const resA = await call('/api/vendor/billing/acceptances', 'GET', SEAT_A);
+    expect(resA.body.acceptances.map((r: { id: string }) => r.id)).toEqual([a.acceptanceId]);
+    expect(resA.body.acceptances[0]).not.toHaveProperty('ip');
+    expect(resA.body.acceptances[0]).not.toHaveProperty('user_agent');
+
+    const resB = await call('/api/vendor/billing/acceptances', 'GET', SEAT_B);
+    expect(resB.body.acceptances.map((r: { id: string }) => r.id)).toEqual([b.acceptanceId]);
+  });
 });
 
 describe('/api/vendor/* — cross-vendor isolation', () => {

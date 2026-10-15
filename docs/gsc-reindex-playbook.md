@@ -72,6 +72,17 @@ Other flags: `--limit N` inspects only the first N rows, `--priority N` only one
 
 Record the script's summary (`inspected`, `done`, `cleared`, `request`, `error`) in the run report. Then start the loop on what is left. The URL Inspection API's own quota (2,000 calls a day per property, 600 a minute) is separate from the Request Indexing quota, so step 0 does not eat into the requests. The cron spends up to 1,500 of those calls a day, so run the script only on a day the cron did not run, or with `--limit`. Both run four inspections at a time.
 
+## Home page and site name
+
+Google decides the site name shown above every result (today `aecintegrations.com`, the fallback) from the home page only. After a deploy that changes the home `WebSite` JSON-LD, `og:site_name` or the home `<title>` (`docs/STAGE_1_SPEC.md` §20.3), the home page is the run's priority.
+
+1. Inspect `https://www.aecintegrations.com/` first. Inspection is free; only requests count against the quota. Note the "Last crawl" date.
+2. If that crawl is before the deploy, request indexing for the home page **as the first click of a fresh quota window**, before row 1 of the queue. If the previous run hit "Quota exceeded", wait the full 24 hours first (see Reliability notes), or the home request is the one that fails.
+3. The home page is not in the admin queue, so there is no Done to click. Record the request in the run report.
+4. Check the result one week and three weeks after the request: search Google for `site:aecintegrations.com` and read the name above the results. Record what it shows in the run report.
+
+The site-name change of 2026-10-15 is the first use of this. Before it shipped, the home page was last crawled on 2026-10-13 with `WebSite.name` already present, so a recrawl alone had not been enough.
+
 ## Loop — for each row in the admin queue, top to bottom
 
 The queue is sorted for this loop: inside each priority, rows Google says need a request come first, and among those, pages Google has never crawled ("Not known to Google", "Discovered, not indexed") come before indexed pages with a stale crawl. Working top-down spends the request quota where it gains most.
@@ -91,12 +102,13 @@ After step 0, read the **Google says** column first. Every row with a reason oth
    - The "Indexing requested" dialog then fades in slowly. Once it is fully visible, dismiss it by clicking an empty area of the page backdrop (bottom-right corner). **Escape does not close it.** Avoid clicking where the dialog *was* after it has gone, because the "Referring page" links sit underneath.
    - Success is confirmed by the inline "✓ Indexing requested" label beside **REQUEST AGAIN**. That label persists after the dialog closes, so use it rather than the dialog.
    - If instead you see **"Quota exceeded"** — stop the whole run immediately (see "Stopping" below). A quota error on a *second* click does not undo the first; if the inline "Indexing requested" label is showing, the row was requested and can be marked Done.
-   - If instead you see **"Indexing request rejected"**, click **View live test**. If the live page returns **Not found (404)**, the page was removed and a request cannot help. Mark the row Done and list it in the report. This is expected for vendors or products that were retracted (e.g. `/vendors/nemetschek-group`, 2026-09-25). Any other rejection reason: leave the row, and report it.
+   - If instead you see **"Indexing request rejected"**, click **View live test**. If the live page returns **Not found (404)**, the page was removed and a request cannot help. Mark the row Done and list it in the report. This is expected for vendors or products that were retracted (e.g. `/vendors/nemetschek-group`, 2026-09-25). Any other rejection reason: leave the row, and report it. On 2026-10-15 `/products/box/integrations/microsoft-sharepoint` was rejected because the live page carries a `noindex` tag. That row stays at the top of the queue, so work down from the next row for the rest of the run.
 7. Switch to the admin queue tab and click **Done** on that row. A dialog asks "Did you request indexing?" (AECI-1185, `docs/ADMIN_PANEL_SPEC.md`).
    - Choose **Requested indexing in Search Console** when the inline "✓ Indexing requested" label showed. Only this answer writes a `recrawl_submissions` row.
    - Choose **Cleared without a request** for a removed page (live test 404). Either answer removes the row. **Cancel** leaves it queued.
    - Check that the URL printed in the dialog matches the row you requested before you answer.
    - If the row shows "Something went wrong. Please try again." after clicking Done, reload the admin queue page (`https://www.aecintegrations.com/admin/reindex`) and click Done again on the same row — this is a transient error, not a real failure.
+   - If the reload shows a 404 page and a **Sign in** button, the admin session ended. On 2026-10-15 that was the cause of the error. Stop, have the operator sign in again, then mark the row Done.
    - The table can take a few seconds to re-render. Before inspecting the next row, re-read the top row; if it has not changed, check again before clicking Done a second time.
 8. Return to step 1 for the next row.
 
@@ -108,6 +120,8 @@ These apply when an agent drives the loop rather than a person.
 - **Click by screen coordinates.** Clicking Done through a `find`/`read_page` element reference did nothing, and clicking it via page JavaScript is blocked by the agent's permission layer. Reading the page with JavaScript is fine and is the reliable way to get the top row's URL and GSC's status text.
 - **Re-measure coordinates whenever the window size changes.** The screenshot frame changed several times mid-run (1244×952, 1380×868, 1438×840, 1450×840, 1310×924), and the two tabs can report different frames at the same moment. Take a screenshot of each tab at the start of a run and after any size change.
 - **Screenshot coordinates are not CSS pixels.** On 2026-10-12 the screenshot frame was 1309×924 while the page's `innerWidth` was 1535. To find a button, read its `getBoundingClientRect()` with JavaScript and multiply by `frame width / innerWidth`. The admin tab's viewport switched between 1535×1084 and 1535×1140 several times in that run, which moves the Done and dialog buttons. Check `innerWidth` and `innerHeight` before every click and stop the batch if they changed.
+- **The Done dialog's confirm button moves.** "Requested indexing in Search Console" sat at 553 px on one row and 545 px on the next, because the dialog height follows the URL length. Guard on a range, and click near its middle.
+- **A reload moves the Done buttons.** On 2026-10-15 the top row's Done sat at 435 px before a reload and 536–539 px after. Re-measure after every reload.
 - **Guard every Done click.** Once, after a Done, the queue page scrolled itself 211 px down, and the next Done click at the usual spot opened the dialog for the fourth row. Before clicking, check with JavaScript that the top row's URL is the one you requested and that its Done button sits where you will click. Reloading the page resets the scroll.
 - **Tool time limits.** A single JavaScript call fails after 45 s, and a `browser_batch` reports "did not respond in time" after roughly 90 s. A batch that times out keeps running in the background. Re-read both tabs before acting, or you will repeat or skip a step. One row per batch fits, split as inspect-and-request, then dismiss-and-Done.
 - **Poll with JavaScript, not fixed waits.** Read `document.body.innerText` in a loop for the result: "URL was added to a priority crawl queue" (requested), "Quota exceeded", or "Indexing request rejected". Make the call throw on anything else so the batch stops before Done.
@@ -120,7 +134,7 @@ These apply when an agent drives the loop rather than a person.
 - **GSC hangs mid-inspection**: if a screenshot/action times out repeatedly waiting on the URL Inspection panel, don't keep retrying indefinitely — close and reopen the GSC tab (or navigate it back to the base GSC URL) and resume. If *both* tabs time out, the window is hidden rather than GSC being slow; see Setup step 4.
 - **"Something went wrong. If the issue persists, try again in a few hours"**: GSC showed this once on an inspection (2026-10-12). Dismissing it and inspecting the same URL again worked at once. Stop only if it repeats.
 - **Live test that never ends**: when both tabs report `document.visibilityState === 'hidden'`, Chrome throttles the page. On 2026-10-12, "Testing if live URL can be indexed" ran for more than 4 minutes and JavaScript timers ran slow. Stop and report, leaving that row queued. This is the Setup step 4 problem: the window needs to be in front.
-- **Quota exceeded**: this is Google's cap on indexing requests for the property. When you hit it, stop the run entirely — retrying won't work again until the quota resets. The cap is not a fixed daily number: observed runs got 11, then 1, then 22, then about 33 accepted requests on consecutive days (2026-09-25 to 2026-09-28). On 2026-10-12, 49 requests were accepted before the 50th hit the cap. That pattern fits a rolling 24-hour window better than a midnight reset, so wait a full 24 hours after a quota error before the next run.
+- **Quota exceeded**: this is Google's cap on indexing requests for the property. When you hit it, stop the run entirely — retrying won't work again until the quota resets. The cap is not a fixed daily number: observed runs got 11, then 1, then 22, then about 33 accepted requests on consecutive days (2026-09-25 to 2026-09-28). On 2026-10-12, 49 requests were accepted before the 50th hit the cap. On 2026-10-15, 10 were accepted and 1 rejected before the 12th hit the cap. That pattern fits a rolling 24-hour window better than a midnight reset, so wait a full 24 hours after a quota error before the next run.
 
 ## Stopping / reporting
 

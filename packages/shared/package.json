@@ -117,6 +117,10 @@
       "types": "./src/seed-reviews/index.ts",
       "default": "./src/seed-reviews/index.ts"
     },
+    "./free-email-domains": {
+      "types": "./src/free-email-domains.ts",
+      "default": "./src/free-email-domains.ts"
+    },
     "./text-sort": {
       "types": "./src/text-sort.ts",
       "default": "./src/text-sort.ts"

@@ -2,7 +2,7 @@
 
 **Status: agreed in discussion with Chris on 2026-10-14. Mostly not yet built. Epics filed in Linear the same day (AECI-1331 to AECI-1340, project Pilot); parked items are AECI-1341 to AECI-1344.**
 
-**Built so far (2026-10-14).** E1.1 to E1.5 (AECI-1350 to AECI-1354): the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. Plan resolution does not read licenses yet. Only the dual-write pre-read and the `license_mirror_drift` data-quality check do. `vendor_entitlements` is still the truth for plan resolution until E1.6 (AECI-1355). Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c.
+**Built so far (2026-10-15).** E1.1 to E1.5 (AECI-1350 to AECI-1354): the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. Plan resolution does not read licenses yet. Only the dual-write pre-read and the `license_mirror_drift` data-quality check do. `vendor_entitlements` is still the truth for plan resolution until E1.6 (AECI-1355). Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c. E2.1 and E2.2 (AECI-1359, AECI-1360): the vendor terms at `/legal/vendor-terms` and the Managed plan agreement at `/legal/managed-plan-agreement`, both v1.0 drafts awaiting counsel. E2.3 (AECI-1361): every legal document has per-version URLs (`/legal/<slug>/v<version>`), a current pointer, and an on-page `## Change history` (`STAGE_1_SPEC.md` §27.3). E2.4 (AECI-1362): the `agreement_acceptances` table (§8.6d), its write helper `lib/agreement-acceptances.ts`, and two reads, `GET /api/vendor/billing/acceptances` (owner seats) and `GET /api/admin/vendors/:id/acceptances`. Nothing writes acceptances yet. E3 and E9 call the helper. Whether the privacy policy must disclose that acceptance evidence survives erasure is open for counsel (AECI-1363, `AUTH_AND_RLS.md` §8).
 This is the one place that describes how a vendor goes from "Claim this company" to products on
 Managed and back to Free. Every other document, help page, email and screen must match this one.
 A flow chart drawn before the license model was agreed exists outside the repo; it will be redrawn
@@ -99,14 +99,23 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 
 ## 4. The two agreements
 
-- **Vendor terms** (at claim): who may claim, truthfulness, content rights and licence to publish,
-  AECi may edit or remove content, plans never affect ranking or reviews, governing law.
+- **Vendor terms** (at claim): who "you" means (claimant and company, authority to bind), who may
+  claim, truthfulness, content rights and licence to publish (incl. name and logo permission, no
+  confidential content), AECi may edit or remove content, no vendor-arranged reviews, claimed is
+  not endorsed, plans never affect ranking or reviews, hand-back, seats and revocation, ending a
+  claim, personal data, liability, indemnity, governing law, how changes bind (30-day email),
+  general terms (precedence, notices, assignment, severability).
 - **Managed plan agreement** (at checkout): what a license is and does, prices and the two
   billing options, annual renewal and 30-day notice, monthly cancel-any-time, 14-day refund,
   licenses stay assigned until renewal, hand-back on lapse, suspension for abuse or non-payment,
-  liability cap at twelve months of fees, changes bind at the next renewal.
+  liability cap at twelve months of fees (with the standard exclusions), changes bind at the next
+  renewal (monthly: 30-day email), plus who accepts and authority, card authorization, price
+  changes never mid-term, tax line, refund mechanics, no promise of results, term and survival,
+  general terms (precedence incl. a grant's own written deal, notices, assignment, severability).
 
-Both live at versioned URLs under `/legal/`. Store for each acceptance: who (the claimant's email and
+Both live at versioned URLs under `/legal/`: `/legal/vendor-terms` and `/legal/managed-plan-agreement`,
+with each superseded version at `/legal/<slug>/v<version>` (`STAGE_1_SPEC.md` §27.3). The acceptance
+store is `agreement_acceptances` (`DATABASE_SCHEMA.md` §8.6d). Store for each acceptance: who (the claimant's email and
 request at claim time, the seat once one exists), time, version, billing account, source (claim or
 checkout), and the Stripe session id for the plan agreement. IP and user agent are recorded on the
 claim path only; the checkout acceptance is written from the Stripe webhook and has neither. A one-hour lawyer read before the first
