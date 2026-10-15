@@ -134,6 +134,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   // with `vendor_id` filled when the caller knows it. Not a receipt: E5's Billing tab
   // shows the acceptance rows themselves.
   'agreement.accepted': { kind: 'vendor-edit', receipt: false },
+  // A claim's acceptances linked to the seat, vendor and billing account at approval
+  // (AECI-1367, `linkClaimAcceptanceStatements`). Filed under the claim. Not a receipt.
+  'agreement.linked': { kind: 'aeci-override', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

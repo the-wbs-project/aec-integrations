@@ -1083,9 +1083,11 @@ create table profiles (
   work_email_verified boolean not null default false,
   -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
   -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
-  -- remove seats. Set by the admin claim grant and by the AECI-740 admin provision
-  -- (an AECi-reviewed seat IS the owner event), cleared by revoke; a seat created
-  -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
+  -- remove seats. Set by the AECI-740 admin provision (an AECi-reviewed seat IS the
+  -- owner event) and, since AECI-1367, by a claim grant ONLY when the vendor has no
+  -- unbanned owner seat (a later claimant joins as a non-owner colleague). Cleared by
+  -- revoke; a seat created by ACCEPTING an invite gets false, which is what bounds the
+  -- invite chain.
   -- Migration 0020 backfills every pre-existing vendor_admin to true.
   seat_owner boolean not null default false,
   -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
@@ -1813,7 +1815,7 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 
 - **Creation point (AECI-1351).** `ensureBillingAccountStatements` in
   `apps/api/src/lib/billing-account.ts` adds the row to the batch that seats an owner: the
-  claim approval (`PATCH /api/admin/claims/:id`, Free and Managed alike) and the admin
+  claim approval (`PATCH /api/admin/claims/:id`, which lands every vendor on Free since AECI-1367) and the admin
   provision (`POST /api/admin/vendors/:id/seats`). The caller preloads the account with
   `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
   so a second seat writes nothing here. `name` is the vendor's `company_name`;
@@ -1826,8 +1828,9 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   and the route treats it as existing, so the batch carries one INSERT.
 - **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
   which is decision 10's owner flag. `ownerSeatsOf(vendorId)` in
-  `apps/api/src/routes/vendor-shared.ts` is the predicate. Claim-granted and
-  admin-provisioned seats are owners; invite-accepted seats stay non-owner.
+  `apps/api/src/routes/vendor-shared.ts` is the predicate. A claim grant
+  makes an owner only when the vendor has no unbanned owner seat (AECI-1367); admin-provisioned
+  seats are always owners; invite-accepted seats stay non-owner.
 - **Vendor retraction refuses.** `VENDOR_FK_HANDLING` in `apps/api/src/lib/retract-vendor.ts`
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
@@ -2027,7 +2030,8 @@ create unique index agreement_acceptances_stripe_session_key
   audit row, plus the audit entry for the post-commit forward. It never runs a batch. The
   claim insert (E3) and the checkout webhook (E9) append both statements to their own
   `db.batch`, so the acceptance commits or rolls back with the claim or license. Neither
-  caller exists yet.
+  caller exists yet. *(As built 2026-10-15, AECI-1367: the claim-time link below is the
+  second builder, `linkClaimAcceptanceStatements`.)*
 - **Current version only.** The helper refuses a version other than
   `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
@@ -2036,6 +2040,18 @@ create unique index agreement_acceptances_stripe_session_key
   `User-Agent` from the claim request's headers and cuts the user agent to 512 characters.
   A `checkout` row stores NULL for both even when headers are passed, because the webhook
   request comes from Stripe, not the buyer.
+- **Linked at claim approval (AECI-1367 — 2026-10-15).** A claim-time row is written with
+  `vendor_request_id` set and `profile_id`, `vendor_id` and `billing_account_id` null.
+  `approveClaim` fills them. The second builder, `linkClaimAcceptanceStatements` in
+  `apps/api/src/lib/agreement-acceptances.ts`, returns
+  `UPDATE agreement_acceptances SET profile_id, vendor_id, billing_account_id WHERE
+  vendor_request_id = <claim id>` and one `agreement.linked` audit row. A pre-read,
+  `loadClaimAcceptanceIds`, finds the rows first. The audit row is emitted only when it finds
+  some. It is filed under `entity_type = 'vendor_request'`, `entity_id` = the claim id, and
+  its `afterState` lists the `acceptance_ids`. Both go in the grant's `db.batch`, after
+  `ensureBillingAccountStatements`. `agreement.linked` is registered in
+  `packages/shared/src/audit-vendor-actions.ts` as an aeci-override action with `receipt`
+  false. The `accepted_at`, `email`, `ip` and `user_agent` columns are never touched.
 - **No CHECK on `document` or `source`.** The `listing_requests` precedent: a vocabulary
   change must never recreate the table (`docs/migrations.md` §0).
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
@@ -4640,7 +4656,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
 - `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
-- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
+- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

@@ -381,7 +381,6 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         to: 'claimant@bentley.example',
         vendorName: 'Bentley',
         invited: true,
-        plan: 'free',
       }),
   },
   'claim-rejected': {
@@ -670,7 +669,7 @@ describe('the CTA shows one tagged URL everywhere (AECI-1209)', () => {
     await FIXTURES['claim-approved'].send(ctx());
     const { html, text } = captured('claim-approved');
     const [row] = await t.db.select().from(notificationSends);
-    const expected = `${SITE}/vendor?utm_source=email&utm_campaign=claim-approved&n=${row!.id}`;
+    const expected = `${SITE}/auth/login?return=%2Fvendor&utm_source=email&utm_campaign=claim-approved&n=${row!.id}`;
 
     // `<a href>` and `v:roundrect href`, escaped once.
     const escaped = expected.replace(/&/g, '&amp;');
@@ -678,7 +677,7 @@ describe('the CTA shows one tagged URL everywhere (AECI-1209)', () => {
     // The pasteable row.
     expect(html).toContain(`word-break:break-all">${escaped}</div>`);
     // The text part.
-    expect(text).toContain(`Go to your vendor portal: ${expected}`);
+    expect(text).toContain(`Sign in: ${expected}`);
     // Never double-escaped.
     expect(html).not.toContain('&amp;amp;');
   });
@@ -710,7 +709,9 @@ describe('the ledger row id is the n in the links (AECI-1209 + AECI-1202)', () =
 
     expect(await FIXTURES['claim-approved'].send(ctx())).toBe('sent');
     const { text } = captured('claim-approved');
-    expect(text).toContain(`${SITE}/vendor?utm_source=email&utm_campaign=claim-approved\n`);
+    expect(text).toContain(
+      `${SITE}/auth/login?return=%2Fvendor&utm_source=email&utm_campaign=claim-approved\n`,
+    );
   });
 
   it('a duplicate makes no fetch, so nothing is rendered for it', async () => {

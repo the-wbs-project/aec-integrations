@@ -195,6 +195,10 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
     const request = await requestRow();
     expect(request!.status).toBe('resolved');
     expect(request!.resolvedAt).not.toBeNull();
+    // AECI-1322: no resolving admin. This is what makes the claim queue read
+    // "Resolved without a grant" (`AdminClaim.granted` is false) for a claim that
+    // reached `resolved` through Linear rather than the grant.
+    expect(request!.resolvedById).toBeNull();
     // AECI-261: the webhook persists the issue permalink onto the request row.
     expect(request!.linearIssueUrl).toBe('https://linear.app/acme/issue/AECI-1');
 

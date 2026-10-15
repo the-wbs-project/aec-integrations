@@ -20,25 +20,19 @@
  * `grantSeatStatements` used to emit `UPDATE vendors SET verified = 1` itself. It
  * does not any more: `vendors.verified` is a denormalized MIRROR of
  * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer.
- * `approveClaim` now composes the two builders —
- * `db.batch([...grant.stmts, ...ent.stmts])` — so the seat, the entitlement row,
- * the mirror flip and both audit rows still commit or roll back as ONE unit. What
- * did NOT change is the audit shape: `vendorWasVerified` is still a parameter and
- * `verified_flipped` / `beforeState.vendor_verified` / `afterState.vendor_verified`
- * are still written. They are pure metadata with no statement behind them, which is
- * why the refactor is invisible to every shipped claim assertion.
+ * Since AECI-1367 `approveClaim` composes no entitlement at all: every approval lands
+ * on Free, so the batch is this module's seat statements, the billing account
+ * (`lib/billing-account.ts`) and the acceptance link (`lib/agreement-acceptances.ts`).
+ * The audit row still records `beforeState.vendor_verified` and
+ * `afterState.vendor_verified` (now always equal) and `verified_flipped: false`, so
+ * a grant row reads the same shape as the older ones beside it.
  *
  * An ESLint `no-restricted-syntax` rule (`eslint.config.base.mjs`, Guard 1) now
  * covers this file, and `vendor-grant.spec.ts` asserts by generated SQL that no
  * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
-import {
-  DISPLAY_NAME_MAX_LENGTH,
-  vendorVisibleReasonMetadata,
-  type ClaimEntitlement,
-  type ClaimGrantPlan,
-} from '@aeci/shared';
+import { DISPLAY_NAME_MAX_LENGTH, vendorVisibleReasonMetadata } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
@@ -58,10 +52,9 @@ const REVIEWER_ROLE = 'reviewer';
  * `admin` acting on `/api/admin/*`, so the trail reads alongside the other
  * moderation actions, not the vendor-portal self-service edits (`vendor-portal`).
  *
- * EXPORTED for `routes/admin-claims.ts`, which passes it to
- * `activateEntitlementStatements` so the grant's TWO audit rows —
- * `vendor_claim.granted` here and `vendor_entitlement.granted` there — carry the
- * same `source` tag and read as one action in the trail (§6.3).
+ * EXPORTED for `routes/admin-claims.ts`, which passes it to the billing-account and
+ * acceptance-link builders so every audit row of one grant carries the same `source`
+ * tag and reads as one action in the trail.
  */
 export const CLAIM_AUDIT_SOURCE = 'admin-moderation';
 
@@ -106,11 +99,9 @@ export interface GrantSeatParams {
   resolvedAt: string;
   /** The request's real prior state — `'open' | 'in_review'`. */
   fromStatus: string;
-  /** Whether the vendor was ALREADY verified. AUDIT METADATA ONLY since AECI-612 —
-   *  there is no `vendors` statement behind it here any more; the flip itself is
-   *  emitted by `activateEntitlementStatements` in the same batch (§2.1 / §6). It is
-   *  kept because `verified_flipped` and the before/after `vendor_verified` snapshots
-   *  are what make the claim's audit row self-contained. */
+  /** Whether the vendor was verified. AUDIT METADATA ONLY: no statement here or
+   *  beside it moves the mirror since AECI-1367, so the before and after
+   *  `vendor_verified` snapshots both carry this value. */
   vendorWasVerified: boolean;
   workflowId: string;
   /** Whether a `vendor_claim` workflow instance already exists (update vs insert). */
@@ -124,15 +115,12 @@ export interface GrantSeatParams {
   /** The claim's `submitter_name`. Fills the seat's `display_name` only when that
    *  is null or blank (AECI-1280). */
   submitterName: string | null;
-  /** The offline PO/invoice arrangement — the launch entitlement record (§3). */
-  entitlement?: ClaimEntitlement;
   /**
-   * The plan the operator chose (AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6).
-   * Lands as `metadata.plan`. On `free` no entitlement is activated beside this
-   * batch, so the audit row must not claim a verified flip: `verified_flipped` is
-   * `false` and `afterState.vendor_verified` repeats the before value.
+   * Whether the same batch creates the vendor's billing account (AECI-1367,
+   * `ensureBillingAccountStatements` returned statements). Lands as
+   * `metadata.billing_account_created`, so the grant row says it on its own.
    */
-  plan: ClaimGrantPlan;
+  billingAccountCreated: boolean;
   reason: string | null;
   targetType: string;
   targetId: string;
@@ -225,20 +213,23 @@ function claimMetadata(
  * `profileBefore` snapshot, so a user who sets a name between that read and this
  * batch keeps it while the row over-reports a fill. That window is accepted.
  *
- * The `vendors.verified` flip that used to be statement (2) moved to
- * `activateEntitlementStatements` (AECI-612 / §6 step 1), which the caller
- * concatenates into the SAME batch. Multi-seat safety is unchanged and now comes
- * from the §2.3 matrix: a second seat on a vendor with an `active` entitlement
- * emits ZERO entitlement statements and ZERO `vendors` statements, so there is no
- * redundant flip and no `updated_at` churn, while the seat + audit still land.
+ * ── WHO BECOMES AN OWNER (AECI-1367, Portal §11a.4) ─────────────────────────
+ * A grant makes the claimant an owner (`seat_owner = 1`) only when the vendor has
+ * no unbanned owner seat at commit time. The test is SQL, not a TS pre-read: the
+ * INSERT's `seat_owner` is a `NOT EXISTS` over `profiles`, evaluated inside the
+ * batch. D1 runs batches one at a time, so of two first approvals on the same
+ * vendor the second sees the first's owner and lands as a non-owner. A later
+ * claimant on a seated vendor joins as a colleague, the same rank an invite gives.
+ *
+ * The conflict path never demotes: an existing row that is already an owner seat of
+ * this vendor keeps `seat_owner = 1` whatever the subquery says. A row that is an
+ * owner of nothing here (a reviewer, a revoked seat) takes the computed value.
+ *
+ * The `vendors.verified` flip that used to be statement (2) left this module in
+ * AECI-612, and since AECI-1367 no claim grant composes an entitlement at all.
  */
 export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
-  // Only a Managed grant activates the entitlement that moves the mirror. A Free
-  // grant leaves `vendors.verified` where it was, and the audit says so (§13.6).
-  const managed = p.plan === 'managed';
-  const verifiedFlipped = managed && !p.vendorWasVerified;
-  const verifiedAfter = managed || p.vendorWasVerified;
-  const hasEntitlement = p.entitlement && Object.keys(p.entitlement).length > 0;
+  // No grant moves the mirror since AECI-1367: every approval lands on Free.
   const fillName = usableSubmitterName(p.submitterName);
   const nameBefore = p.profileBefore?.displayName ?? null;
   const nameFilled = fillName !== null && !nameBefore?.trim();
@@ -247,10 +238,9 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     seat_user_id: p.userId,
     identity_outcome: p.identityOutcome,
     seat_created: p.seatCreated,
-    plan: p.plan,
-    verified_flipped: verifiedFlipped,
+    verified_flipped: false,
+    billing_account_created: p.billingAccountCreated,
     display_name_filled: nameFilled,
-    ...(hasEntitlement ? { entitlement: p.entitlement } : {}),
   });
 
   const auditEntry: AuditLogEntry = {
@@ -270,7 +260,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     },
     afterState: {
       status: 'resolved',
-      vendor_verified: verifiedAfter,
+      vendor_verified: p.vendorWasVerified,
       seat_role: VENDOR_ADMIN_ROLE,
       seat_vendor_id: p.vendorId,
       seat_display_name: nameFilled ? fillName : nameBefore,
@@ -288,10 +278,10 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   };
 
   const stmts: BatchStmt[] = [
-    // `seatOwner: true` (AECI-664 / §11a) — a seat granted through the §5 admin
-    // claim review IS the owner event: a human reviewer confirmed this person
-    // represents this vendor, which is exactly the authority an invite delegates.
-    // A seat created by ACCEPTING an invite gets `false` instead
+    // `seatOwner` (AECI-664 / §11a, narrowed by AECI-1367): the first reviewed
+    // claimant on a vendor is its owner. Later ones join as colleagues. Both halves
+    // are SQL so the decision is made at commit time (see the docblock above). A
+    // seat created by ACCEPTING an invite is always `false`
     // (`lib/vendor-seat-invites.ts`), which is what bounds the invite chain.
     db
       .insert(profiles)
@@ -299,7 +289,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
         id: p.userId,
         role: VENDOR_ADMIN_ROLE,
         vendorId: p.vendorId,
-        seatOwner: true,
+        seatOwner: firstOwnerSql(p.vendorId),
         ...(fillName !== null ? { displayName: fillName } : {}),
       })
       .onConflictDoUpdate({
@@ -307,7 +297,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
         set: {
           role: VENDOR_ADMIN_ROLE,
           vendorId: p.vendorId,
-          seatOwner: true,
+          seatOwner: keepOwnerSql(p.vendorId),
           // Fill-if-empty, never overwrite (AECI-1280). Absent when there is no
           // usable name, so the statement is then exactly the pre-AECI-1280 one.
           ...(fillName !== null
@@ -349,6 +339,25 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   ];
 
   return { stmts, auditEntry, workflowEntry };
+}
+
+/**
+ * `1` when the vendor has no unbanned owner seat, else `0` (AECI-1367). The one
+ * owner predicate: `seat_owner = 1 AND banned_at IS NULL AND vendor_id = <vendor>`.
+ * Aliased so the subquery's columns can never bind to the row being upserted.
+ */
+function firstOwnerSql(vendorId: string) {
+  return sql<boolean>`NOT EXISTS (SELECT 1 FROM "profiles" AS "owner_seat" WHERE "owner_seat"."vendor_id" = ${vendorId} AND "owner_seat"."seat_owner" = 1 AND "owner_seat"."banned_at" IS NULL)`;
+}
+
+/**
+ * The conflict half of the owner rule: never demote. A row that is already an owner
+ * seat of THIS vendor stays one. Any other row takes the value the INSERT computed
+ * (`excluded.seat_owner`). SQLite evaluates every `SET` expression against the old
+ * row, so `role` and `vendor_id` here are the values before this upsert.
+ */
+function keepOwnerSql(vendorId: string) {
+  return sql<boolean>`CASE WHEN "profiles"."role" = ${VENDOR_ADMIN_ROLE} AND "profiles"."vendor_id" = ${vendorId} AND "profiles"."seat_owner" = 1 THEN 1 ELSE excluded.seat_owner END`;
 }
 
 /** The claim's name as the grant may write it: trimmed, non-empty, and within the
@@ -525,7 +534,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * `seat_owner`, and nothing else.
  *
  * ── `seatOwner: true` ────────────────────────────────────────────────────────
- * Same rule `grantSeatStatements` follows (AECI-664 / §11a): a seat an AECi
+ * The rule `grantSeatStatements` followed until AECI-1367 narrowed the claim grant to
+ * "first unbanned owner only" (AECI-664 / §11a). This builder keeps it: a seat an AECi
  * operator provisioned by hand IS the owner event — a human confirmed this person
  * represents this vendor, which is exactly the authority an invite delegates. It
  * is also what makes the shipped `/api/vendor/seats/invites` flow usable by the

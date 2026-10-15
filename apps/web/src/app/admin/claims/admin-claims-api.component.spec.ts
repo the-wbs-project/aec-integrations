@@ -44,19 +44,11 @@ describe('AdminClaimsApi', () => {
     await promise;
   });
 
-  it('PATCHes /api/admin/claims/:id to approve with the plan and entitlement note', async () => {
-    const promise = api.moderate('claim-1', {
-      action: 'approve',
-      plan: 'managed',
-      entitlement: { notes: 'PO #4471' },
-    });
+  it('PATCHes /api/admin/claims/:id to approve with no plan (AECI-1367)', async () => {
+    const promise = api.moderate('claim-1', { action: 'approve' });
     const req = httpMock.expectOne('/api/admin/claims/claim-1');
     expect(req.request.method).toBe('PATCH');
-    expect(req.request.body).toEqual({
-      action: 'approve',
-      plan: 'managed',
-      entitlement: { notes: 'PO #4471' },
-    });
+    expect(req.request.body).toEqual({ action: 'approve' });
     req.flush({ request: { id: 'claim-1' }, grant: null });
     await promise;
   });

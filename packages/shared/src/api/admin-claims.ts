@@ -1,11 +1,7 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
-import {
-  EntitlementTermDateSchema,
-  EntitlementTierSchema,
-  VendorEntitlementResponseSchema,
-} from './admin-entitlements';
+import { EntitlementTierSchema, VendorEntitlementResponseSchema } from './admin-entitlements';
 import {
   AdminAuditRowSchema,
   VendorOwnedIntegrationsSchema,
@@ -14,7 +10,7 @@ import {
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
- * Admin claim → verified-account grant contracts (AECI-519 /
+ * Admin claim → vendor-account grant contracts (AECI-519 /
  * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §3). The admin-facing action surface that
  * turns an approved vendor CLAIM into a live verified vendor account, behind
  * `requireAdmin()`:
@@ -24,67 +20,29 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  * This is a sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`),
  * NOT a replacement: corrections still moderate through the requests endpoint;
  * claims moderate here so approval can run the §3 grant batch (link the seat,
- * open the entitlement, resolve the request) rather than a plain resolve. The
+ * write the billing account, resolve the request) rather than a plain resolve. The
  * `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision emails are
  * AECI-528; this issue is the grant mechanics.
  *
- * Since AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) a Managed grant also opens the
- * `vendor_entitlements` row that `vendors.verified` now MIRRORS, in the same
- * `db.batch` — which is why `ClaimGrantSummary` reports a `tier` and whether the
- * row was created. Since AECI-1215 (§13.6) the operator picks Free or Managed on
- * every approve, and Free writes the seat alone.
+ * Since AECI-1367 (`VENDOR_SIGNUP_PROCESS.md` §3 step 2) every approval lands on
+ * Free: the grant writes the seat, the billing account when the vendor has none, and
+ * the claim's acceptance link, and never a `vendor_entitlements` row. AECI-1215's plan
+ * choice is gone. `ClaimGrantSummary.tier` reports the vendor's live state.
  */
 
 /**
- * The offline PO/invoice arrangement carried by a claim approval. `amount` is a
- * free-form string to stay currency-agnostic (e.g. "USD 5,000 / yr").
- *
- * **Two destinations since AECI-612** (`STAGE_2_PAID_TIERS_SPEC.md` §6.6). It keeps
- * landing verbatim in the grant's `audit_log` metadata — per §2.1 the audit log IS the
- * entitlement history ledger, so the metadata write is the history — and it now ALSO
- * populates the `vendor_entitlements` row the grant creates in the same `db.batch`.
- * The former "`vendors.verified` IS the launch entitlement bit, so this lives in the
- * audit trail and never in a column" (AECI-519 / `STAGE_2_SPEC.md` §8.3(1)) is
- * superseded: `verified` is now a MIRROR of that row (§2.1).
- *
- * `invoice_ref` / `period_start` / `period_end` are ADDITIVE (AECI-612): the shipped
- * `/admin/claims` approve form sends only `notes`, so it needs no change, but an admin
- * who knows the term at approval time can record it without a second round-trip through
- * `PATCH /api/admin/vendors/:id/entitlement`. Every field is a structural subset of
- * `EntitlementArrangementSchema` (`./admin-entitlements`) with matching caps, so the
- * claim body passes straight through to `activateEntitlementStatements` and the two
- * surfaces can never disagree about what fits.
+ * The approve arm's retired fields (AECI-1367, `VENDOR_SIGNUP_PROCESS.md` §3 step 2).
+ * Every approval lands on Free, so the operator no longer picks a plan and there is no
+ * offline arrangement to record. A body that still names `plan` or `entitlement` is a
+ * stale client that believes it is choosing something, so it is refused with a 400 on
+ * that field rather than silently stripped. Managed is bought later, as licenses on the
+ * vendor's billing account.
  */
-export const ClaimEntitlementSchema = z.object({
-  payer: z.string().max(200).optional(),
-  amount: z.string().max(100).optional(),
-  terms: z.string().max(500).optional(),
-  arranged_by: z.string().max(200).optional(),
-  invoice_ref: z.string().max(200).optional(),
-  notes: z.string().max(1000).optional(),
-  /** ISO-8601 term boundaries; date-only is accepted (what a date picker submits). */
-  period_start: EntitlementTermDateSchema.optional(),
-  period_end: EntitlementTermDateSchema.optional(),
-});
-export type ClaimEntitlement = z.infer<typeof ClaimEntitlementSchema>;
-
-/**
- * The plan a claim approval puts the vendor on (AECI-1215 /
- * `STAGE_2_PAID_TIERS_SPEC.md` §13.6). The operator must choose. There is no default.
- *
- *  - `free`: the seat only. No `vendor_entitlements` row is written and
- *    `vendors.verified` is untouched. "Free" is the copy name for the `unclaimed`
- *    tier (§13.2), so a seat with no row IS the Free plan.
- *  - `managed`: the seat plus the `verified` entitlement row, the AECI-612 path.
- *
- * Deliberately not an `EntitlementTier`. `free` is not a tier id (§13.2 keeps `TIERS`
- * at `['unclaimed', 'verified']`), and this names the operator's choice, not the
- * resulting tier. A second seat on an already-Managed vendor approved as `free`
- * leaves the vendor Managed, and `ClaimGrantSummary.tier` reports that honestly.
- */
-export const CLAIM_GRANT_PLANS = ['free', 'managed'] as const;
-export const ClaimGrantPlanSchema = z.enum(CLAIM_GRANT_PLANS);
-export type ClaimGrantPlan = z.infer<typeof ClaimGrantPlanSchema>;
+const RETIRED_APPROVE_FIELD = z
+  .never({
+    error: 'Claim approval no longer takes a plan: every approval lands on Free (AECI-1367).',
+  })
+  .optional();
 
 /**
  * Body for `PATCH /api/admin/claims/:id`, discriminated on `action`. `reason` is
@@ -94,16 +52,15 @@ export type ClaimGrantPlan = z.infer<typeof ClaimGrantPlanSchema>;
  * audit log and NEVER emailed to the claimant (the claim-rejected email is neutral
  * by design, §9).
  *
- * `approve` REQUIRES `plan` (AECI-1215 / §13.6). A body without it is a 400
- * `VALIDATION_FAILED` on field `plan`. `entitlement` (the offline arrangement) is
- * only valid with `plan: 'managed'`, because Free writes no row for it to land in.
- * `reject` carries neither. Unknown keys are stripped, as everywhere.
+ * `approve` takes no plan (AECI-1367): a body with `plan` or `entitlement` is a 400
+ * `VALIDATION_FAILED` on that field. `reject` carries neither and strips unknown keys,
+ * as everywhere.
  */
 const ModerateClaimApproveSchema = z.object({
   action: z.literal('approve'),
-  plan: ClaimGrantPlanSchema,
   reason: z.string().max(500).optional(),
-  entitlement: ClaimEntitlementSchema.optional(),
+  plan: RETIRED_APPROVE_FIELD,
+  entitlement: RETIRED_APPROVE_FIELD,
 });
 
 const ModerateClaimRejectSchema = z.object({
@@ -111,43 +68,32 @@ const ModerateClaimRejectSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-export const ModerateClaimSchema = z
-  .discriminatedUnion('action', [ModerateClaimApproveSchema, ModerateClaimRejectSchema])
-  .superRefine((value, ctx) => {
-    if (value.action === 'approve' && value.plan !== 'managed' && value.entitlement) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['entitlement'],
-        message: "entitlement details are only valid with plan 'managed'",
-      });
-    }
-  });
+export const ModerateClaimSchema = z.discriminatedUnion('action', [
+  ModerateClaimApproveSchema,
+  ModerateClaimRejectSchema,
+]);
 export type ModerateClaimInput = z.infer<typeof ModerateClaimSchema>;
 
 /**
  * The grant outcome surfaced on a successful `approve`, so the reviewer
  * confirmation can distinguish "linked an existing account" from "provisioned a
- * new one", and show the resulting verification + entitlement state.
+ * new one", and show the vendor's resulting state.
  *  - `identity_outcome` — `linked` (an auth user already owned the email) vs
- *    `invited` (one was provisioned; onboarding is the AECI-528 claim-approved email).
- *  - `verified` — where the `vendors.verified` MIRROR landed after the grant (§2.1).
+ *    `invited` (one was provisioned; onboarding is the claim-approved email).
+ *  - `verified` — the vendor's `vendors.verified` MIRROR (§2.1). A grant never moves
+ *    it (AECI-1367), so this is the value the vendor already had.
  *  - `seat_created` — a brand-new `profiles` row was written (grant landed before
  *    the claimant's first sign-in), vs an existing row upgraded in place.
- *  - `tier` — the vendor's entitlement tier after the grant, resolved fail-closed by
- *    `tierFor` (`@aeci/shared/entitlements`): `unclaimed` when no `active` row backs
- *    the seat, which is the honest readout for a drifted vendor.
- *  - `entitlement_created` — a `vendor_entitlements` row was INSERTed by this grant,
- *    vs one that already existed (the second-seat no-op, or a reactivation). Always
- *    `false` for a Free grant, which writes no row.
- *  - `plan` — the plan the operator CHOSE (AECI-1215 / §13.6). It is not `tier`: a
- *    Free grant on a vendor that is already Managed reports `plan: 'free'` and
- *    `tier: 'verified'`. The idempotent re-grant echoes the request's `plan`, since
- *    it writes nothing.
+ *  - `tier` — the vendor's live entitlement tier, resolved fail-closed by `tierFor`
+ *    (`@aeci/shared/entitlements`). The grant writes no entitlement, so this is
+ *    `unclaimed` (Free) unless the vendor already held an `active` row.
  *
- * `tier` and `entitlement_created` are REQUIRED, not optional (AECI-612 / §6.7, R10):
- * the `/admin/claims` `ClaimQueue` ignores unknown keys, so a construction site that
- * forgot one would ship `undefined` silently. Required is what makes
- * `validateResponseInDev` catch it.
+ * Since AECI-1367 every approval lands on Free. The summary lost `plan` (there is no
+ * choice to report) and `entitlement_created` (the grant never writes an entitlement).
+ *
+ * `tier` is REQUIRED, not optional (AECI-612 / §6.7, R10): the `/admin/claims`
+ * `ClaimQueue` ignores unknown keys, so a construction site that forgot it would ship
+ * `undefined` silently. Required is what makes `validateResponseInDev` catch it.
  */
 export const ClaimGrantSummarySchema = z.object({
   user_id: z.string().uuid(),
@@ -156,8 +102,6 @@ export const ClaimGrantSummarySchema = z.object({
   identity_outcome: z.enum(['linked', 'invited']),
   seat_created: z.boolean(),
   tier: EntitlementTierSchema,
-  entitlement_created: z.boolean(),
-  plan: ClaimGrantPlanSchema,
 });
 export type ClaimGrantSummary = z.infer<typeof ClaimGrantSummarySchema>;
 
@@ -277,9 +221,10 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   product_roles: VendorProductRolesSchema.nullable(),
   /**
    * `true` ⇒ every product this vendor owns is `'connector'` (and it owns at
-   * least one). Per `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2, **Grant and Reject are
-   * both wrong** on such a claim: it is parked `open` and routed to the
-   * partnership track out of band.
+   * least one). Since AECI-1367 (Chris's ruling 2026-10-14) such a claim is
+   * approved like any other. The flag is informational: the queue shows
+   * "Connector vendor: contact them directly", and the `claim-submitted-alert`
+   * email carries the same line.
    *
    * `false` covers two different situations and the UI must not conflate them —
    * the vendor owns an `application`/`hybrid` product (an ordinary paying
@@ -291,21 +236,19 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   /**
    * The live integrations that vendor owns (`built_by_vendor_id`), over BOTH
    * delivered-tier tables (AECI-1041). This is the owner half of the §5.2 payer
-   * test (step 1a, `STAGE_2_SPEC.md` §8.10). A pure connector vendor with
-   * `total > 0` is a paying third-party owner if it wants to manage those
-   * integrations, and takes the ordinary Grant rather than being parked.
+   * test (step 1a, `STAGE_2_SPEC.md` §8.10). A reviewer signal: since AECI-1367
+   * every claim, connector or not, takes the ordinary Grant.
    *
    * `null` = the signal was UNAVAILABLE, like `product_roles`. A vendor that owns
    * nothing is a zeroed object, not `null`. It warns and never gates.
    */
   owned_integrations: VendorOwnedIntegrationsSchema.nullable(),
   /**
-   * The free-text operator note (AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
-   * step 6) — why a claim is parked, and what was said out of band. `null` when
+   * The free-text operator note (AECI-739): what was said out of band. `null` when
    * no note has been written; **never `undefined`** (R10).
    *
-   * On the queue as well as the detail page, deliberately: a parked claim has to
-   * be legible from the LIST, which is where the operator actually looks.
+   * On the queue as well as the detail page, deliberately: the note has to be
+   * legible from the LIST, which is where the operator actually looks.
    *
    * It is admin-authored, admin-only and **never** claimant-facing — it is not
    * emailed, and it is not an `AdminNote` (that is the closed-enum data-caveat
@@ -324,6 +267,13 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * (R10).
    */
   context_product: LinkRefSchema.nullable(),
+  /**
+   * AECI-1322: `true` when the claim was resolved through the grant. Read as
+   * `status = 'resolved' AND resolved_by_id IS NOT NULL`. A claim the Linear webhook
+   * resolved (issue moved to Done) has no `resolved_by_id` and reads `false`, so the
+   * console says "Resolved without a grant" instead of implying a seat exists.
+   */
+  granted: z.boolean(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 

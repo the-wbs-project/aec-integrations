@@ -2490,6 +2490,9 @@ export function toAdminClaim(
     is_pure_connector_vendor: isPureConnectorVendor,
     owned_integrations: ownedIntegrations,
     context_product: contextProduct,
+    // AECI-1322: only the grant resolves a claim AND names the resolving admin. The
+    // Linear webhook resolves with `resolved_by_id` null.
+    granted: raw.status === 'resolved' && raw.resolvedById !== null,
   };
 }
 

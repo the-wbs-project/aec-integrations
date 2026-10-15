@@ -14,10 +14,11 @@
  * all. §8.9(1) says a pure connector vendor is **never** sold verification; §8.9(2)
  * therefore fences its seat off from `vendor_entitlements` entirely.
  *
- * The tempting edit is small and looks like a bug fix: `approveClaim` composes
+ * The tempting edit is small and looks like a bug fix: `approveClaim` once composed
  * `grantSeatStatements` with `activateEntitlementStatements` in one batch, so
- * somebody comparing the two seat paths will notice the provision route "forgets"
- * the entitlement and add it. That change compiles, passes every behavioural
+ * somebody comparing the two seat paths would notice the provision route "forgets"
+ * the entitlement and add it. Since AECI-1367 the claim grant opens no entitlement
+ * either (every approval lands on Free), and the fence below covers it too. That change compiles, passes every behavioural
  * test that does not specifically look for the absence, and silently hands a
  * connector vendor the Managed plan the carve-out says they will never be sold —
  * through a one-way door, since withdrawing paid status costs more than never
@@ -121,9 +122,22 @@ describe('the vendor_admin seat is not coupled to an entitlement (STAGE_2_SPEC �
     expect(writers).toEqual([...ALLOWED_ROLE_WRITERS].sort());
   });
 
+  it('the claim grant imports no entitlement writer (AECI-1367: every approval lands on Free)', () => {
+    // `approveClaim` used to compose `activateEntitlementStatements` into the grant
+    // batch on a Managed approve. AECI-1367 removed the plan choice: the grant is
+    // the seat, the billing account and the acceptance link. Managed is bought later
+    // as licenses. Re-adding the activator here would hand out paid status on
+    // approval again, through the one-way door §8.8(2) describes.
+    const source = readFileSync(join(SRC, 'routes/admin-claims.ts'), 'utf8');
+
+    expect(uses(source, 'activateEntitlementStatements')).toBe(false);
+    expect(uses(source, 'renewEntitlementStatements')).toBe(false);
+    expect(uses(source, 'deactivateEntitlementStatements')).toBe(false);
+    expect(code(source)).not.toMatch(/\.(set|values)\s*\(\s*\{[^}]*verified:/s);
+  });
+
   it('no module composes provisionSeatStatements with activateEntitlementStatements', () => {
-    // THE fence. `approveClaim` legitimately holds both halves of the CLAIM
-    // grant; what must never exist is a module holding the standalone provision
+    // THE fence. What must never exist is a module holding the standalone provision
     // beside the entitlement activator, because that is the composition that
     // turns a catalogue-maintenance seat into a verified account.
     const coupled = files

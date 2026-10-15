@@ -737,12 +737,14 @@ Per §9.3 the four GETs emit no `audit_log` row; the revoke does, in the same `d
 > Three IA notes, in this section's voice:
 >
 > - **It belongs on the vendor, not on the claim or the person.** `/admin/claims/:id` deliberately does not moderate and does not manage the entitlement (§5.10); `/admin/users/:id` deliberately cannot revoke a seat or edit a role (§5.8). This page is the one that shows the blast radius — the other seats, the entitlement state, the `product_role` breakdown — which is the same reason revoke lives here.
-> - **Two write actions, still not one button.** Adding a seat and setting an entitlement stay separate controls. They are the two halves the claim grant fuses, and that fusion is the problem `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 exists to route around; merging them here would recreate it on the surface built to avoid it.
+> - **Two write actions, still not one button.** Adding a seat and setting an entitlement stay separate controls. They were the two halves the claim grant fused, and that fusion was the problem `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 existed to route around. Since AECI-1367 (2026-10-15) a claim grant opens no entitlement, so the two are separate everywhere.
 > - **It warns and never gates.** On a vendor owning endpoint products the control shows a warning above an **enabled** button, and zero products reads as *unknown* rather than exempt — the AECI-738 rule verbatim, for the same reason: `product_role` is curated upstream, so a mis-roled record must not hard-block a legitimate operator. Since AECI-1041 it also warns on a vendor that owns integrations, because such a vendor pays if it wants to manage them (§8.10) and this seat is free.
 >
 > Contract in `API_CONTRACTS.md` §6.10; the owning spec section is `STAGE_2_PAID_TIERS_SPEC.md` §5.6.3 (retitled by this issue), as-built in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.3.
 
-> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'`, and that owns no integration it manages, is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9). One that does own integrations it manages is a paying third-party owner and takes the ordinary Grant (§8.10, AECI-1017). Since **AECI-1041 (2026-09-22)** both screens show an "Integrations owned" count over both delivered-tier tables, and on a pure connector vendor that owns integrations the banner above Grant/Reject reads as a paying owner instead of a park. On `/admin/claims`, Grant would open a `verified` entitlement and flip the public `verified` mirror, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for a pure connector vendor that owns no integrations. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+> **Retired 2026-10-15 (AECI-1367): a connector vendor's claim is approved like anyone else's.** Chris ruled it on 2026-10-14 and scoped it on 2026-10-15. The three parking banners (do not Grant or Reject, owner-unknown, third-party-owner) are replaced by one neutral informational flag, "Connector vendor: contact them directly", on actionable rows where `is_pure_connector_vendor === true`. The `claim-submitted-alert` email adds the same advice. Every approval lands on Free. The note below is history.
+>
+> ~~**Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).**~~ A vendor **all** of whose products are `product_role = 'connector'`, and that owns no integration it manages, is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9). One that does own integrations it manages is a paying third-party owner and takes the ordinary Grant (§8.10, AECI-1017). Since **AECI-1041 (2026-09-22)** both screens show an "Integrations owned" count over both delivered-tier tables, and on a pure connector vendor that owns integrations the banner above Grant/Reject reads as a paying owner instead of a park. On `/admin/claims`, Grant would open a `verified` entitlement and flip the public `verified` mirror, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for a pure connector vendor that owns no integrations. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 > **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
 >
@@ -1008,10 +1010,13 @@ Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
 `API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here because the route,
 the IA and the read-only carve-out are this doc's business.
 
-**Why it exists.** §5.2 is the operator procedure for a **pure-connector vendor's claim**:
-Grant is wrong (it opens an unconditional `verified` entitlement and flips the public `verified` mirror) and
-Reject is wrong (it sends a real decline email to exactly the party we want a relationship
-with), so the claim is **parked `open`** and routed to the partnership track out of band.
+**Why it exists.** §5.2 was the operator procedure for a **pure-connector vendor's claim**:
+Grant was wrong (it opened an unconditional `verified` entitlement and flipped the public `verified` mirror) and
+Reject was wrong (it sends a real decline email to exactly the party we want a relationship
+with), so the claim was **parked `open`** and routed to the partnership track out of band.
+*(Retired 2026-10-15, AECI-1367: nothing is parked now. Every approval lands on Free and a
+connector vendor's claim is approved like any other. The record this screen holds still
+serves any note an operator writes.)*
 AECI-738 made that vendor identifiable from the queue card. What was still missing was the
 *record*: §5.2 step 6 had to send the conversation to Linear comments "so nobody looks for
 an in-product home that does not exist", which meant the console showed a lengthening queue
@@ -1051,15 +1056,24 @@ column. An unchanged re-save is a 200 no-op that writes nothing, deliberately: a
 identical states is not a history. Since AECI-1276 that history shows on this page, in its
 Audit trail section, so the note help text's promise is kept where the note is written.
 
+**The "Claimant account" label follows `granted` (AECI-1322, AECI-1367 — 2026-10-15).**
+`AdminClaim.granted` is `status = 'resolved' AND resolved_by_id IS NOT NULL`. The label reads
+"Account exists (claim granted)" only when `granted` is true. A resolved claim with `granted`
+false reads "Resolved without a grant". The Linear webhook resolves a claim with
+`resolved_by_id` null, and before this it read as granted. **Known gap, not closed by
+AECI-1367:** `PATCH /api/admin/requests/:id` with `action: 'resolve'` still accepts claim
+rows and stamps `resolved_by_id`. A claim resolved that way reads as granted with no seat
+behind it. Closing that path is a separate change.
+
 **What this screen deliberately cannot do:**
 
-- **Grant or reject.** Both stay on the queue, where §5.2's pure-connector warning sits
-  beside the buttons that would do the damage. Splitting them would mean two copies of that
-  warning, and those are the sentences whose drift is an incident rather than a typo.
+- **Grant or reject.** Both stay on the queue, beside the neutral connector-vendor flag
+  (AECI-1367 replaced §5.2's three parking banners with it). Splitting them would mean two
+  copies of that flag.
 - **Manage the entitlement.** That moved to `/admin/vendors/:id` (§5.7 / AECI-652) for the
   same reason; this page shows a readout and links there.
-- **Change `is_duplicate`.** §5.2 step 5's trap — a parked-open claim keeps flagging every
-  later claim on that vendor — is made *legible* here, not fixed. The chip's semantics are
+- **Change `is_duplicate`.** §5.2 step 5's trap (parking is retired, but any claim left open
+  still flags every later claim on that vendor) is made *legible* here, not fixed. The chip's semantics are
   unchanged.
 - **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
   available, but the API surface is claim-only. Extending it is a decision, not a migration.
@@ -1658,8 +1672,10 @@ badge.
   promote) and replied to the `listing-request-alert` email, whose reply-to is the
   submitter. Resolving creates nothing.
 - **Claims.** The claim queue and the claim detail (§5.10) show the claimant's plan answer as
-  "Plan interest", and the queue's approve form repeats it beside the plan radios ("They
-  asked about: Managed") when the claimant answered. The radios stay unselected (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
+  "Plan interest", and the queue's approve form repeats it ("They
+  asked about: Managed") when the claimant answered. Since AECI-1367 (2026-10-15) the plan
+  radios are gone, the line sits outside any fieldset and every approval lands on Free
+  (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). E3.2 removes the line later.
   The claim body is labelled "Comments".
 - **"Came from" (AECI-1364, 2026-10-15).** A claim is on the company, so a claim sent from
   a product page is stored with the vendor as its target. The queue card and the claim
