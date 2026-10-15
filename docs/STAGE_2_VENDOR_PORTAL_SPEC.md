@@ -617,11 +617,87 @@ A vendor-created row has no upstream record, by construction. §4.5.5's lanes al
 
 #### 4.7.5 The portal UI
 
-"Add an integration" at the top of the Integrations tab (`components/vendor-integration-create.ts`, mounted by `vendor-integrations-section.ts`). Not gated on `canWrite`: a seat is the whole gate. A disclosure opens a pessimistic form with four `<fieldset>`s. The first is the two products: your product, preselected from the tab, and the other product, picked with the shared type-ahead `aec-product-combobox` (AECI-1244) over the public `GET /api/products?search=&sort=name`. It searches as the vendor types, lists matches A to Z, and leaves out your own product. The chosen product then shows with its logo, vendor and a Change button. The other three are the owner edit's groups (`EDIT_GROUPS`, the same labels and value rule). The type picker offers `OWNER_EDITABLE_MECHANISM_KINDS` only. Before submit it lists the rows already on record for the chosen pair, from the list the tab holds, as context. After a `201` it announces through the one live region, revalidates `integrations`, moves focus to the result, and lists `possible_duplicates` as a warning with the way out (contest the existing row, or retire the new one). Each refusal code has its own sentence in a `role="alert"`. The public pair card says "Added by the vendor" beside "Offered by" for an `origin = 'vendor'` row. It names nobody, because an AECi owner reassignment can change "Offered by" later. AECI-1023 owns the final copy for both.
+"Add an integration" at the top of the Integrations tab (`components/vendor-integration-create.ts`, mounted by `vendor-integrations-section.ts`). Not gated on `canWrite`: a seat is the whole gate. A disclosure opens a pessimistic form with four `<fieldset>`s. The first is the two products: your product and the other product. Your product is the tab's product, shown fixed in a shaded box with its logo and no way to change it, so an integration cannot land on the wrong product (Chris, 2026-10-15). The box locks on the tab's product id alone. Until the portal's product list holds that id, the box shows a placeholder and the submit is blocked, never a fallback to another product. A `<select>` of the vendor's products appears only where the page names no product, which today is the single-page preview concept. The other product is picked with the shared type-ahead `aec-product-combobox` (AECI-1244) over the public `GET /api/products?search=&sort=name`. It searches as the vendor types, lists matches A to Z, and leaves out your own product. The chosen product then shows with its logo, vendor and a Change button. The other three are the owner edit's groups (`EDIT_GROUPS`, the same labels and value rule). The type picker offers `OWNER_EDITABLE_MECHANISM_KINDS` only. Before submit it lists the rows already on record for the chosen pair, from the list the tab holds, as context. After a `201` it announces through the one live region, revalidates `integrations`, moves focus to the result, and lists `possible_duplicates` as a warning with the way out (contest the existing row, or retire the new one). Each refusal code has its own sentence in a `role="alert"`. The public pair card says "Added by the vendor" beside "Offered by" for an `origin = 'vendor'` row. It names nobody, because an AECi owner reassignment can change "Offered by" later. AECI-1023 owns the final copy for both.
 
 **Preview.** `/preview/vendor-dashboard/products/summit-model-coordination/integrations?create=open` renders the Integrations tab with the form open on first paint (server-rendered), for the design detector. `?concept=b` on any preview child route selects the single-page concept. The fixture answers the counterpart search from a small catalogue.
 
 **Tests.** `vendor-integration-create.spec.ts` (every gate branch, the batch, the counts, the tags, the duplicate warning in both orientations, retired matches), `promote-vendor-twin.spec.ts` (both orientations, retired, claimed curated, the stale-id fallback and its stale-id report, unknown owner, the mechanism kind, the replay, the race, the evidenced de-route, the curated re-point, the Convention-A connector clear, the kind-only and owner-only UPDATE onto a live or retired twin, the kind-only UPDATE that twins nothing, the UPDATE that changes no key field, an explicit null kind, an unresolvable owner, the owner backfill on an already-twinned row, an already-twinned row moving onto a second vendor row, the claim race on the updated row, and the fence on a vendor-created row with no claim), `vendor-integration-create.component.spec.ts`.
+
+#### 4.7.6 Ask AECi to add the other product (AECI-1377 — specified 2026-10-15)
+
+**A vendor whose partner product is not in our catalog can ask us to add it, and hears back either way.** Without this the create form is a dead end for any integration whose other end we do not list (Chris, 2026-10-15). The vendor finishes the integration itself once the product exists. A request never creates an integration (ruled 2026-10-15).
+
+**Why its own table, not `listing_requests`.** `listing_requests` (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) is "I make this product, add it so I can claim it". Its alert promises a claim email, its admin row shows plan interest, and resolving it means emailing the submitter to claim. A partner-product request has a signed-in vendor as its actor, no claim and no plan. Sharing the table would make the admin row, the alert, the receipt and the badge branch on a `source` column, which is the overloading §15.4 refused for `vendor_requests`.
+
+##### The form becomes two steps
+
+The create form (§4.7.5) opens on **Step 1 of 2, "Find the other product"**: the locked "Your product" box and the product search. Nothing else shows. Picking a product moves to **Step 2 of 2, "About the integration"**: the chosen product card with Change, the on-record list and the three field groups. Change goes back to step 1 and keeps typed field values.
+
+Under the search sits **"Can't find it? Ask us to add it"**, a text button. It is always there and does not wait for an empty result. When a finished search returns no match, the line above the button reads "No product matches {query}." The button stays below the input, outside the combobox popup: focus stays in the input while the popup is open, so a button inside it could not be reached by keyboard. `aec-product-combobox` gains two additive outputs for this, `queryChange` (the trimmed query) and `noMatch` (the query whose finished search returned none). Its other two hosts ignore them. The action swaps step 1 for the request form:
+
+| Field | Rule |
+|---|---|
+| Product name | Required, 1 to 200. Prefilled with the search text when there is one. |
+| Company that makes it | Required, 1 to 200. |
+| Website | Optional, `https://` only, at most 500 (`HttpsUrlSchema`). |
+| Anything we should know? | Optional, at most 2,000. |
+
+"Send request" submits. "Back to search" returns to step 1. After a `201` the form shows the receipt "We have your request. We will add {name} or tell you why not. You will get an email and a message in your portal." It announces through the one live region and offers "Add another integration", which resets the form. A `409 PRODUCT_REQUEST_EXISTS` says "You already asked us to add {name}. It is in the list below."
+
+##### The route — `POST /api/vendor/product-requests`
+
+| Rule | As built |
+|---|---|
+| Gate | `requireVendor()` → `rateLimit('write')`, the §4.7.1 create's gate. A seat is the whole gate: no capability, no plan check. Under `/api/vendor/*`, not `/api/requests/*`: it is an authenticated vendor write, and zone Rule A's anonymous-form shape does not fit it (`docs/waf-rate-limits.md` §6). |
+| Body | `.strict()`: `context_product_id`, `name`, `maker`, `website` (optional), `body` (optional). Wire shape: `API_CONTRACTS.md` §6.14. |
+| Context product | Must be a promoted product the caller's vendor holds through `product_vendors`, the §4.7.1 rule. A miss is `404`. It records which tab the vendor asked from, and the deep link returns there. |
+| Duplicate | An **open** row for the same vendor whose `name` matches case-insensitively and trimmed is `409 PRODUCT_REQUEST_EXISTS`, with the existing id. A decided request does not block a new one. |
+| Error codes | New: `PRODUCT_REQUEST_EXISTS` (409) and `PRODUCT_NOT_PROMOTED` (422) in `packages/shared/src/errors/codes.ts` and `API_CONTRACTS.md` §4. `product_request` joins the `notFoundError` entity types. |
+| What it writes | One `db.batch`: the `product_requests` INSERT (id from `crypto.randomUUID()`, `status = 'open'`) and its `product_request.created` audit row. The metadata holds `context_product_id` and `has_website`, never the typed name, maker, website or note. It is domain state (requests), so the row is required (ADR 0022). |
+| After commit | The `product-request-alert` email to `SUPPORT_EMAIL` in `ctx.waitUntil`, reply-to the requesting seat. No cache purge, no Algolia sync, no IndexNow: nothing public changes. |
+| Response | `201 { request }` (`VendorProductRequest`). |
+
+**`GET /api/vendor/product-requests`.** `requireVendor()`, no rate limit (reads are never limited). The caller's vendor's requests, newest first, at most 50. Each carries `status`, the typed fields, `created_at`, `resolved_at`, `decline_reason`, and `resolved_product` (`{ id, slug, name, logo_url }`, or `null`) for `added` and `already_listed`. Every seat of the vendor sees every request, as with the vendor's other rows.
+
+##### The table — `product_requests`
+
+`id` (uuid), `vendor_id`, `requested_by` (profile id), `context_product_id`, `name`, `maker`, `website` (nullable), `body` (`NOT NULL`, default `''`), `status` (`open`, `added`, `already_listed`, `declined`; default `open`), `resolved_product_id` (nullable), `decline_reason` (nullable), `created_at`, `resolved_at`, `resolved_by`. **No FK and no CHECK**, the `listing_requests` precedent: erasure has nothing new to null, and the vocabularies are enforced by Zod. Two indexes: `(status, created_at)` for the admin list, `(vendor_id, created_at)` for the portal list. One drizzle-kit migration, additive only: exactly the `CREATE TABLE` and its two indexes. A `__new_` table, a `DROP TABLE` or an `INSERT INTO ... SELECT` means drizzle-kit chose a recreate, and the migration must not ship (`docs/migrations.md` §0). Schema: `DATABASE_SCHEMA.md` §8.1b.
+
+##### Three outcomes
+
+An operator decides each request on `/admin/requests` (`ADMIN_PANEL_SPEC.md` §5.16):
+
+| Outcome | When | Needs | Vendor sees |
+|---|---|---|---|
+| **Added** | We created the product. | A promoted product, chosen with the product picker. | "{product} is now listed. Add your integration." |
+| **Already listed** | The product was in the catalog under another name, the most common result of a search miss. | A promoted product, chosen with the picker. No promote wait. | "{product} was already listed as {catalog name}. Add your integration." |
+| **Declined** | We will not list it. | A reason, 1 to 1,000, required. | "We will not add {name}." and the reason. |
+
+**The order for Added is create, promote, then decide.** The operator creates the product in the review app, promotes it, then marks the request Added. The picker searches promoted products only, so it cannot link a product that has not been promoted, and the route refuses one that is not (`422 PRODUCT_NOT_PROMOTED`).
+
+**The decline reason is shown to the vendor (ruled 2026-10-15).** This departs from `claim-rejected`, which hides the reviewer's reason (§9). A claim rejection can rest on identity or fraud signals that must not be revealed. A product decline is about catalog scope, and Chris asked that the vendor be told why. The admin form says "The vendor sees this reason."
+
+**`PATCH /api/admin/product-requests/:id`.** `requireAdmin()`. Body, a discriminated union on `outcome`: `{ outcome: 'added' | 'already_listed', product_id }` or `{ outcome: 'declined', reason }`. One `db.batch`: the update guarded on `status = 'open'` (a decided row is `422`), then a `changes()` race sentinel (the `contestStillOpenSentinel` pattern in `lib/integration-contests.ts`), then its `product_request.added`, `product_request.already_listed` or `product_request.declined` audit row, and the vendor's `portal-product-request-decided` `notification.sent` row (`vendor_id` set to the requesting vendor, which the feed filters on). **The sentinel departs from the listing-request precedent on purpose.** That route lets the losing side of a two-admin race commit its audit row. Here the batch also writes the vendor's portal row, so a lost race would put both "Added" and "Declined" in the vendor's feed. A lost race rolls the batch back as `422 INVALID_STATE_TRANSITION`. The `product-request-decided` email sends only after a committed batch. **`GET /api/admin/product-requests`** takes `status` and page params like `GET /api/admin/listing-requests`. The `pending_requests` badge adds open `product_requests` rows (`admin-queue-counts.ts`), so the Requests count matches the screen.
+
+##### Notifications
+
+| Id | Channel | Audience | Tier rule | Dedupe | Pausable |
+|---|---|---|---|---|---|
+| `product-request-alert` | email | operator | `any-tier` | Key `product-request-alert:{requestId}` | Yes. An operator alert, and the request waits in `/admin/requests` either way. |
+| `product-request-decided` | email | external | `production-external` | Key `product-request-decided:{requestId}`. A request is decided once, so one email per request. | No. Always on: a decision, like `claim-rejected` and the review decisions (`registry.spec.ts` `ALWAYS_ON`). |
+| `portal-product-request-decided` | portal | external | `any-tier` | One row per decision, in the decision batch. | No: a portal row, not email. |
+
+One email template with three outcome variants, not one per outcome: each request gets exactly one decision email, under one key. The email goes to the seat that asked (`requested_by`). The seat is gone when `requested_by` is no longer an unbanned `vendor_admin` of `vendor_id`, or `fetchAuthUserEmails` returns no address for it (`lib/vendor-seat-recipients.ts`). Then no email is sent and the portal row is the record. The alert's reply-to is the requesting seat's session email. The email and the portal row carry the decline reason, never an internal note. Their call to action is the deep link below. In the portal feed the row is a new `VendorNotification` member, `kind: 'product_request'`, with its mapper and its renderer in `vendor-notifications-list.ts`. It must be named in `isAttestationNotification`'s exclusions, or its rows read as attestation rows. `docs/NOTIFICATIONS.md` is regenerated (`pnpm docs:notifications`), and `docs/email.md` gains both templates.
+
+##### The vendor's list and the deep link
+
+Under "Add an integration" on the Integrations tab, **"Products you asked us to add"** lists the vendor's requests from `GET /api/vendor/product-requests`, newest first. It renders nothing when there are none. Each row shows the name, the maker, the date and a status: "Waiting for AECi", "Added", "Already listed as {name}" or "Declined: {reason}". An Added or Already listed row has **"Add the integration"**. The list re-reads after a submit. Once loaded, it also re-reads `GET /api/vendor/product-requests` whenever the `notifications` scope of `GET /api/vendor/updates` moves. A decision always writes its portal row in the batch, so that scope moves. No new scope (`STAGE_2_REALTIME_SPEC.md` §2.3).
+
+**The deep link** is the context product's Integrations tab plus `?create=open&counterpart={productSlug}`. The email builds it with a new `vendorProductIntegrationsUrl(env, vendorSlug, productSlug, counterpartSlug)` beside `vendorProductReviewsUrl` in `lib/email.ts`, always in the `/vendor/{vendorSlug}/products/{slug}/integrations` form. The portal button uses the portal's own router link. `create=open` opens the form. `counterpart` preselects the other product: the form fetches `GET /api/products/{slug}`, and on a hit lands on step 2 with that product chosen. A `404` or the vendor's own product leaves step 1 open with nothing chosen. That read does not filter on promotion, so an unpromoted product is caught by the create's own `404`. "Add the integration" sets both params, as do the email and the portal message.
+
+##### Tests
+
+API: the gate, the context-product `404`, the duplicate `409` (and no `409` once decided), the batch and its audit metadata with no typed text, the alert after commit, the vendor list scoped to the caller. Admin: each outcome, the `422` on a decided row, the lost race rolling back with no portal row and no email, the `422` on an unpromoted product, the required reason, the portal row in the batch, the email after commit, the badge count. Web: the two steps, Change back to step 1, the request form and its prefill, the `409` sentence, the receipt, the vendor list's four statuses, the deep link's hit and miss, the feed renderer for `kind: 'product_request'`, the combobox's two new outputs. Admin web: the three outcome forms. Migration: the generated SQL is additive.
 
 ---
 

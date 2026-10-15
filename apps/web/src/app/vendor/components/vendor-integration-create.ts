@@ -172,37 +172,76 @@ function emptyDraft(): Draft {
             </legend>
 
             <div class="max-w-2xl space-y-2">
-              <label
-                for="vendor-create-own"
-                [class]="labelClass"
-                i18n="@@vendor.integrationCreate.own.label"
-                >Your product</label
-              >
-              <div class="relative max-w-sm">
-                <select
-                  id="vendor-create-own"
-                  (change)="onOwnProduct(selectValue($event))"
-                  [class]="selectClass"
+              @if (contextProductId() !== null) {
+                <!-- The tab already names the product. It is shown, never offered as a
+                     choice, so an integration cannot land on the wrong product. The box
+                     locks on the tab's id alone: until the portal's product list has it,
+                     the name is a placeholder, never a picker. -->
+                <p
+                  id="vendor-create-own-label"
+                  [class]="labelClass"
+                  i18n="@@vendor.integrationCreate.own.label"
                 >
-                  @for (product of ownProducts(); track product.id) {
-                    <option [value]="product.id" [selected]="product.id === ownProductId()">
-                      {{ product.name }}
-                    </option>
+                  Your product
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby="vendor-create-own-label vendor-create-own-name"
+                  class="flex max-w-sm items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2"
+                  data-testid="create-own-product"
+                >
+                  @if (contextOwnProduct(); as own) {
+                    <aec-logo-or-initial [src]="own.logo_url" [name]="own.name" size="sm" />
+                    <span
+                      id="vendor-create-own-name"
+                      class="min-w-0 flex-1 truncate text-sm font-medium text-(--text-primary)"
+                      >{{ own.name }}</span
+                    >
+                  } @else {
+                    <span id="vendor-create-own-name" class="flex-1">
+                      <span
+                        class="block h-4 w-40 motion-safe:animate-pulse rounded-(--radius-sm) bg-(--border-default)"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="sr-only" i18n="@@vendor.integrationCreate.own.loading"
+                        >Loading your product</span
+                      >
+                    </span>
                   }
-                </select>
-                <svg
-                  class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
+                </div>
+              } @else {
+                <label
+                  for="vendor-create-own"
+                  [class]="labelClass"
+                  i18n="@@vendor.integrationCreate.own.label"
+                  >Your product</label
                 >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </div>
+                <div class="relative max-w-sm">
+                  <select
+                    id="vendor-create-own"
+                    (change)="onOwnProduct(selectValue($event))"
+                    [class]="selectClass"
+                  >
+                    @for (product of ownProducts(); track product.id) {
+                      <option [value]="product.id" [selected]="product.id === ownProductId()">
+                        {{ product.name }}
+                      </option>
+                    }
+                  </select>
+                  <svg
+                    class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </div>
+              }
             </div>
 
             <div class="max-w-2xl space-y-2">
@@ -446,11 +485,20 @@ export class VendorIntegrationCreate {
 
   protected readonly ownProductId = computed(() => {
     const products = this.ownProducts();
+    // Inside a product tab the product is fixed. It never falls back to another
+    // product, so a list that has not loaded yet blocks the submit instead.
+    const context = this.contextProductId();
+    if (context !== null) return products.some((p) => p.id === context) ? context : null;
     const chosen = this.chosenOwn();
     if (chosen && products.some((p) => p.id === chosen)) return chosen;
-    const context = this.contextProductId();
-    if (context && products.some((p) => p.id === context)) return context;
     return products[0]?.id ?? null;
+  });
+
+  /** The tab's product, once the portal's product list has it. The box is
+   *  locked whenever the tab names a product; this only supplies its name. */
+  protected readonly contextOwnProduct = computed(() => {
+    const context = this.contextProductId();
+    return context !== null ? (this.ownProducts().find((p) => p.id === context) ?? null) : null;
   });
 
   /** The counterpart cannot be the vendor's own product. */
@@ -593,7 +641,13 @@ export class VendorIntegrationCreate {
 
     const own = this.ownProductId();
     const other = this.counterpart();
-    if (!own || !other || Object.keys(this.errors()).length > 0) {
+    if (!own) {
+      this.saveNotice.set(
+        $localize`:@@vendor.integrationCreate.error.ownLoading:Your product is still loading. Try again in a moment.`,
+      );
+      return;
+    }
+    if (!other || Object.keys(this.errors()).length > 0) {
       this.saveNotice.set(
         $localize`:@@vendor.integrationCreate.error.fix:Fix the fields marked above, then try again.`,
       );

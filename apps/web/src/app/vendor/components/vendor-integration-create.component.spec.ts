@@ -192,12 +192,31 @@ describe('opening the form', () => {
     expect(q(fixture, 'form')).not.toBeNull();
   });
 
-  it('preselects the tab’s product as the vendor’s own', async () => {
+  it('shows the tab’s product as fixed, with no picker to change it', async () => {
     const fixture = await mount();
     await open(fixture);
-    expect((el(fixture).querySelector('#vendor-create-own') as HTMLInputElement).value).toBe(
-      OWN.id,
-    );
+    expect(q(fixture, '#vendor-create-own')).toBeNull();
+    const own = q(fixture, '[data-testid="create-own-product"]')!;
+    expect(own.textContent).toContain(OWN.name);
+  });
+
+  it('stays locked, never a picker, when the tab names a product the list lacks', async () => {
+    const fixture = TestBed.createComponent(VendorIntegrationCreate);
+    fixture.componentRef.setInput('contextProductId', 'not-in-the-list');
+    await settle(fixture);
+    await open(fixture);
+    expect(q(fixture, '#vendor-create-own')).toBeNull();
+    const own = q(fixture, '[data-testid="create-own-product"]')!;
+    expect(own.textContent).toContain('Loading your product');
+    expect(own.textContent).not.toContain(OWN.name);
+  });
+
+  it('offers the picker only where the page names no product', async () => {
+    const fixture = TestBed.createComponent(VendorIntegrationCreate);
+    await settle(fixture);
+    await open(fixture);
+    expect(q(fixture, '[data-testid="create-own-product"]')).toBeNull();
+    expect((q(fixture, '#vendor-create-own') as HTMLInputElement).value).toBe(OWN.id);
   });
 
   it('leaves the connector-delivered kinds out of the type picker', async () => {

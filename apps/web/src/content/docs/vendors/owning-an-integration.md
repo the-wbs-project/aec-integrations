@@ -92,7 +92,7 @@ If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrati
 
 ## Add an integration
 
-If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. Pick the other product by name, then fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The form lists any integrations already on record for the two products, so you can check first.
+If your company offers an integration that is not listed, choose **Add an integration** at the top of your product's Integrations tab. The integration is added to that product, so open the tab of the product it belongs to. Pick the other product by name, then fill in the same details you can edit once it exists: name, description, how you get it, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. The form lists any integrations already on record for the two products, so you can check first.
 
 The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
 
