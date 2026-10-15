@@ -7,9 +7,10 @@
  * The load-bearing rule is the same one the attestation sweep learned: **emit on
  * every run, including zero.** A metric that only appears when a term is expiring
  * cannot distinguish "no terms due" from "the cron stopped running" — and since
- * every backfilled entitlement is perpetual (`period_end IS NULL`, §2.4) and
- * therefore structurally invisible to this job, "0 notices" is the healthy steady
- * state for a long time. {@link EXPIRY_JOB_METRIC} carries that liveness;
+ * every monthly license (`ends_at IS NULL`, which every perpetual entitlement maps
+ * to) is structurally invisible to this job, "0 notices" is the healthy steady
+ * state for a long time. Since AECI-1356 a term is one billing account's live
+ * licenses on one `ends_at`; every count here is in terms, not licenses. {@link EXPIRY_JOB_METRIC} carries that liveness;
  * {@link EXPIRY_NOTICE_METRIC} is emitted only when there is something to report.
  * See `docs/OBSERVABILITY.md`.
  */
@@ -32,7 +33,7 @@ export interface EntitlementExpiryMetricSink {
 export const EXPIRY_NOTICE_METRIC = 'aeci.entitlement.expiry_notice';
 
 /** Terms inside the warning horizon this run, BEFORE the `expiry_notice_sent_at`
- *  fence. A gauge rather than a count because it is a stock, not a flow: it
+ *  fence, in terms (account and end date). A gauge rather than a count because it is a stock, not a flow: it
  *  answers "how much is due" and stays flat while nobody renews. Emitted on every
  *  run including zero. */
 export const EXPIRY_DUE_METRIC = 'aeci.entitlement.expiry_due';

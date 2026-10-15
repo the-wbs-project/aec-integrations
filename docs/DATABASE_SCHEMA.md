@@ -1654,7 +1654,12 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   admin row about an entitlement change records the plan **before** the change; `after_state` holds
   the new one. A `notification.sent` row carries no plan. License rows (AECI-1352) fill the same
   two columns from `licensePlanSnapshot`, which reads license rows instead of the entitlement
-  row (§8.6c). The column names stay, to avoid an `audit_log` recreate.
+  row (§8.6c). The column names stay, to avoid an `audit_log` recreate. **Since AECI-1355 the
+  vendor path and the shared admin helper (`vendorAuditStamp`, the hand-back, the seat-invite
+  accept) also use `licensePlanSnapshot`**: the vendor path over the licenses on the session, the
+  others over `loadVendorLicenses`. The admin claim approval, integration retire/restore,
+  plan-pricing and vendor seat (revoke, provision) routes do too, over `loadVendorLicenses`. Only
+  the admin entitlement routes still use `vendorPlanSnapshot`, until E4 replaces them.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
@@ -1664,7 +1669,11 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   compared by parsed instant, and a date-only value reads as UTC midnight. A null `period_end` is
   perpetual and never lapses. `expired`, `revoked`, `pending` and `none` are recorded as stored.
   This is a record rule only. Session authorization and `tierFor` still trust the stored status,
-  so the write is authorized exactly as before.
+  so the write is authorized exactly as before. Since AECI-1355 the same rule runs in
+  `licensePlanSnapshot`: live licenses whose `ends_at` are all at or before the write time record
+  `expired`, and a null `ends_at` (monthly) never lapses on the clock. The vendor path reads
+  `ends_at` from the session's `licenses`, the admin path from `loadVendorLicenses`. Session
+  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants.
 - **Columns, not metadata.** The plan was stored in columns so it is typed and filterable inside
   the `vendor_id` slice, and so it cannot drift in spelling the way metadata keys did.
 - **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted
@@ -1805,7 +1814,7 @@ create table vendor_entitlements (
   granted_by uuid references profiles(id) on delete set null, -- an inbound FK to profiles; AUTH_AND_RLS.md §8 keeps the count (sixteen at 2026-10-02)
   granted_at timestamptz not null default now(),
   ended_at timestamptz,             -- stamped when status leaves 'active'
-  expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence
+  expiry_notice_sent_at timestamptz, -- the expiry cron's fence until AECI-1356; unused since (licenses.expiry_notice_sent_at)
 
   source_request_id uuid references vendor_requests(id), -- the claim this came from, if any
 
@@ -1817,7 +1826,8 @@ create table vendor_entitlements (
 -- `status = 'active'` a legal single-row WHERE.
 create unique index vendor_entitlements_vendor_key on vendor_entitlements(vendor_id);
 create index vendor_entitlements_status_idx on vendor_entitlements(status);
--- The expiry cron's ONLY scan. PARTIAL, so perpetual/backfilled rows and every
+-- The expiry cron's ONLY scan until AECI-1356; no reader since (it scans
+-- licenses_ends_idx). PARTIAL, so perpetual/backfilled rows and every
 -- non-active row are invisible to it.
 create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
   where period_end is not null and status = 'active';
@@ -1920,10 +1930,13 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
 and 18). Licenses carry their own dates. There is no subscription table: a Stripe
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
-`apps/api/src/lib/license.ts` (AECI-1352). Its only callers today are the entitlement
-builders' dual-write (AECI-1353, below). The one-off back-fill (AECI-1354, below) also
+`apps/api/src/lib/license.ts` (AECI-1352). Its callers are the entitlement builders'
+dual-write (AECI-1353, below) and, since AECI-1356, the 11:00 expiry sweep's fence stamp
+(`expiryNoticeStampStatements`). The one-off back-fill (AECI-1354, below) also
 inserts rows, in raw SQL. `ops:retract-product` NULLs `assigned_product_id` in raw SQL when
-it retracts a product (below). E1's later issues move plan resolution onto the table.
+it retracts a product (below). **Since AECI-1355 (E1.6, 2026-10-14) this table is the truth
+for plan resolution**: a product is Managed for a vendor exactly when a live license on that
+vendor's own billing account is assigned to it (`AUTH_AND_RLS.md` §4.2b).
 
 ```sql
 create table licenses (
@@ -1943,7 +1956,7 @@ create table licenses (
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
   terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
   granted_by text,               -- a profiles.id; NO FK
-  expiry_notice_sent_at text,    -- E6's term-end notice fence
+  expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it
   created_at text not null,
   updated_at text not null
 );
@@ -1952,7 +1965,8 @@ create index licenses_account_idx on licenses(billing_account_id);
 -- One LIVE license per product. Ended licenses keep their assignment as history.
 create unique index licenses_live_product_idx on licenses(assigned_product_id)
   where ended_at is null;
--- E6's daily term-end scan. Monthly and ended rows are invisible to it.
+-- The daily expiry sweep's scan (AECI-1356; E6 adds the lapse). Monthly and ended
+-- rows are invisible to it.
 create index licenses_ends_idx on licenses(ends_at)
   where ended_at is null and ends_at is not null;
 create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id)
@@ -1992,6 +2006,10 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   and add no second writer. Each takes the caller's pre-read (`loadVendorLicenses`) and
   `now`. A no-op returns one frozen empty batch. Every date is stored as
   `toISOString()`, so a date-only input lands as `…T00:00:00.000Z`.
+  `expiryNoticeStampStatements` (AECI-1356) is the expiry sweep's fence stamp: it SETs
+  `expiry_notice_sent_at` and `updated_at` only, guarded on the scanned `ends_at`, and is
+  the one builder with no audit row of its own and no mirror reconcile (the sweep writes
+  one audit row per notice, and the fence cannot move liveness).
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
@@ -2015,7 +2033,10 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   live license is past its `ends_at`), else the latest ended license is `revoked` when its
   `end_reason` is `revoked` and `expired` otherwise, and no license is `none` / `none`.
 - **The dual-write period (AECI-1353, E1.4).** Until E1.6 switches the readers over,
-  `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. The three builders
+  `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. *As built: E1.6
+  (AECI-1355) switched the readers on 2026-10-14. The admin entitlement routes still write
+  `vendor_entitlements`, and this dual-write is how they reach `licenses`, until E4 replaces
+  them.* The three builders
   in `apps/api/src/lib/vendor-entitlement.ts` append the matching license batch to their
   own, in the same `db.batch`, and take a second pre-read (`loadLicenseDualWrite`: the
   account, the vendor's licenses, its owned products with their live-license state).
@@ -2257,7 +2278,9 @@ Notes:
   issued, not yet effective" limbo; without it an admin must either not record the arrangement
   or verify an unpaid vendor. `expired` = term lapsed amicably, `revoked` = pulled for cause.
 - **Nothing expires itself.** The daily 11:00 UTC sweep **warns** and stamps
-  `expiry_notice_sent_at`; it never writes `status` and never touches `vendors`. An active term
+  `expiry_notice_sent_at`; it never writes `status` and never touches `vendors`. Since
+  AECI-1356 it reads and stamps `licenses` (§8.6c), and this table's fence column and
+  `vendor_entitlements_expiry_idx` have no reader. An active term
   past its end date stays active until an admin clears it.
 - **Backfill is a script, not a migration** (`apps/api/scripts/backfill-entitlements.ts`, run
   per environment). Rows already `verified = 1` from the Airtable/claim era get
@@ -2266,6 +2289,9 @@ Notes:
   check is the proof the backfill actually landed on every tier.
 - **No public or read path may query this table** (§4.1). It is written by the sole-writer
   module, read by the authz guard and the two admin/vendor surfaces, and by nothing else.
+  Since AECI-1355 the authz guard and the vendor surfaces read `licenses` instead. What still
+  reads this table is the admin and retirement set that `drizzle-helpers.read-path.spec.ts`
+  pins exactly (`STAGE_2_PAID_TIERS_SPEC.md` §2.5).
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 
@@ -4546,9 +4572,9 @@ create table vendor_activity_daily (
   active_users_1d integer not null,
   active_users_7d integer not null,
   active_users_30d integer not null,
-  entitlement_tier text,             -- raw vendor_entitlements.tier; null = no row (Free)
-  entitlement_status text,           -- raw vendor_entitlements.status; null = no row
-  effective_tier text not null,      -- tierFor(row): 'unclaimed' (Free) unless the row is active
+  entitlement_tier text,             -- 'verified' when the vendor holds or held a license; null = never (Free)
+  entitlement_status text,           -- from licenses via sessionPlanFromLicenses (AECI-1355); null = never held a license
+  effective_tier text not null,      -- 'verified' iff any live license, else 'unclaimed' (Free)
   open_contests_owned integer not null,
   open_contests_filed integer not null,
   data_flows_confirmed integer not null,
@@ -4561,9 +4587,10 @@ create table vendor_activity_daily (
 create index vendor_activity_daily_vendor_day_idx on vendor_activity_daily(vendor_id, day);
 ```
 
-**Which vendors get a row.** A vendor with at least one unbanned seat, an entitlement row in any
-status, or a live invite. A catalog vendor with none of these has nothing to trend and gets no
-row. A vendor whose only seat is banned, with no plan row and no live invite, gets none either.
+**Which vendors get a row.** A vendor with at least one unbanned seat, a license live or ended
+(an entitlement row in any status until AECI-1355), or a live invite. A catalog vendor with none of
+these has nothing to trend and gets no row. A vendor whose only seat is banned, with no license
+and no live invite, gets none either.
 
 **What each column counts.**
 
@@ -4572,8 +4599,8 @@ row. A vendor whose only seat is banned, with no plan row and no live invite, ge
 | `seats` | `profiles` with `role = 'vendor_admin'`, this `vendor_id`, and `banned_at IS NULL`. `seatsOf` (`routes/vendor-shared.ts`) counts banned seats for the roster. This column does not, because a banned seat cannot be used |
 | `pending_invites` | `vendor_seat_invites` not accepted, not revoked, and with `expires_at` after the run instant. The predicate is `liveInvites` (`lib/vendor-seat-invites.ts`), the same one the roster uses |
 | `active_users_1d` / `_7d` / `_30d` | Distinct `user_activity_daily.user_id` with `role = 'vendor_admin'` and this `vendor_id`, over the 1, 7 and 30 days ending on `day`, inclusive. An admin or reviewer row carrying the vendor id does not count |
-| `entitlement_tier`, `entitlement_status` | The raw `vendor_entitlements` row. Both null when there is no row, which is the Free plan |
-| `effective_tier` | `tierFor()` from `@aeci/shared/entitlements`. `unclaimed` is Free. A row that is not `active` is Free too |
+| `entitlement_tier`, `entitlement_status` | Since AECI-1355, the vendor's licenses as the vendor guard derives them (`sessionPlanFromLicenses`): `verified` / `active` while any license is live, else the latest ended license's `expired` or `revoked`. Both null when the vendor never held a license, which is the Free plan. (Until AECI-1355, the raw `vendor_entitlements` row.) |
+| `effective_tier` | `verified` iff the vendor holds a live license, else `unclaimed` (Free). The same rule as the session's `entitlementTier` |
 | `open_contests_owned` | `integration_field_challenges` with `status = 'open'` and `owner_vendor_id` = this vendor |
 | `open_contests_filed` | The same, with `submitter_vendor_id` = this vendor |
 | `data_flows_confirmed` | Live `attestations` (`retracted_at IS NULL`) with `attested_by_vendor_id` = this vendor |
@@ -4737,7 +4764,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354); no vendor reader yet. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
@@ -4893,7 +4920,7 @@ Every write that changes **domain state** must emit its `audit_log` (+ `workflow
 
 **Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `plan_inquiries` (§2a, `API_CONTRACTS.md` §6.13a, ADR 0022's 2026-10-12 amendment), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
-**The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
+**The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one audit row (`actor_type='system'`) per warned term, in the same batch: `vendor_entitlement.expiry_warned` until AECI-1356, then `license.expiry_warned` filed under the billing account, one per account and end date, with `metadata.license_ids`. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 

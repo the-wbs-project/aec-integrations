@@ -43,6 +43,7 @@ import {
   productVendors,
   products,
   profiles,
+  licenses,
   vendorEntitlements,
   vendors,
   workflowTransitions,
@@ -62,6 +63,7 @@ import {
   routeContest,
 } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
   racingFactory as sharedRacingFactory,
@@ -193,8 +195,10 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-const entitle = (vendorId: string) =>
-  t.db.insert(vendorEntitlements).values({
+/** Managed, as the dual-write leaves it (AECI-1353): the entitlement row the admin
+ *  clear reads, and a live license, which the owner checks read since AECI-1355. */
+const entitle = async (vendorId: string) => {
+  await t.db.insert(vendorEntitlements).values({
     vendorId,
     tier: 'verified',
     status: 'active',
@@ -202,6 +206,8 @@ const entitle = (vendorId: string) =>
     createdAt: CLAIMED_AT,
     updatedAt: CLAIMED_AT,
   });
+  await seedLicense(t.db, vendorId);
+};
 const claimPair = () =>
   t.db
     .update(connectorEvidencedPairs)
@@ -410,6 +416,7 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
     expect(res.body.contest.routed_to).toBe('aeci');
     await entitle(VENDOR_T);
     await t.db.update(vendorEntitlements).set({ status: 'revoked' });
+    await t.db.update(licenses).set({ endedAt: CLAIMED_AT, endReason: 'revoked' });
     const again = await submitPair(AUTH_A, { ...DOCS, field: 'listing_url' });
     expect(again.body.contest.routed_to).toBe('aeci');
   });
@@ -926,10 +933,15 @@ describe('ruling B, the races and the edges (review MINOR 5)', () => {
     await entitle(VENDOR_T);
     // Every batch commits against a revoked entitlement, and every read sees it active
     // again: the owner route every time, and a lost race every time.
-    const flip = (status: string) =>
+    const flip = (status: string) => {
       t.raw
         .prepare(`UPDATE vendor_entitlements SET status = ? WHERE vendor_id = ?`)
         .run(status, VENDOR_T);
+      // AECI-1355: the owner checks read licenses, which a clear ends in its batch.
+      t.raw
+        .prepare(`UPDATE licenses SET ended_at = ?`)
+        .run(status === 'revoked' ? CLAIMED_AT : null);
+    };
     factory = wrappedFactory(async (_attempt, run) => {
       flip('revoked');
       try {
@@ -1040,6 +1052,8 @@ describe('ruling B, the races and the edges (review MINOR 5)', () => {
         t.raw
           .prepare(`UPDATE vendor_entitlements SET status = 'revoked' WHERE vendor_id = ?`)
           .run(VENDOR_T);
+        // AECI-1355: the clear ends the vendor's licenses in the same batch.
+        t.raw.prepare(`UPDATE licenses SET ended_at = ?`).run(CLAIMED_AT);
       }
       return run();
     });
@@ -1086,6 +1100,8 @@ describe('the entitled-owner branch of a row becoming connector-powered (re-revi
       t.raw
         .prepare(`UPDATE vendor_entitlements SET status = 'revoked' WHERE vendor_id = ?`)
         .run(VENDOR_B);
+      // AECI-1355: the clear ends the vendor's licenses in the same batch.
+      t.raw.prepare(`UPDATE licenses SET ended_at = ?`).run(CLAIMED_AT);
     });
     const res = await call(
       AUTH_ADMIN,

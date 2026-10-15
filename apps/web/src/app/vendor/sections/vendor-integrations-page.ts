@@ -94,7 +94,8 @@ export class VendorIntegrationsPage {
   private readonly store = inject(VendorPortalStore);
   protected readonly me = this.store.me;
   // AECI-1218: a product screen reads THIS product's plan (section 13.7), never
-  // `me().entitlement`. The same block today, so the gate is unchanged.
+  // `me().entitlement`. AECI-1355: the section opens a row on this product's tab
+  // when the caller's other endpoint is licensed (`integrationCanAuthor`).
   protected readonly canAuthor = computed(() =>
     productCan(this.ctx.product(), 'attestation.author'),
   );

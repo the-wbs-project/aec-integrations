@@ -31,6 +31,7 @@ import {
   ownerSeatsOf,
   ownedSideProductId,
   seatsOf,
+  vendorProductRecrawlEnabled,
   vendorRecrawlEnabled,
   withRecrawlProduct,
   type VendorContext,
@@ -153,6 +154,8 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
   const MANAGED = {
     entitlementTier: 'verified',
     entitlement: { status: 'active', periodEnd: null },
+    // Per product since the 2026-10-14 ruling: `product-1` holds the live license.
+    licensedProductIds: ['product-1'],
   } as const;
   const RECRAWL: VendorRecrawl = {
     indexNow: ['https://www.aecintegrations.com/products/revit'],
@@ -307,6 +310,36 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
   });
 
+  // ── Ruled 2026-10-14: resubmission is per product ─────────────────────────
+
+  it('buffers nothing for a write naming a product the vendor did not license', async () => {
+    // The vendor holds a live license (vendor-level tier paid), but on another product.
+    await run({ ...MANAGED, licensedProductIds: ['product-2'] }, undefined, {
+      ...RECRAWL,
+      productId: 'product-1',
+    });
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+    expect(enqueueGscRecrawlUrls).not.toHaveBeenCalled();
+    expect(enqueueRecrawlCauses).not.toHaveBeenCalled();
+  });
+
+  it('gates a thunk-named product the same way, after reading it', async () => {
+    const read = vi.fn(async () => 'product-1');
+    await run(
+      { ...MANAGED, licensedProductIds: ['product-2'] },
+      undefined,
+      withRecrawlProduct(RECRAWL, read)!,
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+  });
+
+  it('keeps a write naming no product (a profile edit) on the vendor-level gate', async () => {
+    await run({ ...MANAGED, licensedProductIds: [] }, undefined, { ...RECRAWL, productId: null });
+    expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
+    expect(enqueueGscRecrawlUrls).toHaveBeenCalledTimes(1);
+  });
+
   it('settles a rejected derivation handed over by a Free write', async () => {
     const rejected = Promise.reject(new Error('trade floor read failed'));
     await expect(run(FREE, undefined, rejected)).resolves.toBeUndefined();
@@ -328,6 +361,24 @@ describe('vendorRecrawlEnabled', () => {
   ] as const)('%s → %s', (_label, env, entitlementTier, expected) => {
     const { c } = makeCtx(env, { entitlementTier, entitlement: null });
     expect(vendorRecrawlEnabled(c)).toBe(expected);
+  });
+});
+
+describe('vendorProductRecrawlEnabled (ruled 2026-10-14)', () => {
+  const PUBLIC: Partial<Env> = {
+    INDEXNOW_KEY: 'test-key',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const PAID = { entitlementTier: 'verified', entitlement: null } as const;
+
+  it.each([
+    ['public env, the product licensed', PUBLIC, ['p1'], true],
+    ['public env, another product licensed', PUBLIC, ['p2'], false],
+    ['public env, nothing licensed', PUBLIC, [], false],
+    ['gated env, the product licensed', {}, ['p1'], false],
+  ] as const)('%s → %s', (_label, env, licensedProductIds, expected) => {
+    const { c } = makeCtx(env, { ...PAID, licensedProductIds });
+    expect(vendorProductRecrawlEnabled(c, 'p1')).toBe(expected);
   });
 });
 

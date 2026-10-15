@@ -208,7 +208,7 @@ export interface SeatInviteBatch {
 
 export interface CreateInviteParams {
   /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
-   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+   *  (no vendor session yet) `licensePlanSnapshot(await loadVendorLicenses(...))`. */
   vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   token: string;
@@ -272,7 +272,7 @@ export function createInviteStatements(db: Db, p: CreateInviteParams): SeatInvit
 
 export interface RevokeInviteParams {
   /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
-   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+   *  (no vendor session yet) `licensePlanSnapshot(await loadVendorLicenses(...))`. */
   vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;
@@ -330,7 +330,7 @@ export function revokeInviteStatements(db: Db, p: RevokeInviteParams): SeatInvit
 
 export interface ResendInviteParams {
   /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
-   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+   *  (no vendor session yet) `licensePlanSnapshot(await loadVendorLicenses(...))`. */
   vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;
@@ -429,7 +429,7 @@ export function resendInviteStatements(db: Db, p: ResendInviteParams): SeatInvit
 
 export interface AcceptInviteParams {
   /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
-   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+   *  (no vendor session yet) `licensePlanSnapshot(await loadVendorLicenses(...))`. */
   vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;

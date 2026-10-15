@@ -96,13 +96,28 @@ const SEAT_B = uuid(101);
 const SEAT_BOTH = uuid(102);
 const SEAT_UNVERIFIED = uuid(103);
 
-const seat = (userId: string, vendorId: string, entitled = true): AuthzVariables['auth'] => ({
+/** Each vendor's own products: an entitled seat holds a live license on each, so
+ *  `requireAttestationCapability` (per product, ruled 2026-10-14) passes. */
+const OWNED_PRODUCTS: Record<string, readonly string[]> = {
+  [VENDOR_A]: [P_SOURCE],
+  [VENDOR_B]: [P_TARGET],
+  [VENDOR_BOTH]: [P_OWN_A, P_OWN_B],
+  [VENDOR_UNVERIFIED]: [P_UNVERIFIED],
+};
+
+const seat = (
+  userId: string,
+  vendorId: string,
+  entitled = true,
+  licensedProductIds: readonly string[] = entitled ? (OWNED_PRODUCTS[vendorId] ?? []) : [],
+): AuthzVariables['auth'] => ({
   userId,
   email: `${userId}@example.test`,
   role: 'vendor_admin',
   vendorId,
   entitlementTier: entitled ? 'verified' : 'unclaimed',
   entitlement: entitled ? { status: 'active', periodEnd: null } : null,
+  licensedProductIds,
 });
 
 const AUTH_A = seat(SEAT_A, VENDOR_A);
@@ -2143,5 +2158,85 @@ describe('recrawl causes (AECI-1184)', () => {
     expect(await publicCall('DELETE', attestationUrl(C_MAIN), undefined, AUTH_B)).toBe(204);
     await expectVendorCauses(t, VENDOR_B);
     expect(await causeProducts()).toEqual(new Set([P_TARGET]));
+  });
+});
+
+// ─── Per-product gate (ruled 2026-10-14) ─────────────────────────────────────
+
+describe('attestation.author is per product (ruled 2026-10-14)', () => {
+  /** A seat whose vendor holds a live license, but on a product that is not an
+   *  endpoint of I_MAIN. The vendor-level tier is paid; P_SOURCE is Free. */
+  const AUTH_A_OTHER_PRODUCT = seat(SEAT_A, VENDOR_A, true, [P_FOREIGN]);
+  const REFUSED = { capability: 'attestation.author', tier: 'unclaimed' };
+
+  it('403s POST /claims when the caller’s endpoint product is Free, whatever the vendor holds', async () => {
+    const { status, body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_MAIN, data_object: 'submittals', direction: 'outbound' },
+      AUTH_A_OTHER_PRODUCT,
+    );
+    expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(res.error.details).toEqual(REFUSED);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('403s PUT …/attestation on the same terms', async () => {
+    const { status, body: res } = await sendJson(
+      'PUT',
+      attestationUrl(C_MAIN),
+      { asserted: true },
+      AUTH_A_OTHER_PRODUCT,
+    );
+    expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(res.error.details).toEqual(REFUSED);
+  });
+
+  it('403s DELETE …/attestation on the same terms', async () => {
+    expect((await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true })).status).toBe(200);
+    const { status, body: res } = await call(
+      attestationUrl(C_MAIN),
+      { method: 'DELETE' },
+      AUTH_A_OTHER_PRODUCT,
+    );
+    expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(res.error.details).toEqual(REFUSED);
+  });
+
+  it('still 404s a non-owner before the per-product gate answers', async () => {
+    const { status } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_FOREIGN, data_object: 'rfis', direction: 'outbound' },
+      seat(SEAT_A, VENDOR_A, true, []),
+    );
+    expect(status).toBe(404);
+  });
+
+  it('an owns-both caller writes both slots when EITHER endpoint product is Managed', async () => {
+    const onlyB = seat(SEAT_BOTH, VENDOR_BOTH, true, [P_OWN_B]);
+    const { status, body: res } = await sendJson(
+      'PUT',
+      attestationUrl(C_INTRA),
+      { asserted: true },
+      onlyB,
+    );
+    expect(status).toBe(200);
+    expect(res.claim.mine.map((a: JsonBody) => a.slot)).toEqual(['vendor_a', 'vendor_b']);
+  });
+
+  it('an owns-both caller with NEITHER endpoint product Managed gets the 403', async () => {
+    const neither = seat(SEAT_BOTH, VENDOR_BOTH, true, [P_SOURCE]);
+    const { status, body: res } = await sendJson(
+      'PUT',
+      attestationUrl(C_INTRA),
+      { asserted: true },
+      neither,
+    );
+    expect(status).toBe(403);
+    expect(res.error.details).toEqual(REFUSED);
   });
 });

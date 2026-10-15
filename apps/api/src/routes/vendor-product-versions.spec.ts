@@ -64,6 +64,8 @@ const AUTH: AuthzVariables['auth'] = {
   vendorId: VENDOR,
   entitlementTier: 'verified',
   entitlement: { status: 'active', periodEnd: null },
+  // AECI-1355: the version gate is per product, on PRODUCT's live license.
+  licensedProductIds: [PRODUCT],
 };
 
 const UNVERIFIED_AUTH: AuthzVariables['auth'] = {
@@ -383,7 +385,7 @@ describe('POST /api/vendor/products/:id/versions', () => {
       'POST',
       versionsUrl(PRODUCT),
       { label: '2026.1' },
-      { ...AUTH, entitlementTier: 'unclaimed', entitlement: null },
+      { ...AUTH, entitlementTier: 'unclaimed', entitlement: null, licensedProductIds: [] },
     );
     expect(status).toBe(403);
     expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
@@ -399,9 +401,23 @@ describe('POST /api/vendor/products/:id/versions', () => {
         ...UNVERIFIED_AUTH,
         entitlementTier: 'verified',
         entitlement: { status: 'active', periodEnd: null },
+        licensedProductIds: [UNVERIFIED_PRODUCT],
       },
     );
     expect(status).toBe(201);
+  });
+
+  it('403s a vendor holding a license on ANOTHER product (AECI-1355: the gate is per product)', async () => {
+    const { status, body } = await sendJson(
+      'POST',
+      versionsUrl(PRODUCT),
+      { label: '2026.1' },
+      { ...AUTH, licensedProductIds: [UNVERIFIED_PRODUCT] },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+    expect(await auditRows()).toEqual([]);
   });
 
   it('404s a non-owning vendor BEFORE the capability gate — ownership wins the race', async () => {

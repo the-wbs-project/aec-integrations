@@ -83,7 +83,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { tierFor, vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot, tierFor } from '@aeci/shared/entitlements';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -99,6 +99,7 @@ import {
   workflowInstances,
 } from '../db/schema';
 import { readAdminAuditPage, type FetchAuthEmails } from '../lib/admin-audit-page';
+import { loadVendorLicenses, type LicenseBefore } from '../lib/license';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -231,6 +232,9 @@ interface ClaimTarget {
   /** Read, never written: it feeds the audit rows' plan snapshot, the seat return's
    *  entitlement test and the response's `tier` (the vendor's live state). */
   entitlement: EntitlementBefore | null;
+  /** Every license the vendor holds, live and ended: the audit rows' plan snapshot
+   *  reads them (AECI-1355). */
+  vendorLicenses: LicenseBefore[];
   /** Preloaded so a vendor that already has an account gets no statement and no
    *  audit row from `ensureBillingAccountStatements` (AECI-1351). */
   billingAccount: BillingAccountBefore | null;
@@ -274,11 +278,12 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  const [entitlement, billingAccount] = await Promise.all([
+  const [entitlement, billingAccount, vendorLicenses] = await Promise.all([
     loadEntitlement(db, vendorId),
     loadBillingAccount(db, vendorId),
+    loadVendorLicenses(db, vendorId),
   ]);
-  return { vendor, entitlement, billingAccount };
+  return { vendor, entitlement, billingAccount, vendorLicenses };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -394,6 +399,7 @@ async function approveClaim(
     vendor,
     entitlement: entitlementBefore,
     billingAccount,
+    vendorLicenses,
   } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
@@ -488,8 +494,9 @@ async function approveClaim(
   }
 
   const resolvedAt = new Date().toISOString();
-  // One pre-batch snapshot for every row this grant writes. No second read.
-  const vendorPlan = vendorPlanSnapshot(entitlementBefore, resolvedAt);
+  // One pre-batch snapshot for every row this grant writes, from the vendor's
+  // licenses (AECI-1355). No second read.
+  const vendorPlan = licensePlanSnapshot(vendorLicenses, resolvedAt);
   const [{ workflowId, existingWf }, acceptanceIds] = await Promise.all([
     findClaimWorkflow(db, existing.id),
     loadClaimAcceptanceIds(db, existing.id),

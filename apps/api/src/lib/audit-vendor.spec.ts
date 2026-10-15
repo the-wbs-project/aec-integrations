@@ -7,8 +7,9 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, productVendors, products, vendorEntitlements, vendors } from '../db/schema';
+import { auditLog, productVendors, products, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import {
   sessionVendorPlan,
   vendorAuditEntry,
@@ -22,7 +23,7 @@ import {
   productHolderVendorId,
   vendorAuditStamp,
 } from './audit-vendor';
-import type { AuthzVariables } from './authz';
+import type { AuthzVariables, SessionLicense } from './authz';
 import type { Env } from '../env';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -80,28 +81,24 @@ describe('auditInsert maps the AECI-1192 / AECI-1193 columns', () => {
 });
 
 describe('the admin-side holder and plan helpers', () => {
-  it('vendorAuditStamp reads the plan, and says none for no row', async () => {
+  it('vendorAuditStamp reads the plan from licenses, and says none for no license', async () => {
     expect(await vendorAuditStamp(t.db, V1)).toEqual({
       vendorId: V1,
       vendorPlan: { tier: 'none', status: 'none' },
     });
-    await t.db
-      .insert(vendorEntitlements)
-      .values({ id: uuid(40), vendorId: V1, tier: 'verified', status: 'revoked' });
+    // AECI-1355: the admin stamp reads licenses, the rule the vendor session uses.
+    await seedLicense(t.db, V1, {
+      endedAt: '2026-09-01T00:00:00.000Z',
+      endReason: 'revoked',
+    });
     expect(await vendorAuditStamp(t.db, V1)).toEqual({
       vendorId: V1,
       vendorPlan: { tier: 'verified', status: 'revoked' },
     });
   });
 
-  it('vendorAuditStamp records expired for an active row past period_end', async () => {
-    await t.db.insert(vendorEntitlements).values({
-      id: uuid(41),
-      vendorId: V1,
-      tier: 'verified',
-      status: 'active',
-      periodEnd: '2026-10-01',
-    });
+  it('vendorAuditStamp records expired for a live license past its ends_at', async () => {
+    await seedLicense(t.db, V1, { endsAt: '2026-10-01T00:00:00.000Z' });
     expect(await vendorAuditStamp(t.db, V1, '2026-10-05T00:00:00.000Z')).toEqual({
       vendorId: V1,
       vendorPlan: { tier: 'verified', status: 'expired' },
@@ -144,12 +141,23 @@ describe('vendorAuditEntry stamps the session vendor and plan', () => {
     return out as T;
   }
 
+  /** A license as the vendor guard puts it on the session (AECI-1355). */
+  const license = (over: Partial<SessionLicense> = {}): SessionLicense => ({
+    product_id: null,
+    source: 'complimentary',
+    ends_at: null,
+    ended_at: null,
+    end_reason: null,
+    ...over,
+  });
+
   const SESSION: AuthzVariables['auth'] = {
     userId: uuid(100),
     role: 'vendor_admin',
     vendorId: V1,
     entitlementTier: 'unclaimed',
     entitlement: { status: 'expired', tier: 'verified', periodEnd: null, endedAt: null },
+    licenses: [license({ ended_at: '2026-09-01T00:00:00.000Z', end_reason: 'lapsed' })],
   };
 
   it('stamps the session vendor and the RAW tier with its status', async () => {
@@ -161,29 +169,41 @@ describe('vendorAuditEntry stamps the session vendor and plan', () => {
     expect(entry.vendorPlan).toEqual({ tier: 'verified', status: 'expired' });
   });
 
-  it('records none for a session with no entitlement row', async () => {
-    const plan = await withSession({ ...SESSION, entitlement: null }, (c) => sessionVendorPlan(c));
+  it('records none for a session with no license', async () => {
+    const plan = await withSession({ ...SESSION, entitlement: null, licenses: [] }, (c) =>
+      sessionVendorPlan(c),
+    );
     expect(plan).toEqual({ tier: 'none', status: 'none' });
   });
 
-  it('falls back to entitlementTier when a hand-built session omits the raw tier', async () => {
-    const plan = await withSession(
+  it('records none for a hand-built session that never loaded licenses', async () => {
+    const { licenses: _omit, ...withoutLicenses } = SESSION;
+    const plan = await withSession(withoutLicenses, (c) => sessionVendorPlan(c));
+    expect(plan).toEqual({ tier: 'none', status: 'none' });
+  });
+
+  it('records active for a live license, and revoked once it was pulled for cause', async () => {
+    const live = await withSession(
+      { ...SESSION, entitlementTier: 'verified', licenses: [license()] },
+      (c) => sessionVendorPlan(c),
+    );
+    expect(live).toEqual({ tier: 'verified', status: 'active' });
+    const revoked = await withSession(
       {
         ...SESSION,
-        entitlementTier: 'verified',
-        entitlement: { status: 'active', periodEnd: null },
+        licenses: [license({ ended_at: '2026-09-01T00:00:00.000Z', end_reason: 'revoked' })],
       },
       (c) => sessionVendorPlan(c),
     );
-    expect(plan).toEqual({ tier: 'verified', status: 'active' });
+    expect(revoked).toEqual({ tier: 'verified', status: 'revoked' });
   });
 
-  it('records expired when the session row is active but past period_end', async () => {
+  it('records expired when the live license is past its ends_at', async () => {
     const plan = await withSession(
       {
         ...SESSION,
         entitlementTier: 'verified',
-        entitlement: { status: 'active', tier: 'verified', periodEnd: '2026-10-01T00:00:00.000Z' },
+        licenses: [license({ ends_at: '2026-10-01T00:00:00.000Z' })],
       },
       (c) => sessionVendorPlan(c, '2026-10-05T00:00:00.000Z'),
     );

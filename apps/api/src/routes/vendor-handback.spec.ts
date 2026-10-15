@@ -40,6 +40,7 @@ import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
 import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
@@ -114,6 +115,8 @@ beforeEach(async () => {
   });
   // AECI-1351: the post-back-fill state, so a provision writes no account row.
   await t.db.insert(billingAccounts).values({ id: u(71), vendorId: VENDOR, name: 'Bentley' });
+  // AECI-1355: the plan snapshot and the owner checks read licenses.
+  await seedLicense(t.db, VENDOR);
   await t.db.insert(products).values([
     {
       id: P_MINE,

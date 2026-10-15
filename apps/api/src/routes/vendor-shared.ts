@@ -14,7 +14,7 @@
 
 import type { CachePurgeSource } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { vendorPlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -26,7 +26,7 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { BatchStmt } from '../lib/audit';
-import type { AuthzVariables } from '../lib/authz';
+import { productTier, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
@@ -64,26 +64,29 @@ export function sessionVendorId(c: VendorContext): string {
 }
 
 /**
- * The session vendor's plan, snapshotted for an audit row (AECI-1193). Read from
- * the session's `entitlement` block, which `requireVendor()` already joined, so a
- * vendor write costs no extra D1 read. A hand-built test session without the raw
- * `tier` falls back to the resolved `entitlementTier`.
+ * The session vendor's plan, snapshotted for an audit row (AECI-1193). Since
+ * AECI-1355 it is `licensePlanSnapshot` over the licenses `requireVendor()` already
+ * read onto the session, so a vendor write costs no extra D1 read, and a vendor row
+ * and an admin row about the same vendor (`vendorAuditStamp`) use one rule.
  *
- * The block carries `periodEnd`, so a write made after the term ended records
- * `expired` even though the stored status, and so the session, still read
- * `active` (ruling 2026-10-05). `now` is the write time and defaults to the wall
- * clock. The session's authorization is untouched.
+ * The session holds every live license and the latest ended one, which is all the
+ * snapshot reads. A live license whose `ends_at` has passed records `expired` even
+ * though the session still treats it as live (ruling 2026-10-05, a record rule).
+ * `now` is the write time and defaults to the wall clock. The session's
+ * authorization is untouched. A session with no `licenses` (a non-vendor or
+ * hand-built one) records `none`.
  */
 export function sessionVendorPlan(
   c: VendorContext,
   now: Date | string = new Date(),
 ): VendorPlanSnapshot {
-  const auth = c.get('auth');
-  const ent = auth.entitlement;
-  return vendorPlanSnapshot(
-    ent
-      ? { tier: ent.tier ?? auth.entitlementTier, status: ent.status, periodEnd: ent.periodEnd }
-      : null,
+  const licenses = c.get('auth').licenses ?? [];
+  return licensePlanSnapshot(
+    licenses.map((license) => ({
+      endsAt: license.ends_at,
+      endedAt: license.ended_at,
+      endReason: license.end_reason,
+    })),
     now,
   );
 }
@@ -210,6 +213,16 @@ const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSourc
  * External discovery, not a ranking input. Nothing here reaches Algolia, and
  * the §3.2 firewall (`STAGE_2_PAID_TIERS_SPEC.md`) is untouched.
  *
+ * Search-engine resubmission is PER PRODUCT (ruled 2026-10-14,
+ * `docs/VENDOR_SIGNUP_PROCESS.md` §2), like every other Managed right. This
+ * vendor-level check is the necessary condition only: a product is Managed for
+ * the vendor only when one of the vendor's own live licenses is assigned to it,
+ * and any live license makes the vendor-level tier paid. A write that names its
+ * product passes {@link vendorProductRecrawlEnabled} or the product gate in
+ * {@link bufferVendorRecrawl}. A write that names no product (a company profile
+ * edit, which `profile.edit` already limits to a vendor holding a live license)
+ * stays on this vendor-level gate.
+ *
  * For vendor-only call sites, so a Free write skips the URL derivation too. A
  * tail shared with an AECi admin write (`integration-retire-write.ts`) keeps
  * {@link recrawlEnabled}: the admin session carries no entitlement, and
@@ -217,6 +230,16 @@ const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSourc
  */
 export function vendorRecrawlEnabled(c: VendorContext): boolean {
   return recrawlEnabled(c.env) && hasActiveEntitlement(c.get('auth'));
+}
+
+/**
+ * {@link vendorRecrawlEnabled} for a write on ONE known product: the environment
+ * gate AND that product's own live license (`productTier`, ruled 2026-10-14). A
+ * Free product of a vendor that licenses another product asks no search engine to
+ * re-fetch, and its handler skips the URL derivation.
+ */
+export function vendorProductRecrawlEnabled(c: VendorContext, productId: string): boolean {
+  return recrawlEnabled(c.env) && productTier(c.get('auth'), productId) !== 'unclaimed';
 }
 
 /**
@@ -349,7 +372,8 @@ async function bufferVendorRecrawl(
   // legs (see `vendorRecrawlEnabled`). Keyed off the ORIGIN, not the session
   // alone: the admin retire shares this tail with a `NO_ENTITLEMENT` session
   // (`lib/authz.ts`), and AECi's own writes stay ungated, as promote's do.
-  if (origin.purgeSource === 'vendor' && !hasActiveEntitlement(c.get('auth'))) {
+  const vendorOrigin = origin.purgeSource === 'vendor';
+  if (vendorOrigin && !hasActiveEntitlement(c.get('auth'))) {
     // Settle a handed-over promise so a rejected derivation is not left unhandled.
     if (pending instanceof Promise) pending.catch(() => undefined);
     return;
@@ -360,7 +384,16 @@ async function bufferVendorRecrawl(
   // promise straight over, so the read never delays the response — it settles
   // inside `waitUntil` alongside the inserts it feeds.
   const recrawl = await pending;
-  const fullCause: RecrawlCause = { ...cause, productId: await resolveRecrawlProduct(recrawl) };
+  const productId = await resolveRecrawlProduct(recrawl);
+
+  // Ruled 2026-10-14: resubmission is per product. A vendor write that names the
+  // vendor's own product buffers only when THAT product holds the vendor's live
+  // license. A write that names none (a company profile edit, or an integration
+  // the owner touches neither endpoint of) stays on the vendor-level gate above.
+  if (vendorOrigin && productId !== null && productTier(c.get('auth'), productId) === 'unclaimed') {
+    return;
+  }
+  const fullCause: RecrawlCause = { ...cause, productId };
 
   // AECI-1184: why each URL is queued. Written after its queue upsert, inside that
   // upsert's catch, and caught on its own so a lost cause is logged as itself. A
@@ -753,10 +786,10 @@ export function productMaintenanceTransfer(
  *
  * The caller's `vendors` row rides along in the same wave so a granted seat
  * whose vendor row was deleted answers 404, as `GET /api/vendor/me` does. It is
- * NOT an authorization input: the capability gate is `requireCapability`, which
- * reads the session's `entitlementTier`, never the `vendors.verified` mirror
- * (AECI-623). Callers run that gate after this returns, so a non-owner gets a
- * 404 rather than learning it lacks the capability.
+ * NOT an authorization input: the capability gate is `requireProductCapability`,
+ * which reads the session's `licensedProductIds` (AECI-1355), never the
+ * `vendors.verified` mirror (AECI-623). Callers run that gate after this returns,
+ * so a non-owner gets a 404 rather than learning it lacks the capability.
  */
 export async function requireOwnedProduct(
   db: Db,

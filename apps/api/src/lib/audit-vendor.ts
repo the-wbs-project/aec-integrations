@@ -11,12 +11,12 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { asc, desc, eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productVendors } from '../db/schema';
-import { loadEntitlement } from './vendor-entitlement';
+import { loadVendorLicenses } from './license';
 
 /** The two `AuditLogEntry` fields that say which vendor a row is about. */
 export type VendorAuditStamp = Required<Pick<AuditLogEntry, 'vendorId' | 'vendorPlan'>>;
@@ -27,9 +27,11 @@ export const NO_VENDOR_STAMP: VendorAuditStamp = { vendorId: null, vendorPlan: n
 /**
  * The vendor and its current plan, for an audit row about something it holds.
  * `null` in, both columns NULL out: an unowned entity has no vendor to name.
- * `now` is the write time the plan is judged at: an `active` row past its
- * `period_end` records `expired` (`vendorPlanSnapshot`). It defaults to the wall
- * clock, which is the write time for every handler that does not hold its own.
+ * The plan is `licensePlanSnapshot` over the vendor's licenses (AECI-1355), the
+ * rule the vendor session's own rows use. `now` is the write time the plan is
+ * judged at: live licenses all past their `ends_at` record `expired`. It defaults
+ * to the wall clock, which is the write time for every handler that does not hold
+ * its own.
  */
 export async function vendorAuditStamp(
   db: Db,
@@ -37,7 +39,7 @@ export async function vendorAuditStamp(
   now: Date | string = new Date(),
 ): Promise<VendorAuditStamp> {
   if (!vendorId) return NO_VENDOR_STAMP;
-  return { vendorId, vendorPlan: vendorPlanSnapshot(await loadEntitlement(db, vendorId), now) };
+  return { vendorId, vendorPlan: licensePlanSnapshot(await loadVendorLicenses(db, vendorId), now) };
 }
 
 /**

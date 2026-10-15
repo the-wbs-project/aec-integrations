@@ -34,9 +34,9 @@ export function vendorCan(store: VendorPortalStore, capability: Capability): Sig
  * §13.7, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.)
  *
  * Product screens gate through this and never through `me().entitlement`. Plans
- * live at the product level (decision 2). Until per-product plans exist the
- * server copies the vendor's block into every product's `plan`, so this agrees
- * with {@link vendorCan} today, and no screen changes when they land.
+ * live at the product level (decision 2). Since AECI-1355 each product's `plan`
+ * comes from its own license on the caller's billing accounts, so a product the
+ * vendor did not license reads as Free here even when {@link vendorCan} is true.
  *
  * A plain boolean rather than a `Signal`: the product is already a signal value
  * at every call site, so the caller wraps this in its own `computed` and the
@@ -48,6 +48,41 @@ export function productCan(
   capability: Capability,
 ): boolean {
   return product?.plan.capabilities.includes(capability) ?? false;
+}
+
+/**
+ * May the caller author attestations on this integration? (Ruled 2026-10-14:
+ * attestations are per product.) The client half of `requireAttestationCapability`
+ * in `apps/api/src/routes/vendor-attestations.ts`: the caller's OWN endpoint
+ * product decides, through its `plan`, never the vendor's block.
+ *
+ * `context_product` is always the caller's own endpoint. `slots.length === 2` is
+ * the owns-both case, where `other_product` is the caller's too, and the server
+ * passes when EITHER endpoint product holds the capability. So the answer is the
+ * same on both of the portal's listings of that integration. A product missing
+ * from `products` (the catalog not yet loaded) counts as not holding it, the
+ * closed answer.
+ */
+export function integrationCanAuthor(
+  integration: {
+    readonly context_product: { readonly id: string };
+    readonly other_product: { readonly id: string };
+    readonly slots: readonly unknown[];
+  } | null,
+  products: readonly {
+    readonly id: string;
+    readonly plan: { readonly capabilities: readonly Capability[] };
+  }[],
+): boolean {
+  if (!integration) return false;
+  const owned = [integration.context_product.id];
+  if (integration.slots.length === 2) owned.push(integration.other_product.id);
+  return owned.some((id) =>
+    productCan(
+      products.find((product) => product.id === id),
+      'attestation.author',
+    ),
+  );
 }
 
 /**

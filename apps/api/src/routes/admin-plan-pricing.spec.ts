@@ -19,6 +19,7 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createSetVendorPlanPricingHandler } from './admin-plan-pricing';
 
@@ -156,6 +157,15 @@ describe('PUT …/plan-pricing: set', () => {
 
   it('snapshots the vendor plan on the audit row', async () => {
     await seedVendor();
+    // AECI-1355: the snapshot reads the vendor's licenses, not `vendor_entitlements`.
+    await seedLicense(t.db, VENDOR);
+    await put(VENDOR, { managed_price_cents: 900, message: null });
+    const [audit] = await readAudit();
+    expect(audit).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
+  });
+
+  it('ignores an entitlement row with no license behind it', async () => {
+    await seedVendor();
     await t.db.insert(vendorEntitlements).values({
       vendorId: VENDOR,
       tier: 'verified',
@@ -164,7 +174,7 @@ describe('PUT …/plan-pricing: set', () => {
     });
     await put(VENDOR, { managed_price_cents: 900, message: null });
     const [audit] = await readAudit();
-    expect(audit).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
+    expect(audit).toMatchObject({ vendorTier: 'none', vendorEntitlementStatus: 'none' });
   });
 
   it('writes nothing for an unchanged override', async () => {

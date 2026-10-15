@@ -114,9 +114,15 @@ interface ChecklistFacts {
 }
 
 /**
- * Can a seat on this plan claim a connector-powered row? The same test as
- * `hasActiveEntitlement` in `lib/integration-entitlement.ts`, read from the
+ * Can a seat on this plan claim a connector-powered row? The test
+ * `hasActiveEntitlement` in `lib/integration-entitlement.ts` applies, read from the
  * PRODUCT's plan block so it moves with per-product plans (§13.7).
+ *
+ * Since AECI-1355 the two can differ in one direction. The claim route asks
+ * whether the VENDOR holds any live license; this asks whether the PRODUCT does.
+ * A Free product of a vendor that licenses another product therefore does not
+ * count its connector-powered rows here, though the vendor could claim them. The
+ * step is then easier to finish, never unfinishable, which is what decision 6 needs.
  */
 function canClaimConnectorPowered(plan: VendorEntitlementBlock): boolean {
   return plan.tier !== 'unclaimed';
@@ -375,11 +381,14 @@ export function createVendorChecklistHandler(
     // A granted seat whose vendor row was deleted. `GET /api/vendor/me` answers 404.
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
 
-    // Until per-product plans exist, every product carries the vendor's block
-    // (§13.7). When they land, only this source changes.
-    const plan = entitlementBlock(session, price);
+    // Each product scores on its OWN plan, from its own license (AECI-1355, §13.7),
+    // the same block `GET /api/vendor/me` puts on the product.
     const summaries: VendorProductChecklistSummary[] = owned.map((product) => {
-      const { steps: _steps, ...summary } = productChecklist(product, settled, plan);
+      const { steps: _steps, ...summary } = productChecklist(
+        product,
+        settled,
+        entitlementBlock(session, price, product.id),
+      );
       return summary;
     });
 
@@ -424,7 +433,7 @@ export function createVendorProductChecklistHandler(
       loadPlanPrice(db, vendorId),
     ]);
 
-    const body = productChecklist(product, facts, entitlementBlock(session, price));
+    const body = productChecklist(product, facts, entitlementBlock(session, price, productId));
     validateResponseInDev(c.env, () => VendorProductChecklistResponseSchema.parse(body));
     return json(body);
   };

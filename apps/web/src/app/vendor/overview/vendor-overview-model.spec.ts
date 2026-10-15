@@ -254,6 +254,29 @@ describe('buildNeedsItems', () => {
     ]);
   });
 
+  it('counts waiting positions only where the endpoint product can answer (AECI-1355)', () => {
+    const free = VENDOR_ME_DOWNGRADED_FIXTURE.entitlement;
+    const withPlans = (freeIds: readonly string[]): VendorMeResponse => ({
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) =>
+        freeIds.includes(p.id) ? { ...p, plan: free } : p,
+      ),
+    });
+    const waitingIds = (me: VendorMeResponse) =>
+      buildNeedsItems(input({ me }))
+        .worthDoing.filter((i) => i.type === 'waiting')
+        .map((i) => (i.type === 'waiting' ? i.product.id : ''));
+
+    const [first, second] = VENDOR_ME_FIXTURE.products.map((p) => p.id);
+    // Both products have a single-owner row waiting while both are licensed.
+    expect(waitingIds(VENDOR_ME_FIXTURE)).toEqual([first, second]);
+    // Free on the first product only: the vendor still holds the capability (the
+    // second is licensed), but the first product's waiting row drops out.
+    expect(waitingIds(withPlans([first!]))).toEqual([second]);
+    // Free everywhere: no waiting row, although the caller passed `canAttest`.
+    expect(waitingIds(withPlans(VENDOR_ME_FIXTURE.products.map((p) => p.id)))).toEqual([]);
+  });
+
   it('gates each Worth doing item on its own capability', () => {
     const base = input({ seatInviteCount: 2, canManageSeats: true });
     const has = (over: Partial<NeedsInput>, type: string) =>

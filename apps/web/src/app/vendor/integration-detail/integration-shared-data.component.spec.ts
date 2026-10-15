@@ -26,6 +26,8 @@ import {
   INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_PROCORE_DETAIL,
   VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_ME_FREE_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -786,5 +788,69 @@ describe('a submitted change (AECI-1246)', () => {
     expect(api.retractAttestation).toHaveBeenCalledTimes(1);
     expect(api.upsertAttestation).toHaveBeenCalledTimes(2);
     expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+  });
+});
+
+/**
+ * Ruled 2026-10-14: attestations are per product. The page reads the caller's
+ * endpoint PRODUCT's plan, never the vendor's block, as the server's
+ * `requireAttestationCapability` does.
+ */
+describe('attestation.author comes from the endpoint product’s plan', () => {
+  const FREE = VENDOR_ME_FREE_FIXTURE.products[0]!.plan;
+  const [primary, secondary] = VENDOR_ME_FIXTURE.products;
+  /** A Managed vendor whose context product is Free, its other product Managed. */
+  const contextFree = {
+    ...VENDOR_ME_FIXTURE,
+    products: VENDOR_ME_FIXTURE.products.map((p) =>
+      p.id === PROCORE.context_product.id ? { ...p, plan: FREE } : p,
+    ),
+  };
+
+  it('locks answering on a Free endpoint product though the vendor block is Managed', async () => {
+    expect(VENDOR_ME_FIXTURE.entitlement.capabilities).toContain('attestation.author');
+    const { state } = await setup(makeApi([PROCORE]), PROCORE, contextFree);
+    expect(state.canAuthor()).toBe(false);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(true);
+  });
+
+  it('unlocks answering when the endpoint product is Managed', async () => {
+    const { state } = await setup(makeApi([PROCORE]), PROCORE, VENDOR_ME_FIXTURE);
+    expect(state.canAuthor()).toBe(true);
+  });
+
+  it('an owns-both integration unlocks when EITHER of the caller’s endpoints is Managed', async () => {
+    expect(primary!.id).toBe(PROCORE.context_product.id);
+    const both = {
+      ...PROCORE,
+      slots: ['vendor_a', 'vendor_b'] as typeof PROCORE.slots,
+      other_product: {
+        id: secondary!.id,
+        slug: secondary!.slug,
+        name: secondary!.name,
+        logo_url: null,
+      },
+    };
+    const { state } = await setup(makeApi([both]), both, contextFree);
+    expect(state.canAuthor()).toBe(true);
+  });
+
+  it('an owns-both integration stays locked when NEITHER endpoint is Managed', async () => {
+    const both = {
+      ...PROCORE,
+      slots: ['vendor_a', 'vendor_b'] as typeof PROCORE.slots,
+      other_product: {
+        id: secondary!.id,
+        slug: secondary!.slug,
+        name: secondary!.name,
+        logo_url: null,
+      },
+    };
+    const { state } = await setup(makeApi([both]), both, {
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: FREE })),
+    });
+    expect(state.canAuthor()).toBe(false);
   });
 });

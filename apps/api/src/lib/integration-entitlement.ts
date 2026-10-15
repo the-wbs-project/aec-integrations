@@ -8,16 +8,18 @@
  * one applies only where the carve-out applies: an owner's claim, edit, retire and
  * restore of a connector-powered row (either table), and an owner's decision on a
  * contest over one. It closes the §8.10(6) free-seat hole at write time: a §8.9
- * catalogue-maintenance seat has no `vendor_entitlements` row, so it fails here.
+ * catalogue-maintenance seat holds no live license, so it fails here.
  *
  * Three rules a caller must keep:
  *
  *  1. **Not a capability.** There is no `integration.edit` capability, and no tier is
- *     compared. The test is "the session resolved to a paid tier", which `tierFor`
- *     only returns for a row with `status = 'active'` (fail-closed: no row, a
- *     `pending` / `expired` / `revoked` row, or a tier this build does not know all
- *     resolve to `'unclaimed'`). DB-free: it reads the `entitlementTier` the
- *     vendor guard already loaded (§4.1), so it costs no round trip.
+ *     compared. The test is "the session resolved to a paid tier", which the vendor
+ *     guard returns exactly when the vendor holds at least one LIVE license on any
+ *     billing account (AECI-1355; fail-closed: no license, or only ended ones,
+ *     resolve to `'unclaimed'`). It is VENDOR-level on purpose: an integration is
+ *     not one product's, so no single product's license decides. DB-free: it reads
+ *     the `entitlementTier` the vendor guard already loaded (§4.1), so it costs no
+ *     round trip.
  *  2. **Only after ownership settles, and only on a connector-powered row.** Call it
  *     after the handler has answered `404` / `INTEGRATION_NOT_OWNER` /
  *     `INTEGRATION_OWNER_UNKNOWN`, so a non-owner never learns anything from a 403,
@@ -28,6 +30,8 @@
  *     has none. `details.status` tells the portal "never bought" (`null`) from
  *     "lapsed" (`expired`, `revoked`, `pending`). 403, not 402 (`API_CONTRACTS.md`
  *     §4.1 has no 402 row). The copy points at activation, never at ranking.
+ *     Since AECI-1355 `details.status` is derived from licenses: `null` for a vendor
+ *     that never held one, `expired` / `revoked` once every license has ended.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -42,8 +46,8 @@ export type EntitlementSession = Pick<AuthenticatedSession, 'entitlementTier' | 
 
 /**
  * Does this session hold an active entitlement? The one definition the carve-out
- * routes share. `true` exactly when the vendor guard resolved a paid tier, which
- * `tierFor` returns only for a `vendor_entitlements` row with `status = 'active'`.
+ * routes share. `true` exactly when the vendor guard resolved a paid tier, which it
+ * does only when the vendor holds a live license (AECI-1355).
  */
 export function hasActiveEntitlement(session: EntitlementSession): boolean {
   return session.entitlementTier !== 'unclaimed';

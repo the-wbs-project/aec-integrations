@@ -39,7 +39,7 @@ import {
   type VendorPlanPricingResponse,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -51,8 +51,8 @@ import { json } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { loadVendorLicenses } from '../lib/license';
 import { forwardAuditBatch } from '../lib/moderation-forward';
-import { loadEntitlement } from '../lib/vendor-entitlement';
 import { selectPlanPricing, toPlanPrice, toPlanPricingResponse } from '../lib/vendor-plan-pricing';
 
 type PlanPricingContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -101,9 +101,9 @@ export function createSetVendorPlanPricingHandler(
     });
     if (!vendor) throw notFoundError('vendor', { id });
 
-    const [[existingRow], entitlement] = await Promise.all([
+    const [[existingRow], vendorLicenses] = await Promise.all([
       selectPlanPricing(db, vendor.id),
-      loadEntitlement(db, vendor.id),
+      loadVendorLicenses(db, vendor.id),
     ]);
 
     const before = toPlanPrice(existingRow);
@@ -128,7 +128,7 @@ export function createSetVendorPlanPricingHandler(
       entityType: 'vendor_plan_pricing',
       entityId: vendor.id,
       vendorId: vendor.id,
-      vendorPlan: vendorPlanSnapshot(entitlement, now),
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
       beforeState: existingRow ? before : null,
       afterState: clearing ? null : next,
       metadata: { display_only: true },

@@ -1355,7 +1355,7 @@ that a bare catalog does not:
 
 | Fixture | What it unlocks |
 | --- | --- |
-| `phase2-fixtures.sql` verified vendor **+** its `vendor_entitlements` row | The paid-tiers mirror is consistent. Seeding `verified = 1` **without** the entitlement row is the classic mistake — nothing fails until something reads the mirror. |
+| `phase2-fixtures.sql` verified vendor **+** its `vendor_entitlements` row, billing account and license | The paid-tiers mirror is consistent. Seeding `verified = 1` **without** the entitlement row is the classic mistake — nothing fails until something reads the mirror. Since AECI-1355 the vendor portal resolves the plan from the license, so a fixture vendor with an entitlement row and no license reads as Free and trips `license_mirror_drift`. |
 | `phase2-fixtures.sql` claim + `aeci` attestation | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane. |
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |

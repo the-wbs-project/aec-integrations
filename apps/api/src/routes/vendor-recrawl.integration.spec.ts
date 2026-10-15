@@ -75,10 +75,16 @@ const AUTH: AuthzVariables['auth'] = {
   role: 'vendor_admin',
   vendorId: VENDOR,
   entitlementTier: 'verified',
+  // AECI-1355: the product writes gate on PRODUCT's own live license.
+  licensedProductIds: [PRODUCT],
   entitlement: null,
 };
 /** A seat with no active entitlement: the Free plan (AECI-1186). */
-const FREE_AUTH: AuthzVariables['auth'] = { ...AUTH, entitlementTier: 'unclaimed' };
+const FREE_AUTH: AuthzVariables['auth'] = {
+  ...AUTH,
+  entitlementTier: 'unclaimed',
+  licensedProductIds: [],
+};
 /** The integration the vendor owns and has claimed, PRODUCT → PAIRED. */
 const OWNED_INTEGRATION = u(24);
 
@@ -436,6 +442,32 @@ describe('the plan gate', () => {
     expect(res.status).toBe(200);
     expect(await indexNowRows()).toHaveLength(0);
     expect(await gscRows()).toHaveLength(0);
+  });
+
+  // Ruled 2026-10-14: resubmission is per product. The vendor holds a live license,
+  // but not on PRODUCT, so PRODUCT's edit asks no search engine to re-fetch.
+  it('leaves no row after a product edit when the license is on another product', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
+    expect(await gscRows()).toHaveLength(0);
+  });
+
+  it('still buffers a profile edit for that vendor: the profile is a vendor-level write', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson('/api/vendor/profile', { headquarters: 'Carpinteria, CA' });
+    expect(res.status).toBe(200);
+    expect((await indexNowRows()).length).toBeGreaterThan(0);
+  });
+
+  it('leaves no row after an integration edit whose owned endpoint is not licensed', async () => {
+    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    const res = await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, {
+      name: 'Procore Build Sync',
+    });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
   });
 });
 

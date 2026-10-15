@@ -968,7 +968,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
   //
   // `entitlement-expiry` is carved out for the same reason as the prune, and then
   // one further: it is NOT audit-exempt (a delivered warning writes a
-  // `vendor_entitlement.expiry_warned` row in the same batch as the fence stamp),
+  // `license.expiry_warned` row in the same batch as the fence stamp),
   // AND its sweep is mocked here — so the exempt assertion would pass twice over
   // for the wrong reason. `lib/entitlement-expiry.spec.ts` owns that obligation.
 

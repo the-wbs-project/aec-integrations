@@ -15,9 +15,10 @@
  * read or parsed. An unknown review, a review of a product the caller does not own,
  * and a review that is not `approved` are ONE query and ONE 404, with the review id
  * as the only detail: a vendor never learns that a pending or rejected review
- * exists (§11c.3). Then `requireCapability(c, 'review.reply')`, so a Free seat gets
- * `403 ENTITLEMENT_REQUIRED` only after ownership settled (`STAGE_2_PAID_TIERS_SPEC.md`
- * §4). Withdraw is not gated (§11c.9): taking your own words down is never paid.
+ * exists (§11c.3). Then `requireProductCapability(c, review.productId, 'review.reply')`,
+ * so a reply on a Free product gets `403 ENTITLEMENT_REQUIRED` only after ownership
+ * settled (`STAGE_2_PAID_TIERS_SPEC.md` §4). The reviewed product's own license
+ * decides, not the vendor's (AECI-1355). Withdraw is not gated (§11c.9): taking your own words down is never paid.
  *
  * ── 2. EVERY TRANSITION IS ONE BATCH ────────────────────────────────────────
  * The guarded write, {@link reviewResponseChangedSentinel} straight after it, then
@@ -62,7 +63,7 @@ import { productVendors, products, reviewResponses, reviews } from '../db/schema
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { auditActorType, requireCapability } from '../lib/authz';
+import { auditActorType, productTier, requireProductCapability } from '../lib/authz';
 import { publicReviewColumns, toPublicReview } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { chunked } from '../lib/promote-claims';
@@ -236,7 +237,7 @@ export function createSubmitReviewResponseHandler(
     const { db } = writeDb(c, dbFor);
 
     const review = await requireOwnedApprovedReview(db, vendorId, reviewId);
-    requireCapability(c, 'review.reply');
+    requireProductCapability(c, review.productId, 'review.reply');
     const { body } = await parseJsonBody(c, ReviewResponseBodySchema);
 
     const existing = await loadOwnReply(db, reviewId, vendorId);
@@ -336,7 +337,7 @@ export function createEditReviewResponseHandler(
     const { db } = writeDb(c, dbFor);
 
     const review = await requireOwnedApprovedReview(db, vendorId, reviewId);
-    requireCapability(c, 'review.reply');
+    requireProductCapability(c, review.productId, 'review.reply');
     const { body } = await parseJsonBody(c, ReviewResponseBodySchema);
 
     const existing = await loadOwnReply(db, reviewId, vendorId);
@@ -516,8 +517,11 @@ export function createListVendorReviewsHandler(
     ]);
     const productById = new Map(productRows.map((p) => [p.id, p]));
     const ownByReview = new Map(ownRows.map((r) => [r.reviewId, r]));
-    // Until per-product plans land, a product's plan is the vendor's (§11c.9).
-    const canReply = hasCapability(c.get('auth').entitlementTier, 'review.reply');
+    // Each review's PRODUCT plan decides (§11c.9, AECI-1355): the same tier
+    // `requireProductCapability` asserts on the write.
+    const session = c.get('auth');
+    const canReply = (productId: string) =>
+      hasCapability(productTier(session, productId), 'review.reply');
 
     const data: VendorReviewItem[] = [];
     for (const row of rows) {
@@ -535,7 +539,7 @@ export function createListVendorReviewsHandler(
         },
         response: own ? toVendorReviewResponse(own) : null,
         other_responses: others.get(row.id) ?? [],
-        can_reply: canReply,
+        can_reply: canReply(row.productId),
       });
     }
 

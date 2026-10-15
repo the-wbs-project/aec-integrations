@@ -152,7 +152,7 @@ export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
  *
  *  Queue-less and inline, following the 06:00 moderation-snapshot precedent
  *  (`queueForJob` returns `undefined`): one indexed read over
- *  `vendor_entitlements_expiry_idx` plus a handful of fail-open emails does not
+ *  `licenses_ends_idx` (AECI-1356) plus a handful of fail-open emails does not
  *  justify a new `aeci-entitlement-expiry-{env}` queue, two `wrangler.jsonc`
  *  blocks per tier, and a `wrangler queues create` step in two deploy workflows.
  *  A missed night costs at most one day of warning lead time, and the

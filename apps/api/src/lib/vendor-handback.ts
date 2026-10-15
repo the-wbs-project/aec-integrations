@@ -103,8 +103,8 @@ import {
   ownerEntitlementActiveSentinel,
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
-import { loadEntitlement } from './vendor-entitlement';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
+import { loadVendorLicenses } from './license';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -120,9 +120,9 @@ export interface HandbackParams extends HandbackActor {
   /** `metadata.source` on every row. The admin routes pass `admin-moderation`. */
   source: string;
   /**
-   * The vendor's plan snapshot, when the caller already read the entitlement for its
-   * own rows (the revoke, the ban, every seat grant). {@link sealed} stamps it as-is
-   * and skips its own `vendor_entitlements` read. Absent, `sealed` reads it.
+   * The vendor's plan snapshot, when the caller already read the plan for its own
+   * rows (the revoke, the ban, every seat grant). {@link sealed} stamps it as-is and
+   * skips its own license read. Absent, `sealed` reads it.
    */
   vendorPlan?: NonNullable<AuditLogEntry['vendorPlan']>;
 }
@@ -172,13 +172,14 @@ function emptyBatch(): HandbackBatch {
  * with that vendor and its plan (AECI-1192 / AECI-1193, `DATABASE_SCHEMA.md` §8.4).
  * A row that already names a vendor keeps it: a `notification.sent` row carries
  * its recipient. The plan is `p.vendorPlan` when the caller passed one, so a
- * caller that already read the entitlement does not read it twice. Otherwise it
- * costs one `vendor_entitlements` read, and only when there is a row to stamp.
+ * caller that already read the plan does not read it twice. Otherwise it costs one
+ * license read (`licensePlanSnapshot`, AECI-1355), and only when there is a row to
+ * stamp.
  */
 async function sealed(batch: HandbackBatch, db: Db, p: HandbackParams): Promise<HandbackBatch> {
   if (batch.audits.length === 0) return batch;
   const vendorPlan =
-    p.vendorPlan ?? vendorPlanSnapshot(await loadEntitlement(db, p.vendorId), p.now);
+    p.vendorPlan ?? licensePlanSnapshot(await loadVendorLicenses(db, p.vendorId), p.now);
   const audits = batch.audits.map((a) =>
     a.vendorId ? a : { ...a, vendorId: p.vendorId, vendorPlan },
   );

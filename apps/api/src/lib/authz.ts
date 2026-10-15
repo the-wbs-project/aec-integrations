@@ -33,12 +33,13 @@
  *      FORBIDDEN`.
  *
  * AECI-611 adds a FOURTH thing to the session, on the `requireVendor()` branch
- * only: the caller's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §4). That
- * branch's profile re-fetch becomes a `leftJoin` onto `vendor_entitlements`, so
- * the tier arrives in the SAME round-trip the guard was already paying for, and
- * `requireCapability()` below is a pure in-memory assertion. The ban check still
- * runs FIRST — a banned seat is rejected before any entitlement question is
- * asked (AECI-524).
+ * only: the caller's plan (`STAGE_2_PAID_TIERS_SPEC.md` §4). Since AECI-1355 (E1.6)
+ * the plan is read from `licenses`, not `vendor_entitlements`: that branch's
+ * profile re-fetch becomes a two-statement `db.batch` (the profile and the vendor's
+ * own licenses), so the plan arrives in the SAME round-trip the guard was
+ * already paying for, and `requireCapability()` / `requireProductCapability()`
+ * below are pure in-memory assertions. The ban check still runs FIRST — a banned
+ * seat is rejected before any plan question is asked (AECI-524).
  *
  * On success the handler gets `c.get('auth')` = `{ userId, email?, role,
  * vendorId }`. `userId` is the verified token `sub` (the `auth.users` UUID) —
@@ -57,9 +58,7 @@
 import { ApiErrorCode } from '@aeci/shared';
 import type { AuditLogActorType } from '@aeci/shared/audit-log';
 import {
-  ENTITLEMENT_STATUSES,
   hasCapability,
-  tierFor,
   type Capability,
   type EntitlementStatus,
   type EntitlementTier,
@@ -69,13 +68,13 @@ import {
 // surface to silence telemetry. Behind the mock, registration would silently
 // stop happening — the exact silent under-coverage AECI-644 exists to avoid.
 import { rememberPosthogDistinctId } from '@aeci/shared/posthog';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
 import { getDb, type Db } from '../db/client';
-import { profiles, vendorEntitlements } from '../db/schema';
+import { billingAccounts, licenses, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
@@ -101,15 +100,19 @@ export type AuthenticatedSession = {
    */
   vendorId: string | null;
   /**
-   * The caller's entitlement tier (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §4).
+   * The caller's VENDOR-level tier (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §4).
    *
    * **Always present, never optional.** An optional field invites
    * `session.entitlementTier ?? 'verified'` at a call site, which is the one
-   * default that must never exist. `'unclaimed'` for every non-vendor session
-   * and for any vendor without an ACTIVE `vendor_entitlements` row — resolved
-   * fail-closed by `tierFor` (no row, a `pending`/`expired`/`revoked` status, or
-   * a tier this build does not know all land on `'unclaimed'` → zero
-   * capabilities → writes 403).
+   * default that must never exist. Since AECI-1355 it is `'verified'` exactly
+   * when the vendor holds at least one LIVE license (`licenses.ended_at IS NULL`)
+   * on any of its billing accounts, assigned or not, and `'unclaimed'` for every
+   * non-vendor session and every vendor with none.
+   *
+   * It gates the VENDOR-level writes only: `profile.edit` and the connector-powered
+   * carve-out. A write on ONE product, and since the 2026-10-14 ruling every
+   * attestation write and search-engine resubmission, gates on that product's own
+   * license through {@link productTier}, never on this.
    *
    * Named `entitlementTier` and **not `tier`** (§10 R4): `profiles.trust_tier`
    * is a REVIEWER concept on the neighbouring table whose CHECK vocabulary
@@ -118,34 +121,79 @@ export type AuthenticatedSession = {
    */
   entitlementTier: EntitlementTier;
   /**
-   * Term detail for the §8 dashboard readout — `null` for non-vendor sessions,
-   * for a vendor with no `vendor_entitlements` row, and for a row whose `status`
-   * is outside the §2.2 vocabulary (fail closed: no readable term).
+   * Vendor-level term detail for the §8 dashboard readout and the §13.11
+   * pilot-ended banner, DERIVED from `licenses` (AECI-1355) by
+   * {@link sessionPlanFromLicenses}. `null` for non-vendor sessions and for a
+   * vendor that has never held a license ("never bought", which the banner must
+   * tell apart from "ended").
    *
-   * Deliberately NOT the authorization input. `entitlementTier` is the only
-   * thing `requireCapability` consults; this exists so the dashboard can say
-   * "expires 2027-01-01" or "arrangement pending" rather than only "locked".
+   *  - any live license → `active`; `periodEnd` is the latest scheduled `ends_at`
+   *    among the live licenses, `null` when any is monthly (`ends_at` NULL);
+   *  - none live → the most recently ended license decides: `revoked` when its
+   *    `end_reason` is `revoked`, else `expired`; `periodEnd` and `endedAt` are its own.
+   *
+   * Deliberately NOT the authorization input. `entitlementTier` is what
+   * `requireCapability` consults; this exists so the dashboard can say
+   * "expires 2027-01-01" or "ended on …" rather than only "locked".
    */
   entitlement: {
     status: EntitlementStatus;
-    /** The RAW `vendor_entitlements.tier` from the same join (AECI-1193). Not an
-     *  authorization input: `entitlementTier` is. It exists so a vendor audit row
-     *  can snapshot "verified, expired" with no extra D1 read, which the resolved
-     *  `entitlementTier` (`unclaimed` once lapsed) cannot say. Optional so a
-     *  hand-built test session may omit it; `vendorAuditEntry` then falls back to
-     *  `entitlementTier`. */
+    /** The RAW tier (AECI-1193): `verified` whenever the vendor holds or held a
+     *  license. Not an authorization input: `entitlementTier` is. It lets a reader
+     *  say "verified, expired", which the resolved `entitlementTier` (`unclaimed`
+     *  once lapsed) cannot. Optional so a hand-built test session may omit it. */
     tier?: string;
     periodEnd: string | null;
-    /** `vendor_entitlements.ended_at`: when the row last left `active`
-     *  (AECI-1218, the pilot-ended banner's date line). `null` while active.
+    /** When the plan ended (AECI-1218, the pilot-ended banner's date line): the
+     *  latest `licenses.ended_at` once no license is live. `null` while any is live.
      *  Optional so a hand-built test session may omit it; absent reads as `null`. */
     endedAt?: string | null;
   } | null;
+  /**
+   * The products this vendor holds a LIVE license for (AECI-1355,
+   * `docs/VENDOR_SIGNUP_PROCESS.md` §3 step 6): the products assigned to a live
+   * license on the vendor's OWN billing accounts. The input of
+   * {@link requireProductCapability}: a product is Managed for this vendor exactly
+   * when its id is here. Only the payer gets Managed rights (ruled 2026-10-14): a
+   * co-owned product licensed on the OTHER owner's account is not listed, so this
+   * vendor stays Free on it. Empty for non-vendor sessions.
+   *
+   * Optional ONLY so the hand-built sessions in route specs still compile. Every
+   * reader goes through {@link productTier}, which reads absence as "no product
+   * licensed": the fail-closed direction, never a default that grants.
+   */
+  licensedProductIds?: readonly string[];
+  /**
+   * The vendor's OWN licenses as the guard read them (AECI-1355), on its own
+   * billing accounts only: every LIVE license, assigned or not, plus the most
+   * recently ENDED license per (billing account, assigned product), which is what
+   * the pilot-ended banner and a product's "ended on" date need. Older ended licenses are history and are not read.
+   * Feeds the per-product `plan` blocks and the audit plan snapshot
+   * (`licensePlanSnapshot`). Empty for non-vendor sessions. Optional for the same
+   * reason as `licensedProductIds`; absent reads as `[]`.
+   */
+  licenses?: readonly SessionLicense[];
+};
+
+/**
+ * One license as the session carries it (AECI-1355). Snake case, as the issue's
+ * contract names it, because it mirrors the stored columns one to one.
+ * `end_reason` rides along so an ended plan reads `revoked` or `expired` without
+ * a second read.
+ */
+export type SessionLicense = {
+  product_id: string | null;
+  source: string;
+  ends_at: string | null;
+  ended_at: string | null;
+  end_reason: string | null;
 };
 
 /** Non-vendor sessions (`requireAuth()` / `requireAdmin()`) carry the
  *  fail-closed floor: `/api/vendor/*` is the only entitlement-gated surface, and
- *  a reviewer or admin session must never resolve to a paid tier. */
+ *  a reviewer or admin session must never resolve to a paid tier. The two license
+ *  fields are left absent rather than `[]`, so those two guards set exactly the
+ *  session they set before AECI-1355; absence reads as "no license" everywhere. */
 const NO_ENTITLEMENT = {
   entitlementTier: 'unclaimed',
   entitlement: null,
@@ -267,76 +315,234 @@ type ProfileAuthz = {
   banReason: string | null;
 };
 
-/** …plus the joined entitlement projection, on the vendor branch only. */
+/** …plus the vendor's licenses, on the vendor branch only (AECI-1355). */
 type VendorProfileAuthz = ProfileAuthz & {
-  entTier: string | null;
-  entStatus: string | null;
-  entPeriodEnd: string | null;
-  entEndedAt: string | null;
+  licenseRows: readonly SessionLicense[];
 };
 
 /**
- * The `vendor_admin` read: the same four authorization columns, plus the
- * caller's entitlement, in ONE round-trip (§4.1).
+ * The most recently ended license per (billing account, assigned product), as a
+ * correlated predicate. `IS`, not `=`, so the unassigned licenses of an account
+ * form one group too (`NULL IS NULL` is true in SQLite). `ended_at` is compared
+ * as text, which is sound because every writer stores the one full ISO spelling
+ * (`toIsoTimestamp` in `lib/license.ts`).
+ */
+const isLatestEndedInGroup = sql`${licenses.endedAt} = (
+  SELECT max("prior"."ended_at") FROM "licenses" "prior"
+  WHERE "prior"."billing_account_id" = ${licenses.billingAccountId}
+    AND "prior"."assigned_product_id" IS ${licenses.assignedProductId})`;
+
+/**
+ * The `vendor_admin` read: the same four authorization columns, plus the vendor's
+ * licenses, in ONE round-trip (§4.1, AECI-1355).
  *
- * `leftJoin`, not `innerJoin`: a vendor with no entitlement row must still
- * authenticate, still pass `requireVendor()`, and still read its dashboard — it
- * simply resolves to `'unclaimed'` and cannot write (§4.3). The join predicate
- * is on `profiles.vendor_id`, which is NULL for a half-granted seat; SQL NULL
- * never matches, so that row also lands on `'unclaimed'` rather than on some
- * other vendor's entitlement. `vendor_entitlements_vendor_key` is UNIQUE, so
- * this can never fan out to more than one row.
+ * Two statements in one `db.batch`. The license statement cannot take the
+ * vendor id from the first statement's result, so it scopes by a subquery on
+ * `profiles.vendor_id` for the same user instead of a second round trip. A
+ * half-granted seat (`vendor_id` NULL) matches nothing, because SQL NULL never
+ * equals anything, so it reads no licenses rather than another vendor's. The
+ * guard then rejects that seat anyway.
+ *
+ * Statement 2, the vendor's OWN licenses: every LIVE license (`ended_at IS NULL`)
+ * on every billing account of the vendor, assigned or not, plus the most recently
+ * ENDED license per (account, assigned product). The live set decides the
+ * vendor-level tier. The latest ended rows give the pilot-ended banner its date
+ * and each product its "ended on" readout, and they include the vendor's single
+ * latest ended license, which is all `licensePlanSnapshot` needs once nothing is
+ * live. Older ended licenses are history and stay unread, so the read stays
+ * bounded by products plus live licenses as ended rows accumulate.
+ *
+ * The live rows also decide which products are Managed for this vendor. Only the
+ * payer gets Managed rights (`docs/VENDOR_SIGNUP_PROCESS.md` §2, ruled
+ * 2026-10-14): a CO-OWNED product whose one live license sits on the OTHER
+ * owner's account stays Free for this vendor. So nothing here reads another
+ * vendor's licenses, not even a product id.
  */
 async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileAuthz | undefined> {
-  const rows = await db
-    .select({
-      role: profiles.role,
-      vendorId: profiles.vendorId,
-      bannedAt: profiles.bannedAt,
-      banReason: profiles.banReason,
-      entTier: vendorEntitlements.tier,
-      entStatus: vendorEntitlements.status,
-      entPeriodEnd: vendorEntitlements.periodEnd,
-      entEndedAt: vendorEntitlements.endedAt,
-    })
-    .from(profiles)
-    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, profiles.vendorId))
-    .where(eq(profiles.id, userId))
-    .limit(1);
-  return rows[0];
+  const sessionVendor = sql`(SELECT ${profiles.vendorId} FROM ${profiles} WHERE ${profiles.id} = ${userId})`;
+  const [profileRows, licenseRows] = await db.batch([
+    db
+      .select({
+        role: profiles.role,
+        vendorId: profiles.vendorId,
+        bannedAt: profiles.bannedAt,
+        banReason: profiles.banReason,
+      })
+      .from(profiles)
+      .where(eq(profiles.id, userId))
+      .limit(1),
+    db
+      .select({
+        product_id: licenses.assignedProductId,
+        source: licenses.source,
+        ends_at: licenses.endsAt,
+        ended_at: licenses.endedAt,
+        end_reason: licenses.endReason,
+      })
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+      .where(
+        and(
+          eq(billingAccounts.vendorId, sessionVendor),
+          or(isNull(licenses.endedAt), isLatestEndedInGroup),
+        ),
+      ),
+  ]);
+  const profile = profileRows[0];
+  return profile ? { ...profile, licenseRows } : undefined;
+}
+
+/** The latest of a set of ended licenses by parsed `ended_at`. An unparseable stamp
+ *  sorts first, so a readable one always wins (`licensePlanSnapshot`'s rule). */
+function latestEnded(ended: readonly SessionLicense[]): SessionLicense | undefined {
+  let latest: SessionLicense | undefined;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const license of ended) {
+    const ms = Date.parse(license.ended_at ?? '');
+    const key = Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+    if (latest === undefined || key > latestMs) {
+      latest = license;
+      latestMs = key;
+    }
+  }
+  return latest;
+}
+
+/** The status an ENDED license reads as: `revoked` when it was pulled for cause,
+ *  else `expired` (a lapse or a release). The same split as `licensePlanSnapshot`. */
+function endedStatus(license: SessionLicense): EntitlementStatus {
+  return license.end_reason === 'revoked' ? 'revoked' : 'expired';
+}
+
+/** The term a set of live licenses runs to: the latest `ends_at`, or `null` when any
+ *  is monthly (no scheduled end). */
+function liveTermEnd(live: readonly SessionLicense[]): string | null {
+  let end: string | null = null;
+  let endMs = Number.NEGATIVE_INFINITY;
+  for (const license of live) {
+    if (license.ends_at === null) return null;
+    const ms = Date.parse(license.ends_at);
+    if (end === null || ms > endMs) {
+      end = license.ends_at;
+      endMs = ms;
+    }
+  }
+  return end;
+}
+
+/** The raw tier a license-backed plan reports (`licensePlanSnapshot` uses the same
+ *  word): licenses carry no tier, and every live license grants the one paid rung. */
+const LICENSE_TIER: EntitlementTier = 'verified';
+
+/**
+ * Resolve the licenses the guard read to the session's plan fields (AECI-1355).
+ *
+ * `rows` are the vendor's OWN licenses. They decide the vendor-level tier and
+ * term, and their live assignments are `licensedProductIds`: only the payer gets
+ * Managed rights on a product (ruled 2026-10-14).
+ *
+ * Stored state only: a license is live while `ended_at` is NULL, whatever its
+ * `ends_at` says. E6's daily job turns a passed `ends_at` into `ended_at`; until it
+ * runs, the plan stays on. That is the same rule `vendor_entitlements` had (nothing
+ * auto-lapsed a row), and the audit snapshot's clock check stays a RECORD rule.
+ *
+ * Exported for `authz.spec.ts`: the derivation is pure, so its cases are pinned
+ * without a database.
+ */
+export function sessionPlanFromLicenses(
+  rows: readonly SessionLicense[],
+): Pick<
+  AuthenticatedSession,
+  'entitlementTier' | 'entitlement' | 'licensedProductIds' | 'licenses'
+> {
+  const live = rows.filter((license) => license.ended_at === null);
+  const licensedProductIds = [
+    ...new Set(live.flatMap((license) => (license.product_id ? [license.product_id] : []))),
+  ];
+  if (live.length > 0) {
+    return {
+      entitlementTier: LICENSE_TIER,
+      entitlement: {
+        status: 'active',
+        tier: LICENSE_TIER,
+        periodEnd: liveTermEnd(live),
+        endedAt: null,
+      },
+      licensedProductIds,
+      licenses: rows,
+    };
+  }
+  const latest = latestEnded(rows);
+  return {
+    entitlementTier: 'unclaimed',
+    entitlement: latest
+      ? {
+          status: endedStatus(latest),
+          tier: LICENSE_TIER,
+          periodEnd: latest.ends_at,
+          endedAt: latest.ended_at,
+        }
+      : null,
+    licensedProductIds,
+    licenses: rows,
+  };
 }
 
 /**
- * Resolve the joined projection to the session's entitlement fields, fail-closed
- * on every axis.
+ * ONE product's plan, from the session's licenses (AECI-1355,
+ * `STAGE_2_PAID_TIERS_SPEC.md` §13.7). The source of each `VendorProduct.plan`:
  *
- * `tierFor` owns the tier decision (no row / non-`active` status / unknown tier
- * → `'unclaimed'`). The term readout is dropped whenever `status` is outside the
- * §2.2 vocabulary, so a value the DB CHECK should have rejected cannot be echoed
- * to the dashboard as if it meant something.
+ *  - a live license on the product → `verified`, `active`, its `ends_at`;
+ *  - else the product's most recently ended license → `unclaimed`, `expired` or
+ *    `revoked`, its `ends_at` and `ended_at`;
+ *  - else → `unclaimed` with no term: the product was never on Managed.
+ *
+ * The tier is {@link productTier}'s, so the plan a product screen renders and the
+ * 403 its write would get read the same session field.
  */
-function entitlementFor(
-  row: Pick<VendorProfileAuthz, 'entTier' | 'entStatus' | 'entPeriodEnd' | 'entEndedAt'>,
+export function productPlan(
+  session: Pick<AuthenticatedSession, 'licensedProductIds' | 'licenses'>,
+  productId: string,
 ): Pick<AuthenticatedSession, 'entitlementTier' | 'entitlement'> {
-  if (row.entTier === null || row.entStatus === null) return NO_ENTITLEMENT;
-  const status = row.entStatus;
+  const own = (session.licenses ?? []).filter((license) => license.product_id === productId);
+  const live = own.filter((license) => license.ended_at === null);
+  // Keyed on `productTier`, not on `live` alone, so the block and the gate cannot
+  // disagree even for a session whose `licenses` list is narrower than its ids.
+  if (productTier(session, productId) === LICENSE_TIER) {
+    return {
+      entitlementTier: LICENSE_TIER,
+      entitlement: {
+        status: 'active',
+        tier: LICENSE_TIER,
+        periodEnd: liveTermEnd(live),
+        endedAt: null,
+      },
+    };
+  }
+  const latest = latestEnded(own.filter((license) => license.ended_at !== null));
   return {
-    entitlementTier: tierFor({ tier: row.entTier, status }),
-    // The `null` arm is unreachable while `vendor_entitlements_status_check`
-    // holds, and is kept anyway: it is what makes the session type honest
-    // instead of a cast, and it is the behaviour we want if that CHECK is ever
-    // widened — degrade to "no term on record", never echo an unknown status.
-    entitlement: isEntitlementStatus(status)
-      ? { status, tier: row.entTier, periodEnd: row.entPeriodEnd, endedAt: row.entEndedAt }
+    entitlementTier: 'unclaimed',
+    entitlement: latest
+      ? {
+          status: endedStatus(latest),
+          tier: LICENSE_TIER,
+          periodEnd: latest.ends_at,
+          endedAt: latest.ended_at,
+        }
       : null,
   };
 }
 
-/** Whether a raw `vendor_entitlements.status` is in the §2.2 vocabulary. The DB
- *  CHECK enforces this; the narrowing exists so the session type is honest
- *  rather than cast, and so a loosened CHECK degrades to "no term" not garbage. */
-function isEntitlementStatus(status: string): status is EntitlementStatus {
-  return (ENTITLEMENT_STATUSES as readonly string[]).includes(status);
+/**
+ * The tier ONE product holds: `verified` exactly when the session lists it in
+ * `licensedProductIds`, else `unclaimed`. Absent `licensedProductIds` reads as
+ * empty, so a session that never loaded licenses grants nothing per product.
+ */
+export function productTier(
+  session: Pick<AuthenticatedSession, 'licensedProductIds'>,
+  productId: string,
+): EntitlementTier {
+  return (session.licensedProductIds ?? []).includes(productId) ? LICENSE_TIER : 'unclaimed';
 }
 
 function createAuthzMiddleware(
@@ -365,15 +571,15 @@ function createAuthzMiddleware(
     // claims). The D1 binding is privileged (no RLS), so this read is the
     // authorization source of truth. Only reached AFTER the JWT verifies.
     //
-    // The vendor branch takes the entitlement join instead (AECI-611 §4.1); the
-    // other two keep the EXACT `findFirst` they have always run. That asymmetry
-    // is deliberate, not an optimization left half-done: an admin session has
-    // `vendor_id = null`, so an unconditional join would be a `LEFT JOIN … ON
-    // NULL` on every `/api/admin/*` request, and `requireAuth()` fronts the
+    // The vendor branch takes the profile + licenses batch instead (AECI-611 §4.1,
+    // AECI-1355); the other two keep the EXACT `findFirst` they have always run.
+    // That asymmetry is deliberate, not an optimization left half-done: an admin
+    // session has `vendor_id = null`, so an unconditional license read would match
+    // nothing on every `/api/admin/*` request, and `requireAuth()` fronts the
     // review-submit hot path (`POST /api/reviews`, `DELETE /api/account`) where
-    // there is no entitlement question to ask. Branching keeps both byte-
-    // identical to before this issue: zero added latency, zero regression
-    // surface. Do not "simplify" this to always join.
+    // there is no plan question to ask. Branching keeps both byte-identical:
+    // zero added latency, zero regression surface. Do not "simplify" this to
+    // always read licenses.
     const { db } = (options.dbFor ?? getDb)(c.env);
     const readProfile = (): Promise<ProfileAuthz | undefined> =>
       requiredRole === 'vendor_admin'
@@ -423,10 +629,10 @@ function createAuthzMiddleware(
       ...(user.fullName ? { fullName: user.fullName } : {}),
       role: profile.role,
       vendorId: profile.vendorId,
-      // Only the vendor branch ran the join, so only it can resolve to anything
+      // Only the vendor branch read licenses, so only it can resolve to anything
       // but the fail-closed floor.
       ...(requiredRole === 'vendor_admin'
-        ? entitlementFor(profile as VendorProfileAuthz)
+        ? sessionPlanFromLicenses((profile as VendorProfileAuthz).licenseRows)
         : NO_ENTITLEMENT),
     });
 
@@ -482,14 +688,18 @@ export function requireVendor(
 export type AuthzContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
 /**
- * The entitlement gate (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §3.3a, §4.2).
+ * The VENDOR-level entitlement gate (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §3.3a,
+ * §4.2).
  *
  * A **DB-free** assertion over `c.get('auth').entitlementTier`, which
  * `createAuthzMiddleware` already loaded on the vendor branch — no seam, no
  * mock, no round-trip. Call it in a WRITE handler immediately after
- * `sessionVendorId(c)`, i.e. after the caller's vendor is known and (for a
- * product write) after ownership has settled, so a non-owner still gets the
- * flat 404 that does not confirm the row exists.
+ * `sessionVendorId(c)`, i.e. after the caller's vendor is known and (for an
+ * integration-grain write) after ownership has settled, so a non-owner still gets
+ * the flat 404 that does not confirm the row exists.
+ *
+ * For a write on ONE product use {@link requireProductCapability} instead
+ * (AECI-1355): that product's own license decides, not the vendor's.
  *
  * **Reads are never gated** (§4.3 / R13). `GET /api/vendor/me` and
  * `GET /api/vendor/seats` must not call this: `/vendor` is gated by
@@ -506,6 +716,29 @@ export type AuthzContext = Context<{ Bindings: Env; Variables: AuthzVariables }>
  */
 export function requireCapability(c: AuthzContext, capability: Capability): void {
   const tier = c.get('auth').entitlementTier;
+  if (hasCapability(tier, capability)) return;
+  throw entitlementRequired(capability, tier);
+}
+
+/**
+ * The PRODUCT-level entitlement gate (AECI-1355, `docs/VENDOR_SIGNUP_PROCESS.md` §3
+ * step 6). The product is Managed exactly when it holds a live license, so a vendor
+ * with two products and one license may write Managed fields on one and gets
+ * `403 ENTITLEMENT_REQUIRED` on the other.
+ *
+ * DB-free, like {@link requireCapability}: it reads `licensedProductIds`, which the
+ * vendor guard loaded, and `TIER_CAPABILITIES`. Call it AFTER `requireOwnedProduct`
+ * (404-never-403, §3.3a): this gate answers for any product id, owned or not, so it
+ * must never be the first thing a foreign id meets. The 403 has the same status,
+ * copy and `details` shape as the vendor-level gate; `details.tier` is the
+ * PRODUCT's tier.
+ */
+export function requireProductCapability(
+  c: AuthzContext,
+  productId: string,
+  capability: Capability,
+): void {
+  const tier = productTier(c.get('auth'), productId);
   if (hasCapability(tier, capability)) return;
   throw entitlementRequired(capability, tier);
 }

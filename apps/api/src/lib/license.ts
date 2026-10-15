@@ -29,7 +29,9 @@
  *
  * ── THE MIRROR RECONCILE ───────────────────────────────────────────────────────
  * `vendors.verified` stays a denormalized mirror. Every non-no-op batch ends with the
- * SAME statement, built by {@link reconcileVerifiedMirror}:
+ * SAME statement, built by {@link reconcileVerifiedMirror}. The one exception is
+ * {@link expiryNoticeStampStatements}, the expiry-notice fence, which cannot move
+ * liveness (see it):
  *
  *   UPDATE vendors
  *      SET verified = EXISTS(live license on any billing account of the vendor),
@@ -84,7 +86,7 @@ import {
   type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, productVendors, vendors } from '../db/schema';
@@ -776,4 +778,57 @@ export function endLicensesStatements(db: Db, p: EndLicensesParams): LicenseBatc
     writes.push({ stmt, entry: licenseEntry(p, now, END_ACTION[p.endReason], before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+// ─── The expiry-notice fence (E1.7) ─────────────────────────────────────────
+
+/** Ids per fence-stamp statement. D1 caps bound parameters per query at 100, and an
+ *  account can hold more licenses than that on one term. */
+export const EXPIRY_STAMP_CHUNK = 50;
+
+export interface ExpiryNoticeStampParams {
+  /** The licenses one notice covered: one billing account's live licenses on one term. */
+  licenseIds: readonly string[];
+  /** The term the notice was about, exactly as scanned. */
+  endsAt: string;
+  /** The stamp. Normalised with `toIsoTimestamp`. */
+  now: string | Date;
+}
+
+/**
+ * Stamp `expiry_notice_sent_at` on the licenses one term-end notice covered (AECI-1356,
+ * `lib/entitlement-expiry.ts`). The one license write that carries NO audit row of its
+ * own and NO mirror reconcile, and the exception to the module comment above:
+ *
+ *  - the fence does not move liveness, so `vendors.verified` cannot change, and
+ *    `STAGE_2_PAID_TIERS_SPEC.md` §7.3 forbids the warning batch any `vendors` statement;
+ *  - the caller writes ONE audit row per notice (per account and term), not one per
+ *    license, so it owns the audit entry.
+ *
+ * The SET names `expiry_notice_sent_at` and `updated_at` only. The WHERE is guarded on
+ * `ends_at` as scanned: a renewal that moved the term between the scan and this write
+ * cleared the stamp for the NEW term, and must not have it re-stamped by a notice about
+ * the old one. It deliberately does not name `ended_at`: stamping a license that ended
+ * in the same window is harmless (nothing reads an ended license's fence, and a license
+ * never comes back), and §7.3's test holds the batch to naming neither `ended_at` nor
+ * `assigned_product_id`. One statement per {@link EXPIRY_STAMP_CHUNK} ids.
+ */
+export function expiryNoticeStampStatements(db: Db, p: ExpiryNoticeStampParams): BatchStmt[] {
+  const now = toIsoTimestamp(p.now);
+  const ids = [...new Set(p.licenseIds)];
+  const stmts: BatchStmt[] = [];
+  for (let i = 0; i < ids.length; i += EXPIRY_STAMP_CHUNK) {
+    stmts.push(
+      db
+        .update(licenses)
+        .set({ expiryNoticeSentAt: now, updatedAt: now })
+        .where(
+          and(
+            inArray(licenses.id, ids.slice(i, i + EXPIRY_STAMP_CHUNK)),
+            eq(licenses.endsAt, p.endsAt),
+          ),
+        ),
+    );
+  }
+  return stmts;
 }

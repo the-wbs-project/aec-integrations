@@ -31,16 +31,16 @@ import {
   type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { PAID_TIERS, tierFor } from '@aeci/shared/entitlements';
-import { and, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
+  billingAccounts,
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
+  licenses,
   products,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { workflowTransitionInsert, type BatchStmt } from './audit';
@@ -395,16 +395,18 @@ export async function anchorPurgeTags(
 
 /**
  * Does this vendor hold an active entitlement? The same test the vendor guard runs
- * on its own session (`tierFor`: a `vendor_entitlements` row with `status =
- * 'active'` at a tier this build knows), read for ANOTHER vendor: the submit route
- * routes on the OWNER's entitlement, and the caller is the submitter.
+ * on its own session (AECI-1355: at least one LIVE license, `ended_at IS NULL`, on
+ * any billing account of the vendor, assigned or not), read for ANOTHER vendor: the
+ * submit route routes on the OWNER's entitlement, and the caller is the submitter.
  */
 export async function vendorHoldsActiveEntitlement(db: Db, vendorId: string): Promise<boolean> {
-  const row = await db.query.vendorEntitlements.findFirst({
-    columns: { tier: true, status: true },
-    where: eq(vendorEntitlements.vendorId, vendorId),
-  });
-  return tierFor(row ?? null) !== 'unclaimed';
+  const rows = await db
+    .select({ id: licenses.id })
+    .from(licenses)
+    .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+    .where(and(eq(billingAccounts.vendorId, vendorId), isNull(licenses.endedAt)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -416,14 +418,15 @@ export async function vendorHoldsActiveEntitlement(db: Db, vendorId: string): Pr
  * retries. Same `json()` abort as the other contest sentinels.
  */
 export function ownerEntitlementActiveSentinel(db: Db, ownerVendorId: string) {
-  const tiers = sql.join(
-    PAID_TIERS.map((tier) => sql`${tier}`),
-    sql`, `,
-  );
+  // AECI-1355: the same test as `vendorHoldsActiveEntitlement`, at commit. An
+  // entitlement clear ends the vendor's live licenses in its own batch
+  // (`deactivateEntitlementStatements`), so this still trips on a clear that
+  // commits first.
   return db
     .select({
-      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "vendor_entitlements"
-          WHERE "vendor_id" = ${ownerVendorId} AND "status" = 'active' AND "tier" IN (${tiers}))
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "licenses" l
+          JOIN "billing_accounts" b ON b."id" = l."billing_account_id"
+          WHERE b."vendor_id" = ${ownerVendorId} AND l."ended_at" IS NULL)
         THEN json('contest-owner-unentitled') END`,
     })
     .from(ONE_ROW);
@@ -455,6 +458,11 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
  * AECi queue, because deciding it is an owner write that now needs an entitlement
  * the vendor no longer holds. Contests on rows that are not connector-powered keep
  * their owner route: those rows keep the seat as their whole gate (decision 15).
+ *
+ * Since AECI-1355 "holds" means a live license. The clear ends every live license
+ * in the same batch (`deactivateEntitlementStatements`), so after the commit
+ * `vendorHoldsActiveEntitlement` and `ownerEntitlementActiveSentinel`, which both
+ * read `licenses`, agree with this re-route.
  *
  * A re-route IN the clear's batch, not a read-time check, so every reader agrees
  * from the commit on: `routed_to` is what `pending_contests`, the owner's Received

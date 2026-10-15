@@ -59,6 +59,7 @@ import { ensureProfileRow } from '../lib/profile-provisioning';
 import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
   createAdminClaimAuditHandler,
@@ -626,7 +627,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedVendor({ verified: true, updatedAt: OLD_TS });
     // A Managed vendor from before AECI-1367: an active entitlement and an account.
     await seedEntitlement('active');
+    // The live license the plan snapshot reads (AECI-1355).
     await seedBillingAccount();
+    await seedLicense(t.db, VENDOR_ID);
     // Existing owner seat A.
     await t.db
       .insert(profiles)
@@ -661,6 +664,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const audits = await t.db.select().from(auditLog);
     expect(audits.map((a) => a.action)).toEqual(['vendor_claim.granted']);
     expect(audits[0]!.metadata).toMatchObject({ billing_account_created: false });
+    // AECI-1355: the plan BEFORE the grant comes from the vendor's licenses.
+    expect(audits[0]).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
   });
 
   it('a claimant on a vendor whose only owner is banned becomes the owner', async () => {
@@ -702,6 +707,14 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       'billing_account.created',
       'vendor_claim.granted',
     ]);
+    // AECI-1355: the plan snapshot reads licenses, and this vendor has none yet, so
+    // the active `vendor_entitlements` row does not make it read as Managed.
+    const granted = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'vendor_claim.granted' || a.action === 'billing_account.created',
+    );
+    for (const a of granted) {
+      expect(a).toMatchObject({ vendorTier: 'none', vendorEntitlementStatus: 'none' });
+    }
     // Still no `vendors` write: the account row does not touch the vendor.
     expect((await vendorOf(VENDOR_ID))!.updatedAt).toBe(OLD_TS);
   });

@@ -25,14 +25,17 @@ import { assertStoredLogo } from './logos';
  * `STAGE_2_PAID_TIERS_SPEC.md` §4. Two axes, both enforced here:
  *
  *   - **Route-level**: `requireCapability(c, 'profile.edit')` on the profile
- *     PATCH — a DB-free assertion over the tier `requireVendor()` already joined
- *     onto the session. 403 `ENTITLEMENT_REQUIRED` (never 402: the wire contract
- *     stays payer-model-agnostic). Since AECI-1214 every seat holds it (§13.3).
- *     The product PATCH has no route-level gate: its fields split across the
- *     Free and Managed capabilities, so it is gated per field only.
- *   - **Field-level**: `assertFieldsEntitled` / `splitPatch` take the caller's
- *     tier and THROW on any provided field whose capability the tier lacks,
- *     naming every denied field. They never silently drop one.
+ *     PATCH — a DB-free assertion over the vendor tier `requireVendor()` already
+ *     loaded onto the session. 403 `ENTITLEMENT_REQUIRED` (never 402: the wire
+ *     contract stays payer-model-agnostic). Since AECI-1214 every seat holds it
+ *     (§13.3). The product PATCH has no route-level gate: its fields split across
+ *     the Free and Managed capabilities, so it is gated per field only.
+ *   - **Field-level**: `assertFieldsEntitled` / `splitPatch` take a tier and
+ *     THROW on any provided field whose capability the tier lacks, naming every
+ *     denied field. They never silently drop one. On the profile PATCH the tier
+ *     is the vendor's; on the product PATCH it is the PRODUCT's own, from its
+ *     live license (`productTier`, AECI-1355), so one license on one product
+ *     unlocks that product only.
  *
  * **The two GETs are never gated** — see the comment on `createVendorMeHandler`.
  *
@@ -119,6 +122,8 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import {
   auditActorType,
   entitlementRequired,
+  productPlan,
+  productTier,
   requireCapability,
   type AuthenticatedSession,
 } from '../lib/authz';
@@ -149,6 +154,7 @@ import {
   isMaintenanceTransfer,
   maintenanceTransferColumns,
   parseJsonBody,
+  vendorProductRecrawlEnabled,
   vendorRecrawlEnabled,
   requireOwnedProduct,
   seatsOf,
@@ -313,11 +319,21 @@ export type TaxonomySlugs = {
 };
 
 /**
- * The caller's entitlement block, built from the session the guard already
- * loaded. `GET /api/vendor/me` serves it as `entitlement`, and every
- * `VendorProduct` carries it as `plan` (AECI-1214, §13.7). Both read the same
- * `entitlementTier` the write gates assert, so a screen's enabled state and the
- * 403 its write would get cannot disagree.
+ * A plan block, built from the session the guard already loaded (no query).
+ *
+ *  - `productId: null` → the VENDOR's block: `GET /api/vendor/me` serves it as
+ *    `entitlement`. Its tier is `entitlementTier` ("any live license"), the input
+ *    of the vendor-level gates, and its term drives the §13.11 pilot-ended banner.
+ *  - `productId` set → that PRODUCT's block (AECI-1355, §13.7): every
+ *    `VendorProduct.plan`. It reads the product's own license through
+ *    `productPlan`, whose tier is the one `requireProductCapability` and the
+ *    product PATCH's field gate assert.
+ *
+ * Either way the block and the 403 a write would get read the same session field,
+ * so a screen's enabled state cannot disagree with the gate.
+ *
+ * `productId` is required, `null` included, so no caller can build a vendor block
+ * for a product by forgetting the argument.
  *
  * `price` is the one field the session does not hold: the display-only plan
  * price overrides (ruling 2026-10-08, §13.13), one primary-key read through
@@ -327,21 +343,25 @@ export type TaxonomySlugs = {
 export function entitlementBlock(
   session: AuthenticatedSession,
   price: PlanPrice,
+  productId: string | null,
 ): VendorEntitlementBlock {
+  const plan =
+    productId === null
+      ? { entitlementTier: session.entitlementTier, entitlement: session.entitlement }
+      : productPlan(session, productId);
   return {
-    tier: session.entitlementTier,
-    status: session.entitlement?.status ?? null,
-    period_end: session.entitlement?.periodEnd ?? null,
-    ended_at: session.entitlement?.endedAt ?? null,
-    capabilities: [...capabilitiesFor(session.entitlementTier)],
+    tier: plan.entitlementTier,
+    status: plan.entitlement?.status ?? null,
+    period_end: plan.entitlement?.periodEnd ?? null,
+    ended_at: plan.entitlement?.endedAt ?? null,
+    capabilities: [...capabilitiesFor(plan.entitlementTier)],
     price,
   };
 }
 
 /**
- * `plan` is this product's plan (§13.7). Until a per-product plan table exists it
- * is the vendor's block, copied into every product by the caller. When that table
- * lands, only the caller's source for `plan` changes.
+ * `plan` is this product's plan (§13.7): its own license since AECI-1355, built by
+ * the caller with `entitlementBlock(session, price, product.id)`.
  */
 function toVendorProduct(
   row: ProductRow,
@@ -778,9 +798,8 @@ export function createVendorMeHandler(
         loadPlanPrice(db, vendorId),
       ]);
 
-    // One block for the vendor and, until per-product plans exist, for every
-    // product too (§13.7).
-    const plan = entitlementBlock(session, price);
+    // The vendor's block, and each product's own block from its own license
+    // (AECI-1355, §13.7). All from the session: no query.
     const body: VendorMeResponse = {
       vendor: toVendorAccount(vendor, vendorLocks.get(vendorId)),
       products: productRows.map((row) =>
@@ -788,7 +807,7 @@ export function createVendorMeHandler(
           row,
           primaryById.get(row.id) ?? false,
           taxonomy.get(row.id) ?? NO_TAXONOMY,
-          plan,
+          entitlementBlock(session, price, row.id),
           productLocks.get(row.id),
         ),
       ),
@@ -807,8 +826,8 @@ export function createVendorMeHandler(
       seat_count: Math.max(seatRows[0]?.value ?? 0, 1),
       // Built from the session the guard already loaded — zero extra queries,
       // and the dashboard's readout therefore cannot disagree with the 403 a
-      // write would get, because both read the same `entitlementTier`.
-      entitlement: plan,
+      // vendor-level write would get, because both read the same `entitlementTier`.
+      entitlement: entitlementBlock(session, price, null),
     };
 
     validateResponseInDev(c.env, () => VendorMeResponseSchema.parse(body));
@@ -1135,10 +1154,16 @@ export function createUpdateVendorProductHandler(
     // edit is refused whole. It runs BEFORE the resolution wave below, so an
     // unentitled caller sending a bad slug gets the 403 it is owed rather than
     // the 400 from a read it was never allowed to make.
+    //
+    // AECI-1355: the tier is THIS product's, from its own live license
+    // (`productTier`, the input `requireProductCapability` reads), never the
+    // vendor's. A vendor with a license on another product still gets the 403
+    // here, with the same `details` shape.
+    const tier = productTier(session, productId);
     assertFieldsEntitled(
       sent,
       (field) => PRODUCT_FIELD_CAPABILITIES[field as ProductEditableField],
-      session.entitlementTier,
+      tier,
     );
 
     // AECI-1237 (§11d.5): the profile handler's lock rule, after ownership and the
@@ -1156,7 +1181,7 @@ export function createUpdateVendorProductHandler(
           before,
           isPrimary,
           unchangedTaxonomy,
-          entitlementBlock(session, await loadPlanPrice(db, vendorId)),
+          entitlementBlock(session, await loadPlanPrice(db, vendorId), productId),
           locks,
         ),
       };
@@ -1184,7 +1209,7 @@ export function createUpdateVendorProductHandler(
       }),
     ]);
 
-    const { columns } = splitPatch(payload, PRODUCT_COLUMN_MAP, session.entitlementTier);
+    const { columns } = splitPatch(payload, PRODUCT_COLUMN_MAP, tier);
     if (payload.logo_url !== undefined) {
       await assertStoredLogo(c.env, payload.logo_url);
       columns.logoSource = 'vendor';
@@ -1288,12 +1313,13 @@ export function createUpdateVendorProductHandler(
     // The read is folded into the recrawl derivation rather than awaited inline,
     // so a slow or failing count never delays the response. A rejection resolves
     // to "no trade URLs", which is the safe direction.
-    // `vendorRecrawlEnabled` is checked BEFORE the read rather than inside the
-    // buffer, so a gated environment or a Free seat (AECI-1186) pays nothing:
-    // `resolvePublishedTradeSlugs` is a grouped D1 count and running it to feed a
-    // buffer that will not be written is pure waste.
+    // `vendorProductRecrawlEnabled` is checked BEFORE the read rather than inside
+    // the buffer, so a gated environment or a Free product (AECI-1186; per product
+    // since the 2026-10-14 ruling) pays nothing: `resolvePublishedTradeSlugs` is a
+    // grouped D1 count and running it to feed a buffer that will not be written is
+    // pure waste.
     const touchedTrades = symmetricDifference(beforeTaxonomy.trades, afterTaxonomy.trades);
-    const productBase = vendorRecrawlEnabled(c) ? publicSiteBase(c.env) : null;
+    const productBase = vendorProductRecrawlEnabled(c, productId) ? publicSiteBase(c.env) : null;
     const recrawl = productBase
       ? resolvePublishedTradeSlugs(db, touchedTrades)
           .catch(() => [] as string[])
@@ -1324,7 +1350,7 @@ export function createUpdateVendorProductHandler(
         after,
         isPrimary,
         afterTaxonomy,
-        entitlementBlock(session, await loadPlanPrice(db, vendorId)),
+        entitlementBlock(session, await loadPlanPrice(db, vendorId), productId),
         locks,
       ),
     };

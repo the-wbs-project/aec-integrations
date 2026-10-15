@@ -65,7 +65,11 @@ const MANAGED: AuthzVariables['auth'] = {
   ...seat(1, VENDOR),
   entitlementTier: 'verified',
   entitlement: { status: 'active', periodEnd: null },
+  // AECI-1355: each product scores on its own license. Both of VENDOR's are licensed.
+  licensedProductIds: [P_ONE, P_TWO],
 };
+/** One license, on P_ONE only: P_TWO scores as Free (AECI-1355). */
+const MIXED: AuthzVariables['auth'] = { ...MANAGED, licensedProductIds: [P_ONE] };
 
 let t: TestDb;
 
@@ -238,6 +242,16 @@ describe('a Free product and a Managed product', () => {
       total: 4,
       complete: false,
     });
+  });
+
+  it('scores each product on its own plan when one license covers one product', async () => {
+    const mixed = await vendorChecklist(MIXED);
+    const one = mixed.products.find((p: JsonBody) => p.product_id === P_ONE);
+    const two = mixed.products.find((p: JsonBody) => p.product_id === P_TWO);
+    expect(one.plan.tier).toBe('verified');
+    expect(one.total).toBe(4);
+    expect(two.plan.tier).toBe('unclaimed');
+    expect(two.total).toBe(3);
   });
 });
 

@@ -80,6 +80,11 @@ const seat = (userId: string, vendorId: string, tier: 'verified' | 'unclaimed'):
   vendorId,
   entitlementTier: tier,
   entitlement: null,
+  // AECI-1355: the reply gate is per product. A `verified` seat here stands for
+  // both products holding a live license on THIS vendor's account. Only the payer
+  // gets Managed rights (ruled 2026-10-14); the guard-built session pins that in
+  // `vendor.authz-matrix.spec.ts`, so these hand-built sessions only isolate the route.
+  licensedProductIds: tier === 'verified' ? [P_A, P_C] : [],
 });
 const AUTH_A = seat(SEAT_A, VENDOR_A, 'verified');
 const AUTH_A2 = seat(SEAT_A2, VENDOR_A, 'verified');

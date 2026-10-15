@@ -78,6 +78,7 @@ import {
   auditLog,
   claims,
   integrations,
+  licenses,
   productRequests,
   productVendors,
   productVersions,
@@ -88,7 +89,6 @@ import {
   reviewResponses,
   reviews,
   taxonomyDataObjects,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -97,6 +97,7 @@ import { requireVendor, type AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { fakeExecutionContext } from '../test/helpers';
+import { seedLicense } from '../test/licenses';
 import {
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
@@ -206,16 +207,6 @@ beforeEach(async () => {
     },
     { id: VENDOR_UNVERIFIED, slug: 'trimble', companyName: 'Trimble', verified: false },
   ]);
-  // `vendors.verified` is a MIRROR of an ACTIVE `vendor_entitlements` row
-  // (AECI-609 / §2.1), and AECI-611 made the mirror's SOURCE what the write
-  // gate reads. A fixture that sets `verified: true` without the row describes
-  // a drifted state the middleware resolves to `unclaimed` — so seed both sides
-  // together, exactly as `lib/vendor-entitlement.ts` writes them. Trimble gets
-  // no row on purpose: it is the unverified persona.
-  await t.db.insert(vendorEntitlements).values([
-    { id: uuid(70), vendorId: VENDOR_A, tier: 'verified', status: 'active' },
-    { id: uuid(71), vendorId: VENDOR_B, tier: 'verified', status: 'active' },
-  ]);
   await t.db.insert(products).values([
     // Promoted, because the AECI-1011 create accepts only promoted endpoints.
     {
@@ -239,6 +230,13 @@ beforeEach(async () => {
     { productId: PRODUCT_B, vendorId: VENDOR_B, isPrimary: true },
     { productId: PRODUCT_UNVERIFIED, vendorId: VENDOR_UNVERIFIED, isPrimary: true },
   ]);
+  // `vendors.verified` is a MIRROR of "any live license" (§2.1, AECI-1352), and
+  // since AECI-1355 the write gates read the licenses themselves: a product is
+  // Managed when a live license is on it. Seed both sides together, exactly as
+  // `lib/license.ts` writes them. Trimble gets no license on purpose: it is the
+  // unverified persona.
+  await seedLicense(t.db, VENDOR_A, { productId: PRODUCT_A });
+  await seedLicense(t.db, VENDOR_B, { productId: PRODUCT_B });
   await t.db.insert(productVersions).values([
     { id: VERSION_A, productId: PRODUCT_A, label: 'v1', sortKey: 100_000_000_000 },
     { id: VERSION_B, productId: PRODUCT_B, label: 'v1', sortKey: 100_000_000_000 },
@@ -1298,10 +1296,34 @@ describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-117
     expect(status).toBe(404);
   });
 
-  it('a co-owner (non-primary product_vendors row) may reply to the same review', async () => {
+  it('a co-owner that does not pay for the product is Free on it: 403, not 201 (ruled 2026-10-14)', async () => {
+    // PRODUCT_A's one live license sits on VENDOR_A's billing account. Only the
+    // payer gets Managed rights, so VENDOR_B, though it holds a license of its own
+    // on PRODUCT_B, is refused here.
     await t.db
       .insert(productVendors)
       .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
+    const { status, body } = await call(
+      `/api/vendor/reviews/${REVIEW_A_EDIT}/response`,
+      'POST',
+      SEAT_B,
+      { body: 'From the co-owner.' },
+    );
+    expect(status).toBe(403);
+    expect(body.error?.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(body.error?.details).toEqual({ capability: 'review.reply', tier: 'unclaimed' });
+  });
+
+  it('a co-owner (non-primary product_vendors row) that PAYS for the product may reply', async () => {
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
+    // The license moves: VENDOR_A's ends, VENDOR_B's account takes the product.
+    await t.db
+      .update(licenses)
+      .set({ endedAt: '2026-09-01T00:00:00.000Z', endReason: 'released' })
+      .where(eq(licenses.assignedProductId, PRODUCT_A));
+    await seedLicense(t.db, VENDOR_B, { productId: PRODUCT_A });
     const { status } = await call(`/api/vendor/reviews/${REVIEW_A_EDIT}/response`, 'POST', SEAT_B, {
       body: 'From the co-owner.',
     });

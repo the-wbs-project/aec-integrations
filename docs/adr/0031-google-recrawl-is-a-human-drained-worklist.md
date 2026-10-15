@@ -213,6 +213,11 @@ chose to gate both legs so a Free vendor gets no search-engine submission of eit
 The promote arm and the admin retire stay ungated. The ranking, the screen and the
 no-staleness rule above are unchanged. `STAGE_2_PAID_TIERS_SPEC.md` §13.1a records the ruling.
 
+Since 2026-10-14 (AECI-1355) the gate is per product. A vendor write that names a product queues
+only when that product holds a live license on the writing vendor's own billing account. The
+company profile edit names no product and keeps the vendor-level check.
+`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d) has the mechanism.
+
 ## Amendment — 2026-10-05 (AECI-1185): Done records whether indexing was requested
 
 Done now asks the operator what they did. The dialog offers "Requested indexing in Search

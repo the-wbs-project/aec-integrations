@@ -670,7 +670,8 @@ describe('re-crawl plan gate (AECI-1186)', () => {
   });
 
   it("buffers an entitled seat's claim into both queues", async () => {
-    const res = await claim(entitled(AUTH_B), I_MAIN);
+    // Per product since the 2026-10-14 ruling: the claimant's endpoint holds the license.
+    const res = await claim({ ...entitled(AUTH_B), licensedProductIds: [P_TARGET] }, I_MAIN);
     expect(res.status).toBe(200);
     expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
