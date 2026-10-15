@@ -300,6 +300,63 @@ describe('RequestForm', () => {
     httpMock.verify();
   });
 
+  // ── Work-email nudge (VENDOR_PROGRAM_PAGE_SPEC.md §15.2) ────────────────────
+  describe('the personal email notice', () => {
+    it('shows no notice for a company address', async () => {
+      const { fixture, el, httpMock } = setup('vendor', 'claim');
+      type(fixture, '#claim-email', 'dana@acme.example');
+      await settle();
+      fixture.detectChanges();
+
+      expect(el.querySelector('#claim-email-personal')).toBeNull();
+      expect(el.querySelector('#claim-email')?.getAttribute('aria-describedby')).toBeNull();
+      httpMock.verify();
+    });
+
+    it('asks for a work email when the address is a free mailbox, and describes the field by it', async () => {
+      const { fixture, el, httpMock } = setup('vendor', 'claim');
+      type(fixture, '#claim-email', 'dana@gmail.com');
+      await settle();
+      fixture.detectChanges();
+
+      const notice = el.querySelector('#claim-email-personal');
+      expect(notice?.textContent).toContain('Please use your work email');
+      expect(notice?.textContent).toContain('may take longer');
+      expect(el.querySelector('#claim-email')?.getAttribute('aria-describedby')).toBe(
+        'claim-email-personal',
+      );
+      httpMock.verify();
+    });
+
+    it('shows the notice for a prefilled personal address before any edit', async () => {
+      const { fixture, el, httpMock } = setup('vendor', 'claim', 'acme', 'dana@yahoo.com');
+      await settle();
+      fixture.detectChanges();
+
+      expect(el.querySelector('#claim-email-personal')).not.toBeNull();
+      httpMock.verify();
+    });
+
+    it('still submits a claim from a personal address', async () => {
+      const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co');
+      type(fixture, '#claim-name', 'Dana Reyes');
+      type(fixture, '#claim-role', 'Head of Partnerships');
+      type(fixture, '#claim-email', 'dana@outlook.com');
+      await settle();
+      fixture.detectChanges();
+
+      expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
+      (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.submitClaim).toHaveBeenCalledTimes(1);
+      const [, formValue] = api.submitClaim.mock.calls[0];
+      expect(formValue).toMatchObject({ submitter_email: 'dana@outlook.com' });
+      httpMock.verify();
+    });
+  });
+
   // ── AECI-1293: the plan question and "Additional comments" (spec §15.6) ─────
   it('asks the optional plan question with nothing preselected, and relabels the note', () => {
     const { el } = setup('product', 'claim');
