@@ -72,6 +72,17 @@ Other flags: `--limit N` inspects only the first N rows, `--priority N` only one
 
 Record the script's summary (`inspected`, `done`, `cleared`, `request`, `error`) in the run report. Then start the loop on what is left. The URL Inspection API's own quota (2,000 calls a day per property, 600 a minute) is separate from the Request Indexing quota, so step 0 does not eat into the requests. The cron spends up to 1,500 of those calls a day, so run the script only on a day the cron did not run, or with `--limit`. Both run four inspections at a time.
 
+## Home page and site name
+
+Google decides the site name shown above every result (today `aecintegrations.com`, the fallback) from the home page only. After a deploy that changes the home `WebSite` JSON-LD, `og:site_name` or the home `<title>` (`docs/STAGE_1_SPEC.md` §20.3), the home page is the run's priority.
+
+1. Inspect `https://www.aecintegrations.com/` first. Inspection is free; only requests count against the quota. Note the "Last crawl" date.
+2. If that crawl is before the deploy, request indexing for the home page **as the first click of a fresh quota window**, before row 1 of the queue. If the previous run hit "Quota exceeded", wait the full 24 hours first (see Reliability notes), or the home request is the one that fails.
+3. The home page is not in the admin queue, so there is no Done to click. Record the request in the run report.
+4. Check the result one week and three weeks after the request: search Google for `site:aecintegrations.com` and read the name above the results. Record what it shows in the run report.
+
+The site-name change of 2026-10-15 is the first use of this. Before it shipped, the home page was last crawled on 2026-10-13 with `WebSite.name` already present, so a recrawl alone had not been enough.
+
 ## Loop — for each row in the admin queue, top to bottom
 
 The queue is sorted for this loop: inside each priority, rows Google says need a request come first, and among those, pages Google has never crawled ("Not known to Google", "Discovered, not indexed") come before indexed pages with a stale crawl. Working top-down spends the request quota where it gains most.

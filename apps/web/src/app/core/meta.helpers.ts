@@ -20,6 +20,13 @@ export const META_DESCRIPTION_MAX = 155;
 export const SITE_NAME = 'AEC Integrations';
 
 /**
+ * Other names the site goes by, emitted as `WebSite.alternateName`. Google's
+ * site-name system falls back to these when it judges `SITE_NAME` too generic,
+ * before falling back to the bare domain.
+ */
+export const SITE_ALTERNATE_NAMES: readonly string[] = ['AECi'];
+
+/**
  * Default OG image when an entity has no logo of its own. We reuse the brand
  * monogram so we don't have to ship a new asset for AECI-51. Some scrapers
  * (older LinkedIn, some Slack flavors) render SVG OG images inconsistently;
@@ -118,14 +125,16 @@ export interface SearchActionLd {
 }
 
 /**
- * `schema.org/WebSite` JSON-LD for the home page (§20.3). Carries the site name,
- * the homepage URL, and a `SearchAction` `potentialAction` so search engines can
+ * `schema.org/WebSite` JSON-LD for the home page (§20.3). Carries the site name
+ * and its alternate names (the input to Google's site-name display), the
+ * homepage URL, and a `SearchAction` `potentialAction` so search engines can
  * render the sitelinks search box wired to `/search`.
  */
 export interface WebSiteLd {
   '@context': 'https://schema.org';
   '@type': 'WebSite';
   name: string;
+  alternateName: string[];
   url: string;
   potentialAction: SearchActionLd;
 }
@@ -455,11 +464,16 @@ export function buildVendorJsonLd(vendor: VendorDetail): OrganizationLd {
  * `url` and the `/search?q=` target are composed from it so the structured data
  * follows the serving host (self-referential canonicals, ADR 0011).
  */
-export function buildWebSiteJsonLd(input: { origin: string; name: string }): WebSiteLd {
+export function buildWebSiteJsonLd(input: {
+  origin: string;
+  name: string;
+  alternateNames: readonly string[];
+}): WebSiteLd {
   return {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: input.name,
+    alternateName: [...input.alternateNames],
     url: `${input.origin}/`,
     potentialAction: {
       '@type': 'SearchAction',

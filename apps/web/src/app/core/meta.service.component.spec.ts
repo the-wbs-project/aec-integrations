@@ -168,6 +168,8 @@ describe('MetaService.setHomeMeta', () => {
     ) as HTMLScriptElement | null;
     const parsed = JSON.parse(website?.textContent ?? '{}');
     expect(parsed['@type']).toBe('WebSite');
+    expect(parsed.name).toBe('AEC Integrations');
+    expect(parsed.alternateName).toEqual(['AECi']);
     expect(parsed.url).toBe('https://aecintegrations.com/');
     expect(parsed.potentialAction.target).toBe(
       'https://aecintegrations.com/search?q={search_term_string}',

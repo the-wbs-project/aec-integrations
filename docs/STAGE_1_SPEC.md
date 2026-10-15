@@ -1547,6 +1547,8 @@ Embedded in `<head>` on relevant pages:
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
 
+> **Site name in Google results (2026-10-15):** Google shows a site name above each result. It picks it from the home `WebSite.name`, then `WebSite.alternateName`, then `og:site_name`, `<title>` and headings, and falls back to the bare domain when unsure. It showed `aecintegrations.com` even though the home was crawled on 2026-10-13 with `name` in place. So the home `WebSite` also carries `alternateName: ["AECi"]` (`SITE_ALTERNATE_NAMES` in `apps/web/src/app/core/meta.helpers.ts`), and every page carries a static `og:site_name` of `AEC Integrations` from `apps/web/src/index.html`. The `og:site_name` value and the `<title>` brand must stay identical to `SITE_NAME`. Do not change the home `<h1>` for this; the title and logo carry the brand. Recovery steps are in `docs/gsc-reindex-playbook.md` §Home page and site name.
+
 > **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
 ### 20.4 OpenGraph and Twitter Card meta tags
@@ -1555,6 +1557,8 @@ Every product, vendor, and integration page includes:
 
 - `og:title`, `og:description`, `og:image`, `og:url`, `og:type`
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
+
+Every page, not just entity pages, also carries `og:site_name` (`AEC Integrations`). It is static in `apps/web/src/index.html` because it never varies by page or locale (§20.3, site name).
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
 

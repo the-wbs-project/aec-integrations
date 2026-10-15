@@ -14,6 +14,7 @@ import {
   HOME_OG_IMAGE,
   META_DESCRIPTION_MAX,
   META_DESCRIPTION_MAX_NAMES,
+  SITE_ALTERNATE_NAMES,
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
@@ -488,11 +489,16 @@ describe('buildVendorJsonLd', () => {
 
 describe('buildWebSiteJsonLd', () => {
   it('produces the canonical WebSite shape with a SearchAction', () => {
-    const ld = buildWebSiteJsonLd({ origin: 'https://aecintegrations.com', name: SITE_NAME });
+    const ld = buildWebSiteJsonLd({
+      origin: 'https://aecintegrations.com',
+      name: SITE_NAME,
+      alternateNames: SITE_ALTERNATE_NAMES,
+    });
     expect(ld).toEqual({
       '@context': 'https://schema.org',
       '@type': 'WebSite',
       name: 'AEC Integrations',
+      alternateName: ['AECi'],
       url: 'https://aecintegrations.com/',
       potentialAction: {
         '@type': 'SearchAction',
@@ -506,6 +512,7 @@ describe('buildWebSiteJsonLd', () => {
     const ld = buildWebSiteJsonLd({
       origin: 'https://staging.aecintegrations.com',
       name: SITE_NAME,
+      alternateNames: SITE_ALTERNATE_NAMES,
     });
     expect(ld.url).toBe('https://staging.aecintegrations.com/');
     expect(ld.potentialAction.target).toBe(
