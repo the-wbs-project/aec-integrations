@@ -24,8 +24,8 @@ test.describe('wants to join (preview)', () => {
     const heading = page.getByRole('heading', { name: 'Wants to join' });
     await expect(heading).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('riley@summitbim.example.com')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Accept/ })).toBeEnabled();
-    await expect(page.getByRole('button', { name: /^Decline/ })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Accept Riley Chen' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Decline Riley Chen' })).toBeEnabled();
 
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
@@ -38,7 +38,7 @@ test.describe('wants to join (preview)', () => {
 
   test('announces an accept in the status region', async ({ page }) => {
     await page.goto(PATH);
-    const accept = page.getByRole('button', { name: /^Accept/ });
+    const accept = page.getByRole('button', { name: 'Accept Riley Chen' });
     await expect(accept).toBeVisible({ timeout: 15_000 });
 
     await accept.click();
