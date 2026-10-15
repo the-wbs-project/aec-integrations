@@ -13,6 +13,9 @@
  *   6. Choosing a row, by keyboard or pointer, emits `picked` and clears the box.
  *   7. Enter in the box never submits the surrounding form. The clear button
  *      empties the box.
+ *   8. AECI-1377: `queryChange` carries the trimmed query on every change, and
+ *      `noMatch` carries a query whose finished search offered no row, never a
+ *      failed or a too-short one.
  *
  * The listbox renders into the body-level CDK overlay container under jsdom (no
  * Popover API), so popup queries go to `document`, not the host.
@@ -63,6 +66,8 @@ const PROJECTSIGHT: ProductComboboxItem = {
         [exclude]="exclude()"
         (picked)="picked.push($event)"
         (announce)="announced.push($event)"
+        (queryChange)="queries.push($event)"
+        (noMatch)="misses.push($event)"
       />
     </form>
   `,
@@ -72,6 +77,8 @@ class TestHost {
   readonly exclude = signal<readonly string[]>([]);
   readonly picked: ProductComboboxItem[] = [];
   readonly announced: string[] = [];
+  readonly queries: string[] = [];
+  readonly misses: string[] = [];
   submits = 0;
 }
 
@@ -302,5 +309,41 @@ describe('ProductCombobox', () => {
     expect(input.value).toBe('');
     expect(el.querySelector('[data-product-combobox-clear]')).toBeNull();
     expect(options()).toHaveLength(0);
+  });
+
+  describe('queryChange and noMatch (AECI-1377)', () => {
+    it('emits the trimmed query on every change, and the empty query after a pick', async () => {
+      const { fixture, host, input } = mount(async () => ({ data: [PROCORE] }));
+      await type(fixture, input, ' p');
+      await typeAndSettle(fixture, input, '  pro  ');
+      expect(host.queries).toEqual(['p', 'pro']);
+      const row = options()[0]!;
+      row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle(fixture);
+      expect(host.queries.at(-1)).toBe('');
+    });
+
+    it('emits noMatch for a finished search with no row, counting excluded rows as none', async () => {
+      const { fixture, host, input } = mount(async () => ({ data: [PROCORE] }));
+      host.exclude.set([PROCORE.id]);
+      await typeAndSettle(fixture, input, 'procore');
+      expect(host.misses).toEqual(['procore']);
+    });
+
+    it('does not emit noMatch when rows came back', async () => {
+      const { fixture, host, input } = mount(async () => ({ data: [PROCORE] }));
+      await typeAndSettle(fixture, input, 'pro');
+      expect(host.misses).toEqual([]);
+    });
+
+    it('does not emit noMatch for a failed search or a short query', async () => {
+      const { fixture, host, input } = mount(async () => {
+        throw new Error('network');
+      });
+      await typeAndSettle(fixture, input, 'p');
+      await typeAndSettle(fixture, input, 'pro');
+      expect(host.misses).toEqual([]);
+    });
   });
 });

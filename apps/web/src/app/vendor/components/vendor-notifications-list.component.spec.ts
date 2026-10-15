@@ -637,6 +637,49 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it.each([
+    ['added', 'Procore is now listed.', null],
+    ['already_listed', 'Procore Cloud was already listed as Procore.', null],
+    ['declined', 'We will not add Procore Cloud.', 'Reason: We list AEC software only.'],
+  ] as const)(
+    'renders a product request `%s` decision with its sentence (AECI-1377)',
+    async (event, title, note) => {
+      const declined = event === 'declined';
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'product_request',
+            id: '00000000-0000-4000-8000-00000000e1a1',
+            event,
+            request_id: '00000000-0000-4000-8000-00000000e1a2',
+            request_name: event === 'added' ? 'Procore' : 'Procore Cloud',
+            product: declined ? null : { slug: 'procore', name: 'Procore' },
+            context_product: { slug: 'summit', name: 'Summit' },
+            reason: declined ? 'We list AEC software only.' : null,
+            created_at: '2026-10-15T12:00:00.000Z',
+          },
+        ],
+      });
+      const fixture = await create();
+      const row = el(fixture).querySelector('li')!;
+      expect(row.textContent).toContain(title);
+      expect(row.textContent).toContain('Summit');
+      if (note) expect(row.textContent).toContain(note);
+      // Not an attestation row: it is counted and never filtered out.
+      expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
+      const link = row.querySelector('[data-testid="notification-request-link"]');
+      if (declined) {
+        expect(link).toBeNull();
+      } else {
+        expect(link?.textContent).toContain('Add your integration');
+        const href = link?.getAttribute('href') ?? '';
+        expect(href).toMatch(/\/products\/summit\/integrations\?/);
+        expect(href).toContain('create=open');
+        expect(href).toContain('counterpart=procore');
+      }
+    },
+  );
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and

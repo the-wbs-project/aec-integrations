@@ -16,6 +16,7 @@ import {
   isAttestationNotification,
   type VendorAeciOverrideNotification,
   type VendorNotification,
+  type VendorProductRequestNotification,
 } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -170,6 +171,16 @@ import {
                     >Open the product's reviews</a
                   >
                 }
+                @if (requestLink(notification); as link) {
+                  <a
+                    [routerLink]="link.path"
+                    [queryParams]="link.queryParams"
+                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    data-testid="notification-request-link"
+                    i18n="@@vendor.productRequest.notify.add"
+                    >Add your integration</a
+                  >
+                }
                 @if (pairPath(notification); as path) {
                   <a
                     [routerLink]="path"
@@ -289,6 +300,25 @@ export class VendorNotificationsList {
     return this.routed() ? ['..', ...path] : path;
   }
 
+  /**
+   * AECI-1377 (§4.7.6): an Added or Already listed decision links to the context
+   * product's Integrations tab with the create form open and the product chosen,
+   * `?create=open&counterpart={slug}`. A decline has no call to action, and neither
+   * does a row whose product snapshot is missing.
+   */
+  protected requestLink(
+    notification: VendorNotification,
+  ): { path: readonly string[]; queryParams: Record<string, string> } | null {
+    if (notification.kind !== 'product_request' || notification.event === 'declined') return null;
+    const { product, context_product: context } = notification;
+    if (!product || !context) return null;
+    const path = ['products', context.slug, 'integrations'];
+    return {
+      path: this.routed() ? ['..', ...path] : path,
+      queryParams: { create: 'open', counterpart: product.slug },
+    };
+  }
+
   /** The pair page, on every member that carries one. The review members
    *  (AECI-1180) are about a product, not a pair, so they have none. */
   protected pairPath(notification: VendorNotification): string | null {
@@ -349,6 +379,10 @@ export class VendorNotificationsList {
       ];
     }
     if (notification.kind === 'review_response') return [notification.product.name];
+    // AECI-1377: a product request decision names the product it was asked from.
+    if (notification.kind === 'product_request') {
+      return [notification.context_product?.name].filter((part): part is string => !!part);
+    }
     // AECI-1159: an AECi override names what it changed. Its reason is the note.
     if (notification.kind === 'aeci_override') {
       const parts =
@@ -482,7 +516,26 @@ function titleOf(notification: VendorNotification): string {
         return $localize`:@@vendor.reviews.notify.reply.removed:Your reply to a review was removed`;
     }
   }
+  if (notification.kind === 'product_request') return productRequestTitle(notification);
   return contestNotificationTitle(notification);
+}
+
+/** The vendor-facing sentence for a product request decision (AECI-1377, §4.7.6
+ *  "Three outcomes"). The call to action is the link, not part of the title. */
+function productRequestTitle(notification: VendorProductRequestNotification): string {
+  const name = notification.request_name;
+  switch (notification.event) {
+    case 'added': {
+      const product = notification.product?.name ?? name;
+      return $localize`:@@vendor.productRequest.notify.added:${product}:product: is now listed.`;
+    }
+    case 'already_listed': {
+      const listed = notification.product?.name ?? name;
+      return $localize`:@@vendor.productRequest.notify.alreadyListed:${name}:product: was already listed as ${listed}:listed:.`;
+    }
+    case 'declined':
+      return $localize`:@@vendor.productRequest.notify.declined:We will not add ${name}:product:.`;
+  }
 }
 
 /**
@@ -535,6 +588,11 @@ function noteOf(
       return overrideNote(notification);
     case 'contest':
       return contestNotificationNote(notification, formatDay);
+    case 'product_request':
+      // AECI-1377: the decline reason is shown to the vendor (ruled 2026-10-15).
+      return notification.event === 'declined' && notification.reason
+        ? reasonSentence(notification.reason)
+        : null;
   }
 }
 

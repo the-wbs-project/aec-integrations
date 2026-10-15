@@ -14,11 +14,19 @@
  *   5. The type picker leaves out the connector-delivered kinds (decision 9).
  *   6. A refusal renders its own sentence in a `role="alert"`.
  *   7. The preview token opens the form on first render.
+ *
+ * AECI-1377 (§4.7.6) adds:
+ *   8. Two steps. Step 1 is the locked product and the search only. Choosing a
+ *      product is step 2. Change goes back to step 1 and keeps typed values.
+ *   9. "Can't find it? Ask us to add it" swaps in the request form, prefilled from
+ *      the search, with Back to search, the receipt, and the 409 sentence.
+ *  10. The `?create=open&counterpart={slug}` deep link: a hit lands on step 2, a
+ *      404 or the tab's own product stays on step 1, and the params are removed.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProductListItem } from '@aeci/shared';
@@ -34,6 +42,7 @@ import {
   VENDOR_CREATE_FORM_START_OPEN,
   VendorIntegrationCreate,
   createErrorMessage,
+  productRequestErrorMessage,
 } from './vendor-integration-create';
 import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
@@ -66,6 +75,8 @@ let api: {
   searchProducts: ReturnType<typeof vi.fn>;
   createIntegration: ReturnType<typeof vi.fn>;
   getIntegrations: ReturnType<typeof vi.fn>;
+  getProduct: ReturnType<typeof vi.fn>;
+  createProductRequest: ReturnType<typeof vi.fn>;
 };
 
 function apiError(status: number, code: string): HttpErrorResponse {
@@ -83,6 +94,8 @@ function configure(startOpen?: boolean): void {
     }),
     createIntegration: vi.fn(),
     getIntegrations: vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE),
+    getProduct: vi.fn(),
+    createProductRequest: vi.fn(),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -174,14 +187,19 @@ const submit = async (fixture: ComponentFixture<unknown>) => {
   await settle(fixture);
 };
 
+const panel = (fixture: ComponentFixture<unknown>) => q(fixture, '[data-testid="create-panel"]');
+const stepText = (fixture: ComponentFixture<unknown>) =>
+  (q(fixture, '[data-testid="create-step"]')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
 describe('opening the form', () => {
   it('is closed until the trigger is pressed, and sends nothing on open', async () => {
     const fixture = await mount();
-    expect(q(fixture, 'form')).toBeNull();
+    expect(panel(fixture)).toBeNull();
     const trigger = q<HTMLButtonElement>(fixture, '[data-testid="add-integration"]')!;
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await open(fixture);
-    expect(q(fixture, 'form')).not.toBeNull();
+    expect(panel(fixture)).not.toBeNull();
+    expect(panel(fixture)!.id).toBe(trigger.getAttribute('aria-controls'));
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(api.createIntegration).not.toHaveBeenCalled();
   });
@@ -189,7 +207,7 @@ describe('opening the form', () => {
   it('opens on first render when the preview token says so', async () => {
     configure(true);
     const fixture = await mount();
-    expect(q(fixture, 'form')).not.toBeNull();
+    expect(panel(fixture)).not.toBeNull();
   });
 
   it('shows the tab’s product as fixed, with no picker to change it', async () => {
@@ -222,6 +240,7 @@ describe('opening the form', () => {
   it('leaves the connector-delivered kinds out of the type picker', async () => {
     const fixture = await mount();
     await open(fixture);
+    await pickProcore(fixture);
     const values = [
       ...el(fixture).querySelectorAll<HTMLOptionElement>('#vendor-create-mechanism_kind option'),
     ].map((o) => o.value);
@@ -295,9 +314,9 @@ describe('submitting', () => {
   it('sends nothing and marks the fields when required values are missing', async () => {
     const fixture = await mount();
     await open(fixture);
+    await pickProcore(fixture);
     await submit(fixture);
     expect(api.createIntegration).not.toHaveBeenCalled();
-    expect(el(fixture).textContent).toContain('Search for the other product');
     expect(q(fixture, '#vendor-create-name')!.getAttribute('aria-invalid')).toBe('true');
   });
 
@@ -336,7 +355,7 @@ describe('submitting', () => {
     });
     expect(announce).toHaveBeenCalled();
     expect(revalidate).toHaveBeenCalledWith(['integrations']);
-    expect(q(fixture, 'form')).toBeNull();
+    expect(panel(fixture)).toBeNull();
     const dupes = q(fixture, '[data-testid="create-duplicates"]');
     expect(dupes?.textContent).toContain('Procore sync, no owner on file');
   });
@@ -348,7 +367,7 @@ describe('submitting', () => {
     await pickProcore(fixture);
     await fillRequired(fixture);
     await submit(fixture);
-    expect(q(fixture, 'form')).not.toBeNull();
+    expect(q(fixture, '[data-testid="create-form"]')).not.toBeNull();
     const alert = [...el(fixture).querySelectorAll('[role="alert"]')].map((a) => a.textContent);
     expect(alert.join(' ')).toContain('not available to link');
   });
@@ -366,5 +385,213 @@ describe('createErrorMessage', () => {
 describe('VendorIntegrationCreate: the guide link (AECI-1253)', () => {
   it('links Owning an integration beside the trigger', async () => {
     expectVendorDocsLink(el(await mount()), 'owning-an-integration');
+  });
+});
+
+describe('the two steps (AECI-1377)', () => {
+  it('opens on step 1 with only the locked product and the search', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    expect(stepText(fixture)).toBe('Step 1 of 2, Find the other product');
+    expect(q(fixture, '[data-testid="create-own-product"]')).not.toBeNull();
+    expect(q(fixture, '#vendor-create-search')).not.toBeNull();
+    expect(q(fixture, '[data-testid="create-ask-us"]')?.textContent).toContain(
+      "Can't find it? Ask us to add it",
+    );
+    expect(q(fixture, '#vendor-create-name')).toBeNull();
+    expect(q(fixture, '[data-testid="create-submit"]')).toBeNull();
+  });
+
+  it('moves to step 2 on a pick, and puts focus on the step heading', async () => {
+    const fixture = await mount();
+    document.body.appendChild(el(fixture));
+    await open(fixture);
+    await pickProcore(fixture);
+    expect(stepText(fixture)).toBe('Step 2 of 2, About the integration');
+    expect(q(fixture, '[data-testid="create-counterpart"]')?.textContent).toContain('Procore');
+    expect(q(fixture, '#vendor-create-name')).not.toBeNull();
+    expect(document.activeElement).toBe(q(fixture, '[data-testid="create-step"]'));
+    el(fixture).remove();
+  });
+
+  it('keeps the typed values when Change goes back to step 1', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await pickProcore(fixture);
+    await type(fixture, '#vendor-create-name', 'Summit to Procore');
+    q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!.click();
+    await settle(fixture);
+    expect(stepText(fixture)).toContain('Step 1 of 2');
+    expect(q(fixture, '#vendor-create-name')).toBeNull();
+    await pickProcore(fixture);
+    expect(q<HTMLInputElement>(fixture, '#vendor-create-name')!.value).toBe('Summit to Procore');
+  });
+
+  it('says no product matches when a finished search finds none', async () => {
+    api.searchProducts.mockResolvedValue({ data: [product(OWN.id, OWN.name)], total: 1 });
+    const fixture = await mount();
+    await open(fixture);
+    expect(q(fixture, '[data-testid="create-no-match"]')).toBeNull();
+    await searchFor(fixture, 'Trimble');
+    expect(q(fixture, '[data-testid="create-no-match"]')?.textContent?.trim()).toBe(
+      'No product matches Trimble.',
+    );
+    // The ask-us button is there whether or not the search missed.
+    expect(q(fixture, '[data-testid="create-ask-us"]')).not.toBeNull();
+    expect(q(fixture, '#vendor-create-search')!.getAttribute('aria-describedby')).toContain(
+      'vendor-create-no-match',
+    );
+  });
+});
+
+describe('asking us to add a product (AECI-1377)', () => {
+  async function openRequest(
+    fixture: ComponentFixture<VendorIntegrationCreate>,
+    query = 'Trimble Connect',
+  ): Promise<void> {
+    await open(fixture);
+    await searchFor(fixture, query);
+    q<HTMLButtonElement>(fixture, '[data-testid="create-ask-us"]')!.click();
+    await settle(fixture);
+  }
+
+  it('swaps step 1 for the request form, with the search text as the name', async () => {
+    const fixture = await mount();
+    await openRequest(fixture);
+    expect(q(fixture, '[data-testid="product-request-form"]')).not.toBeNull();
+    expect(q(fixture, '#vendor-create-search')).toBeNull();
+    expect(q<HTMLInputElement>(fixture, '#vendor-request-name')!.value).toBe('Trimble Connect');
+    expect(q<HTMLInputElement>(fixture, '#vendor-request-maker')!.value).toBe('');
+    const labels = [...el(fixture).querySelectorAll('label')].map((l) =>
+      (l.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+    expect(labels).toEqual([
+      'Product name',
+      'Company that makes it',
+      'Website (optional)',
+      'Anything we should know? (optional)',
+    ]);
+  });
+
+  it('goes back to step 1 from Back to search', async () => {
+    const fixture = await mount();
+    await openRequest(fixture);
+    q<HTMLButtonElement>(fixture, '[data-testid="product-request-back"]')!.click();
+    await settle(fixture);
+    expect(q(fixture, '[data-testid="product-request-form"]')).toBeNull();
+    expect(q(fixture, '#vendor-create-search')).not.toBeNull();
+  });
+
+  it('sends nothing until the required fields are filled and the website is https', async () => {
+    const fixture = await mount();
+    await openRequest(fixture);
+    await type(fixture, '#vendor-request-website', 'http://trimble.example');
+    await submit(fixture);
+    expect(api.createProductRequest).not.toHaveBeenCalled();
+    expect(q(fixture, '#vendor-request-maker')!.getAttribute('aria-invalid')).toBe('true');
+    expect(q(fixture, '#vendor-request-website-error')?.textContent).toContain('https://');
+  });
+
+  it('sends the request, shows the receipt, announces it and tells the tab', async () => {
+    api.createProductRequest.mockImplementation(async (body: { name: string }) => ({
+      request: { id: '00000000-0000-4000-8000-0000000071a9', name: body.name },
+    }));
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await mount();
+    const requested: unknown[] = [];
+    fixture.componentInstance.requested.subscribe((r) => requested.push(r));
+    await openRequest(fixture);
+    await type(fixture, '#vendor-request-maker', 'Trimble');
+    await type(fixture, '#vendor-request-website', 'https://connect.trimble.example');
+    await type(fixture, '#vendor-request-body', 'We sync issues.');
+    await submit(fixture);
+
+    expect(api.createProductRequest).toHaveBeenCalledWith({
+      context_product_id: OWN.id,
+      name: 'Trimble Connect',
+      maker: 'Trimble',
+      website: 'https://connect.trimble.example',
+      body: 'We sync issues.',
+    });
+    const receipt = q(fixture, '[data-testid="product-request-receipt"]')!;
+    expect(receipt.textContent).toContain('We have your request.');
+    expect(receipt.textContent).toContain(
+      'We will add Trimble Connect or tell you why not. You will get an email and a message in your portal.',
+    );
+    expect(announce).toHaveBeenCalled();
+    expect(requested).toHaveLength(1);
+
+    q<HTMLButtonElement>(fixture, '[data-testid="product-request-again"]')!.click();
+    await settle(fixture);
+    expect(stepText(fixture)).toContain('Step 1 of 2');
+  });
+
+  it('says it is already in the list on a 409', async () => {
+    api.createProductRequest.mockRejectedValue(apiError(409, 'PRODUCT_REQUEST_EXISTS'));
+    const fixture = await mount();
+    await openRequest(fixture);
+    await type(fixture, '#vendor-request-maker', 'Trimble');
+    await submit(fixture);
+    expect(q(fixture, '[data-testid="product-request-notice"]')?.textContent?.trim()).toBe(
+      'You already asked us to add Trimble Connect. It is in the list below.',
+    );
+    expect(q(fixture, '[data-testid="product-request-notice"]')?.getAttribute('role')).toBe(
+      'alert',
+    );
+  });
+
+  it('maps each refusal to its own sentence', () => {
+    const codes = ['PRODUCT_REQUEST_EXISTS', 'NOT_FOUND', 'VALIDATION_FAILED', 'RATE_LIMITED'];
+    const messages = codes.map((code) => productRequestErrorMessage(apiError(400, code), 'X'));
+    expect(new Set(messages).size).toBe(codes.length);
+    expect(productRequestErrorMessage(new Error('x'), 'X')).toContain('Could not send');
+  });
+});
+
+describe('the deep link (AECI-1377)', () => {
+  async function mountAt(url: string): Promise<ComponentFixture<VendorIntegrationCreate>> {
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl(url);
+    const fixture = TestBed.createComponent(VendorIntegrationCreate);
+    fixture.componentRef.setInput('contextProductId', OWN.id);
+    fixture.componentRef.setInput('deepLink', true);
+    await settle(fixture);
+    await settle(fixture);
+    return fixture;
+  }
+
+  it('opens on step 2 with the named product, and removes the params', async () => {
+    api.getProduct.mockResolvedValue(PROCORE);
+    const fixture = await mountAt('/?create=open&counterpart=procore');
+    expect(api.getProduct).toHaveBeenCalledWith('procore');
+    expect(stepText(fixture)).toContain('Step 2 of 2');
+    expect(q(fixture, '[data-testid="create-counterpart"]')?.textContent).toContain('Procore');
+    expect(TestBed.inject(Router).url).toBe('/');
+  });
+
+  it('stays on step 1 when the product is not found', async () => {
+    api.getProduct.mockRejectedValue(apiError(404, 'NOT_FOUND'));
+    const fixture = await mountAt('/?create=open&counterpart=nope');
+    expect(stepText(fixture)).toContain('Step 1 of 2');
+    expect(q(fixture, '[data-testid="create-counterpart"]')).toBeNull();
+  });
+
+  it('stays on step 1 when the link names the tab’s own product', async () => {
+    api.getProduct.mockResolvedValue(product(OWN.id, OWN.name));
+    const fixture = await mountAt('/?create=open&counterpart=own');
+    expect(stepText(fixture)).toContain('Step 1 of 2');
+  });
+
+  it('opens on step 1 with only create=open, and ignores the link when not routed', async () => {
+    const fixture = await mountAt('/?create=open');
+    expect(stepText(fixture)).toContain('Step 1 of 2');
+    expect(api.getProduct).not.toHaveBeenCalled();
+
+    configure();
+    await TestBed.inject(Router).navigateByUrl('/?create=open&counterpart=procore');
+    const unrouted = TestBed.createComponent(VendorIntegrationCreate);
+    unrouted.componentRef.setInput('contextProductId', OWN.id);
+    await settle(unrouted);
+    expect(panel(unrouted)).toBeNull();
   });
 });
