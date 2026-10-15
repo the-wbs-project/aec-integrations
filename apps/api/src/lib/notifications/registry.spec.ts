@@ -31,8 +31,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * correction and its lift: 54. AECI-1279 added the plan inquiry receipt and alert: 56.
  * AECI-1293 added the listing request alert: 57. AECI-1368 added the claim owner review
  * email and the owner fallback digest: 59. AECI-1366 added the claimant's receipt: 60.
+ * AECI-1377 added the product request alert, its decision email and its feed row: 63.
  */
-const EXPECTED_COUNT = 60;
+const EXPECTED_COUNT = 63;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -69,11 +70,12 @@ describe('notification registry shape', () => {
       // `portal-review-response`. AECI-1279 added `plan-inquiry-received` and
       // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`. AECI-1368
       // added `claim-owner-review` and `claim-owner-fallback-alert`. AECI-1366 added
-      // `claim-received`.
-      email: 33,
+      // `claim-received`. AECI-1377 added `product-request-alert`,
+      // `product-request-decided` and `portal-product-request-decided`.
+      email: 35,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 21,
+      portal: 22,
       linear: 4,
     });
   });
@@ -200,6 +202,7 @@ const ALWAYS_ON = [
   'entitlement-expiring',
   'mailing-list-welcome-operator-copy',
   'plan-inquiry-alert',
+  'product-request-decided',
   'review-approved',
   'review-rejected',
   'vendor-seat-invite',
@@ -227,9 +230,9 @@ describe('pausable (AECI-1224)', () => {
     }
   });
 
-  it('pauses only what is listed: 18 pausable email entries', () => {
+  it('pauses only what is listed: 19 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(18);
+    expect(pausable).toHaveLength(19);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

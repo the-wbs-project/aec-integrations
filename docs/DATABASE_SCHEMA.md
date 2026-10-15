@@ -130,6 +130,7 @@ Tables grouped by domain:
 **Operations and workflow**:
 - `vendor_requests` — incoming claim and correction requests
 - `listing_requests` — typed-in listings from the claim dialog, a product or company not in the catalog (§8.1a, AECI-1293)
+- `product_requests` — a seated vendor asking AECi to add the other product of an integration (§8.1b, AECI-1377)
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
@@ -1317,7 +1318,7 @@ migration. See Phase 2 Spec §5.2.
 
 **Claims target the company (AECI-1364, 2026-10-15).** New claim rows always carry
 `target_type = 'vendor'`. A claim sent from a product page records the product in
-`context_product_id`. Claims stored before migration 0075 may still carry
+`context_product_id`. Claims stored before migration 0076 may still carry
 `target_type = 'product'`, so every claim reader (`resolveTargetVendor` on approve,
 the `/admin/claims` enrichment, the vendor portal's `vendorRequestsWhere`, the §6.7
 sweep and the stale-claim check) keeps handling both. Corrections keep their
@@ -1328,7 +1329,7 @@ already has an unbanned owner seat is stored with `routed_to_owners_at` set, and
 stays `open`. The owners accept or decline it from Seats. After 7 days with no
 decision the `claim_owner_fallback` cron clears it into `owner_fallback_at`, with an
 `audit_log` row per claim in the same batch. Neither column changes `status`, so the
-status CHECK is untouched. Migration 0076 is two nullable `ADD COLUMN`s.
+status CHECK is untouched. Migration 0077 is two nullable `ADD COLUMN`s.
 
 ```sql
 create table vendor_requests (
@@ -1372,16 +1373,16 @@ create table vendor_requests (
   -- VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
   plan_interest text,
 
-  -- AECI-1364 (migration 0075): the product page a CLAIM came from. A claim is on
+  -- AECI-1364 (migration 0076): the product page a CLAIM came from. A claim is on
   -- the company (VENDOR_SIGNUP_PROCESS.md decision 1): one posted with
   -- target_type 'product' is stored with target_type 'vendor' and the product's
   -- vendor id (primary, else any product_vendors row), and the product lands here.
   -- NULL for a company-page claim, a correction (corrections keep their product
-  -- target), or a claim stored before 0075 (those keep target_type 'product').
+  -- target), or a claim stored before 0076 (those keep target_type 'product').
   -- NO FK and NO CHECK, like target_id: either is a drizzle-kit recreate here.
   context_product_id text,
 
-  -- AECI-1368 (migration 0076): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10).
+  -- AECI-1368 (migration 0077): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10).
   -- routed_to_owners_at: set at submit when the claimed company has an unbanned owner
   -- seat, so its owners decide first. NULL for every other row.
   -- owner_fallback_at: set by the claim_owner_fallback cron when it hands a routed
@@ -1481,6 +1482,55 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
   CHECK-constrained. The audit metadata never holds the typed name, website or email.
 - **No retention prune**, like `vendor_requests`.
+
+### 8.1b `product_requests` (AECI-1377)
+
+A seated vendor asking AECi to add the OTHER product of an integration it wants to list,
+because the catalog does not have it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). Written by
+`POST /api/vendor/product-requests` from the "Add an integration" form, listed by
+`GET /api/vendor/product-requests`, and decided on `/admin/requests` through
+`/api/admin/product-requests`. A request never creates an integration.
+
+```sql
+create table product_requests (
+  id                  text primary key,          -- uuid, crypto.randomUUID()
+  vendor_id           text not null,             -- the requesting vendor, NO FK
+  requested_by        text not null,             -- the seat's profile id, NO FK
+  context_product_id  text not null,             -- the caller's product it asked from, NO FK
+  name                text not null,             -- 1..200, as typed
+  maker               text not null,             -- 1..200, as typed
+  website             text,                      -- https only, <=500, NULL when skipped
+  body                text not null default '',  -- "Anything we should know?", <=2000
+  status              text not null default 'open', -- 'open' | 'added' | 'already_listed' | 'declined'
+  resolved_product_id text,                      -- the promoted product an added/already_listed decision linked
+  decline_reason      text,                      -- 1..1000, shown to the vendor
+  created_at          text not null,
+  resolved_at         text,
+  resolved_by         text                       -- an admin profile id, NO FK
+);
+create index product_requests_status_created_idx on product_requests(status, created_at);
+create index product_requests_vendor_created_idx on product_requests(vendor_id, created_at);
+```
+
+- **Why its own table, not `listing_requests`.** A listing request is "I make this
+  product, add it so I can claim it": an anonymous submitter, a plan answer, a claim to
+  follow. A product request has a signed-in vendor as its actor, no claim and no plan.
+  Sharing the table would make the admin row, the alert, the receipt and the badge
+  branch on a `source` column.
+- **No FK and no CHECK**, the `listing_requests` precedent. `requested_by` and
+  `resolved_by` have no FK to `profiles`, so the erasure batch has nothing new to null.
+  The `status` vocabulary is enforced by Zod. Migration `0075` is exactly the
+  `CREATE TABLE` and its two indexes (`src/test/migration-0075.spec.ts` is the tripwire).
+- **One open request per name.** An open row of the same vendor whose `name` matches,
+  trimmed and case-insensitive, answers `409 PRODUCT_REQUEST_EXISTS`. The check runs in
+  the handler and again as an in-batch sentinel. A decided row blocks nothing.
+- **Domain state, audited.** The insert writes `product_request.created` (metadata
+  `context_product_id` and `has_website`, never the typed text), and each decision
+  `product_request.added`, `product_request.already_listed` or
+  `product_request.declined` plus the vendor's `notification.sent` row, in the same
+  `db.batch` (ADR 0022). The decision batch carries a `changes()` sentinel, so a lost
+  two-admin race rolls back whole. Every row sets `audit_log.vendor_id` (§8.4).
+- **No retention prune**, like `listing_requests`.
 
 ### 8.2 `workflow_instances`
 
@@ -2030,7 +2080,7 @@ create table agreement_acceptances (
   vendor_id text,                  -- a vendors.id; NO FK
   billing_account_id text references billing_accounts(id),           -- NO ACTION
   vendor_request_id text references vendor_requests(id) on delete set null,
-  listing_request_id text references listing_requests(id) on delete set null, -- AECI-1366, migration 0077
+  listing_request_id text references listing_requests(id) on delete set null, -- AECI-1366, migration 0078
   stripe_checkout_session_id text,
   accepted_at text not null,       -- ISO-8601
   ip text,                         -- CF-Connecting-IP; claim path only
@@ -2088,7 +2138,7 @@ create unique index agreement_acceptances_stripe_session_key
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
   the link cleared. This makes `agreement_acceptances` an FK child of `vendor_requests`, so
   a future recreate of `vendor_requests` would clear the link (`docs/migrations.md` §0).
-- **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0077).** The typed-in listing
+- **`listing_request_id` (AECI-1366 — 2026-10-15, migration 0078).** The typed-in listing
   path ("Not listed? Type it in") has no claim row, so its acceptance names the
   `listing_requests` row instead. A claim-source row names exactly one of the two. Nullable,
   `ON DELETE SET NULL`, added by one `ALTER TABLE ... ADD`. drizzle-kit dropped the

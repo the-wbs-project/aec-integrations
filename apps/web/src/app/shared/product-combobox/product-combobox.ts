@@ -70,7 +70,11 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
  * The caller owns the `<label for>`, the hint, the error text and what a chosen
  * product looks like. The result count goes out through {@link announce}, never
  * a live region of its own: the admin console and the vendor portal each keep
- * exactly one polite region, and two regions on a page race.
+ * exactly one polite region, and two regions on a page race. A host that offers a
+ * way out of a miss ("Can't find it?") listens to {@link queryChange} and
+ * {@link noMatch} and renders it below the input, never inside the popup: focus
+ * stays in the input while the popup is open, so a button there is unreachable by
+ * keyboard (AECI-1377).
  */
 @Component({
   selector: 'aec-product-combobox',
@@ -241,6 +245,18 @@ export class ProductCombobox {
   readonly picked = output<ProductComboboxItem>();
   /** Text for the host's single polite live region: the result count, or the failure. */
   readonly announce = output<string>();
+  /**
+   * The trimmed query, on every change of the text box, including the `''` a pick
+   * or the clear button leaves (AECI-1377, §4.7.6). Additive: a host that does not
+   * listen is unchanged. The vendor create form uses it to prefill a request.
+   */
+  readonly queryChange = output<string>();
+  /**
+   * The query whose finished search offered no row (after `exclude`), so a host
+   * can say "No product matches {query}." outside the popup (AECI-1377). Not
+   * emitted for a failed search or a query under two letters.
+   */
+  readonly noMatch = output<string>();
 
   private readonly field = viewChild.required<ElementRef<HTMLInputElement>>('field');
   private readonly comboboxDirective = viewChild.required(Combobox);
@@ -363,6 +379,7 @@ export class ProductCombobox {
     // lands during the pause before the next search starts.
     this.seq++;
     const query = raw.trim();
+    this.queryChange.emit(query);
     if (query.length < PRODUCT_COMBOBOX_MIN_CHARS) {
       this.results.set([]);
       this.phase.set(query.length === 0 ? 'idle' : 'short');
@@ -388,6 +405,7 @@ export class ProductCombobox {
       // dismissed it or left the box.
       if (this.hasList() && this.focused() && !this.dismissed()) this.setExpanded(true);
       this.announce.emit(countAnnouncement(this.visible().length));
+      if (this.visible().length === 0) this.noMatch.emit(query);
     } catch {
       if (mine !== this.seq) return;
       this.results.set([]);

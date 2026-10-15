@@ -26,6 +26,8 @@ import type {
   VendorAttestationNotification,
   VendorAeciOverrideNotification,
   VendorContestNotification,
+  VendorProductRequest,
+  VendorProductRequestNotification,
   ListVendorContestsResponse,
   VendorProduct,
   VendorProductConnectorsResponse,
@@ -2233,3 +2235,114 @@ export const CONTEST_RECEIVED_CLOSED_ON_OWNED: VendorContest = {
   created_at: '2026-08-12T09:00:00.000Z',
   updated_at: '2026-08-14T09:00:00.000Z',
 };
+
+// ─── Product requests (AECI-1377, §4.7.6) ────────────────────────────────────
+
+/**
+ * The vendor's product requests, one per status, newest first, as
+ * `GET /api/vendor/product-requests` returns them. All asked from the primary
+ * product's Integrations tab. The two decided-with-a-product rows link catalogue
+ * products the preview's search also knows (`autodesk-build`, `bluebeam-revu`).
+ */
+export const VENDOR_PRODUCT_REQUESTS_FIXTURE: readonly VendorProductRequest[] = [
+  {
+    id: '00000000-0000-4000-8000-0000000071a1',
+    status: 'open',
+    context_product_id: PRIMARY_PRODUCT.id,
+    name: 'Trimble Connect',
+    maker: 'Trimble',
+    website: 'https://connect.trimble.com',
+    body: 'We sync issues both ways with it.',
+    created_at: '2026-10-14T09:00:00.000Z',
+    resolved_at: null,
+    decline_reason: null,
+    resolved_product: null,
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000071a2',
+    status: 'added',
+    context_product_id: PRIMARY_PRODUCT.id,
+    name: 'Autodesk Build',
+    maker: 'Autodesk',
+    website: null,
+    body: '',
+    created_at: '2026-10-10T09:00:00.000Z',
+    resolved_at: '2026-10-12T09:00:00.000Z',
+    decline_reason: null,
+    resolved_product: {
+      id: '00000000-0000-4000-8000-000000005302',
+      slug: 'autodesk-build',
+      name: 'Autodesk Build',
+      logo_url: null,
+    },
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000071a3',
+    status: 'already_listed',
+    context_product_id: PRIMARY_PRODUCT.id,
+    name: 'Revu',
+    maker: 'Bluebeam',
+    website: null,
+    body: '',
+    created_at: '2026-10-06T09:00:00.000Z',
+    resolved_at: '2026-10-07T09:00:00.000Z',
+    decline_reason: null,
+    resolved_product: {
+      id: '00000000-0000-4000-8000-000000005305',
+      slug: 'bluebeam-revu',
+      name: 'Bluebeam Revu',
+      logo_url: null,
+    },
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000071a4',
+    status: 'declined',
+    context_product_id: PRIMARY_PRODUCT.id,
+    name: 'Slack',
+    maker: 'Salesforce',
+    website: 'https://slack.com',
+    body: '',
+    created_at: '2026-10-02T09:00:00.000Z',
+    resolved_at: '2026-10-03T09:00:00.000Z',
+    decline_reason: 'We list software built for architecture, engineering and construction.',
+    resolved_product: null,
+  },
+];
+
+/** The portal rows the three decisions above wrote (`kind: 'product_request'`). */
+export const VENDOR_PRODUCT_REQUEST_NOTIFICATIONS_FIXTURE: readonly VendorProductRequestNotification[] =
+  [
+    {
+      kind: 'product_request',
+      id: '00000000-0000-4000-8000-0000000071b2',
+      event: 'added',
+      request_id: '00000000-0000-4000-8000-0000000071a2',
+      request_name: 'Autodesk Build',
+      product: { slug: 'autodesk-build', name: 'Autodesk Build' },
+      context_product: { slug: PRIMARY_PRODUCT.slug, name: PRIMARY_PRODUCT.name },
+      reason: null,
+      created_at: '2026-10-12T09:00:00.000Z',
+    },
+    {
+      kind: 'product_request',
+      id: '00000000-0000-4000-8000-0000000071b3',
+      event: 'already_listed',
+      request_id: '00000000-0000-4000-8000-0000000071a3',
+      request_name: 'Revu',
+      product: { slug: 'bluebeam-revu', name: 'Bluebeam Revu' },
+      context_product: { slug: PRIMARY_PRODUCT.slug, name: PRIMARY_PRODUCT.name },
+      reason: null,
+      created_at: '2026-10-07T09:00:00.000Z',
+    },
+    {
+      kind: 'product_request',
+      id: '00000000-0000-4000-8000-0000000071b4',
+      event: 'declined',
+      request_id: '00000000-0000-4000-8000-0000000071a4',
+      request_name: 'Slack',
+      product: null,
+      context_product: { slug: PRIMARY_PRODUCT.slug, name: PRIMARY_PRODUCT.name },
+      reason: 'We list software built for architecture, engineering and construction.',
+      created_at: '2026-10-03T09:00:00.000Z',
+    },
+  ];

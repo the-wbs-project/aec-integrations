@@ -16,7 +16,9 @@
  *   pending_reviews   reviews.status = 'pending'
  *   pending_requests  vendor_requests.status = 'open' AND kind = 'correction', PLUS
  *                     listing_requests.status = 'open' (AECI-1293: the screen's second
- *                     section, so the badge counts what /admin/requests lists)
+ *                     section), PLUS product_requests.status = 'open' (AECI-1377: a
+ *                     vendor asking us to add a product, also on /admin/requests), so
+ *                     the badge counts what /admin/requests lists
  *   pending_claims    vendor_requests.status = 'open' AND kind = 'claim'
  *
  * Requests and claims are the SAME TABLE split by `kind` — `/admin/requests` and
@@ -70,6 +72,7 @@ import {
   reviews,
   vendorRequests,
   listingRequests,
+  productRequests,
 } from '../db/schema';
 
 /** The six counters, in the wire shape both endpoints return. */
@@ -88,58 +91,72 @@ export interface AdminQueueCounts {
  * runs on the header probe of every signed-in admin page load.
  */
 export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
-  const [reviewRows, requestRows, claimRows, reindexRows, contestRows, replyRows, listingRows] =
-    await db.batch([
-      db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
-      db
-        .select({ value: count() })
-        .from(vendorRequests)
-        .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'correction'))),
-      db
-        .select({ value: count() })
-        .from(vendorRequests)
-        .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'claim'))),
-      // No `where`: every row here is pending by construction. See the header.
-      db.select({ value: count() }).from(gscRecrawlQueue),
-      // AECI-1008: the AECi queue only. Owner-routed contests are decided by a
-      // vendor, so counting them would nag an operator about work that is not theirs.
-      db
-        .select({ value: count() })
-        .from(integrationFieldChallenges)
-        .where(
-          or(
-            and(
-              // AECi-routed, plus STRANDED owner-routed rows (owner vendor deleted, so
-              // `owner_vendor_id` is NULL), which AECi decides since AECI-1005.
-              or(
-                eq(integrationFieldChallenges.routedTo, 'aeci'),
-                and(
-                  eq(integrationFieldChallenges.routedTo, 'owner'),
-                  isNull(integrationFieldChallenges.ownerVendorId),
-                ),
+  const [
+    reviewRows,
+    requestRows,
+    claimRows,
+    reindexRows,
+    contestRows,
+    replyRows,
+    listingRows,
+    productRequestRows,
+  ] = await db.batch([
+    db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
+    db
+      .select({ value: count() })
+      .from(vendorRequests)
+      .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'correction'))),
+    db
+      .select({ value: count() })
+      .from(vendorRequests)
+      .where(and(eq(vendorRequests.status, 'open'), eq(vendorRequests.kind, 'claim'))),
+    // No `where`: every row here is pending by construction. See the header.
+    db.select({ value: count() }).from(gscRecrawlQueue),
+    // AECI-1008: the AECi queue only. Owner-routed contests are decided by a
+    // vendor, so counting them would nag an operator about work that is not theirs.
+    db
+      .select({ value: count() })
+      .from(integrationFieldChallenges)
+      .where(
+        or(
+          and(
+            // AECi-routed, plus STRANDED owner-routed rows (owner vendor deleted, so
+            // `owner_vendor_id` is NULL), which AECi decides since AECI-1005.
+            or(
+              eq(integrationFieldChallenges.routedTo, 'aeci'),
+              and(
+                eq(integrationFieldChallenges.routedTo, 'owner'),
+                isNull(integrationFieldChallenges.ownerVendorId),
               ),
-              eq(integrationFieldChallenges.status, 'open'),
             ),
-            // AECI-1009: plus every OPEN PROTEST, which AECi decides. Disjoint from the
-            // term above by construction: a protested row's `status` is `declined`.
-            eq(integrationFieldChallenges.protestStatus, 'open'),
+            eq(integrationFieldChallenges.status, 'open'),
           ),
+          // AECI-1009: plus every OPEN PROTEST, which AECi decides. Disjoint from the
+          // term above by construction: a protested row's `status` is `declined`.
+          eq(integrationFieldChallenges.protestStatus, 'open'),
         ),
-      // AECI-1177: vendor replies awaiting approval. Served by
-      // `review_responses_status_updated_idx`.
-      db
-        .select({ value: count() })
-        .from(reviewResponses)
-        .where(eq(reviewResponses.status, 'pending')),
-      // AECI-1293: open listing requests, the second section of `/admin/requests`. Added
-      // to `pending_requests` below so the Requests badge counts what that screen lists.
-      // Served by `listing_requests_status_created_idx`.
-      db.select({ value: count() }).from(listingRequests).where(eq(listingRequests.status, 'open')),
-    ]);
+      ),
+    // AECI-1177: vendor replies awaiting approval. Served by
+    // `review_responses_status_updated_idx`.
+    db
+      .select({ value: count() })
+      .from(reviewResponses)
+      .where(eq(reviewResponses.status, 'pending')),
+    // AECI-1293: open listing requests, the second section of `/admin/requests`. Added
+    // to `pending_requests` below so the Requests badge counts what that screen lists.
+    // Served by `listing_requests_status_created_idx`.
+    db.select({ value: count() }).from(listingRequests).where(eq(listingRequests.status, 'open')),
+    // AECI-1377: open product requests, also listed on `/admin/requests`, so they join
+    // `pending_requests` too. Served by `product_requests_status_created_idx`.
+    db.select({ value: count() }).from(productRequests).where(eq(productRequests.status, 'open')),
+  ]);
 
   return {
     pending_reviews: reviewRows[0]?.value ?? 0,
-    pending_requests: (requestRows[0]?.value ?? 0) + (listingRows[0]?.value ?? 0),
+    pending_requests:
+      (requestRows[0]?.value ?? 0) +
+      (listingRows[0]?.value ?? 0) +
+      (productRequestRows[0]?.value ?? 0),
     pending_claims: claimRows[0]?.value ?? 0,
     pending_reindex: reindexRows[0]?.value ?? 0,
     pending_contests: contestRows[0]?.value ?? 0,

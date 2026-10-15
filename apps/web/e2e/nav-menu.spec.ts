@@ -192,7 +192,9 @@ test.describe('primary navigation menu (375px)', () => {
       '/roadmap',
     );
     await expect(
-      page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Terms' }),
+      page
+        .getByRole('navigation', { name: 'Legal' })
+        .getByRole('link', { name: 'Terms', exact: true }),
     ).toHaveAttribute('href', '/legal/terms');
   });
 

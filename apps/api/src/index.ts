@@ -74,6 +74,14 @@ import {
 } from './routes/admin-listing-requests';
 import { createListingRequestHandler } from './routes/listing-requests';
 import {
+  createAdminProductRequestsListHandler,
+  createDecideProductRequestHandler,
+} from './routes/admin-product-requests';
+import {
+  createListVendorProductRequestsHandler,
+  createVendorProductRequestHandler,
+} from './routes/vendor-product-requests';
+import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
@@ -758,6 +766,19 @@ authAdmin.patch(
   requireAdmin(),
   createModerateListingRequestHandler(),
 );
+// AECI-1377 (§4.7.6): the product request queue on /admin/requests. A decision is
+// one batch with a race sentinel, its audit row and the vendor's portal row; the
+// decision email goes after commit. No limiter, like the listing requests above.
+authAdmin.get(
+  '/api/admin/product-requests',
+  requireAdmin(),
+  createAdminProductRequestsListHandler(),
+);
+authAdmin.patch(
+  '/api/admin/product-requests/:id',
+  requireAdmin(),
+  createDecideProductRequestHandler(),
+);
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.
 authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
@@ -1254,6 +1275,21 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createCreateVendorIntegrationHandler(),
+);
+// AECI-1377 (§4.7.6): ask AECi to add the other product of an integration. A seat is
+// the whole gate, as for the create above. Under /api/vendor/*, not /api/requests/*:
+// an authenticated vendor write, so the in-Worker limiter caps it, not zone Rule A.
+// The list read is never rate-limited.
+authVendor.get(
+  '/api/vendor/product-requests',
+  requireVendor(),
+  createListVendorProductRequestsHandler(),
+);
+authVendor.post(
+  '/api/vendor/product-requests',
+  requireVendor(),
+  rateLimit('write'),
+  createVendorProductRequestHandler(),
 );
 authVendor.post(
   '/api/vendor/claims',

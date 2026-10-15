@@ -158,6 +158,14 @@ export const AUDIT_VENDOR_ACTIONS = {
   'connector_catalog.managed_by_vendor': { kind: 'aeci-override', receipt: true },
   'connector_catalog.managed_by_review': { kind: 'aeci-override', receipt: true },
 
+  // ── Product requests (AECI-1377, STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.6) ──
+  // A vendor asking AECi to add the other product of an integration, and AECi's
+  // decision. Not receipts: the vendor's own list and the Messages row show them.
+  'product_request.created': { kind: 'vendor-edit', receipt: false },
+  'product_request.added': { kind: 'aeci-override', receipt: false },
+  'product_request.already_listed': { kind: 'aeci-override', receipt: false },
+  'product_request.declined': { kind: 'aeci-override', receipt: false },
+
   // ── Not receipts ──────────────────────────────────────────────────────────
   // The Messages ledger. `vendor_id` is the RECIPIENT; the feed is its reader.
   'notification.sent': { kind: 'system', receipt: false },

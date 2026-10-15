@@ -46,7 +46,7 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
     }
   });
 
-  // 0077 (AECI-1366) adds the third, listing_request_id; this reads the migrated schema.
+  // 0078 (AECI-1366) adds the third, listing_request_id; this reads the migrated schema.
   it('wires its foreign keys, and none to profiles or vendors', async () => {
     const t = await makeTestDb();
     try {

@@ -20,7 +20,9 @@
  * 'review'`), to every owning vendor, and AECi's decision on a vendor's reply
  * (`metadata.kind = 'review_response'`), to the reply's vendor, and since AECI-1159
  * an AECi override of a field, a logo or a seat (`metadata.kind = 'aeci_override'`),
- * to the vendor that held it, with AECi's vendor-visible reason.
+ * to the vendor that held it, with AECi's vendor-visible reason, and since AECI-1377
+ * AECi's decision on a product the vendor asked us to add (`metadata.kind =
+ * 'product_request'`), to the requesting vendor, with the decline reason.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -79,6 +81,8 @@ import {
   type VendorIntegrationRetireNotification,
   type VendorIntegrationUpdateNotification,
   type VendorNotification,
+  type VendorProductRequestNotification,
+  PRODUCT_REQUEST_OUTCOMES,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
 import { and, desc, eq, gte, or, sql } from 'drizzle-orm';
@@ -115,6 +119,10 @@ import {
   type ReviewNotificationMetadata,
   type ReviewResponseNotificationMetadata,
 } from '../lib/review-notifications';
+import {
+  PRODUCT_REQUEST_NOTIFICATION_KIND,
+  type ProductRequestNotificationMetadata,
+} from '../lib/product-requests';
 import {
   UPDATE_NOTIFICATION_KIND,
   type UpdateNotificationMetadata,
@@ -207,6 +215,8 @@ function toVendorNotification(row: {
   if (kind === REVIEW_RESPONSE_NOTIFICATION_KIND) return toReviewResponseNotification(row);
   // AECI-1159: AECi overrode a field, a logo or a seat the vendor holds.
   if (kind === AECI_OVERRIDE_NOTIFICATION_KIND) return toAeciOverrideNotification(row);
+  // AECI-1377: AECi decided a product this vendor asked us to add.
+  if (kind === PRODUCT_REQUEST_NOTIFICATION_KIND) return toProductRequestNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -606,6 +616,42 @@ function toAeciOverrideNotification(row: {
     default:
       return null;
   }
+}
+
+const PRODUCT_REQUEST_EVENTS = new Set<string>(PRODUCT_REQUEST_OUTCOMES);
+
+/**
+ * Map one `product_request` ledger row (AECI-1377), or `null` when it is not
+ * recognisable. Same tolerance as the other mappers. `reason` is read on a `declined`
+ * row only, and is the vendor-visible decline reason.
+ */
+function toProductRequestNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorProductRequestNotification | null {
+  const meta = row.metadata as Partial<ProductRequestNotificationMetadata> | null;
+  if (!meta || typeof meta.requestId !== 'string' || typeof meta.requestName !== 'string') {
+    return null;
+  }
+  if (typeof meta.event !== 'string' || !PRODUCT_REQUEST_EVENTS.has(meta.event)) return null;
+  const event = meta.event as VendorProductRequestNotification['event'];
+  const product = productRef(meta.product);
+  // An `added` or `already_listed` row exists to name the product. Without it the
+  // call to action has nowhere to go, so the row is skipped.
+  if (event !== 'declined' && !product) return null;
+  return {
+    kind: 'product_request',
+    id: row.id,
+    event,
+    request_id: meta.requestId,
+    request_name: meta.requestName,
+    product: event === 'declined' ? null : product,
+    context_product: productRef(meta.contextProduct),
+    reason: event === 'declined' && typeof meta.reason === 'string' ? meta.reason : null,
+    created_at: row.createdAt,
+  };
 }
 
 export function createListVendorNotificationsHandler(
