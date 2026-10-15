@@ -251,6 +251,23 @@ describe('UserDetail', () => {
       expect(labels).not.toContain('Revoke');
     });
 
+    it('says what a last-seat ban does to licenses, for a seat holder only (AECI-1374)', async () => {
+      const normalise = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ');
+      const seated = await setup(
+        makeApiMock(
+          makeUser({
+            role: 'vendor_admin',
+            seat: { vendor_id: VENDOR_ID, company_name: 'Procore', slug: 'procore', owner: true },
+          }),
+        ),
+      );
+      expect(normalise(seated.el.textContent)).toContain(
+        "If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to cancel at term end and ends nothing now.",
+      );
+      const reviewer = await setup(makeApiMock(makeUser()));
+      expect(normalise(reviewer.el.textContent)).not.toContain('cancel at term end');
+    });
+
     it('distinguishes unknown pending invites from none', async () => {
       const none = await setup(makeApiMock(makeUser({ pending_invites: [] })));
       expect(none.el.textContent).not.toContain("Pending invites can't be checked");

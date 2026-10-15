@@ -2015,6 +2015,13 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
   action. It is NULL while the license is live. `cancel_reason` is a different question:
   why a live license was set not to renew. Ending a license never touches it.
+- **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
+  `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
+  `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
+  value: `vendor-banned`, written on every live license when a ban leaves the vendor with no
+  unbanned seat, and cleared by the unban (AECI-1374, decision 15). The builder's
+  `ifCancelReason` guards each UPDATE on the reason it expects, so the unban never clears a
+  flag another writer set. Unconstrained at the DB layer, like `end_reason`.
 - **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
   statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>

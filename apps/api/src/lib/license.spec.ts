@@ -417,12 +417,15 @@ describe('setCancelAtTermEndStatements', () => {
       ...(await ctx()),
       licenseIds: ['l-1', 'l-2', 'l-ended', 'l-foreign'],
       cancel: true,
-      cancelReason: 'ban',
+      cancelReason: 'vendor-banned',
     });
     expect(batch.auditEntries).toHaveLength(2);
     await run(batch);
     for (const id of ['l-1', 'l-2']) {
-      expect(await licenseOf(id)).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'ban' });
+      expect(await licenseOf(id)).toMatchObject({
+        cancelAtTermEnd: true,
+        cancelReason: 'vendor-banned',
+      });
     }
     expect((await licenseOf('l-foreign')).cancelAtTermEnd).toBe(false);
     expect((await audits()).every((r) => r.action === 'license.cancel_at_term_end_set')).toBe(true);
@@ -433,7 +436,7 @@ describe('setCancelAtTermEndStatements', () => {
         ...(await ctx()),
         licenseIds: ['l-1', 'l-2'],
         cancel: true,
-        cancelReason: 'ban',
+        cancelReason: 'vendor-banned',
       }).stmts,
     ).toHaveLength(0);
 
@@ -446,6 +449,44 @@ describe('setCancelAtTermEndStatements', () => {
       }),
     );
     expect(await licenseOf('l-1')).toMatchObject({ cancelAtTermEnd: false, cancelReason: null });
+  });
+
+  it('throws on a cancel reason outside LICENSE_CANCEL_REASONS (AECI-1374)', async () => {
+    await seedLicense('l-1');
+    const c = await ctx();
+    expect(() =>
+      setCancelAtTermEndStatements(t.db, {
+        ...c,
+        licenseIds: ['l-1'],
+        cancel: true,
+        cancelReason: 'ban',
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it('ifCancelReason touches only licenses carrying that reason, read and commit (AECI-1374)', async () => {
+    await seedLicense('l-banned', { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    await seedLicense('l-other', { cancelAtTermEnd: true, cancelReason: null });
+    await seedLicense('l-raced', { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    const batch = setCancelAtTermEndStatements(t.db, {
+      ...(await ctx()),
+      licenseIds: ['l-banned', 'l-other', 'l-raced'],
+      cancel: false,
+      ifCancelReason: 'vendor-banned',
+    });
+    // The pre-read filter: l-other is skipped.
+    expect(
+      batch.auditEntries.map((e) => (e.metadata as { license_id: string }).license_id),
+    ).toEqual(['l-banned', 'l-raced']);
+    // Another writer re-flags l-raced between the read and the commit: the guard holds.
+    await t.db.update(licenses).set({ cancelReason: null }).where(eq(licenses.id, 'l-raced'));
+    await run(batch);
+    expect(await licenseOf('l-banned')).toMatchObject({
+      cancelAtTermEnd: false,
+      cancelReason: null,
+    });
+    expect(await licenseOf('l-other')).toMatchObject({ cancelAtTermEnd: true, cancelReason: null });
+    expect(await licenseOf('l-raced')).toMatchObject({ cancelAtTermEnd: true, cancelReason: null });
   });
 });
 
@@ -502,7 +543,7 @@ describe('endLicensesStatements', () => {
   });
 
   it('a revoke stores end_reason, leaves cancel_reason alone, and the snapshot reads it', async () => {
-    await seedLicense('l-1', { cancelAtTermEnd: true, cancelReason: 'ban' });
+    await seedLicense('l-1', { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
     await setVerified(true);
     await run(
       endLicensesStatements(t.db, {
@@ -515,7 +556,7 @@ describe('endLicensesStatements', () => {
     expect(await licenseOf('l-1')).toMatchObject({
       endedAt: NOW,
       endReason: 'revoked',
-      cancelReason: 'ban',
+      cancelReason: 'vendor-banned',
     });
     expect((await audits())[0]).toMatchObject({ action: 'license.revoked' });
 

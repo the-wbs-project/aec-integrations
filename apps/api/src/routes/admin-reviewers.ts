@@ -24,6 +24,12 @@
  * vendor's open owner contests move to AECi's queue in the same batch, and an
  * unban moves them back (`lib/vendor-handback.ts`). `claimed_at` and the
  * maintenance marker are untouched either way.
+ *
+ * AECI-1374 (E4.5, `VENDOR_SIGNUP_PROCESS.md` decision 15, ruled 2026-10-14): "ban a
+ * vendor" is the ban of its last unbanned seat. That ban also flags every live license
+ * on the vendor's billing accounts `cancel_at_term_end`, reason `vendor-banned`, in the
+ * same batch. Nothing ends now: no plan change, no purge, no email. The unban clears
+ * only the `vendor-banned` flags. A seat REVOKE writes nothing in billing.
  */
 
 import {
@@ -37,13 +43,14 @@ import {
   type ListBannedReviewersResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { LICENSE_CANCEL_REASONS, type LicenseCancelReason } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
-import { profiles, workflowInstances } from '../db/schema';
+import { profiles, vendors, workflowInstances } from '../db/schema';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -57,6 +64,11 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import {
+  loadVendorLicenses,
+  setCancelAtTermEndStatements,
+  type LicenseBatch,
+} from '../lib/license';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
@@ -70,6 +82,9 @@ import type { FetchReviewerEmails } from './admin-reviews';
 import { NO_VENDOR_STAMP, vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+
+/** The `cancel_reason` a last-seat ban writes and its unban clears (AECI-1374). */
+const VENDOR_BANNED: LicenseCancelReason = LICENSE_CANCEL_REASONS[0];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -301,6 +316,38 @@ export function createBanReviewerHandler(
     }
     if (follow) stmts.push(...follow.stmts);
 
+    // AECI-1374 (decision 15): the ban of the last unbanned seat flags every live
+    // license, any source, to cancel at term end. A license already flagged keeps its
+    // own reason, so the unban cannot clear a cancel someone else set. The unban
+    // clears only `vendor-banned` flags. Nothing ends now; the reconcile the builder
+    // appends cannot move `verified`, because no license ends.
+    let licenseBatch: LicenseBatch | null = null;
+    if (contestParams && (!ban || planned === 'lapse')) {
+      const [vendorLicenses, vendorRow] = await Promise.all([
+        loadVendorLicenses(db, contestParams.vendorId),
+        db.query.vendors.findFirst({
+          columns: { verified: true },
+          where: eq(vendors.id, contestParams.vendorId),
+        }),
+      ]);
+      const live = vendorLicenses.filter((l) => l.endedAt === null);
+      licenseBatch = setCancelAtTermEndStatements(db, {
+        vendorId: contestParams.vendorId,
+        now: contestParams.now,
+        actorId: userId,
+        actorType: auditActorType(session),
+        vendorLicenses,
+        vendorWasVerified: vendorRow?.verified ?? false,
+        source: 'admin-moderation',
+        extraMetadata: { seat_user_id: id },
+        licenseIds: (ban ? live.filter((l) => !l.cancelAtTermEnd) : live).map((l) => l.id),
+        cancel: ban,
+        cancelReason: ban ? VENDOR_BANNED : null,
+        ifCancelReason: ban ? null : VENDOR_BANNED,
+      });
+      stmts.push(...licenseBatch.stmts);
+    }
+
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -313,7 +360,7 @@ export function createBanReviewerHandler(
     // transition per re-routed contest.
     forwardAuditBatch(
       c,
-      [auditEntry, ...(follow?.audits ?? [])],
+      [auditEntry, ...(follow?.audits ?? []), ...(licenseBatch?.auditEntries ?? [])],
       [workflowEntry, ...(follow?.transitions ?? [])],
     );
 

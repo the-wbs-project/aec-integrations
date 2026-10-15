@@ -180,6 +180,26 @@ describe('the claim builders never emit a `vendors` statement (§6 step 8)', () 
   });
 });
 
+// AECI-1374 (decision 15): a seat revoked changes nothing in billing. The last seat
+// included: revokeSeatStatements does not know how many seats remain, and the admin
+// route adds only planVendorHandback (asserted clean in `vendor-handback.spec.ts`).
+describe('revokeSeatStatements writes nothing in billing (decision 15)', () => {
+  it('names no `licenses` or `billing_accounts` statement', () => {
+    const { stmts } = revokeSeatStatements(t.db, {
+      userId: CLAIMANT_ID,
+      vendorId: VENDOR_ID,
+      vendorPlan: { tier: 'verified', status: 'active' as const },
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+      now: NOW,
+      profileBefore: { role: 'vendor_admin', vendorId: VENDOR_ID },
+      reason: 'Left the company',
+    });
+    expect(stmts.length).toBeGreaterThan(0);
+    expect(stmts.map(sqlOf).filter((sql) => /"licenses"|"billing_accounts"/.test(sql))).toEqual([]);
+  });
+});
+
 // ─── Guard 2: observed effect — the vendor row is untouched ──────────────────
 
 describe('running the grant batch alone leaves `vendors` byte-identical', () => {

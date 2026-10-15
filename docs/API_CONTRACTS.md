@@ -3607,6 +3607,15 @@ cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §1
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
 
+**Licenses on a vendor seat (AECI-1374, decision 15).** A ban that leaves the vendor with
+no unbanned `vendor_admin` also flags every live license on the vendor's billing accounts,
+any source, `cancel_at_term_end = true`, `cancel_reason = 'vendor-banned'`, in the same
+batch: one `license.cancel_at_term_end_set` row each (`entity_type = 'billing_account'`,
+`metadata.license_id`). A license already flagged is skipped and keeps its reason. An unban
+of a vendor seat clears the flag on live licenses whose reason is `vendor-banned` only
+(`license.cancel_at_term_end_cleared`). Ended licenses are never touched. Nothing ends, no
+plan changes, nothing is purged and no email is sent. The response shape is unchanged.
+
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin

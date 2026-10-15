@@ -28,6 +28,7 @@ import {
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
+  licenses,
   productVendors,
   products,
   profiles,
@@ -548,6 +549,45 @@ describe('a ban of the last active seat (AECI-989, ruled 2026-09-23)', () => {
   });
 });
 
+// ─── Billing (AECI-1374, decision 15) ────────────────────────────────────────
+
+describe('a seat revoke writes nothing in billing, the last seat included (decision 15)', () => {
+  it('planVendorHandback names no `licenses` or `billing_accounts` statement', async () => {
+    const batch = await planVendorHandback(t.db, {
+      vendorId: VENDOR,
+      actorId: ADMIN,
+      actorType: 'admin',
+      now: '2026-10-05T00:00:00.000Z',
+      source: 'admin-moderation',
+    });
+    expect(batch.stmts.length).toBeGreaterThan(0);
+    const sqlOf = (stmt: unknown) => (stmt as { toSQL(): { sql: string } }).toSQL().sql;
+    expect(
+      batch.stmts.map(sqlOf).filter((sql) => /"licenses"|"billing_accounts"/.test(sql)),
+    ).toEqual([]);
+  });
+
+  it('the last-seat revoke leaves every license row byte-identical', async () => {
+    const before = await t.db.select().from(licenses);
+    expect((await revoke(SEAT_A)).status).toBe(204);
+    expect(await t.db.select().from(licenses)).toEqual(before);
+    expect((await auditActions()).filter((a) => a.startsWith('license.'))).toEqual([]);
+  });
+
+  it('a ban of the last seat flags the live license; the unban clears it', async () => {
+    await ban(SEAT_A);
+    const [flagged] = await t.db.select().from(licenses);
+    expect(flagged).toMatchObject({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+      endedAt: null,
+    });
+    await unban(SEAT_A);
+    const [cleared] = await t.db.select().from(licenses);
+    expect(cleared).toMatchObject({ cancelAtTermEnd: false, cancelReason: null, endedAt: null });
+  });
+});
+
 // ─── Races ───────────────────────────────────────────────────────────────────
 
 describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGED)', () => {
@@ -859,14 +899,15 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
-  it('a ban and an unban: the ban row, its transition, and each re-route', async () => {
+  it('a ban and an unban: the ban row, its transition, each re-route and license flag', async () => {
     await ban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // The ban row, the re-route and the one live license's cancel flag (AECI-1374).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     vi.mocked(logBatchToPosthog).mockClear();
     await unban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
