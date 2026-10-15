@@ -1,7 +1,8 @@
 /**
- * Legal page (`/legal/{terms,privacy,review-guidelines,listing-accuracy}`,
- * AECI-237 / Phase 7.2). One component renders all four counsel-tracked
- * documents (`STAGE_1_SPEC.md` §13/§27); the route's `data.slug` selects which.
+ * Legal page (`/legal/{terms,privacy,review-guidelines,listing-accuracy,
+ * vendor-terms,managed-plan-agreement}`, AECI-237 / Phase 7.2, AECI-1359/1360).
+ * One component renders every counsel-tracked document (`STAGE_1_SPEC.md`
+ * §13/§27); the route's `data.slug` selects which.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch and no per-visitor state —
  * the Markdown is bundled at build time and parsed once per isolate
@@ -53,6 +54,16 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
       return {
         title: $localize`:@@meta.legalListingAccuracyTitle:Listing Accuracy Policy · AEC Integrations`,
         description: $localize`:@@meta.legalListingAccuracyDescription:Where AEC Integrations listing data comes from, how to request a correction, and why accurate listings are not removed on vendor request.`,
+      };
+    case 'vendor-terms':
+      return {
+        title: $localize`:@@meta.legalVendorTermsTitle:Vendor Terms · AEC Integrations`,
+        description: $localize`:@@meta.legalVendorTermsDescription:The terms a vendor accepts when claiming a company on AEC Integrations: who may claim, truthfulness, content, seats, and why plans never affect ranking.`,
+      };
+    case 'managed-plan-agreement':
+      return {
+        title: $localize`:@@meta.legalManagedPlanAgreementTitle:Managed Plan Agreement · AEC Integrations`,
+        description: $localize`:@@meta.legalManagedPlanAgreementDescription:The agreement for Managed licenses on AEC Integrations: prices, annual and monthly billing, renewal notice, refunds, and what happens when Managed ends.`,
       };
   }
 }

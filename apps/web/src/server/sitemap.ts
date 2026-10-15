@@ -200,6 +200,9 @@ export async function resolveSitemapEntries(
     { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/listing-accuracy`, changefreq: 'yearly', priority: 0.3 },
+    // AECI-1359 / AECI-1360: the vendor terms and the Managed plan agreement.
+    { loc: `${base}/legal/vendor-terms`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/managed-plan-agreement`, changefreq: 'yearly', priority: 0.3 },
     // AECI-804 — the editorial methodology page. The FIRST non-legal static page
     // in the sitemap: `/`, `/about`, `/updates` and `/roadmap` are all absent
     // (the first three by omission, `/roadmap` deliberately, being noindex).

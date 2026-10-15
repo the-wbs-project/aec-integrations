@@ -1,9 +1,10 @@
 /**
  * Legal-page content registry (AECI-237, Phase 7.2).
  *
- * The four launch-required legal documents (`STAGE_1_SPEC.md` §13/§27) live as
- * Markdown source in `apps/web/src/content/legal/`. They are inlined into the
- * bundle at build time via the esbuild `text` loader (`"loader": { ".md":
+ * The legal documents (the four launch-required ones from `STAGE_1_SPEC.md`
+ * §13/§27, plus the vendor terms and the Managed plan agreement from
+ * `docs/VENDOR_SIGNUP_PROCESS.md` §4, AECI-1359/1360) live as Markdown source
+ * in `apps/web/src/content/legal/`. They are inlined into the bundle at build time via the esbuild `text` loader (`"loader": { ".md":
  * "text" }` in `angular.json`; see the `declare module '*.md'` in
  * `src/markdown.d.ts`), so the imports below are plain strings — no runtime fetch.
  *
@@ -23,13 +24,21 @@
 import { marked } from 'marked';
 
 import listingAccuracyMd from '../../content/legal/listing-accuracy-policy.md';
+import managedPlanAgreementMd from '../../content/legal/managed-plan-agreement.md';
 import privacyMd from '../../content/legal/privacy-policy.md';
 import reviewGuidelinesMd from '../../content/legal/review-guidelines.md';
 import termsMd from '../../content/legal/terms-of-service.md';
+import vendorTermsMd from '../../content/legal/vendor-terms.md';
 import { parseFrontmatter } from './legal-frontmatter';
 
 /** Public route slug for a legal page (`/legal/<slug>`). */
-export type LegalSlug = 'terms' | 'privacy' | 'review-guidelines' | 'listing-accuracy';
+export type LegalSlug =
+  | 'terms'
+  | 'privacy'
+  | 'review-guidelines'
+  | 'listing-accuracy'
+  | 'vendor-terms'
+  | 'managed-plan-agreement';
 
 /** Frontmatter fields surfaced in the page header. */
 export interface LegalFrontmatter {
@@ -59,6 +68,8 @@ const SOURCES: readonly RawSource[] = [
   { slug: 'privacy', source: privacyMd },
   { slug: 'review-guidelines', source: reviewGuidelinesMd },
   { slug: 'listing-accuracy', source: listingAccuracyMd },
+  { slug: 'vendor-terms', source: vendorTermsMd },
+  { slug: 'managed-plan-agreement', source: managedPlanAgreementMd },
 ];
 
 function buildDoc({ slug, source }: RawSource): LegalDoc {

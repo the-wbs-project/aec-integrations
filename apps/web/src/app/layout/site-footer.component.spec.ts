@@ -8,7 +8,7 @@ import { SiteFooter } from './site-footer';
 /**
  * The footer is **load-bearing for secondary navigation**, which it was not when
  * it last went untested. Retiring the header's "More" overflow menu made this the
- * only place Updates, Roadmap, About, Contact, the four Legal pages and the help
+ * only place Updates, Roadmap, About, Contact, the Legal pages and the help
  * center are linked from every page (DESIGN.md §Navigation → The Overflow Rule). A link silently
  * dropping out of a column is now a regression, not a tidy-up — so the columns
  * are pinned here.
@@ -71,12 +71,14 @@ describe('SiteFooter', () => {
     expect(link?.textContent?.trim()).toBe('Vendor guide');
   });
 
-  it('carries all four Legal pages', () => {
+  it('carries all six Legal pages', () => {
     expect(column(render(), 'Legal')).toEqual([
       '/legal/terms',
       '/legal/privacy',
       '/legal/review-guidelines',
       '/legal/listing-accuracy',
+      '/legal/vendor-terms',
+      '/legal/managed-plan-agreement',
     ]);
   });
 
