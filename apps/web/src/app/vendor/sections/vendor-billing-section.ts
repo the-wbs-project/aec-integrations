@@ -29,9 +29,8 @@ import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
 import { VendorBillingSummary } from '../components/vendor-billing-summary';
+import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
-import { VendorLicenseReleaseRequest } from '../components/vendor-license-release-request';
-import { VendorLicenseReleaseSwitch } from '../components/vendor-license-release-switch';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -95,10 +94,10 @@ function documentLabel(document: string): string {
  *
  * ── ROW ACTIONS (AECI-1391, E5.5) ───────────────────────────────────────────
  * The licenses table's `rowActions` template: a live pool license gets the assign
- * control, a live assigned one the release-at-renewal switch and the early-unassign
- * request, an ended one nothing. Each action is pessimistic and re-reads billing.
- * A successful assign swaps its row's control for the switch, so the section moves
- * focus to that switch once the re-read renders (WCAG 2.4.3).
+ * control, a live assigned one the actions menu ("Release license", at renewal or
+ * now), an ended one nothing. Each action is pessimistic and re-reads billing.
+ * A successful assign swaps its row's control for the actions menu, so the section
+ * moves focus to its trigger once the re-read renders (WCAG 2.4.3).
  *
  * A stale refusal (`409`/`404`: another owner or tab acted first) is the section's,
  * not the control's. The re-read that follows can swap or remove the control that
@@ -116,9 +115,8 @@ function documentLabel(document: string): string {
     VendorBillingEmailForm,
     VendorBillingLicenses,
     VendorBillingSummary,
+    VendorLicenseActions,
     VendorLicenseAssign,
-    VendorLicenseReleaseRequest,
-    VendorLicenseReleaseSwitch,
   ],
   template: `
     <div [class]="topGridClass()">
@@ -225,21 +223,12 @@ function documentLabel(document: string): string {
           <ng-template #licenseActions let-row>
             @if (row.license.live) {
               @if (row.license.assigned_product) {
-                <div class="flex flex-col items-end gap-3">
-                  <aec-vendor-license-release-switch
-                    [license]="row.license"
-                    (stale)="onStale($event)"
-                  />
-                  <aec-vendor-license-release-request
-                    [license]="row.license"
-                    (stale)="onStale($event)"
-                  />
-                </div>
+                <aec-vendor-license-actions [license]="row.license" (stale)="onStale($event)" />
               } @else {
                 <aec-vendor-license-assign
                   [license]="row.license"
                   [products]="b.assignable_products"
-                  (assigned)="focusSwitchAfterAssign($event)"
+                  (assigned)="focusActionsAfterAssign($event)"
                   (stale)="onStale($event)"
                 />
               }
@@ -337,8 +326,8 @@ export class VendorBillingSection {
   protected readonly staleNotice = signal<string | null>(null);
   private readonly staleNoticeEl = viewChild<ElementRef<HTMLElement>>('staleNoticeEl');
   private readonly injector = inject(Injector);
-  /** Declared in this template, so the query sees switches stamped into the table. */
-  private readonly releaseSwitches = viewChildren(VendorLicenseReleaseSwitch);
+  /** Declared in this template, so the query sees controls stamped into the table. */
+  private readonly licenseActions = viewChildren(VendorLicenseActions);
 
   /** Absent `me` (never on a real route) reads as a member: fail closed. */
   protected readonly isOwner = computed(() => this.store.me()?.seat_owner === true);
@@ -373,7 +362,7 @@ export class VendorBillingSection {
     afterRenderEffect(() => {
       const pending = this.pendingFocus();
       if (!pending || this.billing() === pending.before) return;
-      const target = this.releaseSwitches().find((s) => s.license().id === pending.licenseId);
+      const target = this.licenseActions().find((s) => s.license().id === pending.licenseId);
       this.pendingFocus.set(null);
       // Only take focus back from <body> or this section. If the vendor moved on
       // while the re-read ran, leave them where they are.
@@ -384,7 +373,7 @@ export class VendorBillingSection {
     });
   }
 
-  protected focusSwitchAfterAssign(licenseId: string): void {
+  protected focusActionsAfterAssign(licenseId: string): void {
     this.staleNotice.set(null);
     this.pendingFocus.set({ licenseId, before: this.billing() });
   }

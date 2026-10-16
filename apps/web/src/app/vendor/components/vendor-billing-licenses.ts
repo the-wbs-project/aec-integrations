@@ -78,6 +78,12 @@ export function toVendorBillingLicenseRow(
   if (license.live && license.release_at_renewal) {
     badges.push($localize`:@@vendor.billing.badge.releases:Releases at renewal`);
   }
+  if (license.live && license.open_release_request) {
+    const date = formatTermDate(license.open_release_request.created_at, locale);
+    badges.push(
+      $localize`:@@vendor.billing.badge.requested:Early unassign requested ${date}:DATE:`,
+    );
+  }
   if (license.live && license.cancel_at_term_end) {
     badges.push($localize`:@@vendor.billing.badge.cancels:Cancels at term end`);
   }
@@ -107,7 +113,8 @@ export function toVendorBillingLicenseRow(
  * ── THE ACTIONS SLOT (E5.5) ──────────────────────────────────────────────────
  * `rowActions` is a template rendered in an Actions column when set, the admin
  * table's seam (`admin/vendors/billing-licenses-table.ts`). E5.5 fills it with the
- * assign control, the release-at-renewal switch and the early-unassign dialog.
+ * assign control or the actions menu (`vendor-license-actions.ts`). What a release
+ * has set shows here as a Status badge, not in the actions cell.
  * Without it there is no Actions column.
  *
  * Presentation only: the section owns the read, the loading and the failure.

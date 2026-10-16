@@ -19,7 +19,7 @@ import { VendorBillingSection } from './vendor-billing-section';
  * The owner-only Billing tab (AECI-1390, E5.4; row actions AECI-1391, E5.5). An
  * owner sees the email, the licenses with their actions, and the agreements. A member
  * who types the URL sees a note, and the section never calls the owner-only reads.
- * After an assign, focus lands on the row's new release switch. A stale refusal is
+ * After an assign, focus lands on the row's new actions trigger. A stale refusal is
  * shown above the table and takes focus, because the re-read swaps out the control
  * that was refused.
  */
@@ -94,18 +94,17 @@ describe('VendorBillingSection', () => {
     );
     const has = (row: Element, id: string) => row.querySelector(`[data-testid="${id}"]`) !== null;
 
-    // Live and assigned: the switch and the request, no assign control.
-    expect(has(rows[0]!, 'license-release-switch')).toBe(true);
-    expect(has(rows[0]!, 'license-release-request-trigger')).toBe(true);
+    // Live and assigned: the actions menu, no assign control.
+    expect(has(rows[0]!, 'license-actions-trigger')).toBe(true);
     expect(has(rows[0]!, 'license-assign-select')).toBe(false);
     // Live, in the pool: the assign control only.
     expect(has(rows[1]!, 'license-assign-select')).toBe(true);
-    expect(has(rows[1]!, 'license-release-switch')).toBe(false);
+    expect(has(rows[1]!, 'license-actions-trigger')).toBe(false);
     // Ended: nothing.
     expect(rows[2]!.querySelectorAll('button, select')).toHaveLength(0);
   });
 
-  it("moves focus to the new row's release switch after an assign (AECI-1391)", async () => {
+  it("moves focus to the new row's actions trigger after an assign (AECI-1391)", async () => {
     const pool = VENDOR_BILLING_FIXTURE.licenses[1]!;
     const product = VENDOR_BILLING_FIXTURE.assignable_products[0]!;
     const assignedBilling: VendorBillingResponse = {
@@ -136,9 +135,9 @@ describe('VendorBillingSection', () => {
     await fixture.whenStable();
 
     expect(assignLicense).toHaveBeenCalledWith(pool.id, product.id);
-    const newSwitch = rows()[1]!.querySelector('[data-testid="license-release-switch"]');
-    expect(newSwitch).not.toBeNull();
-    expect(document.activeElement).toBe(newSwitch);
+    const trigger = rows()[1]!.querySelector('[data-testid="license-actions-trigger"]');
+    expect(trigger).not.toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('keeps a stale refusal and focus when the re-read swaps the row (AECI-1391)', async () => {
@@ -175,9 +174,9 @@ describe('VendorBillingSection', () => {
     await flush();
     fixture.detectChanges();
 
-    // The row flipped: the assign control is gone, the switch is there.
+    // The row flipped: the assign control is gone, the actions menu is there.
     expect(rows()[1]!.querySelector('[data-testid="license-assign-select"]')).toBeNull();
-    expect(rows()[1]!.querySelector('[data-testid="license-release-switch"]')).not.toBeNull();
+    expect(rows()[1]!.querySelector('[data-testid="license-actions-trigger"]')).not.toBeNull();
     const notice = el.querySelector('[data-testid="billing-stale-notice"]');
     expect(notice?.textContent?.trim()).toBe(
       'This license is already on a product. The table now shows where.',

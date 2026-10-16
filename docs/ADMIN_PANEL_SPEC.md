@@ -1761,8 +1761,8 @@ product until renewal, and taking it off sooner is an exception AECi approves.
 table. Recorded here for the screen, the decisions and the badge.
 
 - **What it is.** An owner seat asked AECi to take a license off its product now. It asks with
-  `POST /api/vendor/licenses/:id/release-request` and a required reason, from the "Request
-  early unassign" dialog on the portal's Billing tab (AECI-1391, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+  `POST /api/vendor/licenses/:id/release-request` and a required reason, from the "Now"
+  option of the "Release license" dialog on the portal's Billing tab (AECI-1391, `STAGE_2_VENDOR_PORTAL_SPEC.md`
   §6.21). The `license-release-request-alert` email goes to `SUPPORT_EMAIL`, reply-to the seat.
   Rows live in `license_release_requests`.
 - **Where.** The fourth section of `/admin/requests` (`admin/requests/license-release-queue.ts`
