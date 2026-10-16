@@ -89,6 +89,10 @@ import {
 } from './routes/admin-license-release-requests';
 import { createVendorLicenseReleaseRequestHandler } from './routes/vendor-license-release';
 import {
+  createAssignVendorLicenseHandler,
+  createUpdateVendorLicenseHandler,
+} from './routes/vendor-licenses';
+import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
@@ -1629,6 +1633,23 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createVendorLicenseReleaseRequestHandler(),
+);
+// AECI-1388 (E5.2, §3 step 6 and decision 11): an owner seat puts a pool license on a
+// product, and flags a license to free its slot at renewal, through `lib/license.ts`.
+// The seat-management gate order: `requireVendor()`, the limiter, then
+// `requireSeatOwner()` inside the handler. No capability gate (the fourth named
+// exception). The assign purges the product, the products index and the vendor.
+authVendor.post(
+  '/api/vendor/licenses/:id/assign',
+  requireVendor(),
+  rateLimit('write'),
+  createAssignVendorLicenseHandler(),
+);
+authVendor.patch(
+  '/api/vendor/licenses/:id',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorLicenseHandler(),
 );
 app.route('/', authVendor);
 

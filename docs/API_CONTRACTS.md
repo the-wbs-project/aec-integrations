@@ -319,6 +319,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a license that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the license ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
 | `RELEASE_REQUEST_OPEN` | 409 | `POST /api/vendor/licenses/:id/release-request` while the license already has an open request (AECI-1373), including the loser of two racing asks (the partial unique index `license_release_requests_open_license_key`). `details.request_id` names the open one |
 | `RELEASE_REQUEST_NOT_OPEN` | 409 | `PATCH /api/admin/license-release-requests/:id` on a request already approved or declined, including one another admin decided between the read and the batch (AECI-1373). Nothing is written |
+| `LICENSE_NOT_LIVE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a license that has ended. An ended license never goes back on a product; a new one is a new grant. Nothing is written |
+| `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a license already on a product, including one assigned or ended between the read and the batch. Moving a license is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
+| `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live license from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -6606,7 +6609,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
-   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances` and `POST /api/vendor/licenses/:id/release-request`, and `PUT /api/vendor/billing/email` (AECI-1389), and, when E5.2 lands, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id`. Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), and `PUT /api/vendor/billing/email` (E5.3, AECI-1389). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -6862,12 +6865,62 @@ export const VendorBillingLicenseSchema = z.object({
 The E5 write bodies are in the same file: `AssignLicenseRequestSchema { product_id }`,
 `UpdateLicenseRequestSchema { release_at_renewal }` (strict) and
 `UpdateBillingEmailRequestSchema { billing_email }` (the seat-invite email rule, trimmed and
-lower-cased, or `null`). The license routes land in E5.2. The billing email route is
-`PUT /api/vendor/billing/email` below (E5.3). Source of truth:
+lower-cased, or `null`). The first two are the E5.2 routes below. The email route is
+`PUT /api/vendor/billing/email`, also below (E5.3). Source of truth:
 `packages/shared/src/api/vendor-billing.ts`, handler `apps/api/src/routes/vendor-billing.ts`.
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
 is not an owner).
+
+#### `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (AECI-1388)
+
+The Billing tab's two license writes (E5.2; `VENDOR_SIGNUP_PROCESS.md` §2 decisions 10 and
+11, §3 step 6). Both write through the `lib/license.ts` builders (`assignLicenseStatements`,
+`setReleaseAtRenewalStatements`) with `metadata.source = 'vendor-portal'`.
+
+| Method | Path | Gate | Body | Success |
+|---|---|---|---|---|
+| `POST` | `/api/vendor/licenses/:id/assign` | seat, `rateLimit('write')`, then `requireSeatOwner()` in the handler | `AssignLicenseRequestSchema { product_id }` | `200 { license }` |
+| `PATCH` | `/api/vendor/licenses/:id` | the same | `UpdateLicenseRequestSchema { release_at_renewal }` | `200 { license }` |
+
+Both bodies are strict. Both answer `VendorLicenseResponseSchema { license }`: the license
+after the write, in the `VendorBillingLicenseSchema` shape of the read above. An assign
+also changes `assignable_products`, so a caller that shows that list re-reads
+`GET /api/vendor/billing`. No capability gate: the fourth named exception to invariant 3.
+The licenses and the product are re-read from D1, never taken from the session.
+
+**Assign, in order.** A member seat is `403 FORBIDDEN`. A shape error is `400`. A license
+not on the caller's billing account, or no such license, is `404 NOT_FOUND`. A product the
+caller does not own (`product_vendors`), or no such product, is `404 NOT_FOUND`. An ended
+license is `409 LICENSE_NOT_LIVE`. A license already on a product is
+`409 LICENSE_ALREADY_ASSIGNED`: moving it is an early-unassign request (decision 11). A
+product that already holds a live license from any vendor, a co-owner included, is
+`409 PRODUCT_ALREADY_LICENSED`. That last check runs before the batch, and the loser of a
+race on `licenses_live_product_idx` gets the same `409`.
+
+**Release at renewal, in order.** Owner, shape and the license `404` as above. An ended
+or unassigned license is `409 LICENSE_NOT_ASSIGNED`. A body that matches the stored flag is
+a `200` with the current license and writes nothing.
+
+**One batch.** The guarded license `UPDATE`, a sentinel that aborts the batch when that
+`UPDATE` changed no row, the `audit_log` row (`license.assigned`,
+`license.release_at_renewal_set` or `license.release_at_renewal_cleared`, filed under the
+billing account, stamped by `vendorAuditEntry`), and the `vendors.verified` mirror
+reconcile. A change that lands between the read and the batch writes nothing and answers
+the matching `409`. The three actions are receipts: they show on the vendor's Changes page
+as the vendor's own edits.
+
+**After commit.** The assign purges `product:{slug}`, `index:products` and `vendor:{slug}`
+(the product's plan badge changes). The flag purges nothing: no public page reads it. E6 is
+its first reader.
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-licenses.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `VALIDATION_FAILED` and
+`MALFORMED_REQUEST` (400) · `NOT_FOUND` (404) · `LICENSE_NOT_LIVE`, `LICENSE_ALREADY_ASSIGNED`,
+`PRODUCT_ALREADY_LICENSED` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
+`RATE_LIMITED` (429).
 
 #### `PUT /api/vendor/billing/email` (AECI-1389)
 

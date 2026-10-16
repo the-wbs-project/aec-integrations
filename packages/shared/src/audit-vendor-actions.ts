@@ -120,14 +120,16 @@ export const AUDIT_VENDOR_ACTIONS = {
   // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
   'billing_account.backfilled': { kind: 'system', receipt: false },
   // License changes (AECI-1352, `apps/api/src/lib/license.ts`). Filed under the
-  // billing account, with `vendor_id` filled. Not receipts yet: E5 (the Billing tab)
-  // decides what the vendor sees, and E1.4's dual-write would otherwise show every
-  // grant twice beside `vendor_entitlement.set`.
+  // billing account, with `vendor_id` filled. E5 (AECI-1388) decided: the owner's own
+  // license acts (assign, release at renewal) are receipts, shown on the Changes page
+  // as the vendor's own edits. `receipt` only feeds the history allow-list; it sends
+  // nothing. The rest stay off: E1.4's dual-write would otherwise show every grant
+  // twice beside `vendor_entitlement.set`, and the Billing tab shows the licenses.
   'license.granted': { kind: 'aeci-override', receipt: false },
-  'license.assigned': { kind: 'vendor-edit', receipt: false },
+  'license.assigned': { kind: 'vendor-edit', receipt: true },
   'license.unassigned': { kind: 'aeci-override', receipt: false },
-  'license.release_at_renewal_set': { kind: 'vendor-edit', receipt: false },
-  'license.release_at_renewal_cleared': { kind: 'vendor-edit', receipt: false },
+  'license.release_at_renewal_set': { kind: 'vendor-edit', receipt: true },
+  'license.release_at_renewal_cleared': { kind: 'vendor-edit', receipt: true },
   'license.cancel_at_term_end_set': { kind: 'aeci-override', receipt: false },
   'license.cancel_at_term_end_cleared': { kind: 'aeci-override', receipt: false },
   'license.lapsed': { kind: 'system', receipt: false },

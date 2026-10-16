@@ -46,6 +46,19 @@ describe('AUDIT_VENDOR_ACTIONS (AECI-1192)', () => {
     });
   });
 
+  it("shows the owner's own license acts as receipts, and no other license row (AECI-1388)", () => {
+    const licenseReceipts = AUDIT_VENDOR_RECEIPT_ACTIONS.filter((a) => a.startsWith('license.'));
+    expect(licenseReceipts.sort()).toEqual([
+      'license.assigned',
+      'license.expiry_warned',
+      'license.release_at_renewal_cleared',
+      'license.release_at_renewal_set',
+    ]);
+    for (const action of licenseReceipts.filter((a) => a !== 'license.expiry_warned')) {
+      expect(AUDIT_VENDOR_ACTIONS[action].kind).toBe('vendor-edit');
+    }
+  });
+
   it('answers membership without inheriting Object.prototype keys', () => {
     expect(isAuditVendorAction('vendor.updated')).toBe(true);
     expect(isAuditVendorAction('toString')).toBe(false);

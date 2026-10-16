@@ -35,7 +35,7 @@ import {
 import { and, asc, desc, eq, isNull, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
-import { getDb } from '../db/client';
+import { getDb, type Db } from '../db/client';
 import {
   billingAccounts,
   licenseReleaseRequests,
@@ -47,6 +47,73 @@ import { json } from '../http';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { requireSeatOwner, sessionVendorId, type VendorContext } from './vendor-shared';
+
+/**
+ * Every license on the vendor's billing account(s), with its product and its open
+ * early-unassign request. The caller adds the vendor filter. Shared with the E5.2
+ * writes (`vendor-licenses.ts`), which answer with the one license they changed.
+ */
+export function vendorLicenseSelect(db: Db) {
+  return (
+    db
+      .select({
+        id: licenses.id,
+        source: licenses.source,
+        startsAt: licenses.startsAt,
+        endsAt: licenses.endsAt,
+        endedAt: licenses.endedAt,
+        endReason: licenses.endReason,
+        reference: licenses.reference,
+        assignedProductId: licenses.assignedProductId,
+        productSlug: products.slug,
+        productName: products.name,
+        assignedAt: licenses.assignedAt,
+        releaseAtRenewal: licenses.releaseAtRenewal,
+        cancelAtTermEnd: licenses.cancelAtTermEnd,
+        requestId: licenseReleaseRequests.id,
+        requestCreatedAt: licenseReleaseRequests.createdAt,
+      })
+      .from(licenses)
+      .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+      .leftJoin(products, eq(products.id, licenses.assignedProductId))
+      // At most one open request per license (the partial unique index), so the
+      // join never fans a license out.
+      .leftJoin(
+        licenseReleaseRequests,
+        and(
+          eq(licenseReleaseRequests.licenseId, licenses.id),
+          eq(licenseReleaseRequests.status, 'open'),
+        ),
+      )
+  );
+}
+
+type VendorLicenseRow = Awaited<ReturnType<typeof vendorLicenseSelect>>[number];
+
+/** One {@link vendorLicenseSelect} row as the owner sees it. */
+export function toVendorBillingLicense(row: VendorLicenseRow): VendorBillingLicense {
+  return {
+    id: row.id,
+    source: row.source as VendorBillingLicense['source'],
+    starts_at: row.startsAt,
+    ends_at: row.endsAt,
+    ended_at: row.endedAt,
+    end_reason: row.endReason,
+    live: row.endedAt === null,
+    reference: row.reference,
+    assigned_product:
+      row.assignedProductId && row.productSlug !== null && row.productName !== null
+        ? { id: row.assignedProductId, slug: row.productSlug, name: row.productName }
+        : null,
+    assigned_at: row.assignedAt,
+    release_at_renewal: row.releaseAtRenewal,
+    cancel_at_term_end: row.cancelAtTermEnd,
+    open_release_request:
+      row.requestId !== null && row.requestCreatedAt !== null
+        ? { id: row.requestId, created_at: row.requestCreatedAt }
+        : null,
+  };
+}
 
 /** `GET /api/vendor/billing`. */
 export function createVendorBillingHandler(
@@ -74,36 +141,7 @@ export function createVendorBillingHandler(
         .where(eq(billingAccounts.vendorId, vendorId))
         .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
         .limit(1),
-      db
-        .select({
-          id: licenses.id,
-          source: licenses.source,
-          startsAt: licenses.startsAt,
-          endsAt: licenses.endsAt,
-          endedAt: licenses.endedAt,
-          endReason: licenses.endReason,
-          reference: licenses.reference,
-          assignedProductId: licenses.assignedProductId,
-          productSlug: products.slug,
-          productName: products.name,
-          assignedAt: licenses.assignedAt,
-          releaseAtRenewal: licenses.releaseAtRenewal,
-          cancelAtTermEnd: licenses.cancelAtTermEnd,
-          requestId: licenseReleaseRequests.id,
-          requestCreatedAt: licenseReleaseRequests.createdAt,
-        })
-        .from(licenses)
-        .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
-        .leftJoin(products, eq(products.id, licenses.assignedProductId))
-        // At most one open request per license (the partial unique index), so the
-        // join never fans a license out.
-        .leftJoin(
-          licenseReleaseRequests,
-          and(
-            eq(licenseReleaseRequests.licenseId, licenses.id),
-            eq(licenseReleaseRequests.status, 'open'),
-          ),
-        )
+      vendorLicenseSelect(db)
         .where(eq(billingAccounts.vendorId, vendorId))
         // The admin read's order: live first, oldest first; then ended, most
         // recently ended first. `id` breaks every tie.
@@ -142,29 +180,7 @@ export function createVendorBillingHandler(
 
     const body: VendorBillingResponse = {
       billing_account: account ? { id: account.id, billing_email: account.billingEmail } : null,
-      licenses: licenseRows.slice(0, VENDOR_BILLING_LICENSES_MAX).map(
-        (row): VendorBillingLicense => ({
-          id: row.id,
-          source: row.source as VendorBillingLicense['source'],
-          starts_at: row.startsAt,
-          ends_at: row.endsAt,
-          ended_at: row.endedAt,
-          end_reason: row.endReason,
-          live: row.endedAt === null,
-          reference: row.reference,
-          assigned_product:
-            row.assignedProductId && row.productSlug !== null && row.productName !== null
-              ? { id: row.assignedProductId, slug: row.productSlug, name: row.productName }
-              : null,
-          assigned_at: row.assignedAt,
-          release_at_renewal: row.releaseAtRenewal,
-          cancel_at_term_end: row.cancelAtTermEnd,
-          open_release_request:
-            row.requestId !== null && row.requestCreatedAt !== null
-              ? { id: row.requestId, created_at: row.requestCreatedAt }
-              : null,
-        }),
-      ),
+      licenses: licenseRows.slice(0, VENDOR_BILLING_LICENSES_MAX).map(toVendorBillingLicense),
       licenses_truncated: licenseRows.length > VENDOR_BILLING_LICENSES_MAX,
       assignable_products: assignableRows,
     };

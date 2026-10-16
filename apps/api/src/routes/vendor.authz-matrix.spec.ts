@@ -70,8 +70,15 @@
  * AECI-1387 adds `GET /api/vendor/billing` and the pre-existing
  * `POST /api/vendor/licenses/:id/release-request` (AECI-1373). Both are owner-seat
  * routes: every guard cell, then a member seat gets `403` and the other vendor sees
- * only its own licenses (or a `404` on ours). AECI-1389 adds
- * `PUT /api/vendor/billing/email` under the same owner-seat cells.
+ * only its own licenses (or a `404` on ours).
+ *
+ * AECI-1388 adds the two E5.2 license writes, `POST /api/vendor/licenses/:id/assign`
+ * and `PATCH /api/vendor/licenses/:id`. Owner-seat routes like the two above. The
+ * assign's granted-seat cell aims at LICENSE_A, which is already on PRODUCT_A, so it
+ * proves the guard passed with `409 LICENSE_ALREADY_ASSIGNED`; its own describe seeds a
+ * pool license for the `200`.
+ *
+ * AECI-1389 adds `PUT /api/vendor/billing/email` under the same owner-seat cells.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -142,6 +149,10 @@ import { createVendorUpdatesHandler } from './vendor-updates';
 import { createVendorBillingHandler } from './vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './vendor-billing-email';
+import {
+  createAssignVendorLicenseHandler,
+  createUpdateVendorLicenseHandler,
+} from './vendor-licenses';
 import { createVendorLicenseReleaseRequestHandler } from './vendor-license-release';
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
@@ -514,6 +525,18 @@ function makeApp() {
     requireVendor(guard),
     createVendorLicenseReleaseRequestHandler(t.factory),
   );
+  // AECI-1388 — seat; the owner rule is inside the handler. The limiter is not under
+  // test here (`vendor-licenses.registration.spec.ts`).
+  app.post(
+    '/api/vendor/licenses/:id/assign',
+    requireVendor(guard),
+    createAssignVendorLicenseHandler(t.factory),
+  );
+  app.patch(
+    '/api/vendor/licenses/:id',
+    requireVendor(guard),
+    createUpdateVendorLicenseHandler(t.factory),
+  );
   return app;
 }
 
@@ -563,6 +586,19 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     method: 'POST',
     body: { reason: 'We sold the product line.' },
     ok: 201,
+  },
+  // AECI-1388 — owner seats only. LICENSE_A is already on PRODUCT_A, so the granted
+  // seat passes every guard and meets the assign's own 409.
+  {
+    path: `/api/vendor/licenses/${LICENSE_A}/assign`,
+    method: 'POST',
+    body: { product_id: PRODUCT_A },
+    ok: 409,
+  },
+  {
+    path: `/api/vendor/licenses/${LICENSE_A}`,
+    method: 'PATCH',
+    body: { release_at_renewal: true },
   },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
@@ -981,6 +1017,56 @@ describe('POST /api/vendor/licenses/:id/release-request — owner seats only (AE
 
   it('answers 404 to another vendor’s owner, and writes nothing', async () => {
     const res = await call(path, 'POST', SEAT_B, body);
+    expect(res.status).toBe(404);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+describe('POST /api/vendor/licenses/:id/assign — owner seats only (AECI-1388)', () => {
+  const POOL_A = uuid(71);
+  const PRODUCT_A2 = uuid(72);
+  const path = `/api/vendor/licenses/${POOL_A}/assign`;
+  const body = { product_id: PRODUCT_A2 };
+
+  beforeEach(async () => {
+    await t.db.insert(products).values({ id: PRODUCT_A2, slug: 'navisworks', name: 'Navisworks' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT_A2, vendorId: VENDOR_A });
+    await seedLicense(t.db, VENDOR_A, { id: POOL_A });
+  });
+
+  it('assigns a pool license for an owner seat', async () => {
+    const res = await call(path, 'POST', SEAT_A, body);
+    expect(res.status).toBe(200);
+    expect(res.body.license.assigned_product.id).toBe(PRODUCT_A2);
+  });
+
+  it('rejects a granted seat that is not an owner with 403', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const res = await call(path, 'POST', SEAT_A, body);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('answers 404 to another vendor’s owner, and writes nothing', async () => {
+    const res = await call(path, 'POST', SEAT_B, { product_id: PRODUCT_B });
+    expect(res.status).toBe(404);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+describe('PATCH /api/vendor/licenses/:id — owner seats only (AECI-1388)', () => {
+  const path = `/api/vendor/licenses/${LICENSE_A}`;
+  const body = { release_at_renewal: true };
+
+  it('rejects a granted seat that is not an owner with 403', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const res = await call(path, 'PATCH', SEAT_A, body);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('answers 404 to another vendor’s owner, and writes nothing', async () => {
+    const res = await call(path, 'PATCH', SEAT_B, body);
     expect(res.status).toBe(404);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });

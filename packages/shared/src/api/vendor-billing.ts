@@ -124,6 +124,16 @@ export const UpdateLicenseRequestSchema = z
   .strict();
 export type UpdateLicenseRequest = z.infer<typeof UpdateLicenseRequestSchema>;
 
+/**
+ * The answer to both E5.2 writes (200): the license as it stands after the write, in
+ * the Billing read's shape. An assign also changes `assignable_products`, which this
+ * body does not carry: a caller that shows that list re-reads `GET /api/vendor/billing`.
+ */
+export const VendorLicenseResponseSchema = z.object({
+  license: VendorBillingLicenseSchema,
+});
+export type VendorLicenseResponse = z.infer<typeof VendorLicenseResponseSchema>;
+
 // ─── PUT /api/vendor/billing/email (E5.3) ────────────────────────────────────
 
 /**

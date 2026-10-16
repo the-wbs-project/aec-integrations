@@ -165,6 +165,14 @@ export const ApiErrorCode = {
   LICENSE_NOT_ASSIGNED: 'LICENSE_NOT_ASSIGNED',
   RELEASE_REQUEST_OPEN: 'RELEASE_REQUEST_OPEN',
   RELEASE_REQUEST_NOT_OPEN: 'RELEASE_REQUEST_NOT_OPEN',
+  // AECI-1388 (E5.2) vendor license assignment (`VENDOR_SIGNUP_PROCESS.md` §3 step 6),
+  // all 409. `LICENSE_NOT_LIVE`: the license has ended, so it cannot go on a product.
+  // `LICENSE_ALREADY_ASSIGNED`: the license is already on a product; moving it is an
+  // early-unassign request (decision 11). `PRODUCT_ALREADY_LICENSED`: the product
+  // already holds a live license from any vendor, a co-owner included.
+  LICENSE_NOT_LIVE: 'LICENSE_NOT_LIVE',
+  LICENSE_ALREADY_ASSIGNED: 'LICENSE_ALREADY_ASSIGNED',
+  PRODUCT_ALREADY_LICENSED: 'PRODUCT_ALREADY_LICENSED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

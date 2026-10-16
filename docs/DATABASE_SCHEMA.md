@@ -1968,7 +1968,9 @@ and 18). Licenses carry their own dates. There is no subscription table: a Strip
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
 `apps/api/src/lib/license.ts` (AECI-1352). Its callers are the entitlement builders'
 dual-write (AECI-1353, below) and, since AECI-1356, the 11:00 expiry sweep's fence stamp
-(`expiryNoticeStampStatements`). The one-off back-fill (AECI-1354, below) also
+(`expiryNoticeStampStatements`). Since AECI-1388 the vendor Billing tab's two owner writes
+call `assignLicenseStatements` and `setReleaseAtRenewalStatements` (below). The one-off
+back-fill (AECI-1354, below) also
 inserts rows, in raw SQL. `ops:retract-product` NULLs `assigned_product_id` in raw SQL when
 it retracts a product (below). **Since AECI-1355 (E1.6, 2026-10-14) this table is the truth
 for plan resolution**: a product is Managed for a vendor exactly when a live license on that
@@ -2069,6 +2071,15 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `metadata.internalNote`. The vendor's Messages row (`notification.sent`, `kind =
   'aeci_override'`, event `license_revoked`) files under the billing account too, with
   `metadata.licenseId` and `metadata.licenseProduct`, never the internal note.
+- **The vendor assign and flag (AECI-1388, E5.2).** `POST /api/vendor/licenses/:id/assign`
+  puts a live pool license on a product the vendor owns through `assignLicenseStatements`.
+  `PATCH /api/vendor/licenses/:id` sets or clears `release_at_renewal` on a live, assigned
+  license through `setReleaseAtRenewalStatements`. Both are owner-seat writes with
+  `metadata.source = 'vendor-portal'`, and both add a `changedOneRowSentinel` after the
+  license UPDATE, so a lost race writes nothing. The assign pre-checks the product for a live
+  license from any vendor, so `licenses_live_product_idx` answers `409
+  PRODUCT_ALREADY_LICENSED`, never a 500. Their audit rows (`license.assigned`,
+  `license.release_at_renewal_set` / `_cleared`) are receipts on the vendor's Changes page.
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
