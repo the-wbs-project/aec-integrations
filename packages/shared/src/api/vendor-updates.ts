@@ -69,7 +69,7 @@ import { z } from 'zod';
 export const VendorRevisionsSchema = z.object({
   /** `vendors.updated_at` — also moves on the `verified` mirror flip. */
   profile: z.string().nullable(),
-  /** `MAX(vendor_entitlements.updated_at)`; `vendor_id` is UNIQUE, so ≤ 1 row. */
+  /** `MAX(licenses.updated_at)` over the vendor's billing accounts (AECI-1355). */
   entitlement: z.string().nullable(),
   /** `MAX(products.updated_at)` over the vendor's `product_vendors` rows. */
   products: z.string().nullable(),
