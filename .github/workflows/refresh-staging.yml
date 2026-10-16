@@ -49,7 +49,7 @@ env:
 jobs:
   refresh:
     name: Redeploy staging Workers
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment:
       name: staging-refresh

@@ -134,7 +134,7 @@ jobs:
   # ===========================================================================
   pre-promotion-checks:
     name: Pre-promotion checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -366,7 +366,7 @@ jobs:
   deploy-prod-workers:
     name: Deploy production Workers
     needs: pre-promotion-checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # The `production` GH Environment lists Chris (chris-walton) as its required
     # reviewer (AECI-1239), plus the main-only branch rule. The run blocks here

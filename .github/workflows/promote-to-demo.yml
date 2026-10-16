@@ -141,7 +141,7 @@ jobs:
   # ===========================================================================
   pre-promotion-checks:
     name: Pre-promotion checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -289,7 +289,7 @@ jobs:
   lighthouse-lookup:
     name: Lighthouse gate (look up)
     needs: pre-promotion-checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       statuses: read
@@ -425,7 +425,7 @@ jobs:
     name: Lighthouse gate
     needs: [pre-promotion-checks, lighthouse-lookup, lighthouse-measure]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -478,7 +478,7 @@ jobs:
     # cached pass or an override, and a skipped ancestor would skip this job.
     # `!cancelled()` (not always()) so a cancelled promote never starts a deploy.
     if: ${{ !cancelled() && needs.pre-promotion-checks.result == 'success' && needs.lighthouse-gate.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # The `demo` GH Environment carries the deploy URL and any optional reviewer
     # gate (add a required reviewer in repo settings if a manual pause is wanted).

@@ -119,7 +119,7 @@ jobs:
   # ===========================================================================
   resolve:
     name: Resolve the commit to measure
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -204,7 +204,7 @@ jobs:
     name: Lighthouse CI (mobile, error gate)
     needs: resolve
     if: needs.resolve.outputs.measure == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -370,7 +370,7 @@ jobs:
       ${{ !cancelled() && github.event_name == 'schedule' &&
       needs.resolve.outputs.measure == 'true' &&
       (needs.lighthouse.result == 'failure' || needs.lighthouse.result == 'success') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
