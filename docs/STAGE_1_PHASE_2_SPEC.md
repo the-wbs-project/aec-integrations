@@ -423,8 +423,8 @@ In addition to caching headers, every cacheable response carries:
 Every page sets:
 
 - `<title>` — page-specific. The separator is a **middot**, not an em dash: `MetaService` appends
-  one of exactly two `$localize`d suffixes, `" · AEC Integrations"` (detail and index kinds) or
-  `" tools · AEC Integrations"` (browse kinds), to a `name` the caller supplies. (This bullet said
+  the one `$localize`d suffix `" · AEC Integrations"` to a `name` the caller supplies; for browse
+  kinds the service first composes `"{name} tools"` (`@@meta.browseTitleName`). (This bullet said
   "—" from Phase 2 until AECI-802 corrected it; the code has emitted `·` since AECI-51, and an em
   dash in an `apps/web` string literal is now an ESLint error.) The `name` per surface:
 
@@ -435,6 +435,18 @@ Every page sets:
   | Product-PAIR | `{context} and {other} integrations` | unchanged (`@@pair.meta.title`, orientation-framed) |
   | Taxonomy browse | the term name | `Scheduling tools · AEC Integrations` |
   | Index (`/products`, `/categories`, …) | the facet name | `Products · AEC Integrations` |
+
+  **Length cap: under 70 characters** (`TITLE_MAX_LENGTH`, `core/meta.helpers.ts`). Bing
+  Webmaster Tools reports a title of 70 or more as "Title too long" (High severity). When `name`
+  plus the brand suffix would reach it, `buildEntityTitle` drops the suffix and emits the bare
+  `name`. The brand stays in `og:site_name`; `og:title` follows the `<title>`. This is a cliff by
+  design: 69 keeps the brand, 70 loses all of it. For that reason the browse " tools" infix is
+  composed into `name` (`@@meta.browseTitleName`), not the suffix, so a long category title keeps
+  "tools" and sheds only the brand. A `name` over the cap on its own is emitted whole, never cut
+  mid-word. The product-PAIR page is the surface that trips it: `Procore Project Management and
+  Trimble Connect integrations` is 59 characters before the suffix. The static home title
+  (`@@meta.homeTitle`) is held under the cap by hand: `AEC Integrations: the independent AEC
+  software integration directory` (68).
 
   **The product and vendor modifiers landed in AECI-802 (2026-09-09)** and are the point of that
   issue: a `<title>` carrying only the vendor's brand competes with the vendor's own domain for a

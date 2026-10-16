@@ -42,7 +42,7 @@ type JsonLdKind = 'product' | 'vendor' | 'website' | 'organization' | 'pair' | '
  * - Detail kinds (`product`, `vendor`, `integration`) get the bare
  *   `"{name} · AEC Integrations"` title and `og:type=article`.
  * - Browse kinds (`category`, `audience`, `phase`) get the
- *   `"{name} tools · AEC Integrations"` variant and `og:type=website`
+ *   `"{name} tools · AEC Integrations"` variant (the infix is composed into `name`) and `og:type=website`
  *   (per Phase 2 Spec §9.1).
  * - `index` (used by `/products`, `/vendors`, `/integrations`) gets the bare
  *   `"{name} · AEC Integrations"` title (no "tools" infix) and
@@ -94,11 +94,14 @@ export class MetaService {
     // rather than of the navigation history (AECI-518).
     this.clearJsonLd();
 
-    const suffix = isBrowseKind(input.entity)
-      ? $localize`:@@meta.browseTitleSuffix: tools · AEC Integrations`
-      : $localize`:@@meta.titleSuffix: · AEC Integrations`;
+    // The "tools" infix is part of the page-specific name, not the brand suffix,
+    // so a long browse title sheds only the brand (see `buildEntityTitle`).
+    const name = isBrowseKind(input.entity)
+      ? $localize`:@@meta.browseTitleName:${input.name}:name: tools`
+      : input.name;
+    const suffix = $localize`:@@meta.titleSuffix: · AEC Integrations`;
 
-    const title = buildEntityTitle(input.name, suffix);
+    const title = buildEntityTitle(name, suffix);
     this.title.setTitle(title);
 
     const fallback = $localize`:@@meta.defaultDescription:Software integration directory for the AEC industry.`;
@@ -202,7 +205,7 @@ export class MetaService {
   setHomeMeta(input: { canonical: string }): void {
     this.clearJsonLd();
 
-    const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
+    const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent AEC software integration directory`;
     const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No pay-for-placement.`;
 
     this.title.setTitle(title);
