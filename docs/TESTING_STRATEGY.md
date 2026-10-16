@@ -915,8 +915,8 @@ Defined in `vitest.config.ts` `coverage.exclude`.
     "vitest": "^2.0.0",
     "@analogjs/vitest-angular": "latest",
     "@testing-library/angular": "^17.0.0",
-    "@playwright/test": "^1.45.0",
-    "@axe-core/playwright": "^4.9.0",
+    "@playwright/test": "^1.64.1",
+    "@axe-core/playwright": "^4.10.2",
     "@chromatic-com/playwright": "latest",
     "@lhci/cli": "latest",
     "miniflare": "^3.0.0",
@@ -925,6 +925,10 @@ Defined in `vitest.config.ts` `coverage.exclude`.
   }
 }
 ```
+
+Playwright has a floor. CI runs on the `ubuntu-26.04` runner image, and Playwright supports Ubuntu
+26.04 from 1.61. Below that, `playwright install --with-deps chromium` fails and the e2e lane never
+starts (AECI-1383). Do not pin `@playwright/test` below 1.61.
 
 ### 16.2 Scripts
 
