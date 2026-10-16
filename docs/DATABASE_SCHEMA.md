@@ -2039,7 +2039,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   refusal guard. The plan names the table only where it exists (`LICENSES_TABLE_SQL`).
 - **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
   `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
-  NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`,
+  NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`
+  (setting is guarded on the `assigned_product_id` the caller read, so the flag never lands
+  on a pool license; clearing is guarded on `ended_at IS NULL` only),
   `setCancelAtTermEndStatements`, `endLicensesStatements` and `setLicensesTermStatements`
   (moves `ends_at`, and optionally `source` and `reference`, on live licenses; clears
   `expiry_notice_sent_at` when `ends_at` moves; AECI-1353). E4, E5, E6 and E9 call them

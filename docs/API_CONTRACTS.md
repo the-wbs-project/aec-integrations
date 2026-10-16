@@ -6900,7 +6900,10 @@ race on `licenses_live_product_idx` gets the same `409`.
 
 **Release at renewal, in order.** Owner, shape and the license `404` as above. An ended
 or unassigned license is `409 LICENSE_NOT_ASSIGNED`. A body that matches the stored flag is
-a `200` with the current license and writes nothing.
+a `200` with the current license and writes nothing. Setting the flag is guarded on the
+product the handler read. So an early unassign approved between the read and the batch, or
+a move to another product, also answers `409 LICENSE_NOT_ASSIGNED` and never leaves the
+flag on a pool license. Clearing is guarded on liveness only.
 
 **One batch.** The guarded license `UPDATE`, a sentinel that aborts the batch when that
 `UPDATE` changed no row, the `audit_log` row (`license.assigned`,

@@ -359,6 +359,25 @@ describe('PATCH /api/vendor/licenses/:id', () => {
     expect(await readAudit()).toHaveLength(0);
   });
 
+  it('maps an early unassign approved since the read to LICENSE_NOT_ASSIGNED, writing nothing', async () => {
+    const factory = racingFactory(t.factory, async (attempt) => {
+      // An admin approved an early release between the route's read and its batch.
+      if (attempt === 1) {
+        await t.db
+          .update(licenses)
+          .set({ assignedProductId: null, assignedAt: null, releaseAtRenewal: false })
+          .where(eq(licenses.id, onProduct));
+      }
+    });
+    const { status, body } = await flag(onProduct, true, { factory });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.LICENSE_NOT_ASSIGNED);
+    const row = await readLicense(onProduct);
+    expect(row.assignedProductId).toBeNull();
+    expect(row.releaseAtRenewal).toBe(false);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
   it('400s a body with no flag or an unknown key', async () => {
     for (const body of [{}, { release_at_renewal: true, product_id: PRODUCT }]) {
       const { status } = await send('PATCH', `/api/vendor/licenses/${onProduct}`, body);

@@ -277,7 +277,8 @@ export function createUpdateVendorLicenseHandler(
     try {
       await db.batch(vendorLicenseStatements(c, db, batch) as BatchTuple);
     } catch (error) {
-      // The license ended since the read.
+      // The guarded UPDATE matched nothing: the license ended, or (when setting) was
+      // unassigned or moved by an approved early release, since the read.
       if (isReleaseRaceError(error)) throw notAssigned();
       throw error;
     }
