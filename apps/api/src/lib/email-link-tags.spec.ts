@@ -631,7 +631,7 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
       }),
   },
   'entitlement-expiring-admin': {
-    links: false,
+    links: true,
     send: (c) =>
       sendEntitlementExpiringAdminEmail(c, {
         to: 'support@aecintegrations.com',
