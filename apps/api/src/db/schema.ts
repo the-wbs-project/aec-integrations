@@ -1677,7 +1677,7 @@ export const billingAccounts = sqliteTable(
       .notNull()
       .references(() => vendors.id),
     name: text('name').notNull(),
-    /** Nullable until checkout (decision 16). */
+    /** Null until an owner sets it (AECI-1389) or checkout does (decision 16). */
     billingEmail: text('billing_email'),
     stripeCustomerId: text('stripe_customer_id'),
     createdBy: text('created_by'),

@@ -280,6 +280,11 @@ export const VendorMeResponseSchema = z.object({
   products: z.array(VendorProductSchema),
   requests: z.array(VendorRequestSummarySchema),
   seat_count: z.number().int().min(1),
+  /** The CALLER's seat is an owner seat: `profiles.seat_owner` (decision 10 of
+   *  `VENDOR_SIGNUP_PROCESS.md` §2; AECI-1387). The portal hides the Billing tab from
+   *  member seats on it. A display hint only: every owner route re-reads the bit
+   *  through `requireSeatOwner()`. */
+  seat_owner: z.boolean(),
   entitlement: VendorEntitlementBlockSchema,
 });
 export type VendorMeResponse = z.infer<typeof VendorMeResponseSchema>;

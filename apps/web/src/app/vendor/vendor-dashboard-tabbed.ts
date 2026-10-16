@@ -253,7 +253,12 @@ export class VendorDashboardTabbed {
    *  prefixed here because the row renders from the portal's route. */
   protected readonly navItems = computed<readonly VendorNavItem[]>(() => {
     const p = this.product();
-    if (!p) return VENDOR_NAV_ITEMS;
+    if (!p) {
+      // AECI-1390: Billing is an owner's tab (decision 10), so a member seat's row
+      // does not offer it.
+      const owner = this.me().seat_owner;
+      return VENDOR_NAV_ITEMS.filter((item) => owner || !item.ownerOnly);
+    }
     return productNavItemsFor(p.product_role).map((item) => ({
       ...item,
       path: `products/${p.slug}/${item.path}`,

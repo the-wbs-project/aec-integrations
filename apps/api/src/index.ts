@@ -89,6 +89,10 @@ import {
 } from './routes/admin-license-release-requests';
 import { createVendorLicenseReleaseRequestHandler } from './routes/vendor-license-release';
 import {
+  createAssignVendorLicenseHandler,
+  createUpdateVendorLicenseHandler,
+} from './routes/vendor-licenses';
+import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
@@ -249,7 +253,9 @@ import {
   createAcceptSeatClaimHandler,
   createDeclineSeatClaimHandler,
 } from './routes/vendor-seat-claims';
+import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
+import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
 import {
   createAcceptSeatInviteHandler,
   createSeatInvitePreviewHandler,
@@ -1595,6 +1601,12 @@ authVendor.delete(
   rateLimit('write'),
   createRemoveSeatHandler(),
 );
+// AECI-1387 (E5.1): the owner's Billing tab read: billing account, every license on
+// it with its open early-unassign request, and the products a pool license can go on.
+// `requireVendor()`, then `requireSeatOwner()` inside the handler. A read, so no
+// `rateLimit()`, and no capability gate (API_CONTRACTS §6.14 invariant 3, the fourth
+// named exception).
+authVendor.get('/api/vendor/billing', requireVendor(), createVendorBillingHandler());
 // AECI-1362 (E2.4): the vendor's agreement acceptances, for the Billing tab (decision 17,
 // `VENDOR_SIGNUP_PROCESS.md` §2). The seat-management gate order: `requireVendor()`,
 // then `requireSeatOwner()` inside the handler (owner seats only), then the vendor
@@ -1604,6 +1616,15 @@ authVendor.get(
   requireVendor(),
   createVendorBillingAcceptancesHandler(),
 );
+// AECI-1389 (E5.3, decision 16): an owner seat sets or clears the billing email. The
+// seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`
+// inside the handler. Audit only: no email to the other owners, no cache purge.
+authVendor.put(
+  '/api/vendor/billing/email',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateBillingEmailHandler(),
+);
 // AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
 // seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`
 // inside the handler. E5 ships the portal button.
@@ -1612,6 +1633,23 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createVendorLicenseReleaseRequestHandler(),
+);
+// AECI-1388 (E5.2, §3 step 6 and decision 11): an owner seat puts a pool license on a
+// product, and flags a license to free its slot at renewal, through `lib/license.ts`.
+// The seat-management gate order: `requireVendor()`, the limiter, then
+// `requireSeatOwner()` inside the handler. No capability gate (the fourth named
+// exception). The assign purges the product, the products index and the vendor.
+authVendor.post(
+  '/api/vendor/licenses/:id/assign',
+  requireVendor(),
+  rateLimit('write'),
+  createAssignVendorLicenseHandler(),
+);
+authVendor.patch(
+  '/api/vendor/licenses/:id',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorLicenseHandler(),
 );
 app.route('/', authVendor);
 

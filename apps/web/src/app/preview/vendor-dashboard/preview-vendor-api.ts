@@ -61,10 +61,16 @@ import type {
   CreateProductRequestResponse,
   ListVendorProductRequestsResponse,
   VendorProductRequest,
+  VendorAgreementAcceptancesResponse,
+  VendorBillingResponse,
+  VendorLicenseResponse,
+  CreateLicenseReleaseRequestResponse,
 } from '@aeci/shared';
+import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
 import {
   CreateProductRequestSchema,
+  UpdateBillingEmailRequestSchema,
   CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
@@ -121,6 +127,8 @@ import {
   VENDOR_TAXONOMY_FIXTURE,
   VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
   VENDOR_SEAT_INVITES_FIXTURE,
+  VENDOR_ACCEPTANCES_FIXTURE,
+  VENDOR_BILLING_FIXTURE,
   NOTHING_CHECKED,
   productChecklistFixture,
   vendorChecklistFixture,
@@ -410,6 +418,121 @@ export class PreviewVendorApi extends VendorApi {
     this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
+    this.billing = clone(VENDOR_BILLING_FIXTURE);
+  }
+
+  // ── Billing (AECI-1390, E5.4) ─────────────────────────────────────────────
+  private billing: VendorBillingResponse = clone(VENDOR_BILLING_FIXTURE);
+
+  override async getBilling(): Promise<VendorBillingResponse> {
+    return clone(this.billing);
+  }
+
+  override async getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
+    return { acceptances: clone([...VENDOR_ACCEPTANCES_FIXTURE]) };
+  }
+
+  /** Fixture-side: the handler's schema (a `400` the preview can show), its
+   *  lower-casing, then the stored value moves. */
+  override async setBillingEmail(email: string | null): Promise<void> {
+    if (!UpdateBillingEmailRequestSchema.safeParse({ billing_email: email }).success) {
+      throw apiError(400, 'VALIDATION_FAILED', 'Enter a valid email address', {
+        field: 'billing_email',
+      });
+    }
+    if (this.billing.billing_account) {
+      this.billing.billing_account.billing_email = email?.trim().toLowerCase() ?? null;
+    }
+  }
+
+  /**
+   * AECI-1391 (E5.5), fixture-side: the E5.2 handler's checks, in its order, then the
+   * license moves onto the product, the product leaves `assignable_products`, and its
+   * `plan` on `/me` turns Managed, so the whole tab reacts as it would live.
+   */
+  override async assignLicense(
+    licenseId: string,
+    productId: string,
+  ): Promise<VendorLicenseResponse> {
+    const license = this.billing.licenses.find((l) => l.id === licenseId);
+    if (!license) throw apiError(404, 'NOT_FOUND', 'License not found');
+    if (!license.live) throw apiError(409, 'LICENSE_NOT_LIVE', 'License has ended');
+    if (license.assigned_product) {
+      throw apiError(409, 'LICENSE_ALREADY_ASSIGNED', 'License is already on a product');
+    }
+    const product = this.billing.assignable_products.find((p) => p.id === productId);
+    if (!product) throw apiError(409, 'PRODUCT_ALREADY_LICENSED', 'Product already licensed');
+    license.assigned_product = { ...product };
+    license.assigned_at = new Date().toISOString();
+    this.billing.assignable_products = this.billing.assignable_products.filter(
+      (p) => p.id !== productId,
+    );
+    if (this.me) {
+      this.me.products = this.me.products.map((p) =>
+        p.id === productId
+          ? {
+              ...p,
+              plan: {
+                ...p.plan,
+                tier: 'verified',
+                status: 'active',
+                period_end: license.ends_at
+                  ? `${license.ends_at.slice(0, 10)}T00:00:00.000Z`
+                  : null,
+                ended_at: null,
+                capabilities: [...capabilitiesFor('verified')],
+              },
+            }
+          : p,
+      );
+    }
+    return { license: clone(license) };
+  }
+
+  /** AECI-1391, fixture-side: the flag on a live, assigned license. */
+  override async setReleaseAtRenewal(
+    licenseId: string,
+    release: boolean,
+  ): Promise<VendorLicenseResponse> {
+    const license = this.billing.licenses.find((l) => l.id === licenseId);
+    if (!license) throw apiError(404, 'NOT_FOUND', 'License not found');
+    if (!license.live || !license.assigned_product) {
+      throw apiError(409, 'LICENSE_NOT_ASSIGNED', 'License is not on a product');
+    }
+    license.release_at_renewal = release;
+    return { license: clone(license) };
+  }
+
+  /** AECI-1391, fixture-side: an open request on the license, as the real POST files. */
+  override async requestLicenseRelease(
+    licenseId: string,
+    reason: string,
+  ): Promise<CreateLicenseReleaseRequestResponse> {
+    const license = this.billing.licenses.find((l) => l.id === licenseId);
+    if (!license) throw apiError(404, 'NOT_FOUND', 'License not found');
+    if (!license.live || !license.assigned_product) {
+      throw apiError(409, 'LICENSE_NOT_ASSIGNED', 'License is not on a product');
+    }
+    if (license.open_release_request) {
+      throw apiError(409, 'RELEASE_REQUEST_OPEN', 'A request is already open', {
+        details: { request_id: license.open_release_request.id },
+      });
+    }
+    const created_at = new Date().toISOString();
+    const id = '00000000-0000-4000-8000-0000000054c1';
+    license.open_release_request = { id, created_at };
+    return {
+      request: {
+        id,
+        license_id: licenseId,
+        product_id: license.assigned_product.id,
+        status: 'open',
+        reason: reason.trim(),
+        created_at,
+        decided_at: null,
+        decision_note: null,
+      },
+    };
   }
 
   override async getMe(): Promise<VendorMeResponse> {

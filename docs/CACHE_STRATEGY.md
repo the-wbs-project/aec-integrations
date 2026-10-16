@@ -309,6 +309,13 @@ enqueues `product:{slug}`, `index:products` and `vendor:{slug}` with `source: 'm
 It is not `vendorPurgeTags`: one product changed, not every owned one. A decline changes no
 license and purges nothing.
 
+**(b1c) the vendor license assign (AECI-1388)** — `POST /api/vendor/licenses/:id/assign`
+puts a pool license on a product, so that product's plan resolves to Managed and its page
+changes. After commit `afterVendorWrite` enqueues `product:{slug}`, `index:products` and
+`vendor:{slug}` with `source: 'vendor'`: the (b1b) tag set, from the vendor side. The
+release-at-renewal flag (`PATCH /api/vendor/licenses/:id`) purges nothing, because no public
+read renders it.
+
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
 with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric

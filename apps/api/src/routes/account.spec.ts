@@ -517,6 +517,40 @@ describe('DELETE /api/account', () => {
     ]);
   });
 
+  it('nulls a billing_email equal to the erased address and leaves others alone (AECI-1389)', async () => {
+    // The session email is `me@example.com`. A matching address on ANY vendor's
+    // account is nulled, case-insensitively; a different one is untouched. The
+    // accounts survive and `updated_at` does not move.
+    const STAMP = '2026-01-01T00:00:00.000Z';
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await t.db.insert(vendors).values([
+      { id: u(2), slug: 'autodesk', companyName: 'Autodesk' },
+      { id: u(3), slug: 'bentley', companyName: 'Bentley' },
+      { id: u(4), slug: 'trimble', companyName: 'Trimble' },
+    ]);
+    await t.db.insert(billingAccounts).values([
+      { id: u(40), vendorId: u(2), name: 'A', billingEmail: 'me@example.com', updatedAt: STAMP },
+      { id: u(41), vendorId: u(3), name: 'B', billingEmail: 'ME@Example.com', updatedAt: STAMP },
+      { id: u(42), vendorId: u(4), name: 'T', billingEmail: 'ap@trimble.com', updatedAt: STAMP },
+    ]);
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+
+    const rows = await t.db.select().from(billingAccounts).orderBy(billingAccounts.id);
+    expect(rows.map((r) => [r.id, r.billingEmail, r.updatedAt])).toEqual([
+      [u(40), null, STAMP],
+      [u(41), null, STAMP],
+      [u(42), 'ap@trimble.com', STAMP],
+    ]);
+  });
+
   it('nulls license_release_requests.requested_by and decided_by, keeping the rows (AECI-1373)', async () => {
     const STAMP = '2026-01-01T00:00:00.000Z';
     await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });

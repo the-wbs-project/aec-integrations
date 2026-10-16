@@ -688,18 +688,31 @@ export interface SetReleaseAtRenewalParams extends LicenseWriteContext {
 /**
  * Flag (or unflag) a live license "release at renewal" (decision 11; E5). The slot
  * stays on its product until renewal, then E6 frees it. No change, ended, or not this
- * vendor's: a no-op.
+ * vendor's: a no-op. Setting the flag also needs an assigned license, since the flag
+ * only means something on one: an unassigned license is a no-op, and the UPDATE is
+ * guarded on the product the pre-read saw, so an early unassign (or a reassignment)
+ * committed between the read and the batch matches nothing rather than leaving the
+ * flag on a pool license (AECI-1388). Clearing is allowed on any live license.
  */
 export function setReleaseAtRenewalStatements(db: Db, p: SetReleaseAtRenewalParams): LicenseBatch {
   const before = findLicense(p, p.licenseId);
   if (!before || before.endedAt !== null || before.releaseAtRenewal === p.release) return NO_OP;
+  if (p.release && before.assignedProductId === null) return NO_OP;
 
   const now = toIsoTimestamp(p.now);
   const after: LicenseBefore = { ...before, releaseAtRenewal: p.release };
   const stmt = db
     .update(licenses)
     .set({ releaseAtRenewal: p.release, updatedAt: now })
-    .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
+    .where(
+      and(
+        eq(licenses.id, before.id),
+        isNull(licenses.endedAt),
+        ...(p.release && before.assignedProductId !== null
+          ? [eq(licenses.assignedProductId, before.assignedProductId)]
+          : []),
+      ),
+    );
   const action = p.release
     ? LICENSE_ACTION.releaseAtRenewalSet
     : LICENSE_ACTION.releaseAtRenewalCleared;

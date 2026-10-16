@@ -1897,14 +1897,16 @@ The account Managed licenses are sold on: one bill, one term, one Stripe custome
 (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
 may add rows later, so one-per-vendor is a unique index, not the primary key. The E1.5
 back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) creates one for every existing vendor
-with a seat or an entitlement row. No UI reads it yet (decision 18).
+with a seat or an entitlement row. The vendor's Billing tab reads it
+(`GET /api/vendor/billing`, AECI-1387), and an owner may set or clear `billing_email` there
+(`PUT /api/vendor/billing/email`, AECI-1389).
 
 ```sql
 create table billing_accounts (
   id text primary key,
   vendor_id text not null references vendors(id), -- NO ACTION: a vendor with an account refuses retraction
   name text not null,
-  billing_email text,       -- null until checkout (decision 16)
+  billing_email text,       -- null until an owner sets it or checkout does (decision 16); lower-cased
   stripe_customer_id text,
   created_by text,          -- a profiles.id; NO FK, as vendor_plan_pricing.updated_by
   created_at text not null,
@@ -1922,7 +1924,7 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   provision (`POST /api/admin/vendors/:id/seats`). The caller preloads the account with
   `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
   so a second seat writes nothing here. `name` is the vendor's `company_name`;
-  `billing_email` stays NULL; `created_by` is the approving admin. No statement names
+  `billing_email` starts NULL; `created_by` is the approving admin. No statement names
   `vendors`, so `vendors.updated_at` never moves for it. Two first approvals racing on one
   vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
   batch, seat included, rolls back. The entitlement activate's license dual-write (AECI-1353,
@@ -1938,6 +1940,14 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
   `licenses.billing_account_id` (NO ACTION) safe: nothing deletes an account.
+- **The billing email (AECI-1389).** `billingEmailStatements` in the same module is its one
+  writer today, called by `PUT /api/vendor/billing/email` (owner seats only). The value is
+  trimmed and lower-cased. An unchanged value writes nothing. A change writes one
+  `billing_account.email_changed` row with the old and new address in `before_state` /
+  `after_state`, the seat-invite precedent. Audit only: no message to the other owners
+  (ruling 2026-10-16). Decision 16's default-at-checkout still applies when checkout lands
+  (E9). The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
+  person's email, matched case-insensitively, on any vendor's account.
 - **No FK on `created_by`.** A `profiles` recreate cannot cascade into it. SQLite never clears it
   either, so the erasure batch (`AUTH_AND_RLS.md` §8) nulls it explicitly, as it does
   `licenses.granted_by`.
@@ -1946,8 +1956,10 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 - **Domain state.** Every write carries its `audit_log` row in the same `db.batch`, with
   `entity_type = 'billing_account'`, `entity_id` = the account id, and `audit_log.vendor_id`
   filled. Creation is `billing_account.created` (registered in
-  `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). License changes file
-  under the account too (§8.6c).
+  `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). An owner's billing
+  email change is `billing_account.email_changed` (AECI-1389), a vendor receipt: the
+  Changes page shows it as the vendor's own edit, naming the field and never the address.
+  License changes file under the account too (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 
@@ -1956,7 +1968,9 @@ and 18). Licenses carry their own dates. There is no subscription table: a Strip
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
 `apps/api/src/lib/license.ts` (AECI-1352). Its callers are the entitlement builders'
 dual-write (AECI-1353, below) and, since AECI-1356, the 11:00 expiry sweep's fence stamp
-(`expiryNoticeStampStatements`). The one-off back-fill (AECI-1354, below) also
+(`expiryNoticeStampStatements`). Since AECI-1388 the vendor Billing tab's two owner writes
+call `assignLicenseStatements` and `setReleaseAtRenewalStatements` (below). The one-off
+back-fill (AECI-1354, below) also
 inserts rows, in raw SQL. `ops:retract-product` NULLs `assigned_product_id` in raw SQL when
 it retracts a product (below). **Since AECI-1355 (E1.6, 2026-10-14) this table is the truth
 for plan resolution**: a product is Managed for a vendor exactly when a live license on that
@@ -2025,7 +2039,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   refusal guard. The plan names the table only where it exists (`LICENSES_TABLE_SQL`).
 - **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
   `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
-  NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`,
+  NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`
+  (setting is guarded on the `assigned_product_id` the caller read, so the flag never lands
+  on a pool license; clearing is guarded on `ended_at IS NULL` only),
   `setCancelAtTermEndStatements`, `endLicensesStatements` and `setLicensesTermStatements`
   (moves `ends_at`, and optionally `source` and `reference`, on live licenses; clears
   `expiry_notice_sent_at` when `ends_at` moves; AECI-1353). E4, E5, E6 and E9 call them
@@ -2057,6 +2073,15 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `metadata.internalNote`. The vendor's Messages row (`notification.sent`, `kind =
   'aeci_override'`, event `license_revoked`) files under the billing account too, with
   `metadata.licenseId` and `metadata.licenseProduct`, never the internal note.
+- **The vendor assign and flag (AECI-1388, E5.2).** `POST /api/vendor/licenses/:id/assign`
+  puts a live pool license on a product the vendor owns through `assignLicenseStatements`.
+  `PATCH /api/vendor/licenses/:id` sets or clears `release_at_renewal` on a live, assigned
+  license through `setReleaseAtRenewalStatements`. Both are owner-seat writes with
+  `metadata.source = 'vendor-portal'`, and both add a `changedOneRowSentinel` after the
+  license UPDATE, so a lost race writes nothing. The assign pre-checks the product for a live
+  license from any vendor, so `licenses_live_product_idx` answers `409
+  PRODUCT_ALREADY_LICENSED`, never a 500. Their audit rows (`license.assigned`,
+  `license.release_at_renewal_set` / `_cleared`) are receipts on the vendor's Changes page.
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit

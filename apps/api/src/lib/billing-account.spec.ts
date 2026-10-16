@@ -15,9 +15,13 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
 import {
   BILLING_ACCOUNT_CREATED_ACTION,
+  BILLING_ACCOUNT_EMAIL_CHANGED_ACTION,
   BILLING_ACCOUNT_ENTITY_TYPE,
+  billingEmailStatements,
   ensureBillingAccountStatements,
   loadBillingAccount,
+  loadBillingAccountEmail,
+  type BillingEmailParams,
   type EnsureBillingAccountParams,
 } from './billing-account';
 
@@ -158,5 +162,87 @@ describe('ensureBillingAccountStatements', () => {
     await expect(t.db.batch(loser.stmts as BatchTuple)).rejects.toThrow();
     expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
     expect(await t.db.select().from(auditLog)).toHaveLength(1);
+  });
+});
+
+describe('billingEmailStatements (AECI-1389)', () => {
+  const OWNER_ID = '33333333-3333-4333-8333-333333333333';
+
+  async function seedAccount(): Promise<string> {
+    // `audit_log.actor_id` references `profiles`.
+    await t.db.insert(profiles).values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+    const batch = ensureBillingAccountStatements(t.db, args());
+    await t.db.batch(batch.stmts as BatchTuple);
+    await t.db.delete(auditLog);
+    return batch.billingAccountId!;
+  }
+
+  const emailArgs = (id: string, over: Partial<BillingEmailParams> = {}): BillingEmailParams => ({
+    billingAccountId: id,
+    vendorId: VENDOR_ID,
+    before: null,
+    email: 'ap@autodesk.com',
+    now: '2026-10-16T09:00:00Z',
+    actorId: OWNER_ID,
+    actorType: 'user',
+    vendorPlan: { tier: 'managed', status: 'active' },
+    source: 'vendor-portal',
+    ...over,
+  });
+
+  it('sets the address, lower-cased and trimmed, with one audit row naming the vendor', async () => {
+    const id = await seedAccount();
+    const batch = billingEmailStatements(t.db, emailArgs(id, { email: '  AP@Autodesk.com ' }));
+    expect(batch.billingEmail).toBe('ap@autodesk.com');
+    await t.db.batch(batch.stmts as BatchTuple);
+
+    expect(await loadBillingAccountEmail(t.db, VENDOR_ID)).toEqual({
+      id,
+      billingEmail: 'ap@autodesk.com',
+    });
+    const [account] = await t.db.select().from(billingAccounts);
+    expect(account!.updatedAt).toBe('2026-10-16T09:00:00.000Z');
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: BILLING_ACCOUNT_EMAIL_CHANGED_ACTION,
+      entityType: BILLING_ACCOUNT_ENTITY_TYPE,
+      entityId: id,
+      actorId: OWNER_ID,
+      actorType: 'user',
+      vendorId: VENDOR_ID,
+    });
+    expect(audits[0]!.beforeState).toEqual({ billing_email: null });
+    expect(audits[0]!.afterState).toEqual({ billing_email: 'ap@autodesk.com' });
+    expect(audits[0]!.metadata).toEqual({ source: 'vendor-portal', vendorId: VENDOR_ID });
+  });
+
+  it('clears the address on null', async () => {
+    const id = await seedAccount();
+    const batch = billingEmailStatements(
+      t.db,
+      emailArgs(id, { before: 'ap@autodesk.com', email: null }),
+    );
+    await t.db.batch(batch.stmts as BatchTuple);
+    expect(batch.billingEmail).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.afterState).toEqual({ billing_email: null });
+  });
+
+  it('an unchanged address writes nothing and audits nothing', () => {
+    const batch = billingEmailStatements(
+      t.db,
+      emailArgs('any', { before: 'ap@autodesk.com', email: 'AP@autodesk.com' }),
+    );
+    expect(batch.stmts).toEqual([]);
+    expect(batch.auditEntry).toBeNull();
+    expect(batch.billingEmail).toBe('ap@autodesk.com');
+  });
+
+  it('never names `vendors`', async () => {
+    const id = await seedAccount();
+    const batch = billingEmailStatements(t.db, emailArgs(id));
+    expect(batch.stmts.map(sqlOf).filter((sql) => /"vendors"/.test(sql))).toEqual([]);
   });
 });

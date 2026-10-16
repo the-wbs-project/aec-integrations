@@ -191,6 +191,7 @@ beforeEach(() => {
     contests: false,
     catalogue: false,
     reviews: false,
+    billing: false,
   };
   store = {
     revalidate: vi.fn().mockResolvedValue(undefined),
@@ -201,6 +202,7 @@ beforeEach(() => {
     contestsFailed: () => failed.contests,
     catalogueFailed: () => failed.catalogue,
     reviewsFailed: () => failed.reviews,
+    billingFailed: () => failed.billing,
   } as unknown as { revalidate: ReturnType<typeof vi.fn> };
 });
 

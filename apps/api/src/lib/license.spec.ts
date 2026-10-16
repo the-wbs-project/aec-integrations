@@ -406,6 +406,46 @@ describe('setReleaseAtRenewalStatements', () => {
       'license.release_at_renewal_set',
     ]);
   });
+
+  it('will not set the flag on an unassigned license, but clears a stray one there', async () => {
+    await seedLicense('l-pool');
+    expect(
+      setReleaseAtRenewalStatements(t.db, { ...(await ctx()), licenseId: 'l-pool', release: true })
+        .stmts,
+    ).toHaveLength(0);
+    await t.db.update(licenses).set({ releaseAtRenewal: true }).where(eq(licenses.id, 'l-pool'));
+    await run(
+      setReleaseAtRenewalStatements(t.db, {
+        ...(await ctx()),
+        licenseId: 'l-pool',
+        release: false,
+      }),
+    );
+    expect((await licenseOf('l-pool')).releaseAtRenewal).toBe(false);
+  });
+
+  it.each([
+    ['unassigned (an approved early release)', null],
+    ['moved to another product', P2],
+  ])(
+    'the SQL guard holds when the pre-read is stale: a license %s since the read stays unflagged (AECI-1388)',
+    async (_label, productNow) => {
+      await seedLicense('l-1', { assignedProductId: P1, assignedAt: OLD_TS });
+      const set = setReleaseAtRenewalStatements(t.db, {
+        ...(await ctx()),
+        licenseId: 'l-1',
+        release: true,
+      });
+      expect(sqlOf(set.stmts[0]!).sql).toMatch(/"licenses"\."assigned_product_id" = \?/i);
+
+      await t.db
+        .update(licenses)
+        .set({ assignedProductId: productNow, assignedAt: productNow ? NOW : null })
+        .where(eq(licenses.id, 'l-1'));
+      await run(set);
+      expect((await licenseOf('l-1')).releaseAtRenewal).toBe(false);
+    },
+  );
 });
 
 describe('setCancelAtTermEndStatements', () => {
@@ -753,7 +793,7 @@ describe('the mirror reconcile', () => {
   it('leaves a correct mirror alone and lifts a drifted one on the next write', async () => {
     await setVerified(true);
     await seedLicense('l-ended', { endedAt: OLD_TS });
-    await seedLicense('l-2');
+    await seedLicense('l-2', { assignedProductId: P1, assignedAt: OLD_TS });
     await run(
       setReleaseAtRenewalStatements(t.db, { ...(await ctx()), licenseId: 'l-2', release: true }),
     );

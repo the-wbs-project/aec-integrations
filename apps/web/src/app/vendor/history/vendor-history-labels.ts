@@ -89,6 +89,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_entitlement.cleared': $localize`:@@vendor.history.action.entitlementCleared:Plan ended`,
   'vendor_entitlement.expiry_warned': $localize`:@@vendor.history.action.entitlementExpiryWarned:Plan end reminder sent`,
   'license.expiry_warned': $localize`:@@vendor.history.action.licenseExpiryWarned:Plan end reminder sent`,
+  'billing_account.email_changed': $localize`:@@vendor.history.action.billingEmailChanged:Billing email changed`,
+  // AECI-1388: the owner's own license acts on the Billing tab.
+  'license.assigned': $localize`:@@vendor.history.action.licenseAssigned:License put on a product`,
+  'license.release_at_renewal_set': $localize`:@@vendor.history.action.licenseReleaseSet:License set to free its product at renewal`,
+  'license.release_at_renewal_cleared': $localize`:@@vendor.history.action.licenseReleaseCleared:License kept on its product at renewal`,
 
   // ── Connector catalogues ─────────────────────────────────────────────────
   'connector_catalog.managed_by_vendor': $localize`:@@vendor.history.action.catalogManagedByVendor:Connector catalog handed to your team`,

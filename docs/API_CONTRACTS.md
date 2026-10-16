@@ -319,6 +319,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a license that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the license ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
 | `RELEASE_REQUEST_OPEN` | 409 | `POST /api/vendor/licenses/:id/release-request` while the license already has an open request (AECI-1373), including the loser of two racing asks (the partial unique index `license_release_requests_open_license_key`). `details.request_id` names the open one |
 | `RELEASE_REQUEST_NOT_OPEN` | 409 | `PATCH /api/admin/license-release-requests/:id` on a request already approved or declined, including one another admin decided between the read and the batch (AECI-1373). Nothing is written |
+| `LICENSE_NOT_LIVE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a license that has ended. An ended license never goes back on a product; a new one is a new grant. Nothing is written |
+| `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a license already on a product, including one assigned or ended between the read and the batch. Moving a license is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
+| `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live license from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -2922,7 +2925,7 @@ export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
 export const AdminBillingAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
-  billing_email: z.string().nullable(),        // null until checkout (decision 16)
+  billing_email: z.string().nullable(),        // null until an owner or checkout sets it (decision 16)
   stripe_customer_id: z.string().nullable(),
   created_at: z.string(),
   owner_seats: z.array(z.object({
@@ -6608,7 +6611,7 @@ Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silen
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` + `license-release-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` + `vendor-license-release.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` + `license-release-requests.ts` + `vendor-billing.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` + `vendor-license-release.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6623,6 +6626,8 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), and `PUT /api/vendor/billing/email` (E5.3, AECI-1389). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
+
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
 Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value, and it stays that way deliberately rather than because a migration was unavailable; see `AUTH_AND_RLS.md` §4.4) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
@@ -6633,12 +6638,15 @@ Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join
 
 The dashboard payload — one round-trip renders the surface: the caller's vendor, the products it owns (via `product_vendors`, with their taxonomy assignment), the `vendor_requests` targeting the vendor or any of those products, and how many seats share the account. The seat **roster** is a separate call because it needs the Supabase email lookup.
 
+`seat_owner` (AECI-1387) is the caller's own `profiles.seat_owner`, so the portal can hide the Billing tab from member seats without fetching `/seats`. It is a display hint: every owner-only route re-reads the bit through `requireSeatOwner()` and answers a member `403`.
+
 ```typescript
 export const VendorMeResponseSchema = z.object({
   vendor: VendorAccountSchema,          // incl. `verified` as READ-ONLY state
   products: z.array(VendorProductSchema),
   requests: z.array(VendorRequestSummarySchema),
   seat_count: z.number().int().min(1),
+  seat_owner: z.boolean(),              // AECI-1387: the CALLER's profiles.seat_owner
   entitlement: VendorEntitlementBlockSchema, // AECI-611 — REQUIRED
 });
 
@@ -6821,6 +6829,157 @@ Revoke a pending invite. Owner-only, **204**, and a SOFT delete (`revoked_at`) s
 Remove a colleague's seat — the vendor-side counterpart to AECi's ban action, and the first HTTP surface `revokeSeatStatements` has had. Owner-only, **204**. Drops the row to `reviewer`, unlinks `vendor_id`, clears `seat_owner`, and **never touches `vendors.verified` or the entitlement row** (§8.3(2)).
 
 Refuses self-removal (**422**) — someone leaving hands over first, and self-removal is a support conversation rather than a button that can orphan a vendor. A seat on another vendor is a **404**.
+
+#### `GET /api/vendor/billing` (AECI-1387)
+
+The Billing tab's one read (AECI-1335, E5.1; `VENDOR_SIGNUP_PROCESS.md` §2 decisions 10, 11,
+16, 17): the vendor's billing account, every license on it, and the products a pool license
+may go on. A read: no audit row, never rate-limited, `Cache-Control: private, no-store`.
+
+**Owner seats only.** `requireVendor()`, then `requireSeatOwner()` (a member seat gets `403
+FORBIDDEN`, "Only a vendor account owner can see billing"), then the vendor filter. No
+capability gate: the fourth named exception to invariant 3 above. One `db.batch` of three
+reads.
+
+```typescript
+export const VendorBillingResponseSchema = z.object({
+  billing_account: z.object({ id: z.string(), billing_email: z.string().nullable() }).nullable(),
+  licenses: z.array(VendorBillingLicenseSchema),   // capped at VENDOR_BILLING_LICENSES_MAX (500)
+  licenses_truncated: z.boolean(),
+  assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
+});
+
+export const VendorBillingLicenseSchema = z.object({
+  id: z.string(),
+  source: z.enum(LICENSE_SOURCES),                 // 'stripe' | 'invoice' | 'complimentary'
+  starts_at: z.string(),
+  ends_at: z.string().nullable(),                  // null = monthly
+  ended_at: z.string().nullable(),                 // null = live
+  end_reason: z.string().nullable(),
+  live: z.boolean(),                               // ended_at === null, never derived from ends_at
+  reference: z.string().nullable(),                // the vendor's invoice or PO number
+  assigned_product: z.object({ id, slug, name }).nullable(), // null = in the pool
+  assigned_at: z.string().nullable(),
+  release_at_renewal: z.boolean(),                 // decision 11
+  cancel_at_term_end: z.boolean(),                 // decision 15
+  open_release_request: z.object({ id: z.string(), created_at: z.string() }).nullable(),
+});
+```
+
+- **`billing_account: null`** is a vendor the E1 back-fill missed. The response is still a
+  `200`, with `licenses: []`.
+- **`licenses`** are the ones on the vendor's own billing account(s), never a co-owner's, in
+  the admin read's order: live first (oldest first), then ended (most recently ended first),
+  `id` breaking ties. The dates are the stored ISO strings, as on the admin read (§6.10).
+- **`open_release_request`** is the license's `status = 'open'` row in
+  `license_release_requests`, at most one by the partial unique index.
+- **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
+  live license from **any** vendor. A co-owned product licensed by the other owner is left
+  out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
+- **Not here:** `stripe_*`, `cancel_reason`, `terms_version`, `granted_by` and `created_at`.
+  The Stripe link is E9, and the rest are AECi's records (the admin read has them).
+
+The E5 write bodies are in the same file: `AssignLicenseRequestSchema { product_id }`,
+`UpdateLicenseRequestSchema { release_at_renewal }` (strict) and
+`UpdateBillingEmailRequestSchema { billing_email }` (the seat-invite email rule, trimmed and
+lower-cased, or `null`). The first two are the E5.2 routes below. The email route is
+`PUT /api/vendor/billing/email`, also below (E5.3). Source of truth:
+`packages/shared/src/api/vendor-billing.ts`, handler `apps/api/src/routes/vendor-billing.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
+is not an owner).
+
+#### `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (AECI-1388)
+
+The Billing tab's two license writes (E5.2; `VENDOR_SIGNUP_PROCESS.md` §2 decisions 10 and
+11, §3 step 6). Both write through the `lib/license.ts` builders (`assignLicenseStatements`,
+`setReleaseAtRenewalStatements`) with `metadata.source = 'vendor-portal'`.
+
+| Method | Path | Gate | Body | Success |
+|---|---|---|---|---|
+| `POST` | `/api/vendor/licenses/:id/assign` | seat, `rateLimit('write')`, then `requireSeatOwner()` in the handler | `AssignLicenseRequestSchema { product_id }` | `200 { license }` |
+| `PATCH` | `/api/vendor/licenses/:id` | the same | `UpdateLicenseRequestSchema { release_at_renewal }` | `200 { license }` |
+
+Both bodies are strict. Both answer `VendorLicenseResponseSchema { license }`: the license
+after the write, in the `VendorBillingLicenseSchema` shape of the read above. An assign
+also changes `assignable_products`, so a caller that shows that list re-reads
+`GET /api/vendor/billing`. No capability gate: the fourth named exception to invariant 3.
+The licenses and the product are re-read from D1, never taken from the session.
+
+**Assign, in order.** A member seat is `403 FORBIDDEN`. A shape error is `400`. A license
+not on the caller's billing account, or no such license, is `404 NOT_FOUND`. A product the
+caller does not own (`product_vendors`), or no such product, is `404 NOT_FOUND`. An ended
+license is `409 LICENSE_NOT_LIVE`. A license already on a product is
+`409 LICENSE_ALREADY_ASSIGNED`: moving it is an early-unassign request (decision 11). A
+product that already holds a live license from any vendor, a co-owner included, is
+`409 PRODUCT_ALREADY_LICENSED`. That last check runs before the batch, and the loser of a
+race on `licenses_live_product_idx` gets the same `409`.
+
+**Release at renewal, in order.** Owner, shape and the license `404` as above. An ended
+or unassigned license is `409 LICENSE_NOT_ASSIGNED`. A body that matches the stored flag is
+a `200` with the current license and writes nothing. Setting the flag is guarded on the
+product the handler read. So an early unassign approved between the read and the batch, or
+a move to another product, also answers `409 LICENSE_NOT_ASSIGNED` and never leaves the
+flag on a pool license. Clearing is guarded on liveness only.
+
+**One batch.** The guarded license `UPDATE`, a sentinel that aborts the batch when that
+`UPDATE` changed no row, the `audit_log` row (`license.assigned`,
+`license.release_at_renewal_set` or `license.release_at_renewal_cleared`, filed under the
+billing account, stamped by `vendorAuditEntry`), and the `vendors.verified` mirror
+reconcile. A change that lands between the read and the batch writes nothing and answers
+the matching `409`. The three actions are receipts: they show on the vendor's Changes page
+as the vendor's own edits.
+
+**After commit.** The assign purges `product:{slug}`, `index:products` and `vendor:{slug}`
+(the product's plan badge changes). The flag purges nothing: no public page reads it. E6 is
+its first reader.
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-licenses.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `VALIDATION_FAILED` and
+`MALFORMED_REQUEST` (400) · `NOT_FOUND` (404) · `LICENSE_NOT_LIVE`, `LICENSE_ALREADY_ASSIGNED`,
+`PRODUCT_ALREADY_LICENSED` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
+`RATE_LIMITED` (429).
+
+#### `PUT /api/vendor/billing/email` (AECI-1389)
+
+An owner sets or clears the billing email on the vendor's billing account (AECI-1335, E5.3;
+`VENDOR_SIGNUP_PROCESS.md` §2 decision 16). Table: `DATABASE_SCHEMA.md` §8.6b.
+
+**Owner seats only.** `requireVendor()`, then `rateLimit('write')`, then `requireSeatOwner()`
+in the handler (a member seat gets `403 FORBIDDEN`). No capability gate: the fourth named
+exception to invariant 3 above.
+
+```typescript
+// Request. Strict: an unknown key is a 400.
+export const UpdateBillingEmailRequestSchema = z
+  .object({ billing_email: z.string().trim().min(3).max(320).email().toLowerCase().nullable() })
+  .strict();
+
+// 200. The same block `GET /api/vendor/billing` returns.
+export const UpdateBillingEmailResponseSchema = z.object({
+  billing_account: z.object({ id: z.string(), billing_email: z.string().nullable() }),
+});
+```
+
+- **`null` clears the address.** A value is stored trimmed and lower-cased.
+- **An unchanged value** answers `200` and writes nothing: no UPDATE, no audit row.
+- **A change** is one `db.batch`: the UPDATE and its `billing_account.email_changed` audit
+  row (`entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` filled,
+  the old and new address in `before_state` / `after_state`). The Changes page shows it as
+  the vendor's own edit.
+- **Audit only** (ruling 2026-10-16). No message goes to the other owners. No cache purge:
+  no public page reads the address. No realtime scope moves (`STAGE_2_REALTIME_SPEC.md`).
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-billing-email.ts`, writer `billingEmailStatements` in
+`apps/api/src/lib/billing-account.ts`.
+
+Errors: `VALIDATION_FAILED` (400, a bad address, a missing field or an unknown key) ·
+`MALFORMED_REQUEST` (400, not JSON) · `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14
+guard cells, or a seat that is not an owner) · `NOT_FOUND` (404, the vendor has no billing
+account) · `RATE_LIMITED` (429).
 
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 
@@ -8208,7 +8367,7 @@ export const VendorProductRequestSchema = z.object({
 
 #### Early unassign — `POST /api/vendor/licenses/:id/release-request`
 
-AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner. E5 ships the portal button. Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
+AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner, from the "Request early unassign" dialog on the portal's Billing tab (AECI-1391, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
 
 | Method | Path | Gate | Success |
 |---|---|---|---|

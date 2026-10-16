@@ -95,7 +95,7 @@ import {
   type ProductEditableField,
   type VendorEditableField,
 } from '@aeci/shared/entitlements';
-import { asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
@@ -765,38 +765,53 @@ export function createVendorMeHandler(
     const productIds = owned.map((row) => row.productId);
     const primaryById = new Map(owned.map((row) => [row.productId, row.isPrimary]));
 
-    const [productRows, taxonomy, seatRows, requestRows, vendorLocks, productLocks, price] =
-      await Promise.all([
-        productIds.length
-          ? db.query.products.findMany({
-              where: inArray(products.id, productIds),
-              // Case-insensitive (AECI-825); `id` keeps the order total, since
-              // NOCASE ties two spellings that differ only in case.
-              orderBy: [textAsc(products.name), asc(products.id)],
-            })
-          : Promise.resolve([]),
-        loadTaxonomySlugs(db, productIds),
-        // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
-        // reports a seat count the roster can't account for — a `reviewer` profile
-        // pointing at this vendor is not a seat. Only the count is consumed, so
-        // count it in SQL rather than shipping every row back.
-        db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
-        // The vendor's own claim/correction requests: those targeting the vendor
-        // itself, plus those targeting any product it owns. The predicate is shared
-        // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
-        // `vendorRequestsWhere` for why that sharing is load-bearing.
-        db.query.vendorRequests.findMany({
-          where: vendorRequestsWhere(vendorId, productIds),
-          // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
-          orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
-        }),
-        // AECI-1237: AECi's field locks, so the forms render those fields read-only.
-        // Two reads on the partial unique index; nothing when nothing is locked.
-        lockedFieldsByEntity(db, 'vendor', [vendorId]),
-        lockedFieldsByEntity(db, 'product', productIds),
-        // The display-only plan price overrides (§13.13). One primary-key read.
-        loadPlanPrice(db, vendorId),
-      ]);
+    const [
+      productRows,
+      taxonomy,
+      seatRows,
+      callerRows,
+      requestRows,
+      vendorLocks,
+      productLocks,
+      price,
+    ] = await Promise.all([
+      productIds.length
+        ? db.query.products.findMany({
+            where: inArray(products.id, productIds),
+            // Case-insensitive (AECI-825); `id` keeps the order total, since
+            // NOCASE ties two spellings that differ only in case.
+            orderBy: [textAsc(products.name), asc(products.id)],
+          })
+        : Promise.resolve([]),
+      loadTaxonomySlugs(db, productIds),
+      // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
+      // reports a seat count the roster can't account for — a `reviewer` profile
+      // pointing at this vendor is not a seat. Only the count is consumed, so
+      // count it in SQL rather than shipping every row back.
+      db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
+      // AECI-1387: the caller's owner bit, for the Billing nav item. The same row
+      // `requireSeatOwner()` reads, pinned to this vendor and the seat role.
+      db
+        .select({ seatOwner: profiles.seatOwner })
+        .from(profiles)
+        .where(and(eq(profiles.id, session.userId), seatsOf(vendorId)))
+        .limit(1),
+      // The vendor's own claim/correction requests: those targeting the vendor
+      // itself, plus those targeting any product it owns. The predicate is shared
+      // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
+      // `vendorRequestsWhere` for why that sharing is load-bearing.
+      db.query.vendorRequests.findMany({
+        where: vendorRequestsWhere(vendorId, productIds),
+        // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
+        orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
+      }),
+      // AECI-1237: AECi's field locks, so the forms render those fields read-only.
+      // Two reads on the partial unique index; nothing when nothing is locked.
+      lockedFieldsByEntity(db, 'vendor', [vendorId]),
+      lockedFieldsByEntity(db, 'product', productIds),
+      // The display-only plan price overrides (§13.13). One primary-key read.
+      loadPlanPrice(db, vendorId),
+    ]);
 
     // The vendor's block, and each product's own block from its own license
     // (AECI-1355, §13.7). All from the session: no query.
@@ -824,6 +839,7 @@ export function createVendorMeHandler(
       ),
       // The caller is a seat, so this is ≥ 1 by construction.
       seat_count: Math.max(seatRows[0]?.value ?? 0, 1),
+      seat_owner: callerRows[0]?.seatOwner ?? false,
       // Built from the session the guard already loaded — zero extra queries,
       // and the dashboard's readout therefore cannot disagree with the 403 a
       // vendor-level write would get, because both read the same `entitlementTier`.

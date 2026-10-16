@@ -18,7 +18,7 @@ import type {
   AdminVendorBillingResponse,
 } from '@aeci/shared';
 
-import { formatTermDate } from '../entitlement/entitlement-term';
+import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { seatLabel } from '../seat-label';
 
 /**

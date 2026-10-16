@@ -69,6 +69,8 @@ import type {
   ManageableSeatInvite,
   VendorChecklistResponse,
   VendorProductChecklistResponse,
+  VendorAgreementAcceptance,
+  VendorBillingResponse,
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
@@ -99,7 +101,8 @@ export type VendorPortalResource =
   | 'seats'
   | 'contests'
   | 'catalogue'
-  | 'reviews';
+  | 'reviews'
+  | 'billing';
 
 /** A user-facing section: the granularity at which unsaved edits are registered
  *  and at which a "reload this section" affordance is offered. */
@@ -109,7 +112,8 @@ export type VendorPortalSection =
   | 'integrations'
   | 'notifications'
   | 'seats'
-  | 'contests';
+  | 'contests'
+  | 'billing';
 
 /**
  * Per-resource load state. Each resource gets its own because each has its own
@@ -144,6 +148,13 @@ export interface VendorPortalData {
    * and re-reads its open page when this moves.
    */
   reviews: number;
+  /**
+   * `GET /api/vendor/billing` (AECI-1390, E5.4): the owner-only Billing tab's
+   * licenses and billing email. `null` until the tab first loads it. No scope maps
+   * to it; a moved `entitlement` or `notifications` refetches it once loaded (see
+   * `revalidate`).
+   */
+  billing: VendorBillingResponse | null;
 }
 
 /** The empty contests payload: the value before the first read, and the one a
@@ -201,6 +212,7 @@ const SECTION_RESOURCE: Readonly<Record<VendorPortalSection, VendorPortalResourc
   notifications: 'notifications',
   seats: 'seats',
   contests: 'contests',
+  billing: 'billing',
 };
 
 const SECTIONS = Object.keys(SECTION_RESOURCE) as readonly VendorPortalSection[];
@@ -238,6 +250,7 @@ export class VendorPortalStore {
     contests: signal<ListVendorContestsResponse>(NO_CONTESTS),
     catalogue: signal(0),
     reviews: signal(0),
+    billing: signal<VendorBillingResponse | null>(null),
   };
 
   private readonly statuses: Readonly<
@@ -250,6 +263,7 @@ export class VendorPortalStore {
     contests: signal<VendorPortalStatus>('idle'),
     catalogue: signal<VendorPortalStatus>('idle'),
     reviews: signal<VendorPortalStatus>('idle'),
+    billing: signal<VendorPortalStatus>('idle'),
   };
 
   /**
@@ -265,6 +279,7 @@ export class VendorPortalStore {
     contests: 0,
     catalogue: 0,
     reviews: 0,
+    billing: 0,
   };
 
   /** Fresh server payloads held back because a dirty section is rendering the
@@ -311,6 +326,17 @@ export class VendorPortalStore {
   /** Bumped each time the `reviews` cursor moves (AECI-1176). The Reviews tab
    *  (AECI-1179) re-reads its open page on a change. */
   readonly reviewsRevision: Signal<number> = this.state.reviews.asReadonly();
+  /** The Billing tab's payload (AECI-1390). Owner seats only: the tab never asks
+   *  for it on a member seat, so it stays `null` there. */
+  readonly billing: Signal<VendorBillingResponse | null> = this.state.billing.asReadonly();
+  /**
+   * The agreements the company accepted (`GET /api/vendor/billing/acceptances`).
+   * A plain signal on the `billing` fetch, for the reason the seat signals below
+   * are: it loads with the licenses, on the same tab, and nothing edits it.
+   */
+  private readonly acceptanceRows = signal<readonly VendorAgreementAcceptance[]>([]);
+  readonly acceptances: Signal<readonly VendorAgreementAcceptance[]> =
+    this.acceptanceRows.asReadonly();
 
   /**
    * The two other halves of `GET /api/vendor/seats` (AECI-664 / §11a).
@@ -413,6 +439,7 @@ export class VendorPortalStore {
     this.statuses.notifications.asReadonly();
   readonly seatsStatus: Signal<VendorPortalStatus> = this.statuses.seats.asReadonly();
   readonly contestsStatus: Signal<VendorPortalStatus> = this.statuses.contests.asReadonly();
+  readonly billingStatus: Signal<VendorPortalStatus> = this.statuses.billing.asReadonly();
 
   /** "Nothing to show yet". `idle` counts: a lazy section paints its loading
    *  state during SSR, before `afterNextRender` has asked for anything. */
@@ -420,12 +447,14 @@ export class VendorPortalStore {
   readonly notificationsLoading = computed(() => isPending(this.notificationsStatus()));
   readonly seatsLoading = computed(() => isPending(this.seatsStatus()));
   readonly contestsLoading = computed(() => isPending(this.contestsStatus()));
+  readonly billingLoading = computed(() => isPending(this.billingStatus()));
 
   readonly meFailed = computed(() => this.meStatus() === 'failed');
   readonly integrationsFailed = computed(() => this.integrationsStatus() === 'failed');
   readonly notificationsFailed = computed(() => this.notificationsStatus() === 'failed');
   readonly seatsFailed = computed(() => this.seatsStatus() === 'failed');
   readonly contestsFailed = computed(() => this.contestsStatus() === 'failed');
+  readonly billingFailed = computed(() => this.billingStatus() === 'failed');
   /** Always `false` in practice: bumping a counter cannot fail. Exposed so the
    *  live sync's exhaustive per-resource switch has something to read. */
   readonly catalogueFailed = computed(() => this.statuses.catalogue() === 'failed');
@@ -493,6 +522,19 @@ export class VendorPortalStore {
     // decide. Refetch loaded contests with the entitlement. Never from cold.
     if (scopes.includes('entitlement') && this.statuses.contests() !== 'idle') {
       resources.add('contests');
+    }
+    // AECI-1390: every license write moves `entitlement` (`STAGE_2_REALTIME_SPEC.md`
+    // §2.2), so a grant, an assignment or an end refetches a loaded Billing tab.
+    // Never from cold: a member seat never loads it, and must not 403 on a poll.
+    if (scopes.includes('entitlement') && this.statuses.billing() !== 'idle') {
+      resources.add('billing');
+    }
+    // An admin decline of an early-unassign request touches no license, so
+    // `entitlement` stays put. Its override notice moves `notifications`, so refetch
+    // a loaded Billing tab on that too, or the row keeps "requested" and hides the
+    // request button until a reload. Never from cold, as above.
+    if (scopes.includes('notifications') && this.statuses.billing() !== 'idle') {
+      resources.add('billing');
     }
     const checklists = scopes.some((scope) => CHECKLIST_SCOPES.has(scope))
       ? [this.refreshChecklists()]
@@ -761,6 +803,17 @@ export class VendorPortalStore {
           // No request: the Reviews tab owns its paged read (AECI-1179).
           this.receive('reviews', this.read('reviews') + 1);
           break;
+        case 'billing': {
+          // Two reads, one tab: both or neither, so the tab never shows licenses
+          // beside a stale acceptances list it cannot say is stale.
+          const [billing, acceptances] = await Promise.all([
+            this.api.getBilling(),
+            this.api.getAcceptances(),
+          ]);
+          this.receive('billing', billing);
+          this.acceptanceRows.set(acceptances.acceptances);
+          break;
+        }
         case 'seats': {
           const payload = await this.api.getSeats();
           this.receive('seats', payload.seats);

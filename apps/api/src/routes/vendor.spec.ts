@@ -203,6 +203,19 @@ describe('GET /api/vendor/me', () => {
     });
     // Both seats on this vendor, banned included.
     expect(body.seat_count).toBe(2);
+    // SEAT is a member seat: `profiles.seat_owner` defaults to false.
+    expect(body.seat_owner).toBe(false);
+  });
+
+  it('reports seat_owner from the caller’s own profile (AECI-1387)', async () => {
+    await t.db.update(profiles).set({ seatOwner: true }).where(eq(profiles.id, SEAT));
+    const { body } = await call('/api/vendor/me');
+    expect(body.seat_owner).toBe(true);
+
+    // Another seat's owner bit says nothing about the caller.
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT));
+    await t.db.update(profiles).set({ seatOwner: true }).where(eq(profiles.id, SEAT_2));
+    expect((await call('/api/vendor/me')).body.seat_owner).toBe(false);
   });
 
   it('never includes another vendor’s products', async () => {

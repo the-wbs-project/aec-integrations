@@ -109,21 +109,27 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_plan_pricing.set': { kind: 'aeci-override', receipt: false },
   'vendor_plan_pricing.cleared': { kind: 'aeci-override', receipt: false },
   // The billing account licenses sit on (AECI-1351, VENDOR_SIGNUP_PROCESS.md §2
-  // decision 18). Created with the first owner seat. Not a receipt: decision 18 shows
-  // nothing for it in the UI yet.
+  // decision 18). Created with the first owner seat. Not a receipt: the vendor never
+  // acted, and the Billing tab (E5) shows the account itself.
   'billing_account.created': { kind: 'aeci-override', receipt: false },
+  // An owner set or cleared the billing email from the Billing tab (AECI-1389, decision
+  // 16). A receipt: it is the vendor's own edit. Audit only, no message (ruling
+  // 2026-10-16). The history read shows the field name, never the address.
+  'billing_account.email_changed': { kind: 'vendor-edit', receipt: true },
   // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
   // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
   'billing_account.backfilled': { kind: 'system', receipt: false },
   // License changes (AECI-1352, `apps/api/src/lib/license.ts`). Filed under the
-  // billing account, with `vendor_id` filled. Not receipts yet: E5 (the Billing tab)
-  // decides what the vendor sees, and E1.4's dual-write would otherwise show every
-  // grant twice beside `vendor_entitlement.set`.
+  // billing account, with `vendor_id` filled. E5 (AECI-1388) decided: the owner's own
+  // license acts (assign, release at renewal) are receipts, shown on the Changes page
+  // as the vendor's own edits. `receipt` only feeds the history allow-list; it sends
+  // nothing. The rest stay off: E1.4's dual-write would otherwise show every grant
+  // twice beside `vendor_entitlement.set`, and the Billing tab shows the licenses.
   'license.granted': { kind: 'aeci-override', receipt: false },
-  'license.assigned': { kind: 'vendor-edit', receipt: false },
+  'license.assigned': { kind: 'vendor-edit', receipt: true },
   'license.unassigned': { kind: 'aeci-override', receipt: false },
-  'license.release_at_renewal_set': { kind: 'vendor-edit', receipt: false },
-  'license.release_at_renewal_cleared': { kind: 'vendor-edit', receipt: false },
+  'license.release_at_renewal_set': { kind: 'vendor-edit', receipt: true },
+  'license.release_at_renewal_cleared': { kind: 'vendor-edit', receipt: true },
   'license.cancel_at_term_end_set': { kind: 'aeci-override', receipt: false },
   'license.cancel_at_term_end_cleared': { kind: 'aeci-override', receipt: false },
   'license.lapsed': { kind: 'system', receipt: false },
