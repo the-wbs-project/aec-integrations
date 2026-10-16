@@ -3285,7 +3285,9 @@ create index indexnow_queue_priority_queued_at_idx on indexnow_queue(priority, q
 §9.8: 1 is a new product page, 4 is a pair-page edit or a minor edit. `indexNowEntriesByTier`
 (`apps/api/src/lib/indexnow-queue.ts`) gives each IndexNow URL the tier of the Google entry for
 the same URL in the same write, and 4 when there is none, which is every hub and facet page.
-The `GSC_RECRAWL_PRIORITY` map is the only place a tier is decided. The tables stay separate
+Since AECI-1130 the producers queue a hub or facet page only when its list of entries changed:
+a created product or term on promote, the terms joined or left on a vendor product edit. Trade
+URLs are unchanged. The `GSC_RECRAWL_PRIORITY` map is the only place a tier is decided. The tables stay separate
 (ADR 0031 §1). On conflict the tier may only improve, `min(existing, incoming)`, and the update
 runs only when it does; `queued_at` and `source` keep their first values. The default is 4 so
 rows buffered before the column existed sort last. There is no CHECK, because adding or
@@ -3328,6 +3330,17 @@ limit. 2,000 is set by D1's ~1 MB response limit. Pages are keyset-chained on
 `(priority, queued_at, id)`, so a row buffered mid-read can never appear twice. A day deeper
 than 10,000 leaves its lowest tiers for the next run.
 
+**A URL accepted in the last 7 days is deferred (AECI-1130).** The read skips any row whose URL
+has a `recrawl_submissions` row (§9.6a) with `channel = 'indexnow'`, `outcome = 'accepted'` and
+`submitted_at` after now minus `INDEXNOW_RESEND_MIN_DAYS` (7). It is a correlated `NOT EXISTS`
+served by `recrawl_submissions_url_submitted_at_idx`, and it binds one parameter, the cutoff. A
+deferred row is not sent, not deleted and not audited, and its causes stay (§9.6b). The first
+drain after the window sends it. A `refused` or `failed` row does not defer. The
+`aeci.indexnow.deferred` gauge and `job_runs.detail.deferred` count the held rows after each
+run, and they are part of `pending`. The window equals `INDEXNOW_QUEUE_MAX_AGE_DAYS` on purpose.
+A row queued after an acceptance is younger than the window when it becomes sendable, so a
+deferred row cannot expire unsent. Change the two together.
+
 **Bounded by a staleness sweep, not by retention.** Rows older than
 `INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) are dropped by the drain before it reads. That is a
 containment rule rather than a freshness judgement: if IndexNow stays hostile the table
@@ -3360,8 +3373,8 @@ A page a vendor edits between two drain runs is still submitted once.
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit),
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit) and the drain
 (`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only. No public or admin surface
-queries it. Its state is visible as the `aeci.indexnow.pending` gauge and the `job_runs` row
-for `indexnow-drain`. The drain does not delete what it sends without a trace any more: it copies
+queries it. Its state is visible as the `aeci.indexnow.pending` and `aeci.indexnow.deferred`
+gauges and the `job_runs` row for `indexnow-drain`. The drain does not delete what it sends without a trace any more: it copies
 every sent row into `recrawl_submissions` first (§9.6a, AECI-1183). Since AECI-1184 both
 appenders also record why each URL is queued in `recrawl_queue_causes`, which the drain copies
 onto the submission and then sweeps (§9.6b).
@@ -3438,6 +3451,9 @@ the `reindex.cleared` audit row that names the `batch_id` as `metadata.batchId`.
 **Read by** the vendor history `GET /api/vendor/recrawl-submissions` (AECI-1187,
 `API_CONTRACTS.md` §6.14). It reaches a row only through this vendor's cause rows in
 `recrawl_submission_causes` (§9.6b), joined on `id`, and orders on `(submitted_at DESC, id DESC)`.
+Also read by the IndexNow drain's resend window (AECI-1130, §9.6): its `accepted` rows from the
+last 7 days hold the same URL back in `indexnow_queue`. That read uses
+`recrawl_submissions_url_submitted_at_idx`.
 Also read by the admin history `GET /api/admin/reindex/submissions` (AECI-1188,
 `API_CONTRACTS.md` §6.10) on `/admin/reindex`. It reads every row, one per submission, ordered
 `(submitted_at DESC, id DESC)`, filtered on `channel`, `outcome` and a `submitted_at` day range
@@ -3549,7 +3565,8 @@ and never fails the write or the queue upsert. Statements chunk at
 longer in that channel's queue. It runs in the same batch as each queue delete: the drain's
 success commit (after the deletes), its all-retired commit, its 7-day expiry, and the admin
 worklist clear (`channel = 'gsc'`). It binds one parameter. A refused drain run does not sweep,
-because its URLs stay queued.
+because its URLs stay queued. A row deferred by the resend window (AECI-1130, §9.6) is not
+deleted, so its causes stay too.
 
 **`recrawl_submission_causes` is written by** `copyCausesToSubmissions(db, channel, batchId)`, one
 `INSERT … SELECT` that joins the run's `recrawl_submissions` rows to the queued causes. It binds
@@ -4295,8 +4312,8 @@ close only once Google crawls after the migration.
 reasons, and neither is tidiness. First, that table's drain **deletes** what it sends
 (by an `id <= :maxId` range when this was written, by exact id list since AECI-1136).
 Retaining rows for a second, slower consumer would force it to learn a status column. Second,
-the two consumers want opposite things. IndexNow is free and batched, so it takes everything
-indiscriminately and empties daily. Request Indexing is quota-capped, so this list has to be
+the two consumers want opposite things. IndexNow is batched and empties daily. It took every
+touched page until AECI-1130, and now takes a hub or facet page only when its list changes (§9.6). Request Indexing is quota-capped, so this list has to be
 **ordered**, and a row may sit here for weeks without being reached. Those are different
 lifecycles on one row. Since AECI-1136 `indexnow_queue` borrows this table's tier map for its
 own daily order (§9.6), but the tables stay separate.

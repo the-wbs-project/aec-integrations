@@ -26,7 +26,13 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, indexnowQueue, recrawlSubmissions, slugRedirects } from '../db/schema';
+import {
+  auditLog,
+  indexnowQueue,
+  recrawlQueueCauses,
+  recrawlSubmissions,
+  slugRedirects,
+} from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
@@ -34,6 +40,7 @@ import { INDEXNOW_MAX_URLS } from './indexnow';
 import {
   drainIndexNowQueue,
   drainMetricOutcome,
+  INDEXNOW_DEFERRED_METRIC,
   INDEXNOW_DRAINED_ACTION,
   submissionOutcome,
   INDEXNOW_EXPIRED_METRIC,
@@ -42,18 +49,23 @@ import {
   type IndexNowDrainLogSink,
 } from './indexnow-drain';
 import {
+  countDeferredIndexNowUrls,
   deleteDrainedIndexNowUrls,
   enqueueIndexNowUrls,
   INDEXNOW_DELETE_IDS_PER_STATEMENT,
   INDEXNOW_DRAIN_BATCH_SIZE,
   INDEXNOW_INSERT_ROWS_PER_STATEMENT,
   INDEXNOW_QUEUE_MAX_AGE_DAYS,
+  INDEXNOW_RESEND_MIN_DAYS,
   indexNowEntriesByTier,
   indexNowInsertStatements,
   insertSubmissionsFromQueue,
+  pendingIndexNowUrlsQuery,
   readPendingIndexNowUrls,
   RECRAWL_SUBMISSION_IDS_PER_STATEMENT,
+  staleCutoffIso,
 } from './indexnow-queue';
+import { enqueueRecrawlCauses } from './recrawl-causes';
 
 const NOW = new Date('2026-09-09T12:00:00.000Z');
 
@@ -712,9 +724,10 @@ describe('drainIndexNowQueue — daily, tiered (AECI-1136)', () => {
       priority: (i % 3) + 1,
     }));
     await enqueueIndexNowUrls(t.db, entries, 'promote', at('2026-09-09T00:00:00.000Z'));
-    const p1 = await readPendingIndexNowUrls(t.db, 3);
-    const p2 = await readPendingIndexNowUrls(t.db, 3, p1[p1.length - 1]);
-    const p3 = await readPendingIndexNowUrls(t.db, 3, p2[p2.length - 1]);
+    const cutoff = staleCutoffIso(NOW, INDEXNOW_RESEND_MIN_DAYS);
+    const p1 = await readPendingIndexNowUrls(t.db, cutoff, 3);
+    const p2 = await readPendingIndexNowUrls(t.db, cutoff, 3, p1[p1.length - 1]);
+    const p3 = await readPendingIndexNowUrls(t.db, cutoff, 3, p2[p2.length - 1]);
     const all = [...p1, ...p2, ...p3];
     expect(all).toHaveLength(7);
     expect(new Set(all.map((r) => r.id)).size).toBe(7);
@@ -978,5 +991,187 @@ describe('recrawl_submissions (AECI-1183)', () => {
     const result = await drain(respond(200));
     expect(await submissions()).toEqual([]);
     expect(result.batchId).toBeUndefined();
+  });
+});
+
+describe('drainIndexNowQueue — resend window (AECI-1130)', () => {
+  const DAY = 24 * 60 * 60 * 1_000;
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY).toISOString();
+
+  /** A prior drain's log row for `u`, as `insertSubmissionsFromQueue` writes it. */
+  async function logged(u: string, outcome: 'accepted' | 'refused' | 'failed', when: string) {
+    await t.db.insert(recrawlSubmissions).values({
+      url: u,
+      channel: 'indexnow',
+      outcome,
+      httpStatus: outcome === 'accepted' ? 200 : outcome === 'refused' ? 429 : null,
+      batchId: `prior-${when}`,
+      priority: 1,
+      submittedAt: when,
+    });
+  }
+
+  function drain(fetchImpl: typeof fetch, s = sinks()) {
+    return drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+      sleep: async () => {},
+    });
+  }
+
+  it('keeps the resend window equal to the max age, so a deferred row cannot expire unsent', () => {
+    expect(INDEXNOW_RESEND_MIN_DAYS).toBe(7);
+    expect(INDEXNOW_RESEND_MIN_DAYS).toBe(INDEXNOW_QUEUE_MAX_AGE_DAYS);
+  });
+
+  it('defers a URL accepted 2 days ago: not sent, still queued, causes kept, no audit', async () => {
+    await logged(url('recent'), 'accepted', daysAgo(2));
+    const queuedAt = () => NOW;
+    await enqueueIndexNowUrls(t.db, [url('recent'), url('fresh')], 'vendor', queuedAt);
+    await enqueueRecrawlCauses(
+      t.db,
+      'indexnow',
+      [url('recent'), url('fresh')],
+      { source: 'promote', auditLogId: null, vendorId: null, productId: null, promoteJobId: 'j' },
+      queuedAt,
+    );
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drain(fetchImpl, s);
+
+    const body = JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1].body);
+    expect(body.urlList).toEqual([url('fresh')]);
+    expect(result).toMatchObject({ ok: true, submitted: 1, deleted: 1, pending: 1, deferred: 1 });
+    expect(await queued()).toEqual([url('recent')]);
+    // The deferred URL keeps its cause, so the vendor history still reads "queued".
+    const causes = await t.db.select({ url: recrawlQueueCauses.url }).from(recrawlQueueCauses);
+    expect(causes.map((c) => c.url)).toEqual([url('recent')]);
+    // The one audit row covers only the sent row.
+    const audits = await drainAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({ rowsDeleted: 1 });
+    expect(s.metrics).toContainEqual({
+      metric: INDEXNOW_DEFERRED_METRIC,
+      value: 1,
+      tags: ['trigger:cron'],
+    });
+  });
+
+  it('sends a URL accepted 8 days ago', async () => {
+    await logged(url('old'), 'accepted', daysAgo(8));
+    await enqueueIndexNowUrls(t.db, [url('old')], 'promote', () => NOW);
+
+    const fetchImpl = respond(200);
+    const result = await drain(fetchImpl);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: true, submitted: 1, deferred: 0, pending: 0 });
+    expect(await queued()).toEqual([]);
+  });
+
+  it('does not defer on a refused or failed attempt: the engine never took the URL', async () => {
+    await logged(url('refused'), 'refused', daysAgo(1));
+    await logged(url('failed'), 'failed', daysAgo(1));
+    await enqueueIndexNowUrls(t.db, [url('refused'), url('failed')], 'promote', () => NOW);
+
+    const fetchImpl = respond(200);
+    const result = await drain(fetchImpl);
+
+    const body = JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1].body);
+    expect(body.urlList.sort()).toEqual([url('failed'), url('refused')]);
+    expect(result).toMatchObject({ submitted: 2, deferred: 0 });
+  });
+
+  it('does not defer on a gsc_manual row for the same URL', async () => {
+    await t.db.insert(recrawlSubmissions).values({
+      url: url('manual'),
+      channel: 'gsc_manual',
+      outcome: 'requested',
+      httpStatus: null,
+      batchId: 'gsc-1',
+      priority: null,
+      submittedAt: daysAgo(1),
+    });
+    await enqueueIndexNowUrls(t.db, [url('manual')], 'promote', () => NOW);
+
+    const fetchImpl = respond(200);
+    expect(await drain(fetchImpl)).toMatchObject({ submitted: 1, deferred: 0 });
+  });
+
+  it('makes no request when every queued row is deferred, and deletes nothing', async () => {
+    await logged(url('a'), 'accepted', daysAgo(1));
+    await logged(url('b'), 'accepted', daysAgo(6));
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')], 'promote', () => NOW);
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drain(fetchImpl, s);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, submitted: 0, deleted: 0, pending: 2, deferred: 2 });
+    expect(await queued()).toEqual([url('a'), url('b')]);
+    expect(await drainAudits()).toEqual([]);
+    expect(s.metrics).toContainEqual({
+      metric: INDEXNOW_DEFERRED_METRIC,
+      value: 2,
+      tags: ['trigger:cron'],
+    });
+  });
+
+  it('sends the deferred row on the first drain after the window closes', async () => {
+    await logged(url('later'), 'accepted', daysAgo(2));
+    await enqueueIndexNowUrls(t.db, [url('later')], 'promote', () => NOW);
+    expect(await drain(respond(200))).toMatchObject({ submitted: 0, deferred: 1 });
+
+    // Six days on, the acceptance is eight days old and the row is six days old,
+    // so it is past the resend window and inside the max age.
+    const sixDaysOn = new Date(NOW.getTime() + 6 * DAY);
+    const fetchImpl = respond(200);
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...sinks().deps,
+      fetchImpl,
+      now: () => sixDaysOn,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: true, submitted: 1, expired: 0, deferred: 0 });
+  });
+
+  it('reports the deferred gauge as 0 on an ordinary run', async () => {
+    await enqueueIndexNowUrls(t.db, [url('x')], 'promote', () => NOW);
+    const s = sinks();
+    await drain(respond(200), s);
+    expect(s.metrics).toContainEqual({
+      metric: INDEXNOW_DEFERRED_METRIC,
+      value: 0,
+      tags: ['trigger:cron'],
+    });
+  });
+
+  it('counts deferred rows with the same predicate the read uses', async () => {
+    await logged(url('a'), 'accepted', daysAgo(1));
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')], 'promote', () => NOW);
+    const cutoff = staleCutoffIso(NOW, INDEXNOW_RESEND_MIN_DAYS);
+    expect(await countDeferredIndexNowUrls(t.db, cutoff)).toBe(1);
+    const rows = await readPendingIndexNowUrls(t.db, cutoff);
+    expect(rows.map((r) => r.url)).toEqual([url('b')]);
+  });
+
+  it('keeps the drain read under D1s 100-bound-parameter cap', () => {
+    const cutoff = staleCutoffIso(NOW, INDEXNOW_RESEND_MIN_DAYS);
+    const first = pendingIndexNowUrlsQuery(t.db, cutoff, INDEXNOW_DRAIN_BATCH_SIZE).toSQL();
+    const paged = pendingIndexNowUrlsQuery(t.db, cutoff, INDEXNOW_DRAIN_BATCH_SIZE, {
+      priority: 2,
+      queuedAt: NOW.toISOString(),
+      id: 42,
+    }).toSQL();
+    expect(first.params.length).toBeLessThanOrEqual(100);
+    expect(paged.params.length).toBeLessThanOrEqual(100);
+    expect(paged.params).toContain(cutoff);
   });
 });

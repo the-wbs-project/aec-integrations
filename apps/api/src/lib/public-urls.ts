@@ -107,13 +107,9 @@ export function facetUrl(
   return `${base}/${facet}/${slug}`;
 }
 
-/** `/products` — the catalogue index. Worth pinging IndexNow for, never worth a
- *  Google Request Indexing slot (see `promote-gsc-recrawl-entries.ts`). */
-export function productsIndexUrl(base: string): string {
-  return `${base}/products`;
-}
-
-/** `/trades` — the trade index. Same asymmetry as {@link productsIndexUrl}. */
+/** `/trades` — the trade index. Worth pinging IndexNow for when the trade set
+ *  changed, never worth a Google Request Indexing slot (see
+ *  `promote-gsc-recrawl-entries.ts`). */
 export function tradesIndexUrl(base: string): string {
   return `${base}/trades`;
 }

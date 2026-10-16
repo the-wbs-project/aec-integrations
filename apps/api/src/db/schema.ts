@@ -3768,8 +3768,9 @@ export const recrawlSubmissionCauses = sqliteTable(
  *     (an `id <= :maxId` range until AECI-1136). Retaining rows for a second,
  *     slower consumer would force the drain to learn a status column it has no
  *     reason to know about.
- *  2. **The two consumers want opposite things.** IndexNow is free, batched and
- *     deduped, so it takes everything indiscriminately. Request Indexing is
+ *  2. **The two consumers want opposite things.** IndexNow is batched and
+ *     deduped, and empties daily. (It took every touched page until AECI-1130;
+ *     now hub pages go only when their list changes.) Request Indexing is
  *     quota-capped — the ceiling is real, per-property, and Google does not
  *     publish it — so this list has to be *ordered*, and a row may sit here for
  *     weeks without ever being reached. Those are different lifecycles.

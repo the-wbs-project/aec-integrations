@@ -144,6 +144,13 @@ page, it changes constantly, and it carries no content beyond its tiles. A Reque
 spent on `/products` is a slot not spent on a page Google has never seen. IndexNow can afford to
 be indiscriminate. This cannot.
 
+> **Note 2026-10-16 (AECI-1130).** "IndexNow can afford to be indiscriminate" stopped being true.
+> Bing refused every daily request from 2026-10-13 with a 429, its "potential spam" code, and
+> showed 5.1K URLs submitted against 84 crawled. IndexNow now sends a hub or facet page only
+> when its list of entries changes, and defers a URL it had accepted in the last 7 days (ADR 0025,
+> fifth amendment). The two lists are still different sets, and this list is unchanged. IndexNow
+> still takes hubs when they gain or lose an entry. This list never takes them.
+
 ## Alternatives considered
 
 **A drain cron that submits to the Indexing API.** Declined because the API does not accept our

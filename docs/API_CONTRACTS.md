@@ -7286,7 +7286,7 @@ export const VendorHistoryFollowUpSchema = z.object({
 
 | Channel | Rule |
 |---|---|
-| `indexnow` | Any `accepted` attempt is `submitted`, at the latest accepted time. Otherwise the latest `refused` or `failed` attempt is `failed`, with `retrying: true` while a cause is still queued. With no attempt yet, a queued cause is `queued` |
+| `indexnow` | Any `accepted` attempt is `submitted`, at the latest accepted time. Otherwise the latest `refused` or `failed` attempt is `failed`, with `retrying: true` while a cause is still queued. With no attempt yet, a queued cause is `queued`. Since AECI-1130 a cause can stay `queued` for up to 7 days when IndexNow accepted the same URL for an earlier change: the drain defers it (`INDEXNOW_RESEND_MIN_DAYS`, `DATABASE_SCHEMA.md` §9.6). There is no separate state |
 | `google` | A `gsc_manual` row with outcome `requested` is `requested`. Otherwise a queued `gsc` cause is `queued`. A worklist row cleared as `not_requested` writes no submission row and sweeps its cause, so it shows nothing. The page never infers a request from a cleared row |
 
 "Not eligible" is not a server state. A Free write queues nothing (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), so the page derives it from the row's `plan` snapshot (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.19). "Skipped" has no source either: a `not_requested` clear and an IndexNow row that expires unsent leave no per-cause trace.

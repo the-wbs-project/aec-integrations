@@ -1940,6 +1940,8 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
       deleted: result.deleted,
       expired: result.expired,
       pending: result.pending,
+      // AECI-1130: rows held back by the resend window. Part of `pending`.
+      deferred: result.deferred,
       status: result.status,
       attempts: result.attempts,
       // AECI-1183. Joins this run to its `recrawl_submissions` rows. For a refused

@@ -1427,7 +1427,7 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 >
 > Four facts about the pair, each of which is a live trap if you assume otherwise:
 >
-> - **The two lists are NOT the same set.** IndexNow is free, so it takes everything the write touched, hub pages included. The Google deriver emits **entity detail pages only**. That is a product, a vendor, a pair, and a trade page at the moment it becomes indexable. A hub is re-crawled constantly anyway, so a Request Indexing slot spent on `/products` is a slot not spent on a page Google has never seen.
+> - **The two lists are NOT the same set.** IndexNow takes the pages the write changed, plus a hub or facet page only when its list of entries changed (AECI-1130, below). The Google deriver emits **entity detail pages only**. That is a product, a vendor, a pair, and a trade page at the moment it becomes indexable. A hub is re-crawled constantly anyway, so a Request Indexing slot spent on `/products` is a slot not spent on a page Google has never seen.
 > - **The Google queue ranks; it never filters.** `apps/api/src/lib/gsc-recrawl-priority.ts` is an exhaustive `reason` → tier map, not a formula. The ranking is a diagonal over page type (product, vendor, pair) and change class (new page, material edit, minor edit). Nothing is dropped, because a filter is silently lossy and an operator cannot audit what they never saw. Tier 4 simply waits and may never be reached.
 >
 >   | Tier | What it is | `reason` |
@@ -1500,11 +1500,25 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 > - `indexnow_queue.priority` holds the tier (`DATABASE_SCHEMA.md` §9.6). The tier comes from the Google table
 >   above: `indexNowEntriesByTier` gives each IndexNow URL the tier of the Google entry for the same URL, and 4
 >   when there is none (hub and facet pages). A second event on a queued URL may raise its tier, never lower it,
->   and never refreshes `queued_at`.
+>   and never refreshes `queued_at`. Since AECI-1130 a hub or facet page is queued only when its list of
+>   entries changed, so tier 4 holds far fewer of them.
 > - Read order is `priority ASC, queued_at ASC, id ASC`. The drain deletes exactly the ids it read, 100 per
 >   statement, in the same `db.batch` as the summary audit row.
 > - The cost is latency: up to a day instead of up to 20 minutes. The seven-day expiry is unchanged and now
 >   means seven daily attempts. ADR 0025's 2026-09-28 amendment is the record.
+>
+> **Fewer URLs, no quick resend (AECI-1130, 2026-10-16).** Bing refused every daily request from 2026-10-13 with
+> a 429, which IndexNow also uses for "potential spam". Bing Webmaster Tools showed 5.1K URLs submitted and 84
+> crawled. Two rules answer it, recorded in ADR 0025's 2026-10-16 amendment:
+>
+> - **A hub or facet page is queued only when its list of entries changes.** Promote queues `/products` only for
+>   a `created` product, and a `/{categories|audiences|phases}/{slug}` page only when the term or the product
+>   was `created`. A vendor product edit never queues `/products`, and queues facet pages for the terms joined or
+>   left, not the ones kept. Trade URLs are unchanged on both paths. The cache purge is unchanged. Known miss: a
+>   promote that moves an existing product between categories queues no facet page; the sitemap covers it.
+> - **A URL IndexNow accepted in the last `INDEXNOW_RESEND_MIN_DAYS` (7) days is deferred, not sent.** It stays
+>   queued with its causes and goes out on the first drain after the window. The `aeci.indexnow.deferred`
+>   gauge counts what is held.
 >
 > **The evidence that it is fixed is `aeci.indexnow.submit{source:cron,outcome:ok}` going non-zero in
 > production**, not this paragraph. Three secondary guards ship with it: a bounded retry with backoff in the
@@ -1574,7 +1588,7 @@ A single write to products, vendors, or integrations triggers all downstream con
 1. Database update
 2. Algolia incremental sync (real-time in Stage 2; daily batch in Stage 1)
 3. Cloudflare cache invalidation via `POST /admin/purge` with the relevant `Cache-Tag` list (see `docs/CACHE_STRATEGY.md` §5)
-4. Search-engine re-crawl buffering for affected URLs. **Two arms since AECI-945**: `indexnow_queue` for Bing and Yandex, drained by the daily `5 0 * * *` cron (AECI-1136; `*/20` before), and `gsc_recrawl_queue` for Google, drained by a person on `/admin/reindex`. The arms take **different URL sets**, because IndexNow is free while Request Indexing is quota-capped (§20.2). Both are tiered by the same map since AECI-1136. **Since AECI-1184 each arm also records why a URL is queued**: one `recrawl_queue_causes` row per write per URL, naming the audit row, the vendor and its product for a vendor write, or the job id for a promote. The drain copies them onto the submission log (`recrawl_submission_causes`, `DATABASE_SCHEMA.md` §9.6b), so a vendor can later see which of its edits each submission answered. Cause writes are best-effort like the buffers. A cause queued between the drain's read and its commit is copied onto that run's submission, which is the documented limit
+4. Search-engine re-crawl buffering for affected URLs. **Two arms since AECI-945**: `indexnow_queue` for Bing and Yandex, drained by the daily `5 0 * * *` cron (AECI-1136; `*/20` before), and `gsc_recrawl_queue` for Google, drained by a person on `/admin/reindex`. The arms take **different URL sets**, because IndexNow has no daily quota while Request Indexing is quota-capped (§20.2). IndexNow still announces a hub or facet page only when its list of entries changes, since AECI-1130. Both are tiered by the same map since AECI-1136. **Since AECI-1184 each arm also records why a URL is queued**: one `recrawl_queue_causes` row per write per URL, naming the audit row, the vendor and its product for a vendor write, or the job id for a promote. The drain copies them onto the submission log (`recrawl_submission_causes`, `DATABASE_SCHEMA.md` §9.6b), so a vendor can later see which of its edits each submission answered. Cause writes are best-effort like the buffers. A cause queued between the drain's read and its commit is copied onto that run's submission, which is the documented limit
 5. `updated_at` bumped → reflected in next sitemap fetch
 
 Built as one function call so adding new consumers later (Slack notifications, vendor email alerts in Stage 2) is trivial.

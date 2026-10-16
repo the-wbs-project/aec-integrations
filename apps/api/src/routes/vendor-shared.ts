@@ -317,8 +317,9 @@ export function vendorProductRecrawlEnabled(c: VendorContext, productId: string)
  * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
  *
  * Two lists rather than one, because the two channels have opposite economics.
- * `indexNow` is free and batched, so it takes everything the edit touched
- * including hub pages. Since AECI-1136 it is ranked too, but it borrows its tiers
+ * `indexNow` is batched and has no daily quota, so it takes every page the edit
+ * changed, plus a hub or facet page only when its list of entries changed
+ * (AECI-1130, `vendor-recrawl.ts`). Since AECI-1136 it is ranked too, but it borrows its tiers
  * from `gsc` rather than carrying its own (`indexNowEntriesByTier`). `gsc` is quota-capped and worked by a human, so
  * it takes entity detail pages only, each carrying the reason that ranks it. See
  * `lib/gsc-recrawl-priority.ts` for why the Google list is ordered rather than

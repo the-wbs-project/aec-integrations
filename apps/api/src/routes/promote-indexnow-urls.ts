@@ -16,8 +16,10 @@
  * the SSR Worker serves (canonicals are self-referential to the serving origin,
  * ADR 0011), so these URLs match the indexed `<link rel="canonical">` forms.
  *
- * Composition (mirrors `cacheTagsForPromote`, expressed as URLs):
- *   - product → `/products/{slug}` detail + `/products` index.
+ * Composition (narrower than `cacheTagsForPromote` for hub and facet pages,
+ * AECI-1130; see "Hub and facet pages" below):
+ *   - product → `/products/{slug}` detail. The `/products` index only when the
+ *     product was `created`.
  *   - each vendor → `/vendors/{slug}` detail.
  *   - each integration with both endpoint slugs → the canonical pair page
  *     `/products/{context}/integrations/{other}` (Stage 1.5, §6.2 / §7.3; context =
@@ -26,9 +28,8 @@
  *     detail route (Stage 1.5 / AECI-294) now 301-redirects to the pair page, and
  *     submitting a redirecting URL to indexing services is undesirable, so AECI-298
  *     dropped it. An integration missing either endpoint slug contributes nothing.
- *   - each touched taxonomy term (created *and* reused — the product's facet
- *     membership changed either way) → `/{categories|audiences|phases}/{slug}`
- *     browse page.
+ *   - a taxonomy term → `/{categories|audiences|phases}/{slug}` browse page,
+ *     only when the term was `created` or the product was `created`.
  *   - a *newly created* taxonomy term also changes the global taxonomy nav →
  *     home (`/`) + the three taxonomy index pages.
  *   - **No sitemap URL.** `sitemap.xml` is not an IndexNow target; engines
@@ -56,7 +57,25 @@
  *     a find-only vocabulary cannot produce. Adding it on every trade touch would
  *     ping the site's most-crawled URL for a change no crawler needs told about.
  *
- * This now models the same "what changed" set as `cacheTagsForPromote` for
+ * ─── Hub and facet pages (AECI-1130) ─────────────────────────────────────────
+ *
+ * A hub or facet URL is announced only when its set of listed entries changes:
+ * a new product, or a new term. An update to a product that stays on the same
+ * pages changes only their counts, and announcing those pages on every promote
+ * is what drew Bing's 429 ("potential spam") from 2026-10-13. The cache purge
+ * still covers every touched page, because the rendered counts did change.
+ *
+ * Known miss: an `updated` product's response echoes its current terms but not
+ * its earlier ones, so this cannot tell a joined term from a kept one. A promote
+ * that moves an existing product between categories therefore announces no facet
+ * page. Crawlers still reach those pages through the sitemap. ADR 0025's
+ * AECI-1130 amendment records the ruling.
+ *
+ * Trades are out of scope for that rule. A `/trades/{slug}` page that has just
+ * crossed the publication floor is genuinely new, and the trade rules below are
+ * unchanged.
+ *
+ * This models the same "what changed" set as `cacheTagsForPromote` for
  * integrations — both point at the pair page, not the retired detail route
  * (AECI-298 resolved the earlier interim asymmetry) — and the same touched-trade
  * set for trades, narrowed by the publication floor.
@@ -100,10 +119,12 @@ export function affectedUrlsForPromote(
   const base = baseUrl.replace(/\/+$/, '');
   const urls = new Set<string>();
 
-  // Product detail + products index.
+  // Product detail, and the products index only when the product is new: an
+  // update leaves the index listing the same entries (AECI-1130).
+  const productCreated = response.product?.operation === 'created';
   if (response.product) {
     urls.add(`${base}/products/${response.product.slug}`);
-    urls.add(`${base}/products`);
+    if (productCreated) urls.add(`${base}/products`);
   }
 
   // Vendor detail pages. (No `/vendors` index — AECI-165 removed it; it
@@ -127,8 +148,11 @@ export function affectedUrlsForPromote(
     }
   }
 
-  // Taxonomy browse pages: one per touched term (created and reused). The URL
-  // segment is the plural facet name, matching the Angular routes.
+  // Taxonomy browse pages (AECI-1130): a term's page gains an entry only when
+  // the term is new or the product is new. A reused term on an updated product
+  // may be one the product already had, so it is not announced (the known miss
+  // in the header). The URL segment is the plural facet name, matching the
+  // Angular routes.
   const taxonomy: ReadonlyArray<
     ['categories' | 'audiences' | 'phases', typeof response.taxonomy.categories]
   > = [
@@ -139,8 +163,9 @@ export function affectedUrlsForPromote(
   let taxonomyCreated = false;
   for (const [segment, results] of taxonomy) {
     for (const result of results) {
-      urls.add(`${base}/${segment}/${result.slug}`);
-      if (result.operation === 'created') taxonomyCreated = true;
+      const termCreated = result.operation === 'created';
+      if (termCreated || productCreated) urls.add(`${base}/${segment}/${result.slug}`);
+      if (termCreated) taxonomyCreated = true;
     }
   }
 

@@ -1999,6 +1999,15 @@ is required from the review app.
   `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
   needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
   then the tag purge is a harmless no-op and the pings are best-effort.)
+- **IndexNow is told about fewer pages than the purge covers (AECI-1130, 2026-10-16).**
+  The purge still covers every hub and facet page listed above. IndexNow gets `/products`
+  only when the product was `created`, and a category, audience or phase page only when
+  that term or the product was `created`. Re-pushing an existing product announces its
+  detail page and nothing on the hub side, because those pages list the same entries. A
+  re-push that moves an existing product between categories therefore announces no facet
+  page; crawlers reach them through the sitemap. Trade URLs are unchanged (below). The
+  drain also holds back a URL IndexNow accepted in the last 7 days. ADR 0025's 2026-10-16
+  amendment is the record.
 - **Trades are purged in full, but submitted to indexing services only when published
   (AECI-546, decided).** A promote touching any trade — one you *set* **or** one you
   *removed* by re-pushing without it — purges that trade's browse page plus the

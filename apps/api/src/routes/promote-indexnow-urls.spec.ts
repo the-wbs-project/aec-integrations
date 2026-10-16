@@ -2,6 +2,8 @@
  * `affectedUrlsForPromote` (AECI-236) — the affected-URL set IndexNow submits on
  * promote. Pure; mirrors the `cacheTagsForPromote` spec structure. Asserts the
  * URL set is computed correctly (the §20.2 / AECI-236 acceptance criterion).
+ * Since AECI-1130 hub and facet pages go out only when their list of entries
+ * changes: a created product or a created term.
  */
 
 import type { PromoteResponse } from '@aeci/shared';
@@ -60,7 +62,9 @@ describe('affectedUrlsForPromote', () => {
     );
   });
 
-  it('updated entities + all-reused taxonomy → browse pages but no home/nav', () => {
+  // AECI-1130: an updated product that stays on the same pages changes no list,
+  // so no hub or facet page is announced. Only its own detail page goes out.
+  it('updated entities + all-reused taxonomy → detail pages only, no index, facet or nav', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
@@ -70,13 +74,77 @@ describe('affectedUrlsForPromote', () => {
       preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
+      new Set([`${BASE}/products/revit`, `${BASE}/vendors/autodesk`]),
+    );
+  });
+
+  // AECI-1130: a created product joins every page it is on, so all its facet
+  // pages and the products index gain an entry, reused terms included.
+  it('created product + reused terms → products index and every facet page', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'created'),
+      integrations: [],
+      taxonomy: {
+        categories: [tax('bim', 'reused')],
+        audiences: [tax('architecture', 'reused')],
+        phases: [tax('design', 'reused')],
+        trades: [],
+      },
+      skipped: [],
+      preserved: [],
+    };
+    expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
         `${BASE}/products/revit`,
         `${BASE}/products`,
-        `${BASE}/vendors/autodesk`,
         `${BASE}/categories/bim`,
+        `${BASE}/audiences/architecture`,
+        `${BASE}/phases/design`,
       ]),
     );
+  });
+
+  // AECI-1130: on an updated product only the CREATED term's page is new. The
+  // reused term may be one the product already had, so it is not announced.
+  it('updated product + one created and one reused term → only the created term page', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: {
+        categories: [tax('bim', 'reused'), tax('digital-twin', 'created')],
+        audiences: [],
+        phases: [],
+        trades: [],
+      },
+      skipped: [],
+      preserved: [],
+    };
+    const urls = affectedUrlsForPromote(response, BASE);
+    expect(urls).toContain(`${BASE}/categories/digital-twin`);
+    expect(urls).not.toContain(`${BASE}/categories/bim`);
+    expect(urls).not.toContain(`${BASE}/products`);
+  });
+
+  it('a taxonomy-only promote with no product announces only created terms', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [],
+      taxonomy: {
+        categories: [tax('bim', 'reused'), tax('digital-twin', 'created')],
+        audiences: [],
+        phases: [],
+        trades: [],
+      },
+      skipped: [],
+      preserved: [],
+    };
+    const urls = affectedUrlsForPromote(response, BASE);
+    expect(urls).toContain(`${BASE}/categories/digital-twin`);
+    expect(urls).not.toContain(`${BASE}/categories/bim`);
+    expect(urls).not.toContain(`${BASE}/products`);
   });
 
   it('an integration missing endpoint slugs contributes no URL — the retired /integrations/{id} route is not submitted (AECI-298)', () => {
@@ -130,7 +198,6 @@ describe('affectedUrlsForPromote', () => {
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
         `${BASE}/products/revit`,
-        `${BASE}/products`,
         `${BASE}/phases/design`,
         `${BASE}/`,
         `${BASE}/categories`,
@@ -163,7 +230,7 @@ describe('affectedUrlsForPromote', () => {
     // rather than guess, because a sub-floor page is `noindex`.
     it('omits every trade URL when the caller resolved no publication data', () => {
       const urls = affectedUrlsForPromote(withTrades(['electrical']), BASE);
-      expect(urls).toEqual([`${BASE}/products/revit`, `${BASE}/products`, `${BASE}/trades`]);
+      expect(urls).toEqual([`${BASE}/products/revit`, `${BASE}/trades`]);
       expect(urls.some((u) => u.startsWith(`${BASE}/trades/`))).toBe(false);
     });
 
@@ -202,6 +269,19 @@ describe('affectedUrlsForPromote', () => {
         removedTradeSlugs: ['electrical'],
       });
       expect(urls).toContain(`${BASE}/trades/electrical`);
+    });
+
+    // AECI-1130 narrowed the three ungated facets only. A trade page that just
+    // crossed the floor is genuinely new, and promote cannot tell an added trade
+    // from a kept one, so an UPDATED product still announces its published trade
+    // pages and the `/trades` index, exactly as before.
+    it('leaves trade URLs unchanged on an updated product (AECI-1130 scope)', () => {
+      const urls = affectedUrlsForPromote(withTrades(['electrical', 'plumbing']), BASE, {
+        publishedTradeSlugs: ['electrical'],
+      });
+      expect(new Set(urls)).toEqual(
+        new Set([`${BASE}/products/revit`, `${BASE}/trades/electrical`, `${BASE}/trades`]),
+      );
     });
 
     it('leaves /trades out entirely when no trade was touched', () => {

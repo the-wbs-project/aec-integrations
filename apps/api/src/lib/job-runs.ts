@@ -431,13 +431,16 @@ export type JobRunDetail =
    *  on success and `deleted: 0` with a non-zero `submitted` is the throttled case,
    *  where the rows deliberately stay buffered for tomorrow's run. `pending` is counted after the run, so a number
    *  that climbs across rows is a stuck channel rather than a busy one, and
-   *  `expired` is non-zero only when the channel has been down for a week. */
+   *  `expired` is non-zero only when the channel has been down for a week.
+   *  `deferred` (AECI-1130) is the part of `pending` the resend window holds
+   *  back, so a high `pending` that is mostly `deferred` is not a stuck channel. */
   | {
       job: 'indexnow-drain';
       submitted: number;
       deleted: number;
       expired: number;
       pending: number;
+      deferred: number;
       status: number;
       attempts: number;
     };
