@@ -579,11 +579,14 @@ jobs:
           name: web-dist
           path: apps/web/dist
       # Cache Playwright browsers so subsequent runs skip the ~150MB download.
+      # `ImageOS` (e.g. ubuntu24, ubuntu26) keys the cache per runner image:
+      # `runner.os` is just `Linux`, and a browser built for one image can fail
+      # to launch on another.
       - uses: actions/cache@v5
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('pnpm-lock.yaml') }}
       # The ubuntu-latest image ships a Google Chrome apt source
       # (dl.google.com/linux/chrome-stable). BOTH install branches below run
       # `apt-get update` over EVERY configured source; when that repo's index is
