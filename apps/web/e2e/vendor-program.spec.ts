@@ -188,23 +188,22 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await scrollTo('aec-plan-cta-panel');
     await expect(bar).toBeHidden();
 
-    // The very end of the page. On a phone the footer is taller than the screen,
-    // so the panel scrolls away and the bar may show. It must never cover the panel.
+    // The very end of the page. Whether the panel is still on screen here depends
+    // on the footer's height, so assert the rule, not the layout: the bar shows
+    // exactly when the panel is off screen.
     await page.evaluate(() =>
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }),
     );
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const shown = document.querySelector('[role="region"][aria-label="Managed plan"]');
-          const panel = document.querySelector('aec-plan-cta-panel');
-          if (!shown || !panel) return false;
-          const a = shown.getBoundingClientRect();
-          const b = panel.getBoundingClientRect();
-          return a.top < b.bottom && b.top < a.bottom;
+          const shown = !!document.querySelector('[role="region"][aria-label="Managed plan"]');
+          const panel = document.querySelector('aec-plan-cta-panel')?.getBoundingClientRect();
+          const panelOnScreen = !!panel && panel.bottom > 0 && panel.top < window.innerHeight;
+          return shown !== panelOnScreen;
         }),
       )
-      .toBe(false);
+      .toBe(true);
   });
 
   // Full width at desktop (spec section 11, 2026-10-12): no rail, and no section
