@@ -49,6 +49,7 @@ function meBody(entitlement: ReturnType<typeof block>) {
     products: [],
     requests: [],
     seat_count: 1,
+    seat_owner: true,
     entitlement,
   };
 }

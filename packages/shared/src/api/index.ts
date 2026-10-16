@@ -48,6 +48,7 @@ export * from './stats';
 export * from './user-activity';
 export * from './taxonomy';
 export * from './vendor';
+export * from './vendor-billing';
 export * from './field-overrides';
 export * from './vendor-attestations';
 export * from './vendor-checklist';

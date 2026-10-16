@@ -27,6 +27,8 @@ export async function seedBillingAccount(db: Db, vendorId: string): Promise<stri
 }
 
 export interface LicenseSeed {
+  /** A fixed id, for a spec that names the license in a static table. */
+  id?: string;
   /** The product the license is assigned to. Omit or `null` for an unassigned slot. */
   productId?: string | null;
   source?: string;
@@ -47,7 +49,7 @@ export async function seedLicense(
   seed: LicenseSeed = {},
 ): Promise<string> {
   const billingAccountId = await seedBillingAccount(db, vendorId);
-  const id = `66666666-6666-4666-8666-${String(++licenseSeq).padStart(12, '0')}`;
+  const id = seed.id ?? `66666666-6666-4666-8666-${String(++licenseSeq).padStart(12, '0')}`;
   await db.insert(licenses).values({
     id,
     billingAccountId,

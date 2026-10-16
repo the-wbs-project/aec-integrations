@@ -432,6 +432,7 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
     },
   ],
   seat_count: 3,
+  seat_owner: true,
   // The entitlement block (AECI-611). `vendors.verified` is a MIRROR of an
   // ACTIVE entitlement (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), so a fixture with
   // `verified: true` must carry an active row or it describes a drifted state
@@ -455,6 +456,7 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   products: [],
   requests: [],
   seat_count: 1,
+  seat_owner: true,
   // The mirror's other side: no active entitlement → `unclaimed` → the Free
   // capabilities (AECI-1214), and `verified: false` above. `status: null` = no
   // `vendor_entitlements` row at all, as opposed to a lapsed one.
@@ -487,6 +489,7 @@ export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPla
   ],
   requests: [],
   seat_count: 1,
+  seat_owner: true,
   // Ruling 2026-10-02: the catalogue seat holds the Free edits too (§13.3).
   entitlement: FREE_PLAN,
 });

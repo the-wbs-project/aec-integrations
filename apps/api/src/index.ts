@@ -249,6 +249,7 @@ import {
   createAcceptSeatClaimHandler,
   createDeclineSeatClaimHandler,
 } from './routes/vendor-seat-claims';
+import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import {
   createAcceptSeatInviteHandler,
@@ -1595,6 +1596,12 @@ authVendor.delete(
   rateLimit('write'),
   createRemoveSeatHandler(),
 );
+// AECI-1387 (E5.1): the owner's Billing tab read: billing account, every license on
+// it with its open early-unassign request, and the products a pool license can go on.
+// `requireVendor()`, then `requireSeatOwner()` inside the handler. A read, so no
+// `rateLimit()`, and no capability gate (API_CONTRACTS §6.14 invariant 3, the fourth
+// named exception).
+authVendor.get('/api/vendor/billing', requireVendor(), createVendorBillingHandler());
 // AECI-1362 (E2.4): the vendor's agreement acceptances, for the Billing tab (decision 17,
 // `VENDOR_SIGNUP_PROCESS.md` §2). The seat-management gate order: `requireVendor()`,
 // then `requireSeatOwner()` inside the handler (owner seats only), then the vendor

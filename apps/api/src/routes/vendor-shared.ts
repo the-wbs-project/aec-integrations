@@ -645,8 +645,9 @@ export function ownerSeatsOf(vendorId: string): SQL | undefined {
 /**
  * The owner-seat gate, the second of three on an owner-only route: `requireVendor()`
  * (which vendor), then this, then a `vendor_id` filter on every statement. Used by the
- * seat-management routes (`vendor-seat-invites.ts`, AECI-664) and the Billing reads
- * (`vendor-billing-acceptances.ts`, AECI-1362; decision 17 of
+ * seat-management routes (`vendor-seat-invites.ts`, AECI-664) and the Billing routes
+ * (`vendor-billing.ts`, AECI-1387; `vendor-billing-acceptances.ts`, AECI-1362;
+ * `vendor-license-release.ts`, AECI-1373; decisions 10 and 17 of
  * `VENDOR_SIGNUP_PROCESS.md` §2).
  *
  * Re-reads `seat_owner` from D1 rather than reading anything off the session, for the
