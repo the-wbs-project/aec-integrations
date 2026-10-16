@@ -48,9 +48,9 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
  *
  * ── FOCUS AFTER A SUCCESS ───────────────────────────────────────────────────
  * The re-read puts the license on a product, so the section swaps this control for
- * the release switch and destroys the focused button. `assigned` fires as soon as
+ * the actions menu and destroys the focused button. `assigned` fires as soon as
  * the write succeeds, while this control still exists, and the section moves focus
- * to the new switch once it renders (WCAG 2.4.3).
+ * to the menu's trigger once it renders (WCAG 2.4.3).
  */
 @Component({
   selector: 'aec-vendor-license-assign',
