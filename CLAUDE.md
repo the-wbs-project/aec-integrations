@@ -28,8 +28,8 @@ AECi spans three GitHub repos under `the-wbs-project`. Linear issues for all thr
 | **`aec-integrations-review`** | The curation/review app upstream of promote: catalog, connector catalogues/stubs/mappings, `docs/connector-vendors.md`. Read-only from here via the `aeci-review` MCP | Title prefixed **`REVIEW - `**, no project |
 | **`aec-integrations-marketing`** | All Markdown: positioning, strategy, content plan, outreach under `docs/outreach/`. Stricter copy rules (sentence case, no em dashes) | Project **"Marketing"**, no prefix |
 
-Pick the repo before filing an issue. If work belongs in another repo, say so rather than writing
-it here; you cannot commit across repos from one workspace.
+Pick the repo before filing an issue. If work belongs in another repo, say so; you cannot commit across
+repos from one workspace.
 
 ## Where to start
 
@@ -74,6 +74,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
+| Raw page-view store (R2 backup via Pipelines) | ADR 0041; `docs/ANALYTICS.md` §11 |
 | Vendor claim, licenses and billing: the agreed process and its build status | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
@@ -392,9 +393,9 @@ Put the explanation in prose above or below the block. Applies to every runnable
 
 ## Closing notes
 
-This file is a pointer file and must stay under 30 KB (`scripts/check-claude-md-size.mjs`). When a
-lesson is learned, record it in the governing doc and, if needed, add a one-line pointer here.
-Never append narrative, issue history, or dated incident detail to this file. When a project
-closes, audit every line: name the failure it prevents or delete it.
+This file stays under 30 KB (`scripts/check-claude-md-size.mjs`). Record lessons in the governing
+doc and add a one-line pointer here only if needed. Never append narrative, issue history, or
+dated incident detail. When a project closes, audit every line: name the failure it prevents or
+delete it.
 
 Last updated: see git log.

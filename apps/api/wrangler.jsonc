@@ -414,6 +414,10 @@
       // deploy CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
       "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-staging" }],
+      // AECI-1384 / ADR 0041: raw page-view store. Pipelines stream
+      // aeci_page_views_raw_staging → sink → R2 aeci-page-views-raw-staging. Not
+      // inherited, so it is declared per env; base and demo have none (skipped).
+      "pipelines": [{ "binding": "PAGE_VIEW_RAW", "stream": "41fa49a18adb4b45badfbe0bf882b25c" }],
       "d1_databases": [
         {
           "binding": "DB",
@@ -904,6 +908,10 @@
       // ADR 0016 / AECI-252 + AECI-256. promote-to-prod CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-production --env production --remote`.
       "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-production" }],
+      // AECI-1384 / ADR 0041: raw page-view store. Pipelines stream
+      // aeci_page_views_raw_production → sink → R2 aeci-page-views-raw-production. Not
+      // inherited, so it is declared per env; base and demo have none (skipped).
+      "pipelines": [{ "binding": "PAGE_VIEW_RAW", "stream": "636ba46aa57940f0870b0a7bbd1db2cd" }],
       // AECI-839: `database_id` is the ENAM database, whose Cloudflare name is
       // `aeci-app-production-us`. `database_name` keeps the old name on purpose.
       // Scripts and CI pass `aeci-app-production --env production`, and wrangler

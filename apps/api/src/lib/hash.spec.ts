@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { bytesToHex, recipientHash, sha256Hex } from './hash';
+import { bytesToHex, monthlyIpHash, recipientHash, sha256Hex } from './hash';
 
 describe('sha256Hex', () => {
   it('matches the known SHA-256 vectors', async () => {
@@ -30,5 +30,30 @@ describe('recipientHash', () => {
     const hash = await recipientHash('seat@vendor.example');
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hash).not.toContain('vendor');
+  });
+});
+
+describe('monthlyIpHash', () => {
+  const oct = new Date('2026-10-02T00:00:00Z');
+  const lateOct = new Date('2026-10-31T23:59:59Z');
+  const nov = new Date('2026-11-01T00:00:00Z');
+
+  it('is stable within a month and differs across months', async () => {
+    const a = await monthlyIpHash('s3cret', '203.0.113.9', oct);
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(await monthlyIpHash('s3cret', '203.0.113.9', lateOct)).toBe(a);
+    expect(await monthlyIpHash('s3cret', '203.0.113.9', nov)).not.toBe(a);
+  });
+
+  it('differs by secret and never equals an unkeyed hash', async () => {
+    const a = await monthlyIpHash('s3cret', '203.0.113.9', oct);
+    expect(await monthlyIpHash('other', '203.0.113.9', oct)).not.toBe(a);
+    expect(a).not.toBe(await sha256Hex('203.0.113.9'));
+  });
+
+  it('is null without a secret or an IP', async () => {
+    expect(await monthlyIpHash(undefined, '203.0.113.9', oct)).toBeNull();
+    expect(await monthlyIpHash('', '203.0.113.9', oct)).toBeNull();
+    expect(await monthlyIpHash('s3cret', null, oct)).toBeNull();
   });
 });

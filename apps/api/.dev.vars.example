@@ -152,6 +152,14 @@ GSC_SA_KEY_JSON=
 #   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
 LINEAR_WEBHOOK_SIGNING_SECRET=
 
+# ─── Raw page-view store IP hash (AECI-1384, ADR 0041) ─────────────────────
+# Secret behind the monthly-keyed IP hash in the raw page-view envelope. Set as a
+# Wrangler secret on staging and production only:
+#   wrangler secret put PAGE_VIEW_IP_HASH_SECRET --env staging|production
+# Optional locally. The PAGE_VIEW_RAW Pipelines binding is absent in local dev, so
+# every raw write counts as skipped whether or not this is set.
+PAGE_VIEW_IP_HASH_SECRET=
+
 # ─── Resend delivery webhook signing (AECI-1222) ───────────────────────────
 # Svix signing secret (whsec_<base64>) for the inbound Resend delivery webhook
 # (POST /api/webhooks/resend). Each tier's endpoint in the Resend dashboard has

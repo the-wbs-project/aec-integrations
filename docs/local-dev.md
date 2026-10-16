@@ -152,6 +152,15 @@ guardrails and recipes. The short version:
 
 Local dev reads a local D1 and touches no Cloudflare account. Any `wrangler` command with `--remote`, and any `wrangler deploy`, reaches the account named by `account_id` at the top of each `wrangler.jsonc`. From the 2026-10-04 cutover that is The WBS Project (`004dc1af737b22a8aa83b3550fa9b9d3`), and the D1 and KV ids in those files are the new ones. Sign wrangler in as a user with access to that account. Staging and agent URLs are `aeci-*.thewbsproject.workers.dev`, behind the Access app in [`access.md`](./access.md). Before the cutover they were `*.aec-integrations.workers.dev` on the old account. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
+### 4.1 The raw page-view store is not bound locally (AECI-1384)
+
+The `PAGE_VIEW_RAW` Pipelines binding exists in the staging and production blocks only. Locally it is
+absent, so `writeRawEnvelope` counts the capture as `aeci.pageviews.raw{outcome:skipped}` and sends
+nothing. Miniflare's local `send()` would silently discard the records anyway, so binding it locally
+would prove nothing. To check what an envelope contains, run the API specs (`page-views.raw.spec.ts`) or
+read the `RawPageViewEnvelope` builder tests. `PAGE_VIEW_IP_HASH_SECRET` is optional in `.dev.vars`: without
+it `ip_hash` is null and the tag reads `ip_hash:no_secret`. Never an unkeyed hash. ADR 0041.
+
 ## 5. Version reporting (AECI-74)
 
 `GET /api/version` reports the API Worker's `{ sha, deployedAt, environment }`, proxied through

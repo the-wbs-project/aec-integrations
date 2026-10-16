@@ -1427,6 +1427,36 @@ for you. `scripts/ci/posthog-deploy-marker.sh` accepts any tier value and always
 without it the tier's PostHog data has no deploy line and no queryable `deployment` row.
 
 
+## Raw page-view store per tier (AECI-1384, ADR 0041)
+
+Staging and production each have their own raw page-view store. Demo and local dev have none, so the
+write is counted `skipped` there. Chris creates these resources before the PR merges, because the
+deploy resolves the binding against the account.
+
+| Resource | Staging | Production | Demo |
+|---|---|---|---|
+| R2 bucket | `aeci-page-views-raw-staging` | `aeci-page-views-raw-production` | none |
+| Bucket lifecycle rule | delete after 400 days | delete after 400 days | none |
+| Pipelines stream (schema-less, one required `value` column of type json) | `aeci_page_views_raw_staging` (`41fa49a18adb4b45badfbe0bf882b25c`) | `aeci_page_views_raw_production` (`636ba46aa57940f0870b0a7bbd1db2cd`) | none |
+| Sink | `aeci_page_views_raw_staging_sink`: `r2`, Parquet, zstd, path `page_views`, partitioning `year=%Y/month=%m/day=%d`, roll 300 s | `aeci_page_views_raw_production_sink`, same settings | none |
+| Pipeline | `aeci_page_views_raw_staging`: `INSERT INTO …_sink SELECT * FROM …` | `aeci_page_views_raw_production`, same | none |
+| Worker secret `PAGE_VIEW_IP_HASH_SECRET` (API Worker) | set | set | not set |
+| Binding in `apps/api/wrangler.jsonc` | `"pipelines": [{ "binding": "PAGE_VIEW_RAW", "stream": "41fa49a1…" }]` in `env.staging` | same shape with the production stream id in `env.production` | none |
+
+- **Bindings are not inherited.** The base block and `env.demo` carry no `pipelines` entry on purpose.
+- **Created 2026-10-16 on The WBS Project account**, with Chris's wrangler OAuth login. The Account API
+  token in a local shell returned `Forbidden` on every Pipelines call even after Pipelines write was added
+  to it, so run these commands as `env -u CLOUDFLARE_API_TOKEN pnpm wrangler …`.
+- **Each record is `{ value: envelope }`.** The schema-less stream still requires the `value` field. A bare
+  envelope fails validation and is dropped.
+- **The deploy token needs Pipelines access**, as it needs R2 for `UPLOADS` (see "Logo storage
+  deployment"). Pipelines needs a Workers Paid plan. Cost is under $1 a month, with 50 GB a month of
+  sink included.
+- **Secret.** `PAGE_VIEW_IP_HASH_SECRET` is a random string set by hand with `wrangler secret put`. It is
+  not CI-pushed. Rotating it breaks IP-hash continuity inside a month and nothing else.
+- **A missing production binding is alarmed.** The alert `pageviews-raw-unsent` fires on `outcome:skipped`.
+  Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture".
+
 ## What lives where
 
 | File | Purpose |

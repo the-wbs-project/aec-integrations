@@ -135,7 +135,7 @@ This section is not legal advice. Counsel should confirm the privacy items befor
 
 | Finding | Why it matters | Proposed response |
 |---|---|---|
-| The join ties `page_views` rows to IP addresses | `page_views` is collected for every visitor without consent. That is defensible today because it holds no IP. A Ray ID join makes each row linkable to a full IP, which is personal data under GDPR. | Never write an IP to D1. Store only derived facts. Drop the Ray ID from the row once enrichment is done. |
+| The join ties `page_views` rows to IP addresses | `page_views` is collected for every visitor without consent. That is defensible today because it holds no IP. A Ray ID join makes each row linkable to a full IP, which is personal data under GDPR. | Never write an IP to D1. Store only derived facts. **As built (2026-10-16, AECI-1384): the Ray ID stays on the `page_views` row on purpose.** It is the join key to the raw store and to Logpush. The mitigation is that D1 holds no IP and the raw store holds only `ip_hash`, a monthly-keyed HMAC. Dropping the Ray ID after enrichment was the original proposal and is not done. ADR 0041. |
 | Raw logs hold full IP, user agent and referrer | That contradicts our own choice to hash the user agent and keep only the referrer host | Choose Logpush fields deliberately. Basin Pipelines SQL can hash or drop `ClientIP` at ingest. Put a lifecycle rule on the raw bucket. |
 | The beacon may need consent in the EU | EU guidance treats JavaScript tracking beacons as reading from the device. First-party audience measurement can be exempt if it is aggregate only, never cross-site, and kept for a limited time. | Keep `page_views` inside those conditions and write the reasoning down |
 | Disclosure | The privacy policy must describe Cloudflare request logging and first-party analytics, and retention for each | Update the policy and the record of processing before Logpush goes live |
@@ -163,6 +163,8 @@ Browser beacon ─► R2 beacon-raw (path, Ray IDs, consent state)   ┘
 ```
 
 Cloudflare logs a request before the visitor has chosen anything. Separate buckets do not avoid collecting the IP. They limit how long it lives and where it can go.
+
+> **Note 2026-10-16 (AECI-1384, ADR 0041):** a raw app-side store ships ahead of this design. Every capture the API receives writes one envelope through Cloudflare Pipelines to a Parquet sink in R2, for 400 days, with no consent tier. It exists so a change to `page_views` can be back-filled from source, and it holds the IP only as a monthly-keyed hash. It is not the raw tier described here, which stays unbuilt. The 400 days is known privacy debt, reviewed in AECI-1385 (due 2027-04-01).
 
 ### Consent signal
 
@@ -199,7 +201,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 
 1. Option 1 or option 2 in §3: browser or gateway writes arrivals?
 2. Which consent tier model in §6, and which option for the non-consented tier?
-3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest.
+3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
 5. Does the Enterprise contract include Bot Management? Scores started on 2026-10-12, but every stored score is a constant 99 (AECI-1298). The contract question is AECI-1300.
 6. Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)? If the reason was `page_views`, §3 removes it. If not, this design does not unblock caching.

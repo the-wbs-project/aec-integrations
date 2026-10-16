@@ -627,6 +627,22 @@
       "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-pageviews-write-errors.json.\n-- ADR 0022: page_views is a derived/log-class write and is exempt from audit_log — this\n-- metric plus job_runs IS its observability.\nSELECT\n    if(sum(m.value) >= 20,\n       round(100.0 * sumIf(m.value, s.labels['outcome'] = 'failed')\n             / greatest(sum(m.value), 1), 2),\n       0.0)                                                        AS error_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' page-view writes in 1h') AS sample\nFROM posthog.metrics AS m\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- One row per series_fingerprint, so a repeated series row cannot double-count.\nLEFT JOIN (\n    SELECT series_fingerprint, any(attributes) AS labels\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.write'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.write'"
     },
     {
+      "key": "alert-pageviews-raw-unsent",
+      "name": "Alert: the raw page-view backup missed a capture",
+      "dashboard": "AECi \u2014 What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when any page view in the last hour was recorded in D1 but its raw copy did not reach the R2 backup. The traffic figures are unaffected. The backup has a gap that cannot be filled later.",
+      "notes": "NEW with AECI-1384, no Datadog predecessor. Watches aeci.pageviews.raw outcome:failed and outcome:skipped, threshold > 0. Same metric_series shape as alert-profile-ensure-failed.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-pageviews-raw-unsent"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-1384 / ADR 0041. Fires on ANY page-view capture whose raw envelope did not\n-- reach the PAGE_VIEW_RAW Pipelines stream, emitted by apps/api/src/lib/page-view-raw.ts:\n--   outcome:failed   send() threw (or building the envelope did)\n--   outcome:skipped  the binding is absent. Expected locally and on demo; in production\n--                    it means the deployed wrangler config lost the `pipelines` entry.\n-- Only production reports to this project, so both count. The D1 row is unaffected\n-- either way; the hole is in the R2 backup, which nothing can back-fill later.\n--\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                         AS unsent_envelopes,\n    arrayStringConcat(groupUniqArray(s.outcome), ', ')   AS outcomes\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['outcome']) AS outcome\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.raw'\n      AND attributes['outcome'] IN ('failed', 'skipped')\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.raw'"
+    },
+    {
       "key": "alert-linear-failure-rate",
       "name": "Alert: the Linear hand-off is failing",
       "previousNames": ["AECi — ALERT — Linear pipeline failure rate (1 h)"],

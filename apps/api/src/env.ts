@@ -1,4 +1,5 @@
 import type { CachePurgeMessage } from '@aeci/shared';
+import type { Pipeline } from 'cloudflare:pipelines';
 
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
@@ -145,6 +146,21 @@ export type Env = {
   DB?: D1Database;
   /** AECI-955: private content-addressed logo storage. */
   UPLOADS?: R2Bucket;
+  /**
+   * AECI-1384 / ADR 0041: the raw page-view store. A Cloudflare Pipelines stream
+   * (schema-less) with a Parquet sink into the per-env `aeci-page-views-raw-<env>`
+   * bucket. Bound on staging and production only. Absent locally, on demo and in
+   * tests, where `lib/page-view-raw.ts` counts the write as `skipped`. Miniflare's
+   * local `send()` would discard the records anyway.
+   */
+  PAGE_VIEW_RAW?: Pipeline;
+  /**
+   * AECI-1384: secret behind the raw store's monthly-keyed IP hash
+   * (`monthlyIpHash` in `lib/hash.ts`). Wrangler secret on staging and production.
+   * Absent → `ip_hash` is null and `aeci.pageviews.raw` tags `ip_hash:no_secret`.
+   * Never falls back to an unkeyed hash.
+   */
+  PAGE_VIEW_IP_HASH_SECRET?: string;
   /**
    * Supabase service-role key (auth project only), used by every split-identity
    * seam via the Supabase Admin API — the register is `docs/AUTH_AND_RLS.md` §3.1

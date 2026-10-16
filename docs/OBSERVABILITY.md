@@ -24,10 +24,10 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 
 | Question | Where to look |
 |---|---|
-| "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **18 are committed**: the AECI-1099 `profile-ensure-failed` alert and the three AECI-1206 email alerts reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
+| "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **21 are committed** (2026-10-16): the AECI-1099 `profile-ensure-failed` alert, the three AECI-1206 email alerts, the two AECI-1222 delivery alerts and the AECI-1384 `pageviews-raw-unsent` alert reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **nineteen** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, and `claim-owner-fallback`, AECI-1368) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
-| "Show me the graph" | PostHog — 7 dashboards, 50 committed insights, applied from `observability/posthog/insights.json` |
+| "Show me the graph" | PostHog — 7 dashboards, 53 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
 | "Which person hit this 500?" | PostHog — `posthogDistinctId` is a log attribute (AECI-644) |
 | "Core Web Vitals in the field" | PostHog web vitals (`$web_vitals`), live on every tier since the project toggle was flipped 2026-08-26 |
@@ -264,6 +264,7 @@ than a Worker metric.
 | `aeci.metrics_snapshot.recheck.correction` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric` (the `traffic.*` key rewritten). One per `(day, metric)` corrected, and **only on a run that wrote** — a `skipped` run reports what *would* have moved in `job_runs.detail.recheck.corrections` but emits no count here, so this counter never overstates the pass. Zero is the normal steady state — a handful a month is retro-join drift converging |
 | `aeci.metrics_snapshot.recheck.refused` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric`, `reason` (`increase` / `raw_rows_absent`). Both reasons mean the guard held rather than the data converged: an increase cannot come from the retro-join, and absent raw rows mean the day's source is gone. **Worth an alert** — a non-zero series here is evidence about the data, not about the cron |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
+| `aeci.pageviews.raw` | count | `apps/api/src/lib/page-view-raw.ts` (`writeRawEnvelope`), and a catch in `capturePageView` that tags only `outcome:failed` (AECI-1384, ADR 0041) | `outcome` (ok / failed / skipped), `ip_hash` (present / no_secret / no_ip; absent on the `capturePageView` catch). One per capture that reaches `capturePageView`, whatever the D1 outcome. `failed` is a `send()` that threw or an envelope that could not be built. `skipped` means the `PAGE_VIEW_RAW` binding is absent: expected locally and on demo, a missing `pipelines` entry in production. `aeci.pageviews.write` is unchanged. **Alert:** `pageviews-raw-unsent`, fires when `failed` plus `skipped` sums to more than 0 in 1 h, hourly, production only. Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture" |
 | `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured / **profile_unavailable**). Since AECI-770 `success` fires only after the profile-ensure succeeds, and an ensure that fails every retry is `failed` with `reason:profile_unavailable` |
 | `aeci.auth.profile_ensure` | count | `apps/web/src/server/routes/auth-callback.ts` (**`service:aeci-web`**) and `apps/api/src/lib/profile-provisioning.ts` (`healMissingProfile`, the `GET /api/account` self-heal) | `source` (auth-callback / self-heal). On `auth-callback`: `outcome` (ok / failed) and `attempts` (1–3). On `self-heal`: `outcome` (created / existing / erased / failed). AECI-770. **Any `outcome:failed` is a user who met the no-profile state**: at sign-in they were signed out, on self-heal they saw a 503. `AUTH_AND_RLS.md` §3.1a. **Alert (AECI-1099):** `profile-ensure-failed`, fires when `outcome:failed` sums to more than 0 in 1 h across both sources, hourly, production only. Runbook: `RUNBOOKS.md` "Account record could not be created at sign-in" |
@@ -1199,7 +1200,10 @@ deleted with the rest of the plane at AECI-651.
 > condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
 > together with `observability/posthog/README.md`.
 >
-> **2026-10-02 (AECI-1222):** the committed set is now 52 insights and 20 alerts. The two
+> **2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
+> `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and NOT applied.
+>
+> **2026-10-02 (AECI-1222):** the committed set was then 52 insights and 20 alerts. The two
 > delivery alerts are committed and NOT applied.
 >
 > **2026-10-01 (AECI-1206):** the committed set was then 50 insights and 18 alerts. The live
@@ -1239,8 +1243,8 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all nineteen watched; an entry may carry an `activeFrom` grace, AECI-1221). |
-| `observability/posthog/insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
-| `observability/posthog/alerts.json` | 20 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Seven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), and the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222, not yet applied). Seven in all. |
+| `observability/posthog/insights.json` | 7 dashboards, 53 insights (32 board + 21 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/alerts.json` | 21 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Seven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222, not yet applied), and `pageviews-raw-unsent` (AECI-1384, not yet applied). Eight in all. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
@@ -1300,7 +1304,7 @@ Two alert sets, only one of which is armed on production.
 
 | | Datadog monitors | PostHog alerts |
 |---|---|---|
-| Count | **26**, all applied and live | **18** committed, 14 live: 13 cover 16 of those 26, and 5 are net-new (AECI-826, AECI-1099, three in AECI-1206) |
+| Count | **26**, all applied and live | **21** committed, 14 live: 13 cover 16 of those 26, and 8 are net-new (AECI-826, AECI-1099, three in AECI-1206, two in AECI-1222, AECI-1384). Only 14 are live; the rest wait for `apply.sh` |
 | Applied to | production (and `env`-scoped where relevant) | **non-production dashboards only**; alerts are prod-only and unapplied pending the `phx_` key |
 | Cadence | 5 min – 1 day, per monitor | **hourly**, except five **daily** alerts with a 24 h or longer window: `indexnow-failure-rate` (since 2026-09-24), `email-failure-rate` and `email-volume-spike` (AECI-1206), `email-bounce-rate` and `email-complaint-rate` (AECI-1222, 7-day window) (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |

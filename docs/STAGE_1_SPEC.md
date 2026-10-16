@@ -1031,6 +1031,7 @@ A lean server-side log captured by the SSR Worker on every cacheable page reques
 **Privacy:**
 - No raw IPs stored (Cloudflare's CF-Connecting-IP is not persisted)
 - User agents are hashed, not stored raw
+- **As built 2026-10-16 (AECI-1384, ADR 0041):** the table still holds no IP. A raw copy of each capture in R2 keeps the IP only as a monthly-keyed hash, and the raw `User-Agent` header, for 400 days.
 - No personal info (email, name) in page_views directly — only the foreign key to `profiles`, which can be joined when needed and anonymized on user deletion
 
 **Write path:**

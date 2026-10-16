@@ -31,6 +31,7 @@ export * from './landing';
 export * from './license-release-requests';
 export * from './notification-preferences';
 export * from './page-views';
+export * from './page-view-raw';
 export * from './plan-inquiry';
 export * from './product-facets';
 export * from './product-pairs';
