@@ -7,7 +7,14 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, licenses, profiles, vendors, workflowInstances } from '../db/schema';
+import {
+  auditLog,
+  licenses,
+  profiles,
+  vendorSeatInvites,
+  vendors,
+  workflowInstances,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -341,6 +348,150 @@ describe('PATCH /api/admin/reviewers/:id: a last-seat ban and the licenses (AECI
       (a) => a.action === 'license.cancel_at_term_end_cleared',
     );
     expect(cleared).toHaveLength(3);
+  });
+
+  // AECI-1374 (ruled 2026-10-16): the last-seat ban revokes every pending invite in
+  // the same batch, so a pre-ban invite cannot mint the unbanned seat that would
+  // clear the `vendor-banned` flags. Spent and lapsed invites are left as they are.
+  describe('pending seat invites', () => {
+    const FUTURE = '2099-01-01T00:00:00.000Z';
+    const PAST = '2020-01-01T00:00:00.000Z';
+    const SPENT = '2026-09-01T00:00:00.000Z';
+    const seedInvites = async () => {
+      await t.db.insert(vendorSeatInvites).values([
+        {
+          id: u(701),
+          token: 't1',
+          vendorId: VENDOR,
+          email: 'a@x.com',
+          invitedById: SEAT_A,
+          expiresAt: FUTURE,
+        },
+        {
+          id: u(702),
+          token: 't2',
+          vendorId: VENDOR,
+          email: 'b@x.com',
+          invitedById: SEAT_A,
+          expiresAt: FUTURE,
+        },
+        {
+          id: u(703),
+          token: 't3',
+          vendorId: VENDOR,
+          email: 'c@x.com',
+          invitedById: SEAT_A,
+          expiresAt: FUTURE,
+          acceptedAt: SPENT,
+        },
+        {
+          id: u(704),
+          token: 't4',
+          vendorId: VENDOR,
+          email: 'd@x.com',
+          invitedById: SEAT_A,
+          expiresAt: PAST,
+        },
+        {
+          id: u(705),
+          token: 't5',
+          vendorId: VENDOR,
+          email: 'e@x.com',
+          invitedById: SEAT_A,
+          expiresAt: FUTURE,
+          revokedAt: SPENT,
+        },
+      ]);
+    };
+    const inviteRows = async () => {
+      const rows = await t.db.select().from(vendorSeatInvites);
+      return new Map(rows.map((r) => [r.id, r]));
+    };
+    const inviteAudits = async () =>
+      (await t.db.select().from(auditLog)).filter((r) => r.action === 'vendor_seat.invite_revoked');
+
+    it('the last-seat ban revokes only the pending invites, one audit row each, in the ban batch', async () => {
+      await seedInvites();
+      const batch = vi.spyOn(t.db, 'batch');
+      expect((await patch(SEAT_A, { action: 'ban', reason: 'Portal abuse' })).status).toBe(200);
+      expect(batch).toHaveBeenCalledTimes(1);
+
+      const rows = await inviteRows();
+      const [banned] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+      for (const id of [u(701), u(702)]) expect(rows.get(id)!.revokedAt).toBe(banned!.bannedAt);
+      // Accepted, lapsed and already-revoked invites are untouched.
+      expect(rows.get(u(703))).toMatchObject({ acceptedAt: SPENT, revokedAt: null });
+      expect(rows.get(u(704))!.revokedAt).toBeNull();
+      expect(rows.get(u(705))!.revokedAt).toBe(SPENT);
+
+      const audits = await inviteAudits();
+      expect(audits.map((a) => a.entityId).sort()).toEqual([u(701), u(702)]);
+      for (const a of audits) {
+        expect(a).toMatchObject({
+          actorId: ADMIN,
+          entityType: 'vendor_seat_invite',
+          vendorId: VENDOR,
+        });
+        expect(a.metadata).toMatchObject({
+          source: 'admin-moderation',
+          reason: 'vendor-banned',
+          seat_user_id: SEAT_A,
+        });
+      }
+    });
+
+    it('a ban while another unbanned seat remains revokes no invite', async () => {
+      await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+      await seedInvites();
+      expect((await patch(SEAT_A, { action: 'ban', reason: 'Portal abuse' })).status).toBe(200);
+      const rows = await inviteRows();
+      for (const id of [u(701), u(702)]) expect(rows.get(id)!.revokedAt).toBeNull();
+      expect(await inviteAudits()).toEqual([]);
+    });
+
+    it('a lost seat race rolls the invite revokes back with the ban (409)', async () => {
+      await seedInvites();
+      const original = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+        await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+        return original(stmts);
+      }) as never);
+      expect((await patch(SEAT_A, { action: 'ban', reason: 'Portal abuse' })).status).toBe(409);
+      const rows = await inviteRows();
+      for (const id of [u(701), u(702)]) expect(rows.get(id)!.revokedAt).toBeNull();
+      expect(await inviteAudits()).toEqual([]);
+    });
+
+    it('an invite created between the read and the batch rolls the ban back (409)', async () => {
+      await seedInvites();
+      const original = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+        await t.db.insert(vendorSeatInvites).values({
+          id: u(706),
+          token: 't6',
+          vendorId: VENDOR,
+          email: 'f@x.com',
+          invitedById: SEAT_A,
+          expiresAt: FUTURE,
+        });
+        return original(stmts);
+      }) as never);
+      expect((await patch(SEAT_A, { action: 'ban', reason: 'Portal abuse' })).status).toBe(409);
+      const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+      expect(seat!.bannedAt).toBeNull();
+      const rows = await inviteRows();
+      for (const id of [u(701), u(702), u(706)]) expect(rows.get(id)!.revokedAt).toBeNull();
+      expect(await inviteAudits()).toEqual([]);
+    });
+
+    it('the unban restores no invite', async () => {
+      await seedInvites();
+      await patch(SEAT_A, { action: 'ban', reason: 'Portal abuse' });
+      expect((await patch(SEAT_A, { action: 'unban' })).status).toBe(200);
+      const rows = await inviteRows();
+      for (const id of [u(701), u(702)]) expect(rows.get(id)!.revokedAt).not.toBeNull();
+      expect(await inviteAudits()).toHaveLength(2);
+    });
   });
 
   it('a reviewer ban reads and writes no license', async () => {

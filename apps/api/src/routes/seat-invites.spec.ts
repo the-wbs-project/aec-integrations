@@ -15,14 +15,15 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, profiles, vendorSeatInvites, vendors } from '../db/schema';
+import { auditLog, licenses, profiles, vendorSeatInvites, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
-import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags } from '../test/licenses';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
+import { createBanReviewerHandler } from './admin-reviewers';
 import { createAcceptSeatInviteHandler, createSeatInvitePreviewHandler } from './seat-invites';
 import {
   createRemoveSeatHandler,
@@ -94,6 +95,7 @@ function app() {
   a.delete('/api/vendor/seats/:userId', createRemoveSeatHandler(t.factory));
   a.get('/api/seat-invites/:token', createSeatInvitePreviewHandler(t.factory));
   a.post('/api/seat-invites/:token/accept', createAcceptSeatInviteHandler(t.factory));
+  a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   return a;
 }
 
@@ -542,6 +544,45 @@ describe('GET/POST /api/seat-invites/:token', () => {
       source: 'vendor-portal',
       license_id: seeds.banned,
     });
+  });
+
+  // AECI-1374 (ruled 2026-10-16): the last-seat ban revokes the pending invites, so a
+  // banned owner cannot redeem a pre-ban invite at a second address to mint the
+  // unbanned seat that would clear the `vendor-banned` flags.
+  it('a redeem of an invite the last-seat ban revoked fails and clears no flag', async () => {
+    const admin = session({
+      userId: uuid(304),
+      email: 'ops@aeci.com',
+      role: 'admin',
+      vendorId: null,
+    });
+    const ban = (id: string) =>
+      call(
+        `/api/admin/reviewers/${id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ action: 'ban', reason: 'Portal abuse' }),
+          headers: { 'content-type': 'application/json' },
+        },
+        admin,
+      );
+    await t.db.insert(profiles).values({ id: admin.userId, role: 'admin', vendorId: null });
+    const license = await seedLicense(t.db, VENDOR);
+    await seedInvite();
+    expect((await ban(MEMBER)).status).toBe(200);
+    expect((await ban(OWNER)).status).toBe(200);
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(422);
+    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, license));
+    expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    expect(
+      (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === 'license.cancel_at_term_end_cleared',
+      ),
+    ).toEqual([]);
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, redeemer.userId));
+    expect(seat).toBeUndefined();
   });
 
   it('a redeem with nothing flagged writes no license row', async () => {

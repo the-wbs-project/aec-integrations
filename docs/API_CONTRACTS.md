@@ -3944,6 +3944,18 @@ seat writers (ruled 2026-10-15): one helper, `clearVendorBannedFlagsStatements`,
 unban and every grant. Ended licenses are never touched. Nothing ends, no
 plan changes, nothing is purged and no email is sent. The response shape is unchanged.
 
+**Pending seat invites on a last-seat ban (AECI-1374, ruled 2026-10-16).** The same ban
+batch revokes every pending invite in `vendor_seat_invites` for the vendor: not accepted,
+not revoked, not expired (`liveInvitesFor`). Each revoke goes through
+`revokeInviteStatements`, sets `revoked_at`, and writes one `vendor_seat.invite_revoked`
+row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
+`metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
+invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
+`vendor-banned` flags. A sentinel after the revokes aborts the batch when a live invite
+is still left, for example one created between the read and the batch: the ban answers
+`409 VENDOR_SEATS_CHANGED` and writes nothing. A ban that leaves an unbanned seat revokes
+nothing. An unban restores no invite.
+
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin

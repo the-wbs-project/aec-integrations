@@ -280,6 +280,11 @@ export interface RevokeInviteParams {
   actorId: string;
   actorType: AuditLogEntry['actorType'];
   now: string;
+  /** Audit `metadata.source`. Defaults to {@link SEAT_INVITE_AUDIT_SOURCE}; the
+   *  last-seat ban (AECI-1374) passes `'admin-moderation'`. */
+  source?: string;
+  /** Extra audit metadata, e.g. `{ reason: 'vendor-banned' }` from the ban. */
+  extraMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -303,9 +308,10 @@ export function revokeInviteStatements(db: Db, p: RevokeInviteParams): SeatInvit
     beforeState: { revoked_at: null },
     afterState: { revoked_at: p.now },
     metadata: {
-      source: SEAT_INVITE_AUDIT_SOURCE,
+      source: p.source ?? SEAT_INVITE_AUDIT_SOURCE,
       vendorId: p.vendorId,
       invited_email: p.email,
+      ...p.extraMetadata,
     },
   };
 

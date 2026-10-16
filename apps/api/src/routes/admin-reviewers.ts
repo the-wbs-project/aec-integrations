@@ -31,6 +31,9 @@
  * same batch. Nothing ends now: no plan change, no purge, no email. The unban clears
  * only the `vendor-banned` flags, and so does any new unbanned seat grant (ruled
  * 2026-10-15, `planSeatGrantReturn`). A seat REVOKE writes nothing in billing.
+ * The same last-seat ban revokes the vendor's pending seat invites (ruled 2026-10-16),
+ * so a pre-ban invite cannot mint the unbanned seat that would clear those flags. The
+ * unban restores no invite.
  */
 
 import {
@@ -44,13 +47,14 @@ import {
   type ListBannedReviewersResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
-import { profiles, vendors, workflowInstances } from '../db/schema';
+import { profiles, vendorSeatInvites, vendors, workflowInstances } from '../db/schema';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -74,12 +78,14 @@ import {
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
+  pendingInviteRaceSentinel,
   planOwnerSeatLapse,
   planOwnerSeatReturn,
   seatLossOutcome,
   seatRaceSentinels,
   seatsChangedError,
 } from '../lib/vendor-handback';
+import { liveInvitesFor, revokeInviteStatements } from '../lib/vendor-seat-invites';
 import type { FetchReviewerEmails } from './admin-reviews';
 import { NO_VENDOR_STAMP, vendorAuditStamp } from '../lib/audit-vendor';
 
@@ -322,6 +328,7 @@ export function createBanReviewerHandler(
     // uses (`clearVendorBannedFlagsStatements`, ruled 2026-10-15). Nothing ends now;
     // the reconcile the builder appends cannot move `verified`, because no license ends.
     let licenseBatch: LicenseBatch | null = null;
+    const inviteAudits: AuditLogEntry[] = [];
     if (contestParams && !ban) {
       licenseBatch = await clearVendorBannedFlagsStatements(db, {
         vendorId: contestParams.vendorId,
@@ -333,13 +340,39 @@ export function createBanReviewerHandler(
       });
       stmts.push(...licenseBatch.stmts);
     } else if (contestParams && planned === 'lapse') {
-      const [vendorLicenses, vendorRow] = await Promise.all([
+      const [vendorLicenses, vendorRow, liveInviteRows] = await Promise.all([
         loadVendorLicenses(db, contestParams.vendorId),
         db.query.vendors.findFirst({
           columns: { verified: true },
           where: eq(vendors.id, contestParams.vendorId),
         }),
+        db
+          .select({ id: vendorSeatInvites.id, email: vendorSeatInvites.email })
+          .from(vendorSeatInvites)
+          .where(liveInvitesFor(contestParams.vendorId, contestParams.now)),
       ]);
+      // AECI-1374 (ruled 2026-10-16): the same ban revokes every pending invite, one
+      // audit row each. Otherwise a banned owner could redeem a pre-ban invite at a
+      // second address, and that new unbanned seat would clear the `vendor-banned`
+      // flags and pull the contests back with no AECi action. An unban restores none.
+      const invitePlan = licensePlanSnapshot(vendorLicenses, contestParams.now);
+      for (const invite of liveInviteRows) {
+        const revoke = revokeInviteStatements(db, {
+          vendorPlan: invitePlan,
+          inviteId: invite.id,
+          vendorId: contestParams.vendorId,
+          email: invite.email,
+          actorId: userId,
+          actorType: auditActorType(session),
+          now: contestParams.now,
+          source: 'admin-moderation',
+          extraMetadata: { reason: VENDOR_BANNED_CANCEL_REASON, seat_user_id: id },
+        });
+        stmts.push(...revoke.stmts);
+        inviteAudits.push(revoke.auditEntry);
+      }
+      // An invite created between the read above and this batch would survive the ban.
+      stmts.push(pendingInviteRaceSentinel(db, contestParams.vendorId, contestParams.now));
       licenseBatch = setCancelAtTermEndStatements(db, {
         vendorId: contestParams.vendorId,
         now: contestParams.now,
@@ -371,7 +404,12 @@ export function createBanReviewerHandler(
     // transition per re-routed contest.
     forwardAuditBatch(
       c,
-      [auditEntry, ...(follow?.audits ?? []), ...(licenseBatch?.auditEntries ?? [])],
+      [
+        auditEntry,
+        ...(follow?.audits ?? []),
+        ...(licenseBatch?.auditEntries ?? []),
+        ...inviteAudits,
+      ],
       [workflowEntry, ...(follow?.transitions ?? [])],
     );
 

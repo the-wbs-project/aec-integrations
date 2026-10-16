@@ -86,6 +86,7 @@ import {
   products,
   productVendors,
   profiles,
+  vendorSeatInvites,
   vendors,
 } from '../db/schema';
 import { pairCacheTag } from '../routes/promote-pair';
@@ -107,6 +108,7 @@ import {
 } from './integration-contests';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { clearVendorBannedFlagsStatements, loadVendorLicenses } from './license';
+import { liveInvitesFor } from './vendor-seat-invites';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -268,6 +270,19 @@ export function seatRaceSentinels(
       .select({ guard: sql`CASE WHEN ${mismatch} THEN json(${SEATS_CHANGED_TOKEN}) END` })
       .from(ONE_ROW),
   ];
+}
+
+/**
+ * Aborts the batch when the vendor still has a live seat invite after the last-seat
+ * ban's revokes (AECI-1374, ruled 2026-10-16): one was created between the ban's read
+ * and its batch, so the ban would leave a redeemable invite behind. Place it after the
+ * invite revokes. Same token as {@link seatRaceSentinels}, so it answers `409`.
+ */
+export function pendingInviteRaceSentinel(db: Db, vendorId: string, now: string): BatchStmt {
+  const left = sql`EXISTS (SELECT 1 FROM ${vendorSeatInvites} WHERE ${liveInvitesFor(vendorId, now)})`;
+  return db
+    .select({ guard: sql`CASE WHEN ${left} THEN json(${SEATS_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
 }
 
 /** `409 VENDOR_SEATS_CHANGED`: the seat write lost a race and wrote nothing. */

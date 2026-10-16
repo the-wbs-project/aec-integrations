@@ -262,7 +262,7 @@ describe('UserDetail', () => {
         ),
       );
       expect(normalise(seated.el.textContent)).toContain(
-        "If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to cancel at term end and ends nothing now.",
+        "If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to cancel at term end and ends nothing now. It also revokes the vendor's pending seat invites.",
       );
       const reviewer = await setup(makeApiMock(makeUser()));
       expect(normalise(reviewer.el.textContent)).not.toContain('cancel at term end');

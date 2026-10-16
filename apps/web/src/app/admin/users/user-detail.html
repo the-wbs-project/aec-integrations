@@ -424,7 +424,7 @@
   @if (u.seat) {
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.lastSeatLicenses">
     If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to
-    cancel at term end and ends nothing now.
+    cancel at term end and ends nothing now. It also revokes the vendor's pending seat invites.
   </p>
   } @if (!banFormOpen()) {
   <button
