@@ -147,6 +147,13 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     path: 'seats',
     loadComponent: () => import('./sections/vendor-seats-page').then((m) => m.VendorSeatsPage),
   },
+  // AECI-1390 (E5.4): licenses, agreements and the billing email. Owner seats
+  // only; the page renders a short note for a member and calls nothing.
+  {
+    path: 'billing',
+    loadComponent: () =>
+      import('./sections/vendor-billing-section').then((m) => m.VendorBillingSection),
+  },
 ];
 
 /**

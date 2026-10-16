@@ -1958,7 +1958,7 @@ read as a button group. It was unclear which header was in charge of the page.
 | `h1` | company name | product name |
 | Public link | `/vendors/:slug` | `/products/:slug` |
 | Back link | none | "← Back to *Company*" |
-| Tab row | Vendor Overview · Profile · Products · Messages · Seats | Profile · Taxonomy · Integrations |
+| Tab row | Vendor Overview · Profile · Products · Messages · Changes · Seats · Billing (owner seats only, §6.21) | Profile · Taxonomy · Integrations |
 | Landmark name | "Portal sections" | "*Product* sections" |
 
 - **The breadcrumb** is a `<nav aria-label="Breadcrumb">` over an `<ol>`, the same
@@ -2740,6 +2740,24 @@ Google "requested" shows only when an operator recorded the request when clearin
 Each portal surface with a vendor-guide page carries one "Learn more" link to it, under the surface's heading or intro. The full list of surfaces and pages is `STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 1. In short: Messages links `notifications-and-messages` under its intro, `claiming-your-listing` at "Claim & correction status" and `requesting-changes-and-appeals` at Change requests; Seats links `your-seat`; Vendor Overview links `your-dashboard` under "What needs you"; the company Profile and a product's Profile tab link `editing-profile-and-products` (those four added by AECI-1251, 2026-10-13); the integration page links `owning-an-integration` at Overview, `confirming-integration-data` at "Data that's shared" and `requesting-changes-and-appeals` at Change requests; the Integrations tab links `owning-an-integration` beside "Add an integration" and under "Integrations your company offers"; the open "Request a change" form links `requesting-changes-and-appeals`; Reviews links `replying-to-reviews`; the plan panel links `plans`; both checklists link `checklists`; Changes links `change-history`.
 
 Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). It is a standalone link (`DESIGN.md`, "The Link Treatment Rule") and opens a new tab under that rule's case 2, because the portal holds unsaved form state. `rel="noopener"` alone, as the guide is our own site. The visible text is always "Learn more". A visually hidden suffix names the page, and `aec-new-tab-icon` adds "(opens in a new tab)", so the accessible name reads "Learn more: Your seat (opens in a new tab)". A links list never shows two identical names for different pages. No help link sits inside a `aec-vendor-tip` panel: a link in a portaled overlay cannot be reached with Tab (`vendor-tip.ts`).
+
+### 6.21 As built: the Billing tab (AECI-1390, E5.4, 2026-10-16)
+
+**What it is.** `…/billing`, labelled "Billing", the last item in the vendor row after Seats. It is an owner's tab (decision 10 of `docs/VENDOR_SIGNUP_PROCESS.md` §2). The section is `vendor/sections/vendor-billing-section.ts`.
+
+**Owner gating.** `GET /api/vendor/me` carries `seat_owner` (AECI-1387). The nav entry is `ownerOnly` in `vendor/vendor-nav.ts`, and `vendor-dashboard-tabbed.ts` drops it for a member seat. A member who types the URL sees one line saying only account owners manage billing, and the page makes no request. Both reads would `403` a member. The bit is a display hint only: every billing route re-checks it through `requireSeatOwner()`.
+
+**Data.** The store's `billing` resource loads `GET /api/vendor/billing` and `GET /api/vendor/billing/acceptances` together, once, from `afterNextRender`. A moved `entitlement` cursor refetches it once loaded, because every license write moves that cursor (`STAGE_2_REALTIME_SPEC.md` §2.3). It is never loaded from cold, so a member's poll never `403`s.
+
+**Contents, top to bottom.**
+
+- **Billing email** (`vendor/components/vendor-billing-email-form.ts`). The address, or "Not set", and a Change button that opens an inline form over `PUT /api/vendor/billing/email` (E5.3). An empty field clears it. Pessimistic: the write, then a billing re-read, then one announcement through the shell's live region. A 400, 403, 404 or 429 each get their own copy. The helper text says receipts and renewal emails go to this address and to every seat (decision 16). A vendor with no billing account sees a line to contact AECi instead of the form.
+- **Licenses** (`vendor/components/vendor-billing-licenses.ts`). Columns: Source (Complimentary, Invoice, Card), Product (a link to the product's portal page, or "In pool, not assigned"), Starts, Ends ("Monthly, no end date" on a card license with no end, else "No end date"), Status (Live, or "Ended *date*, *reason*", plus "Releases at renewal" and "Cancels at term end" badges on a live license) and Reference (the vendor's invoice or PO number, a dash when absent). Live first. Dates go through `formatTermDate` (`shared/term-date/format-term-date.ts`, `STAGE_2_PAID_TIERS_SPEC.md` §5.8). The empty state says AECi grants licenses to pilot vendors and buying comes later. A note shows when the read hit the 500-license cap. The table takes an optional `rowActions` template, the admin table's seam: E5.5 puts the assign control, the release switch and the early-unassign dialog there. Without it there is no Actions column.
+- **Agreements.** Document (Vendor terms, Managed plan agreement), Version, Accepted (date) and By (email). The version links to the readable copy: `/legal/<slug>` for the current version, `/legal/<slug>/v<version>` for an archived one, and no link for a version with no page.
+
+**Copy.** A license covers one product. Plans change what a listing can show, never where it ranks. No buy button, no price, no Stripe until E9.
+
+**Preview.** `/preview/vendor-dashboard/billing?fixture=verified` serves `VENDOR_BILLING_FIXTURE`: a live complimentary license on the primary product flagged to release at renewal, a live invoice license in the pool, and an ended invoice license with its reference. `PreviewVendorApi.setBillingEmail` stores the lower-cased address.
 
 ---
 

@@ -76,6 +76,9 @@ import type {
   ListVendorReviewsResponse,
   ReviewReplyStatusFilter,
   VendorReviewResponseResult,
+  VendorBillingResponse,
+  VendorAgreementAcceptancesResponse,
+  UpdateBillingEmailRequest,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -169,6 +172,30 @@ export class VendorApi {
    *  first paint because it needs the Supabase email lookup. */
   getSeats(): Promise<ListVendorSeatsResponse> {
     return firstValueFrom(this.http.get<ListVendorSeatsResponse>('/api/vendor/seats'));
+  }
+
+  /** `GET /api/vendor/billing` (AECI-1387, E5.1): the billing account, its licenses
+   *  and the products a pool license can go on. Owner seats only (`403` otherwise),
+   *  so the Billing tab never calls it for a member seat. */
+  getBilling(): Promise<VendorBillingResponse> {
+    return firstValueFrom(this.http.get<VendorBillingResponse>('/api/vendor/billing'));
+  }
+
+  /** `GET /api/vendor/billing/acceptances`: the agreements the company accepted,
+   *  newest first. Owner seats only. */
+  getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
+    return firstValueFrom(
+      this.http.get<VendorAgreementAcceptancesResponse>('/api/vendor/billing/acceptances'),
+    );
+  }
+
+  /** `PUT /api/vendor/billing/email` (E5.3): set the billing email, or clear it with
+   *  `null`. The caller re-reads the billing payload rather than trusting an echo. */
+  setBillingEmail(email: string | null): Promise<void> {
+    const body: UpdateBillingEmailRequest = { billing_email: email };
+    return firstValueFrom(this.http.put<unknown>('/api/vendor/billing/email', body)).then(
+      () => undefined,
+    );
   }
 
   /** `POST /api/vendor/seats/invites` — invite a colleague (AECI-664 / §11a).

@@ -362,6 +362,10 @@ export class VendorLiveSync {
         // the exhaustive switch is what makes a future scope→resource addition
         // a compile error instead of a silent `undefined`.
         return this.store.seatsFailed();
+      case 'billing':
+        // Not reachable from any scope either: `entitlement` maps to `me`, and the
+        // store adds `billing` beside it only once the tab has loaded (AECI-1390).
+        return this.store.billingFailed();
     }
   }
 

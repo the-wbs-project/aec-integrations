@@ -62,7 +62,15 @@ import { VENDOR_SECTION_ROUTES } from './vendor.routes';
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 const SLUG = VENDOR_ME_FIXTURE.vendor.slug;
-const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Changes', 'Seats'];
+const NAV_LABELS = [
+  'Vendor Overview',
+  'Profile',
+  'Products',
+  'Messages',
+  'Changes',
+  'Seats',
+  'Billing',
+];
 
 /**
  * Stands in for `VendorPage`: the surface owner that binds the shell's `me` to
@@ -204,7 +212,7 @@ const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
-  it('lists the six sections, with Messages and Changes between Products and Seats', async () => {
+  it('lists the seven sections, with Messages and Changes between Products and Seats', async () => {
     // AECI-666: Integrations left this row for the product row; Messages took
     // its slot.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
@@ -214,10 +222,16 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     const harness = await open();
 
     expect([...navItems(harness)].map((a) => a.getAttribute('href'))).toEqual(
-      ['overview', 'profile', 'products', 'messages', 'history', 'seats'].map(
+      ['overview', 'profile', 'products', 'messages', 'history', 'seats', 'billing'].map(
         (p) => `/vendor/${SLUG}/${p}`,
       ),
     );
+  });
+
+  it('offers Billing to owner seats only (AECI-1390, decision 10)', async () => {
+    const harness = await open('overview', { ...VENDOR_ME_FIXTURE, seat_owner: false });
+
+    expect(navLabels(harness)).toEqual(NAV_LABELS.filter((label) => label !== 'Billing'));
   });
 
   it('does not render the Integrations section until its route is active', async () => {

@@ -37,6 +37,8 @@ import type {
   VendorChecklistResponse,
   VendorProductChecklistResponse,
   VendorProductChecklistSummary,
+  VendorAgreementAcceptance,
+  VendorBillingResponse,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -2371,3 +2373,93 @@ export const VENDOR_PRODUCT_REQUEST_NOTIFICATIONS_FIXTURE: readonly VendorProduc
       created_at: '2026-10-03T09:00:00.000Z',
     },
   ];
+
+// ─── The Billing tab (AECI-1390, E5.4) ──────────────────────────────────────
+
+/**
+ * The owner's Billing tab for {@link VENDOR_ME_FIXTURE}: one live complimentary
+ * license on the primary product (flagged to release at renewal, so the badge
+ * shows), one live invoice license still in the pool, and one ended invoice license
+ * with its reference. Live first, as `GET /api/vendor/billing` orders them.
+ */
+export const VENDOR_BILLING_FIXTURE: VendorBillingResponse = {
+  billing_account: {
+    id: '00000000-0000-4000-8000-0000000054a0',
+    billing_email: 'accounts@summitbim.example.com',
+  },
+  licenses: [
+    {
+      id: '00000000-0000-4000-8000-0000000054a1',
+      source: 'complimentary',
+      starts_at: '2026-09-01',
+      ends_at: '2027-08-31',
+      ended_at: null,
+      end_reason: null,
+      live: true,
+      reference: null,
+      assigned_product: {
+        id: PRIMARY_PRODUCT.id,
+        slug: PRIMARY_PRODUCT.slug,
+        name: PRIMARY_PRODUCT.name,
+      },
+      assigned_at: '2026-09-01T10:00:00.000Z',
+      release_at_renewal: true,
+      cancel_at_term_end: false,
+      open_release_request: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-0000000054a2',
+      source: 'invoice',
+      starts_at: '2026-10-01',
+      ends_at: '2027-09-30',
+      ended_at: null,
+      end_reason: null,
+      live: true,
+      reference: 'PO-2026-0412',
+      assigned_product: null,
+      assigned_at: null,
+      release_at_renewal: false,
+      cancel_at_term_end: false,
+      open_release_request: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-0000000054a3',
+      source: 'invoice',
+      starts_at: '2025-09-01',
+      ends_at: '2026-08-31',
+      ended_at: '2026-08-31T00:00:00.000Z',
+      end_reason: 'lapsed',
+      live: false,
+      reference: 'INV-1043',
+      assigned_product: {
+        id: SECONDARY_PRODUCT.id,
+        slug: SECONDARY_PRODUCT.slug,
+        name: SECONDARY_PRODUCT.name,
+      },
+      assigned_at: '2025-09-01T10:00:00.000Z',
+      release_at_renewal: false,
+      cancel_at_term_end: false,
+      open_release_request: null,
+    },
+  ],
+  licenses_truncated: false,
+  assignable_products: [
+    { id: SECONDARY_PRODUCT.id, slug: SECONDARY_PRODUCT.slug, name: SECONDARY_PRODUCT.name },
+  ],
+};
+
+/** The agreements the fixture company accepted: the vendor terms at claim time. */
+export const VENDOR_ACCEPTANCES_FIXTURE: readonly VendorAgreementAcceptance[] = [
+  {
+    id: '00000000-0000-4000-8000-0000000054b1',
+    document: 'vendor_terms',
+    version: '1.0',
+    source: 'claim',
+    email: 'dana@summitbim.example.com',
+    profile_id: '00000000-0000-4000-8000-0000000052b1',
+    billing_account_id: '00000000-0000-4000-8000-0000000054a0',
+    vendor_request_id: null,
+    stripe_checkout_session_id: null,
+    accepted_at: '2026-06-04T14:00:00.000Z',
+  },
+];

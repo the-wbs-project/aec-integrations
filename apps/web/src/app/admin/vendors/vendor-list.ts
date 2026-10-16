@@ -8,7 +8,7 @@ import type { AdminVendorRow, AdminVendorSort, SortOrder } from '@aeci/shared';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
-import { formatTermDate } from '../entitlement/entitlement-term';
+import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminVendorsApi } from './admin-vendors-api';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size

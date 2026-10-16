@@ -21,7 +21,7 @@ import {
 } from '@aeci/shared';
 import { LICENSE_GRANT_REFERENCE_MAX } from '@aeci/shared/entitlements';
 
-import { formatTermDate } from '../entitlement/entitlement-term';
+import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
 

@@ -61,6 +61,8 @@ import type {
   CreateProductRequestResponse,
   ListVendorProductRequestsResponse,
   VendorProductRequest,
+  VendorAgreementAcceptancesResponse,
+  VendorBillingResponse,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import {
@@ -121,6 +123,8 @@ import {
   VENDOR_TAXONOMY_FIXTURE,
   VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
   VENDOR_SEAT_INVITES_FIXTURE,
+  VENDOR_ACCEPTANCES_FIXTURE,
+  VENDOR_BILLING_FIXTURE,
   NOTHING_CHECKED,
   productChecklistFixture,
   vendorChecklistFixture,
@@ -410,6 +414,25 @@ export class PreviewVendorApi extends VendorApi {
     this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
+    this.billing = clone(VENDOR_BILLING_FIXTURE);
+  }
+
+  // ── Billing (AECI-1390, E5.4) ─────────────────────────────────────────────
+  private billing: VendorBillingResponse = clone(VENDOR_BILLING_FIXTURE);
+
+  override async getBilling(): Promise<VendorBillingResponse> {
+    return clone(this.billing);
+  }
+
+  override async getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
+    return { acceptances: clone([...VENDOR_ACCEPTANCES_FIXTURE]) };
+  }
+
+  /** Fixture-side: the handler's lower-casing, then the stored value moves. */
+  override async setBillingEmail(email: string | null): Promise<void> {
+    if (this.billing.billing_account) {
+      this.billing.billing_account.billing_email = email?.trim().toLowerCase() ?? null;
+    }
   }
 
   override async getMe(): Promise<VendorMeResponse> {

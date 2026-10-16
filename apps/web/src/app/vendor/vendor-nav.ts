@@ -41,10 +41,15 @@ export interface VendorNavItem {
    * product is the thing §6.13 declined.
    */
   readonly roles?: readonly string[];
+  /**
+   * Vendor row only: shown to owner seats alone (`me.seat_owner`). The Billing tab
+   * (AECI-1390) is the one user. A display hint: the API re-checks the bit.
+   */
+  readonly ownerOnly?: boolean;
 }
 
 /**
- * The portal's six VENDOR-level sections, in nav order. Adding a section is one
+ * The portal's VENDOR-level sections, in nav order (seven; Billing is owner-only). Adding a section is one
  * entry here plus its child route in `vendor.routes.ts` — the two files are read
  * together and nothing else lists the sections.
  *
@@ -64,6 +69,9 @@ export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
   // AECI-1160 (§6.19): what changed on the listing, and who changed it.
   { path: 'history', label: $localize`:@@vendor.nav.history:Changes` },
   { path: 'seats', label: $localize`:@@vendor.nav.seats:Seats` },
+  // AECI-1390 (E5.4): owner seats only. The shell drops it for a member seat
+  // (`ownerOnly`), and the page itself says so to a member who types the URL.
+  { path: 'billing', label: $localize`:@@vendor.nav.billing:Billing`, ownerOnly: true },
 ];
 
 /**

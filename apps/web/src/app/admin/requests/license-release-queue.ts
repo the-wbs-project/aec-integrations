@@ -10,7 +10,7 @@ import type {
 } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
-import { formatTermDate } from '../entitlement/entitlement-term';
+import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminRequestsApi } from './admin-requests-api';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
