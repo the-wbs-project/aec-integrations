@@ -231,14 +231,22 @@ export function createAcceptSeatInviteHandler(
       },
       auth.userId,
     );
-    // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
-    // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
-    // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
-    // The admin's (or redeemer's) retry then re-plans against the cleared state.
+    // Every abort here answers `409 VENDOR_SEATS_CHANGED` with nothing written:
+    // - AECI-1374: the invite was revoked (a last-seat ban revokes them all) or
+    //   spent after the read above. The accept batch spends the invite first and
+    //   `inviteSpentSentinel` aborts on a miss, so a pre-ban read cannot still mint
+    //   the unbanned seat that would clear the `vendor-banned` license flags. The
+    //   client re-reads the preview on any non-GRANT_CONFLICT error, and the
+    //   retry gets the ordinary 422 from the state check above.
+    // - AECI-1092: a return of a contest on a connector-powered row carries
+    //   `ownerEntitlementActiveSentinel`. An entitlement clear that commits first
+    //   aborts the batch, and the retry re-plans against the cleared state.
+    // The returned stmts come AFTER the accept stmts, so each sentinel's
+    // `changes()` still reads the UPDATE directly before it.
     try {
       await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     } catch (error) {
-      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+      if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
     // Post-commit forward (§26.5). No cache tags: a seat change renders on no

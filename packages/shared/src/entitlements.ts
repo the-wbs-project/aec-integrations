@@ -251,21 +251,61 @@ export const LICENSE_SOURCES = ['stripe', 'invoice', 'complimentary'] as const;
 export type LicenseSource = (typeof LICENSE_SOURCES)[number];
 
 /**
+ * The sources an admin grant may write (AECI-1370, E4.1; decision 6). `stripe` is
+ * absent: only Stripe's webhook writes it (E9), so `POST /api/admin/vendors/:id/licenses`
+ * rejects it in Zod. Here, in the zod-free registry, so the admin control can list
+ * them without pulling zod into the lazy route.
+ */
+export const ADMIN_GRANT_LICENSE_SOURCES = [
+  'complimentary',
+  'invoice',
+] as const satisfies readonly LicenseSource[];
+
+/** One source an admin grant may write. */
+export type AdminGrantLicenseSource = (typeof ADMIN_GRANT_LICENSE_SOURCES)[number];
+
+/** The most licenses one admin grant writes (AECI-1370). A larger deal is two grants. */
+export const LICENSE_GRANT_QUANTITY_MAX = 50;
+
+/** `reference` cap on an admin grant: an invoice number, PO or deal note. */
+export const LICENSE_GRANT_REFERENCE_MAX = 200;
+
+/** `notes` cap on an admin grant. Recorded in the audit row only. */
+export const LICENSE_GRANT_NOTES_MAX = 1000;
+
+/**
  * The `licenses.end_reason` vocabulary (AECI-1352): why a license ended, written with
  * `ended_at` by `endLicensesStatements` (`apps/api/src/lib/license.ts`), so E4.2
- * (revoke), E4.4 (release) and E6 (lapse) share one builder. NULL while live. Like
+ * (revoke), a reduction (release) and E6 (lapse) share one builder. NULL while live. Like
  * `source`, the column is UNCONSTRAINED at the DB layer; writers validate against this
  * list. It is not `cancel_reason`, which says why a LIVE license will not renew
  * (decision 15).
  *
  *  - `lapsed`   — the term ran out (E6's daily job), or Stripe cancelled the subscription
- *  - `released` — AECi ended a license the vendor no longer wants (a reduction)
+ *  - `released` — AECi ended a license the vendor no longer wants (a reduction,
+ *                 `VENDOR_SIGNUP_PROCESS.md` §3 step 8). E4.4's approved early unassign
+ *                 is not this: it takes the license off its product and leaves it live
  *  - `revoked`  — AECi pulled it for cause (abuse, misrepresentation)
  */
 export const LICENSE_END_REASONS = ['lapsed', 'released', 'revoked'] as const;
 
 /** One license end reason. */
 export type LicenseEndReason = (typeof LICENSE_END_REASONS)[number];
+
+/**
+ * The `licenses.cancel_reason` vocabulary (AECI-1374): why a LIVE license is flagged
+ * `cancel_at_term_end`, so it ends on its end date instead of renewing (decision 15).
+ * Written with the flag by `setCancelAtTermEndStatements` (`apps/api/src/lib/license.ts`),
+ * cleared to NULL with it. Unconstrained at the DB layer like `end_reason`; writers
+ * validate against this list.
+ *
+ *  - `vendor-banned` — the ban of the vendor's last unbanned seat flagged every live
+ *                      license (E4.5). The unban that restores a seat clears only these.
+ */
+export const LICENSE_CANCEL_REASONS = ['vendor-banned'] as const;
+
+/** One license cancel reason. */
+export type LicenseCancelReason = (typeof LICENSE_CANCEL_REASONS)[number];
 
 /**
  * The status a row must carry to grant anything. `tierFor` still takes a loose

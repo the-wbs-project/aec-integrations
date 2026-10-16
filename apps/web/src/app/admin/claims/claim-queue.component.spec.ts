@@ -866,9 +866,10 @@ describe('ClaimQueue', () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
       const card = cardFor(el, 'Procore');
       const link = [...card.querySelectorAll('a')].find(
-        (a) => a.textContent?.trim() === 'Manage entitlement',
+        (a) => a.textContent?.trim() === 'Manage billing',
       );
-      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
+      // AECI-1372: the license view and the grant live on the Billing tab.
+      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=billing`);
     });
 
     it('renders no link when the claim has no vendor to act on', async () => {
@@ -876,7 +877,7 @@ describe('ClaimQueue', () => {
       const card = cardFor(el, 'Procore');
       expect(card.textContent).toContain('Unavailable');
       expect(
-        [...card.querySelectorAll('a')].some((a) => a.textContent?.trim() === 'Manage entitlement'),
+        [...card.querySelectorAll('a')].some((a) => a.textContent?.trim() === 'Manage billing'),
       ).toBe(false);
     });
 

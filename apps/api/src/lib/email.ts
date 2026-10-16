@@ -1508,6 +1508,175 @@ export function sendEntitlementExpiringAdminEmail(
   });
 }
 
+// ─── Licenses granted (AECI-1370, E4.1) ───────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §3 step 5: AECi grants N complimentary or invoice
+// licenses, and the vendor gets the "licenses on" email of step 4 "with the free or
+// invoiced wording". Sent post-commit by `POST /api/admin/vendors/:id/licenses` to
+// every unbanned seat and to the billing email when one is set (decision 16).
+//
+// A grant assigns nothing. Assignment is the vendor's, in the portal Billing tab,
+// which E5 has not built yet. So the copy says AECi will help assign them and asks
+// for a reply, and does not send the vendor to a tab that does not exist. E5 changes
+// that sentence. Stripe wording waits for E9.
+
+/** What one `licenses-granted` email describes. */
+export interface LicensesGrantedSubject {
+  to: string;
+  vendorName: string;
+  /** How many licenses this grant wrote. */
+  count: number;
+  source: 'complimentary' | 'invoice';
+  /** The licenses' `ends_at`, a full ISO timestamp or `YYYY-MM-DD`. */
+  endsAt: string;
+  /** The invoice number or PO. Shown on an invoice grant only. */
+  reference: string | null;
+}
+
+/**
+ * `licenses-granted`: tells a vendor it has N Managed licenses until a date. Wording
+ * keyed by source: complimentary says there is nothing to pay, invoice names the
+ * reference. Replies go to `SUPPORT_EMAIL`, because the ask is a reply.
+ */
+export function sendLicensesGrantedEmail(
+  c: EmailContext,
+  opts: LicensesGrantedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const holder = company || 'Your company';
+  const date = formatLongDay(opts.endsAt);
+  const n = opts.count;
+  const licenses = n === 1 ? '1 Managed license' : `${n} Managed licenses`;
+  const portal = portalUrl(c.env);
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const lead = `${holder} has ${licenses} on AEC Integrations until ${date}.`;
+  const reference = opts.reference?.trim();
+  const how =
+    opts.source === 'complimentary'
+      ? `${n === 1 ? 'It is' : 'They are'} complimentary. There is nothing to pay and no card is needed.`
+      : reference
+        ? `${n === 1 ? 'It is' : 'They are'} covered by your invoice ${reference}.`
+        : `${n === 1 ? 'It is' : 'They are'} covered by your invoice.`;
+  const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. Reply to this email with the products you want on Managed, and we will help you assign them.`;
+  const onEnd = `On ${date} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
+  const stance =
+    "A license changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
+
+  const render = (link: LinkTagger): EmailContent => {
+    const paragraphs = [lead, how, assign, onEnd];
+    const textParagraphs = [...paragraphs];
+    const htmlParagraphs = paragraphs.map(escapeHtml);
+    if (portal) {
+      const tagged = link(portal);
+      textParagraphs.push(`Open the vendor portal: ${tagged}`);
+      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
+    }
+    textParagraphs.push(stance);
+    htmlParagraphs.push(escapeHtml(stance));
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'licenses-granted',
+    // A date, never a day count: a count goes stale in the inbox.
+    subject: `You have ${licenses} until ${date}`,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+// ─── Managed ended (AECI-1371, E4.2) ──────────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §3 step 10: "Managed has ended for <products>." A license
+// on a product ended, so the product is on Free (decision 14, the hand-back). Sent
+// post-commit by the admin revoke (`PATCH /api/admin/licenses/:id`) to every unbanned
+// seat and to the billing email when set. E6's term-end job reuses this sender for a
+// lapse, so the subject takes several products and a cause, not a revoke's fields.
+
+/** Why the license ended. The `LICENSE_END_REASONS` vocabulary. */
+export type ManagedEndedCause = 'revoked' | 'lapsed' | 'released';
+
+/** What one `managed-ended` email describes. */
+export interface ManagedEndedSubject {
+  to: string;
+  vendorName: string;
+  /** The products that left Managed. One for a revoke; a lapse may end several. */
+  products: readonly { slug: string; name: string }[];
+  cause: ManagedEndedCause;
+  /** AECi's vendor-visible reason, on a revoke. Never an internal note. */
+  reason: string | null;
+}
+
+/** "A", "A and B", "A, B and C". */
+function listNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * `managed-ended`: tells a vendor that one or more of its products left Managed, why,
+ * and that nothing it entered is removed. Replies go to `SUPPORT_EMAIL`, because the
+ * way back to Managed is a reply until E9 ships a buy button.
+ */
+export function sendManagedEndedEmail(
+  c: EmailContext,
+  opts: ManagedEndedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const names = opts.products.map((p) => p.name.trim() || p.slug);
+  const subjectNames = listNames(names) || 'your product';
+  const one = names.length <= 1;
+  const company = opts.vendorName.trim();
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const others = company ? `${company}'s other products` : 'Your other products';
+  const lead = `Managed has ended for ${subjectNames} on AEC Integrations. ${one ? 'It is' : 'They are'} on the Free plan from today. ${others} keep their plans.`;
+  const license = one ? 'the license' : 'the licenses';
+  const reason = opts.reason?.trim();
+  const why =
+    opts.cause === 'revoked'
+      ? reason
+        ? `AEC Integrations ended ${license}. Reason: ${reason}`
+        : `AEC Integrations ended ${license}.`
+      : opts.cause === 'lapsed'
+        ? `${one ? 'The license' : 'The licenses'} reached ${one ? 'its' : 'their'} end date and ${one ? 'was' : 'were'} not renewed.`
+        : `${one ? 'The license was' : 'The licenses were'} released.`;
+  const handback =
+    'Everything your team entered stays live, and nothing is deleted. Your team can no longer edit the Managed fields, and AEC Integrations may update them again.';
+  const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
+
+  const render = (link: LinkTagger): EmailContent => {
+    const paragraphs = [lead, why, handback, back];
+    const textParagraphs = [...paragraphs];
+    const htmlParagraphs = paragraphs.map(escapeHtml);
+    for (const [i, product] of opts.products.entries()) {
+      const url = productUrl(c.env, product.slug);
+      if (!url) continue;
+      const tagged = link(url);
+      textParagraphs.push(`${names[i]}: ${tagged}`);
+      htmlParagraphs.push(`<a href="${escapeHtml(tagged)}">${escapeHtml(names[i] ?? '')}</a>`);
+    }
+    const portal = portalUrl(c.env);
+    if (portal) {
+      const tagged = link(portal);
+      textParagraphs.push(`Open the vendor portal: ${tagged}`);
+      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
+    }
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'managed-ended',
+    subject: `Managed has ended for ${subjectNames}`,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
  *  captured from `session.email` BEFORE the `auth.users` row is erased. */
 export function sendAccountDeletionEmail(
@@ -3031,6 +3200,76 @@ export function sendProductRequestAlert(
     to: c.env.SUPPORT_EMAIL ?? '',
     template: 'product-request-alert',
     subject: `[AECi] Product request: ${name}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    ...(request.requesterEmail ? { replyTo: request.requesterEmail } : {}),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
+/** An early-unassign request as `POST /api/vendor/licenses/:id/release-request` saved
+ *  it (AECI-1373). */
+export interface LicenseReleaseRequestSummary {
+  /** The `license_release_requests.id` of the saved row. */
+  requestId: string;
+  licenseId: string;
+  vendorName: string;
+  /** The product the license is on. */
+  productName: string;
+  /** `LICENSE_SOURCES`. */
+  licenseSource: string;
+  /** The license's scheduled end, ISO. `null` = monthly. */
+  endsAt: string | null;
+  /** The owner's reason. */
+  reason: string;
+  /** The requesting seat's session email, or `null` when the session carried none. */
+  requesterEmail: string | null;
+}
+
+/**
+ * Operator alert: an owner seat asked AECi to take a license off its product before
+ * renewal (AECI-1373, `VENDOR_SIGNUP_PROCESS.md` decision 11, `ADMIN_PANEL_SPEC.md`
+ * §5.17). To `SUPPORT_EMAIL`, reply-to the requesting seat, the `listing-request-alert`
+ * shape. The CTA opens `/admin/requests`, where the request waits either way, which is
+ * why the entry is pausable.
+ *
+ * The reason is vendor-typed, so it is `plain` (the AECI-1197 rule), as are the
+ * vendor and product names.
+ */
+export function sendLicenseReleaseRequestAlert(
+  c: EmailContext,
+  opts: { request: LicenseReleaseRequestSummary } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { request } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const rows: EmailTableRow[] = [
+    ['Vendor', request.vendorName, { plain: true }],
+    ['Product', request.productName, { plain: true }],
+    ['License source', request.licenseSource],
+    ['Term ends', request.endsAt ? request.endsAt.slice(0, 10) : 'monthly, no end date'],
+    ['Seat', request.requesterEmail ?? 'not known', { plain: true }],
+    ['Reason', request.reason, { plain: true }],
+    ['License id', request.licenseId],
+    ['Request id', request.requestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+
+  const vendor = subjectSafe(request.vendorName);
+  const product = subjectSafe(request.productName);
+  const intro = `${vendor} asked us to take its license off ${product} before renewal. Approve it to put the license back in their pool, or decline it with a reason, on the requests screen.`;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: `Early unassign request: ${product}`,
+    table: rows,
+    ...(base
+      ? { cta: { label: 'Open the requests queue', url: link(`${base}/admin/requests`) } }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'license-release-request-alert',
+    subject: `[AECi] Early unassign request: ${vendor}, ${product}`,
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     ...(request.requesterEmail ? { replyTo: request.requesterEmail } : {}),
     dedupeKey: opts.dedupeKey,

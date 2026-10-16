@@ -437,6 +437,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       seat_name: null,
       record_subject: null,
       value: null,
+      license_product: null,
       created_at: expect.any(String),
     };
     expect(body.notifications).toEqual([
@@ -481,6 +482,67 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
     expect(body.notifications).toHaveLength(1);
     expect(JSON.stringify(body)).not.toContain('Written for AECi only.');
     expect(JSON.stringify(body)).not.toContain('Never shown.');
+  });
+
+  it('maps a license revoke (AECI-1371), assigned and unassigned, with the reason', async () => {
+    const assigned = aeciOverrideNotificationAudit('portal-license-revoked-by-aeci', ADMIN_ACTOR, {
+      event: 'license_revoked',
+      vendorId: VENDOR,
+      reason: REASON,
+      billingAccountId: uuid(60),
+      licenseId: uuid(61),
+      product: { id: uuid(62), slug: 'revit', name: 'Revit' },
+    });
+    expect(assigned).toMatchObject({
+      entityType: 'billing_account',
+      entityId: uuid(60),
+      productId: uuid(62),
+    });
+    const unassigned = aeciOverrideNotificationAudit(
+      'portal-license-revoked-by-aeci',
+      ADMIN_ACTOR,
+      {
+        event: 'license_revoked',
+        vendorId: VENDOR,
+        reason: REASON,
+        billingAccountId: uuid(60),
+        licenseId: uuid(63),
+        product: null,
+      },
+    );
+    await ledgerRow({ metadata: assigned.metadata, createdAt: daysAgo(2) });
+    await ledgerRow({ metadata: unassigned.metadata, createdAt: daysAgo(1) });
+
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    expect(body.notifications).toEqual([
+      expect.objectContaining({
+        kind: 'aeci_override',
+        event: 'license_revoked',
+        reason: REASON,
+        license_product: null,
+      }),
+      expect.objectContaining({
+        kind: 'aeci_override',
+        event: 'license_revoked',
+        reason: REASON,
+        license_product: { slug: 'revit', name: 'Revit' },
+      }),
+    ]);
+  });
+
+  it('refuses to build a license revoke row under another notification id', () => {
+    expect(() =>
+      aeciOverrideNotificationAudit('portal-seat-revoked-by-aeci', ADMIN_ACTOR, {
+        event: 'license_revoked',
+        vendorId: VENDOR,
+        reason: REASON,
+        billingAccountId: uuid(60),
+        licenseId: uuid(61),
+        product: null,
+      }),
+    ).toThrow();
   });
 
   it('is isolated to its recipient', async () => {

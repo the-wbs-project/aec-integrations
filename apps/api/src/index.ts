@@ -53,6 +53,7 @@ import {
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
+import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes/admin-licenses';
 import { createSetVendorPlanPricingHandler } from './routes/admin-plan-pricing';
 import {
   createAdminRevokeSeatHandler,
@@ -63,6 +64,7 @@ import {
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
 import { createAdminVendorAcceptancesHandler } from './routes/admin-vendor-acceptances';
+import { createAdminVendorBillingHandler } from './routes/admin-vendors-billing';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
@@ -81,6 +83,11 @@ import {
   createListVendorProductRequestsHandler,
   createVendorProductRequestHandler,
 } from './routes/vendor-product-requests';
+import {
+  createAdminLicenseReleaseRequestsListHandler,
+  createDecideLicenseReleaseRequestHandler,
+} from './routes/admin-license-release-requests';
+import { createVendorLicenseReleaseRequestHandler } from './routes/vendor-license-release';
 import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
@@ -667,6 +674,16 @@ app.route('/', authActivity);
 //     operators not to press Grant. Two statements in one batch, neither naming
 //     `vendors`. No email, no purge, no workflow row. Warns on a non-connector
 //     vendor; never gates (§5.2 step 1).
+//   - POST   /api/admin/vendors/:id/licenses     (AECI-1370, E4.1) — grant N
+//     unassigned complimentary or invoice licenses on the billing account, one
+//     `license.granted` audit row each, in one batch. Idempotent on `grant_id`.
+//     Post-commit `licenses-granted` email; purge only on a `verified` mirror flip.
+//   - PATCH  /api/admin/licenses/:id             (AECI-1371, E4.2) — `extend`,
+//     `reference` (invoice only) or `revoke` one license. Stripe refuses the first
+//     two (409); an ended license refuses all three (422). A revoke ends the license
+//     (it keeps its product as history) with `license.revoked` and the vendor's
+//     Messages row in one batch; when it was on a product, post-commit purge of the
+//     product and vendor tags and the `managed-ended` email.
 //   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
@@ -778,6 +795,21 @@ authAdmin.patch(
   '/api/admin/product-requests/:id',
   requireAdmin(),
   createDecideProductRequestHandler(),
+);
+// AECI-1373 (E4.4, ADMIN_PANEL_SPEC.md §5.17): early-unassign requests, the fourth
+// section of /admin/requests. The read is never rate-limited and audits nothing. The
+// decision is a write: an approve unassigns the license through lib/license.ts, and
+// both outcomes write their audit and portal rows in one batch with race sentinels.
+authAdmin.get(
+  '/api/admin/license-release-requests',
+  requireAdmin(),
+  createAdminLicenseReleaseRequestsListHandler(),
+);
+authAdmin.patch(
+  '/api/admin/license-release-requests/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createDecideLicenseReleaseRequestHandler(),
 );
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.
@@ -897,6 +929,10 @@ authAdmin.get(
   requireAdmin(),
   createAdminVendorAcceptancesHandler(),
 );
+// AECI-1372 (E4.3): the read-only Billing tab: billing account, owner seats, every
+// license, acceptances and (from E4.4) early-unassign requests. A read: no audit, no
+// limiter; 404 on an unknown vendor, 200 with `billing_account: null` when it has none.
+authAdmin.get('/api/admin/vendors/:id/billing', requireAdmin(), createAdminVendorBillingHandler());
 // AECI-1046: the vendor-held integrations a vendor owns (the Integrations tab), and the
 // admin retire and restore of one. The ninth named write exception in
 // `ADMIN_PANEL_SPEC.md`: a MODERATION write on a vendor's listing, on the owner
@@ -939,6 +975,24 @@ authAdmin.post(
   createAdminRestoreIntegrationHandler(),
 );
 authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
+// AECI-1370 (E4.1): grant N complimentary or invoice licenses on the vendor's billing
+// account, through `grantLicensesStatements` (`lib/license.ts`). Idempotent on the
+// body's `grant_id`. A write, so `rateLimit('write')` after the guard.
+authAdmin.post(
+  '/api/admin/vendors/:id/licenses',
+  requireAdmin(),
+  rateLimit('write'),
+  createGrantLicensesHandler(),
+);
+// AECI-1371 (E4.2): extend, re-reference or revoke one license, through
+// `setLicensesTermStatements` / `endLicensesStatements` (`lib/license.ts`). A write,
+// so `rateLimit('write')` after the guard.
+authAdmin.patch(
+  '/api/admin/licenses/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createUpdateLicenseHandler(),
+);
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),
@@ -1549,6 +1603,15 @@ authVendor.get(
   '/api/vendor/billing/acceptances',
   requireVendor(),
   createVendorBillingAcceptancesHandler(),
+);
+// AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
+// seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`
+// inside the handler. E5 ships the portal button.
+authVendor.post(
+  '/api/vendor/licenses/:id/release-request',
+  requireVendor(),
+  rateLimit('write'),
+  createVendorLicenseReleaseRequestHandler(),
 );
 app.route('/', authVendor);
 

@@ -294,8 +294,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
 | `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
+| `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
+| `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -314,6 +316,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
 | `PRODUCT_REQUEST_EXISTS` | 409 | `POST /api/vendor/product-requests` when the caller's vendor already has an OPEN request whose `name` matches, trimmed and case-insensitive (AECI-1377, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). `details.request_id` names it. A decided request does not block a new one. Also the loser of two seats asking at once: the batch rolls back and answers the same code. Nothing is written |
 | `PRODUCT_NOT_PROMOTED` | 422 | `PATCH /api/admin/product-requests/:id` with `outcome: 'added'` or `'already_listed'` whose `product_id` is not a promoted product, or names no product (AECI-1377). Create and promote the product first. `field` is `product_id`. Nothing is written |
+| `LICENSE_NOT_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/release-request` (AECI-1373) on a license that is ended or on no product: there is nothing to free. Also `PATCH /api/admin/license-release-requests/:id` with `action: 'approve'` when the license ended, was unassigned or moved to another product since the owner asked, including a change that lands between the read and the batch. Nothing is written. Decline the request instead |
+| `RELEASE_REQUEST_OPEN` | 409 | `POST /api/vendor/licenses/:id/release-request` while the license already has an open request (AECI-1373), including the loser of two racing asks (the partial unique index `license_release_requests_open_license_key`). `details.request_id` names the open one |
+| `RELEASE_REQUEST_NOT_OPEN` | 409 | `PATCH /api/admin/license-release-requests/:id` on a request already approved or declined, including one another admin decided between the read and the batch (AECI-1373). Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -2072,6 +2077,75 @@ decline reason is shown to the vendor. Errors: `NOT_FOUND` (unknown id),
 `INVALID_STATE_TRANSITION` (422, not `open`, or lost the race), `PRODUCT_NOT_PROMOTED`
 (422), `VALIDATION_FAILED`. No cache purge: nothing public changes.
 
+#### `GET /api/admin/license-release-requests` and `PATCH /api/admin/license-release-requests/:id` (AECI-1373)
+
+The early-unassign queue on `/admin/requests` (`VENDOR_SIGNUP_PROCESS.md` decision 11,
+`ADMIN_PANEL_SPEC.md` §5.17). Behind `requireAdmin()`. The GET is never rate-limited and
+writes no audit row. The PATCH is behind `rateLimit('write')`. Source of truth:
+`packages/shared/src/api/license-release-requests.ts`; handlers in
+`apps/api/src/routes/admin-license-release-requests.ts`.
+
+```typescript
+export const ListLicenseReleaseRequestsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'approved', 'declined']).default('open'),
+});
+export const AdminLicenseReleaseRequestSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['open', 'approved', 'declined']),
+  license_id: z.string(),
+  vendor_id: z.string(),
+  vendor: LinkRefSchema.nullable(),          // joined; null when the vendor row is gone
+  billing_account_id: z.string(),
+  product_id: z.string().nullable(),         // the product the license was on when asked
+  product: LinkRefSchema.nullable(),         // joined; null when gone
+  requested_by: z.string().nullable(),       // the owner seat; no FK; null after erasure
+  reason: z.string(),
+  created_at: z.string(),
+  decided_by: z.string().nullable(),         // no FK; null after erasure
+  decided_at: z.string().nullable(),
+  decision_note: z.string().nullable(),      // a decline's reason; shown to the vendor
+  license: z.object({                        // the license as it stands NOW
+    source: z.string(),
+    starts_at: z.string(),
+    ends_at: z.string().nullable(),
+    ended_at: z.string().nullable(),
+    assigned_product_id: z.string().nullable(),
+  }).nullable(),
+});
+// GET → paginatedResponseSchema(AdminLicenseReleaseRequestSchema), newest first, `id` tiebreak.
+export const DecideLicenseReleaseRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('approve') }).strict(),
+  z.object({ action: z.literal('decline'), reason: AdminReasonSchema }).strict(), // 1..1000
+]);
+// PATCH → AdminLicenseReleaseRequest, re-read after commit.
+```
+
+**Approve.** One `db.batch`: the request `UPDATE … WHERE status = 'open'`, a `changes()`
+sentinel, the license UPDATE from `unassignLicenseStatements` (`lib/license.ts`) with the
+action overridden to `license.release_approved`, a second sentinel, that audit row, the
+`vendors.verified` mirror reconcile, and the vendor's `portal-license-release-approved-by-aeci`
+`notification.sent` row. The license stays live (`ended_at` NULL), keeps `starts_at` and
+`ends_at`, loses its product, and has `release_at_renewal` cleared. The product resolves to
+Free. After commit the handler purges `product:{slug}`, `index:products` and
+`vendor:{slug}`.
+
+**The license must still be on the product the owner asked about.** If it ended, was
+unassigned, or moved to another product, before the read or between the read and the
+batch, the approve answers `409 LICENSE_NOT_ASSIGNED` and nothing is written. The request
+stays open. The operator declines it instead.
+
+**Decline.** One `db.batch`: the guarded request UPDATE (with `decision_note`), the
+sentinel, the `license.release_declined` audit row (`vendor_tier` and
+`vendor_entitlement_status` from the license snapshot), and the vendor's
+`portal-license-release-declined-by-aeci` row carrying the reason. No license write, no
+purge.
+
+Audit rows file under `entity_type = 'billing_account'`, `entity_id` = the billing account,
+with `metadata.license_id` and `metadata.request_id`, `vendor_id` and the request-time
+`product_id`. Errors: `NOT_FOUND` (unknown id), `RELEASE_REQUEST_NOT_OPEN` (409: decided, or
+another admin decided it first; nothing written), `LICENSE_NOT_ASSIGNED` (409, approve only),
+`VALIDATION_FAILED`, `MALFORMED_REQUEST`.
+
 #### `GET /api/admin/claims` (Stage 2 — AECI-521)
 
 The **claim-review queue**: pending vendor **claims** enriched with the reviewer-assist
@@ -2251,6 +2325,8 @@ fail-open like every send.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+
 **The grant brings the billing account (AECI-1351).** When the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged. (Since AECI-1367 this is the only account-level write beside the seat.)
 
 **As built 2026-10-15 (AECI-1367, epic AECI-1333 E3.4): every approval lands on Free.** The Free or Managed choice (AECI-1215) is superseded (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). The `plan` and `entitlement` request fields and the `plan` and `entitlement_created` response fields are gone. The pre-AECI-1367 contract is in git history.
@@ -2314,7 +2390,8 @@ atomic `db.batch`:
    audit row filed under `entity_type = 'vendor_request'` and `entity_id` = the claim id,
    with the `acceptance_ids` in `afterState`. The audit row is emitted only when a pre-read
    (`loadClaimAcceptanceIds`) finds rows (`DATABASE_SCHEMA.md` §8.6d).
-4. The AECI-989 seat return, with `entitledAfterBatch: false`.
+4. The AECI-989 seat return, with `entitledAfterBatch: false`. It also clears the vendor's
+   `vendor-banned` license flags (ruled 2026-10-15, `clearVendorBannedFlagsStatements`).
 
 No entitlement row is written, `vendors.verified` is not touched, and **nothing is purged**.
 Post-commit (best-effort): fire the claim-approved email. A `target_type='product'` claim
@@ -2351,7 +2428,7 @@ Errors:
   claim) committed between this handler's read and its batch. The batch's first
   statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
   `details.status` is the claim's status now (AECI-1333).
-- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
+- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again.
 - ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
   never activates an entitlement, so there is no activate to lose a race. The seat-return
   sentinel still gives `VENDOR_SEATS_CHANGED` above.
@@ -2807,6 +2884,91 @@ Errors: `404 NOT_FOUND` on an unknown vendor id. An empty 200 would read as "thi
 accepted nothing". Plus the shared 401/403. Handler:
 `apps/api/src/routes/admin-vendor-acceptances.ts`.
 
+#### `GET /api/admin/vendors/:id/billing` (AECI-1372, E4.3)
+
+The read-only Billing tab on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7; decision 17
+of `VENDOR_SIGNUP_PROCESS.md` §2). Behind `requireAdmin()`. A read: no audit row, never
+rate-limited, `Cache-Control: private, no-store`. Contract:
+`packages/shared/src/api/admin-vendor-billing.ts`. Handler:
+`apps/api/src/routes/admin-vendors-billing.ts`.
+
+One `db.batch` of five reads: the vendor (the 404 gate), its billing account, its owner
+seats (`profiles.seat_owner`, banned ones included and flagged), every license on its
+account with the assigned product, and its acceptances (`listVendorAcceptances`, the same
+reader and order as `GET /api/admin/vendors/:id/acceptances`). The owner-seat emails come
+from one bounded GoTrue lookup after the batch.
+
+```typescript
+export const ADMIN_BILLING_LICENSES_MAX = 500;
+export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
+
+export const AdminBillingAccountSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  billing_email: z.string().nullable(),        // null until checkout (decision 16)
+  stripe_customer_id: z.string().nullable(),
+  created_at: z.string(),
+  owner_seats: z.array(z.object({
+    user_id: z.string(),
+    display_name: z.string().nullable(),
+    email: z.string().nullable(),              // GoTrue; see seat_emails_available
+    banned: z.boolean(),
+  })),
+  seat_emails_available: z.boolean(),
+});
+
+export const AdminBillingLicenseSchema = z.object({
+  id: z.string(),
+  source: z.string(),                          // LICENSE_SOURCES; unconstrained in D1
+  starts_at: z.string(),
+  ends_at: z.string().nullable(),              // null = monthly
+  ended_at: z.string().nullable(),             // null = live
+  end_reason: z.string().nullable(),           // LICENSE_END_REASONS
+  live: z.boolean(),                           // ended_at === null, never from ends_at
+  reference: z.string().nullable(),
+  assigned_product: z.object({ id: z.string(), slug: z.string(), name: z.string() }).nullable(),
+  assigned_at: z.string().nullable(),
+  release_at_renewal: z.boolean(),
+  cancel_at_term_end: z.boolean(),
+  cancel_reason: z.string().nullable(),        // LICENSE_CANCEL_REASONS
+  stripe_subscription_id: z.string().nullable(),
+  terms_version: z.string().nullable(),        // a pointer; the record is `acceptances`
+  granted_by: z.string().nullable(),
+  created_at: z.string(),
+});
+
+// AdminLicenseReleaseRequestSchema: the queue's own row shape (AECI-1373), in
+// `license-release-requests.ts`. See "GET /api/admin/license-release-requests" below.
+
+export const AdminVendorBillingResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account: AdminBillingAccountSchema.nullable(),
+  licenses: z.array(AdminBillingLicenseSchema),
+  licenses_truncated: z.boolean(),
+  acceptances: z.array(AdminAgreementAcceptanceSchema),
+  acceptances_truncated: z.boolean(),
+  release_requests: z.array(AdminLicenseReleaseRequestSchema),   // open first, ≤ 50
+});
+```
+
+- **Order.** Licenses: live first, oldest first; then ended, most recently ended first;
+  `id` breaks ties. Acceptances: newest first.
+- **Bound.** At most 500 licenses and 200 acceptances. Each list reads its cap plus one,
+  and `*_truncated` is `true` when the cap bit. A grant writes at most 50 licenses and a
+  Stripe subscription is one row per unit, so a real account sits far below the cap.
+  Live rows sort first, so a truncated list drops old ended rows, never a live one below
+  the cap.
+- **`billing_account: null` is a 200**, with `licenses: []`. Every vendor with a seat or
+  an entitlement was back-filled an account (E1), so this is a back-fill defect, and the
+  tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
+- **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
+  read. The UI labels the known values.
+- **`release_requests`** (AECI-1373) is the vendor's early-unassign requests, the same row
+  shape as the queue: open first, then decided, newest first within each, `id` tiebreak,
+  at most `ADMIN_BILLING_RELEASE_REQUESTS_MAX` (50). A sixth read in the same batch.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 
 Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin-side
@@ -2886,6 +3048,8 @@ Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_adm
 model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 ```typescript
 export const ProvisionVendorSeatSchema = z.object({
@@ -2977,7 +3141,7 @@ Errors:
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id. Checked **before** identity resolution, so a bad id cannot orphan a provisioned `auth.users` row |
 | 409 | `GRANT_CONFLICT` | The account is a site `admin`, or is already linked to a **different** vendor. `details.reason` is `already_admin` \| `other_vendor` |
-| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the provision did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again |
 | 503 | `DEPENDENCY_FAILURE` | `SUPABASE_SERVICE_ROLE_KEY` absent or GoTrue errored. Refuses rather than half-provisioning |
 | 400 | `VALIDATION_FAILED` | Malformed body or email (the shared `ZodError` mapping), or a missing path parameter |
 | 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
@@ -3129,6 +3293,178 @@ write a claimed vendor. Clearing an entitlement leaves the seats, so the promote
 force while the portal's writes now 403 — **nobody can edit that vendor.** Un-verify is rare and
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
+
+#### `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1)
+
+Grant N complimentary or invoice Managed licenses on the vendor's billing account.
+Behind `requireAdmin()` and `rateLimit('write')`. **A grant assigns nothing:** the
+licenses land unassigned and no product changes plan; the vendor assigns them (E5).
+Source of truth: `packages/shared/src/api/admin-licenses.ts`,
+`apps/api/src/routes/admin-licenses.ts`; process: `VENDOR_SIGNUP_PROCESS.md` §3 step 5,
+decisions 6, 16, 17.
+
+```typescript
+export const GrantLicensesSchema = z.object({
+  grant_id: z.string().uuid(),                 // minted by the form when it opens
+  quantity: z.number().int().min(1).max(50),
+  source: z.enum(['complimentary', 'invoice']), // 'stripe' is rejected: only E9 writes it
+  starts_at: EntitlementTermDateSchema.optional(), // date-only or ISO; default: now
+  ends_at: EntitlementTermDateSchema,           // required for both sources
+  reference: z.string().trim().max(200).optional(), // required when source = 'invoice'
+  notes: z.string().trim().max(1000).optional(),    // audit metadata.notes only
+});
+
+export const GrantLicensesResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  grant_id: z.string(),
+  replayed: z.boolean(), // true: this grant_id was already granted; nothing written or sent
+  licenses: z.array(z.object({
+    id: z.string(), source: z.enum(LICENSE_SOURCES), starts_at: z.string(),
+    ends_at: z.string().nullable(), reference: z.string().nullable(),
+    assigned_product_id: z.string().nullable(), // always null on a grant
+  })),
+  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })),
+});
+```
+
+```json
+POST /api/admin/vendors/0000…0002/licenses
+{ "grant_id": "1111…1111", "quantity": 2, "source": "invoice",
+  "ends_at": "2027-06-30", "reference": "PO-77" }
+
+201
+{ "vendor_id": "0000…0002", "billing_account_id": "…", "grant_id": "1111…1111",
+  "replayed": false, "warnings": [],
+  "licenses": [{ "id": "…", "source": "invoice", "starts_at": "2026-10-15T09:12:00.000Z",
+    "ends_at": "2027-06-30T00:00:00.000Z", "reference": "PO-77", "assigned_product_id": null }, …] }
+```
+
+**Dates.** `ends_at` must be after the start, compared as instants
+(`STAGE_2_PAID_TIERS_SPEC.md` §5.5). With no `starts_at` the start is the request time,
+so a date-only `ends_at` of today is refused. Both are stored as `toISOString()`.
+
+**Idempotent on `grant_id`.** License ids are `uuidv5('license:{grant_id}:{i}')`, so a
+retry cannot write a second set. If every id of this grant exists on this billing account
+with the same source, end date, reference (and start, when sent), and no further id
+exists, the answer is **200** with `replayed: true` and the stored rows: nothing is
+written and no email is sent. Any other overlap is `409 LICENSE_GRANT_CONFLICT`. A repeat
+that races past the pre-read loses on the `licenses` primary key, rolls back whole and
+answers the same 409.
+
+**Writes.** One `db.batch` from `grantLicensesStatements` (`lib/license.ts`): N INSERTs
+(`granted_by` = the admin), one `license.granted` audit row per license
+(`entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` stamped,
+`metadata.license_id`, `metadata.grant_id`, `metadata.notes` when given), then the
+`vendors.verified` mirror reconcile. **Purge** of the vendor tag set (`vendorPurgeTags`)
+only when the grant is predicted to flip the mirror, because the pair-page version-diff
+gate reads it. No Algolia step.
+
+**Warnings, never a gate.** A vendor whose every owned product is a connector gets a
+`pure_connector_vendor` entry in `warnings`, and the grant still writes (AECI-738).
+
+**Email.** Post-commit in `waitUntil`, `licenses-granted` to every unbanned seat and to
+`billing_accounts.billing_email` when set, each address once, keyed
+`licenses-granted:{grant_id}:{recipient hash}` (`docs/NOTIFICATIONS.md`). With no GoTrue
+service-role key no seat resolves: the billing email still gets it and the route warns.
+A failed send never fails the response.
+
+| Status | Code | When |
+|---|---|---|
+| 201 | — | licenses written |
+| 200 | — | replay of the same `grant_id`: nothing written |
+| 400 | `VALIDATION_FAILED` | `field` names it: missing or invalid `ends_at`, `ends_at` not after the start, `reference` missing on an invoice grant, `quantity` outside 1 to 50, `source` not `complimentary` or `invoice` (including `stripe`), `grant_id` not a UUID. Nothing written |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 404 | `NOT_FOUND` | unknown vendor (`details.resource = 'vendor'`), or the vendor has no billing account (`details.resource = 'billing_account'`, `details.id` = the vendor id) |
+| 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names licenses that do not match this request, or a racing repeat won the ids. Nothing written |
+
+Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
+rate limit's 429.
+
+#### `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2)
+
+Edit one license: move its end date, change its invoice reference, or revoke it. Behind
+`requireAdmin()` and `rateLimit('write')`. Source of truth:
+`packages/shared/src/api/admin-licenses.ts`, `apps/api/src/routes/admin-licenses.ts`;
+process: `VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 11, decisions 11 and 14.
+
+```typescript
+export const UpdateLicenseSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('extend'), ends_at: EntitlementTermDateSchema }).strict(),
+  z.object({ action: z.literal('reference'), reference: z.string().trim().min(1).max(200) }).strict(),
+  // AdminOverrideReasonSchema, as on the seat revoke: reason 1 to 1000, internalNote optional
+  z.object({ action: z.literal('revoke'), reason: AdminReasonSchema,
+    internalNote: AdminInternalNoteSchema }).strict(),
+]);
+
+export const UpdateLicenseResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  action: z.enum(['extend', 'reference', 'revoke']),
+  changed: z.boolean(), // false: the same reference again; nothing written
+  license: AdminGrantedLicenseSchema.extend({
+    ended_at: z.string().nullable(), end_reason: z.string().nullable(),
+  }),
+});
+```
+
+**Refusals, in order.** Nothing is written on any of them.
+
+1. The body fails the schema: `400`. A revoke with a missing or blank `reason` is one.
+2. No license with this id: `404`, `details.resource = 'license'`.
+3. The license has ended: `422 INVALID_STATE_TRANSITION` for every action. There is no
+   un-end; a new license is a new grant.
+4. `extend` or `reference` on a Stripe license: `409 LICENSE_SOURCE_STRIPE`.
+5. `reference` on a complimentary license: `422 INVALID_STATE_TRANSITION`
+   (`details.source`). Only an invoice license carries a reference.
+6. `extend` whose `ends_at` is not strictly after the current end, compared as instants:
+   `400 VALIDATION_FAILED`, `field: 'ends_at'`. A license with no end date yet (an
+   open-ended complimentary back-fill, ruled 2026-10-14) takes any `ends_at` after now and
+   after its start. That is how AECi sets the date it deferred.
+7. A lost race: the license changed or ended between the read and the batch. A
+   concurrent revoke or lapse ends it. A concurrent extend or reference moves its term or
+   reference. The license UPDATE is guarded on `ended_at IS NULL`. For `extend` and
+   `reference` it is also guarded on the `ends_at`, `source` and `reference` the handler
+   read, compared NULL-safe (`setLicensesTermStatements({ expectUnchanged: true })`). A
+   `changedOneRowSentinel` straight after it aborts the batch when that guard matched no
+   row. The answer is `422 INVALID_STATE_TRANSITION` (`details.state = 'changed'`). No
+   audit row, no Messages row, no purge and no email. The license keeps the winner's
+   values, so two overlapping extends can never shorten a term and a reference change
+   can never write back an older `ends_at`.
+
+**`extend` and `reference`.** One batch from `setLicensesTermStatements`: a guarded UPDATE
+(`WHERE ended_at IS NULL`, plus the read `ends_at`, `source` and `reference`, refusal 7),
+one `license.term_changed` audit row with `metadata.change` naming the action, and the
+mirror reconcile. A moved end clears `expiry_notice_sent_at`, so the new term earns its
+own 30-day notice. A live license stays live, so no plan changes: no purge, no email. The same reference again is a `200` with `changed: false`.
+
+**`revoke`.** One batch: `endLicensesStatements({ endReason: 'revoked' })` stamps
+`ended_at` and `end_reason` and **never names `assigned_product_id`**, so an assigned
+license keeps its product as history (decision 14). The product drops to Free because no
+live license holds it. The batch also carries the `license.revoked` audit row
+(`metadata.reason` with `reasonVisibility = 'vendor'`, `metadata.internalNote` when given),
+the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
+(`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
+never the internal note). No statement names `products`: the Managed-field content stays.
+A Stripe license can be revoked; its subscription is not touched (E9).
+
+**Post-commit, assigned license only.** Purge `product:{slug}`, `index:products` and the
+vendor set (`vendorPurgeTags`), and send `managed-ended` to every unbanned seat and the
+billing email when set, keyed `managed-ended:{licenseId}:{recipient hash}`
+(`docs/NOTIFICATIONS.md`). An unassigned revoke purges nothing and sends no email, unless
+it ends the vendor's last live license: the mirror then flips and the vendor set is purged,
+as the grant does. A failed send never fails the response.
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | written, or `changed: false` for the same reference |
+| 400 | `VALIDATION_FAILED` / `MALFORMED_REQUEST` | refusal 1 or 6 |
+| 404 | `NOT_FOUND` | refusal 2 |
+| 409 | `LICENSE_SOURCE_STRIPE` | refusal 4 |
+| 422 | `INVALID_STATE_TRANSITION` | refusal 3, 5 or 7 |
+
+Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
+rate limit's 429.
 
 #### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08)
 
@@ -3606,6 +3942,29 @@ hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is
 cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
+
+**Licenses on a vendor seat (AECI-1374, decision 15).** A ban that leaves the vendor with
+no unbanned `vendor_admin` also flags every live license on the vendor's billing accounts,
+any source, `cancel_at_term_end = true`, `cancel_reason = 'vendor-banned'`, in the same
+batch: one `license.cancel_at_term_end_set` row each (`entity_type = 'billing_account'`,
+`metadata.license_id`). A license already flagged is skipped and keeps its reason. An unban
+of a vendor seat clears the flag on live licenses whose reason is `vendor-banned` only
+(`license.cancel_at_term_end_cleared`). So does a new unbanned seat from any of the three
+seat writers (ruled 2026-10-15): one helper, `clearVendorBannedFlagsStatements`, serves the
+unban and every grant. Ended licenses are never touched. Nothing ends, no
+plan changes, nothing is purged and no email is sent. The response shape is unchanged.
+
+**Pending seat invites on a last-seat ban (AECI-1374, ruled 2026-10-16).** The same ban
+batch revokes every pending invite in `vendor_seat_invites` for the vendor: not accepted,
+not revoked, not expired (`liveInvitesFor`). Each revoke goes through
+`revokeInviteStatements`, sets `revoked_at`, and writes one `vendor_seat.invite_revoked`
+row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
+`metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
+invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
+`vendor-banned` flags. A sentinel after the revokes aborts the batch when a live invite
+is still left, for example one created between the read and the batch: the ban answers
+`409 VENDOR_SEATS_CHANGED` and writes nothing. A ban that leaves an unbanned seat revokes
+nothing. An unban restores no invite.
 
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
@@ -6232,7 +6591,7 @@ Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silen
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` + `agreements.ts` + `product-requests.ts` + `license-release-requests.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` + `vendor-billing-acceptances.ts` + `vendor-product-requests.ts` + `vendor-license-release.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6510,11 +6869,13 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
-**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
+**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+
+**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row. The spend is the batch's first statement, and `inviteSpentSentinel` aborts the batch when it matched no row. An invite revoked after the handler's read therefore writes nothing: no seat, no flag clear, no audit row. A last-seat ban revokes the vendor's pending invites, so this is what stops a pre-ban read from minting the unbanned seat that clears the `vendor-banned` flags (AECI-1374).
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
-Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the invite was revoked or spent between the handler's read and its batch (`inviteSpentSentinel`, AECI-1374); or the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
 
 #### `GET /api/vendor/notifications`
 
@@ -6625,7 +6986,7 @@ export const VendorReviewResponseNotificationSchema = z.object({  // AECI-1180
 
 Both join `VendorNotificationSchema` ahead of the attestation member, beside `integration_create` and `claim_added`, which the union block above predates.
 
-**The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`. `isAttestationNotification` names the member.
+**The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`, plus `portal-field-corrected-by-aeci` and `portal-field-lock-lifted-by-aeci` (AECI-1237) and `portal-license-revoked-by-aeci` (AECI-1371). `isAttestationNotification` names the member.
 
 ```typescript
 export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
@@ -6641,9 +7002,21 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
     .nullable().default(null),                                    // logo_overridden
   logo_cleared: z.boolean().default(false),                       // logo_overridden: removed, not replaced
   seat_name: z.string().nullable().default(null),                 // seat_revoked
+  // AECI-1237 adds field_corrected / field_lock_lifted, record_subject and value.
+  license_product: z.object({ slug: z.string(), name: z.string() })
+    .nullable().default(null),       // license_revoked (AECI-1371): its product, null when unassigned
   created_at: z.string(),
 });
 ```
+
+**Later events.** AECI-1237 added `field_corrected` and `field_lock_lifted`, with
+`record_subject` and `value` (`packages/shared/src/api/vendor-notifications.ts` is the
+current schema). AECI-1373 added `license_release_approved` and `license_release_declined`
+(registry ids `portal-license-release-approved-by-aeci` and
+`portal-license-release-declined-by-aeci`), the decision on an early-unassign request.
+`record_subject` names the product the license was on, `null` when it is gone. The approve
+row's `reason` echoes the owner's own request reason, because the approve takes none. The
+decline row's `reason` is AECi's. Both rows are filed under the billing account.
 
 #### Change history: `GET /api/vendor/history` and `GET /api/vendor/history.csv` (AECI-1194)
 
@@ -7814,6 +8187,37 @@ export const VendorProductRequestSchema = z.object({
 **The list** is every request of the caller's vendor, whichever seat asked. It re-reads when the `notifications` scope of `GET /api/vendor/updates` moves, because every decision writes its portal row (`STAGE_2_REALTIME_SPEC.md` §2.3).
 
 **The decision** reads on `GET /api/vendor/notifications` as `{ kind: 'product_request', id, event: 'added' | 'already_listed' | 'declined', request_id, request_name, product: { slug, name } | null, context_product: { slug, name } | null, reason: string | null, created_at }`. `product` is the linked catalog product, `null` on `declined`. `reason` is the decline reason, `null` otherwise.
+
+#### Early unassign — `POST /api/vendor/licenses/:id/release-request`
+
+AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner. E5 ships the portal button. Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/licenses/:id/release-request` | seat, `rateLimit('write')`, then `requireSeatOwner()` in the handler | `201 { request }` |
+
+```typescript
+export const CreateLicenseReleaseRequestSchema = z
+  .object({ reason: z.string().trim().min(1).max(1000) })
+  .strict();
+export const VendorLicenseReleaseRequestSchema = z.object({
+  id: z.string().uuid(),
+  license_id: z.string(),
+  product_id: z.string().nullable(),
+  status: z.enum(['open', 'approved', 'declined']),
+  reason: z.string(),
+  created_at: z.string(),
+  decided_at: z.string().nullable(),
+  decision_note: z.string().nullable(),
+});
+// POST → { request: VendorLicenseReleaseRequest }
+```
+
+**Order: owner → shape → license → state → open request.** A member seat is `403 FORBIDDEN`. A shape error or an unknown key is `400`. A license not on the caller's billing account, or no such license, is the same `404`. An ended or unassigned license is `409 LICENSE_NOT_ASSIGNED`. A license with an open request is `409 RELEASE_REQUEST_OPEN` with `details.request_id`. The partial unique index `license_release_requests_open_license_key` is the race guard, and the loser of two racing asks gets the same `409`.
+
+**One batch.** The INSERT (`status = 'open'`, `requested_by` = the seat, `product_id` = the license's product) and the `license.release_requested` audit row, filed under the billing account with `metadata = { source: 'vendor-portal', license_id, request_id }`. Never the typed reason. **After commit:** the forward and the `license-release-request-alert` email to `SUPPORT_EMAIL`, reply-to the seat's session email. No purge: nothing public changes until an approve.
+
+**The decision** reads on `GET /api/vendor/notifications` as an `aeci_override` row with `event: 'license_release_approved' | 'license_release_declined'` and `record_subject` naming the product (`null` when it is gone). On an approve, `reason` echoes the owner's own request reason. On a decline it is AECi's reason.
 
 #### Integration retire and restore — `POST /api/vendor/integrations/:id/retire` + `/restore`
 

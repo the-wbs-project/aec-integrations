@@ -99,6 +99,15 @@ export const ApiErrorCode = {
   // activate of the same vendor's entitlement. The whole batch, licenses included,
   // rolled back (409). Reload: the entitlement is now active.
   ENTITLEMENT_CHANGED: 'ENTITLEMENT_CHANGED',
+  // AECI-1370: `POST /api/admin/vendors/:id/licenses` with a `grant_id` whose licenses
+  // exist but do not match this request (another quantity, source, end date, reference
+  // or billing account), or a grant that lost a race on the license ids (409).
+  // Nothing was written. An exact repeat is a 200 replay, never this.
+  LICENSE_GRANT_CONFLICT: 'LICENSE_GRANT_CONFLICT',
+  // AECI-1371: `PATCH /api/admin/licenses/:id` `extend` or `reference` on a license
+  // whose source is `stripe` (409). Stripe owns that license's term and its invoice.
+  // Nothing was written. A revoke of a Stripe license is allowed.
+  LICENSE_SOURCE_STRIPE: 'LICENSE_SOURCE_STRIPE',
   // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
   // owner's restore of a row AECi retired: only an admin restores an admin retire.
   // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner
@@ -147,6 +156,15 @@ export const ApiErrorCode = {
   // `added` or `already_listed` decision whose `product_id` is not a promoted product.
   PRODUCT_REQUEST_EXISTS: 'PRODUCT_REQUEST_EXISTS',
   PRODUCT_NOT_PROMOTED: 'PRODUCT_NOT_PROMOTED',
+  // AECI-1373 early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` decision 11), all 409.
+  // `LICENSE_NOT_ASSIGNED`: the license is ended or on no product, so there is nothing to
+  // free (the vendor ask), or it ended, was unassigned or moved product since the owner
+  // asked (the admin approve). `RELEASE_REQUEST_OPEN`: the license already has an open
+  // request; `details.request_id` names it. `RELEASE_REQUEST_NOT_OPEN`: the admin
+  // decided a request another admin already decided.
+  LICENSE_NOT_ASSIGNED: 'LICENSE_NOT_ASSIGNED',
+  RELEASE_REQUEST_OPEN: 'RELEASE_REQUEST_OPEN',
+  RELEASE_REQUEST_NOT_OPEN: 'RELEASE_REQUEST_NOT_OPEN',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

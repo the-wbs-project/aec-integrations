@@ -97,7 +97,7 @@ import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { blankLast, textAsc } from '../lib/collation';
-import { auditInsert, type BatchTuple } from '../lib/audit';
+import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { ensureBillingAccountStatements, loadBillingAccount } from '../lib/billing-account';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -119,6 +119,7 @@ import {
   seatLossOutcome,
   seatRaceSentinels,
   seatsChangedError,
+  vendorBannedFlagsRaceSentinel,
 } from '../lib/vendor-handback';
 import {
   EMPTY_PRODUCT_ROLES,
@@ -1235,14 +1236,25 @@ export function createProvisionSeatHandler(
       userId,
     );
 
-    // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
-    // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
-    // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
-    // The admin's (or redeemer's) retry then re-plans against the cleared state.
+    // Every abort here answers `409 VENDOR_SEATS_CHANGED` with nothing written, and
+    // the admin's retry re-plans against the new state:
+    // - AECI-1092 reconciliation: a return of a contest on a connector-powered row
+    //   carries `ownerEntitlementActiveSentinel`. An entitlement clear that commits
+    //   first aborts the batch.
+    // - AECI-1374 (E4.5): a last-seat ban that committed after the flag read above
+    //   left `vendor-banned` flags the return did not plan to clear.
+    //   `vendorBannedFlagsRaceSentinel` goes LAST, after the seat upsert and the
+    //   planned clears, and aborts when any such flag is left beside this unbanned seat.
     try {
-      await db.batch([...batch.stmts, ...account.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+      const stmts: BatchStmt[] = [
+        ...batch.stmts,
+        ...account.stmts,
+        ...(returned?.stmts ?? []),
+        vendorBannedFlagsRaceSentinel(db, vendorId, userId),
+      ];
+      await db.batch(stmts as BatchTuple);
     } catch (error) {
-      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+      if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
     emitSeatProvision(c, 'ok');

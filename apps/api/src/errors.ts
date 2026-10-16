@@ -57,6 +57,15 @@ type ResourceKind =
   | 'listing_request'
   // A vendor's product request (AECI-1377). Admin-only on the PATCH.
   | 'product_request'
+  // A vendor with no billing account yet, on the admin license grant (AECI-1370).
+  // `details.id` is the VENDOR id: the account has none until one exists.
+  | 'billing_account'
+  // One license: the admin license edit (AECI-1371), and the vendor early-unassign
+  // request (AECI-1373). On the vendor route, a license not on the caller's billing
+  // account and no such license answer the same, so another vendor's id reveals nothing.
+  | 'license'
+  // An early-unassign request on `/admin/requests` (AECI-1373). Admin-only.
+  | 'license_release_request'
   | 'category'
   | 'audience'
   | 'phase'

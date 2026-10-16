@@ -32,8 +32,11 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1293 added the listing request alert: 57. AECI-1368 added the claim owner review
  * email and the owner fallback digest: 59. AECI-1366 added the claimant's receipt: 60.
  * AECI-1377 added the product request alert, its decision email and its feed row: 63.
+ * AECI-1370 added the licenses-granted email: 64. AECI-1371 added the managed-ended
+ * email and the license revoke feed row: 66. AECI-1373 added the early-unassign
+ * alert and its two decision feed rows: 69.
  */
-const EXPECTED_COUNT = 63;
+const EXPECTED_COUNT = 69;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -71,11 +74,15 @@ describe('notification registry shape', () => {
       // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`. AECI-1368
       // added `claim-owner-review` and `claim-owner-fallback-alert`. AECI-1366 added
       // `claim-received`. AECI-1377 added `product-request-alert`,
-      // `product-request-decided` and `portal-product-request-decided`.
-      email: 35,
+      // `product-request-decided` and `portal-product-request-decided`. AECI-1370
+      // added `licenses-granted`. AECI-1371 added `managed-ended` and
+      // `portal-license-revoked-by-aeci`. AECI-1373 added
+      // `license-release-request-alert`, `portal-license-release-approved-by-aeci`
+      // and `portal-license-release-declined-by-aeci`.
+      email: 38,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 22,
+      portal: 25,
       linear: 4,
     });
   });
@@ -230,9 +237,10 @@ describe('pausable (AECI-1224)', () => {
     }
   });
 
-  it('pauses only what is listed: 19 pausable email entries', () => {
+  // AECI-1373 added `license-release-request-alert`: 20.
+  it('pauses only what is listed: 20 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(19);
+    expect(pausable).toHaveLength(20);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

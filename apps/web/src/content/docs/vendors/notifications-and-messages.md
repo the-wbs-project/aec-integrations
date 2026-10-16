@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: October 13, 2026
+last_updated: October 16, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -32,7 +32,7 @@ Everything we noted for your company in the last 90 days. It includes:
 - updates on change requests,
 - changes another company made to an integration with one of your products,
 - new reviews of your products, and our decisions on your replies,
-- changes AEC Integrations made to what your company holds, with our reason. That includes a corrected or locked field, a replaced logo and a removed seat.
+- changes AEC Integrations made to what your company holds, with our reason. That includes a corrected or locked field, a replaced logo, a removed seat and a license we ended. It also holds our answer when you ask us to take a license off a product early.
 
 The list is collapsed under **Recent notifications** with a count. When new notifications arrive while you have the portal open, the count says how many are new. Each note shows the state at the time it was recorded, so a later change may have overtaken it. There is no "mark as read".
 
@@ -42,6 +42,8 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 |---|---|---|
 | Your claim is approved, or was not approved | The person who claimed | When we decide the claim |
 | An invitation to a seat | The person invited | When an owner invites or resends |
+| We granted you Managed licenses | Every seat, and the billing email | When we add licenses to your company, with the end date |
+| Managed ended for a product | Every seat, and the billing email | When we end a license that was on a product, with our reason |
 | Your plan ends soon | Every seat | Once per term, up to 30 days before a Managed plan's end date |
 | A new review of your product | Every seat | When we publish the review |
 | A change request you sent was declined | Every seat at your company | When the owner declines it, with the date your time to ask for a review ends |
@@ -49,7 +51,7 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 | A reminder to reply to a review request | Every seat at the owner | Two to three days before the reply date, if you have not replied |
 | Daily reminder | Each seat that has not turned it off | Once a day, when data flows need an answer |
 
-Everything else appears only in **Messages** or on the page it concerns. We do not send an email when a Managed plan ends. The portal shows a banner instead. See [Your dashboard](/docs/vendors/your-dashboard).
+Everything else appears only in **Messages** or on the page it concerns. We do not send an email when a Managed plan reaches its end date. The portal shows a banner instead. See [Your dashboard](/docs/vendors/your-dashboard).
 
 ## Turning off the daily reminder
 

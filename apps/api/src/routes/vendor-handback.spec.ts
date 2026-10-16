@@ -28,6 +28,7 @@ import {
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
+  licenses,
   productVendors,
   products,
   profiles,
@@ -40,14 +41,14 @@ import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { seedLicense } from '../test/licenses';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
 import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
-import { planVendorHandback } from '../lib/vendor-handback';
+import { planSeatGrantReturn, planVendorHandback } from '../lib/vendor-handback';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -224,7 +225,7 @@ async function call(
   path: string,
   method: 'DELETE' | 'PATCH' | 'POST',
   payload?: unknown,
-): Promise<{ status: number; send: ReturnType<typeof vi.fn> }> {
+): Promise<{ status: number; code: string | null; send: ReturnType<typeof vi.fn> }> {
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
@@ -237,7 +238,8 @@ async function call(
       : { method, body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } };
   const res = await adminApp().request(path, init, env, execCtx);
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-  return { status: res.status, send };
+  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+  return { status: res.status, code: body?.error?.code ?? null, send };
 }
 
 const revoke = (userId: string) =>
@@ -548,6 +550,45 @@ describe('a ban of the last active seat (AECI-989, ruled 2026-09-23)', () => {
   });
 });
 
+// ─── Billing (AECI-1374, decision 15) ────────────────────────────────────────
+
+describe('a seat revoke writes nothing in billing, the last seat included (decision 15)', () => {
+  it('planVendorHandback names no `licenses` or `billing_accounts` statement', async () => {
+    const batch = await planVendorHandback(t.db, {
+      vendorId: VENDOR,
+      actorId: ADMIN,
+      actorType: 'admin',
+      now: '2026-10-05T00:00:00.000Z',
+      source: 'admin-moderation',
+    });
+    expect(batch.stmts.length).toBeGreaterThan(0);
+    const sqlOf = (stmt: unknown) => (stmt as { toSQL(): { sql: string } }).toSQL().sql;
+    expect(
+      batch.stmts.map(sqlOf).filter((sql) => /"licenses"|"billing_accounts"/.test(sql)),
+    ).toEqual([]);
+  });
+
+  it('the last-seat revoke leaves every license row byte-identical', async () => {
+    const before = await t.db.select().from(licenses);
+    expect((await revoke(SEAT_A)).status).toBe(204);
+    expect(await t.db.select().from(licenses)).toEqual(before);
+    expect((await auditActions()).filter((a) => a.startsWith('license.'))).toEqual([]);
+  });
+
+  it('a ban of the last seat flags the live license; the unban clears it', async () => {
+    await ban(SEAT_A);
+    const [flagged] = await t.db.select().from(licenses);
+    expect(flagged).toMatchObject({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+      endedAt: null,
+    });
+    await unban(SEAT_A);
+    const [cleared] = await t.db.select().from(licenses);
+    expect(cleared).toMatchObject({ cancelAtTermEnd: false, cancelReason: null, endedAt: null });
+  });
+});
+
 // ─── Races ───────────────────────────────────────────────────────────────────
 
 describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGED)', () => {
@@ -625,6 +666,112 @@ describe('a new seat grant returns the contests a ban moved to AECi', () => {
       .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
     await provision();
     expect((await contest()).routedTo).toBe('aeci');
+  });
+});
+
+// ─── A new seat clears the vendor-banned license flags (ruled 2026-10-15) ────
+
+describe('a new seat grant clears the vendor-banned license flags, as an unban does', () => {
+  const provision = () =>
+    call(`/api/admin/vendors/${VENDOR}/seats`, 'POST', { email: 'new-seat@bentley.example' });
+  const grantParams = {
+    vendorId: VENDOR,
+    actorId: ADMIN,
+    actorType: 'admin' as const,
+    now: '2026-10-15T00:00:00.000Z',
+    source: 'admin-moderation',
+  };
+
+  it('the provision clears the flags the last-seat ban set, in its own batch', async () => {
+    await ban(SEAT_A);
+    expect((await t.db.select().from(licenses))[0]).toMatchObject({
+      cancelReason: 'vendor-banned',
+    });
+    const batch = vi.spyOn(t.db, 'batch');
+    expect((await provision()).status).toBe(201);
+    expect(batch).toHaveBeenCalledTimes(1);
+    const [row] = await t.db.select().from(licenses);
+    expect(row).toMatchObject({ cancelAtTermEnd: false, cancelReason: null, endedAt: null });
+    const cleared = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'license.cancel_at_term_end_cleared',
+    );
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({
+      actorId: ADMIN,
+      entityType: 'billing_account',
+      entityId: u(71),
+      vendorId: VENDOR,
+    });
+    expect(cleared[0]!.metadata).toMatchObject({
+      source: 'admin-moderation',
+      seat_user_id: SEAT_B,
+      license_id: row!.id,
+    });
+  });
+
+  it('clears only live vendor-banned flags: another reason and an ended license stay', async () => {
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    expect((await provision()).status).toBe(201);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(FLAGS_AFTER_GRANT);
+  });
+
+  it('a seat for a banned profile clears nothing', async () => {
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
+    // A banned seat does not make the vendor active, so the flag sentinel stays quiet.
+    expect((await provision()).status).toBe(201);
+    expect((await readCancelFlags(t.db, seeds)).banned).toEqual({
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+  });
+
+  // AECI-1374 E4.5 (ruled 2026-10-16): the provision reads the flags before its batch.
+  // A last-seat ban that commits in between flags the license after that read, so the
+  // provision plans no clear. `vendorBannedFlagsRaceSentinel` rolls the batch back.
+  it('a last-seat ban between the read and the batch rolls the provision back (409)', async () => {
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      expect((await ban(SEAT_A)).status).toBe(200);
+      return original(stmts);
+    }) as never);
+
+    const res = await provision();
+    expect(res.status).toBe(409);
+    expect(res.code).toBe('VENDOR_SEATS_CHANGED');
+
+    expect(await t.db.query.profiles.findFirst({ where: eq(profiles.id, SEAT_B) })).toBeUndefined();
+    const [row] = await t.db.select().from(licenses);
+    expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    const actions = await auditActions();
+    expect(actions).not.toContain('vendor_seat.provisioned');
+    expect(actions).not.toContain('license.cancel_at_term_end_cleared');
+
+    // The retry re-reads the flags and clears them with the seat.
+    expect((await provision()).status).toBe(201);
+    expect((await t.db.select().from(licenses))[0]).toMatchObject({
+      cancelAtTermEnd: false,
+      cancelReason: null,
+    });
+  });
+
+  it('planSeatGrantReturn is null when nothing is stamped and nothing is flagged', async () => {
+    expect(await planSeatGrantReturn(t.db, grantParams, SEAT_B)).toBeNull();
+  });
+
+  it('planSeatGrantReturn carries the license statements and audits when only a flag is set', async () => {
+    await seedCancelFlags(t.db, VENDOR);
+    const batch = await planSeatGrantReturn(t.db, grantParams, SEAT_B);
+    expect(batch).not.toBeNull();
+    expect(batch!.audits.map((a) => a.action)).toEqual(['license.cancel_at_term_end_cleared']);
+    expect(batch!.transitions).toEqual([]);
+    expect(batch!.purgeTags).toEqual([]);
+    const sqlOf = (stmt: unknown) => (stmt as { toSQL(): { sql: string } }).toSQL().sql;
+    const licenseUpdates = batch!.stmts.map(sqlOf).filter((q) => /^update "licenses"/.test(q));
+    expect(licenseUpdates).toHaveLength(1);
+    expect(licenseUpdates[0]).toContain('"cancel_reason" = ?');
   });
 });
 
@@ -859,14 +1006,15 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
-  it('a ban and an unban: the ban row, its transition, and each re-route', async () => {
+  it('a ban and an unban: the ban row, its transition, each re-route and license flag', async () => {
     await ban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // The ban row, the re-route and the one live license's cancel flag (AECI-1374).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     vi.mocked(logBatchToPosthog).mockClear();
     await unban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
@@ -882,8 +1030,9 @@ describe('each seat write forwards its audit rows and transitions in ONE request
       ).status,
     ).toBe(201);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The provision row and the returned contest's re-route.
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // The provision row, the returned contest's re-route and the one live license's
+    // cleared vendor-banned flag (ruled 2026-10-15).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 });

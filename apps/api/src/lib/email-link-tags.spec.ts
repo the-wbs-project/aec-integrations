@@ -44,6 +44,9 @@ import {
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
+  sendLicenseReleaseRequestAlert,
+  sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
   sendPlanInquiryAlert,
   sendListingRequestAlert,
   sendProductRequestAlert,
@@ -585,6 +588,46 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         vendorName: 'Bentley',
         periodEndDay: '2026-11-01',
         daysRemaining: 30,
+      }),
+  },
+  'licenses-granted': {
+    links: true,
+    send: (c) =>
+      sendLicensesGrantedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        count: 2,
+        source: 'invoice',
+        endsAt: '2027-11-01T00:00:00.000Z',
+        reference: 'PO-1234',
+      }),
+  },
+  'managed-ended': {
+    links: true,
+    send: (c) =>
+      sendManagedEndedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        products: [{ slug: 'microstation', name: 'MicroStation' }],
+        cause: 'revoked',
+        reason: 'The invoice was not paid.',
+      }),
+  },
+  'license-release-request-alert': {
+    links: true,
+    send: (c) =>
+      sendLicenseReleaseRequestAlert(c, {
+        request: {
+          requestId: 'lrr-1',
+          licenseId: 'lic-1',
+          vendorName: 'Bentley',
+          productName: 'MicroStation',
+          licenseSource: 'invoice',
+          endsAt: '2027-11-01T00:00:00.000Z',
+          reason: 'We retired the product',
+          requesterEmail: 'owner@vendor.example',
+        },
+        dedupeKey: 'license-release-request-alert:lrr-1',
       }),
   },
   'entitlement-expiring-admin': {

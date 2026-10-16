@@ -79,6 +79,7 @@ import {
   auditLog,
   billingAccounts,
   integrationFieldChallenges,
+  licenseReleaseRequests,
   licenses,
   profileAudiences,
   profileDetails,
@@ -541,6 +542,17 @@ export function createDeleteAccountHandler(
         .update(licenses)
         .set({ grantedBy: null, updatedAt: sql`${licenses.updatedAt}` })
         .where(eq(licenses.grantedBy, userId)),
+      // AECI-1373: the two actor columns of an early-unassign request, no FK either.
+      // The REQUEST survives (the vendor's commercial record); only who asked and who
+      // decided are severed. `updated_at` pinned, as above.
+      db
+        .update(licenseReleaseRequests)
+        .set({ requestedBy: null, updatedAt: sql`${licenseReleaseRequests.updatedAt}` })
+        .where(eq(licenseReleaseRequests.requestedBy, userId)),
+      db
+        .update(licenseReleaseRequests)
+        .set({ decidedBy: null, updatedAt: sql`${licenseReleaseRequests.updatedAt}` })
+        .where(eq(licenseReleaseRequests.decidedBy, userId)),
       // AECI-664: another of the sixteen (`AUTH_AND_RLS.md` §8), same treatment and same
       // reason. The INVITE survives its sender's erasure — a pending invite is the
       // invitee's to redeem, and deleting it would silently break a colleague's link

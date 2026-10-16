@@ -255,6 +255,15 @@ export type VendorReviewResponseNotification = z.infer<
  *     holding vendor. Carries the new `value`.
  *   - `field_lock_lifted` (AECI-1237): AECi lifted that lock. The vendor may edit the
  *     field again. The value stays as AECi set it.
+ *   - `license_revoked` (AECI-1371, E4.2): AECi ended one of the vendor's Managed
+ *     licenses now. `license_product` names the product it was on, which is on Free
+ *     from now; `null` when it was unassigned and no product changed plan.
+ *   - `license_release_approved` (AECI-1373, `VENDOR_SIGNUP_PROCESS.md` decision 11):
+ *     AECi approved the vendor's early-unassign request. The license is back in the
+ *     vendor's pool, still live, and the product in `record_subject` is on Free.
+ *     `reason` echoes the owner's own request reason.
+ *   - `license_release_declined` (AECI-1373): AECi declined it. The license stays on
+ *     the product until renewal. `reason` is AECi's decline reason.
  */
 export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'field_overridden',
@@ -262,6 +271,9 @@ export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'seat_revoked',
   'field_corrected',
   'field_lock_lifted',
+  'license_revoked',
+  'license_release_approved',
+  'license_release_declined',
 ] as const;
 export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
 
@@ -309,12 +321,17 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   /**
    * AECI-1237, `field_corrected` and `field_lock_lifted` on a company or product.
    * `field` names the field, in the record's own wire name. On an integration the
-   * three integration fields above are set instead.
+   * three integration fields above are set instead. AECI-1373: on the two
+   * `license_release_*` events, the product the license was on, or `null` when it is
+   * gone.
    */
   record_subject: AeciOverrideRecordSubjectSchema.nullable().default(null),
   /** AECI-1237, `field_corrected`: the value AECi set, as text. `null` when it
    *  cleared the field, and on every other event. */
   value: z.string().nullable().default(null),
+  /** AECI-1371, `license_revoked`: the product the license was on, now on Free.
+   *  `null` for an unassigned license, and on every other event. */
+  license_product: NotificationProductRefSchema.nullable().default(null),
   created_at: z.string(),
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;

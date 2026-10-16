@@ -1,0 +1,250 @@
+<div
+  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  [attr.aria-labelledby]="labelledBy()"
+>
+  <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenses.intro">
+    Grant complimentary or invoiced Managed licenses to this vendor's billing account. Each license
+    puts one product on Managed once it is assigned.
+  </p>
+
+  <!-- The one assumption to correct before the operator presses Grant: nothing
+       changes on any product page when the licenses land. -->
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.licenses.assignsNothing">
+    A grant assigns nothing. The licenses wait unassigned on the billing account, and the vendor
+    chooses which products they go on. Every seat, and the billing email when one is set, gets an
+    email about the grant.
+  </p>
+
+  <!-- The API's warnings[] after a grant, by code, so the text stays localized. -->
+  @if (warnedConnector()) {
+  <p
+    class="mt-3 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    role="note"
+    data-testid="grant-licenses-warning"
+    i18n="@@admin.vendors.licenses.warned.connector"
+  >
+    Granted to a vendor whose every product is a connector. Connector vendors and licenses are not
+    settled yet, so check this grant with the team.
+  </p>
+  } @if (!formOpen()) {
+  <button
+    type="button"
+    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    (click)="openForm()"
+    i18n="@@admin.vendors.licenses.action.open"
+  >
+    Grant licenses
+  </button>
+  } @else {
+  <form
+    novalidate
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    (submit)="$event.preventDefault(); submit()"
+  >
+    <!-- AECI-738: warns, never disables. product_role is curated upstream. -->
+    @if (isPureConnectorVendor()) {
+    <p
+      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+      role="note"
+      i18n="@@admin.vendors.licenses.warn.connector"
+    >
+      Every product this vendor owns is a connector. Connector vendors and licenses are not settled
+      yet. You can still grant.
+    </p>
+    }
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-licenses-quantity'"
+        i18n="@@admin.vendors.licenses.field.quantity"
+      >
+        Number of licenses
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-licenses-quantity-hint'"
+        i18n="@@admin.vendors.licenses.field.quantityHint"
+      >
+        From 1 to {{ quantityMax }}.
+      </p>
+      <input
+        type="number"
+        inputmode="numeric"
+        min="1"
+        [attr.max]="quantityMax"
+        step="1"
+        class="mt-2 w-32 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-licenses-quantity'"
+        [attr.aria-describedby]="idPrefix() + '-licenses-quantity-hint'"
+        [attr.aria-invalid]="quantityInvalid() ? 'true' : null"
+        [value]="quantity()"
+        (input)="onQuantityInput($event)"
+      />
+    </div>
+
+    <fieldset>
+      <legend
+        class="block text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.vendors.licenses.field.source"
+      >
+        Source
+      </legend>
+      <div class="mt-2 flex flex-wrap gap-4">
+        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+          <input
+            type="radio"
+            [attr.name]="idPrefix() + '-licenses-source'"
+            value="complimentary"
+            [checked]="source() === 'complimentary'"
+            (change)="onSourceChange('complimentary')"
+          />
+          <span i18n="@@admin.vendors.licenses.source.complimentary"
+            >Complimentary (no charge)</span
+          >
+        </label>
+        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+          <input
+            type="radio"
+            [attr.name]="idPrefix() + '-licenses-source'"
+            value="invoice"
+            [checked]="source() === 'invoice'"
+            (change)="onSourceChange('invoice')"
+          />
+          <span i18n="@@admin.vendors.licenses.source.invoice">Invoice or PO</span>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div>
+        <label
+          class="block text-sm font-medium text-(--text-primary)"
+          [attr.for]="idPrefix() + '-licenses-start'"
+          i18n="@@admin.vendors.licenses.field.start"
+        >
+          Start date
+        </label>
+        <input
+          type="date"
+          class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+          [attr.id]="idPrefix() + '-licenses-start'"
+          [value]="startsAt()"
+          (input)="onStartInput($event)"
+        />
+      </div>
+      <div>
+        <label
+          class="block text-sm font-medium text-(--text-primary)"
+          [attr.for]="idPrefix() + '-licenses-end'"
+          i18n="@@admin.vendors.licenses.field.end"
+        >
+          End date
+        </label>
+        <input
+          type="date"
+          class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+          [attr.id]="idPrefix() + '-licenses-end'"
+          [attr.aria-describedby]="endNotAfterStart() ? idPrefix() + '-licenses-end-error' : null"
+          [attr.aria-invalid]="endNotAfterStart() ? 'true' : null"
+          [value]="endsAt()"
+          (input)="onEndInput($event)"
+        />
+        @if (endNotAfterStart()) {
+        <p
+          class="mt-1 text-xs font-medium text-(--text-primary)"
+          [attr.id]="idPrefix() + '-licenses-end-error'"
+          i18n="@@admin.vendors.licenses.field.endError"
+        >
+          The end date must be after the start date.
+        </p>
+        }
+      </div>
+    </div>
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-licenses-reference'"
+      >
+        @if (source() === 'invoice') {
+        <span i18n="@@admin.vendors.licenses.field.referenceRequired">Invoice or PO reference</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenses.field.referenceOptional">Reference (optional)</span>
+        }
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-licenses-reference-hint'"
+        i18n="@@admin.vendors.licenses.field.referenceHint"
+      >
+        Required for an invoice grant. The vendor sees it in the email.
+      </p>
+      <input
+        type="text"
+        autocomplete="off"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-licenses-reference'"
+        [attr.maxlength]="referenceMax"
+        [attr.aria-describedby]="idPrefix() + '-licenses-reference-hint'"
+        [attr.aria-required]="source() === 'invoice' ? 'true' : null"
+        [value]="reference()"
+        (input)="onReferenceInput($event)"
+      />
+    </div>
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-licenses-notes'"
+        i18n="@@admin.vendors.licenses.field.notes"
+      >
+        Notes (optional)
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-licenses-notes-hint'"
+        i18n="@@admin.vendors.licenses.field.notesHint"
+      >
+        Recorded in the audit trail. Never shown to the vendor and never emailed.
+      </p>
+      <textarea
+        rows="2"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-licenses-notes'"
+        [attr.maxlength]="notesMax"
+        [attr.aria-describedby]="idPrefix() + '-licenses-notes-hint'"
+        [value]="notes()"
+        (input)="onNotesInput($event)"
+      ></textarea>
+    </div>
+
+    @if (failedMessage()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+    }
+
+    <div class="flex gap-2">
+      <button
+        type="submit"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending() || !canSubmit()"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenses.action.pending">Granting…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenses.action.confirm">Grant the licenses</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="closeForm()"
+        [disabled]="pending()"
+        i18n="@@admin.vendors.licenses.action.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  }
+</div>

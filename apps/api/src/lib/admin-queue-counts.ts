@@ -17,8 +17,11 @@
  *   pending_requests  vendor_requests.status = 'open' AND kind = 'correction', PLUS
  *                     listing_requests.status = 'open' (AECI-1293: the screen's second
  *                     section), PLUS product_requests.status = 'open' (AECI-1377: a
- *                     vendor asking us to add a product, also on /admin/requests), so
- *                     the badge counts what /admin/requests lists
+ *                     vendor asking us to add a product, also on /admin/requests),
+ *                     PLUS license_release_requests.status = 'open' (AECI-1373: an
+ *                     owner asking us to free a license early, the fourth section),
+ *                     so the badge counts what /admin/requests lists. Four tables, so
+ *                     the four terms cannot overlap.
  *   pending_claims    vendor_requests.status = 'open' AND kind = 'claim'
  *
  * Requests and claims are the SAME TABLE split by `kind` — `/admin/requests` and
@@ -73,6 +76,7 @@ import {
   vendorRequests,
   listingRequests,
   productRequests,
+  licenseReleaseRequests,
 } from '../db/schema';
 
 /** The six counters, in the wire shape both endpoints return. */
@@ -100,6 +104,7 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     replyRows,
     listingRows,
     productRequestRows,
+    releaseRequestRows,
   ] = await db.batch([
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
     db
@@ -149,6 +154,12 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     // AECI-1377: open product requests, also listed on `/admin/requests`, so they join
     // `pending_requests` too. Served by `product_requests_status_created_idx`.
     db.select({ value: count() }).from(productRequests).where(eq(productRequests.status, 'open')),
+    // AECI-1373: open early-unassign requests, the fourth section of `/admin/requests`.
+    // Served by `license_release_requests_status_created_idx`.
+    db
+      .select({ value: count() })
+      .from(licenseReleaseRequests)
+      .where(eq(licenseReleaseRequests.status, 'open')),
   ]);
 
   return {
@@ -156,7 +167,8 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     pending_requests:
       (requestRows[0]?.value ?? 0) +
       (listingRows[0]?.value ?? 0) +
-      (productRequestRows[0]?.value ?? 0),
+      (productRequestRows[0]?.value ?? 0) +
+      (releaseRequestRows[0]?.value ?? 0),
     pending_claims: claimRows[0]?.value ?? 0,
     pending_reindex: reindexRows[0]?.value ?? 0,
     pending_contests: contestRows[0]?.value ?? 0,

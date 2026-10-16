@@ -1976,7 +1976,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
   scheduled end; E6's daily job turns it into `ended_at`. Never derive "live" from `ends_at`
   at read time.
-- **Monthly and annual share one column.** `ends_at` null is monthly (renews until cancelled).
+- **Monthly and annual share one column.** `ends_at` null on a `stripe` license is monthly
+  (renews until cancelled). `ends_at` null on any other source has no end date yet: the E1.5
+  back-fill writes a perpetual entitlement as `complimentary` with no end (ruling 2026-10-14).
   `ends_at` set is annual, invoice or complimentary.
 - **`source` is unconstrained**, the `vendor_entitlements.tier` posture. The vocabulary is
   `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change is a D1 table recreate
@@ -2010,11 +2012,52 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `expiry_notice_sent_at` and `updated_at` only, guarded on the scanned `ends_at`, and is
   the one builder with no audit row of its own and no mirror reconcile (the sweep writes
   one audit row per notice, and the fence cannot move liveness).
+- **The admin grant (AECI-1370, E4.1).** `POST /api/admin/vendors/:id/licenses` writes N
+  unassigned `complimentary` or `invoice` licenses through `grantLicensesStatements`, with
+  `granted_by` set to the admin. Because the INSERTs are unguarded, the ids are not random:
+  each is `uuidv5('license:{grant_id}:{i}')` under a pinned namespace
+  (`LICENSE_GRANT_NAMESPACE` in `routes/admin-licenses.ts`), where `grant_id` is a UUID the
+  admin form mints when it opens. A repeat of the same grant finds its rows and writes
+  nothing. A racing repeat loses on the primary key and rolls back whole. The grant's
+  `notes` go in each audit row's `metadata.notes` with `metadata.grant_id`; `licenses` has
+  no notes column.
+- **The admin edit (AECI-1371, E4.2).** `PATCH /api/admin/licenses/:id`. `extend` and
+  `reference` go through `setLicensesTermStatements`; their `license.term_changed` row
+  carries `metadata.change` (`extend` or `reference`). Their UPDATE is also guarded on the
+  `ends_at`, `source` and `reference` the handler read (`expectUnchanged`), with a
+  `changedOneRowSentinel` after it, so an edit that lost a race to another edit writes
+  nothing and answers `422`. `revoke` goes through
+  `endLicensesStatements` with `end_reason = 'revoked'`: `assigned_product_id` is kept, so
+  the ended license still names its product. Its `license.revoked` row carries
+  `metadata.reason`, `metadata.reasonVisibility = 'vendor'` and, when given,
+  `metadata.internalNote`. The vendor's Messages row (`notification.sent`, `kind =
+  'aeci_override'`, event `license_revoked`) files under the billing account too, with
+  `metadata.licenseId` and `metadata.licenseProduct`, never the internal note.
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
   action. It is NULL while the license is live. `cancel_reason` is a different question:
   why a live license was set not to renew. Ending a license never touches it.
+- **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
+  `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
+  `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
+  value: `vendor-banned`, written on every live license when a ban leaves the vendor with no
+  unbanned seat, and cleared when the vendor has an unbanned seat again: the unban, or a new
+  seat from the admin provision, the claim grant or the invite redeem (AECI-1374, decision 15;
+  the seat grant ruled 2026-10-15). Both go through `clearVendorBannedFlagsStatements`. The builder's
+  `ifCancelReason` guards each UPDATE on the reason it expects, so the unban never clears a
+  flag another writer set. Unconstrained at the DB layer, like `end_reason`.
+- **A seat grant cannot leave a flag behind** (AECI-1374 E4.5, ruled 2026-10-16). The admin
+  provision and the claim grant plan their clears from a read taken before their batch. A
+  last-seat ban that commits in between flags licenses the grant never saw. Each grant batch
+  therefore ends with `vendorBannedFlagsRaceSentinel` (`lib/vendor-handback.ts`), placed after
+  the seat write and the planned clears. It aborts the whole batch when the granted seat is an
+  unbanned `vendor_admin` of the vendor and any live license on the vendor's billing accounts
+  still reads `vendor-banned`. Placed last, the test needs no planned id list: whatever the
+  clears missed is exactly what the ban added. The route answers `409 VENDOR_SEATS_CHANGED`,
+  and the retry clears the flags. A grant of a banned seat never trips it. The invite redeem
+  does not carry it: the ban revokes every pending invite in its own batch, so the redeem's
+  `inviteSpentSentinel` already aborts a redeem planned before the ban.
 - **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
   statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
@@ -2177,6 +2220,69 @@ create unique index agreement_acceptances_stripe_session_key
   action is registered in `packages/shared/src/audit-vendor-actions.ts`, not as a vendor
   receipt. Nothing updates or deletes a row. No `relations()` entry.
 
+### 8.6e `license_release_requests` (AECI-1373, migration 0079)
+
+Early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license
+stays on its product until renewal. An owner seat can ask AECi to take it off sooner, and an
+operator approves or declines on `/admin/requests` (`ADMIN_PANEL_SPEC.md` §5.17).
+
+```sql
+create table license_release_requests (
+  id text primary key,
+  license_id text not null references licenses(id),   -- NO ACTION
+  vendor_id text not null,          -- snapshot at request time; NO FK
+  billing_account_id text not null, -- snapshot; NO FK
+  product_id text,                  -- the product the license was on when asked; NO FK
+  requested_by text,                -- the owner seat's profiles.id; NO FK; nulled on erasure
+  reason text not null,             -- the owner's reason, 1 to 1,000 chars
+  status text not null default 'open'
+    constraint license_release_requests_status_check
+    check (status in ('open', 'approved', 'declined')),
+  decided_by text,                  -- the admin's profiles.id; NO FK; nulled on erasure
+  decided_at text,
+  decision_note text,               -- a decline's reason, shown to the vendor; null on approve
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index license_release_requests_open_license_key
+  on license_release_requests(license_id) where status = 'open';
+create index license_release_requests_status_created_idx
+  on license_release_requests(status, created_at);
+create index license_release_requests_vendor_created_idx
+  on license_release_requests(vendor_id, created_at);
+```
+
+- **One open request per license.** The partial unique index is the race guard. A second
+  ask while one is open is `409 RELEASE_REQUEST_OPEN`. A concurrent ask that loses at the
+  index answers the same. A decided request does not block a new one.
+- **Writers.** `POST /api/vendor/licenses/:id/release-request` inserts the row with its
+  `license.release_requested` audit row. `PATCH /api/admin/license-release-requests/:id`
+  sets `status`, `decided_by`, `decided_at` and, on a decline, `decision_note`. The UPDATE is
+  guarded on `status = 'open'` and followed by a sentinel, so a lost race writes nothing.
+- **An approve writes the license through `lib/license.ts`.** `unassignLicenseStatements`
+  with the action overridden to `license.release_approved`. The license stays live
+  (`ended_at` stays NULL), keeps `starts_at` and `ends_at`, loses `assigned_product_id` and
+  `assigned_at`, and has `release_at_renewal` cleared. It is not `endLicensesStatements`.
+- **The CHECK on `status` is deliberate.** This table is new, so the CHECK costs nothing
+  today. A later vocabulary change is a table recreate (`docs/migrations.md` §0). Nothing
+  references this table, so that recreate would cascade into nothing.
+- **`license_id` makes this an FK child of `licenses`.** NO ACTION, and nothing deletes a
+  license. A future recreate of `licenses` would have its `DROP` refused while request rows
+  exist, rather than cascade (`docs/migrations.md` §0).
+- **Erasure.** `requested_by` and `decided_by` have no FK, so the `DELETE /api/account`
+  batch nulls both, with `updated_at` pinned (`AUTH_AND_RLS.md` §8). The request survives.
+- **Domain state.** Each insert and decision writes its `audit_log` row in the same batch:
+  `license.release_requested`, `license.release_approved` or `license.release_declined`,
+  filed under `entity_type = 'billing_account'`, `entity_id` = the billing account,
+  `metadata.license_id` and `metadata.request_id`, with `vendor_id` and the request-time
+  `product_id`. The decision also writes the vendor's `notification.sent` row
+  (`portal-license-release-approved-by-aeci` or `portal-license-release-declined-by-aeci`).
+- **Readers.** `GET /api/admin/license-release-requests` (the queue) and
+  `GET /api/admin/vendors/:id/billing` (`release_requests`), through one joined select in
+  `apps/api/src/lib/license-release-requests.ts`. `pending_requests` in
+  `lib/admin-queue-counts.ts` counts open rows. No `relations()` entry.
+
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
 A pending self-serve seat invite. A row is an **INTENT, never an account**: this
@@ -2190,6 +2296,13 @@ opaque lookup handle, not a bearer credential — which is what makes it safe in
 URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
 `crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
 (`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+
+**The redeem spends the invite first.** `acceptInviteStatements` opens its batch with the
+guarded `UPDATE … SET accepted_at` (`accepted_at IS NULL AND revoked_at IS NULL`), then
+`inviteSpentSentinel`, then the `profiles` upsert and the `vendor_seat.invite_accepted` row.
+When the UPDATE matched no row, the sentinel rolls the whole batch back. So an invite revoked
+or spent after the redeem's read writes no seat, no license flag clear and no audit row
+(AECI-1374: a last-seat ban revokes the vendor's pending invites).
 
 **Re-sending is bounded by two columns, not by a counter table** (AECI-927). A 5-minute
 cooldown reads `last_sent_at`; a lifetime cap of 4 sends reads `send_count`. The lifetime

@@ -65,6 +65,8 @@
  * hand-back took for good from returning after the vendor re-claims the row.
  * A contest submitted during the lapse is stamped at submit
  * (`routes/vendor-contests.ts`), so it returns the same way.
+ * A seat grant also clears the vendor's `vendor-banned` license flags, as the unban
+ * does (ruled 2026-10-15, `clearVendorBannedFlagsStatements` in `lib/license.ts`).
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -77,13 +79,16 @@ import type { Db } from '../db/client';
 import { ApiError } from '../errors';
 import {
   attestations,
+  billingAccounts,
   claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
+  licenses,
   products,
   productVendors,
   profiles,
+  vendorSeatInvites,
   vendors,
 } from '../db/schema';
 import { pairCacheTag } from '../routes/promote-pair';
@@ -104,7 +109,12 @@ import {
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
-import { loadVendorLicenses } from './license';
+import {
+  clearVendorBannedFlagsStatements,
+  loadVendorLicenses,
+  VENDOR_BANNED_CANCEL_REASON,
+} from './license';
+import { liveInvitesFor } from './vendor-seat-invites';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -266,6 +276,55 @@ export function seatRaceSentinels(
       .select({ guard: sql`CASE WHEN ${mismatch} THEN json(${SEATS_CHANGED_TOKEN}) END` })
       .from(ONE_ROW),
   ];
+}
+
+/**
+ * Aborts the batch when the vendor still has a live seat invite after the last-seat
+ * ban's revokes (AECI-1374, ruled 2026-10-16): one was created between the ban's read
+ * and its batch, so the ban would leave a redeemable invite behind. Place it after the
+ * invite revokes. Same token as {@link seatRaceSentinels}, so it answers `409`.
+ */
+export function pendingInviteRaceSentinel(db: Db, vendorId: string, now: string): BatchStmt {
+  const left = sql`EXISTS (SELECT 1 FROM ${vendorSeatInvites} WHERE ${liveInvitesFor(vendorId, now)})`;
+  return db
+    .select({ guard: sql`CASE WHEN ${left} THEN json(${SEATS_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * Aborts a seat grant whose new seat would sit beside `vendor-banned` license flags
+ * the grant did not clear (AECI-1374 E4.5, ruled 2026-10-16). Used by the admin
+ * provision (`POST /api/admin/vendors/:id/seats`) and the claim grant
+ * (`PATCH /api/admin/claims/:id`). Put it LAST in the batch, after the grant's seat
+ * write and after `planSeatGrantReturn`'s flag clears.
+ *
+ * The race: the grant plans its clears from a pre-batch read. A last-seat ban that
+ * commits between that read and the batch flags every live license. The grant then
+ * lands an unbanned seat, the flags stay, and an active vendor shows "vendor banned"
+ * with licenses that will not renew. After the planned clears ran, the set test is
+ * "any live `vendor-banned` license left", so there is no planned id list to compare.
+ *
+ * It fires only when the granted seat is, at batch time, an unbanned `vendor_admin`
+ * of this vendor. A banned seat does not make the vendor active, so its flags rightly
+ * stay and the grant commits. Same token as {@link seatRaceSentinels}, so it answers
+ * `409`. The retry re-reads the flags and clears them.
+ *
+ * The invite redeem does not carry it: the ban revokes every pending invite in the
+ * flagging batch (`pendingInviteRaceSentinel`), so `inviteSpentSentinel` already
+ * aborts a redeem planned before the ban.
+ */
+export function vendorBannedFlagsRaceSentinel(
+  db: Db,
+  vendorId: string,
+  seatUserId: string,
+): BatchStmt {
+  const seatActive = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.id} = ${seatUserId} AND ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
+  const flagLeft = sql`EXISTS (SELECT 1 FROM ${licenses} INNER JOIN ${billingAccounts} ON ${billingAccounts.id} = ${licenses.billingAccountId} WHERE ${billingAccounts.vendorId} = ${vendorId} AND ${licenses.endedAt} IS NULL AND ${licenses.cancelReason} = ${VENDOR_BANNED_CANCEL_REASON})`;
+  return db
+    .select({
+      guard: sql`CASE WHEN ${seatActive} AND ${flagLeft} THEN json(${SEATS_CHANGED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
 }
 
 /** `409 VENDOR_SEATS_CHANGED`: the seat write lost a race and wrote nothing. */
@@ -802,11 +861,21 @@ export async function planOwnerSeatReturn(
  * (`PATCH /api/admin/claims/:id`) and the invite redeem
  * (`POST /api/seat-invites/:token/accept`).
  *
+ * The same grant also clears the `vendor-banned` cancel-at-term-end flags on the
+ * vendor's live licenses (ruled 2026-10-15, `STAGE_2_PAID_TIERS_SPEC.md` §5.2), as
+ * the unban does, through the one helper `clearVendorBannedFlagsStatements`. Its
+ * statements carry their own audit inserts and go after the sealed contest rows. Its
+ * audit rows join `audits`, so the caller forwards them with the rest. The clears are
+ * planned from this read, so the provision and the claim grant end their batch with
+ * {@link vendorBannedFlagsRaceSentinel}: a ban that flags licenses after this read
+ * aborts the grant (AECI-1374 E4.5).
+ *
  * `null` when the new seat's own profile is banned, because a banned seat is not
- * an active one, or when nothing is stamped. The pre-batch read cannot see the new
- * seat, so the caller's grant is what makes the vendor active again. A grant that
- * lands on no row (a lost race) still commits these guarded re-routes. That is
- * accepted: the grant's own batch is what decides whether the seat exists.
+ * an active one, or when nothing is stamped and nothing is flagged. The pre-batch
+ * read cannot see the new seat, so the caller's grant is what makes the vendor
+ * active again. A grant that lands on no row (a lost race) still commits these
+ * guarded writes. That is accepted: the grant's own batch is what decides whether
+ * the seat exists.
  */
 export async function planSeatGrantReturn(
   db: Db,
@@ -820,7 +889,20 @@ export async function planSeatGrantReturn(
   });
   if (seat?.bannedAt) return null;
   const batch = await planOwnerSeatReturn(db, p, opts);
-  return batch.stmts.length > 0 ? batch : null;
+  const flags = await clearVendorBannedFlagsStatements(db, {
+    vendorId: p.vendorId,
+    now: p.now,
+    actorId: p.actorId,
+    actorType: p.actorType,
+    source: p.source,
+    extraMetadata: { seat_user_id: seatUserId },
+  });
+  if (batch.stmts.length === 0 && flags.stmts.length === 0) return null;
+  return {
+    ...batch,
+    stmts: [...batch.stmts, ...flags.stmts],
+    audits: [...batch.audits, ...flags.auditEntries],
+  };
 }
 
 // ─── Shared: one contest re-route ────────────────────────────────────────────

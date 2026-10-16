@@ -15,13 +15,15 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, profiles, vendorSeatInvites, vendors } from '../db/schema';
+import { auditLog, licenses, profiles, vendorSeatInvites, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
+import { createBanReviewerHandler } from './admin-reviewers';
 import { createAcceptSeatInviteHandler, createSeatInvitePreviewHandler } from './seat-invites';
 import {
   createRemoveSeatHandler,
@@ -93,6 +95,7 @@ function app() {
   a.delete('/api/vendor/seats/:userId', createRemoveSeatHandler(t.factory));
   a.get('/api/seat-invites/:token', createSeatInvitePreviewHandler(t.factory));
   a.post('/api/seat-invites/:token/accept', createAcceptSeatInviteHandler(t.factory));
+  a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   return a;
 }
 
@@ -520,6 +523,109 @@ describe('GET/POST /api/seat-invites/:token', () => {
       session({ userId: admin, email: 'dana@acme.com', role: 'admin', vendorId: null }),
     );
     expect(res.status).toBe(409);
+  });
+
+  it('a redeem on a vendor with no unbanned seat clears only the vendor-banned license flags (ruled 2026-10-15)', async () => {
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-01T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.vendorId, VENDOR));
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    await seedInvite();
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(200);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(FLAGS_AFTER_GRANT);
+    const cleared = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'license.cancel_at_term_end_cleared',
+    );
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({ actorId: redeemer.userId, entityType: 'billing_account' });
+    expect(cleared[0]!.metadata).toMatchObject({
+      source: 'vendor-portal',
+      license_id: seeds.banned,
+    });
+  });
+
+  // AECI-1374 (ruled 2026-10-16): the last-seat ban revokes the pending invites, so a
+  // banned owner cannot redeem a pre-ban invite at a second address to mint the
+  // unbanned seat that would clear the `vendor-banned` flags.
+  it('a redeem of an invite the last-seat ban revoked fails and clears no flag', async () => {
+    const admin = session({
+      userId: uuid(304),
+      email: 'ops@aeci.com',
+      role: 'admin',
+      vendorId: null,
+    });
+    const ban = (id: string) =>
+      call(
+        `/api/admin/reviewers/${id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ action: 'ban', reason: 'Portal abuse' }),
+          headers: { 'content-type': 'application/json' },
+        },
+        admin,
+      );
+    await t.db.insert(profiles).values({ id: admin.userId, role: 'admin', vendorId: null });
+    const license = await seedLicense(t.db, VENDOR);
+    await seedInvite();
+    expect((await ban(MEMBER)).status).toBe(200);
+    expect((await ban(OWNER)).status).toBe(200);
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(422);
+    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, license));
+    expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    expect(
+      (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === 'license.cancel_at_term_end_cleared',
+      ),
+    ).toEqual([]);
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, redeemer.userId));
+    expect(seat).toBeUndefined();
+  });
+
+  // AECI-1374 review: the redeem's read can precede the ban's batch. The accept batch
+  // spends the invite FIRST and aborts on a miss, so a redeem whose invite was revoked
+  // after its read writes nothing: no seat, no flag clear, no `invite_accepted` row.
+  it('an invite revoked between the read and the batch rolls the redeem back (409)', async () => {
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-01T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.vendorId, VENDOR));
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    const flagsBefore = await readCancelFlags(t.db, seeds);
+    const row = await seedInvite();
+    const auditsBefore = (await t.db.select().from(auditLog)).length;
+
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db
+        .update(vendorSeatInvites)
+        .set({ revokedAt: new Date().toISOString() })
+        .where(eq(vendorSeatInvites.id, row.id));
+      return original(stmts);
+    }) as never);
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('VENDOR_SEATS_CHANGED');
+
+    expect(await t.db.select().from(profiles).where(eq(profiles.id, redeemer.userId))).toEqual([]);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(flagsBefore);
+    const [invite] = await t.db.select().from(vendorSeatInvites);
+    expect(invite!.acceptedAt).toBeNull();
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
+  });
+
+  it('a redeem with nothing flagged writes no license row', async () => {
+    await seedInvite();
+    expect(
+      (await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer)).status,
+    ).toBe(200);
+    expect(
+      (await t.db.select().from(auditLog)).filter((a) => a.action.startsWith('license.')),
+    ).toEqual([]);
   });
 
   it('404s an unknown token with no identifier echoed back', async () => {

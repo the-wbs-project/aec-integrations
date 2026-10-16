@@ -24,6 +24,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import type {
   AdminAuditRow,
   AdminVendorAuditScope,
+  AdminVendorBillingResponse,
   AdminVendorDetail,
   AdminVendorProductRow,
   AdminVendorSeatRow,
@@ -38,8 +39,11 @@ import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
+import { GrantLicensesControl } from './grant-licenses-control';
 import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { BillingLicensesTable } from './billing-licenses-table';
+import { LicenseRowActions } from './license-row-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
@@ -50,18 +54,27 @@ import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-labe
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
 
-/** The three tabs, and the `?tab=` values that address them. `vendor` is the
+/** The five tabs, and the `?tab=` values that address them. `vendor` is the
  *  default and is written as the ABSENT value, so `/admin/vendors/:id` and
  *  `/admin/vendors/:id?tab=vendor` are the same page with one canonical URL. */
-export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
+export type AdminVendorTab = 'vendor' | 'billing' | 'products' | 'integrations' | 'audit';
+
+const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
+  'vendor',
+  'billing',
+  'products',
+  'integrations',
+  'audit',
+];
 
 /**
  * `/admin/vendors/:id` — the operator's vendor page (AECI-652 /
  * `STAGE_2_PAID_TIERS_SPEC.md` §5.6), rendered in the `AdminShell` layout outlet.
  *
- * ── THREE TABS, ONE COMPONENT, ONE ROUTE ────────────────────────────────────
+ * ── FIVE TABS, ONE COMPONENT, ONE ROUTE ─────────────────────────────────────
  * The screen is a horizontal tab row — **Vendor** (basics, entitlement, seats),
- * **Products**, **Audit trail** — over one panel. Basics/entitlement/seats stay
+ * **Billing** (AECI-1372: the account, its licenses, the grant), **Products**,
+ * **Integrations**, **Audit trail** — over one panel. Basics/entitlement/seats stay
  * on ONE tab because an operator reads them together: the entitlement state
  * explains the seats, and a decision about either needs both on screen. Products
  * and the trail are the two blocks that are long, separately paginated, and
@@ -127,6 +140,9 @@ export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
     AuditTrail,
     EntitlementControl,
     PlanPricingControl,
+    GrantLicensesControl,
+    BillingLicensesTable,
+    LicenseRowActions,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
@@ -193,11 +209,15 @@ export class VendorDetail {
    *  empty panel — a hand-edited or stale URL must still show the vendor. */
   protected readonly tab = computed<AdminVendorTab>(() => {
     const raw = this.queryParams().get('tab');
-    return raw === 'products' || raw === 'integrations' || raw === 'audit' ? raw : 'vendor';
+    return (ADMIN_VENDOR_TABS as readonly string[]).includes(raw ?? '')
+      ? (raw as AdminVendorTab)
+      : 'vendor';
   });
 
   protected readonly tabs: ReadonlyArray<{ key: AdminVendorTab; label: string }> = [
     { key: 'vendor', label: $localize`:@@admin.vendors.tab.vendor:Vendor` },
+    // AECI-1372: the billing account, its licenses and the grant control.
+    { key: 'billing', label: $localize`:@@admin.vendors.tab.billing:Billing` },
     { key: 'products', label: $localize`:@@admin.vendors.tab.products:Products` },
     // AECI-1046: the vendor-held integrations it owns, and the admin retire/restore.
     { key: 'integrations', label: $localize`:@@admin.vendors.tab.integrations:Integrations` },
@@ -248,6 +268,13 @@ export class VendorDetail {
    *  opens the tab never issues the request. */
   private productsRequested = false;
 
+  // ── Billing (AECI-1372) ────────────────────────────────────────────────────
+  protected readonly billing = signal<AdminVendorBillingResponse | null>(null);
+  protected readonly billingLoading = signal(true);
+  protected readonly billingFailed = signal(false);
+  /** Whether the Billing tab has ever fetched. The same lazy guard as Products. */
+  private billingRequested = false;
+
   // ── Audit ──────────────────────────────────────────────────────────────────
   protected readonly auditRows = signal<readonly AdminAuditRow[]>([]);
   protected readonly auditTotal = signal(0);
@@ -295,6 +322,11 @@ export class VendorDetail {
     effect(() => {
       if (this.hydrated() && this.tab() === 'products' && !this.productsRequested) {
         void this.loadProducts();
+      }
+    });
+    effect(() => {
+      if (this.hydrated() && this.tab() === 'billing' && !this.billingRequested) {
+        void this.loadBilling();
       }
     });
 
@@ -348,6 +380,20 @@ export class VendorDetail {
    *  only, so nothing else on the page moves. */
   protected onPlanPricingChanged(planPricing: VendorPlanPricingResponse): void {
     this.vendor.update((v) => (v ? { ...v, plan_pricing: planPricing } : v));
+    void this.loadAudit();
+  }
+
+  /** A grant wrote N licenses and one `license.granted` row per license
+   *  (AECI-1370). The Billing tab's license list and the audit trail both reload. */
+  protected onLicensesGranted(): void {
+    void this.loadBilling();
+    void this.loadAudit();
+  }
+
+  /** A license was extended, re-referenced or revoked (AECI-1371). Each writes an
+   *  audit row and changes the license row, so both reload. */
+  protected onLicenseChanged(): void {
+    void this.loadBilling();
     void this.loadAudit();
   }
 
@@ -490,6 +536,29 @@ export class VendorDetail {
       this.productTotal.set(0);
     } finally {
       this.productsLoading.set(false);
+    }
+  }
+
+  // ── Billing ────────────────────────────────────────────────────────────────
+
+  protected retryBilling(): void {
+    void this.loadBilling();
+  }
+
+  private async loadBilling(): Promise<void> {
+    const id = this.vendorId();
+    if (!id) return;
+    this.billingRequested = true;
+    // A refetch after a grant keeps the tab on screen: blanking it to "Loading"
+    // would detach the grant control the operator just used and drop its focus.
+    if (!this.billing()) this.billingLoading.set(true);
+    this.billingFailed.set(false);
+    try {
+      this.billing.set(await this.api.getBilling(id));
+    } catch {
+      this.billingFailed.set(true);
+    } finally {
+      this.billingLoading.set(false);
     }
   }
 

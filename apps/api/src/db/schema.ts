@@ -1721,12 +1721,12 @@ export const billingAccounts = sqliteTable(
  *
  * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
  * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
- * `lib/license.ts` (AECI-1352), whose only caller today is the entitlement builders'
- * dual-write (`lib/vendor-entitlement.ts`, AECI-1353), and by the one-off
- * `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
- * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Read by those pre-reads and the
- * `license_mirror_drift` data-quality check. Plan resolution does not read it until
- * E1.6 (AECI-1355).
+ * `lib/license.ts` (AECI-1352), called by the entitlement builders' dual-write
+ * (`lib/vendor-entitlement.ts`, AECI-1353), the admin grant, edit and early-unassign
+ * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374), and by the
+ * one-off `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
+ * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Plan resolution reads it
+ * since E1.6 (AECI-1355), and so do the expiry sweep and `license_mirror_drift`.
  */
 export const licenses = sqliteTable(
   'licenses',
@@ -1781,6 +1781,73 @@ export const licenses = sqliteTable(
     index('licenses_stripe_subscription_idx')
       .on(t.stripeSubscriptionId)
       .where(sql`"stripe_subscription_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * Early-unassign requests (AECI-1373, E4.4; `VENDOR_SIGNUP_PROCESS.md` §2 decision 11
+ * and §3 step 8). An owner seat asks AECi to take a live license off its product
+ * before renewal. Written by `POST /api/vendor/licenses/:id/release-request`, decided
+ * on `/admin/requests` (`PATCH /api/admin/license-release-requests/:id`,
+ * `ADMIN_PANEL_SPEC.md` §5.17). An approve unassigns the license through
+ * `unassignLicenseStatements` (`lib/license.ts`): it stays live, keeps its term dates
+ * and goes back to the pool. A decline changes nothing on the license.
+ *
+ * ONE OPEN REQUEST PER LICENSE. The partial unique index
+ * `license_release_requests_open_license_key` is the race guard: two concurrent asks
+ * for one license cannot both commit. A decided request does not block a new one.
+ *
+ * `status` IS CHECK constrained (`open | approved | declined`). This is a new table, so
+ * the CHECK costs nothing today. A later vocabulary change is a table recreate
+ * (`docs/migrations.md` §0). Nothing references this table, so that recreate would
+ * cascade into nothing.
+ *
+ * `license_id` is NO ACTION to `licenses`: nothing deletes a license. `vendor_id`,
+ * `billing_account_id` and `product_id` are snapshots taken at request time, with no
+ * FK, so a vendor or product retraction never cascades into the request history.
+ * `requested_by` and `decided_by` hold a `profiles.id` with no FK, so the
+ * `DELETE /api/account` erasure batch nulls them (`AUTH_AND_RLS.md` §8).
+ *
+ * Domain state (a request): the insert and the decision each write their `audit_log`
+ * row in the same `db.batch` (ADR 0022), filed under the billing account
+ * (`entity_type = 'billing_account'`, `metadata.license_id`). No `relations()` entry.
+ */
+export const licenseReleaseRequests = sqliteTable(
+  'license_release_requests',
+  {
+    id: uuidPk(),
+    licenseId: text('license_id')
+      .notNull()
+      .references(() => licenses.id),
+    /** The requesting vendor. Snapshot, no FK. */
+    vendorId: text('vendor_id').notNull(),
+    /** The license's billing account at request time. Snapshot, no FK. */
+    billingAccountId: text('billing_account_id').notNull(),
+    /** The product the license was on when the owner asked. Snapshot, no FK. */
+    productId: text('product_id'),
+    /** The owner seat that asked. No FK; nulled by the erasure batch. */
+    requestedBy: text('requested_by'),
+    /** Why the owner wants the slot back. Shown to the operator. */
+    reason: text('reason').notNull(),
+    status: text('status').notNull().default('open'),
+    /** The deciding admin's `profiles.id`. No FK; nulled by the erasure batch. */
+    decidedBy: text('decided_by'),
+    decidedAt: text('decided_at'),
+    /** A decline's reason, shown to the vendor. NULL on an approve. */
+    decisionNote: text('decision_note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'license_release_requests_status_check',
+      sql`"status" IN ('open', 'approved', 'declined')`,
+    ),
+    uniqueIndex('license_release_requests_open_license_key')
+      .on(t.licenseId)
+      .where(sql`"status" = 'open'`),
+    index('license_release_requests_status_created_idx').on(t.status, t.createdAt),
+    index('license_release_requests_vendor_created_idx').on(t.vendorId, t.createdAt),
   ],
 );
 

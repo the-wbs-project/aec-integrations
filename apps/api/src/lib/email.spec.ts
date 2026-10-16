@@ -55,6 +55,9 @@ import {
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendProductRequestDecidedEmail,
+  sendLicenseReleaseRequestAlert,
+  sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
   vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
@@ -3480,5 +3483,212 @@ describe('product-request-decided (AECI-1377)', () => {
       const body = lastBody(fetchSpy);
       expect(`${String(body.subject)}${String(body.text)}`).not.toContain('\u2014');
     }
+  });
+});
+
+describe('licenses-granted (AECI-1370)', () => {
+  const base = {
+    to: 'seat@bentley.example',
+    vendorName: 'Bentley',
+    endsAt: '2027-06-30T00:00:00.000Z',
+    dedupeKey: 'licenses-granted:g-1:hash',
+  };
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+
+  it('complimentary: the count, the end date, nothing to pay, and help to assign', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicensesGrantedEmail(fakeContext(env), {
+      ...base,
+      count: 3,
+      source: 'complimentary',
+      reference: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('You have 3 Managed licenses until June 30, 2027');
+    const text = String(body.text);
+    expect(text).toContain(
+      'Bentley has 3 Managed licenses on AEC Integrations until June 30, 2027.',
+    );
+    expect(text).toContain(
+      'They are complimentary. There is nothing to pay and no card is needed.',
+    );
+    expect(text).toContain('None is on a product yet.');
+    expect(text).toContain('we will help you assign them');
+    expect(text).not.toContain('invoice');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+  });
+
+  it('invoice: names the reference, and one license reads in the singular', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicensesGrantedEmail(fakeContext(env), {
+      ...base,
+      count: 1,
+      source: 'invoice',
+      reference: 'PO <77>',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('You have 1 Managed license until June 30, 2027');
+    expect(String(body.text)).toContain('It is covered by your invoice PO <77>.');
+    expect(String(body.text)).toContain('It is not on a product yet.');
+    expect(String(body.text)).not.toContain('complimentary');
+    expect(String(body.html)).toContain('PO &lt;77&gt;');
+    expect(String(body.html)).not.toContain('<77>');
+  });
+
+  it('carries its dedupe key on the ledger, so a second send with it is a duplicate', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicensesGrantedEmail(fakeContext(env), {
+      ...base,
+      count: 2,
+      source: 'complimentary',
+      reference: null,
+    });
+    const headers = (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers as Record<
+      string,
+      string
+    >;
+    expect(headers['Idempotency-Key']).toContain('licenses-granted:g-1:hash');
+  });
+});
+
+describe('managed-ended (AECI-1371)', () => {
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+  const base = {
+    to: 'seat@bentley.example',
+    vendorName: 'Bentley',
+    dedupeKey: 'managed-ended:lic-1:hash',
+  };
+
+  it('a revoke: names the product, the reason, Free, and that nothing is removed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [{ slug: 'microstation', name: 'MicroStation' }],
+      cause: 'revoked',
+      reason: 'The invoice was <not> paid.',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Managed has ended for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('Managed has ended for MicroStation on AEC Integrations.');
+    expect(text).toContain('It is on the Free plan from today.');
+    expect(text).toContain("Bentley's other products keep their plans.");
+    expect(text).toContain(
+      'AEC Integrations ended the license. Reason: The invoice was <not> paid.',
+    );
+    expect(text).toContain('Everything your team entered stays live, and nothing is deleted.');
+    expect(text).toContain('https://www.aecintegrations.com/products/microstation');
+    expect(String(body.html)).toContain('&lt;not&gt;');
+    expect(String(body.html)).not.toContain('<not>');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    const headers = (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers as Record<
+      string,
+      string
+    >;
+    expect(headers['Idempotency-Key']).toContain('managed-ended:lic-1:hash');
+  });
+
+  it('a lapse of several products (E6): lists them and has no reason line', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [
+        { slug: 'a', name: 'Alpha' },
+        { slug: 'b', name: 'Beta' },
+        { slug: 'c', name: 'Gamma' },
+      ],
+      cause: 'lapsed',
+      reason: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Managed has ended for Alpha, Beta and Gamma');
+    const text = String(body.text);
+    expect(text).toContain('They are on the Free plan from today.');
+    expect(text).toContain('The licenses reached their end date and were not renewed.');
+    expect(text).not.toContain('Reason:');
+  });
+
+  it('a release reads in the singular', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext(env), {
+      ...base,
+      products: [{ slug: 'a', name: 'Alpha' }],
+      cause: 'released',
+      reason: null,
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('The license was released.');
+  });
+});
+
+describe('license-release-request-alert (AECI-1373)', () => {
+  const request = {
+    requestId: 'req-1',
+    licenseId: 'lic-1',
+    vendorName: 'Bentley',
+    productName: 'MicroStation',
+    licenseSource: 'invoice',
+    endsAt: '2027-06-30T00:00:00.000Z',
+    reason: 'We retired <MicroStation> in favour of <b>OpenRoads</b>',
+    requesterEmail: 'owner@bentley.example',
+  };
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+
+  it('sends the request to SUPPORT_EMAIL with reply-to set to the seat', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLicenseReleaseRequestAlert(fakeContext(env), {
+      request,
+      dedupeKey: 'license-release-request-alert:req-1',
+      entity: { type: 'billing_account', id: 'ba-1' },
+    });
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.reply_to).toBe('owner@bentley.example');
+    expect(body.subject).toBe('[AECi] Early unassign request: Bentley, MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('Bentley asked us to take its license off MicroStation before renewal.');
+    expect(text).toContain('Term ends: 2027-06-30');
+    expect(text).toContain('License id: lic-1');
+    expect(text).toContain('Request id: req-1');
+    expect(text).toContain('/admin/requests');
+    expect(String(body.html)).not.toContain('<b>OpenRoads</b>');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:license-release-request-alert']]);
+    const headers = (fetchSpy.mock.calls.at(-1)?.[1] as RequestInit).headers as Record<
+      string,
+      string
+    >;
+    expect(headers['Idempotency-Key']).toContain('license-release-request-alert:req-1');
+  });
+
+  it('says monthly for a license with no end, and sends no reply-to without a seat email', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicenseReleaseRequestAlert(fakeContext(env), {
+      request: { ...request, endsAt: null, requesterEmail: null },
+      dedupeKey: 'license-release-request-alert:req-2',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.reply_to).toBeUndefined();
+    expect(String(body.text)).toContain('Term ends: monthly, no end date');
+    expect(String(body.text)).toContain('Seat: not known');
+  });
+
+  it('skips when SUPPORT_EMAIL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(
+      await sendLicenseReleaseRequestAlert(fakeContext(), {
+        request,
+        dedupeKey: 'license-release-request-alert:req-3',
+      }),
+    ).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

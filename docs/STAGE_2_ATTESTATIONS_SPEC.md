@@ -2845,7 +2845,12 @@ The rules behind the table:
 
 **A ban hands nothing back** (ruled 2026-09-23). A ban is reversible, and handing
 ownership back on a ban would make an unban silently lose data. `claimed_at` and the
-marker stay as they are. But a vendor with no unbanned seat cannot answer a contest. So
+marker stay as they are. Billing is separate: the ban of the last unbanned seat flags
+every live license cancel-at-term-end and ends none (AECI-1374,
+`STAGE_2_PAID_TIERS_SPEC.md` §5.2). The same ban revokes the vendor's pending seat
+invites (ruled 2026-10-16), so a pre-ban invite cannot mint an unbanned seat that undoes
+the ban's flags and contest routing. The unban and any new unbanned seat clear those flags,
+the same events that route contests back (`planSeatGrantReturn`, ruled 2026-10-15). But a vendor with no unbanned seat cannot answer a contest. So
 while the vendor has no unbanned `vendor_admin`:
 
 - **Open owner contests move to AECi's queue.** A ban of the last active seat, or a revoke

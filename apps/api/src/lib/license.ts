@@ -80,9 +80,11 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import {
+  LICENSE_CANCEL_REASONS,
   LICENSE_END_REASONS,
   LICENSE_SOURCES,
   licensePlanSnapshot,
+  type LicenseCancelReason,
   type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
@@ -467,6 +469,18 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
   licenseSource?: LicenseSource;
   /** The new reference. Absent = leave alone; `null` clears it. */
   reference?: string | null;
+  /**
+   * Also guard the UPDATE on the `ends_at`, `source` and `reference` the caller read
+   * (NULL-safe), so it matches no row when a concurrent edit moved any of them. Pair it
+   * with a `changedOneRowSentinel` after the UPDATE to roll the lost race back. Off by
+   * default: the entitlement re-term and renewal keep the `ended_at IS NULL` guard only.
+   */
+  expectUnchanged?: boolean;
+}
+
+/** `column IS value`, NULL-safe: `IS NULL` for a null, `=` otherwise. */
+function sameAs(column: typeof licenses.endsAt | typeof licenses.reference, value: string | null) {
+  return value === null ? isNull(column) : eq(column, value);
 }
 
 /**
@@ -475,7 +489,8 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
  * guarded `WHERE ended_at IS NULL` statement and one `license.term_changed` audit row
  * per license that actually changes, then the reconcile. A license whose `ends_at`
  * moves gets `expiry_notice_sent_at` cleared: the expiry-notice fence is per term,
- * so a new term earns its own notice. Nothing changes: a no-op.
+ * so a new term earns its own notice. Nothing changes: a no-op. `expectUnchanged`
+ * widens the guard to the values read (the admin license edit, AECI-1371).
  */
 export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): LicenseBatch {
   if (
@@ -512,7 +527,19 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
         ...(termMoved ? { expiryNoticeSentAt: null } : {}),
         updatedAt: now,
       })
-      .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
+      .where(
+        and(
+          eq(licenses.id, before.id),
+          isNull(licenses.endedAt),
+          ...(p.expectUnchanged
+            ? [
+                sameAs(licenses.endsAt, before.endsAt),
+                eq(licenses.source, before.source),
+                sameAs(licenses.reference, before.reference),
+              ]
+            : []),
+        ),
+      );
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.termChanged, before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
@@ -616,7 +643,7 @@ export interface UnassignLicenseParams extends LicenseWriteContext {
 
 /**
  * Take a live license off its product early: the admin-approved early release
- * (decision 11; E4.3). The license goes back to the pool, still live. Clears
+ * (decision 11; E4.4's approve). The license goes back to the pool, still live. Clears
  * `release_at_renewal`, which only means something on an assigned license. Guarded on
  * the product it was on, so a concurrent reassignment is not undone. Unassigned,
  * ended, or not this vendor's: a no-op.
@@ -689,8 +716,14 @@ export interface SetCancelAtTermEndParams extends LicenseWriteContext {
   /** The licenses to flag. Ids not on this vendor, and ended licenses, are skipped. */
   licenseIds: readonly string[];
   cancel: boolean;
-  /** Why (decision 15: a ban, an owner cancel). Written when `cancel`, cleared when not. */
+  /** Why (decision 15), from `LICENSE_CANCEL_REASONS`. Written when `cancel`, cleared
+   *  when not. A value outside the vocabulary throws. */
   cancelReason?: string | null;
+  /** Touch only licenses whose `cancel_reason` is this (`null` = none). Both a pre-read
+   *  filter and a guard on each UPDATE, so a flag another writer set between the read
+   *  and the commit is not overwritten or cleared. E4.5's unban clears only
+   *  `vendor-banned` flags this way (AECI-1374). */
+  ifCancelReason?: string | null;
 }
 
 /**
@@ -701,6 +734,11 @@ export interface SetCancelAtTermEndParams extends LicenseWriteContext {
 export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams): LicenseBatch {
   const now = toIsoTimestamp(p.now);
   const reason = p.cancel ? (p.cancelReason ?? null) : null;
+  if (reason !== null && !(LICENSE_CANCEL_REASONS as readonly string[]).includes(reason)) {
+    throw new RangeError(`unknown license cancel reason: ${String(reason)}`);
+  }
+  const guarded = p.ifCancelReason !== undefined;
+  const expected = p.ifCancelReason ?? null;
   const action = p.cancel
     ? LICENSE_ACTION.cancelAtTermEndSet
     : LICENSE_ACTION.cancelAtTermEndCleared;
@@ -710,16 +748,79 @@ export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams
   for (const id of new Set(p.licenseIds)) {
     const before = findLicense(p, id);
     if (!before || before.endedAt !== null) continue;
+    if (guarded && before.cancelReason !== expected) continue;
     if (before.cancelAtTermEnd === p.cancel && before.cancelReason === reason) continue;
     const after: LicenseBefore = { ...before, cancelAtTermEnd: p.cancel, cancelReason: reason };
     changed.push(after);
     const stmt = db
       .update(licenses)
       .set({ cancelAtTermEnd: p.cancel, cancelReason: reason, updatedAt: now })
-      .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
+      .where(
+        and(
+          eq(licenses.id, before.id),
+          isNull(licenses.endedAt),
+          ...(guarded
+            ? [
+                expected === null
+                  ? isNull(licenses.cancelReason)
+                  : eq(licenses.cancelReason, expected),
+              ]
+            : []),
+        ),
+      );
     writes.push({ stmt, entry: licenseEntry(p, now, action, before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+/** The `cancel_reason` the ban of a vendor's last unbanned seat writes (AECI-1374). */
+export const VENDOR_BANNED_CANCEL_REASON: LicenseCancelReason = 'vendor-banned';
+
+export interface ClearVendorBannedFlagsParams {
+  vendorId: string;
+  now: string | Date;
+  actorId: string | null;
+  actorType: AuditLogEntry['actorType'];
+  /** `metadata.source` on each audit row. */
+  source?: string;
+  extraMetadata?: Record<string, unknown>;
+}
+
+/**
+ * The vendor has an unbanned `vendor_admin` seat again, so the `vendor-banned` flags
+ * come off (decision 15). One implementation for both ways back: the unban
+ * (`routes/admin-reviewers.ts`, AECI-1374) and every new seat grant
+ * (`planSeatGrantReturn` in `lib/vendor-handback.ts`, ruled 2026-10-15). Clears only
+ * live licenses whose reason is `vendor-banned`; each UPDATE is guarded on that reason.
+ * Reads the vendor's licenses, and `vendors.verified` only when a flag is set.
+ * Nothing flagged: a no-op, with no statement and no audit row.
+ */
+export async function clearVendorBannedFlagsStatements(
+  db: Db,
+  p: ClearVendorBannedFlagsParams,
+): Promise<LicenseBatch> {
+  const vendorLicenses = await loadVendorLicenses(db, p.vendorId);
+  const flagged = vendorLicenses.filter(
+    (l) => l.endedAt === null && l.cancelReason === VENDOR_BANNED_CANCEL_REASON,
+  );
+  if (flagged.length === 0) return NO_OP;
+  const vendorRow = await db.query.vendors.findFirst({
+    columns: { verified: true },
+    where: eq(vendors.id, p.vendorId),
+  });
+  return setCancelAtTermEndStatements(db, {
+    vendorId: p.vendorId,
+    now: p.now,
+    actorId: p.actorId,
+    actorType: p.actorType,
+    vendorLicenses,
+    vendorWasVerified: vendorRow?.verified ?? false,
+    ...(p.source ? { source: p.source } : {}),
+    ...(p.extraMetadata ? { extraMetadata: p.extraMetadata } : {}),
+    licenseIds: flagged.map((l) => l.id),
+    cancel: false,
+    ifCancelReason: VENDOR_BANNED_CANCEL_REASON,
+  });
 }
 
 // ─── End ────────────────────────────────────────────────────────────────────
@@ -733,7 +834,7 @@ export interface EndLicensesParams extends LicenseWriteContext {
    *  way the targets are selected from the pre-read `vendorLicenses`, so every
    *  license ended has its audit row. */
   target: EndLicensesTarget;
-  /** Why they end (`LICENSE_END_REASONS`): E6 lapse, E4.4 release, E4.2 revoke.
+  /** Why they end (`LICENSE_END_REASONS`): E6 lapse, a reduction's release, E4.2 revoke.
    *  Stored in `end_reason` and picks the default audit action. */
   endReason: LicenseEndReason;
 }

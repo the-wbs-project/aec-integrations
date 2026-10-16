@@ -1855,6 +1855,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     seat_name: null,
     record_subject: null,
     value: null,
+    license_product: null,
     created_at: daysFromNow(-1),
   },
   {
@@ -1871,6 +1872,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     seat_name: null,
     record_subject: null,
     value: null,
+    license_product: null,
     created_at: daysFromNow(-3),
   },
   {
@@ -1887,7 +1889,25 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     seat_name: 'Pat Example',
     record_subject: null,
     value: null,
+    license_product: null,
     created_at: daysFromNow(-5),
+  },
+  {
+    kind: 'aeci_override',
+    id: '00000000-0000-4000-8000-000000005d04',
+    event: 'license_revoked',
+    reason: 'The invoice for this license was not paid.',
+    integration_id: null,
+    integration_name: null,
+    field: null,
+    pair_path: null,
+    logo_subject: null,
+    logo_cleared: false,
+    seat_name: null,
+    record_subject: null,
+    value: null,
+    license_product: { slug: 'summit-field-issues', name: 'Summit Field Issues' },
+    created_at: daysFromNow(-6),
   },
 ];
 

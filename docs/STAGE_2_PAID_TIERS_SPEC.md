@@ -188,6 +188,8 @@ The term follows the 2026-10-14 mapping rule (`licenseTermsForEntitlement`). `pe
 
 **A lost activate race writes nothing (AECI-1353).** The entitlement UPDATE is guarded on `status <> 'active'`, but the license INSERTs behind it are not. Two `set`s, or two Managed claim approvals, built from one pre-read of a revoked vendor would both grant licenses while only one moved the row. So a reactivation carries `entitlementActivatedSentinel` directly after its UPDATE: a `changes() = 0` check that aborts the whole batch. A first grant needs none, because the loser's INSERT trips `vendor_entitlements_vendor_key`. Either way the loser writes nothing, and both routes answer `409 ENTITLEMENT_CHANGED` (`API_CONTRACTS.md` §4). Renew and deactivate need no sentinel: their license writes are UPDATEs guarded on `ended_at IS NULL`, so a lost race changes no license.
 
+**No Renew until E4.6 (ruled 2026-10-16, AECI-1334).** Renew re-terms every live license from the entitlement row, so it would overwrite a license granted with E4.1 or extended with E4.2, and could turn a complimentary license into invoice. The operator does not run Renew on any vendor until E4.6 retires it. A term is extended per license from the Billing tab (E4.2 Extend). The code is unchanged: this is an operating rule, accepted until E4.6 ships.
+
 ### 2.4 Backfill, seeds, and the pre-existing `verified = true` rows
 
 Rows already `verified = 1` from the Airtable/claim era violate the mirror the moment §2 lands. Three separate deliverables:
@@ -454,13 +456,15 @@ Implementation is the nine-move `createBanReviewerHandler` clone: preload gate (
 
 ### 5.2 Entitlement vs seat-revoke vs ban — three orthogonal actions
 
-After this epic there are three distinct "take it away" actions, and an admin clicking the wrong one expecting a different effect is a foreseeable incident. The admin UI copy must make this table true on screen:
+After this epic there are three distinct "take it away" actions (a fourth row since AECI-1374 spells out what the ban of a vendor's last unbanned seat adds, and a fifth since AECI-1371 is the license revoke, which replaces the entitlement clear at E4.6), and an admin clicking the wrong one expecting a different effect is a foreseeable incident. The admin UI copy must make this table true on screen:
 
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected. A ban of the last active seat moves open owner contests to AECi until the unban, and hands nothing back (AECI-989) | **No** |
 | **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side; **requires a body `{ reason }` since AECI-1191**, with an optional `internalNote` and a vendor-visible reason since AECI-1159; the portal revoke takes none) | one `profiles` row; the vendor's record too when it is the **last** seat (admin-side only, AECI-989) | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner`. The last seat also hands the record back to AECi: marker to `'aeci'`, claimed integrations un-claimed, owner contests to AECi (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9) | **No** |
-| **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads the same in every state since AECI-1266, "Claim <Company>" since AECI-1365, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
+| **Ban the last unbanned seat** ("ban a vendor", ruled 2026-10-14, AECI-1374) | `PATCH /api/admin/reviewers/:id` | every live license on the vendor's billing accounts, any source | the seat ban above, plus every live license is flagged `cancel_at_term_end`, `cancel_reason = 'vendor-banned'`, one `license.cancel_at_term_end_set` audit row each, in the ban's batch. Nothing ends now: no plan change, no purge, no email. A license already flagged keeps its own reason. The same batch revokes every pending seat invite on the vendor (not accepted, not revoked, not expired): one `vendor_seat.invite_revoked` row each, `metadata.reason = 'vendor-banned'` (ruled 2026-10-16). Otherwise a banned owner could redeem a pre-ban invite at a second address and mint the unbanned seat that clears the flags. A redeem whose read came before the ban is caught too: the accept batch spends the invite first and aborts when the spend matched no row, so it writes nothing and answers `409 VENDOR_SEATS_CHANGED`. The unban restores no invite. A license with no end date has no term end, so its flag never ends it: the operator revokes it by hand from the Billing tab, and the banner says so (ruled 2026-10-16). The unban clears only `vendor-banned` flags, and so does a new unbanned seat from the admin provision, the claim grant or the invite redeem (ruled 2026-10-15: a banned vendor is one with no unbanned seat). The provision and the claim grant read the flags before their batch, so a ban that commits in between would leave flags beside the new seat. Their batch ends with a check that aborts it in that case: nothing is written and they answer `409 VENDOR_SEATS_CHANGED`, and the retry clears the flags (ruled 2026-10-16). The redeem needs no such check, because the ban revokes its invite. A seat **revoke**, last seat included, writes nothing in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15) | **No** (verified untouched: no license ends) |
+| **Revoke a license** (AECI-1371, E4.2) | `PATCH /api/admin/licenses/:id` `{ action: 'revoke', reason, internalNote? }` | one license | ends the license now (`ended_at`, `end_reason = 'revoked'`). It keeps its product as history (decision 14), and the product drops to Free because no live license holds it. Its Managed text stays live; the vendor loses the edit right. The vendor's seats read the reason in Messages. When the license was on a product they also get the `managed-ended` email, and the product and vendor pages are purged. Seats untouched. Nothing refunded | **Only when it ends the vendor's last live license** (the mirror reconcile) |
+| **Clear an entitlement** (stays until E4.6) | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | Managed access ends (the public claim CTA reads the same in every state since AECI-1266, "Claim <Company>" since AECI-1365, so clearing changes no public copy); **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and ~~its claim is routed to the partnership track rather than granted here~~ *(retired 2026-10-15, AECI-1367: its claim is approved like any other and lands on Free, `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2)*. "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants nothing beyond the Free plan (zero capabilities before AECI-1214), and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
 
@@ -506,16 +510,19 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 
 #### 5.6.1 Endpoints
 
-Six (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Nine (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372, `PATCH /api/admin/licenses/:id` by AECI-1371), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
 | `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter + a **sort key per rendered column** (`AdminVendorSortSchema`, admin-only — see the revision note below). One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. The per-row product count reuses `vendorListConfig.extras.productCount`, the same correlated subquery the public list already ships; its `integrationCount` sibling is no longer selected. |
 | `GET /api/admin/vendors/:id` | Basics, entitlement, the seat roster + pending invites, and product / integration / claim counts. Two D1 round trips: a 404 gate, then **one `db.batch` of six reads** — a batch for the round trip, not for atomicity, the same use `GET /api/vendor/updates` documents. Deliberately **not** a `UNION`: D1 caps compound selects at five, which the admin System screen already got bitten by. |
 | `GET /api/admin/vendors/:id/products` | The vendor's product roster behind the detail page's Products tab (§5.9). Paginated, name-ordered, joins EVERY `product_vendors` row. Added after AECI-652; contract in `API_CONTRACTS.md` §6.10. |
+| `GET /api/admin/vendors/:id/billing` | The Billing tab's read (AECI-1372, E4.3; §5.9). In `routes/admin-vendors-billing.ts`. One `db.batch`: the vendor (404 gate), the billing account, its owner seats, every license with its assigned product, the agreement acceptances. `billing_account: null` is a 200: an E1 back-fill defect, shown as such. No audit row, no limiter. |
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. Requires a JSON body `{ reason, internalNote? }` (AECI-1191, AECI-1159). |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). Two statements in one `db.batch`, opens no entitlement row, no statement names `vendors`. |
+| `POST /api/admin/vendors/:id/licenses` | Grant N unassigned complimentary or invoice licenses on the billing account (AECI-1370, E4.1; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). In `routes/admin-licenses.ts`, through `grantLicensesStatements`. Assigns nothing. Idempotent on `grant_id`. Its batch ends with the `vendors.verified` reconcile, so a first grant turns the mirror on. Contract in `API_CONTRACTS.md` §6.10. |
+| `PATCH /api/admin/licenses/:id` | Extend, re-reference or revoke one license (AECI-1371, E4.2; `VENDOR_SIGNUP_PROCESS.md` §3 step 11). In `routes/admin-licenses.ts`, through `setLicensesTermStatements` and `endLicensesStatements`. A revoke keeps the product as history and the product drops to Free (§5.2). Contract in `API_CONTRACTS.md` §6.10. |
 
 **The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
 
@@ -634,14 +641,15 @@ Shipped as specified above. Decisions this section did not pre-settle:
 
 ---
 
-### 5.9 The detail page becomes a three-tab menu
+### 5.9 The detail page becomes a tabbed menu (three tabs, now five)
 
 **Presentation plus one new read endpoint. Nothing in §5.6 or §5.8 is retracted** — the
 entitlement control is still mounted only here, the seat timestamp still reads "Account
 created", the seats tri-state is preserved, and no write path changed.
 
-`/admin/vendors/:id` gains a horizontal menu — **Vendor** / **Products** / **Audit
-Trail** — over one panel:
+`/admin/vendors/:id` gains a horizontal menu over one panel. It shipped with three tabs.
+Since AECI-1046 and AECI-1372 it has five, in this order: **Vendor** / **Billing** /
+**Products** / **Integrations** / **Audit Trail**.
 
 - **Vendor** keeps basics + counts, the entitlement control and the seat roster
   together. That grouping is the point: the entitlement state explains the roster, so
@@ -651,6 +659,17 @@ Trail** — over one panel:
   Read-only except for AECI-955 logo editing (STAGE_2_5_SPEC.md §11): there is no general admin product-edit endpoint, and §5.6.4's catalog lockout is
   unchanged by this.
 - **Audit Trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
+- **Billing** (AECI-1372, E4.3; `?tab=billing`) reads `GET /api/admin/vendors/:id/billing`
+  lazily on first open. It shows the billing account and its owner seats, every license
+  (live first, then ended; dates through `formatTermDate`, §5.8), the agreement
+  acceptances and the early-unassign requests (AECI-1373; decided on `/admin/requests`,
+  `ADMIN_PANEL_SPEC.md` §5.17). A live license flagged
+  `cancel_at_term_end` reads "Cancels at term end: vendor banned", and a banner tops the tab
+  while any is flagged. A second note names any flagged license with no end date and says to revoke it from its row. The E4.1 grant control lives here. The Entitlement and Plan price
+  sections stay on Vendor until E4.6. `/admin/claims` "Manage billing" links (named "Manage
+  entitlement" until AECI-1371) open this tab. Each live license row carries the AECI-1371
+  actions: Extend, Change reference (invoice only) and Revoke (`ADMIN_PANEL_SPEC.md` §5.7). Read-only otherwise: nothing on it changes ranking or reviews.
+- **Integrations** (AECI-1046) is described in `ADMIN_PANEL_SPEC.md` §5.7.
 
 Three decisions worth recording:
 
@@ -781,7 +800,7 @@ Metrics: `aeci.entitlement.expiry_notice` (`outcome`, `channel: vendor|admin`) p
 > **Ruled by Chris on 2026-10-14 (AECI-1325): §7.3 stands, and pilots end by hand.** The job still never writes `status`. There is no auto-lapse and no pilot code.
 >
 > 1. **Each pilot vendor gets its own one-month term.** The admin enters it with **Set**, from the vendor's sign-on date. There is no shared pilot end date. The earlier 2026-12-14 date (`VENDOR_PLAN_DATA_READINESS.md` §2 item 21) is withdrawn.
-> 2. **An extension is case by case.** The admin uses **Renew** with a new `period_end`. Renew nulls `expiry_notice_sent_at`, so the new term gets its own warning.
+> 2. **An extension is case by case.** The admin uses **Renew** with a new `period_end`. Renew nulls `expiry_notice_sent_at`, so the new term gets its own warning. **Superseded 2026-10-16 until E4.6:** do not run Renew. Extend the license from the Billing tab (E4.2), which also nulls the license's `expiry_notice_sent_at`.
 > 3. **A pilot ends by an admin Clear.** The operator steps are in `RUNBOOKS.md` "Pilot vendor terms: set, extend, end". The operator tracks each end date in a calendar, because the job sends one notice per term and nothing on the end date.
 > 4. **Clear records `revoked`, not `expired`.** A pilot that ends on schedule therefore reads as a revocation in the audit log and in reports: `vendor_entitlement.cleared`, status `revoked`. The vendor sees no difference. The plan-ended banner (§13.11) shows for both. `expired` stays unreachable (§5.5).
 > 5. **The vendor email no longer says that nothing changes.** A one-month term is inside the 30-day warning window on its first day, so the vendor gets the notice the day after Set. The old copy said access is never switched off, which contradicts a pilot that ends. The copy now leads with the end date and the renewal offer, never a day count. After it, the copy says a vendor that does not renew moves to the Free plan, with seats and entered data kept. Replies go to `SUPPORT_EMAIL`. The past-due copy states no grace period, so none binds the operator (`docs/email.md`).

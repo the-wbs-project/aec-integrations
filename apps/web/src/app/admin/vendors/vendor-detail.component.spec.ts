@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AdminAuditRow,
   AdminVendorAuditResponse,
+  AdminVendorBillingResponse,
   AdminVendorDetail,
   AdminVendorProductRow,
   AdminVendorProductsResponse,
@@ -34,6 +35,7 @@ import { of } from 'rxjs';
 import type { AdminVendorTab } from './vendor-detail';
 
 import { AdminEntitlementApi } from '../entitlement/admin-entitlement-api';
+import { AdminLicensesApi } from './admin-licenses-api';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { SeatProvisionApi } from './seat-provision-api';
 import { VendorDetail } from './vendor-detail';
@@ -115,6 +117,29 @@ interface ApiMock {
   revokeSeat: ReturnType<typeof vi.fn>;
   /** AECI-1237: the Field corrections section's read. */
   listFieldOverrides: ReturnType<typeof vi.fn>;
+  /** AECI-1372: the Billing tab's read. */
+  getBilling: ReturnType<typeof vi.fn>;
+}
+
+function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendorBillingResponse {
+  return {
+    vendor_id: VENDOR_ID,
+    billing_account: {
+      id: '00000000-0000-4000-8000-000000000040',
+      name: 'Autodesk, Inc.',
+      billing_email: null,
+      stripe_customer_id: null,
+      created_at: '2026-10-01T00:00:00.000Z',
+      owner_seats: [],
+      seat_emails_available: true,
+    },
+    licenses: [],
+    licenses_truncated: false,
+    acceptances: [],
+    acceptances_truncated: false,
+    release_requests: [],
+    ...over,
+  };
 }
 
 function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductRow {
@@ -158,6 +183,7 @@ function makeApiMock(
     listProducts: vi.fn(async () => structuredClone(products)),
     revokeSeat: vi.fn(async () => undefined),
     listFieldOverrides: vi.fn(async () => ({ overrides: [] })),
+    getBilling: vi.fn(async () => makeBilling()),
   };
 }
 
@@ -191,6 +217,7 @@ async function setup(
       { provide: AdminVendorsApi, useValue: api },
       { provide: AdminEntitlementApi, useValue: { setEntitlement: vi.fn() } },
       { provide: SeatProvisionApi, useValue: provisionApi },
+      { provide: AdminLicensesApi, useValue: { grantLicenses: vi.fn() } },
       {
         provide: ActivatedRoute,
         useValue: {
@@ -288,7 +315,9 @@ describe('VendorDetail', () => {
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
     // AECI-1237: Field corrections sits between the basics and the entitlement.
+    // AECI-1372: Licenses moved to the Billing tab; Entitlement and Plan price stay.
     expect(headings).toEqual(['Basics', 'Field corrections', 'Entitlement', 'Plan price', 'Seats']);
+    expect(el.querySelector('aec-grant-licenses-control')).toBeNull();
   });
 
   describe('vendor logo', () => {
@@ -348,13 +377,14 @@ describe('VendorDetail', () => {
   });
 
   describe('tabs', () => {
-    it('offers the four sections as links, with the open one marked current', async () => {
+    it('offers the five sections as links, with the open one marked current', async () => {
       // Links, not buttons: the tab is `?tab=` state, so it has to be
       // bookmarkable and reachable with Back.
       const { el } = await setup(makeApiMock(makeVendor()));
       const links = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')];
       expect(links.map((a) => a.textContent?.trim())).toEqual([
         'Vendor',
+        'Billing',
         'Products',
         'Integrations',
         'Audit Trail',
@@ -371,6 +401,30 @@ describe('VendorDetail', () => {
       expect(api.listProducts).not.toHaveBeenCalled();
     });
 
+    it('keeps the bare URL as the Vendor tab and links Billing at ?tab=billing', async () => {
+      const { el, api } = await setup(makeApiMock(makeVendor()));
+      const links = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')];
+      expect(links[0].getAttribute('href')).toBe('/');
+      expect(links[1].getAttribute('href')).toBe('/?tab=billing');
+      expect(links[1].getAttribute('aria-current')).toBeNull();
+      // Lazy, like Products: nobody opened Billing, so nothing was fetched.
+      expect(api.getBilling).not.toHaveBeenCalled();
+    });
+
+    it('marks Billing current and loads it when ?tab=billing', async () => {
+      const { el, api } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'billing',
+      );
+      const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
+        (a) => a.getAttribute('aria-current') === 'page',
+      );
+      expect(current.map((a) => a.textContent?.trim())).toEqual(['Billing']);
+      expect(api.getBilling).toHaveBeenCalledWith(VENDOR_ID);
+      expect(el.textContent).not.toContain('Basics');
+    });
+
     it('falls back to the Vendor tab on an unrecognised ?tab=', async () => {
       // A hand-edited or stale URL must still show the vendor, never an empty
       // panel.
@@ -380,6 +434,94 @@ describe('VendorDetail', () => {
         'nonsense' as AdminVendorTab,
       );
       expect(el.textContent).toContain('Basics');
+    });
+  });
+
+  describe('billing tab (AECI-1372)', () => {
+    it('hosts the grant control in its Licenses section', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()), { provisionSeat: vi.fn() }, 'billing');
+      const section = el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]');
+      expect(section?.querySelector('aec-grant-licenses-control')).not.toBeNull();
+    });
+
+    it('refetches the billing view and the audit trail after a grant', async () => {
+      const { fixture, api } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'billing',
+      );
+      api.getBilling.mockClear();
+      api.listAudit.mockClear();
+      fixture.componentInstance['onLicensesGranted']();
+      await settle();
+      expect(api.getBilling).toHaveBeenCalledTimes(1);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+    });
+
+    it('mounts the license row actions in each license row (AECI-1371)', async () => {
+      const api = makeApiMock(makeVendor());
+      api.getBilling.mockResolvedValue(
+        makeBilling({
+          licenses: [
+            {
+              id: '00000000-0000-4000-8000-0000000000l1',
+              source: 'invoice',
+              starts_at: '2026-10-01T00:00:00.000Z',
+              ends_at: '2027-09-30T00:00:00.000Z',
+              ended_at: null,
+              end_reason: null,
+              live: true,
+              reference: 'PO-77',
+              assigned_product: null,
+              assigned_at: null,
+              release_at_renewal: false,
+              cancel_at_term_end: false,
+              cancel_reason: null,
+              stripe_subscription_id: null,
+              terms_version: null,
+              granted_by: null,
+              created_at: '2026-10-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
+      const rows = el.querySelectorAll('[data-testid="billing-license-row"]');
+      expect(rows.length).toBe(1);
+      for (const row of rows) expect(row.querySelector('aec-license-row-actions')).not.toBeNull();
+    });
+
+    it('refetches the billing view and the audit trail after a license edit (AECI-1371)', async () => {
+      const { fixture, api } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'billing',
+      );
+      api.getBilling.mockClear();
+      api.listAudit.mockClear();
+      fixture.componentInstance['onLicenseChanged']();
+      await settle();
+      expect(api.getBilling).toHaveBeenCalledTimes(1);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no grant control when the vendor has no billing account', async () => {
+      const api = makeApiMock(makeVendor());
+      api.getBilling.mockResolvedValue(makeBilling({ billing_account: null }));
+      const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
+      expect(el.textContent).toContain('This vendor has no billing account.');
+      expect(
+        el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]'),
+      ).toBeNull();
+    });
+
+    it('shows a retry when the billing read fails', async () => {
+      const api = makeApiMock(makeVendor());
+      api.getBilling.mockRejectedValue(new HttpErrorResponse({ status: 500 }));
+      const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
+      expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+        "We couldn't load this vendor's billing.",
+      );
     });
   });
 

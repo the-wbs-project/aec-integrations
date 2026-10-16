@@ -770,6 +770,40 @@
     }
   </section>
 
+  } @else if (tab() === 'billing') {
+
+  <!-- ── Billing (AECI-1372) ─────────────────────────────────────────────────
+       The E4.1 grant control projected into the Licenses section, and the E4.2
+       per-license actions (AECI-1371) through the table's rowActions seam. The
+       Entitlement and Plan price sections stay on the Vendor tab until E4.6. -->
+  <ng-template #licenseActions let-row>
+    <aec-license-row-actions
+      [row]="row"
+      [idPrefix]="'license-' + row.license.id"
+      (changed)="onLicenseChanged()"
+      (announce)="onAnnounce($event)"
+    />
+  </ng-template>
+  <aec-billing-licenses-table
+    [billing]="billing()"
+    [loading]="billingLoading()"
+    [failed]="billingFailed()"
+    [rowActions]="licenseActions"
+    (retry)="retryBilling()"
+  >
+    <div billingGrant>
+      <aec-grant-licenses-control
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        [isPureConnectorVendor]="v.is_pure_connector_vendor"
+        [idPrefix]="'vendor-' + v.id"
+        labelledBy="admin-vendor-billing-licenses"
+        (granted)="onLicensesGranted()"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </aec-billing-licenses-table>
+
   } @else if (tab() === 'products') {
 
   <!-- ── Products ─────────────────────────────────────────────────────────── -->

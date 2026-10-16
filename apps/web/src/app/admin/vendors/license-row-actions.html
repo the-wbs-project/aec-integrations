@@ -1,0 +1,255 @@
+@if (!anyAction()) {
+<span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+<span class="sr-only" i18n="@@admin.vendors.licenseActions.none"
+  >No actions on an ended license</span
+>
+} @else if (mode() === null) {
+<div #triggers class="flex flex-wrap justify-end gap-2">
+  @if (actions().extend) {
+  <button
+    type="button"
+    data-mode="extend"
+    (click)="open('extend')"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+  >
+    @if (openEnded()) {
+    <span i18n="@@admin.vendors.licenseActions.setEnd">Set end date</span>
+    } @else {
+    <span i18n="@@admin.vendors.licenseActions.extend">Extend</span>
+    }
+  </button>
+  } @if (actions().reference) {
+  <button
+    type="button"
+    data-mode="reference"
+    (click)="open('reference')"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.vendors.licenseActions.reference"
+  >
+    Change reference
+  </button>
+  } @if (actions().revoke) {
+  <button
+    type="button"
+    data-mode="revoke"
+    (click)="open('revoke')"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.vendors.licenseActions.revoke"
+  >
+    Revoke
+  </button>
+  }
+</div>
+} @else {
+<div class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start">
+  @switch (mode()) { @case ('extend') {
+  <form novalidate (submit)="$event.preventDefault(); submitExtend()">
+    <label
+      [attr.for]="idPrefix() + '-license-end'"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    >
+      @if (openEnded()) {
+      <span i18n="@@admin.vendors.licenseActions.end.labelSet">End date</span>
+      } @else {
+      <span i18n="@@admin.vendors.licenseActions.end.label">New end date</span>
+      }
+    </label>
+    <p
+      [id]="idPrefix() + '-license-end-help'"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseActions.end.help"
+    >
+      Must be after the current end date, or after today when there is none. Nothing else on the
+      license changes, and the vendor is not emailed.
+    </p>
+    <input
+      #firstField
+      type="date"
+      [id]="idPrefix() + '-license-end'"
+      [attr.min]="minEnd()"
+      [disabled]="pending()"
+      [attr.aria-describedby]="idPrefix() + '-license-end-help'"
+      [attr.aria-invalid]="endTooEarly() ? 'true' : null"
+      [value]="endsAt()"
+      (input)="onEndInput($event)"
+      class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+    />
+    @if (endTooEarly()) {
+    <p
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.vendors.licenseActions.end.tooEarly"
+    >
+      Pick a date after the current end date.
+    </p>
+    }
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="submit"
+        [disabled]="pending() || !canExtend()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenseActions.end.save">Save end date</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="close()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.vendors.licenseActions.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } @case ('reference') {
+  <form novalidate (submit)="$event.preventDefault(); submitReference()">
+    <label
+      [attr.for]="idPrefix() + '-license-reference'"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseActions.referenceField.label"
+    >
+      Invoice or PO reference
+    </label>
+    <input
+      #firstField
+      type="text"
+      [id]="idPrefix() + '-license-reference'"
+      [attr.maxlength]="referenceMax"
+      required
+      [disabled]="pending()"
+      [value]="reference()"
+      (input)="onReferenceInput($event)"
+      class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+    />
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="submit"
+        [disabled]="pending() || !canReference()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenseActions.referenceField.save">Save reference</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="close()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.vendors.licenseActions.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } @case ('revoke') {
+  <form novalidate (submit)="$event.preventDefault(); submitRevoke()">
+    @if (productName(); as product) {
+    <p
+      class="text-sm text-(--text-primary)"
+      i18n="@@admin.vendors.licenseActions.revoke.confirmProduct"
+    >
+      Revoke this license? It ends now and {{ product }} drops to the Free plan. Its text stays
+      live, the vendor loses the edit right on its Managed fields, and every seat is emailed.
+      Nothing is refunded or deleted, and there is no undo on this screen.
+    </p>
+    } @else {
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseActions.revoke.confirm">
+      Revoke this license? It ends now. It is not on a product, so no product changes plan and no
+      email is sent. Nothing is refunded, and there is no undo on this screen.
+    </p>
+    }
+    <label
+      [attr.for]="idPrefix() + '-license-reason'"
+      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseActions.revoke.reasonLabel"
+    >
+      Reason shown to the vendor (required)
+    </label>
+    <p
+      [id]="idPrefix() + '-license-reason-help'"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseActions.revoke.reasonHelp"
+    >
+      The vendor's seats read this in their portal messages. It is recorded in the audit trail with
+      your name.
+    </p>
+    <textarea
+      #reasonInput
+      #firstField
+      [id]="idPrefix() + '-license-reason'"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      required
+      [disabled]="pending()"
+      [attr.aria-describedby]="
+        reasonError()
+          ? idPrefix() + '-license-reason-help ' + idPrefix() + '-license-reason-error'
+          : idPrefix() + '-license-reason-help'
+      "
+      [attr.aria-invalid]="reasonError() ? 'true' : null"
+      [value]="reason()"
+      (input)="onReasonInput($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+    @if (reasonError()) {
+    <p
+      [id]="idPrefix() + '-license-reason-error'"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.vendors.licenseActions.revoke.reasonRequired"
+    >
+      Enter a reason for the vendor. Its seats read it in their portal messages.
+    </p>
+    }
+    <label
+      [attr.for]="idPrefix() + '-license-note'"
+      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseActions.revoke.noteLabel"
+    >
+      Internal note (optional, never shown to the vendor)
+    </label>
+    <textarea
+      [id]="idPrefix() + '-license-note'"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [value]="internalNote()"
+      (input)="onNoteInput($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="submit"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenseActions.revoke.confirmButton">Confirm revoke</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="close()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.vendors.licenseActions.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } } @if (failedMessage()) {
+  <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  }
+</div>
+}

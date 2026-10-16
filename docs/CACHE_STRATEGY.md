@@ -302,6 +302,13 @@ unban, purges nothing. **Account erasure of a vendor's last seat** (`DELETE /api
 AECI-1106) runs the same builder in its own batch and sends the same tags, with
 `source: 'vendor'`.
 
+**(b1b) the early-unassign approve (AECI-1373)** — `PATCH
+/api/admin/license-release-requests/:id` with `action: 'approve'` takes a license off its
+product, so that product's plan resolves to Free and its page changes. After commit the route
+enqueues `product:{slug}`, `index:products` and `vendor:{slug}` with `source: 'moderation'`.
+It is not `vendorPurgeTags`: one product changed, not every owned one. A decline changes no
+license and purges nothing.
+
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
 with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric

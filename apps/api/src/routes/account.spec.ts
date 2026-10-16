@@ -13,6 +13,7 @@ import {
   billingAccounts,
   integrationFieldChallenges,
   integrations,
+  licenseReleaseRequests,
   licenses,
   products,
   profileAudiences,
@@ -513,6 +514,56 @@ describe('DELETE /api/account', () => {
     expect(rows.map((r) => [r.id, r.grantedBy, r.updatedAt, r.endedAt])).toEqual([
       [u(31), null, STAMP, null],
       [u(32), ADMIN_USER, STAMP, null],
+    ]);
+  });
+
+  it('nulls license_release_requests.requested_by and decided_by, keeping the rows (AECI-1373)', async () => {
+    const STAMP = '2026-01-01T00:00:00.000Z';
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db.insert(billingAccounts).values({
+      id: u(30),
+      vendorId: u(2),
+      name: 'Autodesk',
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    await t.db.insert(licenses).values({
+      id: u(31),
+      billingAccountId: u(30),
+      source: 'invoice',
+      startsAt: STAMP,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    const base = {
+      licenseId: u(31),
+      vendorId: u(2),
+      billingAccountId: u(30),
+      reason: 'Retired',
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    };
+    await t.db.insert(licenseReleaseRequests).values([
+      { ...base, id: u(40), requestedBy: USER, status: 'declined', decidedBy: ADMIN_USER },
+      { ...base, id: u(41), requestedBy: ADMIN_USER, status: 'approved', decidedBy: USER },
+    ]);
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    const rows = await t.db
+      .select()
+      .from(licenseReleaseRequests)
+      .orderBy(licenseReleaseRequests.id);
+    expect(rows.map((r) => [r.id, r.requestedBy, r.decidedBy, r.updatedAt])).toEqual([
+      [u(40), null, ADMIN_USER, STAMP],
+      [u(41), ADMIN_USER, null, STAMP],
     ]);
   });
 
