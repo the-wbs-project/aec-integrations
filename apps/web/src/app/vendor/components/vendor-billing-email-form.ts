@@ -10,6 +10,8 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { UpdateBillingEmailRequestSchema } from '@aeci/shared';
+
 import {
   BUTTON_PRIMARY_CLASS,
   BUTTON_SECONDARY_CLASS,
@@ -32,7 +34,11 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * re-read the billing payload through the store, then announce through the shell's
  * one live region. A failure stays here, in the form's own alert.
  *
- * An empty field clears the address (`null`): receipts then go to the seats alone.
+ * An empty field clears the address (`null`): those emails then go to the seats alone.
+ *
+ * The form is `novalidate`, so the browser's own bubble never competes with the
+ * form's `role="alert"`. A bad address is caught here, against the request's shared
+ * schema, before any request (AECI-1390).
  */
 @Component({
   selector: 'aec-vendor-billing-email-form',
@@ -56,12 +62,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
         </div>
       }
       <p [class]="hintClass" id="billing-email-hint" i18n="@@vendor.billing.email.hint">
-        Receipts and renewal emails go to this address and to every seat.
+        License grant and plan-end emails go to this address and to every seat.
       </p>
     </div>
 
     @if (editing()) {
-      <form class="mt-3 space-y-3" (submit)="submit($event)">
+      <form class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label class="sr-only" for="billing-email-input" i18n="@@vendor.billing.email.inputLabel">
             Billing email address
@@ -150,6 +156,11 @@ export class VendorBillingEmailForm {
     if (this.busy()) return;
     const trimmed = this.draft().trim();
     const next = trimmed === '' ? null : trimmed;
+    if (!UpdateBillingEmailRequestSchema.safeParse({ billing_email: next }).success) {
+      this.error.set(INVALID_EMAIL());
+      afterNextRender(() => this.emailInput()?.nativeElement.focus(), { injector: this.injector });
+      return;
+    }
 
     this.busy.set(true);
     this.error.set(null);
@@ -176,6 +187,9 @@ export class VendorBillingEmailForm {
   }
 }
 
+const INVALID_EMAIL = (): string =>
+  $localize`:@@vendor.billing.email.error.invalid:Enter a valid email address.`;
+
 /** Map the write's refusals onto copy that says what to do next. */
 export function billingEmailErrorMessage(err: unknown): string {
   const status = err instanceof HttpErrorResponse ? err.status : null;
@@ -188,7 +202,7 @@ export function billingEmailErrorMessage(err: unknown): string {
   }
   switch (status) {
     case 400:
-      return $localize`:@@vendor.billing.email.error.invalid:Enter a valid email address.`;
+      return INVALID_EMAIL();
     case 403:
       return $localize`:@@vendor.billing.email.error.forbidden:Only an account owner can change the billing email.`;
     case 404:

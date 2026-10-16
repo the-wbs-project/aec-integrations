@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorMeResponse } from '@aeci/shared';
+import type { VendorBillingResponse, VendorMeResponse } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import {
@@ -17,8 +17,9 @@ import { VendorBillingSection } from './vendor-billing-section';
 
 /**
  * The owner-only Billing tab (AECI-1390, E5.4; row actions AECI-1391, E5.5). An
- * owner sees the email, the licenses with their actions, and the agreements. A member who types the URL sees a note, and the
- * section never calls the owner-only reads.
+ * owner sees the email, the licenses with their actions, and the agreements. A member
+ * who types the URL sees a note, and the section never calls the owner-only reads.
+ * After an assign, focus lands on the row's new release switch.
  */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
@@ -27,10 +28,12 @@ function flush(): Promise<void> {
 describe('VendorBillingSection', () => {
   let getBilling: ReturnType<typeof vi.fn>;
   let getAcceptances: ReturnType<typeof vi.fn>;
+  let assignLicense: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     getBilling = vi.fn().mockResolvedValue(VENDOR_BILLING_FIXTURE);
     getAcceptances = vi.fn().mockResolvedValue({ acceptances: VENDOR_ACCEPTANCES_FIXTURE });
+    assignLicense = vi.fn().mockResolvedValue({ license: VENDOR_BILLING_FIXTURE.licenses[1] });
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
@@ -39,7 +42,12 @@ describe('VendorBillingSection', () => {
         provideRouter([]),
         {
           provide: VendorApi,
-          useValue: { getBilling, getAcceptances } as Partial<VendorApi>,
+          useValue: {
+            getBilling,
+            getAcceptances,
+            assignLicense,
+            getMe: vi.fn().mockResolvedValue(VENDOR_ME_FIXTURE),
+          } as Partial<VendorApi>,
         },
         VendorPortalStore,
       ],
@@ -93,6 +101,42 @@ describe('VendorBillingSection', () => {
     expect(has(rows[1]!, 'license-release-switch')).toBe(false);
     // Ended: nothing.
     expect(rows[2]!.querySelectorAll('button, select')).toHaveLength(0);
+  });
+
+  it("moves focus to the new row's release switch after an assign (AECI-1391)", async () => {
+    const pool = VENDOR_BILLING_FIXTURE.licenses[1]!;
+    const product = VENDOR_BILLING_FIXTURE.assignable_products[0]!;
+    const assignedBilling: VendorBillingResponse = {
+      ...VENDOR_BILLING_FIXTURE,
+      licenses: VENDOR_BILLING_FIXTURE.licenses.map((l) =>
+        l.id === pool.id
+          ? { ...l, assigned_product: product, assigned_at: '2026-10-16T10:00:00.000Z' }
+          : l,
+      ),
+      assignable_products: [],
+    };
+    const fixture = await create();
+    const el = fixture.nativeElement as HTMLElement;
+    const rows = () => el.querySelectorAll('[data-testid="license-row"]');
+
+    (rows()[1]!.querySelector('[data-testid="license-assign-trigger"]') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const submit = rows()[1]!.querySelector(
+      '[data-testid="license-assign-submit"]',
+    ) as HTMLButtonElement;
+    expect(document.activeElement).toBe(submit);
+
+    getBilling.mockResolvedValue(assignedBilling);
+    submit.click();
+    await flush();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(assignLicense).toHaveBeenCalledWith(pool.id, product.id);
+    const newSwitch = rows()[1]!.querySelector('[data-testid="license-release-switch"]');
+    expect(newSwitch).not.toBeNull();
+    expect(document.activeElement).toBe(newSwitch);
   });
 
   it('shows a member the owners-only note and calls nothing', async () => {

@@ -70,6 +70,7 @@ import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
 import {
   CreateProductRequestSchema,
+  UpdateBillingEmailRequestSchema,
   CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
@@ -431,8 +432,14 @@ export class PreviewVendorApi extends VendorApi {
     return { acceptances: clone([...VENDOR_ACCEPTANCES_FIXTURE]) };
   }
 
-  /** Fixture-side: the handler's lower-casing, then the stored value moves. */
+  /** Fixture-side: the handler's schema (a `400` the preview can show), its
+   *  lower-casing, then the stored value moves. */
   override async setBillingEmail(email: string | null): Promise<void> {
+    if (!UpdateBillingEmailRequestSchema.safeParse({ billing_email: email }).success) {
+      throw apiError(400, 'VALIDATION_FAILED', 'Enter a valid email address', {
+        field: 'billing_email',
+      });
+    }
     if (this.billing.billing_account) {
       this.billing.billing_account.billing_email = email?.trim().toLowerCase() ?? null;
     }

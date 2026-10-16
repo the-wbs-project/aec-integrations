@@ -77,7 +77,9 @@ describe('VendorBillingEmailForm', () => {
     expect(el(render('ap@acme.example')).textContent).toContain('ap@acme.example');
     const unset = el(render(null)).textContent;
     expect(unset).toContain('Not set');
-    expect(unset).toContain('Receipts and renewal emails go to this address and to every seat.');
+    expect(unset).toContain(
+      'License grant and plan-end emails go to this address and to every seat.',
+    );
   });
 
   it('saves, re-reads billing, announces and closes', async () => {
@@ -100,6 +102,22 @@ describe('VendorBillingEmailForm', () => {
 
     expect(setBillingEmail).toHaveBeenCalledWith(null);
     expect(announce).toHaveBeenCalledWith('Billing email removed.');
+  });
+
+  it('is novalidate and refuses a bad address with its own alert, before any request', async () => {
+    const fixture = render(null);
+
+    await submit(fixture, 'not-an-address');
+    await fixture.whenStable();
+
+    expect(el(fixture).querySelector('form')!.hasAttribute('novalidate')).toBe(true);
+    expect(el(fixture).querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+      'Enter a valid email address.',
+    );
+    const input = el(fixture).querySelector('input') as HTMLInputElement;
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(input);
+    expect(setBillingEmail).not.toHaveBeenCalled();
   });
 
   it.each([

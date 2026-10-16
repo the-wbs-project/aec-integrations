@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import type { VendorBillingLicense } from '@aeci/shared';
 
@@ -45,6 +54,7 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
         </p>
       </div>
       <button
+        #switchButton
         type="button"
         role="switch"
         [attr.aria-checked]="checked() ? 'true' : 'false'"
@@ -86,6 +96,14 @@ export class VendorLicenseReleaseSwitch {
   protected readonly busy = computed(() => this.pending() !== null);
   protected readonly checked = computed(() => this.pending() ?? this.license().release_at_renewal);
   protected readonly notice = signal<string | null>(null);
+
+  private readonly switchEl = viewChild<ElementRef<HTMLButtonElement>>('switchButton');
+
+  /** Called by the Billing section after an assign puts this license on a product,
+   *  so focus lands here instead of on `<body>` (AECI-1391). */
+  focus(): void {
+    this.switchEl()?.nativeElement.focus();
+  }
 
   protected async toggle(): Promise<void> {
     if (this.busy()) return;

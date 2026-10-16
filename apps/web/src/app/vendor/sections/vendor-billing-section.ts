@@ -1,7 +1,21 @@
-import { Component, LOCALE_ID, afterNextRender, computed, inject } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  LOCALE_ID,
+  afterNextRender,
+  afterRenderEffect,
+  computed,
+  inject,
+  signal,
+  viewChildren,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS, type VendorAgreementAcceptance } from '@aeci/shared';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  type VendorAgreementAcceptance,
+  type VendorBillingResponse,
+} from '@aeci/shared';
 
 import {
   LEGAL_ARCHIVES,
@@ -79,6 +93,8 @@ function documentLabel(document: string): string {
  * The licenses table's `rowActions` template: a live pool license gets the assign
  * control, a live assigned one the release-at-renewal switch and the early-unassign
  * request, an ended one nothing. Each action is pessimistic and re-reads billing.
+ * A successful assign swaps its row's control for the switch, so the section moves
+ * focus to that switch once the re-read renders (WCAG 2.4.3).
  *
  * No buy button, no price, no Stripe: AECi grants licenses for pilots, and buying
  * arrives with E9.
@@ -177,6 +193,7 @@ function documentLabel(document: string): string {
                   <aec-vendor-license-assign
                     [license]="row.license"
                     [products]="b.assignable_products"
+                    (assigned)="focusSwitchAfterAssign($event)"
                   />
                 }
               }
@@ -269,6 +286,18 @@ function documentLabel(document: string): string {
 export class VendorBillingSection {
   private readonly store = inject(VendorPortalStore);
   private readonly locale = inject(LOCALE_ID);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  /**
+   * After an assign: the license to focus, and the billing payload the write saw.
+   * Focus moves once a newer payload has rendered, then this clears either way.
+   */
+  private readonly pendingFocus = signal<{
+    readonly licenseId: string;
+    readonly before: VendorBillingResponse | null;
+  } | null>(null);
+  /** Declared in this template, so the query sees switches stamped into the table. */
+  private readonly releaseSwitches = viewChildren(VendorLicenseReleaseSwitch);
 
   /** Absent `me` (never on a real route) reads as a member: fail closed. */
   protected readonly isOwner = computed(() => this.store.me()?.seat_owner === true);
@@ -293,6 +322,22 @@ export class VendorBillingSection {
     afterNextRender(() => {
       if (this.isOwner()) void this.store.ensure('billing');
     });
+    afterRenderEffect(() => {
+      const pending = this.pendingFocus();
+      if (!pending || this.billing() === pending.before) return;
+      const target = this.releaseSwitches().find((s) => s.license().id === pending.licenseId);
+      this.pendingFocus.set(null);
+      // Only take focus back from <body> or this section. If the vendor moved on
+      // while the re-read ran, leave them where they are.
+      const doc = this.host.nativeElement.ownerDocument;
+      const active = doc.activeElement;
+      const lost = !active || active === doc.body || !active.isConnected;
+      if (target && (lost || this.host.nativeElement.contains(active))) target.focus();
+    });
+  }
+
+  protected focusSwitchAfterAssign(licenseId: string): void {
+    this.pendingFocus.set({ licenseId, before: this.billing() });
   }
 
   protected retry(): void {

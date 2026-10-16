@@ -8,6 +8,7 @@ import {
   inject,
   input,
   linkedSignal,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -36,13 +37,20 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
  * Decision 11 of `VENDOR_SIGNUP_PROCESS.md` §2: an assigned license stays on its
  * product until renewal, and moving it is a request to AECi. So "Assign" opens an
  * inline confirmation that says so, and only its own button writes. Focus moves to
- * that button, and back to "Assign" on cancel. The pattern is `vendor-owned-retire.ts`.
+ * that button, and back to "Assign" on cancel or on Escape inside the confirmation
+ * (ignored while the write runs). The pattern is `vendor-owned-retire.ts`.
  *
  * ── PESSIMISTIC ─────────────────────────────────────────────────────────────
  * Await the write, then re-read billing (`assignable_products` moved) and `/me` (the
  * product's plan is now Managed) through the store's `entitlement` scope, then
  * announce through the shell's one live region. A `409` or `404` also re-reads
  * billing, so the table shows what the server holds.
+ *
+ * ── FOCUS AFTER A SUCCESS ───────────────────────────────────────────────────
+ * The re-read puts the license on a product, so the section swaps this control for
+ * the release switch and destroys the focused button. `assigned` fires as soon as
+ * the write succeeds, while this control still exists, and the section moves focus
+ * to the new switch once it renders (WCAG 2.4.3).
  */
 @Component({
   selector: 'aec-vendor-license-assign',
@@ -110,6 +118,7 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
         [attr.aria-labelledby]="id('title')"
         [attr.aria-describedby]="id('body')"
         class="max-w-[22rem] rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-3 text-start"
+        (keydown.escape)="onEscape($event)"
         data-testid="license-assign-confirm"
       >
         <p [id]="id('title')" class="text-sm font-semibold text-(--text-primary)">
@@ -167,6 +176,9 @@ export class VendorLicenseAssign {
   readonly license = input.required<VendorBillingLicense>();
   /** `assignable_products` from the billing read. */
   readonly products = input.required<readonly VendorBillingProduct[]>();
+  /** The license id, once the write succeeds and before billing is re-read. The
+   *  re-read destroys this control, so it cannot emit later. */
+  readonly assigned = output<string>();
 
   /** The picked product. Resets to the first option when the list changes, or
    *  when the picked one has left it. */
@@ -212,6 +224,12 @@ export class VendorLicenseAssign {
     afterNextRender(() => this.confirmEl()?.nativeElement.focus(), { injector: this.injector });
   }
 
+  protected onEscape(event: Event): void {
+    if (this.busy()) return;
+    event.stopPropagation();
+    this.cancelConfirm();
+  }
+
   protected cancelConfirm(): void {
     this.confirming.set(false);
     afterNextRender(() => this.triggerEl()?.nativeElement.focus(), { injector: this.injector });
@@ -224,6 +242,7 @@ export class VendorLicenseAssign {
     this.notice.set(null);
     try {
       await this.api.assignLicense(this.license().id, product.id);
+      this.assigned.emit(this.license().id);
       // The license now sits on the product, which moves both billing and the
       // product's plan on `/me`. One `entitlement` revalidation covers `/me` and
       // the checklists; the billing reload runs beside it and shares any in-flight

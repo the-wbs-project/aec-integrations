@@ -121,9 +121,26 @@ describe('VendorLicenseAssign', () => {
     expect(assignLicense).not.toHaveBeenCalled();
   });
 
+  it('Escape inside the confirmation cancels and returns focus to Assign', async () => {
+    const fixture = render();
+    await openConfirm(fixture);
+
+    q(fixture, 'license-assign-submit')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(q(fixture, 'license-assign-confirm')).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, 'license-assign-trigger'));
+    expect(assignLicense).not.toHaveBeenCalled();
+  });
+
   it('assigns, re-reads billing and /me, and announces', async () => {
     const fixture = render();
     const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const assigned: string[] = [];
+    fixture.componentInstance.assigned.subscribe((id) => assigned.push(id));
     await openConfirm(fixture);
     q(fixture, 'license-assign-submit')!.click();
     await flush();
@@ -136,6 +153,8 @@ describe('VendorLicenseAssign', () => {
       `License assigned. ${PRODUCTS[0]!.name} is now on the Managed plan.`,
     );
     expect(q(fixture, 'license-assign-confirm')).toBeNull();
+    // The section moves focus off this control once the re-read swaps it out.
+    expect(assigned).toEqual([POOL_LICENSE.id]);
   });
 
   it.each([
@@ -159,14 +178,20 @@ describe('VendorLicenseAssign', () => {
       new HttpErrorResponse({ status, error: { error: { code, message: 'x' } } }),
     );
     const fixture = render();
+    const assigned: string[] = [];
+    fixture.componentInstance.assigned.subscribe((id) => assigned.push(id));
     await openConfirm(fixture);
     q(fixture, 'license-assign-submit')!.click();
     await flush();
     fixture.detectChanges();
+    await fixture.whenStable();
 
+    expect(assigned).toEqual([]);
     expect(q(fixture, 'license-assign-error')?.textContent?.trim()).toBe(copy);
     expect(getBilling).toHaveBeenCalledTimes(reloads ? 1 : 0);
     expect(getMe).not.toHaveBeenCalled();
+    // A refusal keeps the control, so focus returns to "Assign", and no `assigned`.
+    expect(document.activeElement).toBe(q(fixture, 'license-assign-trigger'));
   });
 });
 
