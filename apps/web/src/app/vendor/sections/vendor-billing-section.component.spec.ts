@@ -16,8 +16,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorBillingSection } from './vendor-billing-section';
 
 /**
- * The owner-only Billing tab (AECI-1390, E5.4). An owner sees the email, the
- * licenses and the agreements. A member who types the URL sees a note, and the
+ * The owner-only Billing tab (AECI-1390, E5.4; row actions AECI-1391, E5.5). An
+ * owner sees the email, the licenses with their actions, and the agreements. A member who types the URL sees a note, and the
  * section never calls the owner-only reads.
  */
 function flush(): Promise<void> {
@@ -75,6 +75,24 @@ describe('VendorBillingSection', () => {
     // 1.0 is the current version, so it links to the live page, not an archive.
     expect(acceptances[0]!.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms');
     expect(el.querySelector('[data-testid="billing-owners-only"]')).toBeNull();
+  });
+
+  it('gives each license the actions its state allows (AECI-1391)', async () => {
+    const fixture = await create();
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[data-testid="license-row"]',
+    );
+    const has = (row: Element, id: string) => row.querySelector(`[data-testid="${id}"]`) !== null;
+
+    // Live and assigned: the switch and the request, no assign control.
+    expect(has(rows[0]!, 'license-release-switch')).toBe(true);
+    expect(has(rows[0]!, 'license-release-request-trigger')).toBe(true);
+    expect(has(rows[0]!, 'license-assign-select')).toBe(false);
+    // Live, in the pool: the assign control only.
+    expect(has(rows[1]!, 'license-assign-select')).toBe(true);
+    expect(has(rows[1]!, 'license-release-switch')).toBe(false);
+    // Ended: nothing.
+    expect(rows[2]!.querySelectorAll('button, select')).toHaveLength(0);
   });
 
   it('shows a member the owners-only note and calls nothing', async () => {

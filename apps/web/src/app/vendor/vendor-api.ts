@@ -79,6 +79,11 @@ import type {
   VendorBillingResponse,
   VendorAgreementAcceptancesResponse,
   UpdateBillingEmailRequest,
+  AssignLicenseRequest,
+  UpdateLicenseRequest,
+  VendorLicenseResponse,
+  CreateLicenseReleaseRequest,
+  CreateLicenseReleaseRequestResponse,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -195,6 +200,46 @@ export class VendorApi {
     const body: UpdateBillingEmailRequest = { billing_email: email };
     return firstValueFrom(this.http.put<unknown>('/api/vendor/billing/email', body)).then(
       () => undefined,
+    );
+  }
+
+  /** `POST /api/vendor/licenses/:id/assign` (AECI-1388, E5.2): put a pool license on
+   *  one of the vendor's products. The answer carries the license only, so the caller
+   *  re-reads billing (`assignable_products` moved) and `/me` (the product's plan). */
+  assignLicense(licenseId: string, productId: string): Promise<VendorLicenseResponse> {
+    const body: AssignLicenseRequest = { product_id: productId };
+    return firstValueFrom(
+      this.http.post<VendorLicenseResponse>(
+        `/api/vendor/licenses/${encodeURIComponent(licenseId)}/assign`,
+        body,
+      ),
+    );
+  }
+
+  /** `PATCH /api/vendor/licenses/:id` (AECI-1388, E5.2): set or clear the
+   *  release-at-renewal flag (decision 11). */
+  setReleaseAtRenewal(licenseId: string, release: boolean): Promise<VendorLicenseResponse> {
+    const body: UpdateLicenseRequest = { release_at_renewal: release };
+    return firstValueFrom(
+      this.http.patch<VendorLicenseResponse>(
+        `/api/vendor/licenses/${encodeURIComponent(licenseId)}`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/licenses/:id/release-request` (AECI-1373): ask AECi to take a
+   *  live license off its product before renewal. `201 { request }`. */
+  requestLicenseRelease(
+    licenseId: string,
+    reason: string,
+  ): Promise<CreateLicenseReleaseRequestResponse> {
+    const body: CreateLicenseReleaseRequest = { reason };
+    return firstValueFrom(
+      this.http.post<CreateLicenseReleaseRequestResponse>(
+        `/api/vendor/licenses/${encodeURIComponent(licenseId)}/release-request`,
+        body,
+      ),
     );
   }
 

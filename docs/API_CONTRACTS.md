@@ -8350,7 +8350,7 @@ export const VendorProductRequestSchema = z.object({
 
 #### Early unassign — `POST /api/vendor/licenses/:id/release-request`
 
-AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner. E5 ships the portal button. Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
+AECI-1373 (E4.4, `VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license stays on its product until renewal. An owner seat asks AECi to take it off sooner, from the "Request early unassign" dialog on the portal's Billing tab (AECI-1391, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). Zod in `packages/shared/src/api/license-release-requests.ts`, handler in `apps/api/src/routes/vendor-license-release.ts`. The admin side is §6.10.
 
 | Method | Path | Gate | Success |
 |---|---|---|---|

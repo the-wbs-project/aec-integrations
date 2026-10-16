@@ -12,6 +12,9 @@ import {
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
+import { VendorLicenseAssign } from '../components/vendor-license-assign';
+import { VendorLicenseReleaseRequest } from '../components/vendor-license-release-request';
+import { VendorLicenseReleaseSwitch } from '../components/vendor-license-release-switch';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -72,12 +75,24 @@ function documentLabel(document: string): string {
  * license write moves. SSR paints the loading state, so nothing billing-related is
  * ever in server HTML.
  *
+ * ── ROW ACTIONS (AECI-1391, E5.5) ───────────────────────────────────────────
+ * The licenses table's `rowActions` template: a live pool license gets the assign
+ * control, a live assigned one the release-at-renewal switch and the early-unassign
+ * request, an ended one nothing. Each action is pessimistic and re-reads billing.
+ *
  * No buy button, no price, no Stripe: AECi grants licenses for pilots, and buying
  * arrives with E9.
  */
 @Component({
   selector: 'aec-vendor-billing-section',
-  imports: [RouterLink, VendorBillingEmailForm, VendorBillingLicenses],
+  imports: [
+    RouterLink,
+    VendorBillingEmailForm,
+    VendorBillingLicenses,
+    VendorLicenseAssign,
+    VendorLicenseReleaseRequest,
+    VendorLicenseReleaseSwitch,
+  ],
   template: `
     <h2
       class="font-display text-xl font-semibold text-(--text-primary)"
@@ -146,11 +161,26 @@ function documentLabel(document: string): string {
             Licenses
           </h3>
           <div class="mt-3">
-            <!-- E5.5 passes its row actions to this table through rowActions. -->
             <aec-vendor-billing-licenses
               [licenses]="b.licenses"
               [truncated]="b.licenses_truncated"
+              [rowActions]="licenseActions"
             />
+            <ng-template #licenseActions let-row>
+              @if (row.license.live) {
+                @if (row.license.assigned_product) {
+                  <div class="flex flex-col items-end gap-3">
+                    <aec-vendor-license-release-switch [license]="row.license" />
+                    <aec-vendor-license-release-request [license]="row.license" />
+                  </div>
+                } @else {
+                  <aec-vendor-license-assign
+                    [license]="row.license"
+                    [products]="b.assignable_products"
+                  />
+                }
+              }
+            </ng-template>
           </div>
         </section>
 
