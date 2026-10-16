@@ -98,8 +98,10 @@ On a license in the pool, pick the product in the **Product** list, choose **Ass
 
 ### Free a product's license
 
-- **At renewal.** Turn on **Release at renewal**. The license comes off its product at the next renewal, and the product goes back to Free then. Turn it off to keep the license on the product.
-- **Before renewal.** Choose **Request early unassign** and give a reason. We review the request. If we approve it, the license goes back to your pool and the product goes back to Free.
+Open the actions menu at the end of the license's row and choose **Release license**. Then pick when:
+
+- **At renewal.** The license comes off its product at the next renewal, and the product goes back to Free then. The row shows **Releases at renewal**. To undo it, choose **Keep at renewal** from the same menu.
+- **Now.** Give a reason and choose **Send request**. We review the request. If we approve it, the license goes back to your pool and the product goes back to Free. The row shows **Early unassign requested** until we answer.
 
 ### Can we cancel a Managed plan early?
 

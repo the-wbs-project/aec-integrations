@@ -67,6 +67,19 @@ describe('VendorBillingLicenses', () => {
     expect(ended![5]).toBe('INV-1043');
   });
 
+  it('flags an open early-unassign request, with its date, in the status', () => {
+    const [row] = rows(
+      render([
+        {
+          ...ASSIGNED,
+          open_release_request: { id: 'req-1', created_at: '2026-10-14T09:30:00.000Z' },
+        },
+      ]),
+    );
+
+    expect(row![4]).toContain('Early unassign requested Oct 14, 2026');
+  });
+
   it('links an assigned product to its portal page', () => {
     const fixture = render([ASSIGNED]);
     const link = (fixture.nativeElement as HTMLElement).querySelector('td a');
