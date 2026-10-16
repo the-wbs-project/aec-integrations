@@ -469,6 +469,13 @@ test('user can search and find a product', async ({ page }) => {
 });
 ```
 
+**Scroll with `behavior: 'instant'`.** The app sets `html { scroll-behavior: smooth }`, which
+`window.scrollTo` and `scrollIntoView` honour. A smooth scroll is still moving when the next
+assertion runs. An assertion that matches the start state then passes before the scroll lands.
+Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec tests the smooth
+scroll itself. The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
+and failed on 1.64's newer Chromium (AECI-1383).
+
 ### 7.5 Test data
 
 - The local environment uses a fixed seed data set in D1
@@ -915,8 +922,8 @@ Defined in `vitest.config.ts` `coverage.exclude`.
     "vitest": "^2.0.0",
     "@analogjs/vitest-angular": "latest",
     "@testing-library/angular": "^17.0.0",
-    "@playwright/test": "^1.45.0",
-    "@axe-core/playwright": "^4.9.0",
+    "@playwright/test": "^1.64.1",
+    "@axe-core/playwright": "^4.10.2",
     "@chromatic-com/playwright": "latest",
     "@lhci/cli": "latest",
     "miniflare": "^3.0.0",
@@ -925,6 +932,10 @@ Defined in `vitest.config.ts` `coverage.exclude`.
   }
 }
 ```
+
+Playwright has a floor. CI runs on the `ubuntu-26.04` runner image, and Playwright supports Ubuntu
+26.04 from 1.61. Below that, `playwright install --with-deps chromium` fails and the e2e lane never
+starts (AECI-1383). Do not pin `@playwright/test` below 1.61.
 
 ### 16.2 Scripts
 
