@@ -231,9 +231,28 @@ export function originOf(url: string): string {
   }
 }
 
-/** Compose a page title: `{name}{suffix}`. Suffix carries any locale chrome. */
+/**
+ * A `<title>` of this many characters or more sheds the brand suffix. Bing
+ * Webmaster Tools' "Title too long" rule asks for titles under 70 characters, so
+ * 70 itself is over the line; Google truncates by pixel width around 60.
+ */
+export const TITLE_MAX_LENGTH = 70;
+
+/**
+ * Compose a page title: `{name}{suffix}`. Suffix carries any locale chrome.
+ *
+ * When the composed title would reach `TITLE_MAX_LENGTH`, the suffix is dropped
+ * and the bare `name` is returned. The page-specific words are the part that
+ * ranks; the brand is already carried by `og:site_name` and the result's URL. A
+ * product-PAIR title naming two long products is the case that trips it. A name
+ * that is itself over the limit is returned whole, never cut mid-word. This is
+ * a cliff by design: one character over loses the whole suffix, so callers put
+ * every page-specific word (e.g. the browse "tools" infix) in `name`, never in
+ * `suffix`.
+ */
 export function buildEntityTitle(name: string, suffix: string): string {
-  return `${name}${suffix}`;
+  const full = `${name}${suffix}`;
+  return full.length >= TITLE_MAX_LENGTH ? name : full;
 }
 
 /**

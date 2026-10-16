@@ -16,6 +16,7 @@ import {
   META_DESCRIPTION_MAX_NAMES,
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
+  TITLE_MAX_LENGTH,
   buildEntityTitle,
   buildOgTags,
   buildPairBreadcrumbLd,
@@ -251,6 +252,25 @@ describe('buildEntityTitle', () => {
 
   it('does not strip or normalise the name', () => {
     expect(buildEntityTitle('  Padded  ', '')).toBe('  Padded  ');
+  });
+
+  it('drops the suffix when the composed title would exceed TITLE_MAX_LENGTH', () => {
+    const name = 'Procore Project Management and Trimble Connect integrations';
+    expect(`${name} · AEC Integrations`.length).toBeGreaterThan(TITLE_MAX_LENGTH);
+    expect(buildEntityTitle(name, ' · AEC Integrations')).toBe(name);
+  });
+
+  it('keeps the suffix one short of TITLE_MAX_LENGTH and drops it at exactly the cap', () => {
+    const suffix = ' · AEC Integrations';
+    const under = 'x'.repeat(TITLE_MAX_LENGTH - suffix.length - 1);
+    expect(buildEntityTitle(under, suffix)).toHaveLength(TITLE_MAX_LENGTH - 1);
+    const at = 'x'.repeat(TITLE_MAX_LENGTH - suffix.length);
+    expect(buildEntityTitle(at, suffix)).toBe(at);
+  });
+
+  it('returns an over-long name whole rather than cutting it', () => {
+    const name = 'y'.repeat(TITLE_MAX_LENGTH + 5);
+    expect(buildEntityTitle(name, ' · AEC Integrations')).toBe(name);
   });
 });
 
