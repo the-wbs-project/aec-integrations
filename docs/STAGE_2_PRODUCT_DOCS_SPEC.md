@@ -257,7 +257,8 @@ sidebar toggle, with disjoint URL spaces.
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/                            — SHIPPED (AECI-1249), indexable
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy, stated in full here only. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
-│  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
+│  ├─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
+│  └─ listing-submissions            — how to suggest a product, the three listing conditions, suggesting vs claiming, what no payment changes (AECI-588; operator side `docs/LISTING_SUBMISSIONS_RUNBOOK.md`). As a General page it links `/vendor-program` for the claim dialog and the plans, never the vendor guide, and it leaves the full "cannot be bought" statement to `how-ranking-works` (B6)
 ├─ reviewers/                        — SHIPPED (AECI-1250; requests-and-corrections by AECI-1248), indexable
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing
@@ -291,7 +292,7 @@ on neither the General home nor its sidebar):
 
 Everything under `/docs/vendors`, which since AECI-1271 is the vendor guide alone, is indexable and in the sitemap since AECI-1253, like the General guide.
 
-> **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
+> **Boundary with `/methodology` (AECI-804, shipped).** The `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
 > `/methodology` is the **single-page, citable editorial statement**: one read, indexable, in the
 > sitemap, the canonical short answer to "how does this directory work". `/docs/trust/*` is the
