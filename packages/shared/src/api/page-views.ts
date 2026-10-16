@@ -199,6 +199,74 @@ export function readPageViewWriter(headers: Headers): PageViewWriter | null {
 }
 
 /**
+ * Trusted headers that carry the raw-store inputs from the SSR Worker to the API
+ * (AECI-1384, ADR 0041). Same trust model as {@link PAGE_VIEW_CF_HEADERS}: the SSR
+ * Worker is the sole writer, the proxy path strips any client-supplied copy first,
+ * and the API trusts them only because it has no public ingress.
+ *
+ * - `cfRaw` is the WHOLE `request.cf` object, `encodeCfRaw`-encoded (base64 of
+ *   UTF-8 JSON). Raw JSON would throw in `Headers.set` on a non-Latin-1 city name.
+ *   The ten `x-aeci-cf-*` headers stay as they are; this one feeds the raw store only.
+ * - `eyeballUrl` is the full document URL, query string included. Set on the SSR
+ *   arrival path only. On the proxy path the beacon's own URL is meaningless, and
+ *   the page URL already arrives as the browser's `referer`.
+ * - `clientIp` is the eyeball's `cf-connecting-ip`, copied onto a name the SSR
+ *   Worker owns on both paths. The API hashes it and never stores it.
+ *
+ * None of these is read by the `page_views` insert.
+ */
+export const PAGE_VIEW_RAW_HEADERS = {
+  cfRaw: 'x-aeci-cf-raw',
+  eyeballUrl: 'x-aeci-eyeball-url',
+  clientIp: 'x-aeci-client-ip',
+} as const;
+
+/**
+ * Eyeball headers the SSR Worker copies onto its `firePageView` arrival write, on
+ * top of `user-agent`, `referer`, `cookie` and {@link PAGE_VIEW_CLIENT_SIGNAL_HEADERS}
+ * (AECI-1384). A closed allow-list, so a new browser header is a deliberate change.
+ * The proxy path needs no list: it forwards the browser's request as it came.
+ *
+ * IP-bearing headers are deliberately absent. The IP travels only as
+ * `PAGE_VIEW_RAW_HEADERS.clientIp` and is hashed at the API.
+ */
+export const PAGE_VIEW_ARRIVAL_FORWARD_HEADERS = [
+  'accept-encoding',
+  'sec-ch-ua-mobile',
+  'sec-ch-ua-platform',
+  'sec-ch-ua-platform-version',
+  'sec-ch-ua-arch',
+  'sec-ch-ua-bitness',
+  'sec-ch-ua-model',
+  'sec-ch-ua-full-version',
+  'sec-ch-ua-full-version-list',
+  'sec-ch-ua-wow64',
+  'sec-ch-ua-form-factors',
+  'sec-fetch-user',
+  'save-data',
+  'dnt',
+  'sec-gpc',
+  'via',
+  'x-forwarded-proto',
+  'cf-ipcountry',
+  'cf-visitor',
+] as const;
+
+/**
+ * Headers that carry a client IP. The raw page-view store drops every one of them
+ * (AECI-1384): the IP is kept only as a keyed hash.
+ */
+export const PAGE_VIEW_IP_HEADERS = [
+  'cf-connecting-ip',
+  'cf-connecting-ipv6',
+  'cf-pseudo-ipv4',
+  'true-client-ip',
+  'x-forwarded-for',
+  'x-real-ip',
+  PAGE_VIEW_RAW_HEADERS.clientIp,
+] as const;
+
+/**
  * Route prefixes that are never recorded in `page_views` (AECI-575 /
  * `docs/ADMIN_PANEL_SPEC.md` §9.6 "No self-pollution").
  *

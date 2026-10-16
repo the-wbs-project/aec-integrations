@@ -273,6 +273,36 @@
       "runbook": "docs/RUNBOOKS.md — 'page_views write errors'. Traffic keeps serving; the admin panel's traffic screen under-reports."
     },
     {
+      "key": "pageviews-raw-unsent",
+      "name": "AECi \u2014 Raw page-view store missed a capture (any, 1 h)",
+      "insightKey": "alert-pageviews-raw-unsent",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "unsent_envelopes",
+        "label_column": "outcomes"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1384, no Datadog predecessor. aeci.pageviews.raw outcome:failed is a capture whose raw envelope the Pipelines stream refused. outcome:skipped in production means the PAGE_VIEW_RAW binding is missing from the deployed config. Either way the R2 backup has a hole that cannot be back-filled. ADR 0041."
+      },
+      "runbook": "docs/RUNBOOKS.md \u2014 'Raw page-view store missed a capture'."
+    },
+    {
       "key": "linear-pipeline-failure",
       "name": "AECi — Linear pipeline failure rate > 50% (1 h)",
       "insightKey": "alert-linear-failure-rate",

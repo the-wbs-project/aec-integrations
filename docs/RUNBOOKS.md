@@ -117,6 +117,10 @@ Thresholds and their basis: `observability/posthog/README.md`. First look:
 checked daily. The thresholds are initial. First look: `docs/email.md` §Delivery webhooks, then
 the Resend dashboard for the message itself.
 
+**One more net-new alert, `pageviews-raw-unsent` (AECI-1384), also sits outside the table.** It watches
+`aeci.pageviews.raw` for any `failed` or `skipped` in an hour. Runbook:
+[Raw page-view store missed a capture](#raw-page-view-store-missed-a-capture).
+
 ### The combined cron-failure alert — where the detail is
 
 Rows 2, 3, 4 and 6 above are **one** PostHog alert:
@@ -575,6 +579,40 @@ once writes resume and the next compute runs.
 schema regression — page on-call, capture a `reason` from the logs, and consider rolling back the
 correlated deploy. (The 10% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`;
 retune once production traffic is known.)
+
+## Raw page-view store missed a capture
+
+**Alert:** `AECi — Raw page-view store missed a capture (any, 1 h)` (`pageviews-raw-unsent`, AECI-1384) —
+PostHog, hourly, production only. It fires when `aeci.pageviews.raw` has any `outcome:failed` or
+`outcome:skipped` in the last hour. Not applied until `apply.sh` is run (Chris's step).
+
+**What it means:** every capture that reaches the API writes a raw JSON envelope to the `PAGE_VIEW_RAW`
+Pipelines stream, which lands in the `aeci-page-views-raw-<env>` R2 bucket (ADR 0041). The D1 `page_views`
+row and every traffic figure are fine. The hole is in the backup.
+
+- **`failed`**: `stream.send()` threw, or the envelope could not be built. The log
+  `aeci.api.page_view.raw_failed` carries the `reason` and the D1 `outcome`.
+- **`skipped`**: the `PAGE_VIEW_RAW` binding is absent from the deployed config. In production that
+  means the `pipelines` entry was lost from `apps/api/wrangler.jsonc`. It is normal on demo and locally.
+
+**First checks**
+
+1. Read the failure: PostHog logs, `service:aeci-api source:page-views`, message
+   `aeci.api.page_view.raw_failed`.
+2. Confirm the binding is in the deployed config: the production block of `apps/api/wrangler.jsonc` must
+   carry `"pipelines": [{ "binding": "PAGE_VIEW_RAW", "stream": "<id>" }]`. Bindings are not inherited
+   between wrangler environments. `GET /api/version` names the deployed commit to check against.
+3. Confirm the stream still exists: `wrangler pipelines streams get <stream id>` (read only). Also check
+   the sink and pipeline still point at `aeci-page-views-raw-production`.
+4. Recent deploy or Cloudflare incident? A step change right after a deploy points at the config. A
+   scatter of `failed` points at Pipelines itself.
+
+**Impact:** a missed envelope is gone. Nothing queues or retries it, and the `page_views` row cannot
+recreate the raw headers or `request.cf`. The gap matters only for a later back-fill from source.
+
+**Repair:** restore the binding or the stream and deploy. New captures resume at once. There is no
+back-fill. Note the window in the issue so a later rebuild knows the hole exists. Do not "fix" it by
+making the D1 write wait on the raw write.
 
 ## page_views duplicate PK (prod data corruption) — historical (Postgres only)
 

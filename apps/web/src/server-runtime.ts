@@ -75,11 +75,14 @@
 
 import {
   defaultIntegrationContext,
+  encodeCfRaw,
   isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
+  PAGE_VIEW_ARRIVAL_FORWARD_HEADERS,
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
+  PAGE_VIEW_RAW_HEADERS,
   PAGE_VIEW_WRITER_HEADER,
   PAGE_VIEW_WRITERS,
 } from '@aeci/shared';
@@ -881,9 +884,39 @@ export function withForwardedCfContext(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) headers.delete(name);
   headers.delete(PAGE_VIEW_WRITER_HEADER);
+  // AECI-1384 — the raw-store headers are trusted on the same footing, so a
+  // client-supplied copy of any of them is dropped before ours are set.
+  for (const name of Object.values(PAGE_VIEW_RAW_HEADERS)) headers.delete(name);
   applyCfContextHeaders(headers, request);
+  applyRawStoreHeaders(headers, request, { includeEyeballUrl: false });
   headers.set(PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS.browserSpa);
   return new Request(request, { headers });
+}
+
+/**
+ * Set the raw page-view store's trusted headers (AECI-1384, ADR 0041) from the SSR
+ * Worker's OWN view of the eyeball request. Never copied from a client header.
+ *
+ * - The whole `request.cf`, base64-encoded (`encodeCfRaw`), because a raw JSON
+ *   header throws on a non-Latin-1 city name and would kill the write.
+ * - The eyeball's `cf-connecting-ip`, onto a name the SSR Worker owns. The API
+ *   hashes it under a monthly key and never stores it.
+ * - The full document URL, query included, on the arrival path only. The proxy
+ *   path's own URL is the beacon endpoint, and the page URL already arrives there
+ *   as the browser's `referer`.
+ *
+ * Nothing in the `page_views` row reads these. They feed the raw envelope only.
+ */
+function applyRawStoreHeaders(
+  headers: Headers,
+  request: Request,
+  opts: { includeEyeballUrl: boolean },
+): void {
+  const cfRaw = encodeCfRaw((request as { cf?: unknown }).cf);
+  if (cfRaw) headers.set(PAGE_VIEW_RAW_HEADERS.cfRaw, cfRaw);
+  const clientIp = request.headers.get('cf-connecting-ip');
+  if (clientIp) headers.set(PAGE_VIEW_RAW_HEADERS.clientIp, clientIp);
+  if (opts.includeEyeballUrl) headers.set(PAGE_VIEW_RAW_HEADERS.eyeballUrl, request.url);
 }
 
 /**
@@ -1050,6 +1083,14 @@ function firePageView(
     const value = sourceRequest.headers.get(name);
     if (value) headers.set(name, value);
   }
+  // AECI-1384 — the rest of the eyeball's request, for the raw store only. A closed
+  // allow-list with no IP-bearing header in it. Same no-trust footing as the loop
+  // above: none of these feeds a `page_views` column.
+  for (const name of PAGE_VIEW_ARRIVAL_FORWARD_HEADERS) {
+    const value = sourceRequest.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  applyRawStoreHeaders(headers, sourceRequest, { includeEyeballUrl: true });
   // Forward the eyeball's `Cookie` so the API can decide whether this arrival is
   // the operator checking their own work (`is_operator`, ADMIN_PANEL_SPEC §13 D13).
   // The API verifies the session token itself — this header is transport, and

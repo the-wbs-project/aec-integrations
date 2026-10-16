@@ -1,11 +1,16 @@
 import {
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
+  PAGE_VIEW_RAW_HEADERS,
   PageViewPayloadSchema,
+  buildRawEnvelope,
   canonicalPairIds,
+  emptyRawPageViewDerived,
   parsePairPagePath,
   type PageViewPayload,
   type PairPageSlugs,
+  type RawPageViewDerived,
+  type RawPageViewOutcome,
 } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -23,7 +28,8 @@ import {
 } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
 import { classifyTraffic } from '../lib/bot-classification';
-import { sha256Hex } from '../lib/hash';
+import { monthlyIpHash, sha256Hex } from '../lib/hash';
+import { writeRawEnvelope, type IpHashState } from '../lib/page-view-raw';
 import { classifyClientSignals } from '../lib/client-signals';
 import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
@@ -348,8 +354,213 @@ async function findDuplicate(
   return rows.length > 0;
 }
 
-/** Deferred capture. Never throws: failures emit `aeci.pageviews.write{outcome:failed}`
- *  + an observability warn and are swallowed so the returned 204 stands. */
+/** What the D1 half of a capture ended as, for the raw envelope (AECI-1384). */
+type RecordResult = { outcome: RawPageViewOutcome; pageViewId: number | null };
+
+/**
+ * The D1 half of a capture. Throws on failure; `capturePageView` owns the catch.
+ * Fills `derived` as each value is computed, so a capture that stops early or
+ * throws still hands the raw envelope whatever it had (AECI-1384).
+ */
+async function recordPageView(
+  c: Context<{ Bindings: Env }>,
+  payload: PageViewPayload,
+  dbFor: DbFactory,
+  deps: PageViewsDeps,
+  derived: RawPageViewDerived,
+): Promise<RecordResult> {
+  const req = c.req.raw;
+  const cf = readCfContext(req);
+  derived.locale = localeFromRoute(payload.route);
+  // Counted only by the raw store's `outcome` today; the D1 write metric has
+  // never carried a sampled-out tag, and its ratio alert depends on that.
+  if (botScoreSampledOut(c.env, cf.botScore)) return { outcome: 'sampled_out', pageViewId: null };
+
+  const ua = req.headers.get('user-agent');
+  const userAgentHash = ua ? await sha256Hex(ua) : null;
+  // Classify human vs. bot NOW, while the raw UA is still available (only its hash
+  // is persisted). ASN unmasks headless scrapers that spoof a browser UA. AECI-526.
+  const { isBot, botName } = classifyTraffic(ua, cf.asn);
+  derived.user_agent_hash = userAgentHash;
+  derived.is_bot = isBot;
+  derived.bot_name = botName;
+  // Traffic source from the forwarded eyeball `Referer` (SSR `firePageView`). Store
+  // the host only (privacy) + a coarse source label the digest groups on. AECI-526.
+  const { source: referrerSource, host: referrerHost } = classifyReferrer(
+    req.headers.get('referer'),
+    selfHosts(c.env),
+  );
+  // How browser-shaped this request was (AECI-658). Computed here for the same
+  // reason the two classifications above are: the headers are gone afterwards.
+  // ANNOTATION ONLY — deliberately not passed to `classifyTraffic` and it must
+  // never change `isBot` above. Writer-aware, so the tracker's same-origin fetch
+  // is not judged by document-arrival rules it fails by construction — and since
+  // AECI-871 that writer comes from the SSR Worker's trusted provenance header,
+  // not from `payload.navigation`, which is passed only so a body claiming an
+  // in-app hop that no header corroborates can be declined (`unknown`).
+  const clientSignals = classifyClientSignals(req.headers, ua, payload.navigation ?? null, cf);
+  derived.referrer_source = referrerSource;
+  derived.referrer_host = referrerHost;
+  derived.client_signals = { ...clientSignals };
+
+  // AECI-743 — the one-arrival-one-row key. Computed here because it needs the
+  // UA hash and the bot verdict, both of which exist only at ingest.
+  const concretePath = payload.path ?? payload.route;
+  const keys = await dedupeKeys({
+    concretePath,
+    userAgentHash,
+    cfAsn: cf.asn,
+    isBot,
+    now: Date.now(),
+  });
+  derived.dedupe_keys = keys;
+
+  // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
+  // 204 regardless) — stays on the `'first-unconstrained'` read default; a
+  // primary anchor would spend a round-trip for no benefit. (AECI-250)
+  const { db } = dbFor(c.env);
+  // All four reads are independent, so they overlap rather than queue. The
+  // session check short-circuits with no I/O when the request is
+  // anonymous, which is nearly all of them, and the duplicate probe is a seek on
+  // `page_views_dedupe_key_idx` that costs nothing when the key is null. The pair
+  // lookup (AECI-929) likewise does no I/O unless the path is a pair page.
+  const [
+    { productId, vendorId, taxonomyKind, taxonomyId },
+    { isOperator, ownerVendorId },
+    duplicate,
+    [pairProductAId, pairProductBId],
+  ] = await Promise.all([
+    resolveEntity(db, payload),
+    resolveVisitorSession(c, db, deps),
+    findDuplicate(db, keys),
+    resolvePairProducts(db, parsePairPagePath(concretePath)),
+  ]);
+
+  Object.assign(derived, {
+    product_id: productId,
+    vendor_id: vendorId,
+    taxonomy_kind: taxonomyKind,
+    taxonomy_id: taxonomyId,
+    is_operator: isOperator,
+    owner_vendor_id: ownerVendorId,
+    pair_product_a_id: pairProductAId,
+    pair_product_b_id: pairProductBId,
+  });
+
+  // Suppression is COUNTED, never silent: a metric that quietly drops rows is
+  // indistinguishable from an ingest outage, and the whole point of this issue is
+  // that an unobserved miscount survived into the digest's most trusted figure.
+  if (duplicate) {
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:deduped']);
+    return { outcome: 'deduped', pageViewId: null };
+  }
+
+  // A vendor viewing its own listing (AECI-934 / §13 D26). Needs the resolved
+  // entity and pair ids, so it runs after the batch above. No I/O unless the
+  // session is a verified vendor_admin's.
+  const isOwnerVisit = await resolveOwnerVisit(db, ownerVendorId, {
+    productId,
+    vendorId,
+    pairProductAId,
+    pairProductBId,
+    concretePath,
+  });
+  derived.is_owner_visit = isOwnerVisit;
+
+  const inserted = await db
+    .insert(pageViews)
+    .values({
+      path: payload.route,
+      // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
+      // writer that sends a route PATTERN owes an explicit `path`; for the browser
+      // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
+      // path, so the fallback is the right answer rather than a degraded one.
+      concretePath,
+      productId,
+      vendorId,
+      // AECI-929 — both endpoints of a pair page, lower id first. Bot rows take
+      // this same insert, so a crawler's fetch of a pair page is attributed too.
+      pairProductAId,
+      pairProductBId,
+      taxonomyKind,
+      taxonomyId,
+      // Never inferred — an omitted flag stays null rather than being guessed into
+      // the bucket this column exists to disambiguate.
+      navigation: payload.navigation ?? null,
+      cfCountry: cf.country,
+      cfColo: cf.colo,
+      cfAsn: cf.asn,
+      cfAsOrganization: cf.asOrganization,
+      cfBotScore: cf.botScore,
+      cfRay: cf.ray,
+      cfVerifiedBot: cf.verifiedBot,
+      cfVerifiedBotCategory: cf.verifiedBotCategory,
+      userAgentHash,
+      locale: localeFromRoute(payload.route),
+      isBot,
+      botName,
+      // The operator checking their own work (§13 D13). Recorded rather than
+      // dropped: the row stays available to any query that wants it, exactly as
+      // the §9.6 path rows did, and the read side excludes it.
+      isOperator,
+      // A vendor admin checking its own listing (§13 D26). Recorded, never
+      // dropped, for the same reason; `NOT_OWNER_VISIT` excludes it on read.
+      isOwnerVisit,
+      referrer: referrerHost,
+      referrerSource,
+      // Request-shape annotation (AECI-658). Never read by the bot classifier.
+      secFetchDest: clientSignals.secFetchDest,
+      hasAcceptLanguage: clientSignals.hasAcceptLanguage,
+      hasSecChUa: clientSignals.hasSecChUa,
+      tlsVersion: clientSignals.tlsVersion,
+      httpProtocol: clientSignals.httpProtocol,
+      clientVerdict: clientSignals.verdict,
+      // Which of our writers originated this row (AECI-871 / §13 D18). Taken
+      // from `clientSignals`, which read it off the TRUSTED
+      // `PAGE_VIEW_WRITER_HEADER` — never from `payload.navigation`, which is a
+      // client-controlled claim and, until this issue, was enough on its own to
+      // earn a `browser` verdict.
+      writerProvenance: clientSignals.writerProvenance,
+      // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
+      // (e.g. the waitlist welcome banner); null for ordinary views.
+      refSource: payload.ref_source ?? null,
+      refToken: payload.ref_token ?? null,
+      // AECI-743. Null for bots and for rows with no UA hash — see `dedupeKeys`.
+      dedupeKey: keys?.current ?? null,
+    })
+    // The race-proof half of the guard. The probe above catches the ordinary
+    // duplicate (and is what makes the suppression measurable), but the failure
+    // this issue is named for was 83 ms apart with both inserts in flight from
+    // `waitUntil` — the second SELECT can run before the first INSERT commits, and
+    // only the UNIQUE index settles that. D1 reports no usable `meta.changes` on a
+    // conflict (AECI-581), which is why the metric hangs off the probe rather than
+    // off this result.
+    .onConflictDoNothing({ target: pageViews.dedupeKey })
+    // The raw envelope's join key (AECI-1384). An empty result is the conflict
+    // case: RETURNING yields no row when DO NOTHING fires, which is the signal
+    // `meta.changes` could not give. The write metric below stays on `ok` for
+    // both, exactly as before, so its existing ratio alert keeps its meaning.
+    .returning({ id: pageViews.id });
+  submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
+    'outcome:ok',
+    `bot:${isBot}`,
+  ]);
+  const pageViewId = inserted[0]?.id ?? null;
+  return pageViewId === null
+    ? { outcome: 'conflict', pageViewId: null }
+    : { outcome: 'inserted', pageViewId };
+}
+
+/**
+ * Deferred capture. Never throws: a D1 failure emits
+ * `aeci.pageviews.write{outcome:failed}` + an observability warn and is swallowed
+ * so the returned 204 stands.
+ *
+ * Every capture that reaches here then writes exactly one raw envelope
+ * (AECI-1384, ADR 0041), whatever the D1 outcome. The raw write runs after the D1
+ * outcome is known and in its own `try`, so it can neither change that outcome nor
+ * throw out of `waitUntil`.
+ */
 async function capturePageView(
   c: Context<{ Bindings: Env }>,
   payload: PageViewPayload,
@@ -357,160 +568,46 @@ async function capturePageView(
   deps: PageViewsDeps,
 ): Promise<void> {
   const req = c.req.raw;
+  const capturedAt = new Date();
+  const derived = emptyRawPageViewDerived();
+  let result: RecordResult;
+  let outcomeDetail: string | null = null;
   try {
-    const cf = readCfContext(req);
-    if (botScoreSampledOut(c.env, cf.botScore)) return;
-
-    const ua = req.headers.get('user-agent');
-    const userAgentHash = ua ? await sha256Hex(ua) : null;
-    // Classify human vs. bot NOW, while the raw UA is still available (only its hash
-    // is persisted). ASN unmasks headless scrapers that spoof a browser UA. AECI-526.
-    const { isBot, botName } = classifyTraffic(ua, cf.asn);
-    // Traffic source from the forwarded eyeball `Referer` (SSR `firePageView`). Store
-    // the host only (privacy) + a coarse source label the digest groups on. AECI-526.
-    const { source: referrerSource, host: referrerHost } = classifyReferrer(
-      req.headers.get('referer'),
-      selfHosts(c.env),
-    );
-    // How browser-shaped this request was (AECI-658). Computed here for the same
-    // reason the two classifications above are: the headers are gone afterwards.
-    // ANNOTATION ONLY — deliberately not passed to `classifyTraffic` and it must
-    // never change `isBot` above. Writer-aware, so the tracker's same-origin fetch
-    // is not judged by document-arrival rules it fails by construction — and since
-    // AECI-871 that writer comes from the SSR Worker's trusted provenance header,
-    // not from `payload.navigation`, which is passed only so a body claiming an
-    // in-app hop that no header corroborates can be declined (`unknown`).
-    const clientSignals = classifyClientSignals(req.headers, ua, payload.navigation ?? null, cf);
-
-    // AECI-743 — the one-arrival-one-row key. Computed here because it needs the
-    // UA hash and the bot verdict, both of which exist only at ingest.
-    const concretePath = payload.path ?? payload.route;
-    const keys = await dedupeKeys({
-      concretePath,
-      userAgentHash,
-      cfAsn: cf.asn,
-      isBot,
-      now: Date.now(),
-    });
-
-    // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
-    // 204 regardless) — stays on the `'first-unconstrained'` read default; a
-    // primary anchor would spend a round-trip for no benefit. (AECI-250)
-    const { db } = dbFor(c.env);
-    // All four reads are independent, so they overlap rather than queue. The
-    // session check short-circuits with no I/O when the request is
-    // anonymous, which is nearly all of them, and the duplicate probe is a seek on
-    // `page_views_dedupe_key_idx` that costs nothing when the key is null. The pair
-    // lookup (AECI-929) likewise does no I/O unless the path is a pair page.
-    const [
-      { productId, vendorId, taxonomyKind, taxonomyId },
-      { isOperator, ownerVendorId },
-      duplicate,
-      [pairProductAId, pairProductBId],
-    ] = await Promise.all([
-      resolveEntity(db, payload),
-      resolveVisitorSession(c, db, deps),
-      findDuplicate(db, keys),
-      resolvePairProducts(db, parsePairPagePath(concretePath)),
-    ]);
-
-    // Suppression is COUNTED, never silent: a metric that quietly drops rows is
-    // indistinguishable from an ingest outage, and the whole point of this issue is
-    // that an unobserved miscount survived into the digest's most trusted figure.
-    if (duplicate) {
-      submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:deduped']);
-      return;
-    }
-
-    // A vendor viewing its own listing (AECI-934 / §13 D26). Needs the resolved
-    // entity and pair ids, so it runs after the batch above. No I/O unless the
-    // session is a verified vendor_admin's.
-    const isOwnerVisit = await resolveOwnerVisit(db, ownerVendorId, {
-      productId,
-      vendorId,
-      pairProductAId,
-      pairProductBId,
-      concretePath,
-    });
-
-    await db
-      .insert(pageViews)
-      .values({
-        path: payload.route,
-        // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
-        // writer that sends a route PATTERN owes an explicit `path`; for the browser
-        // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
-        // path, so the fallback is the right answer rather than a degraded one.
-        concretePath,
-        productId,
-        vendorId,
-        // AECI-929 — both endpoints of a pair page, lower id first. Bot rows take
-        // this same insert, so a crawler's fetch of a pair page is attributed too.
-        pairProductAId,
-        pairProductBId,
-        taxonomyKind,
-        taxonomyId,
-        // Never inferred — an omitted flag stays null rather than being guessed into
-        // the bucket this column exists to disambiguate.
-        navigation: payload.navigation ?? null,
-        cfCountry: cf.country,
-        cfColo: cf.colo,
-        cfAsn: cf.asn,
-        cfAsOrganization: cf.asOrganization,
-        cfBotScore: cf.botScore,
-        cfRay: cf.ray,
-        cfVerifiedBot: cf.verifiedBot,
-        cfVerifiedBotCategory: cf.verifiedBotCategory,
-        userAgentHash,
-        locale: localeFromRoute(payload.route),
-        isBot,
-        botName,
-        // The operator checking their own work (§13 D13). Recorded rather than
-        // dropped: the row stays available to any query that wants it, exactly as
-        // the §9.6 path rows did, and the read side excludes it.
-        isOperator,
-        // A vendor admin checking its own listing (§13 D26). Recorded, never
-        // dropped, for the same reason; `NOT_OWNER_VISIT` excludes it on read.
-        isOwnerVisit,
-        referrer: referrerHost,
-        referrerSource,
-        // Request-shape annotation (AECI-658). Never read by the bot classifier.
-        secFetchDest: clientSignals.secFetchDest,
-        hasAcceptLanguage: clientSignals.hasAcceptLanguage,
-        hasSecChUa: clientSignals.hasSecChUa,
-        tlsVersion: clientSignals.tlsVersion,
-        httpProtocol: clientSignals.httpProtocol,
-        clientVerdict: clientSignals.verdict,
-        // Which of our writers originated this row (AECI-871 / §13 D18). Taken
-        // from `clientSignals`, which read it off the TRUSTED
-        // `PAGE_VIEW_WRITER_HEADER` — never from `payload.navigation`, which is a
-        // client-controlled claim and, until this issue, was enough on its own to
-        // earn a `browser` verdict.
-        writerProvenance: clientSignals.writerProvenance,
-        // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
-        // (e.g. the waitlist welcome banner); null for ordinary views.
-        refSource: payload.ref_source ?? null,
-        refToken: payload.ref_token ?? null,
-        // AECI-743. Null for bots and for rows with no UA hash — see `dedupeKeys`.
-        dedupeKey: keys?.current ?? null,
-      })
-      // The race-proof half of the guard. The probe above catches the ordinary
-      // duplicate (and is what makes the suppression measurable), but the failure
-      // this issue is named for was 83 ms apart with both inserts in flight from
-      // `waitUntil` — the second SELECT can run before the first INSERT commits, and
-      // only the UNIQUE index settles that. D1 reports no usable `meta.changes` on a
-      // conflict (AECI-581), which is why the metric hangs off the probe rather than
-      // off this result.
-      .onConflictDoNothing({ target: pageViews.dedupeKey });
-    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
-      'outcome:ok',
-      `bot:${isBot}`,
-    ]);
+    result = await recordPageView(c, payload, dbFor, deps, derived);
   } catch (error) {
+    outcomeDetail = error instanceof Error ? error.message : String(error);
+    result = { outcome: 'failed', pageViewId: null };
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:failed']);
     logToPosthog(c.executionCtx, c.env, req, {
       level: 'warn',
       message: 'aeci.api.page_view.capture_failed',
+      source: 'page-views',
+      reason: outcomeDetail,
+    });
+  }
+
+  try {
+    const secret = c.env.PAGE_VIEW_IP_HASH_SECRET;
+    const ip = req.headers.get(PAGE_VIEW_RAW_HEADERS.clientIp)?.trim() || null;
+    const ipHash = await monthlyIpHash(secret, ip, capturedAt);
+    const ipHashState: IpHashState = !secret ? 'no_secret' : ip ? 'present' : 'no_ip';
+    const envelope = buildRawEnvelope({
+      capturedAt,
+      env: c.env.ENV ?? null,
+      pageViewId: result.pageViewId,
+      outcome: result.outcome,
+      outcomeDetail,
+      body: payload,
+      headers: req.headers,
+      ipHash,
+      derived,
+    });
+    await writeRawEnvelope(c.executionCtx, c.env, req, envelope, ipHashState);
+  } catch (error) {
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.raw', 1, ['outcome:failed']);
+    logToPosthog(c.executionCtx, c.env, req, {
+      level: 'warn',
+      message: 'aeci.api.page_view.raw_failed',
       source: 'page-views',
       reason: error instanceof Error ? error.message : String(error),
     });

@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all nineteen crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 20 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 53 insights (32 board + 21 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 21 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -597,7 +597,11 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
-> **Update 2026-10-02 (AECI-1222):** the committed set is now 52 insights and 20 alerts. The two
+> **Update 2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
+> `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and not applied.
+> It has no Datadog predecessor and watches `aeci.pageviews.raw` for any `failed` or `skipped` in an hour.
+>
+> **Update 2026-10-02 (AECI-1222):** the committed set was then 52 insights and 20 alerts. The two
 > new ones, `email-bounce-rate` and `email-complaint-rate`, are committed and not applied.
 >
 > **Update 2026-10-01 (AECI-1206):** the committed set was then 50 insights and 18 alerts.

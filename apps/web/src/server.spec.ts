@@ -1,4 +1,10 @@
-import { PAGE_VIEW_CF_HEADERS, VersionResponseSchema } from '@aeci/shared';
+import {
+  PAGE_VIEW_CF_HEADERS,
+  PAGE_VIEW_RAW_HEADERS,
+  VersionResponseSchema,
+  decodeCfRaw,
+  encodeCfRaw,
+} from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -3046,5 +3052,94 @@ describe('createApp server-side session refresh on authenticated surfaces', () =
 
     expect(goTrue).not.toHaveBeenCalled();
     expect(res.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('raw page-view store headers (AECI-1384)', () => {
+  it('sets the whole request.cf, the full URL and the client IP on the SSR arrival write', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    const request = new Request('https://www.aecintegrations.com/products?utm_source=li', {
+      headers: {
+        'cf-connecting-ip': '203.0.113.9',
+        'sec-gpc': '1',
+        'sec-ch-ua-platform': '"macOS"',
+        'x-forwarded-for': '198.51.100.1',
+      },
+    });
+    const cf = { country: 'BR', city: 'São Paulo', asn: 28573 };
+    Object.defineProperty(request, 'cf', { value: cf });
+    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    const h = pv[0]!.headers;
+    expect(decodeCfRaw(h.get(PAGE_VIEW_RAW_HEADERS.cfRaw))).toEqual(cf);
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.eyeballUrl)).toBe(
+      'https://www.aecintegrations.com/products?utm_source=li',
+    );
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBe('203.0.113.9');
+    expect(h.get('sec-gpc')).toBe('1');
+    expect(h.get('sec-ch-ua-platform')).toBe('"macOS"');
+    // IP headers are never forwarded under their own names; only the owned copy.
+    expect(h.get('x-forwarded-for')).toBeNull();
+    expect(h.get('cf-connecting-ip')).toBeNull();
+    // The body's path stays pathname-only.
+    expect(await pv[0]!.clone().json()).toMatchObject({ path: '/products' });
+  });
+
+  it('strips client-supplied raw-store headers on the proxy path and sets its own cf, no URL', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    const beacon = new Request('https://www.aecintegrations.com/api/page-views', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': '203.0.113.9',
+        [PAGE_VIEW_RAW_HEADERS.cfRaw]: encodeCfRaw({ forged: true }) as string,
+        [PAGE_VIEW_RAW_HEADERS.eyeballUrl]: 'https://evil.test/',
+        [PAGE_VIEW_RAW_HEADERS.clientIp]: '10.0.0.1',
+      },
+      body: JSON.stringify({ route: '/products/procore', navigation: 'spa' }),
+    });
+    Object.defineProperty(beacon, 'cf', { value: { country: 'US', city: 'Zürich' } });
+    await app.fetch(beacon, binding as unknown as Bindings, fakeExecutionContext());
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    const h = pv[0]!.headers;
+    expect(decodeCfRaw(h.get(PAGE_VIEW_RAW_HEADERS.cfRaw))).toEqual({
+      country: 'US',
+      city: 'Zürich',
+    });
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.eyeballUrl)).toBeNull();
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBe('203.0.113.9');
+  });
+
+  it('drops a forged cf header on the proxy path when the runtime has no request.cf', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/api/page-views', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [PAGE_VIEW_RAW_HEADERS.cfRaw]: encodeCfRaw({ forged: true }) as string,
+          [PAGE_VIEW_RAW_HEADERS.clientIp]: '10.0.0.1',
+        },
+        body: JSON.stringify({ route: '/products/procore' }),
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv[0]!.headers.get(PAGE_VIEW_RAW_HEADERS.cfRaw)).toBeNull();
+    expect(pv[0]!.headers.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBeNull();
   });
 });

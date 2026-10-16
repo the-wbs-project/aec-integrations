@@ -533,7 +533,87 @@ the browser.
 6. **Write down the removal trigger** in the issue: what has to be true before
    the flag and its branch are deleted.
 
-## 11. Related
+## 11. The raw page-view store
+
+**Answer first.** Every page-view capture the API receives also writes one raw JSON envelope to R2.
+It is a backup beside `page_views`, so a change to what the row stores can be back-filled from source.
+It is not a reporting surface. Decision, divergence and privacy debt: ADR 0041.
+
+**What it is.** A Cloudflare Pipelines stream (schema-less) with an `r2` sink writing Parquet, zstd,
+under `page_views/year=%Y/month=%m/day=%d/`, rolled every 300 seconds. One bucket per environment:
+`aeci-page-views-raw-staging` and `aeci-page-views-raw-production`. Demo has none. Retention is an R2
+lifecycle delete at 400 days. That is known privacy debt, reviewed in AECI-1385 (due 2027-04-01).
+
+**Outcomes.** One envelope per capture that reaches `capturePageView`. A payload that fails validation
+is a 400 before that point and writes nothing.
+
+| `outcome` | Meaning | `page_view_id` |
+|---|---|---|
+| `inserted` | A `page_views` row was written | the row's id |
+| `conflict` | The insert hit the `dedupe_key` UNIQUE index | null |
+| `deduped` | The dedupe probe found a row in the window | null |
+| `sampled_out` | Below the `PAGE_VIEWS_MIN_BOT_SCORE` floor | null |
+| `failed` | Something threw; `outcome_detail` holds the message (500 characters at most) | null |
+
+**What is in an envelope.** `schema_version` (1), `captured_at`, `env`, `writer`, `page_view_id`,
+`outcome`, `outcome_detail`, `body`, `eyeball_url`, `cf`, `headers`, `ip_hash` and `derived`.
+
+- `cf` is the whole `request.cf`. `headers` is every header the API received, minus the ones below.
+- `eyeball_url` is set for arrival writes only. For `browser-spa` it is null and the page URL is
+  `headers.referer`.
+- `derived` holds what the API worked out at ingest: user-agent hash, bot flags, referrer source and
+  host, client signals, dedupe keys, operator and owner flags, the resolved entity ids and the locale.
+- `ip_hash` is `HMAC(HMAC(secret, 'YYYY-MM'), ip)`. The same address matches within a UTC month and not
+  across months. It is null when the secret or the IP is absent.
+
+**What is never in it.** `cookie`, `authorization` and every `cf-access-*` header (the
+Cloudflare Access session JWT, user email and service token on gated tiers). Every IP-bearing header
+(`cf-connecting-ip`, `cf-connecting-ipv6`, `cf-pseudo-ipv4`, `true-client-ip`, `x-forwarded-for`,
+`x-real-ip`, `x-aeci-client-ip`). The raw IP. Secret query parameters in `eyeball_url` and
+`headers.referer` (`code`, `token`, `access_token`, `refresh_token`, `state`, `key`, `api_key`,
+`session`, and any name containing `secret`, `password` or `auth`).
+
+**Join keys to D1.** `page_view_id` equals `page_views.id`, for `inserted` only. `cf.ray` equals
+`page_views.cf_ray`, for every outcome. Use the ray for the others. `DATABASE_SCHEMA.md` §9.1.
+
+**Reading it.** R2 SQL reads Iceberg tables only, so it cannot read this sink. Use DuckDB over R2's S3
+API. Create an R2 API token with read access to the bucket, then:
+
+```sql
+INSTALL httpfs;
+LOAD httpfs;
+
+CREATE SECRET r2 (
+  TYPE s3,
+  KEY_ID '<r2 access key id>',
+  SECRET '<r2 secret access key>',
+  ENDPOINT '<account id>.r2.cloudflarestorage.com',
+  URL_STYLE 'path',
+  REGION 'auto'
+);
+
+SELECT
+  json_extract_string(value, '$.outcome') AS outcome,
+  json_extract_string(value, '$.cf.country') AS country,
+  count(*) AS captures
+FROM read_parquet(
+  's3://aeci-page-views-raw-production/page_views/year=2026/month=10/day=16/*.parquet'
+)
+GROUP BY ALL
+ORDER BY captures DESC;
+```
+
+The stream has no schema, so the sink has one `value` column holding the envelope as JSON text. Query it
+with `json_extract_string(value, '$.path')`. Do not paste real keys into a shared file.
+
+**Health.** Metric `aeci.pageviews.raw`, alert `pageviews-raw-unsent`, runbook "Raw page-view store missed
+a capture" in `RUNBOOKS.md`. Locally the binding is absent and the write is counted `skipped`
+(`local-dev.md`).
+
+**Consent.** The store captures every visitor, including those who send DNT or Sec-GPC. That gap is
+AECI-1386. §5 above describes the consent tiers for PostHog. This store sits outside them.
+
+## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric
   catalogue and its cardinality budget.
@@ -543,3 +623,5 @@ the browser.
   starting-numbers snapshot and the weekly read procedure.
 - [`ADMIN_PANEL_SPEC.md`](./ADMIN_PANEL_SPEC.md) §7 — the consent-independent
   operator console over `page_views`.
+- [`adr/0041-raw-page-view-store.md`](./adr/0041-raw-page-view-store.md) — the raw
+  page-view store in R2 (§11).
