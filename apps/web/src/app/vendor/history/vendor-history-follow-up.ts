@@ -14,7 +14,9 @@ import { historyPlanIsManaged, historyTimeFormatter } from './vendor-history-lab
  * search submission on Managed. The vendor writes that pass a recrawl to
  * `afterVendorWrite` (`apps/api/src/routes/vendor-shared.ts`). "Looks right",
  * seats, contests and replies change no public page and never queue a URL, so a
- * Free row of theirs gets no "No expedited search submission" line either.
+ * Free row of theirs gets no "No expedited search submission" line either. Each
+ * listing write's audit row records its cause product's plan (`product_plan`,
+ * AECI-1376), the product whose license decided the submission.
  */
 const LISTING_ACTIONS: ReadonlySet<string> = new Set([
   'vendor.updated',
@@ -101,9 +103,10 @@ export function followUpFailureDetail(line: FollowUpLine): string {
  *
  * - lines: one entry per affected URL, with one line per channel: queued,
  *   submitted, failed or requested, and when;
- * - no lines, a vendor edit to the listing made on Free: "No expedited search
- *   submission". IndexNow and the Google worklist are Managed-only
- *   (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a);
+ * - no lines, a vendor edit to the listing of a Free product: "No expedited search
+ *   submission". IndexNow and the Google worklist are Managed-only, per product
+ *   (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a). The row's `product_plan` decides, else
+ *   its `plan`;
  * - otherwise nothing. No line is better than a guess about search engines.
  */
 @Component({
@@ -180,13 +183,19 @@ export class VendorHistoryFollowUp {
     return [...byUrl].map(([url, lines]) => ({ url, path: displayPath(url), lines }));
   });
 
-  /** A listing edit by the vendor's team, made on Free: nothing was submitted. */
+  /**
+   * A listing edit by the vendor's team on a Free product: nothing was submitted.
+   * Resubmission is per product (AECI-1355), so the edited product's plan decides
+   * (AECI-1376). A row with no product plan (a company profile edit, or a row
+   * written before the stamp) falls back to the vendor's plan.
+   */
   protected readonly notEligible = computed(() => {
     const item = this.item();
+    const plan = item.product_plan ?? item.plan;
     return (
       item.actor_kind === 'your_team' &&
-      item.plan !== null &&
-      !historyPlanIsManaged(item.plan) &&
+      plan !== null &&
+      !historyPlanIsManaged(plan) &&
       LISTING_ACTIONS.has(item.action)
     );
   });

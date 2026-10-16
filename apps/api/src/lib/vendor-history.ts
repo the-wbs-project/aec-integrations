@@ -127,6 +127,9 @@ export interface VendorHistoryRawRow {
   reason: unknown;
   vendorTier: string | null;
   vendorEntitlementStatus: string | null;
+  /** AECI-1376: the cause product's plan snapshot, NULL when not stamped. */
+  productTier: string | null;
+  productEntitlementStatus: string | null;
 }
 
 /** A field NAME, not a value. Rejects anything that looks like data used as a key. */
@@ -171,6 +174,10 @@ export function projectVendorHistoryRow(
     fields: afterStateFields(row.afterStateKeys),
     plan: row.vendorTier
       ? { tier: row.vendorTier, status: row.vendorEntitlementStatus ?? null }
+      : null,
+    // AECI-1376: the cause product's plan, for the search follow-up note only.
+    product_plan: row.productTier
+      ? { tier: row.productTier, status: row.productEntitlementStatus ?? null }
       : null,
     ...(reason === undefined ? {} : { reason }),
   };
@@ -313,6 +320,8 @@ async function selectRows(
       reason: metadataPath('$.reason', 'text'),
       vendorTier: auditLog.vendorTier,
       vendorEntitlementStatus: auditLog.vendorEntitlementStatus,
+      productTier: auditLog.productTier,
+      productEntitlementStatus: auditLog.productEntitlementStatus,
     })
     .from(auditLog)
     .where(where)

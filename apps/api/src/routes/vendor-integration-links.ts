@@ -102,6 +102,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** `audit_log.action` values. `entity_type` is `integration`, like every other
@@ -302,7 +303,7 @@ function auditFor(
   stranded = false,
 ): AuditLogEntry {
   const session = c.get('auth');
-  return {
+  const entry: AuditLogEntry = {
     actorId: session.userId,
     actorType: auditActorType(session),
     action,
@@ -321,6 +322,9 @@ function auditFor(
       ...(stranded ? { connectorPowered: true } : {}),
     },
   };
+  // AECI-1376: the link's side is the cause product, the same value the recrawl names.
+  stampCauseProductPlan(c, entry, target.productId);
+  return entry;
 }
 
 export function createPutIntegrationLinkHandler(

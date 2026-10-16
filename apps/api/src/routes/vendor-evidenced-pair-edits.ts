@@ -100,6 +100,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** `audit_log.action` for an owner edit, shared with `vendor-integration-edits.ts`
@@ -302,6 +303,11 @@ export async function editEvidencedPair(
     ),
   ];
 
+  // AECI-1184 / AECI-1376: the pair endpoint the owner's vendor sells, A first, is
+  // the cause product. `null` when it owns neither. One value for the audit stamp
+  // and the recrawl below.
+  const causeProductId = ownedSideProductId(owned, pair.productAId, pair.productBId);
+  stampCauseProductPlan(c, audits, causeProductId);
   const stmts: BatchStmt[] = [
     // AECI-1237: a lock that landed after the read aborts the save here.
     ...(lockSentinel ? [lockSentinel] : []),
@@ -358,15 +364,7 @@ export async function editEvidencedPair(
     pairSlugs && vendorRecrawlEnabled(c) && base
       ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
       : undefined;
-  // AECI-1184: the pair endpoint the owner's vendor sells, A first. `null` when it
-  // owns neither.
-  afterVendorWrite(
-    c,
-    tags,
-    audits,
-    withRecrawlProduct(recrawl, ownedSideProductId(owned, pair.productAId, pair.productBId)),
-    db,
-  );
+  afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
 
   const body: UpdateVendorIntegrationResponse = {
     integration: {

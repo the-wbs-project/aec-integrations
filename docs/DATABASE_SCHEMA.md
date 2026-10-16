@@ -1610,6 +1610,9 @@ create table audit_log (
   product_id text, -- the one product the row is about
   vendor_tier text, -- raw vendor_entitlements.tier at write time, or 'none'
   vendor_entitlement_status text, -- 'active' | 'pending' | 'expired' | 'revoked' | 'none'
+  -- AECI-1376 (migration 0080). No FK, no CHECK. See "The cause product's plan" below.
+  product_tier text, -- the cause product's plan tier at write time, NULL when not stamped
+  product_entitlement_status text, -- its status, same vocabulary as vendor_entitlement_status
 
   created_at text not null -- ISO-8601 UTC
 );
@@ -1674,6 +1677,27 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   `expired`, and a null `ends_at` (monthly) never lapses on the clock. The vendor path reads
   `ends_at` from the session's `licenses`, the admin path from `loadVendorLicenses`. Session
   authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants.
+- **The cause product's plan: `product_tier`, `product_entitlement_status` (AECI-1376, migration
+  `0080`, 2026-10-16).** Since AECI-1355 search-engine resubmission is per product
+  (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)). These two columns record, at write time, the plan of the
+  write's **cause product**: the product whose license decided whether the write was resubmitted.
+  The vendor history page reads them for "No expedited search submission" (`API_CONTRACTS.md`
+  §6.14, `product_plan`).
+  - A row about one product (`product_id` set: an edit, a version, the maintenance marker) records
+    that product's plan. `vendorAuditEntry` does it.
+  - An integration, claim or attestation row keeps `product_id` NULL, as above, but records the
+    plan of the caller's own endpoint, the same value its handler hands the recrawl. The handler
+    calls `stampCauseProductPlan`. An owner retire passes it into the retire batch.
+  - The values come from `sessionProductPlan` (`routes/vendor-shared.ts`): `licensePlanSnapshot`
+    over the session's licenses on that product, keyed on `productTier`, so a row records Managed
+    only when the gate let the write through. One exception: a live license past its `ends_at`
+    still passes the gate but records `expired` (the 2026-10-05 clock ruling). The page then shows
+    the submission lines, which win over the note. A Free product of a vendor licensed elsewhere
+    records `none`.
+  - NULL means no cause product: a company profile edit, an integration whose owner sells neither
+    endpoint, every admin and system row, and every row written before `0080`. No backfill, per the
+    2026-10-04 ruling. Rows written between AECI-1355 (2026-10-14) and `0080` keep the vendor-level
+    signal only.
 - **Columns, not metadata.** The plan was stored in columns so it is typed and filterable inside
   the `vendor_id` slice, and so it cannot drift in spelling the way metadata keys did.
 - **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted

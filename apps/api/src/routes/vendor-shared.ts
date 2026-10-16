@@ -92,6 +92,69 @@ export function sessionVendorPlan(
 }
 
 /**
+ * The plan of ONE product at write time, for a vendor-actor audit row's
+ * `product_tier` / `product_entitlement_status` (AECI-1376, `DATABASE_SCHEMA.md`
+ * §8.4). Same record rule as {@link sessionVendorPlan}, over the session licenses
+ * assigned to that product.
+ *
+ * Keyed on `productTier`, the field the resubmission gate reads
+ * (`bufferVendorRecrawl`), so a row records Managed only when its write could be
+ * resubmitted. A live license past its `ends_at` still passes the gate but records
+ * `expired`, the same clock rule as the vendor plan. A product the session does not list as licensed records only its
+ * ended licenses: `expired`, `revoked`, or `none` when it was never on Managed.
+ */
+export function sessionProductPlan(
+  c: VendorContext,
+  productId: string,
+  now: Date | string = new Date(),
+): VendorPlanSnapshot {
+  const auth = c.get('auth');
+  const tier = productTier(auth, productId);
+  const licensed = tier !== 'unclaimed';
+  const own = (auth.licenses ?? []).filter(
+    (license) => license.product_id === productId && (licensed || license.ended_at !== null),
+  );
+  // A session whose `licenses` list is narrower than its ids still records what the
+  // gate saw, as `productPlan` in `lib/authz.ts` does.
+  if (licensed && !own.some((license) => license.ended_at === null)) {
+    return { tier, status: 'active' };
+  }
+  return licensePlanSnapshot(
+    own.map((license) => ({
+      endsAt: license.ends_at,
+      endedAt: license.ended_at,
+      endReason: license.end_reason,
+    })),
+    now,
+  );
+}
+
+/**
+ * Stamp a listing write's audit entries with its cause product's plan (AECI-1376).
+ *
+ * The cause product is the one whose license decides search-engine resubmission
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)): the value the same handler passes to
+ * {@link withRecrawlProduct}. Pass that one value to both, so the history page's
+ * "No expedited search submission" note and the gate cannot disagree. Call it
+ * BEFORE the entries reach `auditInsert`, which reads the plan when it builds the
+ * statement. A `null` cause (a company profile edit, an integration whose owner
+ * holds neither endpoint) stamps nothing, and the page falls back to the vendor
+ * plan. A `notification.sent` row is about its recipient and is left alone.
+ */
+export function stampCauseProductPlan(
+  c: VendorContext,
+  entries: AuditLogEntry | readonly AuditLogEntry[],
+  causeProductId: string | null,
+): void {
+  if (causeProductId === null) return;
+  const plan = sessionProductPlan(c, causeProductId);
+  for (const entry of Array.isArray(entries) ? entries : [entries as AuditLogEntry]) {
+    if (entry.action === NOTIFICATION_SENT_ACTION) continue;
+    entry.productPlan = plan;
+  }
+}
+
+/**
  * Stamp a vendor-actor audit entry with the acting vendor and its plan
  * (AECI-1192 / AECI-1193, `DATABASE_SCHEMA.md` §8.4).
  *
@@ -99,7 +162,8 @@ export function sessionVendorPlan(
  * `audit-vendor-id-writers.spec.ts` fails the build on one that does not. The
  * vendor id comes from the session, never from the request, exactly as every
  * other vendor-surface scope does. `productId` stays the caller's: only it knows
- * whether the row is about one product.
+ * whether the row is about one product. When it is set, the row also records that
+ * product's plan (AECI-1376).
  */
 export function vendorAuditEntry(c: VendorContext, entry: AuditLogEntry): AuditLogEntry {
   // A `notification.sent` row in a vendor write's batch is ABOUT its recipient,
@@ -112,6 +176,13 @@ export function vendorAuditEntry(c: VendorContext, entry: AuditLogEntry): AuditL
   // A copy would leave the handler's entry without an id.
   entry.vendorId = sessionVendorId(c);
   entry.vendorPlan = sessionVendorPlan(c);
+  // AECI-1376: a row about ONE product (an edit, a version, the maintenance marker)
+  // has that product as its cause product, so it records the product's plan here.
+  // A row about an integration carries no `productId`; its handler stamps the cause
+  // product with `stampCauseProductPlan`, and that stamp is kept.
+  if (entry.productPlan === undefined && entry.productId) {
+    entry.productPlan = sessionProductPlan(c, entry.productId);
+  }
   return entry;
 }
 
@@ -263,29 +334,25 @@ export interface VendorRecrawl {
   indexNow: readonly string[];
   gsc: readonly GscRecrawlEntry[];
   /**
-   * The session vendor's own product this write touched (AECI-1184). Recorded on
-   * every queued URL's cause row, so the vendor's submission history can name the
-   * product. `null` or absent when the write touches no product of the vendor's
-   * (a company profile edit) or the owned side cannot be determined. Each call
-   * site states its rule beside the value.
+   * The session vendor's own product this write touched (AECI-1184): the cause
+   * product. Recorded on every queued URL's cause row, so the vendor's submission
+   * history can name the product, and it decides the per-product gate (ruled
+   * 2026-10-14). `null` or absent when the write touches no product of the
+   * vendor's (a company profile edit) or the owned side cannot be determined. Each
+   * call site states its rule beside the value, and stamps the same value onto its
+   * audit rows with {@link stampCauseProductPlan} (AECI-1376).
    *
-   * A thunk is a deferred read. `bufferVendorRecrawl` calls it only after the
-   * environment and entitlement gates pass, so a gated-out write never reads.
+   * Always a resolved value since AECI-1376. It used to accept a deferred read run
+   * post-commit, and a failed read fell back to the vendor-level gate. A handler
+   * now reads the owned side before its batch, so the stamp can use it too.
    */
-  productId?: string | null | (() => Promise<string | null>);
+  productId?: string | null;
 }
 
 /**
  * Stamp the owned product onto a write's recrawl (AECI-1184). Takes the value or
  * the promise a call site already builds, and passes `undefined` through, so each
  * site wraps what it has rather than restructuring it.
- *
- * `productId` may be a thunk for a site that has not read the owned side. It is
- * stored, not called. `bufferVendorRecrawl` calls it post-commit inside
- * `waitUntil`, and only after the environment and entitlement gates pass, so the
- * read never delays the response and a gated-out write (an unentitled vendor)
- * never reads at all. A failed read records `null`: losing the product must never
- * lose the recrawl itself.
  */
 export function withRecrawlProduct(
   recrawl: VendorRecrawl | undefined,
@@ -293,11 +360,11 @@ export function withRecrawlProduct(
 ): VendorRecrawl | undefined;
 export function withRecrawlProduct(
   recrawl: VendorRecrawl | Promise<VendorRecrawl> | undefined,
-  productId: string | null | (() => Promise<string | null>),
+  productId: string | null,
 ): VendorRecrawl | Promise<VendorRecrawl> | undefined;
 export function withRecrawlProduct(
   recrawl: VendorRecrawl | Promise<VendorRecrawl> | undefined,
-  productId: string | null | (() => Promise<string | null>),
+  productId: string | null,
 ): VendorRecrawl | Promise<VendorRecrawl> | undefined {
   if (!recrawl) return undefined;
   if (recrawl instanceof Promise) return recrawl.then((r) => ({ ...r, productId }));
@@ -318,20 +385,6 @@ export function ownedSideProductId(
   if (owned.includes(sourceProductId)) return sourceProductId;
   if (owned.includes(targetProductId)) return targetProductId;
   return null;
-}
-
-/**
- * The owned product for a recrawl's cause rows. Runs a deferred read here, past
- * both gates, and records `null` if it fails or throws.
- */
-async function resolveRecrawlProduct(recrawl: VendorRecrawl): Promise<string | null> {
-  const { productId } = recrawl;
-  if (typeof productId !== 'function') return productId ?? null;
-  try {
-    return await productId();
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -384,7 +437,7 @@ async function bufferVendorRecrawl(
   // promise straight over, so the read never delays the response — it settles
   // inside `waitUntil` alongside the inserts it feeds.
   const recrawl = await pending;
-  const productId = await resolveRecrawlProduct(recrawl);
+  const productId = recrawl.productId ?? null;
 
   // Ruled 2026-10-14: resubmission is per product. A vendor write that names the
   // vendor's own product buffers only when THAT product holds the vendor's live

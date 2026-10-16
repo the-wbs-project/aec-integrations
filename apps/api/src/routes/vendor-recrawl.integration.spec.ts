@@ -18,6 +18,7 @@
  *      hooks on an already-committed edit.
  */
 
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -84,6 +85,14 @@ const FREE_AUTH: AuthzVariables['auth'] = {
   ...AUTH,
   entitlementTier: 'unclaimed',
   licensedProductIds: [],
+};
+/** A vendor whose one live license is on PAIRED, so PRODUCT is Free (AECI-1355). */
+const LICENSED_ELSEWHERE: AuthzVariables['auth'] = {
+  ...AUTH,
+  licensedProductIds: [PAIRED],
+  licenses: [
+    { product_id: PAIRED, source: 'invoice', ends_at: null, ended_at: null, end_reason: null },
+  ],
 };
 /** The integration the vendor owns and has claimed, PRODUCT → PAIRED. */
 const OWNED_INTEGRATION = u(24);
@@ -447,11 +456,28 @@ describe('the plan gate', () => {
   // Ruled 2026-10-14: resubmission is per product. The vendor holds a live license,
   // but not on PRODUCT, so PRODUCT's edit asks no search engine to re-fetch.
   it('leaves no row after a product edit when the license is on another product', async () => {
-    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    auth = LICENSED_ELSEWHERE;
     const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
     expect(res.status).toBe(200);
     expect(await indexNowRows()).toHaveLength(0);
     expect(await gscRows()).toHaveLength(0);
+    // AECI-1376: the audit row records PRODUCT as Free, so the history page shows
+    // "No expedited search submission", though the vendor-level plan is Managed.
+    expect(await auditPlans('product.updated')).toEqual([
+      { vendorTier: 'verified', productTier: 'none', productEntitlementStatus: 'none' },
+    ]);
+  });
+
+  it("records the product as Managed on a licensed product's edit (AECI-1376)", async () => {
+    const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+    expect(res.status).toBe(200);
+    expect(await auditPlans('product.updated')).toEqual([
+      {
+        vendorTier: expect.any(String),
+        productTier: 'verified',
+        productEntitlementStatus: 'active',
+      },
+    ]);
   });
 
   it('still buffers a profile edit for that vendor: the profile is a vendor-level write', async () => {
@@ -462,14 +488,31 @@ describe('the plan gate', () => {
   });
 
   it('leaves no row after an integration edit whose owned endpoint is not licensed', async () => {
-    auth = { ...AUTH, licensedProductIds: [PAIRED] };
+    auth = LICENSED_ELSEWHERE;
     const res = await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, {
       name: 'Procore Build Sync',
     });
     expect(res.status).toBe(200);
     expect(await indexNowRows()).toHaveLength(0);
+    // AECI-1376: an integration row has no `product_id`, but it records the cause
+    // product's plan: PRODUCT, the owned endpoint, Free here.
+    expect(await auditPlans('integration.updated')).toEqual([
+      { vendorTier: 'verified', productTier: 'none', productEntitlementStatus: 'none' },
+    ]);
   });
 });
+
+/** The plan columns of the audit rows written for `action`. */
+async function auditPlans(action: string) {
+  return t.db
+    .select({
+      vendorTier: auditLog.vendorTier,
+      productTier: auditLog.productTier,
+      productEntitlementStatus: auditLog.productEntitlementStatus,
+    })
+    .from(auditLog)
+    .where(eq(auditLog.action, action));
+}
 
 // ─── Cause linkage (AECI-1184) ───────────────────────────────────────────────
 

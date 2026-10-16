@@ -29,6 +29,8 @@ function row(overrides: Partial<VendorHistoryRawRow> = {}): VendorHistoryRawRow 
     reason: 'Your logo failed our contrast check.',
     vendorTier: 'verified',
     vendorEntitlementStatus: 'active',
+    productTier: 'none',
+    productEntitlementStatus: 'none',
     ...overrides,
   };
 }
@@ -47,6 +49,7 @@ describe('projectVendorHistoryRow — redaction', () => {
         'fields',
         'id',
         'plan',
+        'product_plan',
         'reason',
       ].sort(),
     );
@@ -81,6 +84,18 @@ describe('projectVendorHistoryRow — redaction', () => {
     });
     expect(
       projectVendorHistoryRow(row({ vendorTier: null, vendorEntitlementStatus: null }), null).plan,
+    ).toBeNull();
+  });
+
+  it('builds product_plan from its own columns, independent of plan (AECI-1376)', () => {
+    // Licensed elsewhere, Free on the product this row is about.
+    expect(projectVendorHistoryRow(row(), null).product_plan).toEqual({
+      tier: 'none',
+      status: 'none',
+    });
+    expect(
+      projectVendorHistoryRow(row({ productTier: null, productEntitlementStatus: null }), null)
+        .product_plan,
     ).toBeNull();
   });
 });

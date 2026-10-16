@@ -67,6 +67,9 @@ export function auditInsert(db: Db, entry: AuditLogEntry): BatchStmt {
     productId: entry.productId ?? null,
     vendorTier: entry.vendorPlan?.tier ?? null,
     vendorEntitlementStatus: entry.vendorPlan?.status ?? null,
+    // AECI-1376: the cause product's plan.
+    productTier: entry.productPlan?.tier ?? null,
+    productEntitlementStatus: entry.productPlan?.status ?? null,
   });
 }
 
@@ -107,6 +110,10 @@ export function auditInsertWhere(
         vendorTier: val(entry.vendorPlan?.tier ?? null).as('vendor_tier'),
         vendorEntitlementStatus: val(entry.vendorPlan?.status ?? null).as(
           'vendor_entitlement_status',
+        ),
+        productTier: val(entry.productPlan?.tier ?? null).as('product_tier'),
+        productEntitlementStatus: val(entry.productPlan?.status ?? null).as(
+          'product_entitlement_status',
         ),
         createdAt: val(new Date().toISOString()).as('created_at'),
       })

@@ -90,6 +90,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** Is this a promoted product, and (when `vendorId` is given) one that vendor
@@ -251,6 +252,8 @@ export function createCreateVendorIntegrationHandler(
       ),
     ];
 
+    // AECI-1376: the source endpoint is the cause product, as the recrawl below names it.
+    stampCauseProductPlan(c, audits, sourceId);
     const stmts: BatchStmt[] = [
       db.insert(integrations).values({
         id,

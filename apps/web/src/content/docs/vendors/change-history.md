@@ -3,7 +3,7 @@ title: Your change history
 description: Where to see every change to your company, products, integrations and seats, who made it, and why AEC Integrations changed something.
 section: vendors
 order: 13
-last_updated: October 13, 2026
+last_updated: October 16, 2026
 ---
 
 The vendor portal keeps a record of every change to your listing. It shows what changed, when, and who made the change. When AEC Integrations changes something you hold, it shows our reason.
@@ -54,7 +54,7 @@ On Managed, when your team changes a public page, we tell search engines about i
 
 If a page was sent more than once, it shows one line with where it stands now.
 
-On Free, a change to your listing shows **No expedited search submission**. Sending changed pages to search engines is part of Managed. Search engines still find the change on their own schedule.
+A change to a product on Free shows **No expedited search submission**, even when another of your products is on Managed. Sending changed pages to search engines is part of Managed, product by product. Search engines still find the change on their own schedule.
 
 Changes made before search follow-up began, and changes that touch no public page, show no search follow-up.
 

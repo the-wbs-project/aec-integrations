@@ -561,6 +561,13 @@
       "when": 1792054244586,
       "tag": "0079_nifty_prism",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1792123667490,
+      "tag": "0080_flashy_dust",
+      "breakpoints": true
     }
   ]
 }

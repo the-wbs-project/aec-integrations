@@ -101,6 +101,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /**
@@ -304,14 +305,18 @@ export function createClaimIntegrationHandler(
     const refusal = await refusalFor(db, vendorId, session, target);
     if (refusal) throw refusal;
 
-    const [owner, endpointVendors, pairSlugs, connector] = await Promise.all([
+    const [sourceId, targetId] = target.endpointIds;
+    const [owner, endpointVendors, pairSlugs, connector, owned] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { id: true, companyName: true },
         where: eq(vendors.id, vendorId),
       }),
       endpointVendorIds(db, target),
-      endpointSlugs(db, target.endpointIds[0], target.endpointIds[1]),
+      endpointSlugs(db, sourceId, targetId),
       connectorSlug(db, target),
+      // AECI-1376: read before the batch, so the audit rows can record the cause
+      // product's plan. It used to be a post-commit deferred read.
+      ownedEndpointIds(db, vendorId, { sourceProductId: sourceId, targetProductId: targetId }),
     ]);
     if (!owner) throw notFoundError('vendor', { id: vendorId });
 
@@ -371,6 +376,11 @@ export function createClaimIntegrationHandler(
       ),
     ];
 
+    // AECI-1184 / AECI-1376: the endpoint the claimant's vendor sells, source (A)
+    // first, is the cause product. `null` for a third-party owner that sells neither.
+    // One value for the audit stamp and the recrawl below.
+    const causeProductId = ownedSideProductId(owned, sourceId, targetId);
+    stampCauseProductPlan(c, audits, causeProductId);
     const stmts: BatchStmt[] = [
       guardedClaimUpdate(db, target, vendorId, now),
       // Immediately after the guarded UPDATE: a lost race aborts the batch here.
@@ -411,22 +421,7 @@ export function createClaimIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    // AECI-1184: the endpoint the claimant's vendor sells, source (A) first. `null`
-    // for a third-party owner that sells neither. Read post-commit, only when there
-    // is a recrawl to stamp.
-    const [sourceId, targetId] = target.endpointIds;
-    afterVendorWrite(
-      c,
-      tags,
-      audits,
-      withRecrawlProduct(recrawl, () =>
-        ownedEndpointIds(db, vendorId, {
-          sourceProductId: sourceId,
-          targetProductId: targetId,
-        }).then((owned) => ownedSideProductId(owned, sourceId, targetId)),
-      ),
-      db,
-    );
+    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
 
     const body: ClaimIntegrationResponse = {
       integration: {

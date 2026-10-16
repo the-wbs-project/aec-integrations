@@ -1082,8 +1082,24 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
     // AECI-1184: a cause per queued URL, naming the deciding owner's own endpoint.
     await expectVendorCauses(t, VENDOR_B);
+    // AECI-1376: read before the batch, so the accept rows record the endpoint as Managed.
+    expect(await productTiers('integration.contest.accepted')).toEqual(['verified']);
+  });
+
+  it("records the endpoint as Free on a Free owner's accept (AECI-1376)", async () => {
+    await acceptAs(AUTH_B);
+    expect(await productTiers('integration.contest.accepted')).toEqual(['none']);
   });
 });
+
+/** AECI-1376: the cause product's plan on the audit rows written for `action`. */
+async function productTiers(action: string) {
+  const rows = await t.db
+    .select({ tier: auditLog.productTier })
+    .from(auditLog)
+    .where(eq(auditLog.action, action));
+  return rows.map((r) => r.tier);
+}
 
 // ─── Self-disclaim: the named owner says "not ours" (AECI-1225) ───────────────
 
