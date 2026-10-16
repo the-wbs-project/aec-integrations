@@ -109,6 +109,10 @@ export interface RetireBatchInput {
    *  retire, `licensePlanSnapshot(loadVendorLicenses(owner))` on an admin one. Ignored
    *  when there is no owner. */
   ownerPlan: VendorPlanSnapshot | null;
+  /** The plan of the owner's cause product (AECI-1376), the endpoint whose license
+   *  decides resubmission: `sessionProductPlan` on an owner retire. Absent on an
+   *  admin retire, and when the owner sells neither endpoint. */
+  causeProductPlan?: VendorPlanSnapshot | null;
   pairSlugs: readonly [string, string] | null;
 }
 
@@ -117,10 +121,15 @@ export interface RetireBatchInput {
  * (AECI-1192): the OWNER holding the row, never a contest submitter. NULL when no
  * owner is on file.
  */
-function ownerStamp(input: Pick<RetireBatchInput, 'owner' | 'ownerPlan'>) {
-  return input.owner.id
-    ? { vendorId: input.owner.id, vendorPlan: input.ownerPlan }
-    : { vendorId: null, vendorPlan: null };
+function ownerStamp(
+  input: Pick<RetireBatchInput, 'owner' | 'ownerPlan' | 'causeProductPlan'>,
+): Pick<AuditLogEntry, 'vendorId' | 'vendorPlan' | 'productPlan'> {
+  if (!input.owner.id) return { vendorId: null, vendorPlan: null };
+  return {
+    vendorId: input.owner.id,
+    vendorPlan: input.ownerPlan,
+    ...(input.causeProductPlan ? { productPlan: input.causeProductPlan } : {}),
+  };
 }
 
 export interface RetireBatch {
@@ -243,6 +252,7 @@ function contestCloseStatements(
     | 'pairSlugs'
     | 'owner'
     | 'ownerPlan'
+    | 'causeProductPlan'
   >,
   contests: readonly OpenContest[],
   target: { anchor: ContestAnchor; rowName: string | null },
@@ -451,11 +461,11 @@ export interface RetireCommitInput {
   syncFailureMessage: string;
   origin?: { auditSource: string; purgeSource: CachePurgeSource };
   /**
-   * The session vendor's own endpoint, for the recrawl cause (AECI-1184). A thunk
-   * so the owner read runs post-commit and only when there is a recrawl. Absent
-   * on the admin retire, whose cause names no vendor and no product.
+   * The session vendor's own endpoint, for the recrawl cause (AECI-1184): the cause
+   * product, whose plan the batch's rows record (AECI-1376). Read before the batch.
+   * Absent on the admin retire, whose cause names no vendor and no product.
    */
-  recrawlProductId?: () => Promise<string | null>;
+  recrawlProductId?: string | null;
 }
 
 /** The post-commit tail. All best-effort; see the module header. */

@@ -1971,6 +1971,8 @@ create table audit_log (
   product_id text, -- AECI-1192: the one product the row is about
   vendor_tier text, -- AECI-1193: the vendor's plan tier at write time, or 'none'
   vendor_entitlement_status text, -- AECI-1193: its status at write time, or 'none'
+  product_tier text, -- AECI-1376: the cause product's plan tier at write time, NULL when none
+  product_entitlement_status text, -- AECI-1376: its status at write time
   created_at text not null, -- ISO-8601 UTC
   constraint audit_log_actor_type_check check (actor_type in ('user', 'admin', 'system', 'workflow'))
 );

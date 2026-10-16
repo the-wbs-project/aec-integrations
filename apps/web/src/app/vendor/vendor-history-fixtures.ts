@@ -9,8 +9,9 @@
  *
  * The search follow-up (`VENDOR_HISTORY_FOLLOW_UP_FIXTURE`) covers a Managed edit
  * with several URLs (submitted, requested, failed and retrying, queued), a second
- * Managed edit still queued on both channels with a final failure, and a Free
- * edit, which shows "No expedited search submission".
+ * Managed edit still queued on both channels with a final failure, a Free edit,
+ * which shows "No expedited search submission", and an edit to a Free product by a
+ * vendor licensed on another product, which shows it too (AECI-1376).
  */
 import type {
   VendorHistoryActorKind,
@@ -38,12 +39,19 @@ export function historyKindKeeps(kind: VendorHistoryKind, item: VendorHistoryIte
 const MANAGED = { tier: 'verified', status: 'active' } as const;
 const FREE = { tier: 'unclaimed', status: null } as const;
 
+/** `product_plan` defaults to `null`: only a listing write names a cause product. */
 function row(
   n: number,
   at: string,
-  partial: Omit<VendorHistoryItem, 'id' | 'at'>,
+  partial: Omit<VendorHistoryItem, 'id' | 'at' | 'product_plan'> &
+    Partial<Pick<VendorHistoryItem, 'product_plan'>>,
 ): VendorHistoryItem {
-  return { id: `00000000-0000-4000-8000-0000000059${String(n).padStart(2, '0')}`, at, ...partial };
+  return {
+    id: `00000000-0000-4000-8000-0000000059${String(n).padStart(2, '0')}`,
+    at,
+    product_plan: null,
+    ...partial,
+  };
 }
 
 export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
@@ -55,6 +63,7 @@ export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
     entity_name: 'Summit Model Coordination',
     fields: ['description', 'website_url', 'logo_url'],
     plan: MANAGED,
+    product_plan: MANAGED,
   }),
   row(8, '2026-10-02T16:25:00.000Z', {
     actor_kind: 'your_team',
@@ -64,6 +73,7 @@ export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
     entity_name: 'Summit Model Coordination and Bluebeam',
     fields: ['url'],
     plan: MANAGED,
+    product_plan: MANAGED,
   }),
   row(2, '2026-10-02T09:10:00.000Z', {
     actor_kind: 'aeci',
@@ -111,6 +121,19 @@ export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
     entity_name: 'Summit Model Coordination and Autodesk Construction Cloud',
     fields: ['mechanism_kind', 'dataObjects'],
     plan: FREE,
+    product_plan: FREE,
+  }),
+  // AECI-1376: the vendor holds a license, but on another product. This product is
+  // Free, so nothing was submitted and the note shows despite the Managed plan.
+  row(9, '2026-09-26T16:45:00.000Z', {
+    actor_kind: 'your_team',
+    action: 'product_version.created',
+    entity_type: 'product_version',
+    entity_id: '00000000-0000-4000-8000-000000005401',
+    entity_name: null,
+    fields: ['version_label'],
+    plan: MANAGED,
+    product_plan: FREE,
   }),
   row(7, '2026-09-26T10:00:00.000Z', {
     actor_kind: 'system',

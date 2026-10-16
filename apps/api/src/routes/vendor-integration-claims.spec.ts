@@ -677,5 +677,23 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
     // AECI-1184: a cause per queued URL, naming the claimant's own endpoint.
     await expectVendorCauses(t, VENDOR_B);
+    // AECI-1376: read before the batch, so the claim row records the endpoint as Managed.
+    expect(await productTiers('integration.claimed')).toEqual(['verified']);
+  });
+
+  it('records the endpoint as Free when the license is on another product (AECI-1376)', async () => {
+    const res = await claim({ ...entitled(AUTH_B), licensedProductIds: [P_CONNECTOR] }, I_MAIN);
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await productTiers('integration.claimed')).toEqual(['none']);
   });
 });
+
+/** AECI-1376: the cause product's plan on the audit rows written for `action`. */
+async function productTiers(action: string) {
+  const rows = await t.db
+    .select({ tier: auditLog.productTier })
+    .from(auditLog)
+    .where(eq(auditLog.action, action));
+  return rows.map((r) => r.tier);
+}

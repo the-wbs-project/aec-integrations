@@ -140,6 +140,11 @@ const ROWS: AuditRow[] = [
     entityId: INTEGRATION,
     afterState: { retired_at: '2026-10-07' },
     vendorId: VENDOR_A,
+    // AECI-1376: A holds a license elsewhere, but its endpoint here is Free.
+    vendorTier: 'verified',
+    vendorEntitlementStatus: 'active',
+    productTier: 'none',
+    productEntitlementStatus: 'none',
   }),
   // 8. The expiry sweep warned A.
   audit(8, '2026-10-08', {
@@ -257,11 +262,18 @@ describe('GET /api/vendor/history — projection', () => {
   it('projects actor kind, current names, field names and the plan', async () => {
     const [warned, retired, override, edit] = (await getJson(AUTH_A)).body
       .data as VendorHistoryItem[];
-    expect(warned).toMatchObject({ actor_kind: 'system', entity_name: 'Autodesk', plan: null });
+    expect(warned).toMatchObject({
+      actor_kind: 'system',
+      entity_name: 'Autodesk',
+      plan: null,
+      product_plan: null,
+    });
     expect(retired).toMatchObject({
       actor_kind: 'your_team',
       entity_name: 'Shared to Other',
       fields: ['retired_at'],
+      plan: { tier: 'verified', status: 'active' },
+      product_plan: { tier: 'none', status: 'none' },
     });
     expect(override).toMatchObject({
       actor_kind: 'aeci',

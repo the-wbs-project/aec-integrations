@@ -122,6 +122,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** `audit_log.action` for an owner edit. The same action an owner contest accept
@@ -309,6 +310,11 @@ export function createUpdateVendorIntegrationHandler(
       ),
     ];
 
+    // AECI-1184 / AECI-1376: the endpoint the owner's vendor sells, source first, is
+    // the cause product. `null` when the owner owns neither endpoint, which an
+    // integration owner may. One value for the audit stamp and the recrawl below.
+    const causeProductId = ownedSideProductId(owned, row.sourceProductId, row.targetProductId);
+    stampCauseProductPlan(c, audits, causeProductId);
     const stmts: BatchStmt[] = [
       // AECI-1237: a lock that landed after the read aborts the save here.
       ...(lockSentinel ? [lockSentinel] : []),
@@ -365,18 +371,7 @@ export function createUpdateVendorIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    // AECI-1184: the endpoint the owner's vendor sells, source first. `null` when the
-    // owner owns neither endpoint, which an integration owner may.
-    afterVendorWrite(
-      c,
-      tags,
-      audits,
-      withRecrawlProduct(
-        recrawl,
-        ownedSideProductId(owned, row.sourceProductId, row.targetProductId),
-      ),
-      db,
-    );
+    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
 
     const body: UpdateVendorIntegrationResponse = {
       integration: {

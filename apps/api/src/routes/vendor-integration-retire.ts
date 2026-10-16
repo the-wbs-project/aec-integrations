@@ -119,6 +119,7 @@ import {
   ownedSideProductId,
   sessionVendorId,
   type VendorContext,
+  sessionProductPlan,
   sessionVendorPlan,
 } from './vendor-shared';
 
@@ -219,7 +220,13 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
     const refusal = await refusalFor(db, vendorId, retireTargetOf(located), mode, session);
     if (refusal) throw refusal;
 
-    const [owner, endpointVendors, slugs, contests] = await Promise.all([
+    // AECI-1184: the endpoint the owner's vendor sells, source (A) first. `null` for
+    // a third-party owner. The connector product is never the owned side.
+    const [sourceId, targetId] =
+      located.anchor === 'integration'
+        ? [located.row.sourceProductId, located.row.targetProductId]
+        : [located.pair.productAId, located.pair.productBId];
+    const [owner, endpointVendors, slugs, contests, owned] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { id: true, slug: true, companyName: true },
         where: eq(vendors.id, vendorId),
@@ -230,8 +237,12 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       mode === 'retire'
         ? openContestsOn(db, { kind: located.anchor, id: integrationId })
         : Promise.resolve([]),
+      // AECI-1376: read before the batch, so its rows can record the cause product's
+      // plan. It used to be a post-commit deferred read.
+      ownedEndpointIds(db, vendorId, { sourceProductId: sourceId, targetProductId: targetId }),
     ]);
     if (!owner) throw notFoundError('vendor', { id: vendorId });
+    const causeProductId = ownedSideProductId(owned, sourceId, targetId);
 
     // Every vendor of either endpoint except the owner, as for the claim.
     const recipients = endpointVendors.filter((id) => id !== vendorId);
@@ -248,6 +259,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       recipients,
       owner: { id: vendorId, name: owner.companyName },
       ownerPlan: sessionVendorPlan(c),
+      causeProductPlan: causeProductId ? sessionProductPlan(c, causeProductId) : null,
       pairSlugs: slugs.pairSlugs,
     };
     const batch: RetireBatch =
@@ -302,18 +314,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       audits: batch.audits,
       hookPrefix: 'vendor',
       syncFailureMessage: 'aeci.api.vendor.retire_algolia_sync_failed',
-      // AECI-1184: the endpoint the owner's vendor sells, source (A) first. `null`
-      // for a third-party owner. The connector product is never the owned side.
-      recrawlProductId: () => {
-        const [sourceId, targetId] =
-          located.anchor === 'integration'
-            ? [located.row.sourceProductId, located.row.targetProductId]
-            : [located.pair.productAId, located.pair.productBId];
-        return ownedEndpointIds(db, vendorId, {
-          sourceProductId: sourceId,
-          targetProductId: targetId,
-        }).then((owned) => ownedSideProductId(owned, sourceId, targetId));
-      },
+      recrawlProductId: causeProductId,
     });
 
     const body: RetireIntegrationResponse = {

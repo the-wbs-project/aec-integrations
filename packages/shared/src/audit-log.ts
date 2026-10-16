@@ -68,6 +68,15 @@ export interface AuditLogEntry {
    * every row written before AECI-1193 carries.
    */
   vendorPlan?: { tier: string; status: string } | null;
+  /**
+   * The plan of the write's cause product when the row was written (AECI-1376):
+   * `audit_log.product_tier` and `audit_log.product_entitlement_status`. The cause
+   * product is the one whose license decides search-engine resubmission
+   * (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)). Set by `vendorAuditEntry` when the
+   * writer names it. Absent (NULL columns) means the write named no product, or
+   * the row predates AECI-1376.
+   */
+  productPlan?: { tier: string; status: string } | null;
 }
 
 /**

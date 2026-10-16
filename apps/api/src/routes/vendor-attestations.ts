@@ -180,6 +180,7 @@ import {
   type VendorRecrawl,
   type VendorRow,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** Live attestations only. `retracted_at` is supersession — the ONLY column that
@@ -520,8 +521,17 @@ function recrawlFor(
   if (!base) return undefined;
   return {
     ...attestationEditRecrawl(base, endpoints.sourceSlug, endpoints.targetSlug),
-    productId: contextIsSource ? authority.sourceProductId : authority.targetProductId,
+    productId: framedProductId(authority, contextIsSource),
   };
+}
+
+/**
+ * The caller's framed endpoint: the cause product of a claim or attestation write.
+ * {@link recrawlFor} gates resubmission on it, and the write's audit rows record
+ * its plan through `stampCauseProductPlan` (AECI-1376), so the two read one value.
+ */
+function framedProductId(authority: AttestationAuthority, contextIsSource: boolean): string {
+  return contextIsSource ? authority.sourceProductId : authority.targetProductId;
 }
 
 // ─── Shared loads ────────────────────────────────────────────────────────────
@@ -1465,6 +1475,12 @@ export function createVendorClaimHandler(
       ),
     );
 
+    // AECI-1376: before the inserts below read it. The notification rows are skipped.
+    stampCauseProductPlan(
+      c,
+      [claimAudit, ...attestationAudits, maintenance.audit],
+      framedProductId(authority, contextIsSource),
+    );
     const stmts: BatchStmt[] = [
       db.insert(claims).values(claimRow),
       db.insert(attestations).values(attestationRows),
@@ -1620,6 +1636,7 @@ export function createUpsertVendorAttestationHandler(
     const maintenance = vendorMaintainedFlip(c, db, authority, now, { vendorId, claimId });
     stmts.push(maintenance.stmt);
     audits.push(maintenance.audit);
+    stampCauseProductPlan(c, audits, framedProductId(authority, contextIsSource));
     stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
     await db.batch(stmts as BatchTuple);
 
@@ -1749,6 +1766,8 @@ export function createRetractVendorAttestationHandler(
       { vendorId, claimId },
     );
     if (maintenance) audits.push(maintenance.audit);
+    // AECI-1376: the same A-first fallback as the recrawl below.
+    stampCauseProductPlan(c, audits, framedProductId(authority, contextIsSourceFor(authority)));
 
     // The row survives — `retracted_at` is set, never deleted — because §9's
     // version-diff timeline reads the append-only attestation history.

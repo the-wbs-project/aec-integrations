@@ -78,6 +78,12 @@ export const VendorHistoryItemSchema = z.object({
   /** Key names of the row's `after_state`. Never the values. */
   fields: z.array(z.string()),
   plan: VendorHistoryPlanSchema.nullable(),
+  /** The plan of the write's cause product when the row was written (AECI-1376):
+   *  the product whose license decides search-engine resubmission. `null` when the
+   *  write named no product (a company profile edit) or predates the stamp. Drives
+   *  only the "No expedited search submission" note; "Plan at the time" and the
+   *  CSV stay on `plan`. */
+  product_plan: VendorHistoryPlanSchema.nullable(),
   /** AECi's vendor-facing reason. Present only when the writer marked it
    *  `metadata.reasonVisibility = 'vendor'` (AECI-1159). */
   reason: z.string().optional(),
@@ -161,8 +167,9 @@ export type VendorSearchChannel = z.infer<typeof VendorSearchChannelSchema>;
  * - `requested`: an AECi operator recorded that they asked Google to re-crawl it.
  *   Clearing a worklist row without that answer is never shown as `requested`.
  *
- * "Not eligible" is not a server state. The page derives it from the row's plan
- * snapshot, because a Free write never queues anything to report on.
+ * "Not eligible" is not a server state. The page derives it from the row's
+ * `product_plan` snapshot, else its `plan` (AECI-1376), because a write on a Free
+ * product never queues anything to report on.
  */
 export const VENDOR_SEARCH_FOLLOW_UP_STATES = [
   'queued',

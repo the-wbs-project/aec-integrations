@@ -197,6 +197,37 @@ describe('VendorHistoryPage — search follow-up', () => {
     expect(row(fixture, FREE_EDIT).querySelector('[data-follow-up-lines]')).toBeNull();
   });
 
+  // AECI-1376: resubmission is per product, so the note follows the edited product.
+  const LICENSED_ELSEWHERE = VENDOR_HISTORY_FIXTURE.find(
+    (r) => r.action === 'product_version.created',
+  )!;
+
+  it('tells an edit to a Free product, by a vendor licensed elsewhere, there was no submission', async () => {
+    expect(LICENSED_ELSEWHERE.plan?.tier).toBe('verified');
+    const fixture = await create();
+    expect(text(row(fixture, LICENSED_ELSEWHERE), '[data-follow-up-not-eligible]')).toContain(
+      'No expedited search submission',
+    );
+    // "Plan at the time" stays the vendor's plan.
+    expect(text(row(fixture, LICENSED_ELSEWHERE), '[data-history-plan]')).toContain('Managed');
+  });
+
+  it("shows no note on a licensed product's edit, though the vendor plan reads Free", async () => {
+    const item = { ...FREE_EDIT, product_plan: { tier: 'verified', status: 'active' } };
+    api.listHistory.mockResolvedValue(page([item]));
+    api.getHistoryFollowUp.mockResolvedValue({ data: [] });
+    const fixture = await create();
+    expect(row(fixture, item).querySelector('[data-follow-up-not-eligible]')).toBeNull();
+  });
+
+  it('falls back to the vendor plan on a row with no product plan', async () => {
+    const item = { ...FREE_EDIT, product_plan: null };
+    api.listHistory.mockResolvedValue(page([item]));
+    api.getHistoryFollowUp.mockResolvedValue({ data: [] });
+    const fixture = await create();
+    expect(row(fixture, item).querySelector('[data-follow-up-not-eligible]')).not.toBeNull();
+  });
+
   it('says nothing on rows with no follow-up to report', async () => {
     const fixture = await create();
     for (const item of [SEAT_INVITE, FREE_SYSTEM, AECI_WITH_REASON, AECI_NO_REASON]) {

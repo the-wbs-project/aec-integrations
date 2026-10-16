@@ -2334,6 +2334,12 @@ export const auditLog = sqliteTable(
     productId: text('product_id'),
     vendorTier: text('vendor_tier'),
     vendorEntitlementStatus: text('vendor_entitlement_status'),
+    // AECI-1376 (DATABASE_SCHEMA.md §8.4). The plan, at write time, of the write's
+    // CAUSE product: the product whose license decides search-engine resubmission
+    // (STAGE_2_PAID_TIERS_SPEC.md §3.3(d)). NULL when the write names no product or
+    // was written before this change. Same no-CHECK, no-backfill rules as above.
+    productTier: text('product_tier'),
+    productEntitlementStatus: text('product_entitlement_status'),
 
     createdAt: createdAt(),
   },

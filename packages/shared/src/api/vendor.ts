@@ -197,9 +197,10 @@ export const VendorProductSchema = z.object({
   updated_at: z.string().datetime(),
 
   // AECI-1214 (`STAGE_2_PAID_TIERS_SPEC.md` §13.7). This product's plan. Product
-  // screens gate on it through `productCan`, never on `me.entitlement`. Until a
-  // per-product plan table exists, the server copies the vendor's block into
-  // every product, so this and the server gate read the same block.
+  // screens gate on it through `productCan`, never on `me.entitlement`. Since
+  // AECI-1355 the server builds it per product from the product's own license
+  // (`productPlan` in `apps/api/src/lib/authz.ts`), so this and the server gate
+  // read the same field.
   plan: VendorEntitlementBlockSchema,
 
   // AECI-1237 (§11d.5). As on `VendorAccountSchema`: the product fields AECi locked.

@@ -181,6 +181,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
   vendorAuditEntry,
+  stampCauseProductPlan,
 } from './vendor-shared';
 
 /** `workflow_instances.workflow_type` for a contest. Reused, not added: the CHECK
@@ -1308,6 +1309,19 @@ export function createDecideContestHandler(
       { actorId: session.userId, reason: note ?? `contest ${status}`, metadata },
       now,
     );
+    // AECI-1184 / AECI-1376: the endpoint the deciding owner's vendor sells, source
+    // (A) first, is the cause product. `null` for a third-party owner. Read before
+    // the batch, and only on an accept, the one decision that changes a public page.
+    // One value for the audit stamp and the recrawl below.
+    const causeProductId =
+      status === 'accepted'
+        ? ownedSideProductId(
+            await ownedEndpointIds(db, vendorId, target),
+            target.sourceProductId,
+            target.targetProductId,
+          )
+        : null;
+    stampCauseProductPlan(c, audits, causeProductId);
     stmts.push(
       ...workflow.stmts,
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
@@ -1335,19 +1349,7 @@ export function createDecideContestHandler(
       status === 'accepted' && pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    // AECI-1184: the endpoint the deciding owner's vendor sells, source (A) first.
-    // `null` for a third-party owner. Read post-commit, only when there is a recrawl.
-    afterVendorWrite(
-      c,
-      tags,
-      audits,
-      withRecrawlProduct(recrawl, () =>
-        ownedEndpointIds(db, vendorId, target).then((owned) =>
-          ownedSideProductId(owned, target.sourceProductId, target.targetProductId),
-        ),
-      ),
-      db,
-    );
+    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
     // AECI-1205 (§11b.12.10): the submitter's seats get the 30-day protest window by
     // email too. After the commit, so a lost race sends nothing.
     if (protestClosesAt) {

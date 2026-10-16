@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
-import type { AuthzVariables } from '../lib/authz';
+import type { AuthzVariables, SessionLicense } from '../lib/authz';
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
 import { enqueueRecrawlCauses } from '../lib/recrawl-causes';
@@ -31,6 +31,9 @@ import {
   ownerSeatsOf,
   ownedSideProductId,
   seatsOf,
+  sessionProductPlan,
+  stampCauseProductPlan,
+  vendorAuditEntry,
   vendorProductRecrawlEnabled,
   vendorRecrawlEnabled,
   withRecrawlProduct,
@@ -265,47 +268,10 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     }
   });
 
-  // ── The owned-product thunk is read only past both gates ──────────────────
-
-  it('never runs the product thunk for a vendor write with no active entitlement', async () => {
-    const read = vi.fn(async () => 'product-1');
-    await run(FREE, undefined, withRecrawlProduct(RECRAWL, read)!);
-    expect(read).not.toHaveBeenCalled();
-    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
-  });
-
-  it('never runs the product thunk on a gated environment', async () => {
-    const read = vi.fn(async () => 'product-1');
-    const { c, execCtx } = makeCtx({}, MANAGED);
-    afterVendorWrite(c, [], entry(0), withRecrawlProduct(RECRAWL, read), db);
-    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
-    expect(read).not.toHaveBeenCalled();
-    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
-  });
-
-  it('runs the product thunk once for an entitled write and records its value', async () => {
-    const read = vi.fn(async () => 'product-1');
-    await run(MANAGED, undefined, withRecrawlProduct(Promise.resolve(RECRAWL), read)!);
-    expect(read).toHaveBeenCalledTimes(1);
+  it('records the product a write names', async () => {
+    await run(MANAGED, undefined, withRecrawlProduct(Promise.resolve(RECRAWL), 'product-1')!);
     for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
       expect(call[3]).toMatchObject({ productId: 'product-1' });
-    }
-    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([
-    ['rejects', () => Promise.reject(new Error('read failed'))],
-    [
-      'throws synchronously',
-      () => {
-        throw new Error('read failed');
-      },
-    ],
-  ])('records a null product and keeps the recrawl when the thunk %s', async (_label, thunk) => {
-    await run(MANAGED, undefined, withRecrawlProduct(RECRAWL, thunk as () => Promise<string>)!);
-    expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
-    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
-      expect(call[3]).toMatchObject({ productId: null });
     }
     expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
   });
@@ -321,17 +287,6 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
     expect(enqueueGscRecrawlUrls).not.toHaveBeenCalled();
     expect(enqueueRecrawlCauses).not.toHaveBeenCalled();
-  });
-
-  it('gates a thunk-named product the same way, after reading it', async () => {
-    const read = vi.fn(async () => 'product-1');
-    await run(
-      { ...MANAGED, licensedProductIds: ['product-2'] },
-      undefined,
-      withRecrawlProduct(RECRAWL, read)!,
-    );
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
   });
 
   it('keeps a write naming no product (a profile edit) on the vendor-level gate', async () => {
@@ -385,10 +340,8 @@ describe('vendorProductRecrawlEnabled (ruled 2026-10-14)', () => {
 describe('withRecrawlProduct / ownedSideProductId (AECI-1184)', () => {
   const RECRAWL: VendorRecrawl = { indexNow: ['u'], gsc: [] };
 
-  it('passes undefined through and never runs the thunk', () => {
-    const read = vi.fn(async () => 'p');
-    expect(withRecrawlProduct(undefined, read)).toBeUndefined();
-    expect(read).not.toHaveBeenCalled();
+  it('passes undefined through', () => {
+    expect(withRecrawlProduct(undefined, 'p')).toBeUndefined();
   });
 
   it('stamps a value and a promise alike', async () => {
@@ -399,16 +352,94 @@ describe('withRecrawlProduct / ownedSideProductId (AECI-1184)', () => {
     });
   });
 
-  it('stores a thunk without calling it', () => {
-    const read = vi.fn(async () => 'p3');
-    expect(withRecrawlProduct(RECRAWL, read)).toEqual({ ...RECRAWL, productId: read });
-    expect(read).not.toHaveBeenCalled();
-  });
-
   it('picks the source, then the target, then null', () => {
     expect(ownedSideProductId(['a', 'b'], 'a', 'b')).toBe('a');
     expect(ownedSideProductId(['b'], 'a', 'b')).toBe('b');
     expect(ownedSideProductId([], 'a', 'b')).toBeNull();
+  });
+});
+
+// ─── AECI-1376: the cause product's plan on the audit row ───────────────────
+
+describe('sessionProductPlan / stampCauseProductPlan / vendorAuditEntry (AECI-1376)', () => {
+  const NOW = '2026-10-16T00:00:00.000Z';
+  function license(productId: string, over: Partial<SessionLicense> = {}): SessionLicense {
+    return {
+      product_id: productId,
+      source: 'invoice',
+      ends_at: null,
+      ended_at: null,
+      end_reason: null,
+      ...over,
+    } as SessionLicense;
+  }
+  // Licensed on product-1, Free on product-2, and product-3 lapsed in September.
+  const AUTH = {
+    vendorId: 'vendor-1',
+    licensedProductIds: ['product-1'],
+    licenses: [
+      license('product-1'),
+      license('product-3', { ended_at: '2026-09-01T00:00:00Z', end_reason: 'lapsed' }),
+    ],
+  };
+
+  it('records Managed for a licensed product', () => {
+    const { c } = makeCtx({}, AUTH);
+    expect(sessionProductPlan(c, 'product-1', NOW)).toEqual({ tier: 'verified', status: 'active' });
+  });
+
+  it('records no plan for a Free product of a vendor licensed elsewhere', () => {
+    const { c } = makeCtx({}, AUTH);
+    expect(sessionProductPlan(c, 'product-2', NOW)).toEqual({ tier: 'none', status: 'none' });
+  });
+
+  it('records an ended license on the product as expired', () => {
+    const { c } = makeCtx({}, AUTH);
+    expect(sessionProductPlan(c, 'product-3', NOW)).toEqual({
+      tier: 'verified',
+      status: 'expired',
+    });
+  });
+
+  it('follows the gate: a live license the session does not list reads as not Managed', () => {
+    const { c } = makeCtx({}, { ...AUTH, licensedProductIds: [] });
+    expect(sessionProductPlan(c, 'product-1', NOW).status).toBe('none');
+  });
+
+  it('records Managed for a listed product when the session carries no license rows', () => {
+    const { c } = makeCtx({}, { licensedProductIds: ['product-1'] });
+    expect(sessionProductPlan(c, 'product-1', NOW)).toEqual({ tier: 'verified', status: 'active' });
+  });
+
+  it('stamps every entry but a notification, and a null cause stamps nothing', () => {
+    const { c } = makeCtx({}, AUTH);
+    const rows = [entry(0), entry(1), { ...entry(2), action: 'notification.sent' }];
+    stampCauseProductPlan(c, rows, 'product-2');
+    expect(rows.map((row) => row.productPlan?.status)).toEqual(['none', 'none', undefined]);
+
+    const untouched = entry(0);
+    stampCauseProductPlan(c, untouched, null);
+    expect(untouched.productPlan).toBeUndefined();
+  });
+
+  it('vendorAuditEntry records the plan of a row about one product', () => {
+    const { c } = makeCtx({}, AUTH);
+    const row = vendorAuditEntry(c, { ...entry(0), productId: 'product-1' });
+    expect(row.productPlan).toEqual({ tier: 'verified', status: 'active' });
+  });
+
+  it('vendorAuditEntry keeps a handler stamp, so the post-commit re-call cannot clear it', () => {
+    const { c } = makeCtx({}, AUTH);
+    const row = entry(0);
+    stampCauseProductPlan(c, row, 'product-2');
+    vendorAuditEntry(c, row);
+    vendorAuditEntry(c, row);
+    expect(row.productPlan).toEqual({ tier: 'none', status: 'none' });
+  });
+
+  it('vendorAuditEntry leaves an integration row without a stamp alone', () => {
+    const { c } = makeCtx({}, AUTH);
+    expect(vendorAuditEntry(c, entry(0)).productPlan).toBeUndefined();
   });
 });
 
