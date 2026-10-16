@@ -30,8 +30,12 @@ export interface BillingLicenseRow {
   readonly license: AdminBillingLicense;
   readonly sourceLabel: string;
   readonly startsLabel: string;
-  /** `null`: monthly, no scheduled end. */
-  readonly endsLabel: string | null;
+  /**
+   * The scheduled end date, or the words for no end: "Monthly, renews" on a Stripe
+   * license, "No end date" on any other source (a perpetual invoice or complimentary
+   * grant from the E1.5 back-fill renews nothing).
+   */
+  readonly endsLabel: string;
   /** Live, or "Ended {date}" with the reason. */
   readonly statusLabel: string;
   /** "Cancels at term end: {reason}" on a flagged live license, else `null`. */
@@ -106,7 +110,11 @@ export function toBillingLicenseRow(
     license,
     sourceLabel: licenseSourceLabel(license.source),
     startsLabel: formatTermDate(license.starts_at, locale),
-    endsLabel: license.ends_at ? formatTermDate(license.ends_at, locale) : null,
+    endsLabel: license.ends_at
+      ? formatTermDate(license.ends_at, locale)
+      : license.source === 'stripe'
+        ? $localize`:@@admin.vendors.billing.licenses.monthly:Monthly, renews`
+        : $localize`:@@admin.vendors.billing.licenses.noEnd:No end date`,
     statusLabel,
     cancelLabel:
       license.live && license.cancel_at_term_end
@@ -163,6 +171,14 @@ export class BillingLicensesTable {
   /** Live licenses flagged to end instead of renewing. Drives the banner. */
   protected readonly cancellingCount = computed(
     () => this.rows().filter((r) => r.cancelLabel !== null).length,
+  );
+
+  /**
+   * Flagged licenses with no end date. They have no term end to cancel at, so the flag
+   * never fires on its own: the operator revokes them by hand (ruled 2026-10-16).
+   */
+  protected readonly cancellingOpenEndedCount = computed(
+    () => this.rows().filter((r) => r.cancelLabel !== null && r.license.ends_at === null).length,
   );
 
   /** The reasons on the flagged licenses, deduplicated, for the banner sentence. */

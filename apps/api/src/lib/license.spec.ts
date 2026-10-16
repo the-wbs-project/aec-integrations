@@ -850,6 +850,48 @@ describe('setLicensesTermStatements', () => {
     });
   });
 
+  it('expectUnchanged matches no row once ends_at, source or reference moved since the read', async () => {
+    await seedLicense('l-1', { reference: 'PO-1' });
+    const c = await ctx();
+    const build = () =>
+      setLicensesTermStatements(t.db, {
+        ...c,
+        licenseIds: ['l-1'],
+        endsAt: '2028-01-31',
+        expectUnchanged: true,
+      });
+    for (const moved of [
+      { endsAt: '2029-01-01T00:00:00.000Z' },
+      { source: 'invoice' as const },
+      { reference: null },
+    ]) {
+      await t.db.update(licenses).set(moved).where(eq(licenses.id, 'l-1'));
+      await run(build());
+      expect((await licenseOf('l-1')).endsAt).not.toBe('2028-01-31T00:00:00.000Z');
+      // Put the read values back for the next axis.
+      await t.db
+        .update(licenses)
+        .set({ endsAt: '2027-10-14T00:00:00.000Z', source: 'complimentary', reference: 'PO-1' })
+        .where(eq(licenses.id, 'l-1'));
+    }
+    // Unmoved, including a NULL compared NULL-safe: the guarded UPDATE lands.
+    await run(build());
+    expect((await licenseOf('l-1')).endsAt).toBe('2028-01-31T00:00:00.000Z');
+  });
+
+  it('expectUnchanged compares a NULL ends_at and reference NULL-safe', async () => {
+    await seedLicense('l-1', { endsAt: null, reference: null });
+    await run(
+      setLicensesTermStatements(t.db, {
+        ...(await ctx()),
+        licenseIds: ['l-1'],
+        endsAt: '2028-01-31',
+        expectUnchanged: true,
+      }),
+    );
+    expect((await licenseOf('l-1')).endsAt).toBe('2028-01-31T00:00:00.000Z');
+  });
+
   it('is the frozen no-op when nothing changes, and throws on an unknown source', async () => {
     await seedLicense('l-1');
     const c = await ctx();

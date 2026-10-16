@@ -630,6 +630,7 @@ export function createUpdateLicenseHandler(
           ...base,
           licenseIds: [before.id],
           endsAt,
+          expectUnchanged: true,
           extraMetadata: { change: 'extend' },
         });
         after = { ...before, endsAt };
@@ -650,6 +651,7 @@ export function createUpdateLicenseHandler(
           licenseIds: [before.id],
           endsAt: before.endsAt,
           reference: payload.reference,
+          expectUnchanged: true,
           extraMetadata: { change: 'reference' },
         });
         after = { ...before, reference: payload.reference };
@@ -696,10 +698,12 @@ export function createUpdateLicenseHandler(
 
     if (batch.stmts.length === 0) return respond(false, before);
 
-    // The license UPDATE is guarded on `ended_at IS NULL`. The sentinel straight after
-    // it aborts the whole batch when that guard matched nothing (a concurrent revoke or
-    // lapse ended the license since the read), so a lost race writes no audit row, no
-    // Messages row, and skips the purge and the email below.
+    // The license UPDATE is guarded on `ended_at IS NULL`, and an extend or reference
+    // also on the `ends_at`, `source` and `reference` read above (`expectUnchanged`).
+    // The sentinel straight after it aborts the whole batch when that guard matched
+    // nothing: a concurrent revoke or lapse ended the license, or a concurrent edit moved
+    // its term or reference, since the read. A lost race writes no audit row, no Messages
+    // row, and skips the purge and the email below.
     const [licenseUpdate, ...rest] = batch.stmts;
     try {
       await db.batch([
@@ -713,8 +717,8 @@ export function createUpdateLicenseHandler(
       throw new ApiError(
         422,
         ApiErrorCode.INVALID_STATE_TRANSITION,
-        'This license ended while you were editing it. Nothing was changed.',
-        { details: { state: 'ended' } },
+        'This license changed or ended while you were editing it. Reload it and try again. Nothing was changed.',
+        { details: { state: 'changed' } },
       );
     }
     forwardAuditBatch(c, [...batch.auditEntries, notice], [], 'admin-licenses');

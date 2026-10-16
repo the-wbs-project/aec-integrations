@@ -2174,11 +2174,13 @@ The next 11:00 UTC expiry run emails the vendor's seats and `SUPPORT_EMAIL`. A o
 
 ### 2. Extend the pilot
 
-1. Open the vendor at `/admin/vendors/:id`.
-2. Choose **Renew**. Set **Term end date** one month later. Note the extension in **Arrangement notes**.
+Do not use **Renew** until E4.6 ships (ruled 2026-10-16). Renew re-terms every live license from the entitlement row, so it would overwrite licenses granted or extended on the Billing tab.
+
+1. Open the vendor at `/admin/vendors/:id?tab=billing`.
+2. On each live license row, choose **Extend**. Set the new end date one month later.
 3. Confirm, then move the calendar reminder.
 
-Renew keeps the other arrangement fields and resets the warning stamp, so the vendor gets a fresh notice for the new term. Update the message override if you set one.
+Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. The entitlement row's `period_end` is not moved; nothing vendor-facing reads it since E1.6. Update the message override if you set one.
 
 ### 3. End the pilot
 

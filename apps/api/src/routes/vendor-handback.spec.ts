@@ -225,7 +225,7 @@ async function call(
   path: string,
   method: 'DELETE' | 'PATCH' | 'POST',
   payload?: unknown,
-): Promise<{ status: number; send: ReturnType<typeof vi.fn> }> {
+): Promise<{ status: number; code: string | null; send: ReturnType<typeof vi.fn> }> {
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
@@ -238,7 +238,8 @@ async function call(
       : { method, body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } };
   const res = await adminApp().request(path, init, env, execCtx);
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-  return { status: res.status, send };
+  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+  return { status: res.status, code: body?.error?.code ?? null, send };
 }
 
 const revoke = (userId: string) =>
@@ -719,10 +720,40 @@ describe('a new seat grant clears the vendor-banned license flags, as an unban d
     await t.db
       .insert(profiles)
       .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
-    await provision();
+    // A banned seat does not make the vendor active, so the flag sentinel stays quiet.
+    expect((await provision()).status).toBe(201);
     expect((await readCancelFlags(t.db, seeds)).banned).toEqual({
       cancelAtTermEnd: true,
       cancelReason: 'vendor-banned',
+    });
+  });
+
+  // AECI-1374 E4.5 (ruled 2026-10-16): the provision reads the flags before its batch.
+  // A last-seat ban that commits in between flags the license after that read, so the
+  // provision plans no clear. `vendorBannedFlagsRaceSentinel` rolls the batch back.
+  it('a last-seat ban between the read and the batch rolls the provision back (409)', async () => {
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      expect((await ban(SEAT_A)).status).toBe(200);
+      return original(stmts);
+    }) as never);
+
+    const res = await provision();
+    expect(res.status).toBe(409);
+    expect(res.code).toBe('VENDOR_SEATS_CHANGED');
+
+    expect(await t.db.query.profiles.findFirst({ where: eq(profiles.id, SEAT_B) })).toBeUndefined();
+    const [row] = await t.db.select().from(licenses);
+    expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    const actions = await auditActions();
+    expect(actions).not.toContain('vendor_seat.provisioned');
+    expect(actions).not.toContain('license.cancel_at_term_end_cleared');
+
+    // The retry re-reads the flags and clears them with the seat.
+    expect((await provision()).status).toBe(201);
+    expect((await t.db.select().from(licenses))[0]).toMatchObject({
+      cancelAtTermEnd: false,
+      cancelReason: null,
     });
   });
 

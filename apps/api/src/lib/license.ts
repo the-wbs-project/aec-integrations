@@ -469,6 +469,18 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
   licenseSource?: LicenseSource;
   /** The new reference. Absent = leave alone; `null` clears it. */
   reference?: string | null;
+  /**
+   * Also guard the UPDATE on the `ends_at`, `source` and `reference` the caller read
+   * (NULL-safe), so it matches no row when a concurrent edit moved any of them. Pair it
+   * with a `changedOneRowSentinel` after the UPDATE to roll the lost race back. Off by
+   * default: the entitlement re-term and renewal keep the `ended_at IS NULL` guard only.
+   */
+  expectUnchanged?: boolean;
+}
+
+/** `column IS value`, NULL-safe: `IS NULL` for a null, `=` otherwise. */
+function sameAs(column: typeof licenses.endsAt | typeof licenses.reference, value: string | null) {
+  return value === null ? isNull(column) : eq(column, value);
 }
 
 /**
@@ -477,7 +489,8 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
  * guarded `WHERE ended_at IS NULL` statement and one `license.term_changed` audit row
  * per license that actually changes, then the reconcile. A license whose `ends_at`
  * moves gets `expiry_notice_sent_at` cleared: the expiry-notice fence is per term,
- * so a new term earns its own notice. Nothing changes: a no-op.
+ * so a new term earns its own notice. Nothing changes: a no-op. `expectUnchanged`
+ * widens the guard to the values read (the admin license edit, AECI-1371).
  */
 export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): LicenseBatch {
   if (
@@ -514,7 +527,19 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
         ...(termMoved ? { expiryNoticeSentAt: null } : {}),
         updatedAt: now,
       })
-      .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
+      .where(
+        and(
+          eq(licenses.id, before.id),
+          isNull(licenses.endedAt),
+          ...(p.expectUnchanged
+            ? [
+                sameAs(licenses.endsAt, before.endsAt),
+                eq(licenses.source, before.source),
+                sameAs(licenses.reference, before.reference),
+              ]
+            : []),
+        ),
+      );
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.termChanged, before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));

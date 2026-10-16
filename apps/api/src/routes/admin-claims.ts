@@ -105,7 +105,7 @@ import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { type BatchTuple } from '../lib/audit';
+import { type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import {
   linkClaimAcceptanceStatements,
@@ -144,6 +144,7 @@ import {
   isSeatsChangedError,
   planSeatGrantReturn,
   seatsChangedError,
+  vendorBannedFlagsRaceSentinel,
 } from '../lib/vendor-handback';
 import { loadEntitlement, type EntitlementBefore } from '../lib/vendor-entitlement';
 import {
@@ -584,13 +585,20 @@ async function approveClaim(
   // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
   // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
   // The admin's retry then re-plans against the cleared state.
+  //
+  // AECI-1374 (E4.5): a last-seat ban that committed after the flag read above left
+  // `vendor-banned` flags the return did not plan to clear. `vendorBannedFlagsRaceSentinel`
+  // goes LAST, after the seat write and the planned clears, and aborts the same way
+  // when any such flag is left beside this unbanned seat.
   try {
-    await db.batch([
+    const stmts: BatchStmt[] = [
       ...grant.stmts,
       ...account.stmts,
       ...(acceptances?.stmts ?? []),
       ...(returned?.stmts ?? []),
-    ] as BatchTuple);
+      vendorBannedFlagsRaceSentinel(db, vendor.id, userId),
+    ];
+    await db.batch(stmts as BatchTuple);
   } catch (error) {
     // AECI-1333: the batch opens with `claimUndecidedSentinel`. Both it and the
     // seat-return sentinels raise "malformed JSON", so a re-read says which fired.
@@ -601,7 +609,7 @@ async function approveClaim(
         throw decided;
       }
     }
-    if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+    if (isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
   }
   emitClaimModeration(c, 'approve', 'ok');

@@ -352,11 +352,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(vendor!.verified).toBe(false);
     expect(vendor!.updatedAt).toBe(OLD_TS);
 
-    // ONE batch: `grantSeatStatements`' six statements (the AECI-1333 sentinel first)
-    // and the billing account's two.
+    // ONE batch: `grantSeatStatements`' six statements (the AECI-1333 sentinel first),
+    // the billing account's two and the AECI-1374 flag sentinel last.
     // The claim has no acceptances, so the link adds nothing.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(8);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(9);
     batchSpy.mockRestore();
 
     const req = await requestOf(REQUEST_ID);
@@ -465,9 +465,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
 
     expect(status).toBe(200);
-    // 6 seat (with the AECI-1333 sentinel) + 2 billing account + 2 acceptance link.
+    // 6 seat (with the AECI-1333 sentinel) + 2 billing account + 2 acceptance link
+    // + the AECI-1374 flag sentinel.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(11);
     batchSpy.mockRestore();
 
     const account = (await t.db.select().from(billingAccounts))[0]!;
@@ -713,6 +714,51 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       license_id: seeds.banned,
       seat_user_id: CLAIMANT_ID,
     });
+  });
+
+  // AECI-1374 E4.5 (ruled 2026-10-16): the grant reads the flags before its batch. A
+  // last-seat ban that commits in between flags the license after that read, so the
+  // grant plans no clear. `vendorBannedFlagsRaceSentinel` rolls the batch back.
+  it('a last-seat ban between the read and the batch rolls the grant back (409)', async () => {
+    await seedVendor();
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT2_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+    const license = await seedLicense(t.db, VENDOR_ID);
+    await seedRequest();
+    const auditsBefore = (await t.db.select().from(auditLog)).length;
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      // What the ban's batch commits for the vendor's last unbanned seat.
+      await t.db
+        .update(profiles)
+        .set({ bannedAt: OLD_TS, banReason: 'abuse' })
+        .where(eq(profiles.id, CLAIMANT2_ID));
+      await t.db
+        .update(licenses)
+        .set({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' })
+        .where(eq(licenses.id, license));
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.VENDOR_SEATS_CHANGED);
+    expect(await profileOf(CLAIMANT_ID)).toBeUndefined();
+    expect((await requestOf(REQUEST_ID))!.status).toBe('open');
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
+    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, license));
+    expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+
+    // The retry re-reads the flags and clears them with the seat.
+    expect((await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' })).status).toBe(
+      200,
+    );
+    const [after] = await t.db.select().from(licenses).where(eq(licenses.id, license));
+    expect(after).toMatchObject({ cancelAtTermEnd: false, cancelReason: null });
   });
 
   it('a seated vendor with no billing account yet gets one with the next seat (pre-back-fill)', async () => {

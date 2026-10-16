@@ -585,6 +585,39 @@ describe('GET/POST /api/seat-invites/:token', () => {
     expect(seat).toBeUndefined();
   });
 
+  // AECI-1374 review: the redeem's read can precede the ban's batch. The accept batch
+  // spends the invite FIRST and aborts on a miss, so a redeem whose invite was revoked
+  // after its read writes nothing: no seat, no flag clear, no `invite_accepted` row.
+  it('an invite revoked between the read and the batch rolls the redeem back (409)', async () => {
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-01T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.vendorId, VENDOR));
+    const seeds = await seedCancelFlags(t.db, VENDOR);
+    const flagsBefore = await readCancelFlags(t.db, seeds);
+    const row = await seedInvite();
+    const auditsBefore = (await t.db.select().from(auditLog)).length;
+
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db
+        .update(vendorSeatInvites)
+        .set({ revokedAt: new Date().toISOString() })
+        .where(eq(vendorSeatInvites.id, row.id));
+      return original(stmts);
+    }) as never);
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('VENDOR_SEATS_CHANGED');
+
+    expect(await t.db.select().from(profiles).where(eq(profiles.id, redeemer.userId))).toEqual([]);
+    expect(await readCancelFlags(t.db, seeds)).toEqual(flagsBefore);
+    const [invite] = await t.db.select().from(vendorSeatInvites);
+    expect(invite!.acceptedAt).toBeNull();
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
+  });
+
   it('a redeem with nothing flagged writes no license row', async () => {
     await seedInvite();
     expect(

@@ -200,7 +200,26 @@ describe('LicenseReleaseQueue', () => {
     expect(action(el, 'approve').disabled).toBe(true);
     expect(action(el, 'decline').disabled).toBe(false);
     expect(el.querySelector('[data-testid="license-release-moved"]')).not.toBeNull();
-    expect(text(el.querySelector('article'))).toContain('Monthly, renews until cancelled');
+    expect(text(el.querySelector('article'))).toContain('No end date');
+    expect(text(el.querySelector('article'))).not.toContain('Monthly');
+  });
+
+  it('reads a Stripe license with no end as monthly, and any other source as no end date', async () => {
+    const term = (source: string) => ({
+      source,
+      starts_at: '2026-01-01T00:00:00.000Z',
+      ends_at: null,
+      ended_at: null,
+      assigned_product_id: PRODUCT_ID,
+    });
+    const { el } = await setup([
+      row({ id: 'r-stripe', license: term('stripe') }),
+      row({ id: 'r-comp', license: term('complimentary') }),
+    ]);
+    const cards = [...el.querySelectorAll('article')].map((a) => text(a));
+    expect(cards[0]).toContain('Monthly, renews until cancelled');
+    expect(cards[1]).toContain('No end date');
+    expect(cards[1]).not.toContain('Monthly');
   });
 
   it('shows a decided row with its outcome and no actions, and refetches on a filter change', async () => {

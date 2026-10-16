@@ -256,7 +256,7 @@ function messageForError(err: unknown): string {
       return $localize`:@@admin.vendors.licenseActions.error.stripe:Stripe manages this license. Change its term or invoice in Stripe. Nothing was changed.`;
     }
     if (err.status === 422) {
-      return $localize`:@@admin.vendors.licenseActions.error.state:This license can no longer be changed this way. It may have ended. Reload the page. Nothing was changed.`;
+      return $localize`:@@admin.vendors.licenseActions.error.state:This license changed or ended since you opened it, or this change does not apply to it. Reload the page and try again. Nothing was changed.`;
     }
     if (err.status === 403) {
       return $localize`:@@admin.vendors.licenseActions.error.forbidden:You do not have permission to change licenses.`;

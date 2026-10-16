@@ -294,7 +294,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
 | `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
@@ -2428,7 +2428,7 @@ Errors:
   claim) committed between this handler's read and its batch. The batch's first
   statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
   `details.status` is the claim's status now (AECI-1333).
-- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
+- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again.
 - ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
   never activates an entitlement, so there is no activate to lose a race. The seat-return
   sentinel still gives `VENDOR_SEATS_CHANGED` above.
@@ -3141,7 +3141,7 @@ Errors:
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id. Checked **before** identity resolution, so a bad id cannot orphan a provisioned `auth.users` row |
 | 409 | `GRANT_CONFLICT` | The account is a site `admin`, or is already linked to a **different** vendor. `details.reason` is `already_admin` \| `other_vendor` |
-| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the provision did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again |
 | 503 | `DEPENDENCY_FAILURE` | `SUPABASE_SERVICE_ROLE_KEY` absent or GoTrue errored. Refuses rather than half-provisioning |
 | 400 | `VALIDATION_FAILED` | Malformed body or email (the shared `ZodError` mapping), or a missing path parameter |
 | 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
@@ -3421,17 +3421,22 @@ export const UpdateLicenseResponseSchema = z.object({
    `400 VALIDATION_FAILED`, `field: 'ends_at'`. A license with no end date yet (an
    open-ended complimentary back-fill, ruled 2026-10-14) takes any `ends_at` after now and
    after its start. That is how AECi sets the date it deferred.
-7. A lost race: the license ended between the read and the batch, for example a
-   concurrent revoke. The license UPDATE is guarded on `ended_at IS NULL`, and a
+7. A lost race: the license changed or ended between the read and the batch. A
+   concurrent revoke or lapse ends it. A concurrent extend or reference moves its term or
+   reference. The license UPDATE is guarded on `ended_at IS NULL`. For `extend` and
+   `reference` it is also guarded on the `ends_at`, `source` and `reference` the handler
+   read, compared NULL-safe (`setLicensesTermStatements({ expectUnchanged: true })`). A
    `changedOneRowSentinel` straight after it aborts the batch when that guard matched no
-   row. The answer is `422 INVALID_STATE_TRANSITION` (`details.state = 'ended'`). No audit
-   row, no Messages row, no purge and no email.
+   row. The answer is `422 INVALID_STATE_TRANSITION` (`details.state = 'changed'`). No
+   audit row, no Messages row, no purge and no email. The license keeps the winner's
+   values, so two overlapping extends can never shorten a term and a reference change
+   can never write back an older `ends_at`.
 
 **`extend` and `reference`.** One batch from `setLicensesTermStatements`: a guarded UPDATE
-(`WHERE ended_at IS NULL`), one `license.term_changed` audit row with `metadata.change`
-naming the action, and the mirror reconcile. A moved end clears `expiry_notice_sent_at`,
-so the new term earns its own 30-day notice. A live license stays live, so no plan
-changes: no purge, no email. The same reference again is a `200` with `changed: false`.
+(`WHERE ended_at IS NULL`, plus the read `ends_at`, `source` and `reference`, refusal 7),
+one `license.term_changed` audit row with `metadata.change` naming the action, and the
+mirror reconcile. A moved end clears `expiry_notice_sent_at`, so the new term earns its
+own 30-day notice. A live license stays live, so no plan changes: no purge, no email. The same reference again is a `200` with `changed: false`.
 
 **`revoke`.** One batch: `endLicensesStatements({ endReason: 'revoked' })` stamps
 `ended_at` and `end_reason` and **never names `assigned_product_id`**, so an assigned
@@ -6866,11 +6871,11 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
-**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
+**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row. The spend is the batch's first statement, and `inviteSpentSentinel` aborts the batch when it matched no row. An invite revoked after the handler's read therefore writes nothing: no seat, no flag clear, no audit row. A last-seat ban revokes the vendor's pending invites, so this is what stops a pre-ban read from minting the unbanned seat that clears the `vendor-banned` flags (AECI-1374).
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
-Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the invite was revoked or spent between the handler's read and its batch (`inviteSpentSentinel`, AECI-1374); or the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
 
 #### `GET /api/vendor/notifications`
 

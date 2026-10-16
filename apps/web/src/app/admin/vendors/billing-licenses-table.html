@@ -38,7 +38,18 @@
   live licenses cancel at term end}} ({{ cancellingReasons() }}). A flagged license ends at the end
   of its term and does not renew. Nothing is refunded.
 </p>
-}
+@if (cancellingOpenEndedCount() > 0) {
+<p
+  class="mt-2 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+  role="note"
+  data-testid="billing-cancel-open-ended"
+  i18n="@@admin.vendors.billing.cancelBannerOpenEnded"
+>
+  {cancellingOpenEndedCount(), plural, =1 {1 flagged license has no end date, so it will never end
+  on its own. Revoke it from its row.} other {{{cancellingOpenEndedCount()}} flagged licenses have
+  no end date, so they will never end on their own. Revoke each from its row.}}
+</p>
+} }
 
 <!-- ── Billing account ─────────────────────────────────────────────────── -->
 <section class="mt-6" aria-labelledby="admin-vendor-billing-account">
@@ -242,11 +253,7 @@
 
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.startsLabel }}</td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
-            @if (row.endsLabel) { {{ row.endsLabel }} } @else {
-            <span i18n="@@admin.vendors.billing.licenses.monthly">Monthly, renews</span>
-            }
-          </td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
 
           <td class="py-2.5 pe-4 text-(--text-primary)">
             {{ row.statusLabel }} @if (row.cancelLabel) {

@@ -957,6 +957,55 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect(queueSend).not.toHaveBeenCalled();
   });
 
+  // ── a lost race to another edit (the term or reference moved since the read) ──
+
+  const WINNER_END = '2027-12-31T00:00:00.000Z';
+  const editBeforeBatch = (id: string, set: { endsAt?: string; reference?: string }) =>
+    racingFactory(t.factory, async () => {
+      await t.db.update(licenses).set(set).where(eq(licenses.id, id));
+    });
+
+  it('a reference change racing an extend answers 422 and keeps the extended end', async () => {
+    const id = await license();
+    const { status, body } = await patch(
+      id,
+      { action: 'reference', reference: 'INV-2' },
+      editBeforeBatch(id, { endsAt: WINNER_END }),
+    );
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(body.error.details).toMatchObject({ state: 'changed' });
+    expect(await readAudit()).toHaveLength(0);
+    expect(await licenseRow(id)).toMatchObject({ endsAt: WINNER_END, reference: 'PO-1' });
+    expect(queueSend).not.toHaveBeenCalled();
+  });
+
+  it('an extend racing a longer extend answers 422 and never shortens the term', async () => {
+    const id = await license();
+    const { status, body } = await patch(
+      id,
+      { action: 'extend', ends_at: END },
+      editBeforeBatch(id, { endsAt: WINNER_END }),
+    );
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(await readAudit()).toHaveLength(0);
+    expect((await licenseRow(id)).endsAt).toBe(WINNER_END);
+    expect(queueSend).not.toHaveBeenCalled();
+  });
+
+  it('an extend racing a reference change answers 422 and keeps the new reference', async () => {
+    const id = await license();
+    const { status } = await patch(
+      id,
+      { action: 'extend', ends_at: END },
+      editBeforeBatch(id, { reference: 'INV-9' }),
+    );
+    expect(status).toBe(422);
+    expect(await readAudit()).toHaveLength(0);
+    expect(await licenseRow(id)).toMatchObject({ endsAt: TERM_END, reference: 'INV-9' });
+  });
+
   it('a failing managed-ended send never fails the revoke', async () => {
     await ownProduct();
     await seedSeats();

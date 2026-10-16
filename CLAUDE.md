@@ -74,7 +74,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
-| Vendor claim, licenses and billing: the agreed process (E1 built through E1.7; E2 to E10 not built) | `docs/VENDOR_SIGNUP_PROCESS.md` |
+| Vendor claim, licenses and billing: the agreed process (built: E1.1 to E1.7, E2.1 to E2.4, E3, E4.1 to E4.5; not built: E1.8, E1.9, E4.6, E5 to E10) | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
 | Stage 2.5: retired as a stage; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md` |

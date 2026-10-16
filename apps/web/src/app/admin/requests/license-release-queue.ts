@@ -200,12 +200,17 @@ export class LicenseReleaseQueue {
     );
   }
 
-  /** "Ends Jun 30, 2027" or "Monthly", in UTC like every term date on the console. */
+  /**
+   * "Term ends Jun 30, 2027", in UTC like every term date on the console. With no end,
+   * only a Stripe license renews monthly. Any other source reads "No end date".
+   */
   protected termLine(row: AdminLicenseReleaseRequest): string | null {
     const license = row.license;
     if (!license) return null;
     if (license.ends_at === null) {
-      return $localize`:@@admin.licenseReleases.term.monthly:Monthly, renews until cancelled`;
+      return license.source === 'stripe'
+        ? $localize`:@@admin.licenseReleases.term.monthly:Monthly, renews until cancelled`
+        : $localize`:@@admin.licenseReleases.term.noEnd:No end date`;
     }
     const date = formatTermDate(license.ends_at, this.locale);
     return $localize`:@@admin.licenseReleases.term.ends:Term ends ${date}:DATE:`;

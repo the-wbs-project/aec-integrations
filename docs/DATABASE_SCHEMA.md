@@ -1976,7 +1976,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
   scheduled end; E6's daily job turns it into `ended_at`. Never derive "live" from `ends_at`
   at read time.
-- **Monthly and annual share one column.** `ends_at` null is monthly (renews until cancelled).
+- **Monthly and annual share one column.** `ends_at` null on a `stripe` license is monthly
+  (renews until cancelled). `ends_at` null on any other source has no end date yet: the E1.5
+  back-fill writes a perpetual entitlement as `complimentary` with no end (ruling 2026-10-14).
   `ends_at` set is annual, invoice or complimentary.
 - **`source` is unconstrained**, the `vendor_entitlements.tier` posture. The vocabulary is
   `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change is a D1 table recreate
@@ -2021,7 +2023,10 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   no notes column.
 - **The admin edit (AECI-1371, E4.2).** `PATCH /api/admin/licenses/:id`. `extend` and
   `reference` go through `setLicensesTermStatements`; their `license.term_changed` row
-  carries `metadata.change` (`extend` or `reference`). `revoke` goes through
+  carries `metadata.change` (`extend` or `reference`). Their UPDATE is also guarded on the
+  `ends_at`, `source` and `reference` the handler read (`expectUnchanged`), with a
+  `changedOneRowSentinel` after it, so an edit that lost a race to another edit writes
+  nothing and answers `422`. `revoke` goes through
   `endLicensesStatements` with `end_reason = 'revoked'`: `assigned_product_id` is kept, so
   the ended license still names its product. Its `license.revoked` row carries
   `metadata.reason`, `metadata.reasonVisibility = 'vendor'` and, when given,
@@ -2042,6 +2047,17 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   the seat grant ruled 2026-10-15). Both go through `clearVendorBannedFlagsStatements`. The builder's
   `ifCancelReason` guards each UPDATE on the reason it expects, so the unban never clears a
   flag another writer set. Unconstrained at the DB layer, like `end_reason`.
+- **A seat grant cannot leave a flag behind** (AECI-1374 E4.5, ruled 2026-10-16). The admin
+  provision and the claim grant plan their clears from a read taken before their batch. A
+  last-seat ban that commits in between flags licenses the grant never saw. Each grant batch
+  therefore ends with `vendorBannedFlagsRaceSentinel` (`lib/vendor-handback.ts`), placed after
+  the seat write and the planned clears. It aborts the whole batch when the granted seat is an
+  unbanned `vendor_admin` of the vendor and any live license on the vendor's billing accounts
+  still reads `vendor-banned`. Placed last, the test needs no planned id list: whatever the
+  clears missed is exactly what the ban added. The route answers `409 VENDOR_SEATS_CHANGED`,
+  and the retry clears the flags. A grant of a banned seat never trips it. The invite redeem
+  does not carry it: the ban revokes every pending invite in its own batch, so the redeem's
+  `inviteSpentSentinel` already aborts a redeem planned before the ban.
 - **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
   statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
@@ -2280,6 +2296,13 @@ opaque lookup handle, not a bearer credential — which is what makes it safe in
 URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
 `crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
 (`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+
+**The redeem spends the invite first.** `acceptInviteStatements` opens its batch with the
+guarded `UPDATE … SET accepted_at` (`accepted_at IS NULL AND revoked_at IS NULL`), then
+`inviteSpentSentinel`, then the `profiles` upsert and the `vendor_seat.invite_accepted` row.
+When the UPDATE matched no row, the sentinel rolls the whole batch back. So an invite revoked
+or spent after the redeem's read writes no seat, no license flag clear and no audit row
+(AECI-1374: a last-seat ban revokes the vendor's pending invites).
 
 **Re-sending is bounded by two columns, not by a counter table** (AECI-927). A 5-minute
 cooldown reads `last_sent_at`; a lifetime cap of 4 sends reads `send_count`. The lifetime

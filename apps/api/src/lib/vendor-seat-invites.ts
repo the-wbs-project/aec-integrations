@@ -38,6 +38,7 @@ import type { Db } from '../db/client';
 import { profiles, vendorSeatInvites } from '../db/schema';
 import { auditInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { ONE_ROW } from './integration-claims';
 
 /**
  * How long an invite stays redeemable. Long enough to survive a holiday, short
@@ -488,10 +489,16 @@ export interface AcceptInviteParams {
  *    "work email verified" while they decide whether a claimant really works
  *    there. Like `seatOwner` it is never cleared — a profile that already earned
  *    the bit keeps it.
- * 3. **The accept UPDATE is guarded on still-pending.** Redeeming is single-use,
- *    and two concurrent redeems of one token must produce one seat and one audit
- *    row, not two. The guard is what makes the second a no-op instead of a
- *    silent re-grant.
+ * 3. **The accept UPDATE is guarded on still-pending, and runs FIRST.** Redeeming
+ *    is single-use, and two concurrent redeems of one token must produce one seat
+ *    and one audit row, not two. The guarded UPDATE is the batch's first statement
+ *    and {@link inviteSpentSentinel} follows it: when it matched no row, the batch
+ *    rolls back before the profile upsert. That covers a revoke that committed
+ *    between the caller's read and this batch, too. A last-seat ban revokes the
+ *    vendor's pending invites (AECI-1374, `STAGE_2_PAID_TIERS_SPEC.md` §5.2), and a
+ *    redeem that read the invite before the ban must not still mint the unbanned
+ *    seat that clears the `vendor-banned` license flags. The caller maps the abort
+ *    to `409 VENDOR_SEATS_CHANGED` via `isSeatsChangedError`.
  *
  * The profile write is an upsert for the same reason `grantSeatStatements`' is:
  * a signed-in user may still have no `profiles` row (`profile-ensure` swallows
@@ -535,6 +542,19 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
 
   return {
     stmts: [
+      // Spend the invite FIRST and abort on a miss (property 3). The seat and the
+      // audit row below only commit if this redeem is the one that spent it.
+      db
+        .update(vendorSeatInvites)
+        .set({ acceptedAt: p.now, updatedAt: p.now })
+        .where(
+          and(
+            eq(vendorSeatInvites.id, p.inviteId),
+            isNull(vendorSeatInvites.acceptedAt),
+            isNull(vendorSeatInvites.revokedAt),
+          ),
+        ),
+      inviteSpentSentinel(db),
       db
         .insert(profiles)
         .values({
@@ -556,20 +576,25 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
             updatedAt: p.now,
           },
         }),
-      db
-        .update(vendorSeatInvites)
-        .set({ acceptedAt: p.now, updatedAt: p.now })
-        .where(
-          and(
-            eq(vendorSeatInvites.id, p.inviteId),
-            isNull(vendorSeatInvites.acceptedAt),
-            isNull(vendorSeatInvites.revokedAt),
-          ),
-        ),
       auditInsert(db, auditEntry),
     ],
     auditEntry,
   };
+}
+
+/**
+ * Aborts the accept batch when the guarded invite UPDATE right before it changed no
+ * row: the invite was revoked (a last-seat ban, an owner, an admin) or spent by a
+ * concurrent redeem after the caller's read. `json('…')` on a non-JSON string raises
+ * "malformed JSON", which rolls the whole batch back, so no seat, flag clear or
+ * `vendor_seat.invite_accepted` row commits. The `changedOneRowSentinel` pattern.
+ * FROM a one-row constant, so the guard is evaluated exactly once.
+ * `isSeatsChangedError` recognises the error.
+ */
+export function inviteSpentSentinel(db: Db): BatchStmt {
+  return db
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('seat-invite-spent') END` })
+    .from(ONE_ROW);
 }
 
 /**

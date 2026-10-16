@@ -233,7 +233,7 @@ describe('batch shapes', () => {
       domainMatched: true,
       profileBefore: null,
     });
-    const [upsert, spend, audit] = sqlOf(batch.stmts);
+    const [spend, sentinel, upsert, audit] = sqlOf(batch.stmts);
     // An invited seat that could invite would let one AECi-reviewed human seed an
     // unbounded chain of seats no reviewer ever saw.
     expect(batch.auditEntry.afterState).toMatchObject({
@@ -242,8 +242,12 @@ describe('batch shapes', () => {
     });
     expect(upsert).toContain('profiles');
     expect(upsert).toContain('on conflict');
-    // Single-use: two concurrent redeems must produce one seat, not two.
+    // Single-use: two concurrent redeems must produce one seat, not two. The spend
+    // runs FIRST and the sentinel aborts the batch before the upsert when it
+    // matched nothing (a revoke or another redeem won, AECI-1374).
     expect(spend).toContain('"accepted_at" is null');
+    expect(spend).toContain('"revoked_at" is null');
+    expect(sentinel).toContain('changes() = 0');
     expect(audit).toContain('audit_log');
     expect(batch.auditEntry.action).toBe('vendor_seat.invite_accepted');
   });
@@ -330,7 +334,7 @@ describe('batch shapes', () => {
         workEmailVerified: true,
       },
     });
-    const [upsert] = sqlOf(batch.stmts);
+    const [, , upsert] = sqlOf(batch.stmts);
     expect(batch.auditEntry.afterState).toMatchObject({ seat_owner: true });
     // The conflict path preserves the owner bit rather than forcing it false.
     expect(upsert).toContain('on conflict');

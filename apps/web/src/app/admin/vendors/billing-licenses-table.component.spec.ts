@@ -109,6 +109,22 @@ describe('BillingLicensesTable', () => {
       expect(th.getAttribute('scope')).toBe('col');
   });
 
+  it('renders "Monthly, renews" only on a Stripe license with no end', () => {
+    const { el } = mount(
+      makeBilling({
+        licenses: [
+          makeLicense({ id: 'l-stripe', source: 'stripe', reference: null, ends_at: null }),
+          makeLicense({ id: 'l-comp', source: 'complimentary', ends_at: null }),
+        ],
+      }),
+    );
+    const rows = el.querySelectorAll('[data-testid="billing-license-row"]');
+    expect(rows[0]!.textContent).toContain('Monthly, renews');
+    expect(rows[1]!.textContent).toContain('Complimentary');
+    expect(rows[1]!.textContent).toContain('No end date');
+    expect(rows[1]!.textContent).not.toContain('Monthly');
+  });
+
   it('flags a live license that cancels at term end, and raises the banner', () => {
     const { el } = mount(
       makeBilling({
@@ -125,6 +141,25 @@ describe('BillingLicensesTable', () => {
     expect(banner?.textContent).toContain('1 live license cancels at term end');
     expect(banner?.textContent).toContain('vendor banned');
     expect(el.textContent).toContain('Unassigned');
+    expect(el.querySelector('[data-testid="billing-cancel-open-ended"]')).toBeNull();
+  });
+
+  it('tells the operator to revoke a flagged license that has no end date', () => {
+    const { el } = mount(
+      makeBilling({
+        licenses: [
+          makeLicense({
+            source: 'complimentary',
+            ends_at: null,
+            cancel_at_term_end: true,
+            cancel_reason: 'vendor-banned',
+          }),
+        ],
+      }),
+    );
+    const note = el.querySelector('[data-testid="billing-cancel-open-ended"]')?.textContent ?? '';
+    expect(note).toContain('1 flagged license has no end date');
+    expect(note).toContain('Revoke it from its row.');
   });
 
   it('raises no banner when only an ended license carries the flag', () => {
@@ -367,8 +402,16 @@ describe('toBillingLicenseRow', () => {
     expect(row.endsLabel).toBe('Sep 1, 2027');
   });
 
-  it('reads a monthly license as having no scheduled end', () => {
-    expect(toBillingLicenseRow(makeLicense({ ends_at: null }), 'en-US').endsLabel).toBeNull();
+  it('reads a Stripe license with no end as monthly', () => {
+    const row = toBillingLicenseRow(makeLicense({ source: 'stripe', ends_at: null }), 'en-US');
+    expect(row.endsLabel).toBe('Monthly, renews');
+  });
+
+  it('reads any other source with no end as no end date, never monthly', () => {
+    for (const source of ['complimentary', 'invoice']) {
+      const row = toBillingLicenseRow(makeLicense({ source, ends_at: null }), 'en-US');
+      expect(row.endsLabel).toBe('No end date');
+    }
   });
 
   it('shows an unknown source token as is', () => {
