@@ -3421,6 +3421,11 @@ export const UpdateLicenseResponseSchema = z.object({
    `400 VALIDATION_FAILED`, `field: 'ends_at'`. A license with no end date yet (an
    open-ended complimentary back-fill, ruled 2026-10-14) takes any `ends_at` after now and
    after its start. That is how AECi sets the date it deferred.
+7. A lost race: the license ended between the read and the batch, for example a
+   concurrent revoke. The license UPDATE is guarded on `ended_at IS NULL`, and a
+   `changedOneRowSentinel` straight after it aborts the batch when that guard matched no
+   row. The answer is `422 INVALID_STATE_TRANSITION` (`details.state = 'ended'`). No audit
+   row, no Messages row, no purge and no email.
 
 **`extend` and `reference`.** One batch from `setLicensesTermStatements`: a guarded UPDATE
 (`WHERE ended_at IS NULL`), one `license.term_changed` audit row with `metadata.change`
@@ -3451,7 +3456,7 @@ as the grant does. A failed send never fails the response.
 | 400 | `VALIDATION_FAILED` / `MALFORMED_REQUEST` | refusal 1 or 6 |
 | 404 | `NOT_FOUND` | refusal 2 |
 | 409 | `LICENSE_SOURCE_STRIPE` | refusal 4 |
-| 422 | `INVALID_STATE_TRANSITION` | refusal 3 or 5 |
+| 422 | `INVALID_STATE_TRANSITION` | refusal 3, 5 or 7 |
 
 Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
 rate limit's 429.

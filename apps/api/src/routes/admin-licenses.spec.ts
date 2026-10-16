@@ -915,6 +915,48 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect((await licenseRow(id)).endReason).toBe('revoked');
   });
 
+  // ── a lost race (the license ended between the read and the batch) ─────────
+
+  const RACED_AT = '2026-10-01T00:00:00.000Z';
+  const endBeforeBatch = (id: string) =>
+    racingFactory(t.factory, async () => {
+      await t.db
+        .update(licenses)
+        .set({ endedAt: RACED_AT, endReason: 'revoked' })
+        .where(eq(licenses.id, id));
+    });
+
+  it('a revoke that loses the race to another revoke answers 422 and writes nothing', async () => {
+    await ownProduct();
+    await seedSeats();
+    const id = await license({ productId: PRODUCT });
+    const { status, body } = await patch(
+      id,
+      { action: 'revoke', reason: 'Abuse.' },
+      endBeforeBatch(id),
+    );
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(await readAudit()).toHaveLength(0);
+    expect((await licenseRow(id)).endedAt).toBe(RACED_AT);
+    expect(queueSend).not.toHaveBeenCalled();
+    expect(sendEnded).not.toHaveBeenCalled();
+  });
+
+  it('an extend racing a revoke answers 422 and writes nothing', async () => {
+    const id = await license();
+    const { status, body } = await patch(
+      id,
+      { action: 'extend', ends_at: END },
+      endBeforeBatch(id),
+    );
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(await readAudit()).toHaveLength(0);
+    expect((await licenseRow(id)).endsAt).toBe(TERM_END);
+    expect(queueSend).not.toHaveBeenCalled();
+  });
+
   it('a failing managed-ended send never fails the revoke', async () => {
     await ownProduct();
     await seedSeats();

@@ -89,6 +89,7 @@ import {
   type LicenseBatch,
   type LicenseBefore,
 } from '../lib/license';
+import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
@@ -695,7 +696,27 @@ export function createUpdateLicenseHandler(
 
     if (batch.stmts.length === 0) return respond(false, before);
 
-    await db.batch([...batch.stmts, ...(notice ? [auditInsert(db, notice)] : [])] as BatchTuple);
+    // The license UPDATE is guarded on `ended_at IS NULL`. The sentinel straight after
+    // it aborts the whole batch when that guard matched nothing (a concurrent revoke or
+    // lapse ended the license since the read), so a lost race writes no audit row, no
+    // Messages row, and skips the purge and the email below.
+    const [licenseUpdate, ...rest] = batch.stmts;
+    try {
+      await db.batch([
+        licenseUpdate!,
+        changedOneRowSentinel(db),
+        ...rest,
+        ...(notice ? [auditInsert(db, notice)] : []),
+      ] as BatchTuple);
+    } catch (error) {
+      if (!isReleaseRaceError(error)) throw error;
+      throw new ApiError(
+        422,
+        ApiErrorCode.INVALID_STATE_TRANSITION,
+        'This license ended while you were editing it. Nothing was changed.',
+        { details: { state: 'ended' } },
+      );
+    }
     forwardAuditBatch(c, [...batch.auditEntries, notice], [], 'admin-licenses');
 
     if (payload.action === 'revoke') {
