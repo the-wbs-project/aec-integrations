@@ -28,6 +28,7 @@ import {
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
+import { VendorBillingSummary } from '../components/vendor-billing-summary';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
 import { VendorLicenseReleaseRequest } from '../components/vendor-license-release-request';
 import { VendorLicenseReleaseSwitch } from '../components/vendor-license-release-switch';
@@ -77,7 +78,8 @@ function documentLabel(document: string): string {
 /**
  * `…/billing`: the owner-only Billing tab (AECI-1390, E5.4;
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The billing email, the company's
- * licenses and the agreements it accepted.
+ * licenses and the agreements it accepted. A summary card in a right-hand column
+ * counts the licenses (`VendorBillingSummary`).
  *
  * ── OWNERS ONLY ─────────────────────────────────────────────────────────────
  * Billing is an owner's act (decision 10). The nav drops the tab for a member seat
@@ -113,198 +115,205 @@ function documentLabel(document: string): string {
     RouterLink,
     VendorBillingEmailForm,
     VendorBillingLicenses,
+    VendorBillingSummary,
     VendorLicenseAssign,
     VendorLicenseReleaseRequest,
     VendorLicenseReleaseSwitch,
   ],
   template: `
-    <h2
-      class="font-display text-xl font-semibold text-(--text-primary)"
-      i18n="@@vendor.section.billing"
-    >
-      Billing
-    </h2>
-    @if (!isOwner()) {
-      <p
-        class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
-        data-testid="billing-owners-only"
-        i18n="@@vendor.billing.ownersOnly"
-      >
-        Only account owners manage billing. Ask an owner on the Seats tab if something here needs to
-        change.
-      </p>
-    } @else {
-      <p class="mt-1 text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.billing.intro">
-        A license covers one product. Plans change what a listing can show, never where it ranks.
-      </p>
-
-      @if (loading()) {
-        <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.billing.loading">
-          Loading billing…
-        </p>
-      } @else if (failed() && !billing()) {
-        <div class="mt-4 flex flex-wrap items-center gap-3">
-          <p class="text-sm text-(--text-primary)" i18n="@@vendor.billing.error">
-            Could not load billing.
+    <div [class]="topGridClass()">
+      <div>
+        <h2
+          class="font-display text-xl font-semibold text-(--text-primary)"
+          i18n="@@vendor.section.billing"
+        >
+          Billing
+        </h2>
+        @if (!isOwner()) {
+          <p
+            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+            data-testid="billing-owners-only"
+            i18n="@@vendor.billing.ownersOnly"
+          >
+            Only account owners manage billing. Ask an owner on the Seats tab if something here
+            needs to change.
           </p>
-          <button
-            type="button"
-            [class]="retryClass"
-            (click)="retry()"
-            i18n="@@vendor.billing.retry"
+        } @else {
+          <p
+            class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.billing.intro"
           >
-            Try again
-          </button>
-        </div>
-      } @else if (billing(); as b) {
-        <section class="mt-6" aria-labelledby="vendor-billing-email-heading">
-          <h3
-            id="vendor-billing-email-heading"
-            class="font-label text-sm font-semibold text-(--text-primary)"
-            i18n="@@vendor.billing.email.heading"
-          >
-            Billing email
-          </h3>
-          <div class="mt-2">
-            @if (b.billing_account; as account) {
-              <aec-vendor-billing-email-form [current]="account.billing_email" />
-            } @else {
-              <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.noAccount">
-                Your company has no billing account yet. Contact AEC Integrations to set one up.
-              </p>
-            }
-          </div>
-        </section>
+            A license covers one product. Plans change what a listing can show, never where it
+            ranks.
+          </p>
 
-        <section class="mt-8" aria-labelledby="vendor-billing-licenses-heading">
-          <h3
-            id="vendor-billing-licenses-heading"
-            class="font-label text-sm font-semibold text-(--text-primary)"
-            i18n="@@vendor.billing.licenses.heading"
-          >
-            Licenses
-          </h3>
-          @if (staleNotice(); as message) {
-            <p
-              #staleNoticeEl
-              role="alert"
-              tabindex="-1"
-              class="mt-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              data-testid="billing-stale-notice"
-            >
-              {{ message }}
+          @if (loading()) {
+            <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.billing.loading">
+              Loading billing…
             </p>
-          }
-          <div class="mt-3">
-            <aec-vendor-billing-licenses
-              [licenses]="b.licenses"
-              [truncated]="b.licenses_truncated"
-              [rowActions]="licenseActions"
-            />
-            <ng-template #licenseActions let-row>
-              @if (row.license.live) {
-                @if (row.license.assigned_product) {
-                  <div class="flex flex-col items-end gap-3">
-                    <aec-vendor-license-release-switch
-                      [license]="row.license"
-                      (stale)="onStale($event)"
-                    />
-                    <aec-vendor-license-release-request
-                      [license]="row.license"
-                      (stale)="onStale($event)"
-                    />
-                  </div>
+          } @else if (failed() && !billing()) {
+            <div class="mt-4 flex flex-wrap items-center gap-3">
+              <p class="text-sm text-(--text-primary)" i18n="@@vendor.billing.error">
+                Could not load billing.
+              </p>
+              <button
+                type="button"
+                [class]="retryClass"
+                (click)="retry()"
+                i18n="@@vendor.billing.retry"
+              >
+                Try again
+              </button>
+            </div>
+          } @else if (billing(); as b) {
+            <section class="mt-6" aria-labelledby="vendor-billing-email-heading">
+              <h3
+                id="vendor-billing-email-heading"
+                class="font-label text-sm font-semibold text-(--text-primary)"
+                i18n="@@vendor.billing.email.heading"
+              >
+                Billing email
+              </h3>
+              <div class="mt-2">
+                @if (b.billing_account; as account) {
+                  <aec-vendor-billing-email-form [current]="account.billing_email" />
                 } @else {
-                  <aec-vendor-license-assign
+                  <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.noAccount">
+                    Your company has no billing account yet. Contact AEC Integrations to set one up.
+                  </p>
+                }
+              </div>
+            </section>
+          }
+        }
+      </div>
+      @if (isOwner() && !loading() && billing(); as b) {
+        <aec-vendor-billing-summary
+          [licenses]="b.licenses"
+          [productsOnFree]="b.assignable_products.length"
+          [truncated]="b.licenses_truncated"
+        />
+      }
+    </div>
+
+    @if (isOwner() && !loading() && billing(); as b) {
+      <section class="mt-8" aria-labelledby="vendor-billing-licenses-heading">
+        <h3
+          id="vendor-billing-licenses-heading"
+          class="font-label text-sm font-semibold text-(--text-primary)"
+          i18n="@@vendor.billing.licenses.heading"
+        >
+          Licenses
+        </h3>
+        @if (staleNotice(); as message) {
+          <p
+            #staleNoticeEl
+            role="alert"
+            tabindex="-1"
+            class="mt-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            data-testid="billing-stale-notice"
+          >
+            {{ message }}
+          </p>
+        }
+        <div class="mt-3">
+          <aec-vendor-billing-licenses
+            [licenses]="b.licenses"
+            [truncated]="b.licenses_truncated"
+            [rowActions]="licenseActions"
+          />
+          <ng-template #licenseActions let-row>
+            @if (row.license.live) {
+              @if (row.license.assigned_product) {
+                <div class="flex flex-col items-end gap-3">
+                  <aec-vendor-license-release-switch
                     [license]="row.license"
-                    [products]="b.assignable_products"
-                    (assigned)="focusSwitchAfterAssign($event)"
                     (stale)="onStale($event)"
                   />
-                }
+                  <aec-vendor-license-release-request
+                    [license]="row.license"
+                    (stale)="onStale($event)"
+                  />
+                </div>
+              } @else {
+                <aec-vendor-license-assign
+                  [license]="row.license"
+                  [products]="b.assignable_products"
+                  (assigned)="focusSwitchAfterAssign($event)"
+                  (stale)="onStale($event)"
+                />
               }
-            </ng-template>
-          </div>
-        </section>
+            }
+          </ng-template>
+        </div>
+      </section>
 
-        <section class="mt-8" aria-labelledby="vendor-billing-agreements-heading">
-          <h3
-            id="vendor-billing-agreements-heading"
-            class="font-label text-sm font-semibold text-(--text-primary)"
-            i18n="@@vendor.billing.agreements.heading"
-          >
-            Agreements
-          </h3>
-          <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@vendor.billing.agreements.intro">
-            These are the agreements your company accepted.
+      <section class="mt-8" aria-labelledby="vendor-billing-agreements-heading">
+        <h3
+          id="vendor-billing-agreements-heading"
+          class="font-label text-sm font-semibold text-(--text-primary)"
+          i18n="@@vendor.billing.agreements.heading"
+        >
+          Agreements
+        </h3>
+        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@vendor.billing.agreements.intro">
+          These are the agreements your company accepted.
+        </p>
+        @if (acceptanceRows().length === 0) {
+          <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@vendor.billing.agreements.empty">
+            No agreements accepted yet.
           </p>
-          @if (acceptanceRows().length === 0) {
-            <p
-              class="mt-3 text-sm text-(--text-secondary)"
-              i18n="@@vendor.billing.agreements.empty"
-            >
-              No agreements accepted yet.
-            </p>
-          } @else {
-            <div class="mt-3 overflow-x-auto">
-              <table class="w-full min-w-[32rem] border-collapse text-start text-sm">
-                <caption class="sr-only" i18n="@@vendor.billing.agreements.caption">
-                  Accepted agreements
-                </caption>
-                <thead>
-                  <tr class="border-b border-(--border-default) text-(--text-secondary)">
-                    <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.doc">
-                      Document
-                    </th>
-                    <th
-                      scope="col"
-                      [class]="thClass"
-                      i18n="@@vendor.billing.agreements.col.version"
-                    >
-                      Version
-                    </th>
-                    <th
-                      scope="col"
-                      [class]="thClass"
-                      i18n="@@vendor.billing.agreements.col.accepted"
-                    >
-                      Accepted
-                    </th>
-                    <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.by">
-                      By
-                    </th>
+        } @else {
+          <div class="mt-3 overflow-x-auto">
+            <table class="w-full min-w-[32rem] border-collapse text-start text-sm">
+              <caption class="sr-only" i18n="@@vendor.billing.agreements.caption">
+                Accepted agreements
+              </caption>
+              <thead>
+                <tr class="border-b border-(--border-default) text-(--text-secondary)">
+                  <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.doc">
+                    Document
+                  </th>
+                  <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.version">
+                    Version
+                  </th>
+                  <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.accepted">
+                    Accepted
+                  </th>
+                  <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.by">
+                    By
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of acceptanceRows(); track row.acceptance.id) {
+                  <tr
+                    class="border-b border-(--border-default) last:border-0"
+                    data-testid="acceptance-row"
+                  >
+                    <td class="py-3 pe-4 text-(--text-primary)">{{ row.documentLabel }}</td>
+                    <td class="py-3 pe-4">
+                      @if (row.href; as href) {
+                        <a
+                          [routerLink]="href"
+                          class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          >{{ row.acceptance.version }}</a
+                        >
+                      } @else {
+                        <span class="text-(--text-secondary)">{{ row.acceptance.version }}</span>
+                      }
+                    </td>
+                    <td class="py-3 pe-4 text-(--text-secondary)">{{ row.acceptedLabel }}</td>
+                    <td class="py-3 pe-4 text-(--text-secondary)">
+                      {{ row.acceptance.email }}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  @for (row of acceptanceRows(); track row.acceptance.id) {
-                    <tr
-                      class="border-b border-(--border-default) last:border-0"
-                      data-testid="acceptance-row"
-                    >
-                      <td class="py-3 pe-4 text-(--text-primary)">{{ row.documentLabel }}</td>
-                      <td class="py-3 pe-4">
-                        @if (row.href; as href) {
-                          <a
-                            [routerLink]="href"
-                            class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                            >{{ row.acceptance.version }}</a
-                          >
-                        } @else {
-                          <span class="text-(--text-secondary)">{{ row.acceptance.version }}</span>
-                        }
-                      </td>
-                      <td class="py-3 pe-4 text-(--text-secondary)">{{ row.acceptedLabel }}</td>
-                      <td class="py-3 pe-4 text-(--text-secondary)">
-                        {{ row.acceptance.email }}
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          }
-        </section>
-      }
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
     }
   `,
   styles: [':host { display: block; }'],
@@ -346,6 +355,13 @@ export class VendorBillingSection {
     })),
   );
 
+  /** The summary card's column exists only when the card renders, so a member's
+   *  note and the loading line keep the full width. */
+  protected readonly topGridClass = computed(() =>
+    this.isOwner() && !this.loading() && this.billing()
+      ? 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-10'
+      : 'block',
+  );
   protected readonly thClass = 'py-2 pe-4 font-label font-semibold';
   protected readonly retryClass =
     'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
