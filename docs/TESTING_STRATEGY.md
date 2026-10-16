@@ -469,6 +469,12 @@ test('user can search and find a product', async ({ page }) => {
 });
 ```
 
+**Scroll with `behavior: 'instant'`.** The app sets `html { scroll-behavior: smooth }`, which
+`window.scrollTo` and `scrollIntoView` honour. A smooth scroll is still moving when the next
+assertion runs. An assertion that matches the start state then passes before the scroll lands.
+Pass `behavior: 'instant'` to every scroll in a spec. The phone-bar test in `vendor-program.spec.ts`
+passed this way on Playwright 1.60 and failed on 1.64's newer Chromium (AECI-1383).
+
 ### 7.5 Test data
 
 - The local environment uses a fixed seed data set in D1

@@ -156,8 +156,12 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
     const bar = page.getByRole('region', { name: 'Managed plan' });
+    // `behavior: 'instant'` overrides the page's `html { scroll-behavior: smooth }`.
+    // A smooth scroll lets an assertion pass mid-animation, before the scroll lands.
     const scrollTo = (selector: string) =>
-      page.locator(selector).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      page
+        .locator(selector)
+        .evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
 
     // The hero pair is on screen.
     await expect(bar).toBeHidden();
@@ -170,15 +174,37 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     await scrollTo('#vp-plans');
     await expect(bar).toBeHidden();
 
-    await scrollTo('#vp-faq');
+    // Just before the closing panel comes on screen. The FAQ is shorter than a
+    // phone screen, so scrolling to its heading already shows the panel's top.
+    await page.locator('aec-plan-cta-panel').evaluate((el) =>
+      window.scrollTo({
+        top: el.getBoundingClientRect().top + window.scrollY - window.innerHeight - 1,
+        behavior: 'instant',
+      }),
+    );
     await expect(bar).toBeVisible();
 
-    // The closing panel, and the very end of the page.
+    // The closing panel.
     await scrollTo('aec-plan-cta-panel');
     await expect(bar).toBeHidden();
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    await expect(bar).toBeHidden();
-    await expect(page.locator('aec-plan-cta-panel')).toBeInViewport();
+
+    // The very end of the page. On a phone the footer is taller than the screen,
+    // so the panel scrolls away and the bar may show. It must never cover the panel.
+    await page.evaluate(() =>
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const shown = document.querySelector('[role="region"][aria-label="Managed plan"]');
+          const panel = document.querySelector('aec-plan-cta-panel');
+          if (!shown || !panel) return false;
+          const a = shown.getBoundingClientRect();
+          const b = panel.getBoundingClientRect();
+          return a.top < b.bottom && b.top < a.bottom;
+        }),
+      )
+      .toBe(false);
   });
 
   // Full width at desktop (spec section 11, 2026-10-12): no rail, and no section
