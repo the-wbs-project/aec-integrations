@@ -49,7 +49,7 @@ The list does not include messages we sent you. Those are under **Messages**.
 
 On Managed, when your team changes a public page, we tell search engines about it. Under the change, **Search follow-up** lists each page it touched and what we did, with the date and time:
 
-- **IndexNow (Bing and others).** We send changed pages to IndexNow once a day. A page shows **Queued for the next daily send**, then **Submitted** once IndexNow accepts it. If IndexNow refuses it or does not answer, the page shows **Submission failed** with the reason, and whether we will try again at the next daily send.
+- **IndexNow (Bing and others).** We send changed pages to IndexNow once a day. A page shows **Queued for IndexNow** until the next daily send, then **Submitted** once IndexNow accepts it. If IndexNow accepted the same page in the last 7 days, we hold the page back until 7 days have passed, so it can stay queued for up to a week. Sending a page again too soon makes IndexNow treat it as spam. If IndexNow refuses it or does not answer, the page shows **Submission failed** with the reason, and whether we will try again at the next daily send.
 - **Google.** Google takes no automatic notice, so an AEC Integrations admin asks Google to re-crawl pages by hand in Search Console. A page shows **Queued for a Google re-crawl request** while it waits. It shows **Re-crawl requested in Google Search Console** only when the admin recorded that they made the request.
 
 If a page was sent more than once, it shows one line with where it stands now.

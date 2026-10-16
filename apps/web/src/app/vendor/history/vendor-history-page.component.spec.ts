@@ -184,6 +184,10 @@ describe('VendorHistoryPage — search follow-up', () => {
     expect(shown.find((l) => l.channel === 'google')!.text).toContain(
       'Queued for a Google re-crawl request',
     );
+    // AECI-1130: no "next daily send" promise. The resend window can hold a URL for a week.
+    expect(shown.find((l) => l.channel === 'indexnow' && l.state === 'queued')!.text).toContain(
+      'Queued for IndexNow',
+    );
     const failed = shown.find((l) => l.state === 'failed')!;
     expect(failed.text).toContain('IndexNow did not answer.');
     expect(failed.text).toContain('We are not trying again.');

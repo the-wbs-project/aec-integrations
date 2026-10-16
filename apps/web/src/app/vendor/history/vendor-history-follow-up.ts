@@ -72,7 +72,7 @@ export function followUpStateLabel(
     case 'queued':
       return channel === 'google'
         ? $localize`:@@vendor.history.followUp.state.queuedGoogle:Queued for a Google re-crawl request`
-        : $localize`:@@vendor.history.followUp.state.queued:Queued for the next daily send`;
+        : $localize`:@@vendor.history.followUp.state.queued:Queued for IndexNow`;
     case 'submitted':
       return $localize`:@@vendor.history.followUp.state.submitted:Submitted`;
     case 'requested':
