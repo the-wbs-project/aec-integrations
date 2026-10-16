@@ -132,7 +132,7 @@ env:
 jobs:
   audit:
     name: Strand audit (production)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 20, not the old 10 — headroom, not a measurement. The review app's `list_products` /
     # `list_vendors` projections now carry `supabaseId`, so most records resolve straight off
     # the paged list instead of costing a `get_product` each: measured 2026-09-08, 252 of 290

@@ -225,7 +225,7 @@ jobs:
   # `deploy-staging` needs THAT job, so a failure here skips the staging deploy.
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       # dorny/paths-filter lists the PR's files through the pulls API on
@@ -284,7 +284,7 @@ jobs:
   # ---------------------------------------------------------------------------
   lint-and-types:
     name: Lint & typecheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -349,7 +349,7 @@ jobs:
   # PRs still skip coverage entirely (AECI-917).
   unit-api:
     name: Unit tests (api)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -395,7 +395,7 @@ jobs:
   # `test:unit` script recurses into every package, apps/api included.
   unit-web:
     name: Unit tests (web + shared)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -465,7 +465,7 @@ jobs:
   # lane), so `success` is the only acceptable result.
   unit-tests:
     name: Unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [unit-api, unit-web]
     if: always()
     steps:
@@ -483,7 +483,7 @@ jobs:
 
   build-web:
     name: Build SSR Worker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # AECI-917: this job reads NO test output, so it does not need `unit-tests`.
     # Waiting on it idled the build ~5 min per PR to save ~65 s of runner time on
     # the rare red PR. `Unit tests` is still a REQUIRED status check on `main`, so
@@ -542,7 +542,7 @@ jobs:
     # the web app was built 3x per run (here x2 + build-web). This job now
     # downloads build-web's `web-dist` artifact and boots dev:bound ONCE, then
     # runs Playwright e2e + the edge-cache extras script against the same server.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # NON-required job — safe to skip on docs-only PRs. It is gated on the
     # `changes` filter (not a workflow-level `paths-ignore`) so the REQUIRED
     # checks above still always run and report. `build-web` is itself skipped on
@@ -699,7 +699,7 @@ jobs:
     # (DNS, secrets, GH Environments, Supabase projects). The repo-variable
     # gate keeps merges to main green during the bootstrap window.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # `lint-and-types` / `unit-tests` are listed EXPLICITLY since AECI-917:
     # `build-web` no longer needs `unit-tests`, and the staging deploy must never
     # run on a red suite. `unit-tests` is the aggregator over `unit-api` and

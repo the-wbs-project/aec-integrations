@@ -92,7 +92,7 @@ env:
 jobs:
   integration-db-tests:
     name: Auth integration suite (live Supabase JWKS)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read

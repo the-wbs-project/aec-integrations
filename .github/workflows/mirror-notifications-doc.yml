@@ -46,7 +46,7 @@ jobs:
     # LINEAR_NOTIFICATIONS_DOC_ID repo variable is unset. A manual dispatch always runs,
     # so a missing secret or variable still fails loudly when someone asks for it.
     if: ${{ github.event_name == 'workflow_dispatch' || vars.LINEAR_NOTIFICATIONS_DOC_ID != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       # Pinned to full commit SHAs: this job holds a write-capable Linear key, so a
