@@ -144,7 +144,7 @@ import { toUsefulness } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
-import { productEditRecrawl, vendorProfileRecrawl } from './vendor-recrawl';
+import { productEditRecrawl, symmetricDifference, vendorProfileRecrawl } from './vendor-recrawl';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
@@ -223,8 +223,12 @@ export type FetchSeatEmails = (
  * for every vendor write — see `vendor-recrawl.ts` for the URL sets and
  * `afterVendorWrite`'s `recrawl` parameter for where they are handed over. The
  * URL derivation and this tag derivation read the same before/after pair on
- * purpose: a page that is purged but not announced, or announced but not purged,
- * is the drift this keeps out.
+ * purpose, but since AECI-1130 they deliberately diverge for the three ungated
+ * facets. This purge keeps the full union, because a page the product stays on
+ * still renders its changed card. The IndexNow list takes only the symmetric
+ * difference, because a page whose list of entries did not change is the hub
+ * noise Bing refused, and it drops `/products` for the same reason. Purged but
+ * not announced is fine. Announced but not purged is the drift to keep out.
  */
 export function productEditTags(
   slug: string,
@@ -263,20 +267,6 @@ export function productEditTags(
   }
 
   return [...tags];
-}
-
-/** Slugs present in exactly one of the two sets — the trades this edit added or
- *  removed. A trade the product already carried and still carries has not
- *  changed any page, so it buys no purge. */
-function symmetricDifference(before: readonly string[], after: readonly string[]): string[] {
-  const inBefore = new Set(before);
-  const inAfter = new Set(after);
-  return [
-    ...new Set([
-      ...before.filter((slug) => !inAfter.has(slug)),
-      ...after.filter((slug) => !inBefore.has(slug)),
-    ]),
-  ];
 }
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────

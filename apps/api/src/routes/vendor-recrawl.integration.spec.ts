@@ -245,8 +245,16 @@ describe('PATCH /api/vendor/products/:id — re-crawl buffering', () => {
   });
 
   it('keeps hub pages off the Google list while announcing them to IndexNow', async () => {
+    // The trade set changed, so the `/trades` index lists different tiles.
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: ['roofing'] });
+    expect((await indexNowRows()).map((r) => r.url)).toContain(`${BASE}/trades`);
+    expect((await gscRows()).map((r) => r.url)).not.toContain(`${BASE}/trades`);
+  });
+
+  it('does not announce the products index for a content edit (AECI-1130)', async () => {
+    // A vendor edit cannot add a product, so `/products` lists the same entries.
     await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
-    expect((await indexNowRows()).map((r) => r.url)).toContain(`${BASE}/products`);
+    expect((await indexNowRows()).map((r) => r.url)).toEqual([`${BASE}/products/procore`]);
     expect((await gscRows()).map((r) => r.url)).not.toContain(`${BASE}/products`);
   });
 });

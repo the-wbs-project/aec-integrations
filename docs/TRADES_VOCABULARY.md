@@ -365,6 +365,12 @@ removed in AECI-747). Pinging an indexing service for a page that serves `noinde
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
 only published terms are buffered.
 
+AECI-1130 (2026-10-16) narrowed which category, audience and phase pages are announced: only when
+the page's list of entries changes. Trade URLs were deliberately left as they are, in both
+`affectedUrlsForPromote` and `productEditRecrawl`. A trade page that has just crossed the floor is
+genuinely new, and promote cannot tell an added trade from a kept one. ADR 0025's 2026-10-16
+amendment is the record.
+
 **The floor read matters more under the buffer, not less**: a
 sub-floor trade URL written to `indexnow_queue` outlives the promote and is submitted by the next daily drain (up to twenty
 minutes later before AECI-1136) by a job with no way to re-derive whether it should have been. The `/trades` **index** is submitted whenever any trade is

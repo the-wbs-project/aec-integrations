@@ -43,7 +43,11 @@
  *   2. **Read** up to `INDEXNOW_MAX_URLS` (10,000) URLs in drain order —
  *      `priority ASC, queued_at ASC, id ASC` — in keyset pages of
  *      `INDEXNOW_DRAIN_BATCH_SIZE`. The page size is set by D1's response limit,
- *      the total by IndexNow's.
+ *      the total by IndexNow's. The read skips any URL IndexNow accepted within
+ *      `INDEXNOW_RESEND_MIN_DAYS` (AECI-1130). Those rows are deferred: not sent,
+ *      not deleted, not audited, and their causes stay. They are counted into the
+ *      `aeci.indexnow.deferred` gauge, and the first run after the window sends
+ *      them.
  *   3. **Submit** them in one `callIndexNow` call.
  *   4. **Log, delete, audit**, in the SAME `db.batch`: one `recrawl_submissions`
  *      row per sent URL (AECI-1183), then the delete of exactly the ids that were
@@ -81,11 +85,13 @@ import { auditInsert } from './audit';
 import { callIndexNow, INDEXNOW_MAX_URLS } from './indexnow';
 import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 import {
+  countDeferredIndexNowUrls,
   countPendingIndexNowUrls,
   countStaleIndexNowUrls,
   deleteDrainedIndexNowUrls,
   deleteStaleIndexNowUrls,
   INDEXNOW_DRAIN_BATCH_SIZE,
+  INDEXNOW_RESEND_MIN_DAYS,
   insertSubmissionsFromQueue,
   readPendingIndexNowUrls,
   staleCutoffIso,
@@ -122,6 +128,13 @@ export const INDEXNOW_EXPIRED_METRIC = 'aeci.indexnow.expired';
  *  `tier:1` … `tier:4` (AECI-1136). Emitted only on a successful submission, so
  *  it counts URLs that actually reached the engines. Four series at most. */
 export const INDEXNOW_SUBMITTED_URLS_METRIC = 'aeci.indexnow.submitted_urls';
+
+/** Queued URLs the resend window held back this run, read AFTER the run
+ *  (AECI-1130). Tagged `trigger:cron`, emitted on every run that got past the
+ *  credentials check. These rows are a subset of `aeci.indexnow.pending`. A
+ *  pending count made up mostly of deferred rows is the window working, not a
+ *  stuck channel. */
+export const INDEXNOW_DEFERRED_METRIC = 'aeci.indexnow.deferred';
 
 /** Where the drain reports its numbers. Injected rather than imported, matching
  *  `RetentionMetricSink` / `ModerationMetricSink`, so this module stays free of
@@ -167,6 +180,12 @@ export interface IndexNowDrainResult {
    *  full drain; non-zero when a promote buffered mid-run or the buffer held more
    *  than one day's 10,000. */
   pending: number;
+  /**
+   * Queued rows the resend window is holding back after the run (AECI-1130):
+   * their URL was accepted within `INDEXNOW_RESEND_MIN_DAYS`. Part of `pending`.
+   * They are not deleted and go out on the first run after the window.
+   */
+  deferred: number;
   /** HTTP status of the submission, or `0` when none was attempted. */
   status: number;
   /** How many transport attempts the submission took (retries included). */
@@ -343,12 +362,16 @@ function countByTier(
  * buffers mid-read can never make a row appear in two pages. The loop stops on
  * a short page, which is how an exhausted buffer shows itself.
  */
-async function readDrainSet(db: Db, total: number): Promise<PendingIndexNowUrl[]> {
+async function readDrainSet(
+  db: Db,
+  total: number,
+  resendCutoff: string,
+): Promise<PendingIndexNowUrl[]> {
   const rows: PendingIndexNowUrl[] = [];
   let after: PendingIndexNowUrl | undefined;
   while (rows.length < total) {
     const limit = Math.min(INDEXNOW_DRAIN_BATCH_SIZE, total - rows.length);
-    const page = await readPendingIndexNowUrls(db, limit, after);
+    const page = await readPendingIndexNowUrls(db, resendCutoff, limit, after);
     rows.push(...page);
     if (page.length < limit) break;
     after = page[page.length - 1];
@@ -380,6 +403,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     expired: 0,
     retired: 0,
     pending: 0,
+    deferred: 0,
     status: 0,
     attempts: 0,
     ok: true,
@@ -414,9 +438,23 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     });
   }
 
-  const rows = await readDrainSet(db, INDEXNOW_MAX_URLS);
+  // AECI-1130: a URL accepted after this is held back, not sent. Derived from
+  // the same `now` as the staleness cutoff.
+  const resendCutoff = staleCutoffIso(now, INDEXNOW_RESEND_MIN_DAYS);
+  // Read after the run on every path below, so it reflects what is left queued.
+  const reportDeferred = async (): Promise<number> => {
+    const deferred = await countDeferredIndexNowUrls(db, resendCutoff);
+    metrics.gauge(INDEXNOW_DEFERRED_METRIC, deferred, ['trigger:cron']);
+    return deferred;
+  };
+
+  const rows = await readDrainSet(db, INDEXNOW_MAX_URLS, resendCutoff);
   if (rows.length === 0) {
-    return { ...empty, expired, pending: 0 };
+    // Nothing sendable. Every queued row, if any, is deferred, so nothing goes
+    // on the wire and nothing is deleted.
+    const pending = await countPendingIndexNowUrls(db);
+    const deferred = await reportDeferred();
+    return { ...empty, expired, pending, deferred };
   }
 
   // AECI-978 — drop any buffered URL whose slug has since retired. This is the last
@@ -445,7 +483,16 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     // No submission, so no log rows: a retired URL was never sent.
     await commitDrain(db, rows, 0, {}, batchId);
     const pendingAfter = await countPendingIndexNowUrls(db);
-    return { ...empty, expired, retired, deleted: rows.length, pending: pendingAfter, batchId };
+    const deferred = await reportDeferred();
+    return {
+      ...empty,
+      expired,
+      retired,
+      deleted: rows.length,
+      pending: pendingAfter,
+      deferred,
+      batchId,
+    };
   }
 
   const sentIds = sendable.map((r) => r.id);
@@ -505,6 +552,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
       }
     }
     const pending = await countPendingIndexNowUrls(db);
+    const deferred = await reportDeferred();
     log({
       level: 'warn',
       message: 'aeci.indexnow.submit_failed',
@@ -520,6 +568,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
       expired,
       retired,
       pending,
+      deferred,
       status: outcome.status,
       attempts: outcome.attempts,
       ok: false,
@@ -542,6 +591,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   // deeper than one day's `INDEXNOW_MAX_URLS`. Reporting a hard 0 here would make
   // the one gauge that detects a stuck channel incapable of ever showing one.
   const pending = await countPendingIndexNowUrls(db);
+  const deferred = await reportDeferred();
   return {
     submitted: sendable.length,
     byTier,
@@ -549,6 +599,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     expired,
     retired,
     pending,
+    deferred,
     status: outcome.status,
     attempts: outcome.attempts,
     ok: true,

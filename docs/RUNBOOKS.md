@@ -2038,13 +2038,15 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
 
    | Status | Means | Do |
    |---|---|---|
-   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled run costs one request and tomorrow's run is the backoff. Check the drain is still daily (`5 0 * * *`, AECI-1136) and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). Prod showed Bing accepting the first request after 00:00 UTC, so a manual submit earlier in the UTC day can spend that allowance. If it persists for days at one request a day, the limit is no longer frequency-shaped: suspect the key (below) — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
+   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled run costs one request and tomorrow's run is the backoff. Check the drain is still daily (`5 0 * * *`, AECI-1136) and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). Prod showed Bing accepting the first request after 00:00 UTC, so a manual submit earlier in the UTC day can spend that allowance. If it persists for days at one request a day, the limit is no longer frequency-shaped. IndexNow also uses 429 for "potential spam", so check what we send before the key: see step 4. Then suspect the key (below) — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
    | **403 / 422** | The key or the payload is rejected | This is the case a 429 has always hidden. Go to "the key is unverified" below |
    | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice — a 5xx is a fault rather than a rate limit, so it keeps the blind backoff a 429 lost — and tomorrow's run retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
    | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Check the Worker's outbound health generally; this would not be IndexNow-specific |
 
 2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 after a
    healthy daily run (unless a day held more than 10,000 URLs, which leaves tier 4 behind). A number that climbs day over day confirms nothing is getting through.
+   Subtract `aeci.indexnow.deferred` first (AECI-1130). Those rows are URLs IndexNow accepted
+   in the last 7 days. They wait out the resend window on purpose and are not stranded.
    `aeci.indexnow.expired` going non-zero means URLs have now been dropped unsent after seven
    days — that is a real loss of announcement, though the sitemap still covers those pages.
 
@@ -2058,6 +2060,26 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    If the heartbeat is present, read its `outcome`. `refused` is the refusal this alert
    measures, one run at a time. `failed` is a local fault, today an unparseable
    `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert (AECI-864).
+
+4. **Check what we are sending, if a 429 persists at one request a day (AECI-1130).** Bing
+   refused every daily request from 2026-10-13. The key, the request rate and other submitters
+   were ruled out. What was left was the list itself: mostly hub and facet pages whose counts
+   had changed. Two checks:
+
+   - In Bing Webmaster Tools, compare URLs submitted with URLs crawled for the host. On
+     2026-10-16 it read 5.1K submitted, 84 crawled and 78 indexed. A ratio that low says Bing
+     sees our submissions as noise.
+   - Read the last few batches from `recrawl_submissions` by `batch_id`. Query production D1
+     read-only from `/tmp` with `wrangler d1 execute --remote --command`, never `--file`, which
+     returns no rows. Count tier-4 URLs and hub or facet paths
+     (`/products`, `/categories/…`, `/audiences/…`, `/phases/…`, `/`). On 2026-10-16, 38 of 67
+     were tier 4.
+
+   The rules that answer it are ADR 0025's 2026-10-16 amendment. A hub or facet page is queued
+   only when its list of entries changes. The drain defers a URL accepted in the last
+   `INDEXNOW_RESEND_MIN_DAYS` (7) days. If hub paths still dominate a batch, a producer is
+   queuing them on a count change: look at `affectedUrlsForPromote` and `productEditRecrawl`.
+   Done when an `accepted` batch lands and this alert clears.
    A refused batch does not fire that alert, so this ratio alert is the only page for it.
 
 4. **Read what each run sent and what came back (AECI-1183).** The drain logs every URL it

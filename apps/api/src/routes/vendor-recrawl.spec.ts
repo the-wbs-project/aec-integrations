@@ -4,8 +4,8 @@
  *
  * Four INVARIANTS, each guarding something that fails silently:
  *
- *   1. **The Google list carries NO hub pages.** IndexNow is free so it takes
- *      `/products` and the facet indexes too. Request Indexing is quota-capped,
+ *   1. **The Google list carries NO hub pages.** IndexNow takes a facet or
+ *      trades index page when its list changes (AECI-1130); Google never does. Request Indexing is quota-capped,
  *      and a slot spent on a hub Google already re-crawls constantly is a slot
  *      not spent on a page it has never seen. Nothing would report the waste.
  *   2. **A sub-floor trade page is never announced.** `/trades/{slug}` renders
@@ -183,15 +183,53 @@ describe('productEditRecrawl', () => {
     expect(out.gsc[0]!.reason).toBe('product.updated');
   });
 
-  it('purges both sides of a facet move on the IndexNow list', () => {
+  it('announces both sides of a facet move on the IndexNow list', () => {
     const before = { ...NO_TAXONOMY, categories: ['estimating'] };
     const after = { ...NO_TAXONOMY, categories: ['field-management'] };
     const out = productEditRecrawl(BASE, 'procore', [], before, after);
 
-    // The page it LEFT never carried this product's tag either, so both sides
-    // need announcing. Mirrors `productEditTags`.
+    // The page it LEFT lost an entry and the page it JOINED gained one.
     expect(out.indexNow).toContain(`${BASE}/categories/estimating`);
     expect(out.indexNow).toContain(`${BASE}/categories/field-management`);
+  });
+
+  // AECI-1130: only the symmetric difference. A page the product stays on lists
+  // the same entries, so it is not announced. The purge (`productEditTags`)
+  // still takes the full union; that divergence is deliberate.
+  it('announces only the facet pages joined or left, never the ones kept', () => {
+    const before = {
+      ...NO_TAXONOMY,
+      categories: ['estimating', 'bim'],
+      audiences: ['contractors'],
+      phases: ['construction'],
+    };
+    const after = {
+      ...NO_TAXONOMY,
+      categories: ['bim', 'field-management'],
+      audiences: ['contractors'],
+      phases: [],
+    };
+    const out = productEditRecrawl(BASE, 'procore', [], before, after);
+
+    expect(new Set(out.indexNow)).toEqual(
+      new Set([
+        `${BASE}/products/procore`,
+        `${BASE}/categories/estimating`,
+        `${BASE}/categories/field-management`,
+        `${BASE}/phases/construction`,
+      ]),
+    );
+  });
+
+  it('announces no facet page when the product stays on the same pages', () => {
+    const same = {
+      ...NO_TAXONOMY,
+      categories: ['bim'],
+      audiences: ['contractors'],
+      phases: ['construction'],
+    };
+    const out = productEditRecrawl(BASE, 'procore', ['description'], same, { ...same });
+    expect(out.indexNow).toEqual([`${BASE}/products/procore`]);
   });
 
   it('announces a trade page only once the floor is cleared', () => {
@@ -228,12 +266,22 @@ describe('productEditRecrawl', () => {
     expect(out.indexNow).not.toContain(`${BASE}/trades`);
   });
 
-  it('always carries the product page and the products index on IndexNow', () => {
+  // AECI-1130: a vendor cannot create a product through this route, so the
+  // `/products` index lists the same entries after the edit.
+  it('always carries the product page and never the products index', () => {
     const out = productEditRecrawl(BASE, 'procore', ['logo_url'], NO_TAXONOMY, NO_TAXONOMY);
-    expect(out.indexNow).toContain(`${BASE}/products/procore`);
-    expect(out.indexNow).toContain(`${BASE}/products`);
-    // …and the hub is NOT on the Google list.
+    expect(out.indexNow).toEqual([`${BASE}/products/procore`]);
     expect(out.gsc.map((e) => e.url)).not.toContain(`${BASE}/products`);
+  });
+
+  it('leaves the Google list unchanged: the product page plus published trades only', () => {
+    const before = { ...NO_TAXONOMY, categories: ['estimating'] };
+    const after = { ...NO_TAXONOMY, categories: ['bim'], trades: ['roofing'] };
+    const out = productEditRecrawl(BASE, 'procore', ['logo_url'], before, after, ['roofing']);
+    expect(out.gsc).toEqual([
+      { url: `${BASE}/products/procore`, reason: 'product.updated' },
+      { url: `${BASE}/trades/roofing`, reason: 'trade.published' },
+    ]);
   });
 });
 

@@ -313,9 +313,12 @@ records each URL it sends in `recrawl_submissions` with the outcome, and the cau
 vendor edit that queued it (`DATABASE_SCHEMA.md` §9.6a, §9.6b). The vendor reads it through
 `GET /api/vendor/recrawl-submissions` (`API_CONTRACTS.md` §6.14). No portal page renders it yet.
 
-The two channels are fed differently, and the difference is the whole design. IndexNow is free,
-so it takes everything the edit touched. Since AECI-1136 it borrows Google's tier for each URL
-so its daily send goes highest tier first, and hub pages are tier 4. Google is quota-capped and worked by
+The two channels are fed differently, and the difference is the whole design. IndexNow has no
+daily quota, but Bing reads a stream of unchanged pages as spam, so since AECI-1130 a product edit
+announces the product page and only the facet pages it joined or left. It never announces
+`/products`, because a vendor cannot add a product there. The cache purge still covers every
+facet page before and after. Since AECI-1136 IndexNow borrows Google's tier for each URL so its
+daily send goes highest tier first, and hub pages are tier 4. Google is quota-capped and worked by
 hand, so it takes entity detail pages only, each ranked by a `reason` (`gsc_recrawl_queue`,
 `DATABASE_SCHEMA.md` §9.8). A product edit still resolves the trade publication floor
 post-commit before announcing anything, exactly as promote does, so a sub-floor `noindex`
@@ -2725,7 +2728,7 @@ Decisions taken at build that this section did not fix:
 
 **Search follow-up.** Each row renders `vendor/history/vendor-history-follow-up.ts`. Once the rows land, the page makes one `GET /api/vendor/history/follow-up` read for the page's team rows (`API_CONTRACTS.md` §6.14), joined on the causing audit id AECI-1184 records. Only the team's own edits can have lines: the read is scoped on the vendor's own recrawl causes, and AECi and system rows record none. A row then shows one of three things:
 
-- **Lines.** Each affected URL, as its page path linking to the public page, with one line per channel and the time: "IndexNow (Bing and others)" queued, submitted or failed, and "Google" queued ("Queued for a Google re-crawl request", AECI-1261) or requested. A failed line gives IndexNow's HTTP status, or says it did not answer, and whether we will try again at the next daily send. Retries fold into one line, so a URL refused twice and then accepted reads "Submitted".
+- **Lines.** Each affected URL, as its page path linking to the public page, with one line per channel and the time: "IndexNow (Bing and others)" queued, submitted or failed, and "Google" queued ("Queued for a Google re-crawl request", AECI-1261) or requested. A failed line gives IndexNow's HTTP status, or says it did not answer, and whether we will try again at the next daily send. Retries fold into one line, so a URL refused twice and then accepted reads "Submitted". An IndexNow line can read "queued" for up to 7 days when we sent the same page recently: the drain holds back a URL IndexNow accepted within `INDEXNOW_RESEND_MIN_DAYS` (AECI-1130). There is no separate state for that. Copy must not promise a next-day send for a queued line.
 - **"No expedited search submission".** A team edit that can change a public page (`LISTING_ACTIONS` in the component, the writers that pass a recrawl to `afterVendorWrite`), made on a Free product. IndexNow and the Google worklist are Managed-only, per product since AECI-1355 (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), so a write on a Free product queues nothing. The row's `product_plan` decides: the plan of the write's cause product, stamped at write time (AECI-1376). A row with no `product_plan` falls back to its vendor-level `plan`: a company profile edit, an integration whose owner sells neither endpoint, or a row written before the stamp. So a vendor licensed on one product sees the note on its Free product's edits only. "Plan at the time" stays the vendor-level `plan`.
 - **Nothing.** Any other row, and a Managed row with no lines (a change before AECI-1184, on a tier with IndexNow off, or one that touched no public page).
 

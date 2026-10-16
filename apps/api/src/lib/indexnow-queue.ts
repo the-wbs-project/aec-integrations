@@ -7,8 +7,8 @@
  *   - the daily drain cron (`lib/indexnow-drain.ts`) READS and DELETES, and
  *     copies every URL it sends into the `recrawl_submissions` log (AECI-1183).
  *
- * They meet only here so the tiering, the dedupe rule, the delete shape and the
- * staleness window are stated once.
+ * They meet only here so the tiering, the dedupe rule, the delete shape, the
+ * staleness window and the resend window (AECI-1130) are stated once.
  *
  * ─── Tiered since AECI-1136 ───────────────────────────────────────────────────
  *
@@ -19,7 +19,7 @@
  * page goes out ahead of a pair-page edit, and tier 4 is last.
  */
 
-import { inArray, lte, sql } from 'drizzle-orm';
+import { and, inArray, lte, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { indexnowQueue, recrawlSubmissions } from '../db/schema';
@@ -45,6 +45,23 @@ import {
  * expiry count is itself the finding.
  */
 export const INDEXNOW_QUEUE_MAX_AGE_DAYS = 7;
+
+/**
+ * How long after IndexNow ACCEPTED a URL the drain holds that URL back (AECI-1130).
+ *
+ * Bing refused every daily submission from 2026-10-13 with a 429, which IndexNow
+ * also uses for "potential spam", while its Webmaster Tools showed 5.1K URLs
+ * submitted against 84 crawled. Re-sending a page a few days after it was taken
+ * is part of that pattern. So a queued URL with an `accepted` submission-log row
+ * inside this window is deferred, not dropped: it stays queued with its causes,
+ * and the first drain after the window closes sends it.
+ *
+ * It cannot race {@link INDEXNOW_QUEUE_MAX_AGE_DAYS}. A row that exists after an
+ * acceptance was queued after it, so the row is younger than the resend window
+ * when it becomes sendable. Equal windows are what guarantee that, so change
+ * them together.
+ */
+export const INDEXNOW_RESEND_MIN_DAYS = 7;
 
 /**
  * Rows per D1 READ, not per submission.
@@ -117,7 +134,8 @@ export type IndexNowEnqueueInput = string | IndexNowEntry;
  * Tier the IndexNow URL set by the Google re-crawl entries for the same write.
  *
  * Both producers already derive two lists from one write: the IndexNow URL set
- * (every page the write touched, hubs included) and the ranked GSC entries
+ * (the pages the write changed, plus a hub or facet page only when its list of
+ * entries changed, AECI-1130) and the ranked GSC entries
  * (entity detail pages only, each with the reason that tiers it). This takes the
  * tier for each IndexNow URL from the GSC entry for the same URL, so the reason →
  * tier map has exactly one home (`GSC_RECRAWL_PRIORITY`). A URL with no GSC entry
@@ -238,6 +256,20 @@ export async function enqueueIndexNowUrls(
   return inserted;
 }
 
+/**
+ * The resend-window condition (AECI-1130): the queued URL has no `indexnow`
+ * submission-log row with outcome `accepted` after `resendCutoffIso`.
+ *
+ * A correlated `NOT EXISTS`, served by `recrawl_submissions_url_submitted_at_idx`.
+ * It binds one parameter, the cutoff, so a read stays far under D1's 100. A
+ * `refused` or `failed` row does not defer: the engine never took the URL.
+ * `submitted_at` is ISO 8601 text from `toISOString()`, the same format as the
+ * cutoff, so the comparison is a plain string comparison.
+ */
+function notRecentlyAccepted(resendCutoffIso: string): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM ${recrawlSubmissions} WHERE ${recrawlSubmissions.url} = ${indexnowQueue.url} AND ${recrawlSubmissions.channel} = 'indexnow' AND ${recrawlSubmissions.outcome} = 'accepted' AND ${recrawlSubmissions.submittedAt} > ${resendCutoffIso})`;
+}
+
 /** Where the previous page ended. The next page starts strictly after it. */
 export type IndexNowReadCursor = Pick<PendingIndexNowUrl, 'priority' | 'queuedAt' | 'id'>;
 
@@ -253,34 +285,58 @@ export type IndexNowReadCursor = Pick<PendingIndexNowUrl, 'priority' | 'queuedAt
  * between two page reads can never shift a row into a page twice. A row inserted
  * or re-tiered to a position BEFORE the cursor is simply not read this run and
  * goes out tomorrow.
+ *
+ * Rows whose URL IndexNow accepted after `resendCutoffIso` are skipped
+ * (AECI-1130, {@link INDEXNOW_RESEND_MIN_DAYS}). They are not returned, so the
+ * drain neither sends nor deletes them. Bound parameters: the cutoff, the three
+ * cursor values and the limit, five in all.
  */
-export async function readPendingIndexNowUrls(
+export function pendingIndexNowUrlsQuery(
   db: Db,
+  resendCutoffIso: string,
   limit: number = INDEXNOW_DRAIN_BATCH_SIZE,
   after?: IndexNowReadCursor,
-): Promise<PendingIndexNowUrl[]> {
-  const base = db
+) {
+  const cursor = after
+    ? sql`(${indexnowQueue.priority}, ${indexnowQueue.queuedAt}, ${indexnowQueue.id}) > (${after.priority}, ${after.queuedAt}, ${after.id})`
+    : undefined;
+  return db
     .select({
       id: indexnowQueue.id,
       url: indexnowQueue.url,
       priority: indexnowQueue.priority,
       queuedAt: indexnowQueue.queuedAt,
     })
-    .from(indexnowQueue);
-  const filtered = after
-    ? base.where(
-        sql`(${indexnowQueue.priority}, ${indexnowQueue.queuedAt}, ${indexnowQueue.id}) > (${after.priority}, ${after.queuedAt}, ${after.id})`,
-      )
-    : base;
-  return filtered
+    .from(indexnowQueue)
+    .where(and(notRecentlyAccepted(resendCutoffIso), cursor))
     .orderBy(indexnowQueue.priority, indexnowQueue.queuedAt, indexnowQueue.id)
     .limit(limit);
+}
+
+/** Run {@link pendingIndexNowUrlsQuery}. */
+export async function readPendingIndexNowUrls(
+  db: Db,
+  resendCutoffIso: string,
+  limit: number = INDEXNOW_DRAIN_BATCH_SIZE,
+  after?: IndexNowReadCursor,
+): Promise<PendingIndexNowUrl[]> {
+  return pendingIndexNowUrlsQuery(db, resendCutoffIso, limit, after);
 }
 
 /** How many rows are still buffered. Emitted as `aeci.indexnow.pending` — a
  *  channel that has stopped draining shows up here as a number that climbs. */
 export async function countPendingIndexNowUrls(db: Db): Promise<number> {
   const [row] = await db.select({ count: sql<number>`count(*)` }).from(indexnowQueue);
+  return Number(row?.count ?? 0);
+}
+
+/** How many queued rows the resend window is holding back (AECI-1130). Emitted
+ *  as `aeci.indexnow.deferred`. These rows are also inside the pending count. */
+export async function countDeferredIndexNowUrls(db: Db, resendCutoffIso: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(indexnowQueue)
+    .where(sql`NOT (${notRecentlyAccepted(resendCutoffIso)})`);
   return Number(row?.count ?? 0);
 }
 
@@ -401,7 +457,9 @@ export async function countStaleIndexNowUrls(db: Db, cutoffIso: string): Promise
   return Number(row?.count ?? 0);
 }
 
-/** The ISO timestamp `INDEXNOW_QUEUE_MAX_AGE_DAYS` before `now`. */
+/** The ISO timestamp `days` before `now`. The staleness cutoff by default
+ *  (`INDEXNOW_QUEUE_MAX_AGE_DAYS`); the drain also passes
+ *  `INDEXNOW_RESEND_MIN_DAYS` for the resend cutoff. */
 export function staleCutoffIso(now: Date, days = INDEXNOW_QUEUE_MAX_AGE_DAYS): string {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1_000).toISOString();
 }

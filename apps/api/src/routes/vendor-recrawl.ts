@@ -5,8 +5,11 @@
  * The vendor-side counterpart to `promote-indexnow-urls.ts` (IndexNow) and
  * `promote-gsc-recrawl-entries.ts` (Google). Same split, same reasons:
  *
- *   - `indexNow` is free and batched, so it takes everything the edit touched,
- *     hub pages included. It borrows its tiers from `gsc` at enqueue time
+ *   - `indexNow` is batched and has no daily quota, but it is not free: Bing
+ *     reads a stream of unchanged pages as spam (AECI-1130). It takes the pages
+ *     whose content changed, plus a hub or facet page only when its list of
+ *     entries changed. A product that stays on the same browse pages announces
+ *     none of them. It borrows its tiers from `gsc` at enqueue time
  *     (`indexNowEntriesByTier`, AECI-1136), and anything `gsc` does not rank is
  *     tier 4.
  *   - `gsc` is quota-capped and worked by hand, so it takes entity detail pages
@@ -19,10 +22,11 @@
  * Indexing slots. Swapping a logo or fixing a link changes the page without
  * changing its answer to any search query, and is not.
  *
- * Both still get queued — the tier system ranks rather than filters, so nothing
- * is silently discarded (see `lib/gsc-recrawl-priority.ts`). The minor edit
- * simply lands in tier 4 and waits, possibly forever, which is the correct
- * outcome rather than a lost one.
+ * Both still get queued on the Google side — the tier system ranks rather than
+ * filters, so nothing is silently discarded (see `lib/gsc-recrawl-priority.ts`).
+ * The minor edit simply lands in tier 4 and waits, possibly forever, which is
+ * the correct outcome rather than a lost one. The material/minor split decides
+ * the Google reason only. It never decides which URLs go to IndexNow.
  *
  * The split is expressed as an explicit set of *material* fields rather than a
  * set of minor ones, deliberately. A new editable column added to
@@ -36,7 +40,6 @@ import {
   facetUrl,
   pairUrl,
   productUrl,
-  productsIndexUrl,
   tradeUrl,
   tradesIndexUrl,
   vendorUrl,
@@ -119,16 +122,20 @@ export function productEditRecrawl(
   after: RecrawlTaxonomySlugs,
   publishedTradeSlugs: readonly string[] = [],
 ): VendorRecrawl {
-  const indexNow = new Set<string>([productUrl(base, slug), productsIndexUrl(base)]);
+  // No `/products` index: a vendor cannot create a product through this route,
+  // so the index lists the same entries after the edit (AECI-1130).
+  const indexNow = new Set<string>([productUrl(base, slug)]);
 
-  // Every browse page the product joined or left, both sides of the union — the
-  // page it left never carried this product's tag either. Mirrors
-  // `productEditTags`; keep the two in lockstep.
+  // Only the browse pages the product joined or left: the symmetric difference
+  // of before and after (AECI-1130). A page the product stays on shows the same
+  // entries, so announcing it is the hub noise Bing refused. This deliberately
+  // diverges from `productEditTags`, whose purge keeps the full union because a
+  // kept page's rendered card still changed.
   let taxonomyChanged = false;
   for (const facet of UNGATED_FACETS) {
-    const union = new Set<string>([...before[facet], ...after[facet]]);
-    if (!sameSet(before[facet], after[facet])) taxonomyChanged = true;
-    for (const termSlug of union) indexNow.add(facetUrl(base, facet, termSlug));
+    const changed = symmetricDifference(before[facet], after[facet]);
+    if (changed.length) taxonomyChanged = true;
+    for (const termSlug of changed) indexNow.add(facetUrl(base, facet, termSlug));
   }
   if (!sameSet(before.trades, after.trades)) taxonomyChanged = true;
 
@@ -248,6 +255,20 @@ export function attestationEditRecrawl(
       { url: target, reason: 'product.minor' },
     ],
   };
+}
+
+/** Slugs present in exactly one of the two lists: the terms an edit joined or
+ *  left. Order is `before`-only first, then `after`-only, each in input order.
+ *  Shared with `productEditTags` (`vendor.ts`), which uses it for trades. */
+export function symmetricDifference(before: readonly string[], after: readonly string[]): string[] {
+  const inBefore = new Set(before);
+  const inAfter = new Set(after);
+  return [
+    ...new Set([
+      ...before.filter((slug) => !inAfter.has(slug)),
+      ...after.filter((slug) => !inBefore.has(slug)),
+    ]),
+  ];
 }
 
 /** Set equality over two slug lists. Both sides are deduped and sorted upstream

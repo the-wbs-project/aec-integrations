@@ -1,9 +1,9 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated). Amended again 2026-10-04 — the drain logs every URL it sends; see the [fourth Amendment](#amendment--2026-10-04-aeci-1183-the-drain-logs-every-url-it-sends))
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated). Amended again 2026-10-04 — the drain logs every URL it sends; see the [fourth Amendment](#amendment--2026-10-04-aeci-1183-the-drain-logs-every-url-it-sends). Amended again 2026-10-16 — hub and facet pages go out only when their list changes, and a URL accepted in the last 7 days is deferred; see the [fifth Amendment](#amendment--2026-10-16-aeci-1130-send-fewer-urls-and-do-not-resend-a-recent-one))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
+**Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-1130 (the fifth amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
 
 ---
 
@@ -319,6 +319,55 @@ its pages we had submitted, and IndexNow is a Managed-plan benefit. The drain no
 - The cadence, the request ceiling, the buffer bound and the alerts are unchanged. The drain
   adds at most 106 statements to its success batch on a 10,000-URL day.
 
+## Amendment — 2026-10-16 (AECI-1130): send fewer URLs, and do not resend a recent one
+
+Bing has refused every daily submission since 2026-10-13 with HTTP 429, on one request a day.
+IndexNow also uses 429 to mean "potential spam". Bing Webmaster Tools showed this for the host:
+
+| Measure | Value |
+|---|---|
+| URLs submitted | 5.1K |
+| URLs crawled | 84 |
+| URLs indexed | 78 |
+
+The key, our request rate and other submitters on the host were each checked and ruled out (the
+AECI-1130 comments). What was left is the content of the submissions. Most of each day's list
+was hub and facet pages that changed only because a product on them was edited. In the
+2026-10-16 batch, 38 of 67 URLs were tier 4. Chris ruled on 2026-10-16 to apply both rules below.
+
+1. **A hub or facet page goes out only when its list of entries changes.** That means a new
+   product, a new term, or a product joining or leaving the page. A count change alone does not
+   count.
+   - Promote (`affectedUrlsForPromote`): `/products` only when the product was `created`. A
+     `/{categories|audiences|phases}/{slug}` page only when the term was `created` or the
+     product was `created`. Home and the three taxonomy index pages stay on term creation.
+   - Vendor product edit (`productEditRecrawl`): no `/products`, since a vendor cannot create a
+     product there. Facet pages for the symmetric difference of before and after, not the union.
+   - Trades are unchanged on both paths. A trade page that just crossed the publication floor is
+     genuinely new, and promote cannot tell an added trade from a kept one.
+   - The cache purge is unchanged and still takes the union. A page the product stays on still
+     renders a changed card. Purged but not announced is fine.
+   - The Google worklist is unchanged.
+2. **A URL IndexNow accepted in the last `INDEXNOW_RESEND_MIN_DAYS` (7) days is deferred.** The
+   drain's read skips any queued row whose URL has a `recrawl_submissions` row with channel
+   `indexnow`, outcome `accepted` and `submitted_at` inside the window. The row is not sent,
+   not deleted and not audited, and its causes stay. The first drain after the window sends it.
+   A refused or failed attempt does not defer. The `aeci.indexnow.deferred` gauge counts the held
+   rows after each run, and `job_runs.detail.deferred` records the same number. Deferred rows are
+   part of `pending`. The window equals the seven-day expiry on purpose: a row queued after an
+   acceptance is younger than the window when it becomes sendable, so it cannot expire unsent.
+
+**Known miss.** A promote that moves an existing product between categories announces no facet
+page. The promote response echoes the product's current terms but not its earlier ones, so it
+cannot tell a joined term from a kept one. Crawlers still reach those pages through the sitemap.
+
+**What did not change.** The buffer, the daily cadence, the tiers, the expiry, the audit rule,
+the alerts and the Google worklist. There is no migration. Rows queued before the change drain
+once or expire.
+
+**Done when** an `accepted` batch lands, the 72 h refusal alert clears, and the crawled-to-
+submitted ratio in Bing Webmaster Tools starts to climb.
+
 ## Re-open trigger
 
 Revisit if any of these becomes true:
@@ -335,3 +384,6 @@ Revisit if any of these becomes true:
    a day is what Bing accepts. A second daily slot needs its own evidence first.
 4. **A day exceeds 10,000 URLs.** Then tier 4 is being left behind every day and `pending`
    climbs. Split the day's send only if Bing accepts a second request in the same UTC day.
+5. **Bing still refuses after the AECI-1130 rules have run for a week.** Then the content of the
+   list was not the cause either. Look at the per-host allowance in Bing Webmaster Tools before
+   changing the rules again.
