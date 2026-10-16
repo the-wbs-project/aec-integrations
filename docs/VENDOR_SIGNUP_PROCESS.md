@@ -5,8 +5,7 @@
 **Built so far (2026-10-15).** E1.1 to E1.7 (AECI-1350 to AECI-1356). E1.1 to E1.5 built the `billing_accounts` and `licenses` tables, the billing account at claim approval and seat provision, `lib/license.ts`, the dual-write from the entitlement builders, and `ops:backfill-licenses`. E1.6 (AECI-1355) made licenses the truth for plan resolution: a product is Managed exactly when it holds a live license, the vendor guard loads `licensedProductIds` and `licenses` into the session, writes on one product gate through `requireProductCapability`, `GET /api/vendor/me` carries a per-product `plan`, and the contest owner check, the vendor-updates `entitlement` cursor and the vendor snapshot read licenses. `license_mirror_drift` is now `error`. E1.7 (AECI-1356) moved the 11:00 expiry sweep onto licenses: one notice per billing account per term, audited as `license.expiry_warned`. E1.8 and E1.9 wait on E4.6, because the admin entitlement routes still write `vendor_entitlements` and its dual-write until E4.6 replaces them. `vendor_entitlements` is still written, and the admin routes and the admin list sorts still read it, but no vendor-facing plan resolution does. Schema: `DATABASE_SCHEMA.md` §8.6b and §8.6c. E2.1 and E2.2 (AECI-1359, AECI-1360): the vendor terms at `/legal/vendor-terms` and the Managed plan agreement at `/legal/managed-plan-agreement`, both v1.0 drafts awaiting counsel. E2.3 (AECI-1361): every legal document has per-version URLs (`/legal/<slug>/v<version>`), a current pointer, and an on-page `## Change history` (`STAGE_1_SPEC.md` §27.3). E2.4 (AECI-1362): the `agreement_acceptances` table (§8.6d), its write helper `lib/agreement-acceptances.ts`, and two reads, `GET /api/vendor/billing/acceptances` (owner seats) and `GET /api/admin/vendors/:id/acceptances`. E3.3 (AECI-1366) is the first writer; E9 is the second. E3.1 to E3.5 (AECI-1364 to AECI-1368), the claim: a claim is on the company and records the product page it came from in `vendor_requests.context_product_id` (E3.1); the dialog has three steps with no plan question, and detail pages say "Claim <Company>" (E3.2); a required vendor terms box on every claim form, the acceptance written in the claim's batch (also for a typed-in listing request, migration 0078), and the claimant's `claim-received` receipt, one per address per day (E3.3); every approval lands on Free with an owner seat, links the claim's acceptances to the seat, vendor and billing account, and flags a pure connector vendor (E3.4); a claim on a company with an owner seat goes to its owners first, with AECi stepping in after 7 days (E3.5). E2.6 (AECI-588): the listing submission policy, public at `/docs/trust/listing-submissions` (what we list, suggesting versus claiming), with the operator side in `docs/LISTING_SUBMISSIONS_RUNBOOK.md` (owner and SLA, the listing checks, proof of domain control for a claim, reply templates). Whether the privacy policy must disclose that acceptance evidence survives erasure is open for counsel (AECI-1363, `AUTH_AND_RLS.md` §8). E3 (AECI-1333) is built end to end as of 2026-10-15: E3.1 to E3.5 are code, and E3.6 (AECI-1369) put a dated as-built note under every spec section they touch. E10 does the full rewrites of those sections and the help center. E4.1 to E4.5 (AECI-1370 to AECI-1374) are built on branch `chris/aeci-1334-epic-admin-grants-and-approvals`, unmerged as of 2026-10-16: the admin license grant (E4.1), the read-only Billing tab (E4.3), license extend, re-reference and revoke (E4.2), early-unassign requests with the `license_release_requests` table and the admin queue (E4.4), and the cancel-at-term-end flags set by a ban and cleared by a new unbanned seat (E4.5). The same last-seat ban revokes the vendor's pending seat invites (ruled 2026-10-16), so a pre-ban invite cannot mint the unbanned seat that clears the flags; an unban restores no invite. The portal button for early unassign is E5. E4.6 (retire the entitlement screen and routes) is deferred until the deploy window and E5.
 This is the one place that describes how a vendor goes from "Claim this company" to products on
 Managed and back to Free. Every other document, help page, email and screen must match this one.
-A flow chart drawn before the license model was agreed exists outside the repo; it will be redrawn
-around licenses, owner seats and proposals and added here under `docs/` when E5 is planned.
+The flow chart in §3a draws §3 as one picture.
 
 Terms used:
 
@@ -95,6 +94,49 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     button. Nothing entered is removed. Email: "Managed has ended for <products>."
 11. **Side paths.** Refund within 14 days on request. Abuse or misrepresentation lets AECi end
     licenses and keep or revoke seats. A chargeback drops the products to Free until settled.
+
+## 3a. Flow chart
+
+§3 steps 1 to 11 and the §2 decisions as one picture (AECI-1392, 2026-10-16). Dashed boxes are not
+built yet. A label in parentheses names the epic that builds that step. Dotted arrows are optional
+or side paths. If the chart and §3 disagree, §3 wins and the chart is redrawn.
+
+```mermaid
+flowchart TD
+    claim["Claim the company<br/>and accept vendor terms"] --> hasSeats{"Company has<br/>an owner seat?"}
+    hasSeats -->|No| check{"AECi check"}
+    hasSeats -->|Yes| owners{"Owners accept<br/>or decline"}
+    owners -->|Accept| seat["New seat, by invite"]
+    owners -->|Decline| declined["Email, claim ends"]
+    owners -->|"No answer in 7 days"| check
+    check -->|Decline| declined
+    check -->|"Approve, no seats"| create["Create account, owner seat<br/>and billing account"]
+    check -->|"Approve, has seats"| seat
+    create --> free["Every product on Free"]
+    free --> portal["Portal: owners see<br/>the Billing tab"]
+    seat --> portal
+    portal --> grant["AECi grants licenses:<br/>pilot or invoice (E4)"]
+    portal --> buy["Owner buys on<br/>Stripe Checkout (E9)"]
+    grant --> pool["Licenses land in the pool,<br/>unassigned"]
+    buy --> pool
+    pool --> assign["Owner assigns a license<br/>to a product (E5)"]
+    assign --> managed["Product on Managed"]
+    managed -.->|Optional| release["Flag: release<br/>at renewal"]
+    managed -.->|"Early unassign"| request["Request to AECi"]
+    request -->|Approved| pool
+    managed --> notice["30 days before the end:<br/>notice email (E6)"]
+    release -.-> notice
+    notice --> endDate{"End date"}
+    endDate -->|"Annual, no opt-out"| renew["Stripe renews,<br/>dates move a year (E9)"]
+    renew --> managed
+    endDate -->|"Opt-out, pilot<br/>or invoice"| lapse["Licenses end (E6)"]
+    lapse --> handBack["Product drops to Free.<br/>Managed fields handed back,<br/>content stays (E6)"]
+    ban["Ban of the last<br/>unbanned seat"] -.-> cancelFlag["Every live license flagged<br/>cancel at term end"]
+    cancelFlag -.-> lapse
+
+    classDef notBuilt stroke-dasharray: 5 5
+    class buy,notice,renew,lapse,handBack notBuilt
+```
 
 ## 4. The two agreements
 
