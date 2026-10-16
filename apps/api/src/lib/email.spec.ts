@@ -2127,9 +2127,13 @@ describe('entitlement expiry templates', () => {
     expect(String(body.text)).toContain(
       'Your Autodesk plan on AEC Integrations runs until September 18, 2026.',
     );
-    expect(String(body.text)).toContain(
-      'See your plan in the vendor portal: https://www.aecintegrations.com/vendor',
-    );
+    expect(String(body.text)).toContain('See your plan: https://www.aecintegrations.com/vendor');
+    // House layout: logo, Forest button, no legacy sign-off.
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).toContain('v:roundrect');
+    expect(`${String(body.text)}${html}`).not.toContain('The AEC Integrations team');
+    expect(`${String(body.text)}${html}`).not.toContain('\u2014');
   });
 
   it('sends replies to SUPPORT_EMAIL, because the ask is "reply to this email" (AECI-1325)', async () => {
@@ -2291,6 +2295,10 @@ describe('entitlement expiry templates', () => {
     // (STAGE_2_PAID_TIERS_SPEC.md §5.1, AECI-1108).
     expect(String(body.text)).toContain('/admin/vendors');
     expect(String(body.text)).not.toContain('/admin/claims');
+    // House layout, not the legacy bordered grid.
+    expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+    expect(String(body.html)).not.toContain('border="1"');
+    expect(`${String(body.text)}${String(body.html)}`).not.toContain('\u2014');
   });
 
   it('names the vendor half\u2019s outcome so delivery is never assumed', async () => {
@@ -3516,7 +3524,17 @@ describe('licenses-granted (AECI-1370)', () => {
       'They are complimentary. There is nothing to pay and no card is needed.',
     );
     expect(text).toContain('None is on a product yet.');
-    expect(text).toContain('we will help you assign them');
+    // E5 shipped the Billing tab, so owners assign there and the reply is the fallback.
+    expect(text).toContain(
+      'An owner on your team can assign them from Billing in the vendor portal.',
+    );
+    expect(text).toContain('we will help');
+    expect(text).toContain('Open the vendor portal: https://www.aecintegrations.com/vendor');
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).toContain('v:roundrect');
+    expect(`${text}${html}`).not.toContain('The AEC Integrations team');
+    expect(`${text}${html}`).not.toContain('\u2014');
     expect(text).not.toContain('invoice');
     expect(body.reply_to).toBe('support@aecintegrations.com');
   });
@@ -3583,7 +3601,11 @@ describe('managed-ended (AECI-1371)', () => {
       'AEC Integrations ended the license. Reason: The invoice was <not> paid.',
     );
     expect(text).toContain('Everything your team entered stays live, and nothing is deleted.');
-    expect(text).toContain('https://www.aecintegrations.com/products/microstation');
+    expect(text).toContain('MicroStation: https://www.aecintegrations.com/products/microstation');
+    expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+    expect(String(body.html)).toContain('v:roundrect');
+    expect(`${text}${String(body.html)}`).not.toContain('The AEC Integrations team');
+    expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(String(body.html)).toContain('&lt;not&gt;');
     expect(String(body.html)).not.toContain('<not>');
     expect(body.reply_to).toBe('support@aecintegrations.com');

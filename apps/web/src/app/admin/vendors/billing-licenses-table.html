@@ -162,7 +162,23 @@
   <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.truncated">
     Showing the first {{ rows().length }}. The oldest ended licenses are not listed.
   </p>
-  }
+  } @if (bulkActions(); as bulk) { @if (selectedRows().length > 0 || bulkPending()) {
+  <div
+    class="mt-3 flex flex-wrap items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3"
+    data-testid="billing-bulk-bar"
+  >
+    <p
+      class="py-1.5 text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.vendors.billing.licenses.selectedCount"
+    >
+      {selectedRows().length, plural, =1 {1 license selected} other {{{selectedRows().length}}
+      licenses selected}}
+    </p>
+    <div class="min-w-0 flex-1">
+      <ng-container [ngTemplateOutlet]="bulk" [ngTemplateOutletContext]="bulkContext()" />
+    </div>
+  </div>
+  } }
   <div class="mt-2 overflow-x-auto">
     <table class="w-full min-w-[56rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.billing.licenses.caption">
@@ -170,6 +186,21 @@
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
+          @if (bulkActions()) {
+          <th scope="col" class="w-10 py-2 pe-3 text-start">
+            <input
+              type="checkbox"
+              class="size-4 accent-(--text-primary) align-middle"
+              [checked]="allSelected()"
+              [indeterminate]="someSelected()"
+              [disabled]="liveCount() === 0 || bulkPending()"
+              (change)="toggleAll(checked($event))"
+              data-testid="billing-select-all"
+              aria-label="Select every live license"
+              i18n-aria-label="@@admin.vendors.billing.licenses.selectAll"
+            />
+          </th>
+          }
           <th
             scope="col"
             class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
@@ -233,6 +264,21 @@
       <tbody>
         @for (row of rows(); track row.license.id) {
         <tr class="border-b border-(--border-default) align-top" data-testid="billing-license-row">
+          @if (bulkActions()) {
+          <td class="w-10 py-2.5 pe-3 text-start">
+            @if (row.license.live) {
+            <input
+              type="checkbox"
+              class="mt-1.5 size-4 accent-(--text-primary)"
+              [checked]="isSelected(row)"
+              [disabled]="bulkPending()"
+              (change)="toggle(row, checked($event))"
+              data-testid="billing-select-row"
+              [attr.aria-label]="selectLabel(row)"
+            />
+            }
+          </td>
+          }
           <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
             @if (row.license.assigned_product; as p) { {{ p.name }}
             <span class="block text-xs font-normal text-(--text-tertiary)">{{ p.slug }}</span>

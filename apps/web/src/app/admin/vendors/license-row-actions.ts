@@ -49,6 +49,17 @@ function utcDay(iso: string): string {
   return iso.slice(0, 10);
 }
 
+/**
+ * The earliest `YYYY-MM-DD` a new end date may take: the day after the current end,
+ * or the day after today on an open-ended license. Shared with the bulk actions.
+ */
+export function licenseMinEndDay(license: AdminBillingLicense, now: Date = new Date()): string {
+  const end = license.ends_at;
+  const from = end ? new Date(`${utcDay(end)}T00:00:00Z`) : new Date(now.getTime());
+  from.setUTCDate(from.getUTCDate() + 1);
+  return from.toISOString().slice(0, 10);
+}
+
 type Mode = 'extend' | 'reference' | 'revoke';
 
 /**
@@ -117,12 +128,7 @@ export class LicenseRowActions {
   private readonly triggers = viewChild<ElementRef<HTMLElement>>('triggers');
 
   /** The earliest day the date input should offer: the day after the current end. */
-  protected readonly minEnd = computed(() => {
-    const end = this.license().ends_at;
-    const from = end ? new Date(`${utcDay(end)}T00:00:00Z`) : new Date();
-    from.setUTCDate(from.getUTCDate() + 1);
-    return from.toISOString().slice(0, 10);
-  });
+  protected readonly minEnd = computed(() => licenseMinEndDay(this.license()));
 
   /** `YYYY-MM-DD` strings compare correctly as text. */
   protected readonly endTooEarly = computed(
@@ -212,7 +218,7 @@ export class LicenseRowActions {
       this.changed.emit(result);
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
-      this.failedMessage.set(messageForError(err));
+      this.failedMessage.set(licenseErrorMessage(err));
     } finally {
       this.pending.set(false);
     }
@@ -243,8 +249,9 @@ export class LicenseRowActions {
   }
 }
 
-/** Each status the endpoint returns gets a sentence the operator can act on. */
-function messageForError(err: unknown): string {
+/** Each status the endpoint returns gets a sentence the operator can act on.
+ *  Shared with the bulk actions. */
+export function licenseErrorMessage(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
     if (err.status === 400) {
       return $localize`:@@admin.vendors.licenseActions.error.invalid:Check the form: a new end date must be after the current one, and a reference or reason cannot be blank.`;

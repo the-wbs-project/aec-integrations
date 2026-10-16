@@ -1403,36 +1403,40 @@ export function sendEntitlementExpiringEmail(
   const stance =
     "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
+  // A date, never a day count: a count goes stale in the inbox.
+  const subject = past ? `${yourPlan} was due to end ${date}` : `${yourPlan} runs until ${date}`;
+
+  // House layout: the portal is the one button, the plans page stays an inline link,
+  // and the stance moves to the small print.
   const render = (link: LinkTagger): EmailContent => {
-    const textParagraphs = [lead, ask];
-    const htmlParagraphs = [escapeHtml(lead), escapeHtml(ask)];
+    const text = [lead, ask];
+    const html = [escapeHtml(lead), escapeHtml(ask)];
     if (onEnd) {
-      textParagraphs.push(onEnd);
-      htmlParagraphs.push(escapeHtml(onEnd));
+      text.push(onEnd);
+      html.push(escapeHtml(onEnd));
     }
     // A link, not a feature list: the list would drift from the help center.
     if (plansPage) {
       const tagged = link(plansPage);
-      textParagraphs.push(`See what the Free plan includes: ${tagged}`);
-      htmlParagraphs.push(`See <a href="${escapeHtml(tagged)}">what the Free plan includes</a>.`);
+      text.push(`See what the Free plan includes: ${tagged}`);
+      html.push(`See ${inlineLink(tagged, 'what the Free plan includes')}.`);
     }
-    if (portal) {
-      const tagged = link(portal);
-      textParagraphs.push(`See your plan in the vendor portal: ${tagged}`);
-      htmlParagraphs.push(
-        `See your plan in <a href="${escapeHtml(tagged)}">the vendor portal</a>.`,
-      );
-    }
-    textParagraphs.push(stance);
-    htmlParagraphs.push(stance);
-    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+    return houseBody(
+      {
+        preheader: lead,
+        heading: subject,
+        ...(portal ? { cta: { label: 'See your plan', url: link(portal) } } : {}),
+        note: stance,
+      },
+      text,
+      html,
+    );
   };
 
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'entitlement-expiring',
-    // A date, never a day count: a count goes stale in the inbox.
-    subject: past ? `${yourPlan} was due to end ${date}` : `${yourPlan} runs until ${date}`,
+    subject,
     render,
     ...(support ? { replyTo: support } : {}),
   });
@@ -1456,9 +1460,9 @@ const LONG_DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
  *
  * Exists because the vendor half needs the GoTrue admin seam and can therefore
  * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
- * that someone has to actually perform. Operator format (`opsText`/`opsTable`),
- * and unlike the vendor copy it DOES carry the arrangement — this is the
- * admin-side surface where the license source and the invoice or PO reference
+ * that someone has to actually perform. House layout with a detail table, the
+ * AECI-924 operator-alert shape. Unlike the vendor copy it DOES carry the
+ * arrangement: this is the admin-side surface where the license source and the invoice or PO reference
  * belong (§8). Since AECI-1356 one notice covers one billing account's licenses on
  * one end date, so it also names the license count.
  */
@@ -1484,10 +1488,11 @@ export function sendEntitlementExpiringAdminEmail(
   const phrase = expiryPhrase(opts.daysRemaining);
   const intro =
     opts.daysRemaining < 0
-      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.'
-      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.';
+      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed. The expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.'
+      : 'An active entitlement is approaching its term end date. Nothing will change on its own. The expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.';
+  const base = siteUrl(c.env);
 
-  const rows: ReadonlyArray<readonly [string, string]> = [
+  const rows: EmailTableRow[] = [
     ['Vendor', `${name} (${opts.vendorSlug})`],
     ['Licenses', String(opts.licenseCount)],
     ['Term ends', `${opts.periodEndDay} (${phrase})`],
@@ -1499,12 +1504,24 @@ export function sendEntitlementExpiringAdminEmail(
     ['Vendor notice', opts.vendorNotice],
   ];
 
+  const heading = `Entitlement term ends ${phrase}: ${name}`;
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'entitlement-expiring-admin',
-    subject: `[AECi] Entitlement term ends ${phrase}: ${name}`,
-    text: opsText(intro, rows),
-    html: opsTable(intro, rows),
+    subject: `[AECi] ${heading}`,
+    render: (link) =>
+      houseBody(
+        {
+          preheader: intro,
+          heading,
+          table: rows,
+          ...(base
+            ? { cta: { label: 'Open admin vendors', url: link(`${base}/admin/vendors`) } }
+            : {}),
+        },
+        [intro],
+        [escapeHtml(intro)],
+      ),
   });
 }
 
@@ -1514,10 +1531,11 @@ export function sendEntitlementExpiringAdminEmail(
 // invoiced wording". Sent post-commit by `POST /api/admin/vendors/:id/licenses` to
 // every unbanned seat and to the billing email when one is set (decision 16).
 //
-// A grant assigns nothing. Assignment is the vendor's, in the portal Billing tab,
-// which E5 has not built yet. So the copy says AECi will help assign them and asks
-// for a reply, and does not send the vendor to a tab that does not exist. E5 changes
-// that sentence. Stripe wording waits for E9.
+// A grant assigns nothing. Assignment is the vendor's: an owner seat does it in the
+// portal Billing tab (E5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The email reaches
+// every seat, not only owners, so the copy names who can assign and keeps the reply
+// as the fallback. Stripe wording waits for E9. House layout: the portal is the one
+// button and the stance is the small print.
 
 /** What one `licenses-granted` email describes. */
 export interface LicensesGrantedSubject {
@@ -1557,30 +1575,30 @@ export function sendLicensesGrantedEmail(
       : reference
         ? `${n === 1 ? 'It is' : 'They are'} covered by your invoice ${reference}.`
         : `${n === 1 ? 'It is' : 'They are'} covered by your invoice.`;
-  const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. Reply to this email with the products you want on Managed, and we will help you assign them.`;
+  const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. An owner on your team can assign ${n === 1 ? 'it' : 'them'} from Billing in the vendor portal. Or reply to this email with the products you want on Managed, and we will help.`;
   const onEnd = `On ${date} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
   const stance =
     "A license changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
-  const render = (link: LinkTagger): EmailContent => {
-    const paragraphs = [lead, how, assign, onEnd];
-    const textParagraphs = [...paragraphs];
-    const htmlParagraphs = paragraphs.map(escapeHtml);
-    if (portal) {
-      const tagged = link(portal);
-      textParagraphs.push(`Open the vendor portal: ${tagged}`);
-      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
-    }
-    textParagraphs.push(stance);
-    htmlParagraphs.push(escapeHtml(stance));
-    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
-  };
+  // A date, never a day count: a count goes stale in the inbox.
+  const subject = `You have ${licenses} until ${date}`;
+  const paragraphs = [lead, how, assign, onEnd];
+  const render = (link: LinkTagger): EmailContent =>
+    houseBody(
+      {
+        preheader: lead,
+        heading: subject,
+        ...(portal ? { cta: { label: 'Open the vendor portal', url: link(portal) } } : {}),
+        note: stance,
+      },
+      paragraphs,
+      paragraphs.map(escapeHtml),
+    );
 
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'licenses-granted',
-    // A date, never a day count: a count goes stale in the inbox.
-    subject: `You have ${licenses} until ${date}`,
+    subject,
     render,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
@@ -1619,6 +1637,9 @@ function listNames(names: readonly string[]): string {
  * `managed-ended`: tells a vendor that one or more of its products left Managed, why,
  * and that nothing it entered is removed. Replies go to `SUPPORT_EMAIL`, because the
  * way back to Managed is a reply until E9 ships a buy button.
+ *
+ * House layout: the product pages are named inline links in one block (a table would
+ * print the tagged URLs), and the portal is the one button.
  */
 export function sendManagedEndedEmail(
   c: EmailContext,
@@ -1646,30 +1667,37 @@ export function sendManagedEndedEmail(
     'Everything your team entered stays live, and nothing is deleted. Your team can no longer edit the Managed fields, and AEC Integrations may update them again.';
   const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
 
+  const subject = `Managed has ended for ${subjectNames}`;
+  const paragraphs = [lead, why, handback, back];
   const render = (link: LinkTagger): EmailContent => {
-    const paragraphs = [lead, why, handback, back];
-    const textParagraphs = [...paragraphs];
-    const htmlParagraphs = paragraphs.map(escapeHtml);
+    const text = [...paragraphs];
+    const html = paragraphs.map(escapeHtml);
+    const pages: { name: string; url: string }[] = [];
     for (const [i, product] of opts.products.entries()) {
       const url = productUrl(c.env, product.slug);
-      if (!url) continue;
-      const tagged = link(url);
-      textParagraphs.push(`${names[i]}: ${tagged}`);
-      htmlParagraphs.push(`<a href="${escapeHtml(tagged)}">${escapeHtml(names[i] ?? '')}</a>`);
+      if (url) pages.push({ name: names[i] ?? product.slug, url: link(url) });
+    }
+    if (pages.length) {
+      const label = pages.length === 1 ? 'Product page' : 'Product pages';
+      text.push(`${label}:\n${pages.map((p) => `${p.name}: ${p.url}`).join('\n')}`);
+      html.push(`${label}: ${pages.map((p) => inlineLink(p.url, p.name)).join(', ')}`);
     }
     const portal = portalUrl(c.env);
-    if (portal) {
-      const tagged = link(portal);
-      textParagraphs.push(`Open the vendor portal: ${tagged}`);
-      htmlParagraphs.push(`Open <a href="${escapeHtml(tagged)}">the vendor portal</a>.`);
-    }
-    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+    return houseBody(
+      {
+        preheader: lead,
+        heading: subject,
+        ...(portal ? { cta: { label: 'Open the vendor portal', url: link(portal) } } : {}),
+      },
+      text,
+      html,
+    );
   };
 
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'managed-ended',
-    subject: `Managed has ended for ${subjectNames}`,
+    subject,
     render,
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
@@ -3799,15 +3827,20 @@ function houseBody(
   };
 }
 
+/** An inline link inside a house-layout block, in the Forest the CTA uses. `url` must
+ *  already be tagged. Both halves are escaped here. */
+function inlineLink(url: string, label: string): string {
+  return `<a href="${escapeHtml(url)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(label)}</a>`;
+}
+
 /**
  * LEGACY formatters — an unbranded `<body>` of `<p>` tags with no card, no wordmark, no
  * button and no footer, at an off-palette `#27272a`.
  *
  * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
  * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
- * that. These two remain only for the templates not yet migrated — the three sibling
- * attestation nudges, the review/account/mailing-list templates, and the one remaining
- * operator alert (`entitlement-expiring-admin`);
+ * that. These two remain only for the templates not yet migrated — the two
+ * account and mailing-list templates (`account-deleted`, `mailing-list-welcome`);
  * `docs/email.md` (§House layout) carries the migration list.
  *
  * Note the sign-off: the house layout deliberately has none, because its footer wordmark
@@ -3824,20 +3857,6 @@ function toHtml(paragraphs: string[]): string {
     .map((p) => `<p style="margin:0 0 16px">${p}</p>`)
     .join('');
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#27272a">${body}</body></html>`;
-}
-
-/** Plain-text operator notification: intro line + `Key: value` rows. */
-function opsText(intro: string, rows: ReadonlyArray<readonly [string, string]>): string {
-  return `${intro}\n\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}`;
-}
-
-/** HTML operator notification: intro paragraph + a bordered table. Every cell is
- *  escaped (rows carry user-supplied email / features / tools). */
-function opsTable(intro: string, rows: ReadonlyArray<readonly [string, string]>): string {
-  const body = rows
-    .map(([k, v]) => `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`)
-    .join('');
-  return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p><table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">${body}</table></body></html>`;
 }
 
 // `escapeHtml` now lives in `./email-layout` (the layout is what interpolates) and is

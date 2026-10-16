@@ -43,6 +43,7 @@ import { GrantLicensesControl } from './grant-licenses-control';
 import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BillingLicensesTable } from './billing-licenses-table';
+import { LicenseBulkActions } from './license-bulk-actions';
 import { LicenseRowActions } from './license-row-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
@@ -143,6 +144,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     GrantLicensesControl,
     BillingLicensesTable,
     LicenseRowActions,
+    LicenseBulkActions,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
