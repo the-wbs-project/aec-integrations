@@ -1,0 +1,231 @@
+<div #triggers class="flex flex-wrap items-center gap-2">
+  <button
+    type="button"
+    data-mode="extend"
+    (click)="open('extend')"
+    [disabled]="pending() || extendable().length === 0"
+    [attr.aria-pressed]="mode() === 'extend'"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    i18n="@@admin.vendors.licenseBulk.setEnd"
+  >
+    Set end date
+  </button>
+  <button
+    type="button"
+    data-mode="revoke"
+    (click)="open('revoke')"
+    [disabled]="pending() || revocable().length === 0"
+    [attr.aria-pressed]="mode() === 'revoke'"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    i18n="@@admin.vendors.licenseBulk.revoke"
+  >
+    Revoke
+  </button>
+</div>
+
+@if (mode(); as m) {
+<div
+  class="mt-3 max-w-xl rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start"
+  data-testid="license-bulk-form"
+>
+  @switch (m) { @case ('extend') {
+  <form novalidate (submit)="$event.preventDefault(); submitExtend()">
+    <label
+      [attr.for]="idPrefix() + '-bulk-end'"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseBulk.end.label"
+    >
+      End date for {extendable().length, plural, =1 {1 license} other {{{extendable().length}}
+      licenses}}
+    </label>
+    <p
+      [id]="idPrefix() + '-bulk-end-help'"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseBulk.end.help"
+    >
+      Must be after every selected license's current end date, or after today when it has none.
+      Nothing else on the licenses changes, and the vendor is not emailed.
+    </p>
+    @if (extendSkipped() > 0) {
+    <p
+      class="mt-1 text-xs text-(--text-secondary)"
+      data-testid="license-bulk-skipped"
+      i18n="@@admin.vendors.licenseBulk.end.skipped"
+    >
+      {extendSkipped(), plural, =1 {1 selected Stripe license is skipped.} other
+      {{{extendSkipped()}} selected Stripe licenses are skipped.}} Stripe owns their term.
+    </p>
+    }
+    <input
+      #firstField
+      type="date"
+      [id]="idPrefix() + '-bulk-end'"
+      [attr.min]="minEnd()"
+      [disabled]="pending()"
+      [attr.aria-describedby]="idPrefix() + '-bulk-end-help'"
+      [attr.aria-invalid]="endTooEarly() ? 'true' : null"
+      [value]="endsAt()"
+      (input)="onEndInput($event)"
+      class="mt-2 w-full max-w-xs rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+    />
+    @if (endTooEarly()) {
+    <p
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.vendors.licenseBulk.end.tooEarly"
+    >
+      Pick a date after every selected license's current end date.
+    </p>
+    }
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="submit"
+        [disabled]="pending() || !canExtend()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenseBulk.working">Working…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenseBulk.end.save">Save end date</span>
+        }
+      </button>
+      <button
+        type="button"
+        (click)="close()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.vendors.licenseBulk.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } @case ('revoke') {
+  <form novalidate (submit)="$event.preventDefault(); submitRevoke()">
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.confirm">
+      Revoke {revocable().length, plural, =1 {1 license} other {{{revocable().length}} licenses}}?
+      Each ends now.
+    </p>
+    @if (revokeOnProduct() > 0) {
+    <p
+      class="mt-1 text-sm text-(--text-primary)"
+      data-testid="license-bulk-revoke-products"
+      i18n="@@admin.vendors.licenseBulk.revoke.confirmProducts"
+    >
+      {revokeOnProduct(), plural, =1 {1 is on a product. That product drops to the Free plan.} other
+      {{{revokeOnProduct()}} are on products. Each of those products drops to the Free plan.}} Their
+      text stays live, the vendor loses the edit right on their Managed fields, and every seat gets
+      one email per product.
+    </p>
+    }
+    <p class="mt-1 text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.final">
+      Nothing is refunded or deleted, and there is no undo on this screen.
+    </p>
+    <label
+      [attr.for]="idPrefix() + '-bulk-reason'"
+      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseBulk.revoke.reasonLabel"
+    >
+      Reason shown to the vendor (required)
+    </label>
+    <p
+      [id]="idPrefix() + '-bulk-reason-help'"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseBulk.revoke.reasonHelp"
+    >
+      The same reason goes on every selected license. The vendor's seats read it in their portal
+      messages, and it is recorded in the audit trail with your name.
+    </p>
+    <textarea
+      #reasonInput
+      #firstField
+      [id]="idPrefix() + '-bulk-reason'"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      required
+      [disabled]="pending()"
+      [attr.aria-describedby]="
+        reasonError()
+          ? idPrefix() + '-bulk-reason-help ' + idPrefix() + '-bulk-reason-error'
+          : idPrefix() + '-bulk-reason-help'
+      "
+      [attr.aria-invalid]="reasonError() ? 'true' : null"
+      [value]="reason()"
+      (input)="onReasonInput($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+    @if (reasonError()) {
+    <p
+      [id]="idPrefix() + '-bulk-reason-error'"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.vendors.licenseBulk.revoke.reasonRequired"
+    >
+      Enter a reason for the vendor. Its seats read it in their portal messages.
+    </p>
+    }
+    <label
+      [attr.for]="idPrefix() + '-bulk-note'"
+      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.licenseBulk.revoke.noteLabel"
+    >
+      Internal note (optional, never shown to the vendor)
+    </label>
+    <textarea
+      [id]="idPrefix() + '-bulk-note'"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [value]="internalNote()"
+      (input)="onNoteInput($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="submit"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.licenseBulk.working">Working…</span>
+        } @else {
+        <span i18n="@@admin.vendors.licenseBulk.revoke.confirmButton"
+          >Revoke {revocable().length, plural, =1 {1 license} other {{{revocable().length}}
+          licenses}}</span
+        >
+        }
+      </button>
+      <button
+        type="button"
+        (click)="close()"
+        [disabled]="pending()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        i18n="@@admin.vendors.licenseBulk.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } } @if (failures().length > 0 || stoppedCount() > 0) {
+  <div role="alert" class="mt-3 text-sm text-(--text-primary)" data-testid="license-bulk-failures">
+    @if (failures().length > 0) {
+    <p class="font-medium" i18n="@@admin.vendors.licenseBulk.failures.heading">
+      {failures().length, plural, =1 {1 license was not changed and is still selected:} other
+      {{{failures().length}} licenses were not changed and are still selected:}}
+    </p>
+    <ul class="mt-1 list-disc space-y-1 ps-5">
+      @for (f of failures(); track f.id) {
+      <li><span class="font-medium">{{ f.label }}</span>: {{ f.message }}</li>
+      }
+    </ul>
+    } @if (stoppedCount() > 0) {
+    <p class="mt-2 font-medium" i18n="@@admin.vendors.licenseBulk.failures.stopped">
+      The rate limit stopped the run with {stoppedCount(), plural, =1 {1 license} other
+      {{{stoppedCount()}} licenses}} not tried. They are still selected. Wait a minute, then run it
+      again.
+    </p>
+    }
+  </div>
+  }
+</div>
+}

@@ -774,7 +774,8 @@
 
   <!-- ── Billing (AECI-1372) ─────────────────────────────────────────────────
        The E4.1 grant control projected into the Licenses section, and the E4.2
-       per-license actions (AECI-1371) through the table's rowActions seam. The
+       per-license actions (AECI-1371) through the table's rowActions seam, and the
+       bulk Set end date and Revoke over the checked rows through bulkActions. The
        Entitlement and Plan price sections stay on the Vendor tab until E4.6. -->
   <ng-template #licenseActions let-row>
     <aec-license-row-actions
@@ -784,11 +785,22 @@
       (announce)="onAnnounce($event)"
     />
   </ng-template>
+  <ng-template #licenseBulk let-rows let-deselect="deselect" let-busy="busy">
+    <aec-license-bulk-actions
+      [rows]="rows"
+      [idPrefix]="'vendor-' + v.id"
+      (succeeded)="deselect($event)"
+      (pendingChange)="busy($event)"
+      (changed)="onLicenseChanged()"
+      (announce)="onAnnounce($event)"
+    />
+  </ng-template>
   <aec-billing-licenses-table
     [billing]="billing()"
     [loading]="billingLoading()"
     [failed]="billingFailed()"
     [rowActions]="licenseActions"
+    [bulkActions]="licenseBulk"
     (retry)="retryBilling()"
   >
     <div billingGrant>

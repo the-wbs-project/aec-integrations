@@ -8,6 +8,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 
 import type {
@@ -45,6 +46,17 @@ export interface BillingLicenseRow {
 /** The context a row-actions template receives: `let-row` is the row. */
 export interface BillingLicenseRowContext {
   readonly $implicit: BillingLicenseRow;
+}
+
+/**
+ * The context a bulk-actions template receives: `let-rows` is the checked rows (live
+ * only, in table order), `let-deselect="deselect"` unchecks the given license ids, and
+ * `let-busy="busy"` tells the table a run is in flight so it locks the checkboxes.
+ */
+export interface BillingLicenseBulkContext {
+  readonly $implicit: readonly BillingLicenseRow[];
+  readonly deselect: (ids: readonly string[]) => void;
+  readonly busy: (pending: boolean) => void;
 }
 
 /** Source vocabulary (`LICENSE_SOURCES`). An unknown token shows as is. */
@@ -138,6 +150,13 @@ export function toBillingLicenseRow(
  *  - `rowActions` is a template rendered in an Actions column when set. The page puts
  *    `LicenseRowActions` there (AECI-1371, E4.2: extend, re-reference, revoke). Without
  *    it there is no Actions column.
+ *  - `bulkActions` adds a checkbox column at the left edge, with select-all in its
+ *    header, and renders the template above the table while one or more rows are
+ *    checked. The page puts `LicenseBulkActions` there. Only a live license has a box:
+ *    an ended one takes no action. Selection is local UI state, keyed by license id,
+ *    so a refetch keeps it and a license that ended drops out of it. While a run is in
+ *    flight the boxes are disabled and the bar stays mounted, so the run cannot lose
+ *    its host before it reports back.
  *
  * Read-only itself: the writes live in the projected grant control and the row actions.
  * Nothing here changes ranking or reviews, and assignment is the vendor's.
@@ -157,6 +176,8 @@ export class BillingLicensesTable {
   readonly failed = input.required<boolean>();
   /** E4.2's per-license actions. `null`: no Actions column. */
   readonly rowActions = input<TemplateRef<BillingLicenseRowContext> | null>(null);
+  /** Bulk actions over the checked rows. `null`: no checkbox column. */
+  readonly bulkActions = input<TemplateRef<BillingLicenseBulkContext> | null>(null);
 
   readonly retry = output<void>();
 
@@ -167,6 +188,67 @@ export class BillingLicensesTable {
   );
 
   protected readonly liveCount = computed(() => this.rows().filter((r) => r.license.live).length);
+
+  // ── Selection (bulk actions) ───────────────────────────────────────────────
+  private readonly selectedIds = signal<ReadonlySet<string>>(new Set());
+  /** A bulk run is in flight: the boxes are locked and the bar stays up. */
+  protected readonly bulkPending = signal(false);
+
+  /** Rows that may be checked: live ones. */
+  private readonly selectableRows = computed(() => this.rows().filter((r) => r.license.live));
+
+  /** The checked rows still live on the current payload, in table order. */
+  protected readonly selectedRows = computed(() => {
+    const ids = this.selectedIds();
+    return this.selectableRows().filter((r) => ids.has(r.license.id));
+  });
+
+  protected readonly allSelected = computed(
+    () =>
+      this.selectableRows().length > 0 &&
+      this.selectedRows().length === this.selectableRows().length,
+  );
+
+  protected readonly someSelected = computed(
+    () => this.selectedRows().length > 0 && !this.allSelected(),
+  );
+
+  protected readonly bulkContext = computed<BillingLicenseBulkContext>(() => ({
+    $implicit: this.selectedRows(),
+    deselect: (ids) => this.deselect(ids),
+    busy: (pending) => this.bulkPending.set(pending),
+  }));
+
+  protected isSelected(row: BillingLicenseRow): boolean {
+    return this.selectedIds().has(row.license.id);
+  }
+
+  protected toggle(row: BillingLicenseRow, checked: boolean): void {
+    this.selectedIds.update((ids) => {
+      const next = new Set(ids);
+      if (checked) next.add(row.license.id);
+      else next.delete(row.license.id);
+      return next;
+    });
+  }
+
+  protected toggleAll(checked: boolean): void {
+    this.selectedIds.set(
+      checked ? new Set(this.selectableRows().map((r) => r.license.id)) : new Set(),
+    );
+  }
+
+  private deselect(ids: readonly string[]): void {
+    this.selectedIds.update((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  protected checked(event: Event): boolean {
+    return (event.target as HTMLInputElement).checked;
+  }
 
   /** Live licenses flagged to end instead of renewing. Drives the banner. */
   protected readonly cancellingCount = computed(
@@ -203,6 +285,13 @@ export class BillingLicensesTable {
   protected readonly hasOpenRelease = computed(() =>
     this.releaseRequests().some((r) => r.status === 'open'),
   );
+
+  protected selectLabel(row: BillingLicenseRow): string {
+    const product = row.license.assigned_product?.name;
+    return product
+      ? $localize`:@@admin.vendors.billing.licenses.selectProduct:Select the license on ${product}:PRODUCT:`
+      : $localize`:@@admin.vendors.billing.licenses.selectUnassigned:Select this unassigned ${row.sourceLabel}:SOURCE: license`;
+  }
 
   protected rowContext(row: BillingLicenseRow): BillingLicenseRowContext {
     return { $implicit: row };
