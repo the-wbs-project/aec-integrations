@@ -109,9 +109,13 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_plan_pricing.set': { kind: 'aeci-override', receipt: false },
   'vendor_plan_pricing.cleared': { kind: 'aeci-override', receipt: false },
   // The billing account licenses sit on (AECI-1351, VENDOR_SIGNUP_PROCESS.md §2
-  // decision 18). Created with the first owner seat. Not a receipt: decision 18 shows
-  // nothing for it in the UI yet.
+  // decision 18). Created with the first owner seat. Not a receipt: the vendor never
+  // acted, and the Billing tab (E5) shows the account itself.
   'billing_account.created': { kind: 'aeci-override', receipt: false },
+  // An owner set or cleared the billing email from the Billing tab (AECI-1389, decision
+  // 16). A receipt: it is the vendor's own edit. Audit only, no message (ruling
+  // 2026-10-16). The history read shows the field name, never the address.
+  'billing_account.email_changed': { kind: 'vendor-edit', receipt: true },
   // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
   // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
   'billing_account.backfilled': { kind: 'system', receipt: false },

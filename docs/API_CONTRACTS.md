@@ -2905,7 +2905,7 @@ export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
 export const AdminBillingAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
-  billing_email: z.string().nullable(),        // null until checkout (decision 16)
+  billing_email: z.string().nullable(),        // null until an owner or checkout sets it (decision 16)
   stripe_customer_id: z.string().nullable(),
   created_at: z.string(),
   owner_seats: z.array(z.object({
@@ -6606,7 +6606,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
-   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances` and `POST /api/vendor/licenses/:id/release-request`, and, when E5.2 and E5.3 land, `POST /api/vendor/licenses/:id/assign`, `PATCH /api/vendor/licenses/:id` and `PUT /api/vendor/billing/email`. Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances` and `POST /api/vendor/licenses/:id/release-request`, and `PUT /api/vendor/billing/email` (AECI-1389), and, when E5.2 lands, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id`. Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -6862,11 +6862,51 @@ export const VendorBillingLicenseSchema = z.object({
 The E5 write bodies are in the same file: `AssignLicenseRequestSchema { product_id }`,
 `UpdateLicenseRequestSchema { release_at_renewal }` (strict) and
 `UpdateBillingEmailRequestSchema { billing_email }` (the seat-invite email rule, trimmed and
-lower-cased, or `null`). Their routes land in E5.2 and E5.3. Source of truth:
+lower-cased, or `null`). The license routes land in E5.2. The billing email route is
+`PUT /api/vendor/billing/email` below (E5.3). Source of truth:
 `packages/shared/src/api/vendor-billing.ts`, handler `apps/api/src/routes/vendor-billing.ts`.
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
 is not an owner).
+
+#### `PUT /api/vendor/billing/email` (AECI-1389)
+
+An owner sets or clears the billing email on the vendor's billing account (AECI-1335, E5.3;
+`VENDOR_SIGNUP_PROCESS.md` §2 decision 16). Table: `DATABASE_SCHEMA.md` §8.6b.
+
+**Owner seats only.** `requireVendor()`, then `rateLimit('write')`, then `requireSeatOwner()`
+in the handler (a member seat gets `403 FORBIDDEN`). No capability gate: the fourth named
+exception to invariant 3 above.
+
+```typescript
+// Request. Strict: an unknown key is a 400.
+export const UpdateBillingEmailRequestSchema = z
+  .object({ billing_email: z.string().trim().min(3).max(320).email().toLowerCase().nullable() })
+  .strict();
+
+// 200. The same block `GET /api/vendor/billing` returns.
+export const UpdateBillingEmailResponseSchema = z.object({
+  billing_account: z.object({ id: z.string(), billing_email: z.string().nullable() }),
+});
+```
+
+- **`null` clears the address.** A value is stored trimmed and lower-cased.
+- **An unchanged value** answers `200` and writes nothing: no UPDATE, no audit row.
+- **A change** is one `db.batch`: the UPDATE and its `billing_account.email_changed` audit
+  row (`entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` filled,
+  the old and new address in `before_state` / `after_state`). The Changes page shows it as
+  the vendor's own edit.
+- **Audit only** (ruling 2026-10-16). No message goes to the other owners. No cache purge:
+  no public page reads the address. No realtime scope moves (`STAGE_2_REALTIME_SPEC.md`).
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-billing-email.ts`, writer `billingEmailStatements` in
+`apps/api/src/lib/billing-account.ts`.
+
+Errors: `VALIDATION_FAILED` (400, a bad address, a missing field or an unknown key) ·
+`MALFORMED_REQUEST` (400, not JSON) · `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14
+guard cells, or a seat that is not an owner) · `NOT_FOUND` (404, the vendor has no billing
+account) · `RATE_LIMITED` (429).
 
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 

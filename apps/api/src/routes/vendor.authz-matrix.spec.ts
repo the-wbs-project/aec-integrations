@@ -70,7 +70,8 @@
  * AECI-1387 adds `GET /api/vendor/billing` and the pre-existing
  * `POST /api/vendor/licenses/:id/release-request` (AECI-1373). Both are owner-seat
  * routes: every guard cell, then a member seat gets `403` and the other vendor sees
- * only its own licenses (or a `404` on ours).
+ * only its own licenses (or a `404` on ours). AECI-1389 adds
+ * `PUT /api/vendor/billing/email` under the same owner-seat cells.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -81,6 +82,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   auditLog,
+  billingAccounts,
   claims,
   integrations,
   licenses,
@@ -139,6 +141,7 @@ import {
 import { createVendorUpdatesHandler } from './vendor-updates';
 import { createVendorBillingHandler } from './vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
+import { createUpdateBillingEmailHandler } from './vendor-billing-email';
 import { createVendorLicenseReleaseRequestHandler } from './vendor-license-release';
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
@@ -497,6 +500,13 @@ function makeApp() {
     requireVendor(guard),
     createVendorBillingAcceptancesHandler(t.factory),
   );
+  // AECI-1389 — seat; the owner rule is inside the handler. The limiter is not under
+  // test here.
+  app.put(
+    '/api/vendor/billing/email',
+    requireVendor(guard),
+    createUpdateBillingEmailHandler(t.factory),
+  );
   // AECI-1373 — seat; the owner rule is inside the handler. The limiter is not under
   // test here.
   app.post(
@@ -545,6 +555,8 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/billing/acceptances', method: 'GET' },
   // AECI-1387 — owner seats only.
   { path: '/api/vendor/billing', method: 'GET' },
+  // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
+  { path: '/api/vendor/billing/email', method: 'PUT', body: { billing_email: 'ap@autodesk.com' } },
   // AECI-1373 — owner seats only; LICENSE_A is live on PRODUCT_A.
   {
     path: `/api/vendor/licenses/${LICENSE_A}/release-request`,
@@ -934,6 +946,25 @@ describe('GET /api/vendor/billing — owner seats only (AECI-1387)', () => {
     expect(b.body.licenses).toHaveLength(1);
     expect(b.body.licenses[0].id).not.toBe(LICENSE_A);
     expect(b.body.licenses[0].assigned_product.id).toBe(PRODUCT_B);
+  });
+});
+
+describe('PUT /api/vendor/billing/email — owner seats only (AECI-1389)', () => {
+  const body = { billing_email: 'ap@autodesk.com' };
+
+  it('rejects a granted seat that is not an owner with 403', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const { status, body: res } = await call('/api/vendor/billing/email', 'PUT', SEAT_A, body);
+    expect(status).toBe(403);
+    expect(res.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('writes only the caller’s own account', async () => {
+    const res = await call('/api/vendor/billing/email', 'PUT', SEAT_A, body);
+    expect(res.status).toBe(200);
+    const rows = await t.db.select().from(billingAccounts);
+    expect(rows.find((r) => r.vendorId === VENDOR_A)?.billingEmail).toBe('ap@autodesk.com');
+    expect(rows.find((r) => r.vendorId === VENDOR_B)?.billingEmail ?? null).toBeNull();
   });
 });
 

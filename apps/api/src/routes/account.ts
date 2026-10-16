@@ -486,8 +486,9 @@ export function createDeleteAccountHandler(
     // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by`,
     // `vendor_seat_invites.invited_by_id`, the five contest/protest columns and the two
     // reply columns — made explicit), plus the two no-FK actor columns
-    // `billing_accounts.created_by` and `licenses.granted_by` → PII-free audit →
-    // delete the profile.
+    // `billing_accounts.created_by` and `licenses.granted_by`, plus any
+    // `billing_accounts.billing_email` equal to the person's address → PII-free audit
+    // → delete the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
@@ -542,6 +543,22 @@ export function createDeleteAccountHandler(
         .update(licenses)
         .set({ grantedBy: null, updatedAt: sql`${licenses.updatedAt}` })
         .where(eq(licenses.grantedBy, userId)),
+      // AECI-1389 (ruling 2026-10-16): a billing email equal to the erased person's
+      // address is personal data on a vendor's record, so it is nulled. Any vendor's
+      // account, not only the person's own seat: an owner may name anyone. The
+      // ACCOUNT survives; an owner sets a new address on the Billing tab. Matched
+      // case-insensitively (the writer stores it lower-cased, the JWT may not).
+      // `updated_at` pinned, as above. No session email, nothing to match.
+      ...(recipientEmail
+        ? [
+            db
+              .update(billingAccounts)
+              .set({ billingEmail: null, updatedAt: sql`${billingAccounts.updatedAt}` })
+              .where(
+                sql`lower(${billingAccounts.billingEmail}) = ${recipientEmail.trim().toLowerCase()}`,
+              ),
+          ]
+        : []),
       // AECI-1373: the two actor columns of an early-unassign request, no FK either.
       // The REQUEST survives (the vendor's commercial record); only who asked and who
       // decided are severed. `updated_at` pinned, as above.

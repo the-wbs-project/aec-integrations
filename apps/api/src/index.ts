@@ -251,6 +251,7 @@ import {
 } from './routes/vendor-seat-claims';
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
+import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
 import {
   createAcceptSeatInviteHandler,
   createSeatInvitePreviewHandler,
@@ -1610,6 +1611,15 @@ authVendor.get(
   '/api/vendor/billing/acceptances',
   requireVendor(),
   createVendorBillingAcceptancesHandler(),
+);
+// AECI-1389 (E5.3, decision 16): an owner seat sets or clears the billing email. The
+// seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`
+// inside the handler. Audit only: no email to the other owners, no cache purge.
+authVendor.put(
+  '/api/vendor/billing/email',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateBillingEmailHandler(),
 );
 // AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
 // seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`

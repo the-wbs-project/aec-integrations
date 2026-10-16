@@ -27,8 +27,17 @@
  *
  * ── WHAT IT NEVER TOUCHES ──────────────────────────────────────────────────────
  * No statement here names `vendors`, so a second seat cannot move
- * `vendors.updated_at` through this module. `billing_email` stays NULL until checkout
- * (decision 16). Nothing in the UI reads the row yet (decision 18).
+ * `vendors.updated_at` through this module. `billing_email` is NULL on a new account.
+ * An owner may set or clear it from the Billing tab (`billingEmailStatements`,
+ * AECI-1389), and decision 16's default-at-checkout still applies when E9 lands.
+ *
+ * ── THE BILLING EMAIL (AECI-1389) ───────────────────────────────────────────────
+ * `billingEmailStatements` is the one writer of `billing_email` outside checkout.
+ * It follows the seat-invite precedent (`lib/vendor-seat-invites.ts`): the address
+ * goes in the audit row's before/after state, because the row's job is to say which
+ * address invoices went to and when that changed. The vendor's history read copies
+ * field NAMES only, never the values (`lib/vendor-history.ts`). The account
+ * holder's erasure nulls a matching address (`routes/account.ts`).
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -45,6 +54,9 @@ export const BILLING_ACCOUNT_ENTITY_TYPE = 'billing_account';
 
 /** The audit action for a new account. Registered in `@aeci/shared/audit-vendor-actions`. */
 export const BILLING_ACCOUNT_CREATED_ACTION = 'billing_account.created';
+
+/** The audit action for a billing email change. Registered in `@aeci/shared/audit-vendor-actions`. */
+export const BILLING_ACCOUNT_EMAIL_CHANGED_ACTION = 'billing_account.email_changed';
 
 /** The preloaded account. `null` = the vendor has none yet. */
 export interface BillingAccountBefore {
@@ -145,4 +157,97 @@ export function ensureBillingAccountStatements(
   ];
 
   return { stmts, auditEntry, billingAccountId: id };
+}
+
+/** The account as the billing email writer needs it. */
+export interface BillingAccountEmailBefore {
+  id: string;
+  billingEmail: string | null;
+}
+
+/**
+ * Read the vendor's billing account with its current billing email. The same
+ * single-row lookup as {@link loadBillingAccount}, with the one column the email
+ * writer compares against.
+ */
+export async function loadBillingAccountEmail(
+  db: Db,
+  vendorId: string,
+): Promise<BillingAccountEmailBefore | null> {
+  const row = await db.query.billingAccounts.findFirst({
+    columns: { id: true, billingEmail: true },
+    where: eq(billingAccounts.vendorId, vendorId),
+  });
+  return row ?? null;
+}
+
+/** Trimmed and lower-cased, so the erasure match in `routes/account.ts` compares
+ *  like with like. Blank is `null`. The request Zod does the same; this is the
+ *  builder's own guarantee. */
+export function normalizeBillingEmail(email: string | null): string | null {
+  const trimmed = email?.trim().toLowerCase() ?? '';
+  return trimmed === '' ? null : trimmed;
+}
+
+export interface BillingEmailParams {
+  billingAccountId: string;
+  vendorId: string;
+  /** The stored value before this write (`loadBillingAccountEmail`). */
+  before: string | null;
+  /** The new value. `null` clears it. Normalised here. */
+  email: string | null;
+  /** ISO timestamp for `updated_at`. Normalised here. */
+  now: string;
+  actorId: string | null;
+  actorType: AuditLogEntry['actorType'];
+  /** The vendor's plan at write time, for the audit row's snapshot columns. */
+  vendorPlan: VendorPlanSnapshot;
+  /** `metadata.source`. The vendor portal's `'vendor-portal'`. */
+  source: string;
+}
+
+/** Statements plus the forwarding entry, and the value now stored. */
+export interface BillingEmailBatch {
+  stmts: BatchStmt[];
+  /** `null` when the address did not change: nothing written, nothing audited. */
+  auditEntry: AuditLogEntry | null;
+  /** The stored value after the batch commits. */
+  billingEmail: string | null;
+}
+
+/**
+ * Set or clear an account's billing email (AECI-1389, decision 16). One UPDATE and
+ * its `billing_account.email_changed` audit row, filed under the account with
+ * `vendor_id` stamped. No statements when the normalised value equals `before`, so
+ * saving the form twice writes one row.
+ */
+export function billingEmailStatements(db: Db, p: BillingEmailParams): BillingEmailBatch {
+  const email = normalizeBillingEmail(p.email);
+  if (email === p.before) return { stmts: [], auditEntry: null, billingEmail: email };
+
+  const now = new Date(p.now).toISOString();
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: BILLING_ACCOUNT_EMAIL_CHANGED_ACTION,
+    entityType: BILLING_ACCOUNT_ENTITY_TYPE,
+    entityId: p.billingAccountId,
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
+    beforeState: { billing_email: p.before },
+    afterState: { billing_email: email },
+    metadata: { source: p.source, vendorId: p.vendorId },
+  };
+
+  return {
+    stmts: [
+      db
+        .update(billingAccounts)
+        .set({ billingEmail: email, updatedAt: now })
+        .where(eq(billingAccounts.id, p.billingAccountId)),
+      auditInsert(db, auditEntry),
+    ],
+    auditEntry,
+    billingEmail: email,
+  };
 }

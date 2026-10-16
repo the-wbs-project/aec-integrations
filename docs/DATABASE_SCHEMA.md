@@ -1897,14 +1897,16 @@ The account Managed licenses are sold on: one bill, one term, one Stripe custome
 (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
 may add rows later, so one-per-vendor is a unique index, not the primary key. The E1.5
 back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) creates one for every existing vendor
-with a seat or an entitlement row. No UI reads it yet (decision 18).
+with a seat or an entitlement row. The vendor's Billing tab reads it
+(`GET /api/vendor/billing`, AECI-1387), and an owner may set or clear `billing_email` there
+(`PUT /api/vendor/billing/email`, AECI-1389).
 
 ```sql
 create table billing_accounts (
   id text primary key,
   vendor_id text not null references vendors(id), -- NO ACTION: a vendor with an account refuses retraction
   name text not null,
-  billing_email text,       -- null until checkout (decision 16)
+  billing_email text,       -- null until an owner sets it or checkout does (decision 16); lower-cased
   stripe_customer_id text,
   created_by text,          -- a profiles.id; NO FK, as vendor_plan_pricing.updated_by
   created_at text not null,
@@ -1922,7 +1924,7 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   provision (`POST /api/admin/vendors/:id/seats`). The caller preloads the account with
   `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
   so a second seat writes nothing here. `name` is the vendor's `company_name`;
-  `billing_email` stays NULL; `created_by` is the approving admin. No statement names
+  `billing_email` starts NULL; `created_by` is the approving admin. No statement names
   `vendors`, so `vendors.updated_at` never moves for it. Two first approvals racing on one
   vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
   batch, seat included, rolls back. The entitlement activate's license dual-write (AECI-1353,
@@ -1938,6 +1940,14 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   maps `billing_accounts.vendor_id` to `refuse`, and the FK is NO ACTION, so a vendor with an
   account cannot be deleted by either path. That is also what keeps
   `licenses.billing_account_id` (NO ACTION) safe: nothing deletes an account.
+- **The billing email (AECI-1389).** `billingEmailStatements` in the same module is its one
+  writer today, called by `PUT /api/vendor/billing/email` (owner seats only). The value is
+  trimmed and lower-cased. An unchanged value writes nothing. A change writes one
+  `billing_account.email_changed` row with the old and new address in `before_state` /
+  `after_state`, the seat-invite precedent. Audit only: no message to the other owners
+  (ruling 2026-10-16). Decision 16's default-at-checkout still applies when checkout lands
+  (E9). The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
+  person's email, matched case-insensitively, on any vendor's account.
 - **No FK on `created_by`.** A `profiles` recreate cannot cascade into it. SQLite never clears it
   either, so the erasure batch (`AUTH_AND_RLS.md` §8) nulls it explicitly, as it does
   `licenses.granted_by`.
@@ -1946,8 +1956,10 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
 - **Domain state.** Every write carries its `audit_log` row in the same `db.batch`, with
   `entity_type = 'billing_account'`, `entity_id` = the account id, and `audit_log.vendor_id`
   filled. Creation is `billing_account.created` (registered in
-  `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). License changes file
-  under the account too (§8.6c).
+  `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). An owner's billing
+  email change is `billing_account.email_changed` (AECI-1389), a vendor receipt: the
+  Changes page shows it as the vendor's own edit, naming the field and never the address.
+  License changes file under the account too (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 

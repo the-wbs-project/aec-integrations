@@ -56,7 +56,7 @@ export type AdminBillingOwnerSeat = z.infer<typeof AdminBillingOwnerSeatSchema>;
 export const AdminBillingAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
-  /** Nullable until checkout (decision 16). */
+  /** Null until an owner sets it (AECI-1389) or checkout does (decision 16). */
   billing_email: z.string().nullable(),
   stripe_customer_id: z.string().nullable(),
   created_at: z.string(),

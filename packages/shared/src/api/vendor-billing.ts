@@ -137,3 +137,10 @@ export const UpdateBillingEmailRequestSchema = z
   })
   .strict();
 export type UpdateBillingEmailRequest = z.infer<typeof UpdateBillingEmailRequestSchema>;
+
+/** `200`: the account as stored after the write, the same block `GET /api/vendor/billing`
+ *  returns, so the tab can patch its state without a refetch. */
+export const UpdateBillingEmailResponseSchema = z.object({
+  billing_account: VendorBillingAccountSchema,
+});
+export type UpdateBillingEmailResponse = z.infer<typeof UpdateBillingEmailResponseSchema>;
