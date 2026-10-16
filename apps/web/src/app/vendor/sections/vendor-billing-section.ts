@@ -1,12 +1,14 @@
 import {
   Component,
   ElementRef,
+  Injector,
   LOCALE_ID,
   afterNextRender,
   afterRenderEffect,
   computed,
   inject,
   signal,
+  viewChild,
   viewChildren,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -96,6 +98,12 @@ function documentLabel(document: string): string {
  * A successful assign swaps its row's control for the switch, so the section moves
  * focus to that switch once the re-read renders (WCAG 2.4.3).
  *
+ * A stale refusal (`409`/`404`: another owner or tab acted first) is the section's,
+ * not the control's. The re-read that follows can swap or remove the control that
+ * was refused, taking its error line and focus with it. So the control emits
+ * `stale`, the section shows the message above the table, re-reads billing, and
+ * then moves focus to that message if focus was lost or still in this section.
+ *
  * No buy button, no price, no Stripe: AECi grants licenses for pilots, and buying
  * arrives with E9.
  */
@@ -176,6 +184,17 @@ function documentLabel(document: string): string {
           >
             Licenses
           </h3>
+          @if (staleNotice(); as message) {
+            <p
+              #staleNoticeEl
+              role="alert"
+              tabindex="-1"
+              class="mt-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              data-testid="billing-stale-notice"
+            >
+              {{ message }}
+            </p>
+          }
           <div class="mt-3">
             <aec-vendor-billing-licenses
               [licenses]="b.licenses"
@@ -186,14 +205,21 @@ function documentLabel(document: string): string {
               @if (row.license.live) {
                 @if (row.license.assigned_product) {
                   <div class="flex flex-col items-end gap-3">
-                    <aec-vendor-license-release-switch [license]="row.license" />
-                    <aec-vendor-license-release-request [license]="row.license" />
+                    <aec-vendor-license-release-switch
+                      [license]="row.license"
+                      (stale)="onStale($event)"
+                    />
+                    <aec-vendor-license-release-request
+                      [license]="row.license"
+                      (stale)="onStale($event)"
+                    />
                   </div>
                 } @else {
                   <aec-vendor-license-assign
                     [license]="row.license"
                     [products]="b.assignable_products"
                     (assigned)="focusSwitchAfterAssign($event)"
+                    (stale)="onStale($event)"
                   />
                 }
               }
@@ -296,6 +322,12 @@ export class VendorBillingSection {
     readonly licenseId: string;
     readonly before: VendorBillingResponse | null;
   } | null>(null);
+  /** A stale refusal's message, above the licenses table. It says what happened;
+   *  the table below shows the current state. Replaced by the next refusal, and
+   *  cleared by a successful assign. */
+  protected readonly staleNotice = signal<string | null>(null);
+  private readonly staleNoticeEl = viewChild<ElementRef<HTMLElement>>('staleNoticeEl');
+  private readonly injector = inject(Injector);
   /** Declared in this template, so the query sees switches stamped into the table. */
   private readonly releaseSwitches = viewChildren(VendorLicenseReleaseSwitch);
 
@@ -337,7 +369,24 @@ export class VendorBillingSection {
   }
 
   protected focusSwitchAfterAssign(licenseId: string): void {
+    this.staleNotice.set(null);
     this.pendingFocus.set({ licenseId, before: this.billing() });
+  }
+
+  protected async onStale(message: string): Promise<void> {
+    this.staleNotice.set(message);
+    await this.store.reload('billing');
+    afterNextRender(
+      () => {
+        const doc = this.host.nativeElement.ownerDocument;
+        const active = doc.activeElement;
+        const lost = !active || active === doc.body || !active.isConnected;
+        if (lost || this.host.nativeElement.contains(active)) {
+          this.staleNoticeEl()?.nativeElement.focus();
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
   protected retry(): void {

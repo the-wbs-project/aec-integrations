@@ -8,6 +8,7 @@ import {
   computed,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -190,6 +191,10 @@ export class VendorLicenseReleaseRequest {
 
   /** A live license on a product. */
   readonly license = input.required<VendorBillingLicense>();
+  /** A stale refusal (`409`/`404`), with its message. The dialog closes and the
+   *  section shows it and re-reads billing, because the re-read can remove this
+   *  control and the dialog host with it. */
+  readonly stale = output<string>();
 
   private readonly injector = inject(Injector);
   private readonly dialog = viewChild(BrnDialog);
@@ -256,8 +261,13 @@ export class VendorLicenseReleaseRequest {
       );
     } catch (err) {
       this.busy.set(false);
-      this.error.set(licenseActionErrorMessage(err, 'request'));
-      if (licenseActionIsStale(err)) void this.store.reload('billing');
+      const message = licenseActionErrorMessage(err, 'request');
+      if (licenseActionIsStale(err)) {
+        this.dialog()?.close();
+        this.stale.emit(message);
+        return;
+      }
+      this.error.set(message);
     }
   }
 

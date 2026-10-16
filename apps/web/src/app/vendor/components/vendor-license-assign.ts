@@ -179,6 +179,9 @@ export class VendorLicenseAssign {
   /** The license id, once the write succeeds and before billing is re-read. The
    *  re-read destroys this control, so it cannot emit later. */
   readonly assigned = output<string>();
+  /** A stale refusal (`409`/`404`), with its message. The section shows it and
+   *  re-reads billing, because the re-read can destroy this control. */
+  readonly stale = output<string>();
 
   /** The picked product. Resets to the first option when the list changes, or
    *  when the picked one has left it. */
@@ -256,9 +259,13 @@ export class VendorLicenseAssign {
     } catch (err) {
       this.busy.set(false);
       this.confirming.set(false);
-      this.notice.set(licenseActionErrorMessage(err, 'assign'));
+      const message = licenseActionErrorMessage(err, 'assign');
+      if (licenseActionIsStale(err)) {
+        this.stale.emit(message);
+        return;
+      }
+      this.notice.set(message);
       afterNextRender(() => this.triggerEl()?.nativeElement.focus(), { injector: this.injector });
-      if (licenseActionIsStale(err)) void this.store.reload('billing');
     }
   }
 

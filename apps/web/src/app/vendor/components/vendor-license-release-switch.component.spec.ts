@@ -128,7 +128,7 @@ describe('VendorLicenseReleaseSwitch', () => {
     expect(getBilling).not.toHaveBeenCalled();
   });
 
-  it('re-reads billing on a 409 LICENSE_NOT_ASSIGNED', async () => {
+  it('hands a 409 LICENSE_NOT_ASSIGNED to the section', async () => {
     setReleaseAtRenewal.mockRejectedValueOnce(
       new HttpErrorResponse({
         status: 409,
@@ -136,16 +136,17 @@ describe('VendorLicenseReleaseSwitch', () => {
       }),
     );
     const fixture = render();
+    const stale: string[] = [];
+    fixture.componentInstance.stale.subscribe((m) => stale.push(m));
 
     sw(fixture).click();
     await flush();
     fixture.detectChanges();
 
+    expect(stale).toEqual(['This license is no longer on a product, or it has ended.']);
     expect(
-      (fixture.nativeElement as HTMLElement)
-        .querySelector('[data-testid="license-release-error"]')
-        ?.textContent?.trim(),
-    ).toBe('This license is no longer on a product, or it has ended.');
-    expect(getBilling).toHaveBeenCalledTimes(1);
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="license-release-error"]'),
+    ).toBeNull();
+    expect(getBilling).not.toHaveBeenCalled();
   });
 });

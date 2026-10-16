@@ -5,6 +5,7 @@ import {
   computed,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -90,6 +91,9 @@ export class VendorLicenseReleaseSwitch {
 
   /** A live license on a product. */
   readonly license = input.required<VendorBillingLicense>();
+  /** A stale refusal (`409`/`404`), with its message. The section shows it and
+   *  re-reads billing, because the re-read can destroy this control. */
+  readonly stale = output<string>();
 
   /** The asked-for value while a write runs; `null` otherwise. */
   private readonly pending = signal<boolean | null>(null);
@@ -121,8 +125,12 @@ export class VendorLicenseReleaseSwitch {
       );
     } catch (err) {
       this.pending.set(null);
-      this.notice.set(licenseActionErrorMessage(err, 'release'));
-      if (licenseActionIsStale(err)) void this.store.reload('billing');
+      const message = licenseActionErrorMessage(err, 'release');
+      if (licenseActionIsStale(err)) {
+        this.stale.emit(message);
+        return;
+      }
+      this.notice.set(message);
     }
   }
 

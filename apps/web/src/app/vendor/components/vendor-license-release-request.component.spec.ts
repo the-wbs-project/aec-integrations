@@ -131,7 +131,7 @@ describe('VendorLicenseReleaseRequest', () => {
     );
   });
 
-  it('keeps a refusal in the dialog and re-reads billing on a 409', async () => {
+  it('closes the dialog and hands a 409 to the section', async () => {
     requestLicenseRelease.mockRejectedValueOnce(
       new HttpErrorResponse({
         status: 409,
@@ -139,14 +139,17 @@ describe('VendorLicenseReleaseRequest', () => {
       }),
     );
     const fixture = render();
+    const stale: string[] = [];
+    fixture.componentInstance.stale.subscribe((m) => stale.push(m));
     await open(fixture);
 
     await submit(fixture, 'Retiring it.');
 
-    expect(overlay()!.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+    expect(stale).toEqual([
       'An early unassign request for this license is already open. AEC Integrations will answer it.',
-    );
-    expect(getBilling).toHaveBeenCalledTimes(1);
+    ]);
+    expect(overlay()?.querySelector('[role="alert"]') ?? null).toBeNull();
+    expect(getBilling).not.toHaveBeenCalled();
   });
 
   it('shows the requested state, with its date, instead of the button', () => {

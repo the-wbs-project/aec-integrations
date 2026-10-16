@@ -18,8 +18,9 @@ import { VendorLicenseAssign } from './vendor-license-assign';
 /**
  * The assign control (AECI-1391, E5.5). "Assign" only opens a confirmation that says
  * the license stays put until renewal; its own button writes. Then billing and `/me`
- * are re-read and one announcement goes out. Refusals get plain copy, and a `409`
- * re-reads billing.
+ * are re-read and one announcement goes out. Refusals get plain copy. A stale one
+ * (`409`/`404`) goes to the section through `stale`, because the re-read can
+ * destroy this control.
  */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
@@ -162,18 +163,42 @@ describe('VendorLicenseAssign', () => {
       409,
       'PRODUCT_ALREADY_LICENSED',
       'That product already holds a license, possibly from a co-owner. Pick another product.',
-      true,
     ],
-    [409, 'LICENSE_NOT_LIVE', 'This license has ended, so it cannot go on a product.', true],
+    [409, 'LICENSE_NOT_LIVE', 'This license has ended, so it cannot go on a product.'],
     [
       409,
       'LICENSE_ALREADY_ASSIGNED',
       'This license is already on a product. The table now shows where.',
-      true,
     ],
-    [403, 'FORBIDDEN', 'Only an account owner can manage licenses.', false],
-    [500, 'INTERNAL', 'Could not assign the license. Try again.', false],
-  ])('maps a %i %s to its copy', async (status, code, copy, reloads) => {
+    [
+      404,
+      'NOT_FOUND',
+      'That license or product is no longer on your account. The table has been refreshed.',
+    ],
+  ])('hands a stale %i %s to the section with its copy', async (status, code, copy) => {
+    assignLicense.mockRejectedValueOnce(
+      new HttpErrorResponse({ status, error: { error: { code, message: 'x' } } }),
+    );
+    const fixture = render();
+    const stale: string[] = [];
+    fixture.componentInstance.stale.subscribe((m) => stale.push(m));
+    await openConfirm(fixture);
+    q(fixture, 'license-assign-submit')!.click();
+    await flush();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(stale).toEqual([copy]);
+    // The section shows it and re-reads billing; the control does neither.
+    expect(q(fixture, 'license-assign-error')).toBeNull();
+    expect(getBilling).not.toHaveBeenCalled();
+    expect(getMe).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [403, 'FORBIDDEN', 'Only an account owner can manage licenses.'],
+    [500, 'INTERNAL', 'Could not assign the license. Try again.'],
+  ])('maps a %i %s to its copy', async (status, code, copy) => {
     assignLicense.mockRejectedValueOnce(
       new HttpErrorResponse({ status, error: { error: { code, message: 'x' } } }),
     );
@@ -188,7 +213,7 @@ describe('VendorLicenseAssign', () => {
 
     expect(assigned).toEqual([]);
     expect(q(fixture, 'license-assign-error')?.textContent?.trim()).toBe(copy);
-    expect(getBilling).toHaveBeenCalledTimes(reloads ? 1 : 0);
+    expect(getBilling).not.toHaveBeenCalled();
     expect(getMe).not.toHaveBeenCalled();
     // A refusal keeps the control, so focus returns to "Assign", and no `assigned`.
     expect(document.activeElement).toBe(q(fixture, 'license-assign-trigger'));

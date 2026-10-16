@@ -151,7 +151,8 @@ export interface VendorPortalData {
   /**
    * `GET /api/vendor/billing` (AECI-1390, E5.4): the owner-only Billing tab's
    * licenses and billing email. `null` until the tab first loads it. No scope maps
-   * to it; a moved `entitlement` refetches it once loaded (see `revalidate`).
+   * to it; a moved `entitlement` or `notifications` refetches it once loaded (see
+   * `revalidate`).
    */
   billing: VendorBillingResponse | null;
 }
@@ -526,6 +527,13 @@ export class VendorPortalStore {
     // §2.2), so a grant, an assignment or an end refetches a loaded Billing tab.
     // Never from cold: a member seat never loads it, and must not 403 on a poll.
     if (scopes.includes('entitlement') && this.statuses.billing() !== 'idle') {
+      resources.add('billing');
+    }
+    // An admin decline of an early-unassign request touches no license, so
+    // `entitlement` stays put. Its override notice moves `notifications`, so refetch
+    // a loaded Billing tab on that too, or the row keeps "requested" and hides the
+    // request button until a reload. Never from cold, as above.
+    if (scopes.includes('notifications') && this.statuses.billing() !== 'idle') {
       resources.add('billing');
     }
     const checklists = scopes.some((scope) => CHECKLIST_SCOPES.has(scope))

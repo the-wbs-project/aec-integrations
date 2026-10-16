@@ -25,6 +25,8 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
 import {
+  VENDOR_ACCEPTANCES_FIXTURE,
+  VENDOR_BILLING_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
@@ -46,6 +48,8 @@ let api: {
   getNotifications: ReturnType<typeof vi.fn>;
   getSeats: ReturnType<typeof vi.fn>;
   getContests: ReturnType<typeof vi.fn>;
+  getBilling: ReturnType<typeof vi.fn>;
+  getAcceptances: ReturnType<typeof vi.fn>;
 };
 
 function makeStore(): VendorPortalStore {
@@ -72,6 +76,8 @@ beforeEach(() => {
       can_manage_seats: true,
     }),
     getContests: vi.fn().mockResolvedValue(VENDOR_CONTESTS_FIXTURE),
+    getBilling: vi.fn().mockResolvedValue(VENDOR_BILLING_FIXTURE),
+    getAcceptances: vi.fn().mockResolvedValue({ acceptances: VENDOR_ACCEPTANCES_FIXTURE }),
   };
 });
 afterEach(() => vi.restoreAllMocks());
@@ -220,6 +226,20 @@ describe('VendorPortalStore — the refetch map', () => {
     // refresh even when the contests cursor did not move.
     expect(api.getMe).toHaveBeenCalledTimes(1);
     expect(api.getContests).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches a loaded Billing tab on notifications, never from cold (AECI-1391)', async () => {
+    const store = makeStore();
+    await store.revalidate(['notifications']);
+    // A member seat never loads billing, so a poll must not call the owner-only read.
+    expect(api.getBilling).not.toHaveBeenCalled();
+
+    await store.ensure('billing');
+    api.getBilling.mockClear();
+    await store.revalidate(['notifications']);
+    // An admin decline of an early-unassign request touches no license, so only
+    // its notice moves a cursor. The row must still drop "requested".
+    expect(api.getBilling).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the last good value when a refresh fails', async () => {

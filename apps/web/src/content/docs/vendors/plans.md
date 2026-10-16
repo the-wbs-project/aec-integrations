@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: October 13, 2026
+last_updated: October 16, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -80,7 +80,26 @@ To start, claim your listing. The claim form does not ask about a plan. When we 
 
 The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.
 
-The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal, or to change anything about billing, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal for the whole plan, [contact us](/contact).
+
+## The Billing tab
+
+Owners see a **Billing** tab in the vendor portal. Members do not. It has three parts.
+
+- **Billing email.** License grant and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there.
+- **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**.
+- **Agreements.** The agreements your company accepted, with who accepted each one and when.
+
+You cannot buy licenses on the tab yet. We grant them, and they appear here.
+
+### Put a license on a product
+
+On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal.
+
+### Free a product's license
+
+- **At renewal.** Turn on **Release at renewal**. The license comes off its product at the next renewal, and the product goes back to Free then. Turn it off to keep the license on the product.
+- **Before renewal.** Choose **Request early unassign** and give a reason. We review the request. If we approve it, the license goes back to your pool and the product goes back to Free.
 
 ### Can we cancel a Managed plan early?
 
