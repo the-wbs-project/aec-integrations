@@ -489,7 +489,7 @@ function termHasEnded(periodEnd: string | null, now: Date | string): boolean {
   return endMs <= nowMs;
 }
 
-// ─── Plan price display (ruling 2026-10-08, STAGE_2_PAID_TIERS_SPEC.md §13.13) ──
+// ─── Plan prices (display only, VENDOR_SIGNUP_PROCESS.md §2 decision 8) ───────
 
 /**
  * Managed's default list price, per product per month, in US cents. The ONE
@@ -505,33 +505,3 @@ export const MANAGED_LIST_PRICE_CENTS = 2500;
  * company's own price and term are agreed with it, and nothing bills from this.
  */
 export const MANAGED_ANNUAL_PRICE_CENTS = 25000;
-
-/**
- * A vendor's plan price overrides, as the portal carries them on every
- * product's plan block. Both `null` = the default sentence.
- */
-export interface PlanPriceOverrides {
-  managed_price_cents: number | null;
-  message: string | null;
-}
-
-/** No override: the default list price, no message. */
-export const DEFAULT_PLAN_PRICE: PlanPriceOverrides = { managed_price_cents: null, message: null };
-
-/**
- * What the price line says, by precedence: a message replaces the whole
- * sentence, else a price override replaces the amount, else the default
- * sentence. Pure, so the vendor panel and the admin preview cannot disagree.
- */
-export type PlanPriceDisplay =
-  | { kind: 'message'; text: string }
-  | { kind: 'price'; cents: number }
-  | { kind: 'default' };
-
-export function planPriceDisplay(price: PlanPriceOverrides | null | undefined): PlanPriceDisplay {
-  const message = price?.message?.trim();
-  if (message) return { kind: 'message', text: message };
-  const cents = price?.managed_price_cents;
-  if (typeof cents === 'number') return { kind: 'price', cents };
-  return { kind: 'default' };
-}

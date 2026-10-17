@@ -104,8 +104,8 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_entitlement.cleared': { kind: 'aeci-override', receipt: true },
   'vendor_entitlement.expiry_warned': { kind: 'system', receipt: true },
   // The display-only price overrides (ruling 2026-10-08, STAGE_2_PAID_TIERS_SPEC.md
-  // §13.13). Not receipts: the vendor sees the result on the plan panel, and the
-  // row's before/after names the admin's commercial terms, not a vendor record.
+  // §13.13), retired by AECI-1357. Kept so historical rows still classify. Not
+  // receipts: the row's before/after names the admin's commercial terms.
   'vendor_plan_pricing.set': { kind: 'aeci-override', receipt: false },
   'vendor_plan_pricing.cleared': { kind: 'aeci-override', receipt: false },
   // The billing account licenses sit on (AECI-1351, VENDOR_SIGNUP_PROCESS.md §2

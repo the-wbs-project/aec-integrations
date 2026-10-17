@@ -670,13 +670,14 @@ describe('batching', () => {
     expect(await statementsFor('/api/vendor/checklist')).toBe(two);
   });
 
-  // Each read includes the one primary-key lookup of the plan price overrides (§13.13).
-  it('runs eight statements for the vendor read', async () => {
+  // AECI-1357 dropped the plan price lookup from both reads: the plan block is
+  // built from the session.
+  it('runs seven statements for the vendor read', async () => {
     await addProducts(4, 3000);
-    expect(await statementsFor('/api/vendor/checklist')).toBe(8);
+    expect(await statementsFor('/api/vendor/checklist')).toBe(7);
   });
 
-  it('runs the ownership wave plus three fact reads and the price read for the product read', async () => {
-    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(7);
+  it('runs the ownership wave plus three fact reads for the product read', async () => {
+    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(6);
   });
 });

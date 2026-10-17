@@ -716,7 +716,7 @@ Three IA notes:
 >
 > An AECi accept on `/admin/contests` that would write a locked field is refused with `409 FIELD_LOCKED_BY_AECI`, and the queue says to lift the lock here first.
 
-> **Retired 2026-10-17 (AECI-1375, E4.6).** The Plan price section, its control and its endpoint are gone, per `VENDOR_SIGNUP_PROCESS.md` decision 8. Existing overrides still show on the vendor's plan panel until E1.8. The rest of this note is history.
+> **Retired 2026-10-17 (AECI-1375, E4.6).** The Plan price section, its control and its endpoint are gone, per `VENDOR_SIGNUP_PROCESS.md` decision 8. The overrides no longer show on the vendor's plan panel (AECI-1357, 2026-10-17): every vendor sees the same price line, and `planPriceSentence` takes only the locale. The rest of this note is history.
 >
 > **Plan price — ruling 2026-10-08.** A "Plan price" section on the Vendor tab, directly below Entitlement. It sets the display-only price overrides for the vendor portal's plan panel (`STAGE_2_PAID_TIERS_SPEC.md` §13.13). Component: `apps/web/src/app/admin/entitlement/plan-pricing-control.ts`, over `PUT /api/admin/vendors/:id/plan-pricing` (`API_CONTRACTS.md` §6.10). It reads the stored state from `plan_pricing` on `GET /api/admin/vendors/:id`.
 >

@@ -40,7 +40,7 @@ test.describe('Free plan portal (preview)', () => {
       'Available on Managed',
     );
     await expect(page.locator('aec-vendor-plan-panel')).toContainText(
-      'Managed is $25 a month per product.',
+      'Managed is $25 a month or $250 a year per product.',
     );
     expect(await axeSerious(page), 'Free product overview must be axe clean').toEqual([]);
   });

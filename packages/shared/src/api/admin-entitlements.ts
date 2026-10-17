@@ -2,8 +2,6 @@ import { z } from 'zod';
 
 import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
 
-import { PlanPriceSchema } from './admin-plan-pricing';
-
 /**
  * Entitlement read-side contracts (`docs/STAGE_2_PAID_TIERS_SPEC.md` §4).
  *
@@ -74,12 +72,6 @@ export const VendorEntitlementBlockSchema = z.object({
    */
   ended_at: z.string().nullable(),
   capabilities: z.array(CapabilitySchema),
-  /**
-   * The vendor's plan price overrides (ruling 2026-10-08, §13.13). Display only.
-   * Both `null` = the default sentence. Unlike the fields above this is read
-   * from `vendor_plan_pricing`, not the session, so every builder takes it.
-   */
-  price: PlanPriceSchema,
 });
 export type VendorEntitlementBlock = z.infer<typeof VendorEntitlementBlockSchema>;
 
