@@ -7,9 +7,9 @@
  * is still an open *pricing* question (§8.2). This module is that data. Adding
  * a rung is an edit to exactly two objects below — `TIERS` and
  * `TIER_CAPABILITIES` — with no schema change, no migration, and no handler
- * change. `vendor_entitlements.tier` is deliberately UNCONSTRAINED at the DB
- * layer (§2.2) precisely so this file, not a SQLite CHECK, owns the closed
- * vocabulary.
+ * change. No DB column stores a tier (licenses carry none, and the retired
+ * entitlement `tier` was UNCONSTRAINED, §2.2), so this file, not a SQLite CHECK,
+ * owns the closed vocabulary.
  *
  * Three rules a future editor must not break:
  *
@@ -20,7 +20,8 @@
  *     wire-contract namespace; this is a domain rule table like `algolia.ts`,
  *     `agreement.ts`, `slug.ts`. Enforced by a file-scoped
  *     `no-restricted-imports` in `packages/shared/eslint.config.mjs`. The wire
- *     shapes live in `./api/admin-entitlements`, which imports FROM here — the
+ *     shapes live in `./api/vendor` (the `GET /api/vendor/me` plan block, moved
+ *     from `./api/admin-entitlements` by AECI-1358), which imports FROM here — the
  *     dependency is one-way and must stay that way.
  *  2. **Fail closed.** No row, a non-`active` status, or an unknown tier all
  *     resolve to `unclaimed` → the Free capabilities only (AECI-1214). Never
@@ -86,7 +87,7 @@ export type Capability = (typeof CAPABILITIES)[number];
  */
 export const TIERS = ['unclaimed', 'verified'] as const;
 
-/** One tier id. Resolved from a `vendor_entitlements` row by `tierFor`. */
+/** One tier id. Resolved from a plan by `tierFor`. */
 export type EntitlementTier = (typeof TIERS)[number];
 
 /**
@@ -108,35 +109,6 @@ export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capabi
   unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit'],
   verified: [...CAPABILITIES],
 };
-
-/**
- * The tiers an admin may actually **grant** — i.e. `TIERS` minus `unclaimed`.
- *
- * Until AECI-1214 this was "every tier that holds a capability". `unclaimed` now
- * holds the Free capabilities, so that derivation would wrongly include it. Free
- * is never a `vendor_entitlements` row (§13.2): it is what a seat has with no row.
- *
- * This exists because `TIERS` and "what you can sell someone" are not the same
- * list, and conflating them is a live incoherence rather than a tidiness point.
- * `unclaimed` is defined as the **absence** of an entitlement (§3.1), but a
- * `vendor_entitlements` row at that tier would still carry `status: 'active'` —
- * which flips the `vendors.verified` mirror (§2.1), so the vendor reads as entitled
- * to the version-diff gate and the admin and portal surfaces, while `tierFor` resolves
- * the row to **zero** capabilities. That is a vendor billed for a plan that unlocks nothing.
- *
- * So anything that GRANTS a tier derives from here, not from `TIERS` (the retired
- * entitlement `set` request did, until AECI-1375 removed it), while the session
- * block and the grant summary keep reading `TIERS` — they legitimately need to
- * *report* `unclaimed`, they just must never be able to *write* it.
- *
- * Kept as an explicit literal rather than a computed filter because `z.enum`
- * needs a const tuple at the type level; `entitlements.spec.ts` asserts it equals
- * `TIERS` minus `unclaimed`, so adding a rung cannot silently make it stale.
- */
-export const PAID_TIERS = ['verified'] as const;
-
-/** A tier that can be granted. Always a subset of {@link EntitlementTier}. */
-export type PaidEntitlementTier = (typeof PAID_TIERS)[number];
 
 /**
  * Vendor-editable wire field → the capability that unlocks it (AECI-1214).
@@ -217,17 +189,19 @@ export type ProductEditableField = keyof typeof PRODUCT_FIELD_CAPABILITIES;
 export const EXPIRY_WARNING_DAYS = 30;
 
 /**
- * The `vendor_entitlements.status` vocabulary (§2.2). Unlike `tier`, this one
- * IS CHECK-constrained at the DB layer — adding a status is a state-machine
- * change and therefore a code change anyway. It lives here rather than in the
- * wire module so the D1 CHECK (AECI-609), the admin wire schema, and the
- * session block (AECI-611) all read one list.
+ * The plan status vocabulary (§2.2). The session block (AECI-611), the audit
+ * snapshot's `vendor_entitlement_status` column ({@link licensePlanSnapshot}) and
+ * the vendor plan readout all read this one list.
  *
- *  - `pending` — arrangement recorded, PO issued, not yet effective
- *  - `active`  — the only status that grants capabilities, and the only one
- *                that mirrors onto `vendors.verified`
- *  - `expired` — term lapsed amicably
- *  - `revoked` — pulled for cause
+ *  - `pending` — never produced from licenses (a license has no pending state).
+ *                Kept so audit rows written before AECI-1355 still parse.
+ *  - `active`  — the only status that grants capabilities
+ *  - `expired` — the term lapsed, or every live license is past its `ends_at`
+ *  - `revoked` — the latest ended license was revoked for cause
+ *
+ * As built (AECI-1358, 2026-10-17): this began as the `vendor_entitlements.status`
+ * CHECK vocabulary. AECI-1358 kept it although the issue listed it for deletion,
+ * because licenses report their status in it.
  */
 export const ENTITLEMENT_STATUSES = ['pending', 'active', 'expired', 'revoked'] as const;
 
@@ -315,13 +289,13 @@ export type LicenseCancelReason = (typeof LICENSE_CANCEL_REASONS)[number];
 const ACTIVE_STATUS: EntitlementStatus = 'active';
 
 /**
- * Resolve a `vendor_entitlements` row to its tier — **fail-closed** (§3.1).
+ * Resolve a plan (a `{ tier, status }` pair) to its tier — **fail-closed** (§3.1).
  *
- * `unclaimed` for: no row at all (never claimed, or the entitlement was
- * cleared), a `pending` / `expired` / `revoked` status, and a tier this build
- * does not know (the DB column is unconstrained by design, §2.2 — an unknown
- * tier resolving to the Free capabilities is strictly safer than a write-time CHECK
- * failure).
+ * `unclaimed` for: no plan at all, a `pending` / `expired` / `revoked` status, and
+ * a tier this build does not know (an unknown tier resolving to the Free
+ * capabilities is strictly safer than a failure). Its last production caller, the
+ * claim grant's `tier`, read the entitlement row; since AECI-1358 the grant reads
+ * live licenses instead.
  *
  * Structurally typed so callers can pass a Drizzle row, a joined projection, or
  * a session fragment without this module importing a schema.
@@ -341,7 +315,7 @@ export function isEntitlementTier(tier: string): tier is EntitlementTier {
 
 /**
  * The capabilities a tier holds. The `?? []` is not dead code: the tier can
- * arrive from the unconstrained `vendor_entitlements.tier` column via a cast,
+ * arrive from an unconstrained stored value (an old audit row) via a cast,
  * and an unrecognized one must resolve to zero capabilities, not `undefined`.
  */
 export function capabilitiesFor(tier: EntitlementTier): readonly Capability[] {
@@ -364,7 +338,7 @@ export function hasCapability(tier: EntitlementTier, capability: Capability): bo
 }
 
 /** `'none'` on both axes of {@link VendorPlanSnapshot}: the vendor holds no
- *  `vendor_entitlements` row (the Free plan, §13.2). Explicit, never NULL, so an
+ *  license (the Free plan, §13.2). Explicit, never NULL, so an
  *  audit row can say "no plan" rather than "not recorded" (AECI-1193). */
 export const NO_PLAN = 'none' as const;
 
@@ -373,9 +347,11 @@ export const NO_PLAN = 'none' as const;
  * `DATABASE_SCHEMA.md` §8.4) — what lands in `audit_log.vendor_tier` and
  * `audit_log.vendor_entitlement_status`.
  *
- * `tier` is the RAW row tier (`'verified'`), not the resolved `EntitlementTier`:
- * the session flattens an expired `verified` row to `unclaimed`, and "actions
- * after the Managed plan lapsed" needs both halves.
+ * `tier` is the RAW tier (`'verified'`), not the resolved `EntitlementTier`:
+ * the session flattens an expired `verified` plan to `unclaimed`, and "actions
+ * after the Managed plan lapsed" needs both halves. Built by
+ * {@link licensePlanSnapshot}; `vendorPlanSnapshot` built it from the entitlement
+ * row until AECI-1358 deleted it.
  */
 export interface VendorPlanSnapshot {
   tier: string;
@@ -383,43 +359,8 @@ export interface VendorPlanSnapshot {
 }
 
 /**
- * Snapshot a `vendor_entitlements` row (or its absence) for an audit row.
- *
- * The stored `status` is the starting point, and a status outside the §2.2
- * vocabulary is not echoed. One clock check sits on top (ruling, 2026-10-05): a
- * row stored `active` whose `period_end` is already past at `now` records
- * `expired`. Nothing auto-lapses a row (the expiry cron only warns), so without
- * this a write made after the term ended would read as a live plan.
- *
- * This is a RECORD rule, not an authorization rule. The session's `entitlementFor`
- * and `tierFor` keep trusting the stored status, so the write itself is
- * authorized exactly as before. Only what the audit row says changes.
- *
- * `period_end` is ISO-8601 TEXT, either date-only (`2027-08-14`, read as UTC
- * midnight) or a full timestamp. It is compared by parsed instant, never as a
- * string, so the two spellings cannot mis-order. A null `period_end` is a
- * perpetual term and never lapses. An unparseable one keeps the stored status.
- *
- * Structurally typed so a Drizzle row, `loadEntitlement`'s projection or the
- * session's `entitlement` block can all be passed.
- */
-export function vendorPlanSnapshot(
-  row: { tier: string; status: string; periodEnd: string | null } | null | undefined,
-  now: Date | string,
-): VendorPlanSnapshot {
-  if (!row) return { tier: NO_PLAN, status: NO_PLAN };
-  const status = (ENTITLEMENT_STATUSES as readonly string[]).includes(row.status)
-    ? (row.status as EntitlementStatus)
-    : NO_PLAN;
-  if (status === 'active' && termHasEnded(row.periodEnd, now)) {
-    return { tier: row.tier, status: 'expired' };
-  }
-  return { tier: row.tier, status };
-}
-
-/**
  * The raw tier a license snapshot records. Licenses carry no tier: every live license
- * grants the one paid rung, which `vendor_entitlements.tier` called `verified`. Kept
+ * grants the one paid rung, which the retired entitlement `tier` called `verified`. Kept
  * as that word so audit rows before and after the switch-over read alike.
  */
 const LICENSE_SNAPSHOT_TIER = 'verified';
@@ -434,7 +375,7 @@ export interface LicensePlanRow {
 
 /**
  * Snapshot a vendor's licenses (every license on every billing account it holds) for
- * an audit row (AECI-1352). Same shape and columns as {@link vendorPlanSnapshot}:
+ * an audit row (AECI-1352). Same shape and columns the retired `vendorPlanSnapshot` wrote:
  * `audit_log.vendor_tier` and `audit_log.vendor_entitlement_status` (`DATABASE_SCHEMA.md`
  * §8.4). Those column names stay, to avoid an `audit_log` recreate.
  *
@@ -446,7 +387,7 @@ export interface LicensePlanRow {
  *  - every license ended → the most recently ended one decides: `revoked` when its
  *    `end_reason` is `revoked`, else `expired` (`lapsed`, `released`, or NULL).
  *
- * Record rule only, like `vendorPlanSnapshot`: authorization reads stored state.
+ * Record rule only: authorization reads stored state.
  * Dates are compared by parsed instant, so date-only and full ISO spellings cannot
  * mis-order. A null `ends_at` is monthly and never lapses on the clock; an
  * unparseable one keeps the license live. `pending` is never produced: a license has

@@ -84,7 +84,7 @@ function tokenParam(c: InviteContext): string {
 async function loadInvite(db: ReturnType<DbFactory>['db'], token: string) {
   // An explicit `innerJoin`, not a relational `with:` — `vendorSeatInvites` has no
   // `relations()` entry, matching every other ops/ledger table here
-  // (`vendor_entitlements`, `audit_log`, `vendor_requests`). One statement either
+  // (`licenses`, `audit_log`, `vendor_requests`). One statement either
   // way; this one needs no schema surface.
   const [row] = await db
     .select({

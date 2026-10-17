@@ -33,7 +33,6 @@ import {
   products,
   profiles,
   taxonomyDataObjects,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -108,12 +107,6 @@ beforeEach(async () => {
     { id: OTHER, slug: 'autodesk', companyName: 'Autodesk', promotionStatus: 'promoted' },
     { id: CO_OWNER, slug: 'trimble', companyName: 'Trimble', promotionStatus: 'promoted' },
   ]);
-  await t.db.insert(vendorEntitlements).values({
-    id: u(70),
-    vendorId: VENDOR,
-    tier: 'verified',
-    status: 'active',
-  });
   // AECI-1351: the post-back-fill state, so a provision writes no account row.
   await t.db.insert(billingAccounts).values({ id: u(71), vendorId: VENDOR, name: 'Bentley' });
   // AECI-1355: the plan snapshot and the owner checks read licenses.
@@ -282,13 +275,11 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     const vendor = await vendorRow();
     expect(vendor.maintainedBy).toBe('aeci');
     expect(vendor.lastReviewedAt).toBe(REVIEWED);
-    // Seat and entitlement are orthogonal (PAID_TIERS §5.2).
+    // Seat and plan are orthogonal (PAID_TIERS §5.2): the license stays live.
     expect(vendor.verified).toBe(true);
-    const [ent] = await t.db
-      .select()
-      .from(vendorEntitlements)
-      .where(eq(vendorEntitlements.vendorId, VENDOR));
-    expect(ent.status).toBe('active');
+    const held = await t.db.select().from(licenses);
+    expect(held.length).toBeGreaterThan(0);
+    expect(held.every((l) => l.endedAt === null)).toBe(true);
 
     const mine = await product(P_MINE);
     expect(mine.maintainedBy).toBe('aeci');

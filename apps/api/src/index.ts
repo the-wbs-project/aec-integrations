@@ -666,8 +666,8 @@ app.route('/', authActivity);
 //     `profiles.role = 'vendor_admin'` STANDALONE — the claim grant
 //     (`PATCH /api/admin/claims/:id`) and the invite redeem
 //     (`POST /api/seat-invites/:token/accept`) write it too, but only behind a
-//     claim or an owner's invite — and it opens NO `vendor_entitlements`
-//     row, so it never turns `vendors.verified` on. That is the whole point: a pure
+//     claim or an owner's invite — and it grants NO license, so it never
+//     turns `vendors.verified` on. That is the whole point: a pure
 //     connector vendor is never sold verification (§8.9(1)), and every prior path
 //     to a seat opened an entitlement on the way, which is why §5.2 had to tell
 //     operators not to press Grant. Two statements in one batch, neither naming
@@ -1481,8 +1481,7 @@ authVendor.patch(
 );
 // AECI-724 / `STAGE_2_SPEC.md` §8.9(1)–(2): the connector seat edits a mapping on
 // its own catalogue. A SEAT IS THE WHOLE GATE: no `requireCapability` and no
-// entitlement read, because the connector seat is deliberately not a
-// `vendor_entitlements` row. Ownership of the catalogue's connector-role product
+// plan read, because the connector seat deliberately holds no license. Ownership of the catalogue's connector-role product
 // (404) and `managed_by = 'vendor'` (409) are decided in the handler, in that order.
 authVendor.patch(
   '/api/vendor/connector-stub-mappings/:id',

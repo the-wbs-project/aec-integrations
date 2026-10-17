@@ -16,10 +16,11 @@
  * untouched.
  *
  * AECI-1367 made every approval land on Free: the grant composes the seat batch,
- * the billing account and the acceptance link into ONE `db.batch`, and never an
- * entitlement. The matrix covers the 400 on a body that still names a plan, the
+ * the billing account and the acceptance link into ONE `db.batch`, and never a
+ * license. The matrix covers the 400 on a body that still names a plan, the
  * owner rule (first unbanned owner only), the acceptance link, no purge, and a
- * Managed vendor from before keeping its entitlement on a second seat.
+ * Managed vendor from before keeping its live license on a second seat. Since
+ * AECI-1358 the response's `tier` reads the vendor's licenses.
  */
 
 import {
@@ -42,7 +43,6 @@ import {
   products,
   productVendors,
   profiles,
-  vendorEntitlements,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -160,21 +160,6 @@ function reqRow(
 
 const seedRequest = (o: Partial<typeof vendorRequests.$inferInsert> = {}) =>
   t.db.insert(vendorRequests).values(reqRow(o));
-
-/** Seed the vendor's `vendor_entitlements` row directly (bypassing the builders) to
- *  set up a §2.3 matrix state. `updated_at` is pinned to `OLD_TS` so a test can prove
- *  the second-seat path did not churn it. */
-const seedEntitlement = (status: string) =>
-  t.db.insert(vendorEntitlements).values({
-    vendorId: VENDOR_ID,
-    tier: 'verified',
-    status,
-    grantedAt: OLD_TS,
-    endedAt: status === 'active' ? null : OLD_TS,
-    expiryNoticeSentAt: status === 'active' ? null : OLD_TS,
-    createdAt: OLD_TS,
-    updatedAt: OLD_TS,
-  });
 
 /** Seed the vendor's billing account directly, the state a seated vendor is in once
  *  E1's back-fill has run (AECI-1351). `updated_at` is pinned to `OLD_TS` so a test
@@ -304,7 +289,7 @@ const requestOf = async (id: string) =>
 //
 // AECI-1367: every approval lands on Free. The batch is the seat, the request
 // resolve, the workflow, the billing account when absent and the acceptance link.
-// No entitlement row, no `vendors.verified` flip, no purge.
+// No license, no `vendors.verified` flip, no purge.
 
 /** A claim-time terms acceptance on the claim, the row E3.3 will write. */
 const seedAcceptance = (id: string, vendorRequestId = REQUEST_ID) =>
@@ -319,7 +304,7 @@ const seedAcceptance = (id: string, vendorRequestId = REQUEST_ID) =>
   });
 
 describe('PATCH /api/admin/claims/:id — grant', () => {
-  it('lands on Free: seat, resolve, workflow, billing account and audit in one batch; no entitlement, no flip, no purge', async () => {
+  it('lands on Free: seat, resolve, workflow, billing account and audit in one batch; no license, no flip, no purge', async () => {
     await seedVendor();
     await seedRequest();
     await seedWorkflow();
@@ -346,8 +331,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const seat = await profileOf(CLAIMANT_ID);
     expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
 
-    // No entitlement row, and the vendor row is exactly as seeded.
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    // No license, and the vendor row is exactly as seeded.
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
     const vendor = await vendorOf(VENDOR_ID);
     expect(vendor!.verified).toBe(false);
     expect(vendor!.updatedAt).toBe(OLD_TS);
@@ -624,13 +609,12 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(grantAudit.metadata).toMatchObject({ display_name_filled: false });
   });
 
-  it('a second seat on a seated vendor is a non-owner; verified, entitlement and account untouched', async () => {
+  it('a second seat on a seated vendor is a non-owner; verified, license and account untouched', async () => {
     await seedVendor({ verified: true, updatedAt: OLD_TS });
-    // A Managed vendor from before AECI-1367: an active entitlement and an account.
-    await seedEntitlement('active');
-    // The live license the plan snapshot reads (AECI-1355).
+    // A Managed vendor from before AECI-1367: a live license and an account. The plan
+    // snapshot (AECI-1355) and the response's `tier` (AECI-1358) both read it.
     await seedBillingAccount();
-    await seedLicense(t.db, VENDOR_ID);
+    const license = await seedLicense(t.db, VENDOR_ID);
     // Existing owner seat A.
     await t.db
       .insert(profiles)
@@ -654,9 +638,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const vendor = await vendorOf(VENDOR_ID);
     expect(vendor!.verified).toBe(true);
     expect(vendor!.updatedAt).toBe(OLD_TS);
-    const ents = await t.db.select().from(vendorEntitlements);
-    expect(ents).toHaveLength(1);
-    expect(ents[0]).toMatchObject({ status: 'active', updatedAt: OLD_TS });
+    const held = await t.db.select().from(licenses);
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ id: license, endedAt: null });
     // `tier` is the vendor's live state: still Managed.
     expect(body.grant).toMatchObject({ tier: 'verified', verified: true });
     const accounts = await t.db.select().from(billingAccounts);
@@ -765,7 +749,6 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     // A vendor seated before AECI-1351 has no account until the back-fill runs. The
     // next approval creates it: the builder keys on the account, not on the seat count.
     await seedVendor({ verified: true, updatedAt: OLD_TS });
-    await seedEntitlement('active');
     await t.db
       .insert(profiles)
       .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
@@ -784,7 +767,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       'vendor_claim.granted',
     ]);
     // AECI-1355: the plan snapshot reads licenses, and this vendor has none yet, so
-    // the active `vendor_entitlements` row does not make it read as Managed.
+    // `verified = 1` alone does not make it read as Managed.
     const granted = (await t.db.select().from(auditLog)).filter(
       (a) => a.action === 'vendor_claim.granted' || a.action === 'billing_account.created',
     );
@@ -795,9 +778,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect((await vendorOf(VENDOR_ID))!.updatedAt).toBe(OLD_TS);
   });
 
-  it('leaves an ended entitlement ended rather than reactivating it', async () => {
-    await seedVendor();
-    await seedEntitlement('revoked');
+  it('reports Managed for a live license past its end date: stored state, like the session (AECI-1358)', async () => {
+    await seedVendor({ verified: true });
+    await seedLicense(t.db, VENDOR_ID, { endsAt: OLD_TS });
     await seedRequest();
 
     const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
@@ -805,9 +788,31 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     });
 
     expect(status).toBe(200);
-    const ents = await t.db.select().from(vendorEntitlements);
-    expect(ents).toHaveLength(1);
-    expect(ents[0]).toMatchObject({ status: 'revoked', updatedAt: OLD_TS });
+    expect(body.grant).toMatchObject({ tier: 'verified', verified: true });
+    // The audit snapshot keeps its clock check: a RECORD rule.
+    const [granted] = (await t.db.select().from(auditLog)).filter(
+      (a) => a.action === 'vendor_claim.granted',
+    );
+    expect(granted).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'expired' });
+  });
+
+  it('leaves an ended license ended and reports Free (AECI-1358)', async () => {
+    await seedVendor();
+    const license = await seedLicense(t.db, VENDOR_ID, {
+      endedAt: OLD_TS,
+      endReason: 'revoked',
+      updatedAt: OLD_TS,
+    });
+    await seedRequest();
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(200);
+    const held = await t.db.select().from(licenses);
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ id: license, endedAt: OLD_TS, updatedAt: OLD_TS });
     expect((await vendorOf(VENDOR_ID))!.verified).toBe(false);
     expect(body.grant).toMatchObject({ tier: 'unclaimed', verified: false });
   });
@@ -845,8 +850,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     expect(status).toBe(200);
     // §6.5: this path returns BEFORE any batch is built, so the summary is a pure
-    // readout. This fixture is the drifted pre-backfill state (`verified = 1`, no
-    // entitlement row) and `tierFor` fails closed rather than inferring a tier from
+    // readout. This fixture is the drifted state (`verified = 1`, no live
+    // license) and `tierFor` fails closed rather than inferring a tier from
     // the mirror — `unclaimed`, not a flattering `verified`.
     expect(body.grant).toEqual({
       user_id: CLAIMANT_ID,
@@ -1509,7 +1514,7 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
 
   it('resolves the entitlement vendor for a vendor claim, with no entitlement readout', async () => {
     await seedVendor({ verified: true });
-    await seedEntitlement('active');
+    await seedLicense(t.db, VENDOR_ID);
     await seedRequest();
 
     const row = (await parseClaims(await getClaims())).data[0]!;

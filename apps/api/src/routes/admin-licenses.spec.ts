@@ -23,7 +23,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
-import { URL_NAMESPACE, uuidv5 } from '../lib/backfill-licenses';
+import { URL_NAMESPACE, uuidv5 } from '../lib/uuidv5';
 import type { DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
 import { logToPosthog } from '../posthog';

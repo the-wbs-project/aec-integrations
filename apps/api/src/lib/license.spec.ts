@@ -11,7 +11,7 @@
  *  5. Every date is stored as full ISO (`toISOString()`), including date-only input.
  *
  * Asserted by observed effect (build → `db.batch` → read back) on the real migrations,
- * plus SQL-level checks on the statements, like `vendor-entitlement.spec.ts`.
+ * plus SQL-level checks on the statements.
  */
 
 import { eq } from 'drizzle-orm';
@@ -33,7 +33,6 @@ import {
   clearVendorBannedFlagsStatements,
   endLicensesStatements,
   grantLicensesStatements,
-  licenseTermsForEntitlement,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
   reconcileVerifiedMirror,
@@ -950,54 +949,6 @@ describe('setLicensesTermStatements', () => {
         licenseSource: 'barter' as never,
       }),
     ).toThrow(RangeError);
-  });
-});
-
-// ─── The entitlement mapping (AECI-1353, ruling 2026-10-14) ─────────────────
-
-describe('licenseTermsForEntitlement', () => {
-  it('maps a dated row with an invoice ref or an amount to invoice, ends_at = period_end', () => {
-    expect(
-      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: 'PO-1', amount: null }),
-    ).toEqual({
-      source: 'invoice',
-      startsAt: null,
-      endsAt: '2027-09-01T00:00:00.000Z',
-      reference: 'PO-1',
-    });
-    expect(
-      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: null, amount: 'USD 1' }),
-    ).toEqual({
-      source: 'invoice',
-      startsAt: null,
-      endsAt: '2027-09-01T00:00:00.000Z',
-      reference: null,
-    });
-  });
-
-  it('maps a dated row with neither to complimentary; blank text counts as unset', () => {
-    expect(
-      licenseTermsForEntitlement({ periodEnd: '2027-09-01', invoiceRef: '  ', amount: '' }),
-    ).toEqual({
-      source: 'complimentary',
-      startsAt: null,
-      endsAt: '2027-09-01T00:00:00.000Z',
-      reference: null,
-    });
-  });
-
-  it('starts at period_start when set, normalised; blank or absent means the grant time', () => {
-    expect(
-      licenseTermsForEntitlement({ periodStart: '2026-09-01', periodEnd: '2027-09-01' }).startsAt,
-    ).toBe('2026-09-01T00:00:00.000Z');
-    expect(licenseTermsForEntitlement({ periodStart: null, periodEnd: null }).startsAt).toBeNull();
-    expect(licenseTermsForEntitlement({ periodStart: ' ', periodEnd: null }).startsAt).toBeNull();
-  });
-
-  it('maps period_end NULL to complimentary and open-ended, whatever the invoice says', () => {
-    expect(
-      licenseTermsForEntitlement({ periodEnd: null, invoiceRef: 'PO-1', amount: 'USD 1' }),
-    ).toEqual({ source: 'complimentary', startsAt: null, endsAt: null, reference: 'PO-1' });
   });
 });
 

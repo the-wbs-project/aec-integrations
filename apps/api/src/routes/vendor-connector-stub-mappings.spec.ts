@@ -5,8 +5,8 @@
  *
  * What is pinned:
  *
- *   - **A seat is the whole gate.** The seat under test has NO `vendor_entitlements` row
- *     (the AECI-740 provisioned shape) and still writes. There is no capability to hold.
+ *   - **A seat is the whole gate.** The seat under test holds NO license (the AECI-740
+ *     provisioned shape) and still writes. There is no capability to hold.
  *   - **Ownership is a 404, and it comes first.** Another vendor's catalogue, a vendor
  *     that owns the connector product only as a non-connector role, and an unknown id
  *     all answer the same 404 — before the managed-by 409, so a non-owner cannot learn
@@ -25,10 +25,10 @@ import {
   connectorCatalogs,
   connectorStubMappings,
   connectorStubs,
+  licenses,
   productVendors,
   products,
   profiles,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -161,9 +161,9 @@ const errorCode = async (res: Response) =>
   ((await res.json()) as { error: { code: string } }).error.code;
 
 describe('PATCH /api/vendor/connector-stub-mappings/:id — the owner seat', () => {
-  it('writes with NO entitlement row: a seat is the whole gate', async () => {
+  it('writes with NO license: a seat is the whole gate', async () => {
     await seed();
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
 
     const res = await call({ as: AGAVE_SEAT });
     expect(res.status).toBe(200);
@@ -195,8 +195,8 @@ describe('PATCH /api/vendor/connector-stub-mappings/:id — the owner seat', () 
       vendorTier: 'none',
       vendorEntitlementStatus: 'none',
     });
-    // Still no entitlement: nothing here opens one.
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    // Still no license: nothing here grants one.
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
   });
 
   it('echoes the vendor mapping shape: no notes key, decided_by as a kind (AECI-1127)', async () => {

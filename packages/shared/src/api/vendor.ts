@@ -1,7 +1,8 @@
 import { LogoUrlSchema } from './logos';
 import { z } from 'zod';
 
-import { VendorEntitlementBlockSchema } from './admin-entitlements';
+import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
+
 import { LockedFieldsSchema } from './locked-fields';
 import { ProductUsefulnessSchema } from './usefulness';
 import { PUBLIC_PRIVATE } from './promote';
@@ -39,6 +40,65 @@ import { PUBLIC_PRIVATE } from './promote';
  * i18n note: this package is framework-agnostic (no `$localize`) — the messages
  * below are for API consumers / logs; the Angular dashboard renders its own copy.
  */
+
+// ─── Plan read shapes (moved from `admin-entitlements.ts`, AECI-1358) ─────────
+//
+// As built (AECI-1358, 2026-10-17): `api/admin-entitlements.ts` is deleted with the
+// entitlement-table readers. These enums and the `GET /api/vendor/me` plan block
+// moved here, the module that ships the block. The registry stays zod-free: this
+// file imports FROM `../entitlements`, never the other way (§3.1 / §10 R11).
+
+/**
+ * The tier ladder as a wire enum — derived, so a new rung needs no edit here.
+ *
+ * **This is the READ shape.** It includes `unclaimed`, because the session block
+ * (§4) and the grant summary (§6) must be able to *report* that a vendor has no
+ * plan.
+ */
+export const EntitlementTierSchema = z.enum(TIERS);
+
+/** The §2.2 status vocabulary as a wire enum — the same list as the DB CHECK. */
+export const EntitlementStatusSchema = z.enum(ENTITLEMENT_STATUSES);
+
+/** The capability vocabulary as a wire enum — derived, so a new capability id
+ *  needs no edit here. Consumed by the §4 `GET /api/vendor/me` readout below. */
+export const CapabilitySchema = z.enum(CAPABILITIES);
+
+/**
+ * The entitlement block on `GET /api/vendor/me` (§4 / AECI-611).
+ *
+ * Built entirely from `AuthenticatedSession` — the same `entitlementTier` the
+ * write gate asserts on — so the dashboard's readout and the 403 it would get
+ * from a write **cannot disagree**, and the block costs no extra round-trip.
+ *
+ * `tier` is always present and is `'unclaimed'` for a vendor with no live license
+ * (fail-closed, §3.1). `status` / `period_end` are `null` when the vendor holds no
+ * license at all — `null` means "no term on record", never "unknown". `capabilities` is the expansion of `tier` through
+ * `TIER_CAPABILITIES`, shipped so the dashboard disables controls off one field
+ * rather than re-deriving the ladder in the browser.
+ *
+ * **This block is never gated** (§4.3 / R13): a `revoked` or `expired`
+ * plan still returns 200 here, carrying the downgraded values. Gating it
+ * would 404 the whole dashboard — `vendorMeResolver` maps 401/403/404 onto a 404
+ * render — and hide the renewal notice from exactly the cohort being billed.
+ *
+ * Required, not optional (R10): a missed construction site must fail
+ * `validateResponseInDev` rather than ship as `undefined`.
+ */
+export const VendorEntitlementBlockSchema = z.object({
+  tier: EntitlementTierSchema,
+  status: EntitlementStatusSchema.nullable(),
+  /** `null` = perpetual or no term on record, not "unknown". */
+  period_end: z.string().nullable(),
+  /**
+   * When the plan ended (AECI-1218, `STAGE_2_PAID_TIERS_SPEC.md` §13.11): the
+   * latest `ended_at` of the vendor's licenses since AECI-1355. The pilot-ended
+   * banner's date line. `null` when the vendor holds no license, or a live one.
+   */
+  ended_at: z.string().nullable(),
+  capabilities: z.array(CapabilitySchema),
+});
+export type VendorEntitlementBlock = z.infer<typeof VendorEntitlementBlockSchema>;
 
 // ─── Field primitives ────────────────────────────────────────────────────────
 

@@ -2,20 +2,22 @@
  * The license write module (AECI-1352, E1.3; `docs/VENDOR_SIGNUP_PROCESS.md` §2
  * decisions 5, 6, 11, 12, 14, 15 and §3 steps 5 to 7). The ONE module that writes
  * `licenses`: E4 (admin grants and approvals), E5 (vendor assignment), E6 (term end)
- * and E9 (Stripe) call these builders and add no second license writer. Two ops
- * lanes reach a deployed D1 only through raw SQL over `wrangler d1 execute`, so they
- * are the exceptions: the one-off E1.5 back-fill (`lib/backfill-licenses.ts`,
- * AECI-1354), which reuses {@link licenseTermsForEntitlement} so the two cannot map
- * one row two ways, and `ops:retract-product` (`lib/retract-product.ts`), which
- * unassigns a retracted product's licenses with `license.unassigned` rows in this
- * module's shape. The `DELETE /api/account` erasure batch (`routes/account.ts`) also
- * nulls `granted_by`, the AUTH_AND_RLS.md §8 rule for no-FK actor columns. Today the
- * only caller is the entitlement builders' dual-write (`lib/vendor-entitlement.ts`,
- * AECI-1353).
+ * and E9 (Stripe) call these builders and add no second license writer. One ops lane
+ * reaches a deployed D1 only through raw SQL over `wrangler d1 execute`, so it is the
+ * exception: `ops:retract-product` (`lib/retract-product.ts`), which unassigns a
+ * retracted product's licenses with `license.unassigned` rows in this module's shape.
+ * The `DELETE /api/account` erasure batch (`routes/account.ts`) also nulls
+ * `granted_by`, the AUTH_AND_RLS.md §8 rule for no-FK actor columns.
  *
- * Like `lib/vendor-entitlement.ts`, every builder is PURE: it takes the state the
- * caller pre-read plus `now`, and RETURNS the Drizzle statements and the audit
- * entries for the caller's `db.batch([...])`. The license writes, their `audit_log`
+ * As built (AECI-1358, 2026-10-17): the entitlement builders' dual-write
+ * (`lib/vendor-entitlement.ts`, AECI-1353) and the E1.5 back-fill
+ * (`lib/backfill-licenses.ts`, AECI-1354) are deleted, and with them the
+ * `licenseTermsForEntitlement` mapping they shared. The admin license routes
+ * (`routes/admin-licenses.ts`) are the callers now.
+ *
+ * Every builder is PURE: it takes the state the caller pre-read plus `now`, and
+ * RETURNS the Drizzle statements and the audit entries for the caller's
+ * `db.batch([...])`. The license writes, their `audit_log`
  * rows and the mirror reconcile commit or roll back as one unit (§26.1). The caller
  * forwards `auditEntries` post-commit.
  *
@@ -41,10 +43,10 @@
  * It is idempotent and order-free: it reads the license rows the batch has just
  * written, so two batches against one vendor, applied in either order, leave
  * `verified` equal to the truth. The `<>` guard keeps the R2 rule
- * (`vendor-entitlement.ts`): `updated_at` moves IFF `verified` moves. It is the only
- * `vendors` statement this module emits, which is why `MIRROR_WRITE_EXEMPT` in
- * `eslint.config.base.mjs` lists this file beside `vendor-entitlement.ts` until E1.9
- * retires the old writer.
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §2.1): `updated_at` moves IFF `verified` moves. It is
+ * the only `vendors` statement this module emits, which is why `MIRROR_WRITE_EXEMPT`
+ * in `eslint.config.base.mjs` lists this file. Since AECI-1358 it is the only file
+ * there.
  *
  * `verifiedFlipped` on the result is a PREDICTION from the pre-read state (the
  * caller's `vendorWasVerified` and `vendorLicenses`). The SQL is the truth: a
@@ -62,9 +64,10 @@
  *
  * `grantLicensesStatements` is the exception: its INSERTs have no guard, so two
  * grants from one pre-read both land. A caller must tie a grant to a write that can
- * only apply once. The entitlement activate does (AECI-1353): its reactivation
- * carries `entitlementActivatedSentinel` and its first grant the entitlement's
- * unique key, so the losing batch rolls back whole (`vendor-entitlement.ts`).
+ * only apply once. The admin grant does: it passes UUIDv5 `licenseIds` minted from
+ * its grant id, so a replay trips the primary key and the losing batch rolls back
+ * whole (`routes/admin-licenses.ts`). The entitlement activate did the same with a
+ * sentinel until AECI-1358 deleted it.
  *
  * ── DATES ──────────────────────────────────────────────────────────────────────
  * Every date written goes through {@link toIsoTimestamp} (`new Date(x).toISOString()`).
@@ -314,7 +317,7 @@ export function liveLicenseRemainsSentinel(db: Db, vendorId: string): BatchStmt 
 /**
  * The mirror reconcile: the ONLY `vendors` statement this module emits, identical
  * across every builder. Idempotent; moves `updated_at` only when `verified` moves.
- * Exported for the reconcile's own tests and for E1.4's dual-write.
+ * Exported for the reconcile's own tests.
  */
 export function reconcileVerifiedMirror(db: Db, vendorId: string, now: string | Date): BatchStmt {
   return db
@@ -437,12 +440,12 @@ export interface GrantLicensesParams extends LicenseWriteContext {
   /** Assign the first `productIds.length` new licenses, in order, at grant. The
    *  partial unique index rejects the whole batch if one already holds a live license. */
   productIds?: readonly string[];
-  /** Caller-chosen ids (E1.5's back-fill uses UUIDv5). Length must equal `count`. */
+  /** Caller-chosen ids (the admin grant uses UUIDv5). Length must equal `count`. */
   licenseIds?: readonly string[];
 }
 
 /**
- * Grant N licenses on a billing account (§3 step 5; E4.1, E9, E1.4's dual-write).
+ * Grant N licenses on a billing account (§3 step 5; E4.1, E9).
  * N INSERTs, one audit row each, then the reconcile. Every date is normalised.
  */
 export function grantLicensesStatements(db: Db, p: GrantLicensesParams): LicenseBatch {
@@ -529,7 +532,7 @@ function sameAs(column: typeof licenses.endsAt | typeof licenses.reference, valu
 
 /**
  * Move the term of live licenses: `ends_at`, and optionally `source` and `reference`
- * (E1.4's dual-write of an entitlement renewal; E9's Stripe renewal later). One
+ * (the admin term edit; E9's Stripe renewal later). One
  * guarded `WHERE ended_at IS NULL` statement and one `license.term_changed` audit row
  * per license that actually changes, then the reconcile. A license whose `ends_at`
  * moves gets `expiry_notice_sent_at` cleared: the expiry-notice fence is per term,
@@ -587,62 +590,6 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.termChanged, before, after) });
   }
   return assemble(db, p, now, writes, replaced(p, changed));
-}
-
-// ─── The entitlement mapping (E1.4 dual-write, E1.5 back-fill) ──────────────
-
-/** The `vendor_entitlements` columns the mapping reads. */
-export interface EntitlementTermsInput {
-  periodStart?: string | null;
-  periodEnd: string | null;
-  invoiceRef?: string | null;
-  amount?: string | null;
-}
-
-/** A license's source, dates and reference, derived from an entitlement. */
-export interface LicenseTerms {
-  source: LicenseSource;
-  /** The entitlement's `period_start`, normalised with {@link toIsoTimestamp}. `null`
-   *  when it has none: the grant then starts at its own `now`. Only a grant reads it;
-   *  re-terming a live license never moves `starts_at`. */
-  startsAt: string | null;
-  /** Normalised with {@link toIsoTimestamp}. `null` = open-ended. */
-  endsAt: string | null;
-  /** The entitlement's `invoice_ref`, or `null` when it has none. */
-  reference: string | null;
-}
-
-/** A text column counts as set when it holds something other than whitespace. */
-function isSet(value: string | null | undefined): value is string {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-/**
- * The one mapping from an entitlement row to the licenses that mirror it (ruling
- * 2026-10-14, `docs/VENDOR_SIGNUP_PROCESS.md` §2):
- *
- *  - `period_end` NULL → `complimentary`, `ends_at` NULL, whatever `invoice_ref` or
- *    `amount` say. A perpetual invoice row must not read as "invoice, monthly".
- *  - otherwise → `invoice` when `invoice_ref` or `amount` is set, else
- *    `complimentary`; `ends_at` = `period_end`.
- *
- * `starts_at` is `period_start` when set (ruling 2026-10-14, orchestrator), else the
- * grant time. `reference` is the `invoice_ref` in both cases. E1.4's dual-write and E1.5's
- * back-fill both call this, so the two cannot map one row two ways.
- */
-export function licenseTermsForEntitlement(e: EntitlementTermsInput): LicenseTerms {
-  const reference = isSet(e.invoiceRef) ? e.invoiceRef : null;
-  const startsAt = isSet(e.periodStart) ? toIsoTimestamp(e.periodStart) : null;
-  if (e.periodEnd === null || e.periodEnd === undefined) {
-    return { source: 'complimentary', startsAt, endsAt: null, reference };
-  }
-  const invoiced = isSet(e.invoiceRef) || isSet(e.amount);
-  return {
-    source: invoiced ? 'invoice' : 'complimentary',
-    startsAt,
-    endsAt: toIsoTimestamp(e.periodEnd),
-    reference,
-  };
 }
 
 // ─── Assign / unassign ──────────────────────────────────────────────────────

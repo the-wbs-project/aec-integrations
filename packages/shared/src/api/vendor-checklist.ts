@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { VendorEntitlementBlockSchema } from './admin-entitlements';
+import { VendorEntitlementBlockSchema } from './vendor';
 
 /**
  * The checklist reads (AECI-1217 / `STAGE_2_PAID_TIERS_SPEC.md` §13.10):

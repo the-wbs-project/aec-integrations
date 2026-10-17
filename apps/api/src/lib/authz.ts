@@ -34,7 +34,7 @@
  *
  * AECI-611 adds a FOURTH thing to the session, on the `requireVendor()` branch
  * only: the caller's plan (`STAGE_2_PAID_TIERS_SPEC.md` §4). Since AECI-1355 (E1.6)
- * the plan is read from `licenses`, not `vendor_entitlements`: that branch's
+ * the plan is read from `licenses`, not the retired entitlement row: that branch's
  * profile re-fetch becomes a two-statement `db.batch` (the profile and the vendor's
  * own licenses), so the plan arrives in the SAME round-trip the guard was
  * already paying for, and `requireCapability()` / `requireProductCapability()`
@@ -443,8 +443,8 @@ const LICENSE_TIER: EntitlementTier = 'verified';
  *
  * Stored state only: a license is live while `ended_at` is NULL, whatever its
  * `ends_at` says. E6's daily job turns a passed `ends_at` into `ended_at`; until it
- * runs, the plan stays on. That is the same rule `vendor_entitlements` had (nothing
- * auto-lapsed a row), and the audit snapshot's clock check stays a RECORD rule.
+ * runs, the plan stays on. That is the same rule the retired entitlement row had
+ * (nothing auto-lapsed a row), and the audit snapshot's clock check stays a RECORD rule.
  *
  * Exported for `authz.spec.ts`: the derivation is pure, so its cases are pinned
  * without a database.

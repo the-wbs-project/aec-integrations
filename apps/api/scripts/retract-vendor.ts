@@ -12,7 +12,8 @@
  * THE RULE (owner ruling, 2026-09-18, AECI-1024). Retractable ⟺ zero products AND zero
  * owned edges, where "owned edges" is BOTH `integrations.built_by_vendor_id` AND
  * `connector_evidenced_pairs.built_by_vendor_id` (the AECI-721 two-table rule). Profiles,
- * entitlements, seat invites and billing accounts refuse too. There is **no `--force`** — a
+ * seat invites and billing accounts refuse too. Entitlement rows refused until AECI-1358
+ * retired the table; a dead one now cascades with its vendor. There is **no `--force`** — a
  * vendor that owns something is not a retraction, it is a merge or a product-level fix.
  * **One refusing vendor refuses the whole run.**
  *

@@ -10,8 +10,8 @@
  * ownership check is `lib/connector-mapping-edit.ts`, shared with the admin route.
  *
  * ── AUTHZ IS A SEAT PLUS OWNERSHIP, NOTHING ELSE ─────────────────────────────
- * §8.9(2): the connector seat is **not** a `vendor_entitlements` row. So there is no
- * `requireCapability`, no capability id and no entitlement read here. `requireVendor()`
+ * §8.9(2): the connector seat holds **no** license. So there is no
+ * `requireCapability`, no capability id and no plan read here. `requireVendor()`
  * establishes `profiles.role = 'vendor_admin'` + `profiles.vendor_id`, and the handler
  * proves that vendor holds the catalogue's connector product through `product_vendors`,
  * and that the product is `connector`-role. A zero-entitlement seat resolves to

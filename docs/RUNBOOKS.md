@@ -1086,28 +1086,20 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
 
-> **`license_mirror_drift` usually means the licenses were never back-filled on that tier.** It
-> counts vendors whose `verified` disagrees with EXISTS(a live license). It is the only mirror check.
-> Its entitlement twin, `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375). E4.1 grants
-> and E4.2 revokes move `verified` through licenses, and nothing writes the entitlement row any more,
-> so that check would have flagged correct vendors. `license_mirror_drift` is `error` since
-> AECI-1355 (E1.6), so it trips the `data-quality-error` alert: plan resolution reads licenses, so
-> drift means a vendor's badge disagrees with what it can edit. Run `ops:backfill-licenses` on the
-> tier: dry run first, then `--apply` (`--allow-production` on production). The script writes the
-> missing billing accounts and licenses and one `billing_account.backfilled` audit row per vendor,
-> and a re-run writes nothing (`apps/api/scripts/README.md`). It refuses any vendor whose
-> `verified` disagrees with its entitlement row, and lists it. The back-fill does not touch
-> `verified`. The admin entitlement actions that used to fix that case are retired (AECI-1375), and
-> no admin control is left for it. File a Linear issue for the vendor rather than editing D1.
+> **`license_mirror_drift` means something wrote `verified` or a license outside `lib/license.ts`.**
+> It counts vendors whose `verified` disagrees with EXISTS(a live license). It is the only mirror
+> check. Its entitlement twin, `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375).
+> E4.1 grants and E4.2 revokes move `verified` through licenses, and every license batch ends with
+> the mirror reconcile, so drift needs a hand write: D1 SQL against the tier, or the
+> `apps/datatool` worker. `license_mirror_drift` is `error` since AECI-1355 (E1.6), so it trips the
+> `data-quality-error` alert: plan resolution reads licenses, so drift means a vendor's `verified`
+> disagrees with what it can edit. Do not edit D1 by hand to fix it. A license grant, extend or
+> revoke on the vendor's Billing tab re-runs the reconcile and corrects `verified`. If no license
+> change is right for the vendor, file a Linear issue for it.
 >
-> **Cutover order for the license-based expiry sweep (AECI-1356).** Run the back-fill, deploy
-> E1.6/E1.7, then re-run the back-fill before the next 11:00 UTC expiry run. Until that deploy
-> the old sweep stamps `expiry_notice_sent_at` on `vendor_entitlements` only. The re-run's stamp
-> reconcile copies that stamp onto every live license of the same term that lacks it, for every
-> vendor, including vendors already licensed. Skip the re-run and the new sweep sends a second
-> "your plan ends" email for a term already warned. The dry run lists the licenses it would stamp.
-> Each vendor stamped gets one `license.expiry_stamp_reconciled` audit row. A second re-run stamps
-> 0 and writes no audit row.
+> *As built (AECI-1358, 2026-10-17).* This block used to say "run `ops:backfill-licenses`", and the
+> AECI-1356 cutover order re-ran it before the 11:00 UTC expiry sweep. Both back-fills ran on every
+> tier and are deleted with the `vendor_entitlements` readers. The source is in git history.
 
 > **`arrival_cf_coverage` is not a data-repair finding — do not triage it like one.** It fails when
 > full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, which

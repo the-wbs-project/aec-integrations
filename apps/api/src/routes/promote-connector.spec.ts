@@ -138,7 +138,7 @@ describe('runConnectorCatalogIngest (AECI-714)', () => {
 
   it('reaches no count, index or URL surface — a source guard, not a mock', async () => {
     // The executable form of the "two hooks, not seven" decision, written as a source
-    // guard for the same reason the `vendor_entitlements` no-read-path check is: a
+    // guard for the same reason the §2.5 no-read-path check is: a
     // spy only proves the hook did not fire on THIS input, while the thing worth
     // preventing is someone wiring this arm into `dispatchPromoteHooks` wholesale.
     // §13.5 is categorical — reachable data never counts, anywhere.

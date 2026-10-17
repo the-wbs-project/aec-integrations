@@ -278,10 +278,12 @@ export const AdminUserCountsSchema = z.object({
   /** `vendor_seat_invites` this account SENT (`invited_by_id`), all time, any
    *  state — a spent or revoked invite still happened. */
   seat_invites_sent: z.number().int().min(0),
-  /** `vendor_entitlements` rows this account granted (`granted_by`). That FK is
-   *  `ON DELETE SET NULL`, so an erased grantor's rows are attributed to nobody:
-   *  this undercounts by design rather than resurrecting a deleted person. */
-  entitlements_granted: z.number().int().min(0),
+  /** `licenses` this account granted (`granted_by`), any state. The column has no
+   *  FK, so account erasure nulls it explicitly (AUTH_AND_RLS.md §8). An erased
+   *  grantor's licenses are then attributed to nobody: this undercounts by design
+   *  rather than resurrecting a deleted person. Renamed from `entitlements_granted`
+   *  when the entitlement table was retired (AECI-1358). */
+  licenses_granted: z.number().int().min(0),
   /**
    * `vendor_requests` whose `submitter_email` equals this account's GoTrue
    * address, compared case-insensitively (the column is `.trim()`-ed but NOT

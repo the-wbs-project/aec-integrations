@@ -272,9 +272,9 @@ export interface VersionDiffRequest {
 /**
  * The pair's endpoint vendors as tiers, read off the **`vendors.verified` mirror**.
  *
- * `verified` is the denormalized mirror of an `active` `vendor_entitlements` row
+ * `verified` is the denormalized mirror of a live license
  * (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), and §2.5 forbids a public read path from
- * querying the entitlement table at all — the mirror exists precisely so reads
+ * querying the plan tables at all — the mirror exists precisely so reads
  * don't have to. So the mapping is `verified ? 'verified' : 'unclaimed'` and the
  * registry decides the capability: adding a rung to the ladder later stays a
  * data-only edit in `./entitlements`, with no branch here and none at the consult

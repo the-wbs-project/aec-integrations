@@ -8,7 +8,7 @@
  * than anywhere: the tier is produced by the guard's `leftJoin`, so a spec that
  * stubbed `c.set('auth', …)` would be asserting its own fixture rather than the
  * mechanism. Every tier below is the one the middleware actually derived from
- * seeded `licenses` rows (AECI-1355; it was `vendor_entitlements` before).
+ * seeded `licenses` rows (AECI-1355; it was the entitlement row before).
  *
  * Three personas, one per plan state that behaves differently:
  *

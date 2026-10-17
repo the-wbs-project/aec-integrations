@@ -23,7 +23,6 @@ import {
   reviews,
   taxonomyAudiences,
   userActivityDaily,
-  vendorEntitlements,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -407,40 +406,21 @@ describe('DELETE /api/account', () => {
     );
   });
 
-  it('declares vendor_entitlements.granted_by ON DELETE SET NULL (AECI-609 / R6)', () => {
-    // This is what actually keeps erasure working. `granted_by` is one of the sixteen
-    // inbound FKs to `profiles(id)` (`AUTH_AND_RLS.md` §8 is the live register); the
-    // five NO ACTION refs are each nulled by hand in the
-    // batch, and if this one were left at the house default it would join them — except
-    // nobody would notice until an admin who had granted an entitlement tried to delete
-    // their account, at which point the whole batch FK-fails. Silent, delayed, and
-    // GDPR-relevant. Asserted at the schema level because the behavioural test below
-    // passes either way (SET NULL and the explicit statement produce the same end
-    // state), so only this assertion fails if the `onDelete` is dropped.
-    const fks = t.raw
-      .prepare(
-        "SELECT `table`, `from`, on_delete FROM pragma_foreign_key_list('vendor_entitlements')",
-      )
-      .all() as Array<{ table: string; from: string; on_delete: string }>;
-    const grantedBy = fks.find((f) => f.from === 'granted_by');
-    expect(grantedBy, 'vendor_entitlements.granted_by has no FK to profiles').toBeDefined();
-    expect(grantedBy!.table).toBe('profiles');
-    expect(grantedBy!.on_delete).toBe('SET NULL');
-  });
-
-  it('nulls vendor_entitlements.granted_by without destroying the entitlement (AECI-609 / R6)', async () => {
-    // The harness runs with `foreign_keys = ON`, so this exercises the real cascade.
-    // The batch also nulls the column explicitly — belt-and-braces, matching the
-    // `reviews.reviewer_id` precedent (also SET NULL, also nulled by hand).
+  it('erases an admin who granted a license and nulls licenses.granted_by (AECI-1358)', async () => {
+    // The license replaced the entitlement row as the record of an admin grant, so
+    // erasing that admin must still succeed. `licenses.granted_by` has no FK, so the
+    // explicit statement in the batch is the only thing that clears it. The license
+    // survives with its state: it is the vendor's commercial record.
+    const STAMP = '2026-01-01T00:00:00.000Z';
     await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });
     await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
-    await t.db.insert(vendorEntitlements).values({
-      id: u(21),
-      vendorId: u(2),
-      tier: 'verified',
-      status: 'active',
+    await t.db.insert(billingAccounts).values({ id: u(30), vendorId: u(2), name: 'Autodesk' });
+    await t.db.insert(licenses).values({
+      id: u(31),
+      billingAccountId: u(30),
+      source: 'invoice',
+      startsAt: STAMP,
       grantedBy: USER,
-      grantedAt: '2026-01-01T00:00:00.000Z',
     });
 
     const res = await run(
@@ -452,14 +432,10 @@ describe('DELETE /api/account', () => {
     );
     expect(res.status).toBe(200);
 
-    // The batch committed — the profile is gone rather than FK-blocked.
+    // The batch committed: the profile is gone rather than blocked.
     expect(await t.db.select().from(profiles)).toHaveLength(0);
-
-    // The entitlement ROW survives; only the granting admin's link is severed.
-    const [ent] = await t.db.select().from(vendorEntitlements);
-    expect(ent).toBeDefined();
-    expect(ent!.grantedBy).toBeNull();
-    expect(ent!.status).toBe('active');
+    const [license] = await t.db.select().from(licenses);
+    expect(license).toMatchObject({ id: u(31), grantedBy: null, endedAt: null });
   });
 
   it('nulls billing_accounts.created_by and licenses.granted_by, keeping both rows (AECI-1350)', async () => {

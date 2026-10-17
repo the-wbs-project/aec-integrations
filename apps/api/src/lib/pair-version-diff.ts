@@ -76,10 +76,9 @@ export interface ResolveVersionSelectionInput {
   /**
    * The PAIR'S two endpoint vendors as tiers (AECI-304) — never the reader's.
    * Built by `vendorTiersFromMirror` off each endpoint product's primary vendor's
-   * `verified` column, which is the mirror of an `active` `vendor_entitlements`
-   * row. **Do not query `vendor_entitlements` here** — `STAGE_2_PAID_TIERS_SPEC.md`
-   * §2.5 forbids it on a public read path, and the mirror exists so this read
-   * doesn't have to.
+   * `verified` column, which is the mirror of a live license. **Do not query the
+   * plan tables here**: `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids it on a public
+   * read path, and the mirror exists so this read doesn't have to.
    */
   readonly pairVendorTiers: readonly EntitlementTier[];
   /**

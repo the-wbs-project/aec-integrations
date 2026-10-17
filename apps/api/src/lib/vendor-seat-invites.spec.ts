@@ -252,7 +252,7 @@ describe('batch shapes', () => {
     expect(batch.auditEntry.action).toBe('vendor_seat.invite_accepted');
   });
 
-  it('accept: never touches vendors or vendor_entitlements (§8.3(2))', () => {
+  it('accept: never touches vendors (§8.3(2))', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
@@ -271,7 +271,6 @@ describe('batch shapes', () => {
     });
     for (const sql of sqlOf(batch.stmts)) {
       expect(sql).not.toContain('update "vendors"');
-      expect(sql).not.toContain('vendor_entitlements');
     }
   });
 

@@ -13,7 +13,8 @@ import { ignores, tsBase, prettierCompat, CONSTRAINT_IMPORTS } from '../../eslin
  * `api/*` is banned alongside `zod` itself because `no-restricted-imports` sees
  * only DIRECT imports — one hop through a wire-contract module reintroduces the
  * chunk with nothing to catch it. The dependency is one-way by design:
- * `api/admin-entitlements.ts` imports the tier ids FROM the registry.
+ * `api/vendor.ts` imports the tier ids FROM the registry (`api/admin-entitlements.ts`
+ * did until AECI-1358 deleted it).
  *
  * The `paths` / `patterns` from `CONSTRAINT_IMPORTS` are restated rather than
  * assumed: flat config REPLACES a rule's options per file rather than merging
@@ -43,7 +44,7 @@ const NO_ZOD_IN_REGISTRY = {
               '@aeci/shared/api/*',
             ],
             message:
-              'The capability registry must import no zod and nothing from `api/*` — it ships in the lazy /vendor Angular route. Wire shapes belong in `src/api/admin-entitlements.ts`. See STAGE_2_PAID_TIERS_SPEC.md §3.1 (R11).',
+              'The capability registry must import no zod and nothing from `api/*` — it ships in the lazy /vendor Angular route. Wire shapes belong in `src/api/vendor.ts`. See STAGE_2_PAID_TIERS_SPEC.md §3.1 (R11).',
           },
         ],
       },

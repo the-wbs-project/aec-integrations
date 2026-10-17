@@ -23,9 +23,9 @@ const REASON_MAX_LENGTH = 500;
  * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
  * `STAGE_2_SPEC.md` §8.9(1) settled that a pure **connector** vendor is never
  * sold verification, and gets a catalogue-maintenance seat instead. §8.9(2)
- * showed the seat cannot be a `vendor_entitlements` row — `vendors.verified`
- * mirrors off `status = 'active'` rather than `tier`, so ANY active row lights
- * the badge. Every prior path to a seat opened one on the way, which is why
+ * showed the seat cannot carry a plan — `vendors.verified` mirrors any live plan
+ * (an entitlement row then, a license since AECI-1355), so ANY plan lights the
+ * badge. Every prior path to a seat opened one on the way, which is why
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 had to tell operators not to press Grant
  * and to park the claim instead. This control is how a parked claim finally
  * resolves.

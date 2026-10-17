@@ -163,7 +163,7 @@ describe('PATCH …/connector-catalogs/:id — freezing the review lane', () => 
   });
 
   it('records the receiving vendor and the reason in the audit metadata', async () => {
-    // §8.9(2)/(3): the connector seat is NOT a `vendor_entitlements` row and no route
+    // §8.9(2)/(3): the connector seat holds NO license and no route
     // grants `vendor_admin` today, so the audit row is the ONLY record of who the
     // catalogue was handed to. AECI-722's screen reads it back through
     // `audit_log_entity_idx (entity_type, entity_id, created_at)`.

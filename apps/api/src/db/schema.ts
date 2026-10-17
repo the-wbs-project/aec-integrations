@@ -1327,8 +1327,9 @@ export const vendorRequests = sqliteTable(
     // approve form's plan radios stay unselected whatever it says
     // (STAGE_2_PAID_TIERS_SPEC.md §13.6). Deliberately NO CHECK: a CHECK change is a
     // drizzle-kit table recreate, and this table has FK children
-    // (`vendor_entitlements.source_request_id`), so the recreate is the cascade
-    // hazard of docs/migrations.md §0.
+    // (`agreement_acceptances.vendor_request_id`, and the retired entitlement
+    // table's `source_request_id` until AECI-1358's PR 2 drops it), so the recreate
+    // is the cascade hazard of docs/migrations.md §0.
     // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
     // column any more. Existing rows keep their old answers. E10 of
     // docs/VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
@@ -1500,8 +1501,16 @@ export const productRequests = sqliteTable(
 );
 
 /**
- * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
- * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
+ * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2).
+ *
+ * RETIRED (AECI-1358, 2026-10-17). Licenses replaced this table. Nothing reads or
+ * writes it: its writer (`lib/vendor-entitlement.ts`), its back-fills and its last
+ * readers are deleted, and the seeds no longer insert it. The definition stays only
+ * until AECI-1358's PR 2 drops the table, because CI applies migrations before the
+ * Worker deploys (`docs/migrations.md` §3.2). The text below is the as-designed
+ * history. Where it says "this table", read "a live license" for today's mirror.
+ *
+ * Originally the real paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
  * table (§2.4/§2.5). It has no public reader left: AECI-1264 (2026-10-09) deleted
  * `aec-vendor-account-badge`, and AECI-1266 (2026-10-12) took the flag off
  * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the `?verified=` filter and
@@ -1631,9 +1640,9 @@ export const vendorEntitlements = sqliteTable(
  * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.
  * Domain state: every write carries its `audit_log` row (`entity_type =
  * 'billing_account'`) in the same `db.batch`. Written by `lib/billing-account.ts`
- * (AECI-1351), composed into the owner-seat grant batch and into the entitlement
- * activate's license dual-write (`lib/vendor-entitlement.ts`, AECI-1353). The one-off
- * `ops:backfill-licenses` script (AECI-1354) inserts the rest. No UI reads it yet.
+ * (AECI-1351), composed into the owner-seat grant batch. The entitlement activate's
+ * license dual-write (AECI-1353) and the one-off license back-fill (AECI-1354) wrote
+ * it too until AECI-1358 deleted both.
  */
 export const billingAccounts = sqliteTable(
   'billing_accounts',
@@ -1677,7 +1686,7 @@ export const billingAccounts = sqliteTable(
  * at most ONE live license, while ended licenses keep their assignment as history (the
  * hand-back, decision 14, stamps `ended_at` and leaves `assigned_product_id`).
  *
- * `source` is DELIBERATELY UNCONSTRAINED, the `vendor_entitlements.tier` posture: the
+ * `source` is DELIBERATELY UNCONSTRAINED, the old entitlement `tier` posture: the
  * vocabulary is `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change on
  * D1 is a table recreate (`docs/migrations.md` §0). `granted_by` has no FK, as
  * `billing_accounts.created_by` above.
@@ -1687,10 +1696,10 @@ export const billingAccounts = sqliteTable(
  *
  * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
  * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
- * `lib/license.ts` (AECI-1352), called by the entitlement builders' dual-write
- * (`lib/vendor-entitlement.ts`, AECI-1353), the admin grant, edit and early-unassign
- * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374), and by the
- * one-off `ops:backfill-licenses` script (AECI-1354). `ops:retract-product` also NULLs
+ * `lib/license.ts` (AECI-1352), called by the admin grant, edit and early-unassign
+ * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374). The
+ * entitlement dual-write (AECI-1353) and the one-off license back-fill (AECI-1354)
+ * wrote it too until AECI-1358 deleted both. `ops:retract-product` also NULLs
  * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Plan resolution reads it
  * since E1.6 (AECI-1355), and so do the expiry sweep and `license_mirror_drift`.
  */
@@ -1911,7 +1920,7 @@ export const agreementAcceptances = sqliteTable(
  * keeps `profiles` at its existing inbound-FK count plus one rather than plus two.
  *
  * `invited_by_id` IS that one — one of the ten inbound FKs to `profiles.id`. Like
- * `vendor_entitlements.granted_by` it is `ON DELETE SET NULL` **and** nulled
+ * `reviews.reviewer_id` it is `ON DELETE SET NULL` **and** nulled
  * explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
  * `docs/AUTH_AND_RLS.md` §8, which is the live register) — miss either and account
  * deletion FK-fails for anyone who ever sent an invite.
@@ -3293,11 +3302,13 @@ export const vendorActivityDaily = sqliteTable(
     activeUsers7d: integer('active_users_7d').notNull(),
     /** The same, over the 30 days ending on `day`. */
     activeUsers30d: integer('active_users_30d').notNull(),
-    /** The raw `vendor_entitlements.tier`. NULL = no row, which is the Free plan. */
+    /** The raw plan tier from the vendor's licenses (`sessionPlanFromLicenses`).
+     *  NULL = no license, which is the Free plan. Named for the retired entitlement
+     *  row it used to copy (AECI-1355, AECI-1358). */
     entitlementTier: text('entitlement_tier'),
-    /** The raw `vendor_entitlements.status`. NULL = no row. */
+    /** The plan status from the vendor's licenses. NULL = no license. */
     entitlementStatus: text('entitlement_status'),
-    /** `tierFor()` over the row: `unclaimed` (Free) unless the row is active. */
+    /** The effective tier: `unclaimed` (Free) unless a license is live. */
     effectiveTier: text('effective_tier').notNull(),
     /** Open `integration_field_challenges` this vendor must answer. */
     openContestsOwned: integer('open_contests_owned').notNull(),

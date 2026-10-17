@@ -27,13 +27,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  licenses,
   products,
   profileAudiences,
   profileDetails,
   profiles,
   reviews,
   taxonomyAudiences,
-  vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -44,6 +44,7 @@ import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import type { FetchAuthRecords, FindAuthUserByEmail } from '../lib/supabase-admin';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
 
@@ -523,7 +524,7 @@ describe('GET /api/admin/users/:id — the detail', () => {
     expect(body.repeat_offender).toBe(true);
   });
 
-  it('counts invites sent and entitlements granted by this account', async () => {
+  it('counts invites sent and licenses granted by this account', async () => {
     await seedPeople();
     await t.db.insert(vendorSeatInvites).values({
       id: u(70),
@@ -533,20 +534,15 @@ describe('GET /api/admin/users/:id — the detail', () => {
       invitedById: SEAT,
       expiresAt: '2099-01-01T00:00:00Z',
     });
-    await t.db.insert(vendorEntitlements).values({
-      id: u(71),
-      vendorId: VENDOR,
-      tier: 'verified',
-      status: 'active',
-      grantedBy: ADMIN,
-    });
+    const license = await seedLicense(t.db, VENDOR);
+    await t.db.update(licenses).set({ grantedBy: ADMIN }).where(eq(licenses.id, license));
     const app = await detailApp();
 
     const seat = await readJson(await call(app, `/users/${SEAT}`));
     const admin = await readJson(await call(app, `/users/${ADMIN}`));
 
     expect(seat.counts.seat_invites_sent).toBe(1);
-    expect(admin.counts.entitlements_granted).toBe(1);
+    expect(admin.counts.licenses_granted).toBe(1);
   });
 
   it('matches vendor_requests case-INSENSITIVELY — submitter_email is not lowercased on write', async () => {

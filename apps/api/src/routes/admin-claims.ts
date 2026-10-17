@@ -32,7 +32,7 @@
  *
  * ── EVERY APPROVAL LANDS ON FREE (AECI-1367, `VENDOR_SIGNUP_PROCESS.md` §3 step 2) ──
  * The operator no longer picks a plan. `approveClaim` composes three builders into
- * ONE `db.batch`, and none of them is `activateEntitlementStatements`:
+ * ONE `db.batch`, and none of them writes a license:
  *
  *  1. `grantSeatStatements` (`lib/vendor-grant.ts`): the seat upsert, the request
  *     resolve, the workflow and the `vendor_claim.granted` audit row. The seat is an
@@ -45,10 +45,8 @@
  *     when the claim has none.
  *
  * Managed is bought later, as licenses on that billing account (E5, E9). No grant
- * writes `vendor_entitlements` or moves `vendors.verified`, and
- * `vendor-admin-role-writers.spec.ts` fences `activateEntitlementStatements` out of
- * this file. `vendors.verified` stays a MIRROR whose sole writer is
- * `lib/vendor-entitlement.ts`.
+ * writes a license or moves `vendors.verified`. `vendors.verified` stays a MIRROR
+ * whose sole writer is `lib/license.ts` (AECI-1358).
  *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
  * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
@@ -82,7 +80,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { licensePlanSnapshot, tierFor } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot, type EntitlementTier } from '@aeci/shared/entitlements';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -144,7 +142,6 @@ import {
   seatsChangedError,
   vendorBannedFlagsRaceSentinel,
 } from '../lib/vendor-handback';
-import { loadEntitlement, type EntitlementBefore } from '../lib/vendor-entitlement';
 import {
   CLAIM_AUDIT_SOURCE,
   claimDecisionRaceError,
@@ -223,16 +220,13 @@ function emitClaimModeration(
 }
 
 /** The preloaded grant target: the vendor a claim seats against, plus its
- *  entitlement row (`null` = never entitled) and its billing account. */
+ *  licenses and its billing account. */
 interface ClaimTarget {
   /** `companyName` names a billing account created by this grant (AECI-1351) and
    *  the vendor in the approval email (AECI-1367). */
   vendor: { id: string; slug: string; verified: boolean; companyName: string };
-  /** Read, never written: it feeds the audit rows' plan snapshot, the seat return's
-   *  entitlement test and the response's `tier` (the vendor's live state). */
-  entitlement: EntitlementBefore | null;
-  /** Every license the vendor holds, live and ended: the audit rows' plan snapshot
-   *  reads them (AECI-1355). */
+  /** Every license the vendor holds, live and ended. Read, never written: the audit
+   *  rows' plan snapshot (AECI-1355) and the response's `tier` (AECI-1358) read them. */
   vendorLicenses: LicenseBefore[];
   /** Preloaded so a vendor that already has an account gets no statement and no
    *  audit row from `ensureBillingAccountStatements` (AECI-1351). */
@@ -246,8 +240,8 @@ interface ClaimTarget {
  * `resolveClaimantIdentity` is mandatory — exclusivity compares against
  * `profiles.vendor_id`, which can only ever hold a vendor id (§2).
  *
- * Also preloads the vendor's `vendor_entitlements` row and its billing account in one
- * wave, so no caller re-derives either lookup.
+ * Also preloads the vendor's licenses and its billing account in one wave, so no
+ * caller re-derives either lookup.
  */
 async function resolveTargetVendor(
   db: Db,
@@ -277,12 +271,11 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  const [entitlement, billingAccount, vendorLicenses] = await Promise.all([
-    loadEntitlement(db, vendorId),
+  const [billingAccount, vendorLicenses] = await Promise.all([
     loadBillingAccount(db, vendorId),
     loadVendorLicenses(db, vendorId),
   ]);
-  return { vendor, entitlement, billingAccount, vendorLicenses };
+  return { vendor, billingAccount, vendorLicenses };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -394,12 +387,7 @@ async function approveClaim(
     );
   }
 
-  const {
-    vendor,
-    entitlement: entitlementBefore,
-    billingAccount,
-    vendorLicenses,
-  } = await resolveTargetVendor(db, existing);
+  const { vendor, billingAccount, vendorLicenses } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
   // same-seat no-op, which needs an EXISTING linked account to recognize — so resolve
@@ -459,10 +447,19 @@ async function approveClaim(
   const alreadySeated =
     profileBefore?.role === VENDOR_ADMIN_ROLE && profileBefore.vendorId === vendor.id;
 
-  // The response's `tier` is the vendor's live state. The grant writes no
-  // entitlement, so the pre-batch row IS the post-batch row. `tierFor` fails closed:
-  // a vendor with no `active` row reports `unclaimed` (Free).
-  const tier = tierFor(entitlementBefore);
+  // One pre-batch snapshot for every row this grant writes, from the vendor's
+  // licenses (AECI-1355). No second read.
+  const resolvedAt = new Date().toISOString();
+  const vendorPlan = licensePlanSnapshot(vendorLicenses, resolvedAt);
+  // The response's `tier` is the vendor's live state, read from the same licenses
+  // (AECI-1358; the entitlement row before). The grant writes no license, so the
+  // pre-batch state IS the post-batch state. Stored state only, the session's rule
+  // (`sessionPlanFromLicenses`): Managed while any license has `ended_at` NULL.
+  // Fails closed: no live license reports `unclaimed` (Free). The snapshot above
+  // keeps its clock check, because it is a RECORD rule.
+  const tier: EntitlementTier = vendorLicenses.some((l) => l.endedAt === null)
+    ? 'verified'
+    : 'unclaimed';
 
   // Terminal-gate + idempotency. A re-grant of a claim already resolved to this
   // exact seat is a no-op (no batch, no audit noise). A resolved claim whose seat
@@ -492,10 +489,6 @@ async function approveClaim(
     );
   }
 
-  const resolvedAt = new Date().toISOString();
-  // One pre-batch snapshot for every row this grant writes, from the vendor's
-  // licenses (AECI-1355). No second read.
-  const vendorPlan = licensePlanSnapshot(vendorLicenses, resolvedAt);
   const [{ workflowId, existingWf }, acceptanceIds] = await Promise.all([
     findClaimWorkflow(db, existing.id),
     loadClaimAcceptanceIds(db, existing.id),
@@ -558,8 +551,8 @@ async function approveClaim(
       })
     : null;
 
-  // AECI-989: a new active seat returns the contests a ban moved to AECi. The grant
-  // activates no entitlement, so the return reads the vendor's real entitlement, the
+  // AECI-989: a new active seat returns the contests a ban moved to AECi. The claim
+  // writes no license, so the return reads the vendor's real licenses, the
   // same as the provision-seat route: a contest on a connector-powered row only
   // returns to an owner that already holds an active plan.
   const returned = await planSeatGrantReturn(
@@ -848,8 +841,7 @@ async function resolveClaimVendorIds(
 /**
  * The claimed vendors' `LinkRef`s, keyed by VENDOR id: the `entitlement_vendor` the
  * queue's "Manage billing" and audit-trail links address. ONE scan over the page's
- * vendor ids. AECI-1375 dropped the `vendor_entitlements` join and the entitlement
- * readout it fed.
+ * vendor ids. AECI-1375 dropped the old entitlement join and the readout it fed.
  */
 async function loadClaimVendors(db: Db, vendorIds: string[]): Promise<Map<string, LinkRef>> {
   const byVendor = new Map<string, LinkRef>();

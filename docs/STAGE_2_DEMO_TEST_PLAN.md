@@ -145,7 +145,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 - [ ] Sign-in works (magic link + Google OAuth — note Google OAuth 400s until the provider is enabled in the dashboard).
 - [ ] axe-core pass on the changed public surfaces: product detail, pair page, search, nav.
 - [ ] No console errors on the main public routes.
-- [ ] `license_mirror_drift` reports 0 after the 04:00 UTC data-quality run. It is `error` since AECI-1355, so a finding trips the `data-quality-error` alert. Run `ops:backfill-licenses` on the tier first if it does not.
+- [ ] `license_mirror_drift` reports 0 after the 04:00 UTC data-quality run. It is `error` since AECI-1355, so a finding trips the `data-quality-error` alert. A finding means a hand write outside `lib/license.ts` (`RUNBOOKS.md`). The `ops:backfill-licenses` step this line used to name was deleted by AECI-1358.
 
 ---
 

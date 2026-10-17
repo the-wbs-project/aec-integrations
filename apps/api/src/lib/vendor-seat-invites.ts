@@ -22,10 +22,10 @@
  * and in production — unlike the §3 admin grant, which 503s wherever that key is
  * absent.
  *
- * ── THIS MODULE NEVER TOUCHES `vendors` OR `vendor_entitlements` ────────────
+ * ── THIS MODULE NEVER TOUCHES `vendors` OR WRITES A LICENSE ─────────────────
  * Seat composition and paid state are orthogonal (§8.3(2)): adding or removing a
  * colleague must never flip `vendors.verified`, and — the direction people get
- * wrong — a LAPSED entitlement must never block removing a departed employee's
+ * wrong — a LAPSED plan must never block removing a departed employee's
  * access. Seat management is deliberately NOT capability-gated; see §11a for why
  * that is a security position rather than an oversight.
  */

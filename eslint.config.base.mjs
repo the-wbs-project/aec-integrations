@@ -142,19 +142,18 @@ const NO_FORBIDDEN_VARY = [
 ];
 
 /**
- * `vendors.verified` is a DENORMALIZED MIRROR of `vendor_entitlements`
+ * `vendors.verified` is a DENORMALIZED MIRROR of the vendor's live licenses
  * (`docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1), not an independent flag. The invariant —
- * `verified = true` IFF an `active` entitlement row exists — is only safe under D1's
+ * `verified = true` IFF a live license exists — is only safe under D1's
  * no-interactive-transactions model if BOTH sides move inside one `db.batch([...])`,
- * so exactly one module emits both: `apps/api/src/lib/vendor-entitlement.ts`.
- * AECI-1352 adds the license-era writer, `apps/api/src/lib/license.ts`, whose batches
+ * so exactly one module emits both: `apps/api/src/lib/license.ts`, whose batches
  * reconcile `verified` to EXISTS(live license) in the same `db.batch` as the license
- * write. See `MIRROR_WRITE_EXEMPT` for the transition.
+ * write (AECI-1352). As built (AECI-1358, 2026-10-17): the entitlement-era writer,
+ * `lib/vendor-entitlement.ts`, is deleted, so `license.ts` is the only writer.
  *
  * This is Guard 1. Guard 2 is the `license_mirror_drift` data-quality check
  * (04:00 UTC), which catches what lint structurally cannot: hand-written D1 SQL
- * against a tier, the `apps/datatool` worker, and a backfill that ran on staging but
- * not demo. It replaced `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375).
+ * against a tier and the `apps/datatool` worker. It replaced `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375).
  *
  * Shaped to the Drizzle CHAIN, not to the property name, and using the
  * `> ObjectExpression > Property` child combinator rather than `:has()` — that is what
@@ -167,14 +166,14 @@ const NO_FORBIDDEN_VARY = [
  * `.update(vendors)` callee.
  *
  * The `insert`/`values` twin closes the "create a vendor already verified with no
- * entitlement row" hole, which the `.set` selector alone would miss.
+ * live license" hole, which the `.set` selector alone would miss.
  *
  * Limitation (accepted): `db.update(schema.vendors)` would evade the exact-name match.
  * Nothing in the repo writes it that way, and Guard 2 covers what Guard 1 cannot see —
  * which is precisely why there are two guards.
  */
 const MIRROR_WRITE_MESSAGE =
-  '`vendors.verified` is a denormalized mirror of the plan (`vendor_entitlements`, and live `licenses` since AECI-1352). Only apps/api/src/lib/vendor-entitlement.ts and apps/api/src/lib/license.ts may write it, and never without the plan statement in the same db.batch. See docs/STAGE_2_PAID_TIERS_SPEC.md §2.1.';
+  '`vendors.verified` is a denormalized mirror of the plan (live `licenses`). Only apps/api/src/lib/license.ts may write it, and never without the license statement in the same db.batch. See docs/STAGE_2_PAID_TIERS_SPEC.md §2.1.';
 
 const NO_DIRECT_VERIFIED_WRITE = [
   {
@@ -213,20 +212,19 @@ export const CONSTRAINT_SYNTAX_SOURCE_ONLY = [...NO_DARK_THEME, ...NO_FORBIDDEN_
 export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
 
 /**
- * Files exempt from the sole-writer rule — TWO during the license transition.
+ * The one file exempt from the sole-writer rule: `lib/license.ts` (AECI-1352, E1.3).
+ * Every license batch ends with the one `reconcileVerifiedMirror` statement, which
+ * sets `verified` to EXISTS(live license).
  *
- * `lib/vendor-entitlement.ts` is the by-design writer of the entitlement-era mirror
- * (§2.1). `lib/license.ts` (AECI-1352, E1.3) is its successor: every license batch
- * ends with the one `reconcileVerifiedMirror` statement, which sets `verified` to
- * EXISTS(live license). Both writers coexist while E1.4 dual-writes;
- * `vendor-entitlement.ts` LEAVES this list at E1.9 (AECI-1358), when
- * `vendor_entitlements` is retired, and the list is back to exactly one entry.
+ * As built (AECI-1358, 2026-10-17): `lib/vendor-entitlement.ts`, the entitlement-era
+ * writer, sat beside it while E1.4 dual-wrote. E1.9 deleted that module, and the list
+ * is back to exactly one entry.
  *
  * `lib/vendor-grant.ts` used to be a second, TEMPORARY baseline carve-out: it still
  * emitted the `verified` flip when AECI-609 landed the rule. **AECI-612 (§6 step 1)
  * deleted that statement** — `grantSeatStatements` no longer names `vendors` at all,
- * and `approveClaim` composes `activateEntitlementStatements` into the same
- * `db.batch` instead — so the carve-out is gone and the rule now covers that file
+ * and `approveClaim` composed the entitlement activator into the same `db.batch`
+ * instead, until AECI-1367 made every approval Free — so the carve-out is gone and the rule now covers that file
  * like any other. Landing a rule scoped to the clean subset and widening it as the
  * rest is cleaned up is the documented lifecycle (`ANGULAR_STYLE_GUIDE.md` §24
  * "Rule lifecycle"); this is the widening step.
@@ -236,9 +234,7 @@ export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
  * — the same reason `TEST_FILES` uses them.
  */
 export const MIRROR_WRITE_EXEMPT = [
-  // Leaves at E1.9 (AECI-1358), with the `vendor_entitlements` table.
-  '**/lib/vendor-entitlement.ts',
-  // AECI-1352: the license module's mirror reconcile. The permanent writer after E1.9.
+  // AECI-1352: the license module's mirror reconcile. The sole writer since E1.9.
   '**/lib/license.ts',
 ];
 

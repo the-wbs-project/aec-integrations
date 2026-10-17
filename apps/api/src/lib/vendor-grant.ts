@@ -18,9 +18,9 @@
  *
  * ── THIS MODULE NEVER TOUCHES `vendors` (AECI-612 / §6 step 1) ─────────────────
  * `grantSeatStatements` used to emit `UPDATE vendors SET verified = 1` itself. It
- * does not any more: `vendors.verified` is a denormalized MIRROR of
- * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer.
- * Since AECI-1367 `approveClaim` composes no entitlement at all: every approval lands
+ * does not any more: `vendors.verified` is a denormalized MIRROR of a live license
+ * (§2.1) and `lib/license.ts` is its SOLE writer (since AECI-1358; before that the
+ * entitlement writer was). Since AECI-1367 `approveClaim` composes no plan at all: every approval lands
  * on Free, so the batch is this module's seat statements, the billing account
  * (`lib/billing-account.ts`) and the acceptance link (`lib/agreement-acceptances.ts`).
  * The audit row still records `beforeState.vendor_verified` and
@@ -91,8 +91,8 @@ export interface GrantSeatParams {
   userId: string;
   /** The VENDOR being claimed (a product claim's vendor is resolved by the caller). */
   vendorId: string;
-  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
-   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadVendorLicenses` +
+   *  `licensePlanSnapshot`, or the vendor session's on the owner-side revoke. */
   vendorPlan: VendorPlanSnapshot;
   requestId: string;
   /** The acting admin. */
@@ -180,8 +180,8 @@ export interface RevokeSeatParams {
   /** The vendor the seat is on — the revoke is scoped to it so a stray seat can't
    *  be un-granted by targeting the wrong vendor. */
   vendorId: string;
-  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
-   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadVendorLicenses` +
+   *  `licensePlanSnapshot`, or the vendor session's on the owner-side revoke. */
   vendorPlan: VendorPlanSnapshot;
   actorId: string;
   actorType: AuditLogEntry['actorType'];
@@ -719,8 +719,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  *
  * The exact inverse of {@link revokeSeatStatements}, and the only path that writes
  * `profiles.role = 'vendor_admin'` with neither a claim nor an invite behind it —
- * and, unlike the claim grant it sits beside, without opening a
- * `vendor_entitlements` row. **TWO statements**, and — like everything else in
+ * and, like the claim grant it sits beside, without granting a license.
+ * **TWO statements**, and — like everything else in
  * this module — neither of them names `vendors`.
  *
  * ── WHY IT IS NOT `grantSeatStatements` ──────────────────────────────────────
@@ -734,11 +734,10 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * account behind it. Neither is true here.
  *
  * ── WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────────
- * **No entitlement statement.** §8.9(2) is a fence, not a build: `vendors.verified`
- * mirrors off `status = 'active'`, not `tier` (`lib/vendor-entitlement.ts`), so
- * ANY active row flips the public `verified` mirror, and "a seat but no `verified`" is
- * not expressible through the entitlement table. The seat is therefore not an
- * entitlement row at all. `findVendorProfile` (`lib/authz.ts`) uses a `leftJoin`
+ * **No license statement.** §8.9(2) is a fence, not a build: `vendors.verified`
+ * mirrors a live license (`lib/license.ts`), so ANY live license flips the public
+ * `verified` mirror, and "a seat but no `verified`" is not expressible through the
+ * license table. The seat therefore holds no license at all. `findVendorProfile` (`lib/authz.ts`) uses a `leftJoin`
  * precisely so this shape authenticates: the holder passes `requireVendor()` and
  * resolves to `unclaimed`, the Free capabilities only (AECI-1214).
  *
@@ -769,8 +768,8 @@ export interface ProvisionSeatParams {
   /** Resolved auth-user id (= `profiles.id`, = JWT `sub`). */
   userId: string;
   vendorId: string;
-  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
-   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadVendorLicenses` +
+   *  `licensePlanSnapshot`, or the vendor session's on the owner-side revoke. */
   vendorPlan: VendorPlanSnapshot;
   /** The acting admin. */
   actorId: string;

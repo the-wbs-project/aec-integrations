@@ -51,29 +51,6 @@ ON CONFLICT ("slug") DO UPDATE SET
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- ---------------------------------------------------------------------------
--- Vendor entitlement (AECI-609 / STAGE_2_PAID_TIERS_SPEC.md §2.4) — FAR-FUTURE
--- ACTIVE, and it must STAY that way.
--- ---------------------------------------------------------------------------
--- This vendor is the /vendor e2e persona's anchor (auth-fixtures.sql seats a
--- `vendor_admin` on it), so once the AECI-611 entitlement gate lands, anything other
--- than an active entitlement 403s every `/api/vendor/*` write and breaks
--- `vendor-dashboard.spec.ts`. The `verified = 1` above is the MIRROR of this row —
--- change one and you must change the other (and the license read from it below),
--- or `license_mirror_drift` flags it.
--- `granted_by` is NULL: this file runs before auth-fixtures.sql, so no `profiles`
--- row exists yet and a non-null FK would fail.
-INSERT INTO "vendor_entitlements"
-  ("id","vendor_id","tier","status","period_start","period_end","payer","amount","terms","arranged_by","invoice_ref","notes","granted_by","granted_at","ended_at","created_at","updated_at") VALUES
-  ('00000000-0000-4000-8000-000000000071','00000000-0000-4000-8000-000000000061','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),'Fixture Procore AP','USD 5,000 / yr','Annual, net 30','CI Fixture','FIXTURE-0001','CI fixture: far-future active term anchoring the /vendor e2e persona.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-ON CONFLICT ("vendor_id") DO UPDATE SET
-  "tier" = excluded."tier",
-  "status" = excluded."status",
-  "period_start" = excluded."period_start",
-  "period_end" = excluded."period_end",
-  "ended_at" = excluded."ended_at",
-  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
-
--- ---------------------------------------------------------------------------
 -- Products (2) — a primary application + a connector for the integration target.
 -- integration_count = 1 (each participates in the single fixture integration).
 -- The primary product carries a `usefulness` blob (AECI-173) so the detail page's
@@ -102,16 +79,25 @@ INSERT INTO "product_vendors" ("product_id","vendor_id","is_primary","created_at
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- Billing account + license (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1) — the
--- entitlement row above, as a license. Until the E1.6 switch-over the license must
--- say what the entitlement says, or `vendors.verified` (true here) disagrees with
--- EXISTS(live license). The vendor owns one product, so one license, assigned to
--- it. Mapped by the 2026-10-14 rule: a dated row with an invoice ref is `invoice`,
--- `ends_at` = `period_end`, `starts_at` = `period_start`. Dates are read from the
--- entitlement row so the two
--- cannot drift. Idempotent: the account no-ops on its vendor, the license refreshes
--- its term on its id, and a license the local app already put on the product makes
--- the insert a no-op. `created_by` / `granted_by` are NULL: no `profiles` row yet.
+-- Billing account + license (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1).
+-- FAR-FUTURE ACTIVE, and it must STAY that way.
+--
+-- This vendor is the /vendor e2e persona's anchor (auth-fixtures.sql seats a
+-- `vendor_admin` on it), so anything other than a live license 403s every
+-- `/api/vendor/*` write and breaks `vendor-dashboard.spec.ts`. The `verified = 1`
+-- above is the MIRROR of this license: change one and you must change the other, or
+-- `license_mirror_drift` flags it. The vendor owns one product, so one license,
+-- assigned to it: `invoice`, reference FIXTURE-0001, starting now and ending in
+-- ten years.
+--
+-- As built (AECI-1358, 2026-10-17): the dates and reference used to be read from the
+-- seeded entitlement row. That table is retired, so the values are inline now, the
+-- same values that row held.
+--
+-- Idempotent: the account no-ops on its vendor, the license refreshes its term on
+-- its id, and a license the local app already put on the product makes the insert a
+-- no-op. `created_by` / `granted_by` are NULL: this file runs before
+-- auth-fixtures.sql, so no `profiles` row exists yet.
 -- ---------------------------------------------------------------------------
 INSERT INTO "billing_accounts" ("id","vendor_id","name","billing_email","created_by","created_at","updated_at") VALUES
   ('00000000-0000-4000-8000-000000000081','00000000-0000-4000-8000-000000000061','Fixture Procore Technologies',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -119,7 +105,7 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO "licenses"
   ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","created_at","updated_at") VALUES
-  ('00000000-0000-4000-8000-000000000082',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),'00000000-0000-4000-8000-000000000062',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('00000000-0000-4000-8000-000000000082',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = '00000000-0000-4000-8000-000000000061'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),NULL,NULL,'FIXTURE-0001','00000000-0000-4000-8000-000000000062',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("id") DO UPDATE SET
   "source" = excluded."source",
   "starts_at" = excluded."starts_at",

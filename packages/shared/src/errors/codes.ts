@@ -95,10 +95,8 @@ export const ApiErrorCode = {
   // vendor (a double-click, or two seats removed at once), so the planned hand-back
   // or contest re-route no longer matches the seats left. Nothing was written.
   VENDOR_SEATS_CHANGED: 'VENDOR_SEATS_CHANGED',
-  // AECI-1353: an entitlement `set` or a Managed claim grant lost a race with another
-  // activate of the same vendor's entitlement. The whole batch, licenses included,
-  // rolled back (409). Reload: the entitlement is now active.
-  ENTITLEMENT_CHANGED: 'ENTITLEMENT_CHANGED',
+  // `ENTITLEMENT_CHANGED` (AECI-1353) is retired: its only raiser, the entitlement
+  // activate, was deleted by AECI-1358 (`API_CONTRACTS.md` §4).
   // AECI-1370: `POST /api/admin/vendors/:id/licenses` with a `grant_id` whose licenses
   // exist but do not match this request (another quantity, source, end date, reference
   // or billing account), or a grant that lost a race on the license ids (409).
