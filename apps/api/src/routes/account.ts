@@ -29,12 +29,11 @@
  * `profile.updated` audit row. `ensureProfileRow` never writes them.
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has eighteen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
+ * `profiles(id)` has seventeen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
  * so they must be nulled before the profile delete. Three (`notification_preferences`,
- * `profile_details`, `profile_audiences`) cascade. `vendor_entitlements.granted_by`
- * is left to its own `ON DELETE SET NULL`: nothing reads or writes that table since
- * AECI-1358, and its PR 2 drops it. The batch nulls the other fourteen. Under D1 that
- * erasure is ONE atomic `db.batch([...])` (null all 14 refs + the PII-free
+ * `profile_details`, `profile_audiences`) cascade. The batch nulls the other fourteen.
+ * Migration 0082 (AECI-1358) dropped an eighteenth, `vendor_entitlements.granted_by`.
+ * Under D1 that erasure is ONE atomic `db.batch([...])` (null all 14 refs + the PII-free
  * `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the

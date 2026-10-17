@@ -135,7 +135,7 @@ Tables grouped by domain:
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
-- `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
+- `vendor_entitlements` — *dropped by migration 0082 (AECI-1358, 2026-10-17).* Was the vendor's paid tier, status and term, with `vendors.verified` as its mirror; licenses replaced it (§8.6, AECI-609)
 - `billing_accounts` — one per vendor; the account Managed licenses are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `agreement_acceptances` — one acceptance of one version of the vendor terms or the Managed plan agreement; evidence that survives erasure (§8.6d, AECI-1362)
@@ -219,7 +219,7 @@ create table vendors (
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Operational
-  verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; lib/vendor-entitlement.ts stays on the sole-writer exempt list until E1.9, enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
+  verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; migration 0082 dropped the table (AECI-1358, 2026-10-17). Enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -247,9 +247,11 @@ create index vendors_verified_idx on vendors(verified);
 ```
 
 **`verified` is a mirror, not the model (AECI-609).** Until the Paid Tiers epic it *was* the
-entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§8.6), with the
+entitlement bit; it then became a denormalized boolean over `vendor_entitlements` (§8.6), with the
 invariant **`vendors.verified = true` iff the vendor has an entitlement row with
 `status = 'active'`**. The demotion was deliberately invisible to readers at the time.
+*As built (AECI-1358, 2026-10-17):* the bit now mirrors live licenses (§8.6c), and migration
+0082 dropped `vendor_entitlements`.
 
 **No public reader is left (AECI-1266, 2026-10-12).** The column tells anyone who can read it
 which vendors are on a paid plan. AECI-1264 deleted `aec-vendor-account-badge` on 2026-10-09.
@@ -267,7 +269,9 @@ the claim button copy that switched on it. The remaining readers are internal:
 `toVendorListItem` no longer emit it. The column, `vendors_verified_idx` and the invariant are
 unchanged. **No public or read path may query `vendor_entitlements`** —
 "fixing" the filter to join the entitlement table would defeat the entire denormalization, and
-a test asserts no read config in `lib/drizzle-helpers.ts` references it.
+a test asserts no read config in `lib/drizzle-helpers.ts` references it. *As built (AECI-1358,
+2026-10-17):* the table is dropped (migration 0082). The same rule now covers `licenses` and
+`billing_accounts`, and `drizzle-helpers.read-path.spec.ts` asserts no module names the old table.
 
 Two consequences worth knowing before touching this column. **`updated_at` moves iff `verified`
 moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`, never left to
@@ -1121,9 +1125,10 @@ create index profiles_banned_idx on profiles(banned_at) where banned_at is not n
 
 > **`profiles.trust_tier` is NOT an entitlement tier.** Its CHECK vocabulary literally
 > contains `'verified'`, one table away from `vendors.verified` and two from
-> `vendor_entitlements.tier` — and the three mean entirely different things.
+> the plan tier (`vendor_entitlements.tier` until migration 0082 dropped it, AECI-1358; now
+> derived from licenses) — and the three mean entirely different things.
 > `trust_tier` is a **reviewer**-side anti-abuse signal about a *person* (`standard` /
-> `verified` / `trusted`, Stage 3 trust scoring). `vendor_entitlements.tier` is a
+> `verified` / `trusted`, Stage 3 trust scoring). The plan tier is a
 > **paid** capability rung held by a *company* (§8.6), whose launch vocabulary happens
 > to be `unclaimed` / `verified`. Nothing reads one for the other, and nothing should:
 > the session field is named **`entitlementTier`, never `tier`**, there is no `TrustTier`
@@ -1429,7 +1434,7 @@ it that the column alone does not say:
 - **The `audit_log` IS its history.** The column holds only the current text;
   every write emits a `vendor_claim.note_updated` row carrying the full old and
   new note in `before_state` / `after_state`, **in the same `db.batch` as the
-  UPDATE** (§26.1). That is the same arrangement `vendor_entitlements.notes` uses
+  UPDATE** (§26.1). That is the same arrangement `vendor_entitlements.notes` used
   (AECI-612), and it is why an unchanged re-save deliberately writes nothing: a
   trail of identical states is not a history.
 - **Writable at every status.** A note is not a transition, so it is accepted on
@@ -1469,7 +1474,9 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   `vendor_requests` would change the `kind` and `target_type` CHECKs and the
   `target_id` NOT NULL, each a drizzle-kit recreate of a table with FK children
   (`vendor_entitlements.source_request_id`, the duplicate self-FK), which is the
-  cascade hazard of `docs/migrations.md` §0. Migration `0070` is a plain
+  cascade hazard of `docs/migrations.md` §0. *As of AECI-1358 (2026-10-17) migration 0082
+  dropped `vendor_entitlements`. `agreement_acceptances.vendor_request_id` is still a child,
+  so the hazard stands.* Migration `0070` is a plain
   `CREATE TABLE`, its index, and the `vendor_requests.plan_interest` `ADD COLUMN`.
 - **No FK and no CHECK**, the `field_overrides` precedent. `resolved_by` has no FK to
   `profiles`, so it is not one of `AUTH_AND_RLS.md`'s inbound FKs and the erasure batch
@@ -1607,7 +1614,7 @@ create table audit_log (
   -- AECI-1192 / AECI-1193 (migration 0063). No FK, no CHECK. See "Who and which plan" below.
   vendor_id text, -- the vendor the row is ABOUT
   product_id text, -- the one product the row is about
-  vendor_tier text, -- raw vendor_entitlements.tier at write time, or 'none'
+  vendor_tier text, -- plan tier at write time from licensePlanSnapshot (the raw vendor_entitlements.tier before AECI-1355), or 'none'
   vendor_entitlement_status text, -- 'active' | 'pending' | 'expired' | 'revoked' | 'none'
   -- AECI-1376 (migration 0080). No FK, no CHECK. See "The cause product's plan" below.
   product_tier text, -- the cause product's plan tier at write time, NULL when not stamped
@@ -1651,7 +1658,7 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 - **`vendor_tier`** and **`vendor_entitlement_status`** are the plan at write time, from
   `vendorPlanSnapshot` (`@aeci/shared/entitlements`). The tier is the RAW row tier (`verified`), so
   a write after a lapse reads `verified` + `expired`. A vendor with no `vendor_entitlements` row
-  records `none` on both, never NULL. NULL means "not snapshotted". A vendor write reads the plan
+  (since AECI-1355, no license) records `none` on both, never NULL. NULL means "not snapshotted". A vendor write reads the plan
   from the session at no extra D1 cost. An admin write reads `loadEntitlement` in the handler. An
   admin row about an entitlement change records the plan **before** the change; `after_state` holds
   the new one. A `notification.sent` row carries no plan. License rows (AECI-1352) fill the same
@@ -1804,13 +1811,21 @@ Notes:
 
 ### 8.6 `vendor_entitlements`
 
-> **As built (AECI-1358, E1.9 PR 1, 2026-10-17). Nothing reads or writes this table.** Licenses
-> (§8.6c) replaced it. `lib/vendor-entitlement.ts`, `ops:backfill-entitlements`,
-> `ops:backfill-licenses` and `vendorPlanSnapshot` are deleted. The claim grant, the admin user
-> detail, account erasure and the vendor delete no longer touch it, and the seeds no longer insert
-> it. Its only code reference is the `schema.ts` definition. PR 2 drops the table, after PR 1 is on
-> production, because CI applies migrations before the Worker deploys (`docs/migrations.md` §3.2).
-> The rest of this section is the as-designed history.
+> **Dropped 2026-10-17 (AECI-1358, E1.9 PR 2, migration 0082).** The table no longer exists.
+> `apps/api/migrations/0082_lying_paper_doll.sql` is one `DROP TABLE`. It is a leaf drop: no
+> migration holds an FK into the table, so it cascades nothing. Its own three FKs point outward
+> (`vendors` CASCADE, `profiles` SET NULL, `vendor_requests` NO ACTION) and fire nothing on their
+> parents. Its three indexes and its status CHECK went with it. `migration-0082.spec.ts` is the
+> tripwire. `vendorEntitlements` is gone from `schema.ts`, `VENDOR_FK_HANDLING` and the
+> `profiles` FK register (`AUTH_AND_RLS.md` §8, now seventeen). The `vendor_entitlement.*` audit
+> labels and `audit_log.vendor_entitlement_status` stay, so historical rows still render.
+>
+> **As built (AECI-1358, E1.9 PR 1, 2026-10-17).** Licenses (§8.6c) replaced it.
+> `lib/vendor-entitlement.ts`, `ops:backfill-entitlements`, `ops:backfill-licenses` and
+> `vendorPlanSnapshot` were deleted. The claim grant, the admin user detail, account erasure and
+> the vendor delete stopped touching it, and the seeds stopped inserting it. PR 2 dropped the
+> table after PR 1 reached production, because CI applies migrations before the Worker deploys
+> (`docs/migrations.md` §3.2). The rest of this section is the as-designed history.
 
 The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
 (AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
@@ -2182,7 +2197,7 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `phase2-fixtures.sql`) carry matching accounts and licenses, idempotent on fixed ids.
   E1.5's back-fill (AECI-1354) covers the deployed environments.
 - **The back-fill (AECI-1354, E1.5).** *Deleted 2026-10-17 (AECI-1358): it ran on every tier,
-  and it read `vendor_entitlements`, which PR 2 drops. This bullet is history.*
+  and it read `vendor_entitlements`, which migration 0082 dropped. This bullet is history.*
   `ops:backfill-licenses` (`apps/api/scripts/`,
   core `apps/api/src/lib/backfill-licenses.ts`) brings a deployed tier to the state the
   dual-write keeps. It reaches every vendor with a `vendor_admin` seat or an entitlement

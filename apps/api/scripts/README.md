@@ -21,7 +21,7 @@ with the D1 migration (ADR 0016 / AECI-278).
 
 Retired (AECI-1358, 2026-10-17): `ops:backfill-entitlements` and `ops:backfill-licenses`.
 Both were one-off back-fills that read `vendor_entitlements`. Both ran on every tier
-before E1.6, and `license_mirror_drift` reads 0. The table is being dropped, so the
+before E1.6, and `license_mirror_drift` reads 0. Migration 0082 dropped the table, so the
 scripts could not run again. Their source is in git history.
 
 See each script's file header for its full flag set, required environment

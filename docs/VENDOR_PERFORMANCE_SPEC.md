@@ -310,7 +310,7 @@ Extends AECI-820's weekly pull. Same service account, same host-filter rule. Sea
 
 ### 6.2 URL Inspection — AECI-937
 
-Weekly, **paying vendors' URLs only** (those with an active `vendor_entitlements` row), writing `search_console_url_status`. Budget stated in code as a constant with the reasoning: the quota is roughly 2,000 inspections a day per property and AECI-824 needs it clean; never used to sample an indexed count (the AECI-820 rule). If the budget is exceeded the job stops and warns; it never fails the cron.
+Weekly, **paying vendors' URLs only** (those with an active `vendor_entitlements` row; since AECI-1355, a live license, and migration 0082 dropped that table on 2026-10-17, AECI-1358), writing `search_console_url_status`. Budget stated in code as a constant with the reasoning: the quota is roughly 2,000 inspections a day per property and AECI-824 needs it clean; never used to sample an indexed count (the AECI-820 rule). If the budget is exceeded the job stops and warns; it never fails the cron.
 
 ### 6.3 Bing Webmaster Tools — AECI-938
 
