@@ -1056,7 +1056,7 @@ list them and SQLite never clears them. The erasure batch nulls both where they 
 The billing account and the license survive, because they are the vendor's commercial record.
 Only the person's link is severed. Both statements pin `updated_at`, so an erasure does not read
 as a commercial change. `apps/api/src/routes/account.spec.ts` asserts it.
-`vendor_plan_pricing.updated_by` is the same shape and is not nulled today.
+`vendor_plan_pricing.updated_by` is the same shape and is not nulled today. That gap closes when AECI-1357 PR 2 drops the table (the table has had no reader since AECI-1357 PR 1, 2026-10-17).
 AECI-1373 adds two more of the same shape: `license_release_requests.requested_by` and
 `decided_by`. The batch nulls both with `updated_at` pinned, and the request survives.
 

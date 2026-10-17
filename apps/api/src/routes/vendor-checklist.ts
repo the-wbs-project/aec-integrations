@@ -81,7 +81,6 @@ import { textAsc } from '../lib/collation';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairOn, liveIntegrationOn } from '../lib/live-integration';
-import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import {
   checklistScore,
   productChecklistSteps,
@@ -349,7 +348,7 @@ export function createVendorChecklistHandler(
     // One wave. The fact reads scope by the owned-products subquery, so they need
     // nothing from the product read and can run beside it.
     const facts = settleFacts(loadChecklistFacts(db, vendorId, ownedProductIds(db, vendorId)));
-    const [vendor, owned, seats, invites, settled, price] = await Promise.all([
+    const [vendor, owned, seats, invites, settled] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { maintainedBy: true, lastReviewedAt: true },
         where: eq(vendors.id, vendorId),
@@ -374,9 +373,6 @@ export function createVendorChecklistHandler(
         .from(vendorSeatInvites)
         .where(eq(vendorSeatInvites.vendorId, vendorId)),
       facts,
-      // The display-only plan price overrides (§13.13), so the block matches the
-      // one `GET /api/vendor/me` puts on the product.
-      loadPlanPrice(db, vendorId),
     ]);
     // A granted seat whose vendor row was deleted. `GET /api/vendor/me` answers 404.
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
@@ -387,7 +383,7 @@ export function createVendorChecklistHandler(
       const { steps: _steps, ...summary } = productChecklist(
         product,
         settled,
-        entitlementBlock(session, price, product.id),
+        entitlementBlock(session, product.id),
       );
       return summary;
     });
@@ -428,12 +424,9 @@ export function createVendorProductChecklistHandler(
     // Ownership first, in its own wave: a foreign product is a 404 before any
     // fact about it is read.
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    const [facts, price] = await Promise.all([
-      settleFacts(loadChecklistFacts(db, vendorId, [productId])),
-      loadPlanPrice(db, vendorId),
-    ]);
+    const facts = await settleFacts(loadChecklistFacts(db, vendorId, [productId]));
 
-    const body = productChecklist(product, facts, entitlementBlock(session, price, productId));
+    const body = productChecklist(product, facts, entitlementBlock(session, productId));
     validateResponseInDev(c.env, () => VendorProductChecklistResponseSchema.parse(body));
     return json(body);
   };

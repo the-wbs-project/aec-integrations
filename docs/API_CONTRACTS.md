@@ -3392,11 +3392,11 @@ rate limit's 429.
 
 **Retired 2026-10-17 (AECI-1375, E4.6).** The route is gone and answers `404`, per
 `VENDOR_SIGNUP_PROCESS.md` decision 8. It set a display-only price override on the vendor
-portal's plan panel. Existing `vendor_plan_pricing` rows still show on that panel until E1.8
-removes the table and its reader (`apps/api/src/lib/vendor-plan-pricing.ts`). The write
-schemas left `packages/shared/src/api/admin-plan-pricing.ts`. `PlanPriceSchema` and
-`VendorPlanPricingResponseSchema` stay until E1.8. Historical `vendor_plan_pricing.*` audit
-rows still render. The pre-AECI-1375 contract is in git history.
+portal's plan panel. *As built 2026-10-17 (AECI-1357):* the read is gone too.
+`apps/api/src/lib/vendor-plan-pricing.ts` and `packages/shared/src/api/admin-plan-pricing.ts`
+are deleted, with `PlanPriceSchema` and `VendorPlanPricingResponseSchema`. No route reads
+`vendor_plan_pricing`. The table is unread and a later migration drops it. Historical
+`vendor_plan_pricing.*` audit rows still render. The pre-AECI-1375 contract is in git history.
 
 #### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
 
@@ -6514,7 +6514,7 @@ export const VendorEntitlementBlockSchema = z.object({
   period_end: z.string().nullable(),            // null = monthly / no scheduled end, or no term on record
   ended_at: z.string().nullable(),              // AECI-1218: when the plan ended; null while live or never held
   capabilities: z.array(CapabilitySchema),      // the expansion of `tier` through TIER_CAPABILITIES
-  price: PlanPriceSchema,                       // 2026-10-08: { managed_price_cents, message }, both null = default
+  // `price` ({ managed_price_cents, message }, added 2026-10-08) was removed 2026-10-17 (AECI-1357).
 });
 
 // Each VendorProductSchema entry also carries (AECI-1214):
@@ -6527,9 +6527,9 @@ export const VendorEntitlementBlockSchema = z.object({
 
 **Callers.** The portal reads it through `VendorPortalStore` and the `/vendor` SSR resolver. Outside the portal, `VendorPlanStatus` (`apps/web/src/app/vendor/vendor-plan-status.ts`, AECI-1286) reads it once per session in the browser, only after `GET /api/account` reports `vendor_admin`. It keeps `vendor.slug`, `vendor.company_name` and `isManaged(entitlement)` so public pages can show the signed-in variants in `VENDOR_PROGRAM_PAGE_SPEC.md` §5. A failed call reads as signed out.
 
-**The `entitlement` block costs one query, for `price` only.** Every other field is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `price` is the display-only plan price override (`STAGE_2_PAID_TIERS_SPEC.md` §13.13), one primary-key read of `vendor_plan_pricing`. It never carries who set it, and it gates nothing. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
+**The `entitlement` block costs no query.** Every field is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. *As built (AECI-1357, 2026-10-17):* the block used to carry a `price` field, one primary-key read of `vendor_plan_pricing` (`STAGE_2_PAID_TIERS_SPEC.md` §13.13). That field and its read are removed. The plan panel's price line is constant copy. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 
-**Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. **Since AECI-1355 each `plan` comes from that product's own license** (`entitlementBlock(session, price, productId)`): `verified` / `active` with the license's `ends_at` while a live license is on the product, `unclaimed` with the latest ended license's `status` / `period_end` / `ended_at` once it ended, and `unclaimed` with a null term if the product was never on Managed. A product co-owned with another vendor that licenses it reads `unclaimed` with a null term (ruled 2026-10-14: only the payer gets Managed rights), and the other vendor's dates never enter the session. Server enforcement is per product and reads the same session field, so the block and the 403 cannot disagree. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
+**Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. **Since AECI-1355 each `plan` comes from that product's own license** (`entitlementBlock(session, productId)`): `verified` / `active` with the license's `ends_at` while a live license is on the product, `unclaimed` with the latest ended license's `status` / `period_end` / `ended_at` once it ended, and `unclaimed` with a null term if the product was never on Managed. A product co-owned with another vendor that licenses it reads `unclaimed` with a null term (ruled 2026-10-14: only the payer gets Managed rights), and the other vendor's dates never enter the session. Server enforcement is per product and reads the same session field, so the block and the 403 cannot disagree. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
 
 **The vendor-level `entitlement` block (AECI-1355)** is derived from the vendor's own licenses: `verified` / `active` while any license on its billing accounts is live, assigned or not (`period_end` = the latest live `ends_at`, `null` if any is monthly). Once none is live, the most recently ended license gives `revoked` (end reason `revoked`) or `expired`, with its `period_end` and `ended_at`. `status: null` means the vendor never held a license. So a vendor with one license on one of two products shows `entitlement.tier: 'verified'` and one Free product.
 

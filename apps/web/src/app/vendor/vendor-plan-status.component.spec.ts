@@ -39,7 +39,6 @@ function block(tier: 'unclaimed' | 'verified', status: 'active' | 'pending' | nu
     period_end: null,
     ended_at: null,
     capabilities: [],
-    price: { managed_price_cents: null, message: null },
   };
 }
 

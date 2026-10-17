@@ -2674,8 +2674,8 @@ Every plan panel carries decision 10's line, word for word:
 
 #### What the portal offers
 
-- Managed shows its price: "Managed is $25 a month per product." The "Draft price" label was removed on 2026-10-08.
-- An admin can override that line per vendor, display only: a price ("Managed is $12.50 a month per product.") or a message that replaces the whole sentence. A message beats a price. The connector catalogue seat still shows no price. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 governs, and `ADMIN_PANEL_SPEC.md` §5.7 has the admin control.
+- Managed shows its price: "Managed is $25 a month or $250 a year per product." The "Draft price" label was removed on 2026-10-08. *As built (AECI-1357, 2026-10-17): the line adds the annual price and is the same for every vendor.*
+- *Retired 2026-10-17 (AECI-1357).* An admin could override that line per vendor, display only: a price ("Managed is $12.50 a month per product.") or a message that replaces the whole sentence. A message beats a price. The connector catalogue seat still shows no price. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 governs, and `ADMIN_PANEL_SPEC.md` §5.7 had the admin control.
 - Nothing beyond Managed is shown. That is decision 9.
 
 #### As built (AECI-1218 — 2026-10-02)

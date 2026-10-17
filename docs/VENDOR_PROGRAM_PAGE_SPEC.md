@@ -26,7 +26,7 @@ A public landing page for AEC software vendors at **`/vendor-program`**.
 |---|---|---|
 | 1 | Launch timing | **Public now.** Indexable, in the sitemap, linked from the footer. |
 | 2 | Founding pilot on the page | **No.** The pilot stays in private outreach. |
-| 3 | Annual price | **Show it.** $25 a month per product, and $250 a year per product. **Revised 2026-10-13 (Chris):** the line reads "$25 USD a month or $250 USD a year per product, billed by invoice or purchase order." USD stays on each amount, because vendors outside the US read the page. The short price lines (rail, phone bar, Managed card, comparison row) read "$25 USD a month per product". The portal's plan panel sentence is not public and is unchanged. |
+| 3 | Annual price | **Show it.** $25 a month per product, and $250 a year per product. **Revised 2026-10-13 (Chris):** the line reads "$25 USD a month or $250 USD a year per product, billed by invoice or purchase order." USD stays on each amount, because vendors outside the US read the page. The short price lines (rail, phone bar, Managed card, comparison row) read "$25 USD a month per product". The portal's plan panel sentence is not public. *As built (AECI-1357, 2026-10-17):* it now reads "Managed is $25 a month or $250 a year per product." for every vendor. |
 | 4 | Reply-time promise | **No new promise.** The existing line "We reply to most messages within a couple of business days" (`PLAN_INQUIRY_REPLY_PROMISE` and its copies) is reused unchanged. No "two business days" line. |
 | 5 | Inquiry routing | **Email, as built** (AECI-1279). No CRM. |
 | 6 | URL | **`/vendor-program`.** `/vendors` stays a 301 to `/products` (AECI-165). |

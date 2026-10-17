@@ -60,7 +60,6 @@ import { assertStoredLogo } from './logos';
  */
 
 import {
-  type PlanPrice,
   type VendorEntitlementBlock,
   ListVendorSeatsResponseSchema,
   UpdateVendorProductResponseSchema,
@@ -146,7 +145,6 @@ import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import { productEditRecrawl, symmetricDifference, vendorProfileRecrawl } from './vendor-recrawl';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
-import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
 import {
   afterVendorWrite,
@@ -325,14 +323,12 @@ export type TaxonomySlugs = {
  * `productId` is required, `null` included, so no caller can build a vendor block
  * for a product by forgetting the argument.
  *
- * `price` is the one field the session does not hold: the display-only plan
- * price overrides (ruling 2026-10-08, §13.13), one primary-key read through
- * `loadPlanPrice`. It is a required argument so no builder can forget it. It
- * decides nothing: no gate, capability or ranking reads it.
+ * Every field comes from the session, so the block costs no query. The per-vendor
+ * price override it once carried is retired (AECI-1357, `VENDOR_SIGNUP_PROCESS.md`
+ * §2 decision 8).
  */
 export function entitlementBlock(
   session: AuthenticatedSession,
-  price: PlanPrice,
   productId: string | null,
 ): VendorEntitlementBlock {
   const plan =
@@ -345,13 +341,12 @@ export function entitlementBlock(
     period_end: plan.entitlement?.periodEnd ?? null,
     ended_at: plan.entitlement?.endedAt ?? null,
     capabilities: [...capabilitiesFor(plan.entitlementTier)],
-    price,
   };
 }
 
 /**
  * `plan` is this product's plan (§13.7): its own license since AECI-1355, built by
- * the caller with `entitlementBlock(session, price, product.id)`.
+ * the caller with `entitlementBlock(session, product.id)`.
  */
 function toVendorProduct(
   row: ProductRow,
@@ -755,53 +750,43 @@ export function createVendorMeHandler(
     const productIds = owned.map((row) => row.productId);
     const primaryById = new Map(owned.map((row) => [row.productId, row.isPrimary]));
 
-    const [
-      productRows,
-      taxonomy,
-      seatRows,
-      callerRows,
-      requestRows,
-      vendorLocks,
-      productLocks,
-      price,
-    ] = await Promise.all([
-      productIds.length
-        ? db.query.products.findMany({
-            where: inArray(products.id, productIds),
-            // Case-insensitive (AECI-825); `id` keeps the order total, since
-            // NOCASE ties two spellings that differ only in case.
-            orderBy: [textAsc(products.name), asc(products.id)],
-          })
-        : Promise.resolve([]),
-      loadTaxonomySlugs(db, productIds),
-      // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
-      // reports a seat count the roster can't account for — a `reviewer` profile
-      // pointing at this vendor is not a seat. Only the count is consumed, so
-      // count it in SQL rather than shipping every row back.
-      db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
-      // AECI-1387: the caller's owner bit, for the Billing nav item. The same row
-      // `requireSeatOwner()` reads, pinned to this vendor and the seat role.
-      db
-        .select({ seatOwner: profiles.seatOwner })
-        .from(profiles)
-        .where(and(eq(profiles.id, session.userId), seatsOf(vendorId)))
-        .limit(1),
-      // The vendor's own claim/correction requests: those targeting the vendor
-      // itself, plus those targeting any product it owns. The predicate is shared
-      // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
-      // `vendorRequestsWhere` for why that sharing is load-bearing.
-      db.query.vendorRequests.findMany({
-        where: vendorRequestsWhere(vendorId, productIds),
-        // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
-        orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
-      }),
-      // AECI-1237: AECi's field locks, so the forms render those fields read-only.
-      // Two reads on the partial unique index; nothing when nothing is locked.
-      lockedFieldsByEntity(db, 'vendor', [vendorId]),
-      lockedFieldsByEntity(db, 'product', productIds),
-      // The display-only plan price overrides (§13.13). One primary-key read.
-      loadPlanPrice(db, vendorId),
-    ]);
+    const [productRows, taxonomy, seatRows, callerRows, requestRows, vendorLocks, productLocks] =
+      await Promise.all([
+        productIds.length
+          ? db.query.products.findMany({
+              where: inArray(products.id, productIds),
+              // Case-insensitive (AECI-825); `id` keeps the order total, since
+              // NOCASE ties two spellings that differ only in case.
+              orderBy: [textAsc(products.name), asc(products.id)],
+            })
+          : Promise.resolve([]),
+        loadTaxonomySlugs(db, productIds),
+        // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
+        // reports a seat count the roster can't account for — a `reviewer` profile
+        // pointing at this vendor is not a seat. Only the count is consumed, so
+        // count it in SQL rather than shipping every row back.
+        db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
+        // AECI-1387: the caller's owner bit, for the Billing nav item. The same row
+        // `requireSeatOwner()` reads, pinned to this vendor and the seat role.
+        db
+          .select({ seatOwner: profiles.seatOwner })
+          .from(profiles)
+          .where(and(eq(profiles.id, session.userId), seatsOf(vendorId)))
+          .limit(1),
+        // The vendor's own claim/correction requests: those targeting the vendor
+        // itself, plus those targeting any product it owns. The predicate is shared
+        // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
+        // `vendorRequestsWhere` for why that sharing is load-bearing.
+        db.query.vendorRequests.findMany({
+          where: vendorRequestsWhere(vendorId, productIds),
+          // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
+          orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
+        }),
+        // AECI-1237: AECi's field locks, so the forms render those fields read-only.
+        // Two reads on the partial unique index; nothing when nothing is locked.
+        lockedFieldsByEntity(db, 'vendor', [vendorId]),
+        lockedFieldsByEntity(db, 'product', productIds),
+      ]);
 
     // The vendor's block, and each product's own block from its own license
     // (AECI-1355, §13.7). All from the session: no query.
@@ -812,7 +797,7 @@ export function createVendorMeHandler(
           row,
           primaryById.get(row.id) ?? false,
           taxonomy.get(row.id) ?? NO_TAXONOMY,
-          entitlementBlock(session, price, row.id),
+          entitlementBlock(session, row.id),
           productLocks.get(row.id),
         ),
       ),
@@ -833,7 +818,7 @@ export function createVendorMeHandler(
       // Built from the session the guard already loaded — zero extra queries,
       // and the dashboard's readout therefore cannot disagree with the 403 a
       // vendor-level write would get, because both read the same `entitlementTier`.
-      entitlement: entitlementBlock(session, price, null),
+      entitlement: entitlementBlock(session, null),
     };
 
     validateResponseInDev(c.env, () => VendorMeResponseSchema.parse(body));
@@ -1187,7 +1172,7 @@ export function createUpdateVendorProductHandler(
           before,
           isPrimary,
           unchangedTaxonomy,
-          entitlementBlock(session, await loadPlanPrice(db, vendorId), productId),
+          entitlementBlock(session, productId),
           locks,
         ),
       };
@@ -1356,7 +1341,7 @@ export function createUpdateVendorProductHandler(
         after,
         isPrimary,
         afterTaxonomy,
-        entitlementBlock(session, await loadPlanPrice(db, vendorId), productId),
+        entitlementBlock(session, productId),
         locks,
       ),
     };

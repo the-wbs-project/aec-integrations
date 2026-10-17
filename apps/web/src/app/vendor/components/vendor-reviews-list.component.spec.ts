@@ -32,7 +32,6 @@ const FREE_PRODUCT: VendorProduct = {
     period_end: null,
     ended_at: null,
     capabilities: [...capabilitiesFor('unclaimed')],
-    price: { managed_price_cents: null, message: null },
   },
 };
 

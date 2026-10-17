@@ -3,9 +3,8 @@ import { formatCurrency } from '@angular/common';
 import type { VendorEntitlementBlock } from '@aeci/shared';
 import {
   EXPIRY_WARNING_DAYS,
+  MANAGED_ANNUAL_PRICE_CENTS,
   MANAGED_LIST_PRICE_CENTS,
-  planPriceDisplay,
-  type PlanPriceOverrides,
 } from '@aeci/shared/entitlements';
 
 /**
@@ -102,8 +101,7 @@ export function noPlanChangesLine(): string {
 
 /**
  * A cents amount as US dollars in the reader's locale. Whole dollars show no
- * cents ("$25"), anything else shows two decimals ("$12.50"), so an override
- * reads like the default sentence.
+ * cents ("$25"), anything else shows two decimals ("$12.50").
  */
 export function formatPlanPrice(cents: number, locale: string): string {
   const digits = cents % 100 === 0 ? '1.0-0' : '1.2-2';
@@ -111,22 +109,14 @@ export function formatPlanPrice(cents: number, locale: string): string {
 }
 
 /**
- * The plan panel's price line (ruling 2026-10-08, `STAGE_2_PAID_TIERS_SPEC.md`
- * §13.13). Display only. Precedence: an admin message replaces the whole
- * sentence, else an admin price replaces the amount, else the default list
- * price (`MANAGED_LIST_PRICE_CENTS`, "Managed is $25 a month per product.").
- * The vendor panel and the admin preview both call this, so they cannot differ.
- *
- * The message is returned as plain text. Callers interpolate it, never bind it
- * as HTML.
+ * The plan panel's price line: Managed's two list prices, from
+ * `MANAGED_LIST_PRICE_CENTS` and `MANAGED_ANNUAL_PRICE_CENTS` ("Managed is $25 a
+ * month or $250 a year per product."). Display only: nothing bills from it. The
+ * per-vendor price override is retired (AECI-1357, `VENDOR_SIGNUP_PROCESS.md` §2
+ * decision 8), so every vendor reads the same line.
  */
-export function planPriceSentence(
-  price: PlanPriceOverrides | null | undefined,
-  locale: string,
-): string {
-  const display = planPriceDisplay(price);
-  if (display.kind === 'message') return display.text;
-  const cents = display.kind === 'price' ? display.cents : MANAGED_LIST_PRICE_CENTS;
-  const amount = formatPlanPrice(cents, locale);
-  return $localize`:@@vendor.plan.price:Managed is ${amount}:AMOUNT: a month per product.`;
+export function planPriceSentence(locale: string): string {
+  const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
+  const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
+  return $localize`:@@vendor.plan.prices:Managed is ${monthly}:MONTHLY: a month or ${annual}:ANNUAL: a year per product.`;
 }

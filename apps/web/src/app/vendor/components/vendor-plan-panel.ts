@@ -56,12 +56,11 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  * own arrangement (amount paid, terms, PO) is never shown. Renewal is a
  * conversation (`/contact`), not a checkout.
  *
- * ── The price line (ruling 2026-10-08, §13.13) ──────────────────────────────
- * No "Draft price" label. The line reads `plan.price`, set per vendor by an
- * admin, by precedence: a message replaces the whole sentence, a price override
- * replaces the amount, and with neither it is the default list price ("Managed
- * is $25 a month per product."). Display only: nothing bills from it. The
- * message is plain text, rendered by interpolation and never as HTML.
+ * ── The price line ──────────────────────────────────────────────────────────
+ * No "Draft price" label (ruling 2026-10-08). The line is Managed's two list
+ * prices, "Managed is $25 a month or $250 a year per product.", the same for
+ * every vendor. The per-vendor override is retired (AECI-1357, decision 8).
+ * Display only: nothing bills from it.
  *
  * ── The plan readout (AECI-1264) ────────────────────────────────────────────
  * The panel states the plan in words: the "Free" or "Managed" plan badge beside
@@ -119,7 +118,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
 
       @if (state() !== 'catalogue') {
         <p class="mt-5 max-w-prose text-sm text-(--text-primary)" data-testid="plan-price">
-          {{ priceLine() }}
+          {{ priceLine }}
         </p>
       }
 
@@ -209,8 +208,8 @@ export class VendorPlanPanel {
 
   protected readonly decision10 = noPlanChangesLine();
 
-  /** The price sentence, by §13.13 precedence. Shared with the admin preview. */
-  protected readonly priceLine = computed(() => planPriceSentence(this.plan().price, this.locale));
+  /** Managed's two list prices. The same for every vendor. */
+  protected readonly priceLine = planPriceSentence(this.locale);
 
   protected readonly state = computed<PlanState | 'catalogue'>(() => {
     const plan = this.plan();

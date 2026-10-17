@@ -1628,8 +1628,9 @@ export const vendorEntitlements = sqliteTable(
  * `updated_by` has no FK, like `notification_settings.updated_by`: an admin's id
  * stays on the record and a `profiles` recreate cannot cascade into it.
  * No CHECK on either value: a CHECK change forces a D1 table recreate
- * (`docs/migrations.md` §0). The retired write schema owned the bounds; nothing
- * writes the table now, and E1.8 drops it.
+ * (`docs/migrations.md` §0). The retired write schema owned the bounds. Nothing
+ * writes or reads the table since AECI-1357 (E1.8), and its follow-up migration
+ * drops it once the reader-free Worker is on production.
  */
 export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
   vendorId: text('vendor_id')
