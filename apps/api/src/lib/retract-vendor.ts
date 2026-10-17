@@ -43,7 +43,6 @@
  *   attestations                  attested_by_vendor_id    set null    allowed; reported + NULLed
  *   page_views                    vendor_id                —           allowed; NULLed, never deleted
  *   integration_vendor_links      vendor_id                set null    allowed; NULLed by the FK action
- *   vendor_plan_pricing           vendor_id                cascade     allowed; deleted by the FK action
  *
  * Vendor replies (`review_responses`, AECI-1175, migration 0058) and the contests the
  * vendor filed are deleted EXPLICITLY, before the vendor row, and counted on the
@@ -59,11 +58,6 @@
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
  * explicit UPDATE would fail the whole batch on a tier that has not applied 0045 yet.
  * The link itself survives: it describes the product, not the company that typed it.
- *
- * `vendor_plan_pricing` (ruling 2026-10-08, migration 0066) is the one CASCADE left to
- * the FK on purpose. It is a display-only price override with no meaning once the
- * vendor is gone, and every change to it already has its `audit_log` row. Naming it in
- * the plan would fail the whole batch on a tier that has not applied 0066 yet.
  *
  * `billing_accounts` (AECI-1350, migration 0073) refuses. It is a commercial record with
  * licenses under it, and its `vendor_id` is NO ACTION, so the vendor DELETE would fail
@@ -120,10 +114,7 @@ export {
  *  - `delete`     counted; deleted explicitly before the vendor, counted on its tombstone.
  *  - `detach`     counted; the column is NULLed explicitly, the row survives.
  *  - `fk-action`  handled by the FK's own action, never named in the plan: NULLed by
- *                 `ON DELETE SET NULL` (`integration_vendor_links`), or deleted by
- *                 `ON DELETE CASCADE` where the row means nothing without the vendor
- *                 and its history is in `audit_log` (`vendor_plan_pricing`). See the
- *                 header.
+ *                 `ON DELETE SET NULL` (`integration_vendor_links`). See the header.
  */
 export type VendorFkOutcome = 'refuse' | 'delete' | 'detach' | 'fk-action';
 
@@ -144,7 +135,6 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'attestations.attested_by_vendor_id': 'detach',
   'page_views.vendor_id': 'detach',
   'integration_vendor_links.vendor_id': 'fk-action',
-  'vendor_plan_pricing.vendor_id': 'fk-action',
 };
 
 /**

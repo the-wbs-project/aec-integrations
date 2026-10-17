@@ -1266,7 +1266,7 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 
 > **Admin write retired 2026-10-17 (AECI-1375, E4.6)**, per `VENDOR_SIGNUP_PROCESS.md` decision 8. `PUT /api/admin/vendors/:id/plan-pricing` answers `404` and the "Plan price" section is gone from `/admin/vendors/:id`. The **Write** and **Admin UI** paragraphs below are history.
 >
-> **Read retired 2026-10-17 (AECI-1357, E1.8, PR 1).** No reader is left. `loadPlanPrice`, `apps/api/src/lib/vendor-plan-pricing.ts`, `PlanPriceSchema`, `VendorPlanPricingResponseSchema`, `PlanPriceOverrides`, `DEFAULT_PLAN_PRICE` and `planPriceDisplay` are deleted, and `VendorEntitlementBlock` has no `price` field. Every vendor sees "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)` in `apps/web/src/app/vendor/vendor-plan.ts`, and the `catalogue` state still shows no price. `MANAGED_LIST_PRICE_CENTS` and `MANAGED_ANNUAL_PRICE_CENTS` stay. The `vendor_plan_pricing` table is unread and still exists. The drop migration ships as PR 2, after PR 1 reaches prod, because CI applies migrations before the Worker deploys (`docs/migrations.md` §3.2). The **Precedence**, **Vendor read** and **Vendor UI** paragraphs below are history too.
+> **Read retired 2026-10-17 (AECI-1357, E1.8, PR 1).** No reader is left. `loadPlanPrice`, `apps/api/src/lib/vendor-plan-pricing.ts`, `PlanPriceSchema`, `VendorPlanPricingResponseSchema`, `PlanPriceOverrides`, `DEFAULT_PLAN_PRICE` and `planPriceDisplay` are deleted, and `VendorEntitlementBlock` has no `price` field. Every vendor sees "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)` in `apps/web/src/app/vendor/vendor-plan.ts`, and the `catalogue` state still shows no price. `MANAGED_LIST_PRICE_CENTS` and `MANAGED_ANNUAL_PRICE_CENTS` stay. The `vendor_plan_pricing` table was dropped by migration 0081 in PR 2 (2026-10-17), after PR 1 reached prod, because CI applies migrations before the Worker deploys (`docs/migrations.md` §3.2). The **Precedence**, **Vendor read** and **Vendor UI** paragraphs below are history too.
 
 **Ruled by Chris on 2026-10-08.** It amends decision 9 (§13.1).
 
@@ -1277,7 +1277,7 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 
 **Precedence.** Message, then price, then the default sentence. The `catalogue` state still shows no price at all.
 
-**Storage.** `vendor_plan_pricing`, one row per vendor (`DATABASE_SCHEMA.md` §8.6a, migration 0066). It is its own table for two reasons:
+**Storage.** *Dropped 2026-10-17 (AECI-1357, migration 0081).* `vendor_plan_pricing`, one row per vendor (`DATABASE_SCHEMA.md` §8.6a, migration 0066). It was its own table for two reasons:
 
 - `vendors` is promote's row.
 - `vendor_entitlements` is the wrong home. A Free vendor with no entitlement row must still carry an override, and clearing an entitlement must not wipe it.

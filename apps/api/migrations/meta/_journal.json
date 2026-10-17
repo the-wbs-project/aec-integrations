@@ -568,6 +568,13 @@
       "when": 1792123667490,
       "tag": "0080_flashy_dust",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "6",
+      "when": 1792222086005,
+      "tag": "0081_daffy_vision",
+      "breakpoints": true
     }
   ]
 }
