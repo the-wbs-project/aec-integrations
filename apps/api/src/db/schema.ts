@@ -1513,10 +1513,10 @@ export const productRequests = sqliteTable(
  * is a single-row test — and both sides move inside ONE `db.batch([...])` emitted by
  * `lib/vendor-entitlement.ts`, the SOLE writer of either side. No route handler
  * writes `vendors.verified` directly: an ESLint `no-restricted-syntax` rule is the
- * compile-time guard, and the `entitlement_mirror_drift` data-quality check (04:00
- * UTC) is the run-time guard that catches what lint cannot — hand-written D1 SQL
- * against a tier, the `apps/datatool` worker, and a backfill that ran on staging but
- * not demo.
+ * compile-time guard. The run-time guard was the `entitlement_mirror_drift`
+ * data-quality check, retired 2026-10-17 (AECI-1375): license grants and revokes now
+ * move `verified` (`lib/license.ts`), and `license_mirror_drift` checks the bit
+ * against live licenses instead.
  *
  * ONE ROW PER VENDOR, not a period history. The invariant has to be expressible as a
  * guarded single-row `UPDATE … WHERE status <> 'active'`, because D1 has no
@@ -1620,14 +1620,16 @@ export const vendorEntitlements = sqliteTable(
  * entitlement must not wipe it.
  *
  * One row per vendor. No row means the default list price
- * (`MANAGED_LIST_PRICE_CENTS`). The admin route deletes the row when both fields
- * are cleared, so a row always carries at least one override. `price_message`
+ * (`MANAGED_LIST_PRICE_CENTS`). The retired admin route (removed by AECI-1375)
+ * deleted the row when both fields were cleared, so a row carries at least one
+ * override. `price_message`
  * beats `managed_price_cents` when both are set.
  *
  * `updated_by` has no FK, like `notification_settings.updated_by`: an admin's id
  * stays on the record and a `profiles` recreate cannot cascade into it.
  * No CHECK on either value: a CHECK change forces a D1 table recreate
- * (`docs/migrations.md` §0). `SetVendorPlanPricingSchema` owns the bounds.
+ * (`docs/migrations.md` §0). The retired write schema owned the bounds; nothing
+ * writes the table now, and E1.8 drops it.
  */
 export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
   vendorId: text('vendor_id')
@@ -5015,7 +5017,8 @@ export const schema = {
   // reads the truth rather than the mirror would defeat the entire denormalization").
   // That filter is gone (AECI-1266); the rule still covers every read path.
   // Without the relation that line does not compile. The §4 entitlement gate and the
-  // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
+  // retired `entitlement_mirror_drift` check (AECI-1375) both used an explicit
+  // leftJoin, which needs none.
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
   // has no relations entry either. `billingAccounts` and `licenses` (AECI-1350) follow
   // the same rule: plan resolution reads them with explicit joins, never `with:`.

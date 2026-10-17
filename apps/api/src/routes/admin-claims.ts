@@ -79,7 +79,6 @@ import {
   type ListVendorClaimsResponse,
   type ModerateClaimResponse,
   type RelatedRequestRef,
-  type VendorEntitlementResponse,
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
@@ -93,7 +92,6 @@ import {
   auditLog,
   productVendors,
   profiles,
-  vendorEntitlements,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -582,9 +580,9 @@ async function approveClaim(
   // acceptance link and every audit row commit or roll back together (§26.1).
   //
   // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
-  // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
-  // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
-  // The admin's retry then re-plans against the cleared state.
+  // `ownerEntitlementActiveSentinel`. An end of the vendor's last live license that
+  // commits first aborts the batch: nothing is written and this handler answers
+  // `409 VENDOR_SEATS_CHANGED`. The admin's retry then re-plans against that state.
   //
   // AECI-1374 (E4.5): a last-seat ban that committed after the flag read above left
   // `vendor-banned` flags the return did not plan to clear. `vendorBannedFlagsRaceSentinel`
@@ -811,7 +809,7 @@ function contextProductFor(
  * product has no `product_vendors` row is simply absent from the map (there is no
  * vendor to seat and none to entitle).
  *
- * Hoisted out of `loadExistingSeats` by AECI-532: the entitlement column (§5) needs the
+ * Hoisted out of `loadExistingSeats` by AECI-532: the vendor link needs the
  * same resolution, and two copies of "which vendor does this claim mean" is exactly how
  * a queue ends up showing one vendor's seats beside another vendor's badge.
  */
@@ -848,59 +846,21 @@ async function resolveClaimVendorIds(
 }
 
 /**
- * The claimed vendors' entitlement readouts, keyed by VENDOR id (AECI-532 / §5), plus
- * the vendor `LinkRef` the entitlement control addresses.
- *
- * ONE grouped scan over the page's vendor ids joining `vendors` ← `vendor_entitlements`
- * — a LEFT join, because "no entitlement row" is the common case and must render as
- * "not entitled" rather than dropping the row. `verified` is read from the vendor (the
- * mirror, §2.1), never recomputed from the entitlement: the column shows what the
- * public surfaces actually render, so a drifted vendor is VISIBLE here rather than
- * silently normalized away.
- *
- * Read-only. §2.5's "no public or read path may query `vendor_entitlements`" binds the
- * PUBLIC surfaces; the admin entitlement surface is one of the two readers §2.5 names.
+ * The claimed vendors' `LinkRef`s, keyed by VENDOR id: the `entitlement_vendor` the
+ * queue's "Manage billing" and audit-trail links address. ONE scan over the page's
+ * vendor ids. AECI-1375 dropped the `vendor_entitlements` join and the entitlement
+ * readout it fed.
  */
-async function loadClaimEntitlements(
-  db: Db,
-  vendorIds: string[],
-): Promise<Map<string, { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }>> {
-  const byVendor = new Map<
-    string,
-    { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }
-  >();
+async function loadClaimVendors(db: Db, vendorIds: string[]): Promise<Map<string, LinkRef>> {
+  const byVendor = new Map<string, LinkRef>();
   if (vendorIds.length === 0) return byVendor;
 
   const rows = await db
-    .select({ vendor: vendors, entitlement: vendorEntitlements })
+    .select({ id: vendors.id, name: vendors.companyName, slug: vendors.slug })
     .from(vendors)
-    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
     .where(inArray(vendors.id, vendorIds));
 
-  for (const row of rows) {
-    const e = row.entitlement;
-    byVendor.set(row.vendor.id, {
-      vendor: { id: row.vendor.id, name: row.vendor.companyName, slug: row.vendor.slug },
-      entitlement: e
-        ? {
-            vendor_id: row.vendor.id,
-            tier: e.tier as VendorEntitlementResponse['tier'],
-            status: e.status as VendorEntitlementResponse['status'],
-            period_start: e.periodStart,
-            period_end: e.periodEnd,
-            granted_at: e.grantedAt,
-            ended_at: e.endedAt,
-            verified: row.vendor.verified,
-            payer: e.payer,
-            amount: e.amount,
-            terms: e.terms,
-            arranged_by: e.arrangedBy,
-            invoice_ref: e.invoiceRef,
-            notes: e.notes,
-          }
-        : null,
-    });
-  }
+  for (const row of rows) byVendor.set(row.id, { id: row.id, name: row.name, slug: row.slug });
   return byVendor;
 }
 
@@ -910,7 +870,7 @@ async function loadClaimEntitlements(
  * vendor ids, no per-row N+1, shaped and folded by `lib/vendor-product-roles.ts`
  * so `/admin/vendors/:id` cannot compute it differently.
  *
- * Scoped to the SAME resolved vendor as the entitlement control: the question
+ * Scoped to the SAME resolved vendor as `entitlement_vendor`: the question
  * "may this claim be granted" and the question "which vendor would the grant
  * touch" have to be answered about one vendor, or the card shows one vendor's
  * roles beside another vendor's badge.
@@ -1143,19 +1103,19 @@ export function createAdminClaimsListHandler(
 
     // Every row is a claim, so every submitter feeds the auth + related lookups.
     const claimEmails = rows.map((r) => r.submitterEmail);
-    // Resolved ONCE and shared by the seats + entitlement enrichments (AECI-532): both
+    // Resolved ONCE and shared by the seats + vendor-link enrichments (AECI-532): both
     // answer "which vendor does this claim mean", and two copies of that resolution is
     // how a queue shows one vendor's seats beside another vendor's badge. Fail-soft
     // like the signals it feeds — a rejected resolution degrades BOTH to `null`.
     const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
-    // FAIL-SOFT enrichment: a rejected seats/related/entitlement query becomes a `null`
+    // FAIL-SOFT enrichment: a rejected seats/related/vendor query becomes a `null`
     // signal (UI: "unavailable"), never a failed response.
     const [
       targets,
       authAccountByEmail,
       seatsWithoutEmail,
       relatedByRow,
-      entitlementByVendor,
+      linkByVendor,
       productRolesByVendor,
       ownedIntegrationsByVendor,
     ] = await Promise.all([
@@ -1165,7 +1125,7 @@ export function createAdminClaimsListHandler(
       vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
       loadRelatedRequests(db, rows, claimEmails).catch(() => null),
       vendorByRow
-        ? loadClaimEntitlements(db, [...new Set(vendorByRow.values())]).catch(() => null)
+        ? loadClaimVendors(db, [...new Set(vendorByRow.values())]).catch(() => null)
         : null,
       vendorByRow
         ? loadVendorProductRoles(db, [...new Set(vendorByRow.values())]).catch(() => null)
@@ -1183,15 +1143,12 @@ export function createAdminClaimsListHandler(
       fetchEmails,
     );
 
-    /** The claim's resolved vendor + entitlement, or `[null, null]` when there is no
-     *  vendor to act on (a product with no `product_vendors` row) or the enrichment
-     *  degraded. Both move together so the UI never offers a control it cannot address. */
-    const entitlementFor = (
-      row: RawAdminVendorRequestRow,
-    ): [LinkRef | null, VendorEntitlementResponse | null] => {
+    /** The claim's resolved vendor, or `null` when there is no vendor to act on (a
+     *  product with no `product_vendors` row) or the enrichment degraded, so the UI
+     *  never offers a link it cannot address. */
+    const vendorFor = (row: RawAdminVendorRequestRow): LinkRef | null => {
       const vendorId = vendorByRow?.get(row.id);
-      const hit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
-      return hit ? [hit.vendor, hit.entitlement] : [null, null];
+      return (vendorId ? linkByVendor?.get(vendorId) : undefined) ?? null;
     };
 
     /** The §5.2 payer test for this claim's resolved vendor (AECI-738).
@@ -1231,7 +1188,7 @@ export function createAdminClaimsListHandler(
           seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
           seatEmailsAvailable,
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
-          ...entitlementFor(row),
+          vendorFor(row),
           ...productRolesFor(row),
           ownedIntegrationsFor(row),
           contextProductFor(row, targets),
@@ -1375,7 +1332,7 @@ async function buildClaimDetail(
     authAccountByEmail,
     seatsWithoutEmail,
     relatedByRow,
-    entitlementByVendor,
+    linkByVendor,
     productRolesByVendor,
     ownedIntegrationsByVendor,
     duplicateSiblings,
@@ -1384,7 +1341,7 @@ async function buildClaimDetail(
     fetchAuthAccounts(c.env, [row.submitterEmail]),
     vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
     loadRelatedRequests(db, rows, [row.submitterEmail]).catch(() => null),
-    vendorByRow ? loadClaimEntitlements(db, vendorIds).catch(() => null) : null,
+    vendorByRow ? loadClaimVendors(db, vendorIds).catch(() => null) : null,
     vendorByRow ? loadVendorProductRoles(db, vendorIds).catch(() => null) : null,
     vendorByRow ? loadOwnedIntegrations(db, vendorIds).catch(() => null) : null,
     loadDuplicateSiblings(db, row),
@@ -1397,7 +1354,7 @@ async function buildClaimDetail(
   );
 
   const vendorId = vendorByRow?.get(row.id);
-  const entitlementHit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
+  const vendorLink = (vendorId ? linkByVendor?.get(vendorId) : undefined) ?? null;
   // Same asymmetry the LIST documents: `[null, null]` ONLY when we could not look.
   // A resolved vendor owning nothing is a ZEROED breakdown + `false` — unknown is
   // not exempt (§5.2 step 1 / AECI-738).
@@ -1420,8 +1377,7 @@ async function buildClaimDetail(
       seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
       seatEmailsAvailable,
       relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
-      entitlementHit ? entitlementHit.vendor : null,
-      entitlementHit ? entitlementHit.entitlement : null,
+      vendorLink,
       roles,
       roles ? isPureConnectorVendor(roles) : null,
       owned,
@@ -1469,21 +1425,20 @@ export function createAdminClaimDetailHandler(
  * `PATCH /api/admin/claims/:id/notes` — write or clear the operator note
  * (AECI-739 / §5.2 step 6).
  *
- * A SUB-RESOURCE rather than a third `ModerateClaimSchema.action`, mirroring
- * `PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status
+ * A SUB-RESOURCE rather than a third `ModerateClaimSchema.action`: moderation is a one-way status
  * transition that grants a paid account or declines one by email, and a note is
  * neither. Keeping them apart is also what lets the note be writable at every
  * status — a resolved or rejected claim is exactly where "why we parked it, and
  * what happened next" is worth having.
  *
- * Follows the admin-write template (`routes/admin-entitlements.ts`), minus the
- * moves a note does not need:
+ * Follows the admin-write template (preload gate, idempotency gate, one batch with
+ * its audit row), minus the moves a note does not need:
  *   - preload gate (404 / 422-not-a-claim) — `loadClaimRow`
  *   - NO status gate: every status is writable, deliberately
  *   - 200 NO-OP when the note is unchanged: nothing written, no audit row. This
  *     follows the claims resource's own idempotency rule (re-granting an
- *     already-granted claim is a documented 200 no-op), not the entitlement
- *     endpoint's 422 — that gate rejects invalid STATE TRANSITIONS, and text that
+ *     already-granted claim is a documented 200 no-op), not a 422
+ *     state gate — that gate rejects invalid STATE TRANSITIONS, and text that
  *     did not change is not one. A trail of identical audit states is not a
  *     history, so writing one would degrade the very record this endpoint exists
  *     to keep.

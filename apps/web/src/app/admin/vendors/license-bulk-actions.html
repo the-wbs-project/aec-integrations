@@ -121,6 +121,15 @@
     <p class="mt-1 text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.final">
       Nothing is refunded or deleted, and there is no undo on this screen.
     </p>
+    <!-- Paid Tiers spec section 5.2: a license revoke, a seat revoke and a ban are
+         three separate actions. -->
+    <p
+      class="mt-1 text-sm text-(--text-primary)"
+      data-testid="license-bulk-revoke-not-seat"
+      i18n="@@admin.vendors.licenseBulk.revoke.notSeatRevoke"
+    >
+      Seats and logins stay. This is not a seat revoke or a ban.
+    </p>
     <label
       [attr.for]="idPrefix() + '-bulk-reason'"
       class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"

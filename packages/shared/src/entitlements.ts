@@ -124,8 +124,8 @@ export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capabi
  * to the version-diff gate and the admin and portal surfaces, while `tierFor` resolves
  * the row to **zero** capabilities. That is a vendor billed for a plan that unlocks nothing.
  *
- * So the *set* request enum derives from here, not from `TIERS`
- * (`PaidEntitlementTierSchema`, `api/admin-entitlements.ts`), while the session
+ * So anything that GRANTS a tier derives from here, not from `TIERS` (the retired
+ * entitlement `set` request did, until AECI-1375 removed it), while the session
  * block and the grant summary keep reading `TIERS` — they legitimately need to
  * *report* `unclaimed`, they just must never be able to *write* it.
  *
@@ -493,8 +493,8 @@ function termHasEnded(periodEnd: string | null, now: Date | string): boolean {
 
 /**
  * Managed's default list price, per product per month, in US cents. The ONE
- * place the default lives: the vendor plan panel, the admin "Plan price"
- * control and its hint all read it. Display only: nothing bills from it.
+ * place the default lives: the vendor plan panel and the public plan pages
+ * read it. Display only: nothing bills from it.
  */
 export const MANAGED_LIST_PRICE_CENTS = 2500;
 
@@ -505,12 +505,6 @@ export const MANAGED_LIST_PRICE_CENTS = 2500;
  * company's own price and term are agreed with it, and nothing bills from this.
  */
 export const MANAGED_ANNUAL_PRICE_CENTS = 25000;
-
-/** Upper bound on an admin price override, in cents ($100,000). */
-export const MANAGED_PRICE_CENTS_MAX = 10_000_000;
-
-/** Upper bound on an admin price message, in characters, after trimming. */
-export const PLAN_PRICE_MESSAGE_MAX = 280;
 
 /**
  * A vendor's plan price overrides, as the portal carries them on every

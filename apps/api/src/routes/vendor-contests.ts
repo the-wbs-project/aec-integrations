@@ -1186,7 +1186,7 @@ export function createDecideContestHandler(
             eq(integrationFieldChallenges.id, id),
             eq(integrationFieldChallenges.status, 'open'),
             // AECI-1092: still this caller's to decide. A re-route to AECi (an owner
-            // reassignment, or ruling B's entitlement clear) that commits between the
+            // reassignment, or ruling B's last-license revoke) that commits between the
             // read above and this batch leaves the row open but no longer owner-routed,
             // and the old owner must not decide it.
             receivedContestsWhere(vendorId),

@@ -412,16 +412,14 @@ export async function vendorHoldsActiveEntitlement(db: Db, vendorId: string): Pr
 /**
  * A batch statement that ABORTS a contest submit routed to an owner on a
  * connector-powered row when the owner's entitlement is no longer active at commit.
- * The other half of ruling B: an admin clear that commits between the submit's read
- * and its batch would otherwise leave a new contest with an owner who cannot decide
- * it, after the clear's own re-route had already run. The handler re-routes and
+ * The other half of ruling B: a last-license revoke (or lapse) that commits between
+ * the submit's read and its batch would otherwise leave a new contest with an owner
+ * who cannot decide it, after the revoke's own re-route had already run. The handler re-routes and
  * retries. Same `json()` abort as the other contest sentinels.
  */
 export function ownerEntitlementActiveSentinel(db: Db, ownerVendorId: string) {
-  // AECI-1355: the same test as `vendorHoldsActiveEntitlement`, at commit. An
-  // entitlement clear ends the vendor's live licenses in its own batch
-  // (`deactivateEntitlementStatements`), so this still trips on a clear that
-  // commits first.
+  // AECI-1355: the same test as `vendorHoldsActiveEntitlement`, at commit, so it
+  // trips on any end of the vendor's last live license that commits first.
   return db
     .select({
       guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "licenses" l
@@ -449,22 +447,29 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
     .where(eq(connectorEvidencedPairs.id, anchor.id));
 }
 
-// ─── Ruling B: an entitlement clear re-routes the owner's contests ──────────
+// ─── Ruling B: ending the last live license re-routes the owner's contests ──
 
 /**
- * What an admin entitlement `clear` adds to its batch (AECI-1040 follow-up ruling 2,
- * "ruling B"; `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13): every OPEN owner-routed
- * contest this vendor decides on a CONNECTOR-POWERED row (either table) moves to the
- * AECi queue, because deciding it is an owner write that now needs an entitlement
- * the vendor no longer holds. Contests on rows that are not connector-powered keep
- * their owner route: those rows keep the seat as their whole gate (decision 15).
+ * What an admin license revoke that ends the vendor's LAST live license adds to its
+ * batch (AECI-1040 follow-up ruling 2, "ruling B"; `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.13): every OPEN owner-routed contest this vendor decides on a
+ * CONNECTOR-POWERED row (either table) moves to the AECi queue, because deciding it
+ * is an owner write that now needs an entitlement the vendor no longer holds.
+ * Contests on rows that are not connector-powered keep their owner route: those rows
+ * keep the seat as their whole gate (decision 15).
  *
- * Since AECI-1355 "holds" means a live license. The clear ends every live license
- * in the same batch (`deactivateEntitlementStatements`), so after the commit
+ * Its only caller is the revoke in `routes/admin-licenses.ts` (AECI-1375 moved it
+ * there from the retired entitlement `clear`, which ended every live license the same
+ * way). "Holds" means a live license (AECI-1355), so after the commit
  * `vendorHoldsActiveEntitlement` and `ownerEntitlementActiveSentinel`, which both
- * read `licenses`, agree with this re-route.
+ * read `licenses`, agree with this re-route. The name and the `entitlement-cleared`
+ * audit reason are kept so the audit trail reads alike before and after; E1.9 owns
+ * the rename.
  *
- * A re-route IN the clear's batch, not a read-time check, so every reader agrees
+ * `extra` rides every audit row's metadata, after the fixed keys are set (the revoke
+ * passes `license_id`).
+ *
+ * A re-route IN the revoke's batch, not a read-time check, so every reader agrees
  * from the commit on: `routed_to` is what `pending_contests`, the owner's Received
  * list, the admin queue's filters, the admin PATCH, the protest eligibility rule and
  * the `contests` cursor predicate all read. See §11b.13 for the comparison.
@@ -480,6 +485,7 @@ export async function planEntitlementClearReroute(
   vendorId: string,
   actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
   now: string,
+  extra: Record<string, unknown> = {},
 ): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number }> {
   const open = await db
     .select()
@@ -493,7 +499,7 @@ export async function planEntitlementClearReroute(
     );
   // AECI-1092 reconciliation with AECI-989: contests a seat lapse already moved to
   // AECi for this owner, stamped so a seat event would send them back. On a
-  // connector-powered row the owner can no longer decide them, so the clear makes
+  // connector-powered row the owner can no longer decide them, so the revoke makes
   // them AECi's for good by clearing the stamp.
   const stamped = await db
     .select()
@@ -541,7 +547,7 @@ export async function planEntitlementClearReroute(
     actor,
     now,
     'owner entitlement cleared: re-routed to AECi',
-    { reason: 'entitlement-cleared', ownerVendorId: vendorId },
+    { ...extra, reason: 'entitlement-cleared', ownerVendorId: vendorId },
   );
   // A fingerprint of the set, in two bound values rather than one per id, so a
   // vendor with many open contests cannot run past D1's bound-parameter cap: the
@@ -556,7 +562,7 @@ export async function planEntitlementClearReroute(
   const newest = newestOf(open);
   const scope = sql`"routed_to" = 'owner' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open'`;
   // The same fingerprint over the stamped set (AECI-1092 reconciliation): a seat
-  // lapse or return committing in between changes one of the two, and the clear
+  // lapse or return committing in between changes one of the two, and the revoke
   // re-plans.
   const newestStamped = newestOf(stamped);
   const stampedScope = sql`"routed_to" = 'aeci' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open' AND "owner_seat_lapsed_at" IS NOT NULL`;
@@ -570,6 +576,7 @@ export async function planEntitlementClearReroute(
     })
     .from(ONE_ROW);
   const unstamp = clearSeatStamp(db, unstamping, actor, now, {
+    ...extra,
     reason: 'entitlement-cleared',
     ownerVendorId: vendorId,
   });
@@ -586,11 +593,11 @@ export async function planEntitlementClearReroute(
  * A batch statement that ABORTS the batch when the statement just before it changed
  * no row. Put it DIRECTLY after a guarded contest UPDATE whose audit row and
  * transition ride the same batch: a concurrent writer that got there first (a second
- * seat grant, a decision, a clear) leaves the guard matching nothing, and without
+ * seat grant, a decision, a last-license revoke) leaves the guard matching nothing, and without
  * this the batch would still commit an audit row and a transition for a write it
  * never made (review MINOR 4). `json('contest-row-changed')` is malformed JSON, so the
  * whole batch rolls back. The seat writers answer it as `409 VENDOR_SEATS_CHANGED`
- * (`isSeatsChangedError`), the clear re-plans (`isContestRaceError`), and the admin
+ * (`isSeatsChangedError`), the last-license revoke re-plans, and the admin
  * accept answers `409 CONTEST_INTEGRATION_CHANGED` through `runGuardedContestBatch`.
  * Same mechanism as `seatRaceSentinels`, and FROM a one-row constant for the same
  * reason.
@@ -614,7 +621,7 @@ export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared
  * decider both hold.
  *
  * Three callers: the seat return, for a contest its owner may not decide
- * (`lib/vendor-handback.ts`); the entitlement clear (ruling B, below); and the accept
+ * (`lib/vendor-handback.ts`); the last-license revoke (ruling B, below); and the accept
  * that makes a row connector-powered (`routes/admin-contests.ts`).
  */
 export function clearSeatStamp(
@@ -668,9 +675,9 @@ export function clearSeatStamp(
  * `integration.contest.rerouted` audit row. Pushed into the caller's batch.
  *
  * Two callers. An AECi accept that takes a claimed row away from its owner
- * (AECI-1005, `routes/admin-contests.ts`), and an admin clearing a vendor's
- * entitlement, which sends that vendor's open contests on connector-powered rows
- * back to AECi (ruling B, `routes/admin-entitlements.ts`). The UPDATE is guarded on
+ * (AECI-1005, `routes/admin-contests.ts`), and an admin revoke that ends a vendor's
+ * last live license, which sends that vendor's open contests on connector-powered
+ * rows back to AECi (ruling B, `routes/admin-licenses.ts`). The UPDATE is guarded on
  * `routed_to = 'owner'` as well as `status = 'open'`. `updated_at` moves, so the
  * submitter's `contests` cursor sees it.
  */

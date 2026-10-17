@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
-import { EntitlementTierSchema, VendorEntitlementResponseSchema } from './admin-entitlements';
+import { EntitlementTierSchema } from './admin-entitlements';
 import {
   AdminAuditRowSchema,
   VendorOwnedIntegrationsSchema,
@@ -185,28 +185,18 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   seat_emails_available: z.boolean(),
   related_requests: RelatedRequestRefSchema.array().nullable(),
   /**
-   * The vendor this claim's entitlement applies to (AECI-532 /
-   * `STAGE_2_PAID_TIERS_SPEC.md` §5), already RESOLVED: for a `target_type='vendor'`
+   * The vendor this claim acts on, already RESOLVED: for a `target_type='vendor'`
    * claim that is the target itself; for a `target_type='product'` claim it is the
    * product's PRIMARY vendor — the same resolution `resolveTargetVendor` runs on the
-   * grant path, so the queue's entitlement control always names the row a grant would
-   * actually touch. `null` when there is no vendor to act on (a product with no
+   * grant path, so the queue's links always name the vendor a grant would actually
+   * touch. `null` when there is no vendor to act on (a product with no
    * `product_vendors` row) or when the enrichment query degraded.
    *
-   * Present so the `/admin/claims` entitlement control can address
-   * `PATCH /api/admin/vendors/:id/entitlement` — `target_id` alone cannot, because on
-   * a product claim it is a PRODUCT id.
+   * Drives the "Manage billing" link to the vendor's Billing tab and the vendor
+   * audit-trail link: `target_id` alone cannot, because on a product claim it is a
+   * PRODUCT id. AECI-1375 dropped the entitlement readout that sat beside it.
    */
   entitlement_vendor: LinkRefSchema.nullable(),
-  /**
-   * That vendor's current entitlement, or `null` for "no entitlement on record"
-   * (never claimed, or the row was cleared) — the same readout the PATCH returns, so
-   * a successful action drops straight into the row with no refetch.
-   *
-   * Required, not optional (R10): a missed construction site must fail
-   * `validateResponseInDev`, not ship as `undefined`.
-   */
-  entitlement: VendorEntitlementResponseSchema.nullable(),
   /**
    * The §5.2 **payer test**, answerable from the card (AECI-738) — the resolved
    * vendor's owned products split by `products.product_role`, scoped to the same
@@ -361,8 +351,7 @@ export type AdminClaimDetail = z.infer<typeof AdminClaimDetailSchema>;
 /**
  * `PATCH /api/admin/claims/:id/notes` — write or clear the operator note.
  *
- * A sub-resource rather than a third `ModerateClaimSchema.action`, mirroring
- * `PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status
+ * A sub-resource rather than a third `ModerateClaimSchema.action`: moderation is a one-way status
  * transition that grants or declines, and a note is neither. It is writable at
  * ANY status — a resolved or rejected claim is exactly where "why we parked it,
  * and what happened next" matters most.

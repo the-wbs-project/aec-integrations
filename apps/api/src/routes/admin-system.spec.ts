@@ -290,8 +290,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'duplicate_products',
       'logo_404',
       'algolia_index_drift',
-      'entitlement_mirror_drift',
-      // AECI-1354 — the license half of the same mirror, until the E1.6 switch-over.
+      // AECI-1354 — the `verified` mirror against live licenses. The only mirror
+      // check since AECI-1375 retired `entitlement_mirror_drift`.
       'license_mirror_drift',
       // AECI-868 / AECI-876 — the two telemetry tripwires, last in digest order.
       // They watch the two independent paths Cloudflare context reaches D1 by:

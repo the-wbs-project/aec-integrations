@@ -378,59 +378,29 @@
         </div>
 
         <!--
-          Entitlement (AECI-532 §5) — a READOUT plus a link, since AECI-652 §5.6.
-          The set/renew/clear control moved to `/admin/vendors/:id`, which is the
-          surface that can reach every vendor rather than only the ones that filed
-          a claim. Keeping a second copy here would mean two copies of the §5.2 /
-          §5.3 / §5.4 copy invariants, and those are the sentences whose drift
-          causes an incident rather than a typo.
-
-          Still deliberately OUTSIDE the `isActionable` block: renewing or clearing
-          a vendor granted months ago is the ordinary case, and those rows are
-          terminal claims. Points at the RESOLVED target vendor, so a product claim
-          links to that product's primary vendor.
+          The target vendor and a link to its Billing tab (AECI-1375: licenses are
+          the plan, so the entitlement readout is gone). Deliberately OUTSIDE the
+          isActionable block: managing a vendor granted months ago is the ordinary
+          case, and those rows are terminal claims. Points at the RESOLVED target
+          vendor, so a product claim links to that product's primary vendor.
         -->
+        @if (r.entitlement_vendor; as v) {
         <div
-          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+          class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
         >
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h4
-                [id]="'claim-' + r.id + '-ent'"
-                class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                i18n="@@admin.claims.ent.heading"
-              >
-                Entitlement
-              </h4>
-              <p class="mt-2 text-sm font-medium text-(--text-primary)">
-                {{ entitlementLabel(r) }}
-              </p>
-              @if (r.entitlement_vendor) {
-              <p class="mt-1 text-xs text-(--text-secondary)">
-                <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ r.entitlement_vendor.name
-                }}
-              </p>
-              } @if (r.entitlement; as e) {
-              <p class="mt-1 text-xs text-(--text-secondary)">{{ entitlementTerm(e) }}</p>
-              @if (e.invoice_ref) {
-              <p class="mt-1 text-xs text-(--text-secondary)">
-                <span i18n="@@admin.claims.ent.invoice2">Invoice / PO</span>: {{ e.invoice_ref }}
-              </p>
-              } }
-            </div>
-
-            @if (r.entitlement_vendor; as v) {
-            <a
-              [routerLink]="['/admin/vendors', v.id]"
-              [queryParams]="{ tab: 'billing' }"
-              class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.claims.ent.manage"
-            >
-              Manage billing
-            </a>
-            }
-          </div>
+          <p class="min-w-0 text-xs text-(--text-secondary)">
+            <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ v.name }}
+          </p>
+          <a
+            [routerLink]="['/admin/vendors', v.id]"
+            [queryParams]="{ tab: 'billing' }"
+            class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.claims.ent.manage"
+          >
+            Manage billing
+          </a>
         </div>
+        }
 
         <!-- Source link -->
         @if (r.source_url) {

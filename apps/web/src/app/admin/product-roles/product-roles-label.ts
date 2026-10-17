@@ -5,7 +5,7 @@ import type { VendorProductRoles } from '@aeci/shared';
  * the §5.2 payer-test signal on `/admin/claims` and the Basics row on
  * `/admin/vendors/:id`.
  *
- * One implementation, on the `entitlement-term.ts` precedent — the two surfaces
+ * One implementation, on the `format-term-date.ts` precedent — the two surfaces
  * show the same value about the same vendor, and an operator who saw
  * "3 application" on one screen and something else on the other would have no
  * way to tell which one to trust before making a one-way decision.

@@ -151,10 +151,10 @@ const NO_FORBIDDEN_VARY = [
  * reconcile `verified` to EXISTS(live license) in the same `db.batch` as the license
  * write. See `MIRROR_WRITE_EXEMPT` for the transition.
  *
- * This is Guard 1. Guard 2 is the `entitlement_mirror_drift` data-quality check
+ * This is Guard 1. Guard 2 is the `license_mirror_drift` data-quality check
  * (04:00 UTC), which catches what lint structurally cannot: hand-written D1 SQL
  * against a tier, the `apps/datatool` worker, and a backfill that ran on staging but
- * not demo.
+ * not demo. It replaced `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375).
  *
  * Shaped to the Drizzle CHAIN, not to the property name, and using the
  * `> ObjectExpression > Property` child combinator rather than `:has()` — that is what

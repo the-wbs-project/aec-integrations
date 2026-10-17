@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
@@ -11,13 +11,11 @@ import {
   type AdminClaim,
   type ListVendorClaimsQuery,
   type ModerateClaimInput,
-  type VendorEntitlementResponse,
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
 import { AdminSummaryStore } from '../admin-summary.store';
-import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
@@ -70,23 +68,15 @@ type FormMode = 'approve' | 'reject';
  * double them in the total.
  *
  * AECI-532 (`STAGE_2_PAID_TIERS_SPEC.md` §5) added an ENTITLEMENT column plus an
- * inline set/renew/clear control here, because `/admin/claims` was then the only
- * surface that could reach a vendor at all. **AECI-652 §5.6 moved the control
- * out** to `/admin/vendors/:id` — the surface that can reach EVERY vendor,
- * including one that never filed a claim, which is what concierge onboarding
- * needs. What is left here is a readout plus a "Manage billing" link (AECI-1371 renamed it).
+ * inline set/renew/clear control here. AECI-652 §5.6 moved the control to
+ * `/admin/vendors/:id`, and AECI-1375 retired it and the entitlement readout:
+ * licenses are the plan now. What is left is the target vendor's name and a
+ * "Manage billing" link to its Billing tab.
  *
- * The move is not tidying. The control carries three sentences whose drift is a
- * foreseeable incident rather than a typo — clearing is not a seat revoke and not
- * a ban (§5.2); search is nightly in BOTH directions so the Algolia record's
- * `verified` lags by up to a day (§5.3 / R2); and the §5.4 lockout with its
- * re-activate → edit → clear escape hatch — and two surfaces meant two copies of
- * them. They now live in exactly one file, `admin/entitlement/entitlement-control.html`.
- *
- * The readout still points at `entitlement_vendor` — the row's RESOLVED target
- * vendor, because a product claim's entitlement belongs to that product's primary
- * vendor — and it stays visible on RESOLVED and REJECTED rows too, since renewing
- * or clearing a vendor granted months ago is the ordinary case.
+ * The link points at `entitlement_vendor`, the row's RESOLVED target vendor,
+ * because a product claim's licenses belong to that product's primary vendor. It
+ * stays visible on RESOLVED and REJECTED rows too, since managing the licenses
+ * of a vendor granted months ago is the ordinary case.
  *
  * AECI-739 added three things to the queue. They were built for the PARKED
  * connector claim, which AECI-1367 retired: a pure-connector vendor is approved
@@ -108,7 +98,6 @@ type FormMode = 'approve' | 'reject';
 })
 export class ClaimQueue {
   private readonly api = inject(AdminClaimsApi);
-  private readonly locale = inject(LOCALE_ID);
   private readonly summaryStore = inject(AdminSummaryStore);
 
   /** The loaded claims (server order: newest-first). */
@@ -401,44 +390,6 @@ export class ClaimQueue {
   private removeRow(id: string): void {
     this.claims.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
-  }
-
-  // ── Entitlement readout (AECI-532 §5; the CONTROL moved out in AECI-652 §5.6) ──
-  //
-  // What stayed here is the readout the queue renders and the link out to
-  // `/admin/vendors/:id`. The set/renew/clear form, its API call and its error
-  // mapping all live in `EntitlementControl` now — one copy of the §5.2/§5.3/§5.4
-  // copy invariants, on the surface that can reach every vendor rather than only
-  // the ones that filed a claim.
-
-  /** The entitlement state, as a short badge label. Unlike the shared control's
-   *  own label, this one has an "Unavailable" branch: on a claim card the target
-   *  vendor can genuinely be absent (a product with no `product_vendors` row), and
-   *  there is then nothing to link to. */
-  protected entitlementLabel(r: AdminClaim): string {
-    if (!r.entitlement_vendor) {
-      return $localize`:@@admin.claims.ent.unavailable:Unavailable`;
-    }
-    switch (r.entitlement?.status) {
-      case 'active':
-        return $localize`:@@admin.claims.ent.status.active2:Account active: entitlement active`;
-      case 'pending':
-        return $localize`:@@admin.claims.ent.status.pending2:Arrangement pending`;
-      case 'expired':
-        return $localize`:@@admin.claims.ent.status.expired2:Term expired`;
-      case 'revoked':
-        return $localize`:@@admin.claims.ent.status.revoked2:Entitlement cleared`;
-      default:
-        return $localize`:@@admin.claims.ent.status.none2:No entitlement on record`;
-    }
-  }
-
-  /** The term readout. `null` `period_end` is PERPETUAL (what the §2.4 backfill
-   *  wrote), never "unknown" — so it must not render as a blank. Shared with
-   *  `<aec-entitlement-control>` so the two copies cannot drift, and formatted
-   *  rather than interpolated raw (AECI-694). */
-  protected entitlementTerm(e: VendorEntitlementResponse): string {
-    return entitlementTermLabel(e.period_end, this.locale);
   }
 }
 

@@ -1,13 +1,5 @@
 import { DatePipe } from '@angular/common';
-import {
-  Component,
-  LOCALE_ID,
-  afterNextRender,
-  computed,
-  effect,
-  inject,
-  signal,
-} from '@angular/core';
+import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
@@ -19,7 +11,6 @@ import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
 import { claimantAccountLabel } from './claimant-account-label';
-import { entitlementTermLabel } from '../entitlement/entitlement-term';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
@@ -68,9 +59,9 @@ const AUDIT_PAGE_SIZE = 25;
  *
  * Two boundaries this screen deliberately does NOT cross. **It does not moderate**
  * — Grant and Reject stay on the queue, beside the connector flag, so there is
- * one place to act. And **it does not manage the entitlement** — that moved
- * to `/admin/vendors/:id` (AECI-652 §5.6) precisely so the §5.2/§5.3/§5.4 copy
- * invariants live in one file; this page links there rather than re-rendering it.
+ * one place to act. And **it does not manage the plan**. Licenses are the plan
+ * (AECI-1375), and they live on the vendor's Billing tab, which this page links
+ * to rather than re-rendering.
  */
 @Component({
   selector: 'aec-claim-detail',
@@ -80,7 +71,6 @@ const AUDIT_PAGE_SIZE = 25;
 export class ClaimDetail {
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
-  private readonly locale = inject(LOCALE_ID);
 
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 
@@ -310,13 +300,6 @@ export class ClaimDetail {
   protected readonly roleBreakdownLabel = productRolesLabel;
   /** The §5.2 step 1a owner signal (AECI-1041), shared with the queue. */
   protected readonly ownedLabel = ownedIntegrationsLabel;
-
-  /** The term readout. A `null` `period_end` is PERPETUAL, never "unknown" —
-   *  shared with `/admin/claims` and `<aec-entitlement-control>` so the three
-   *  copies cannot drift (AECI-694). */
-  protected entitlementTerm(periodEnd: string | null): string {
-    return entitlementTermLabel(periodEnd, this.locale);
-  }
 
   protected targetFallbackLabel(type: AdminClaimDetail['target_type']): string {
     return type === 'product'

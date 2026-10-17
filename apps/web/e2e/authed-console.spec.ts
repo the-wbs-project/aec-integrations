@@ -156,10 +156,9 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
 
   // AECI-652 / `STAGE_2_PAID_TIERS_SPEC.md` §5.6 — the vendor surface. The LIVE
   // axe pass for this feature runs HERE rather than on the detail page: the list
-  // is where the new layout primitives are (a filter bar with a search field and
-  // an Aria combobox, a sortable-header table, and the paginator), and the detail
-  // page's most structurally complex sub-tree is `EntitlementControl`, whose heading and
-  // live-region contract is asserted in its own component spec. Same reasoning as
+  // is where the new layout primitives are (a search field, a sortable-header
+  // table, and the paginator), and the detail page's child controls have their
+  // heading and live-region contract asserted in their own component specs. Same reasoning as
   // `/admin/traffic`: an axe run on the unauthenticated route would only ever
   // audit the loading state, so it has to run where a real session exists.
   test('/admin/vendors hydrates with no console errors and zero axe violations', async ({

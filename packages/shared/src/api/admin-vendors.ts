@@ -1,17 +1,11 @@
 import { z } from 'zod';
 
 import {
-  EntitlementStatusSchema,
-  EntitlementTierSchema,
-  VendorEntitlementResponseSchema,
-} from './admin-entitlements';
-import {
   PageQuerySchema,
   SortOrderSchema,
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
-import { VendorPlanPricingResponseSchema } from './admin-plan-pricing';
 import { AdminOverrideReasonSchema } from './admin-reason';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { ProductRoleSchema } from './products';
@@ -23,22 +17,21 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  * `requireAdmin()`:
  *
  *   GET    /api/admin/vendors                    — paginated list + name/slug search
- *   GET    /api/admin/vendors/:id                — basics, entitlement, plan price, seats, counts
+ *   GET    /api/admin/vendors/:id                — basics, seats, counts
  *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
  *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat; body `{ reason }` (AECI-1191)
  *
- * Before this, the only vendor-management surface in the panel was the
- * entitlement control embedded in a `/admin/claims` card — so a vendor with no
+ * Before this, the only vendor-management surface in the panel was a
+ * `/admin/claims` card — so a vendor with no
  * claim row had nothing to hang it on, which blocked concierge onboarding
  * outright. §5.6 reverses the §11 deferral of "a standalone `/admin/vendors`
  * entitlement browser".
  *
- * **The entitlement WRITE is not here.** It stays `PATCH /api/admin/vendors/:id/
- * entitlement` (`admin-entitlements.ts`), which remains the sole writer that can
- * take `vendors.verified` back down, through the entitlement row. This module
- * adds three reads and one seat revoke — no second entitlement writer, and no
- * new writer of `vendors.verified` anywhere (the revoke reuses
+ * **No plan write is here.** Licenses are the plan (AECI-1355), granted, extended
+ * and revoked on the Billing tab (`admin-licenses.ts`); AECI-1375 retired the old
+ * entitlement set/renew/clear and plan-price routes. This module adds reads and
+ * one seat revoke, and no writer of `vendors.verified` (the revoke reuses
  * `revokeSeatStatements`, which by construction never names `vendors`).
  *
  * Two conventions carried from `admin-claims.ts` and worth restating because
@@ -69,8 +62,8 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  * rule that a header which reorders 25 of 4,000 rows is worse than a plain one).
  * That rule is unchanged; what changed is that the API can now order by all of
  * them, so the headers are honest. The public `/api/vendors` list is untouched —
- * `slug`, `verified`, `entitlement` and `term` describe operator concerns
- * (mirror drift, renewal windows) that the public directory has no column for,
+ * `slug`, `verified` and `licenses` describe operator concerns (mirror drift,
+ * live license count) that the public directory has no column for,
  * and `created` has no column on `AdminVendorRowSchema` to hang an arrow off, so
  * it is absent here rather than sortable-but-invisible.
  *
@@ -87,7 +80,7 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  * one vendor starts by scanning names.
  */
 export const AdminVendorSortSchema = z
-  .enum(['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated'])
+  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated'])
   .default('name');
 export type AdminVendorSort = z.infer<typeof AdminVendorSortSchema>;
 
@@ -103,24 +96,17 @@ export type AdminVendorSort = z.infer<typeof AdminVendorSortSchema>;
 export const ADMIN_VENDOR_SORT_DEFAULT_ORDER: Record<AdminVendorSort, SortOrder> = {
   name: 'asc',
   slug: 'asc',
-  // Verified first: the operator is auditing the badge, and the tri-state filter
-  // already covers "show me only the unverified ones".
+  // Account active first: the operator is auditing the mirror.
   verified: 'desc',
-  // `active < pending < expired < revoked < none` — urgency, not alphabet.
-  entitlement: 'asc',
+  // Most live licenses first (AECI-1375): the paying accounts lead.
+  licenses: 'desc',
   products: 'desc',
-  // Soonest expiry first: "who lapses next".
-  term: 'asc',
   updated: 'desc',
 };
 
 /**
- * List filter. Deliberately NOT the old public `VendorsListQuerySchema` shape,
- * whose `verified` was `z.coerce.boolean()` — and `Boolean("false") === true`, so
- * `?verified=false` there filtered for VERIFIED (AECI-691). This surface needs a
- * real tri-state, so it uses the enum form. AECI-1266 retired the public filter
- * altogether, because it listed the vendors on a paid plan. This admin filter is
- * the only `verified` filter left.
+ * List filter. AECI-1375 retired the `verified` filter: the Live licenses column
+ * and its sort answer "who is paying" from the license rows themselves.
  *
  * `search` matches company name OR slug, substring, case-insensitively (SQLite
  * `LIKE` is case-insensitive for ASCII). Wildcards in the operator's box are
@@ -131,27 +117,24 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   /** Absent = the key's natural direction. See `SortOrderSchema`. */
   order: SortOrderSchema.optional(),
   search: z.string().optional(),
-  verified: z
-    .enum(['true', 'false'])
-    .transform((value) => value === 'true')
-    .optional(),
 });
 export type AdminVendorsListQuery = z.infer<typeof AdminVendorsListQuerySchema>;
 
 /**
  * One row on the operator's vendor list.
  *
- * `tier` / `status` come from a LEFT JOIN on `vendor_entitlements` and are `null`
- * together for a vendor with no entitlement row — which is the majority. They are
- * NOT derivable from `verified`: `verified` is the denormalized mirror (§2.1),
- * and showing both side by side is how an operator spots drift.
+ * `live_license_count` is the vendor's licenses with `ended_at IS NULL`, across
+ * every billing account it holds (AECI-1375; `liveLicenseCountSql` in
+ * `apps/api/src/lib/license.ts`, the same count the `license_mirror_drift` check
+ * reads). `verified` is the denormalized mirror of "count > 0", and showing both
+ * side by side is how an operator spots drift.
  *
  * `product_count` is the same correlated subquery the public `/api/vendors` list
  * already ships (`vendorListConfig.extras.productCount`), so it costs one
  * statement, not a fan-out.
  *
  * There is **no `integration_count`**. The list rendered one until this revision
- * and it earned nothing: an operator on this screen is triaging entitlements and
+ * and it earned nothing: an operator on this screen is triaging licenses and
  * seats, and the number they act on is on `/admin/vendors/:id` (where it is the
  * §13.5 union of direct + connector-evidenced edges). Dropping it also drops a
  * correlated subquery per row. `vendorListConfig.extras.integrationCount` is
@@ -164,11 +147,8 @@ export const AdminVendorRowSchema = z.object({
   company_name: z.string().min(1),
   /** The `vendors.verified` mirror, shown as-is. */
   verified: z.boolean(),
-  /** `null` = no `vendor_entitlements` row at all, not "unknown". */
-  tier: EntitlementTierSchema.nullable(),
-  status: EntitlementStatusSchema.nullable(),
-  /** `null` = perpetual OR no entitlement row; `tier`/`status` disambiguate. */
-  period_end: z.string().nullable(),
+  /** Licenses with `ended_at IS NULL` on the vendor's billing accounts. */
+  live_license_count: z.number().int().nonnegative(),
   product_count: z.number().int().min(0),
   updated_at: z.string(),
 });
@@ -301,12 +281,6 @@ export const AdminVendorDetailSchema = z.object({
   last_reviewed_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
-
-  /** `null` = no entitlement on record (never granted, or cleared). */
-  entitlement: VendorEntitlementResponseSchema.nullable(),
-  /** The plan price overrides (ruling 2026-10-08, §13.13). All-null fields = the
-   *  default list price; never absent. Written by `PUT …/plan-pricing`. */
-  plan_pricing: VendorPlanPricingResponseSchema,
 
   seats: AdminVendorSeatRowSchema.array().nullable(),
   /** Whether the GoTrue email lookup succeeded at all (AECI-652 / the

@@ -78,7 +78,6 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     seat_emails_available: true,
     related_requests: [],
     entitlement_vendor: { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
-    entitlement: null,
     product_roles: { application: 1, connector: 0, hybrid: 0, total: 1 },
     is_pure_connector_vendor: false,
     owned_integrations: { integrations: 0, connector_evidenced: 2, total: 2 },
@@ -487,6 +486,11 @@ describe('ClaimDetail', () => {
       (a) => a.textContent?.trim() === 'Manage billing',
     );
     expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=billing`);
+    // AECI-1375: the vendor's name stays beside the link; the entitlement readout is gone.
+    expect(link?.parentElement?.textContent).toContain('Autodesk, Inc.');
+    const headings = [...el.querySelectorAll('h3, h4')].map((h) => h.textContent?.trim());
+    expect(headings).not.toContain('Entitlement');
+    expect(el.textContent).not.toContain('No entitlement on record');
   });
 
   it('explains in_review only at that status', async () => {

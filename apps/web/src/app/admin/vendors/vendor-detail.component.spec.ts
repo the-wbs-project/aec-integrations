@@ -34,7 +34,6 @@ import { of } from 'rxjs';
 
 import type { AdminVendorTab } from './vendor-detail';
 
-import { AdminEntitlementApi } from '../entitlement/admin-entitlement-api';
 import { AdminLicensesApi } from './admin-licenses-api';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { SeatProvisionApi } from './seat-provision-api';
@@ -72,14 +71,6 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     last_reviewed_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-08-20T00:00:00.000Z',
-    entitlement: null,
-    plan_pricing: {
-      vendor_id: VENDOR_ID,
-      managed_price_cents: null,
-      message: null,
-      updated_by: null,
-      updated_at: null,
-    },
     seats: [makeSeat()],
     seat_emails_available: true,
     pending_invites: [],
@@ -215,7 +206,6 @@ async function setup(
       provideZonelessChangeDetection(),
       provideRouter([]),
       { provide: AdminVendorsApi, useValue: api },
-      { provide: AdminEntitlementApi, useValue: { setEntitlement: vi.fn() } },
       { provide: SeatProvisionApi, useValue: provisionApi },
       { provide: AdminLicensesApi, useValue: { grantLicenses: vi.fn() } },
       {
@@ -309,15 +299,25 @@ describe('VendorDetail', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders the Vendor tab: basics, entitlement and seats read together', async () => {
-    // These three stay on ONE tab on purpose — the entitlement state explains
-    // the seats, and a decision about either needs both on screen.
+  it('renders the Vendor tab: basics, field corrections and seats', async () => {
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
-    // AECI-1237: Field corrections sits between the basics and the entitlement.
-    // AECI-1372: Licenses moved to the Billing tab; Entitlement and Plan price stay.
-    expect(headings).toEqual(['Basics', 'Field corrections', 'Entitlement', 'Plan price', 'Seats']);
+    // AECI-1375: the Entitlement and Plan price sections are retired. Licenses
+    // are the plan and live on the Billing tab (AECI-1372).
+    expect(headings).toEqual(['Basics', 'Field corrections', 'Seats']);
     expect(el.querySelector('aec-grant-licenses-control')).toBeNull();
+    expect(el.querySelector('aec-entitlement-control')).toBeNull();
+    expect(el.querySelector('aec-plan-pricing-control')).toBeNull();
+  });
+
+  it('points at the Billing tab for licenses and grants (AECI-1375)', async () => {
+    const { el } = await setup(makeApiMock(makeVendor()));
+    const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'Billing tab');
+    expect(link).toBeTruthy();
+    expect(link!.getAttribute('href')).toBe('/?tab=billing');
+    expect(link!.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Licenses and grants are on the Billing tab.',
+    );
   });
 
   describe('vendor logo', () => {
@@ -613,95 +613,11 @@ describe('VendorDetail', () => {
     expect(buttonByText(el, 'Try again')).toBeTruthy();
   });
 
-  describe('entitlement section', () => {
-    it('hosts exactly one control and gives it the section heading', async () => {
-      const { el } = await setup(makeApiMock(makeVendor()));
-      const controls = el.querySelectorAll('aec-entitlement-control');
-      expect(controls).toHaveLength(1);
-      expect(
-        controls[0].querySelector('[aria-labelledby="admin-vendor-entitlement"]'),
-      ).toBeTruthy();
-    });
-
-    it("updates in place from the control's output, with no refetch of the vendor", async () => {
-      const { fixture, api } = await setup(makeApiMock(makeVendor()));
-      const before = api.getVendor.mock.calls.length;
-
-      fixture.componentInstance['onEntitlementChanged']({
-        vendor_id: VENDOR_ID,
-        tier: 'verified',
-        status: 'active',
-        period_start: null,
-        period_end: null,
-        granted_at: '2026-08-27T00:00:00.000Z',
-        ended_at: null,
-        verified: true,
-        payer: null,
-        amount: null,
-        terms: null,
-        arranged_by: null,
-        invoice_ref: null,
-        notes: null,
-      });
-      await settle();
-      fixture.detectChanges();
-
-      // The PATCH returns the committed readout, so a refetch would be a round
-      // trip to learn what we were just handed.
-      expect(api.getVendor).toHaveBeenCalledTimes(before);
-      // The audit trail DID gain a row, though — leaving it stale would put a
-      // visible disagreement on the page.
-      expect(api.listAudit.mock.calls.length).toBeGreaterThan(1);
-    });
-
-    it("routes the control's announcement into the page's live region", async () => {
-      const { fixture, el } = await setup(makeApiMock(makeVendor()));
-      fixture.componentInstance['onAnnounce']('Entitlement granted.');
-      fixture.detectChanges();
-      expect(el.querySelector('[role="status"]')?.textContent).toContain('Entitlement granted.');
-    });
-  });
-
-  describe('plan price section (ruling 2026-10-08, §13.13)', () => {
-    it('hosts one control under its own heading, fed the stored override', async () => {
-      const { el } = await setup(
-        makeApiMock(
-          makeVendor({
-            plan_pricing: {
-              vendor_id: VENDOR_ID,
-              managed_price_cents: 1250,
-              message: null,
-              updated_by: null,
-              updated_at: '2026-10-08T00:00:00.000Z',
-            },
-          }),
-        ),
-      );
-      const controls = el.querySelectorAll('aec-plan-pricing-control');
-      expect(controls).toHaveLength(1);
-      expect(controls[0].querySelector('[aria-labelledby="admin-vendor-plan-price"]')).toBeTruthy();
-      expect(controls[0].textContent).toContain('Managed is $12.50 a month per product.');
-    });
-
-    it("updates in place from the control's output and reloads the audit trail", async () => {
-      const { fixture, el, api } = await setup(makeApiMock(makeVendor()));
-      const before = api.getVendor.mock.calls.length;
-      const audits = api.listAudit.mock.calls.length;
-      fixture.componentInstance['onPlanPricingChanged']({
-        vendor_id: VENDOR_ID,
-        managed_price_cents: null,
-        message: 'Free until December 12',
-        updated_by: null,
-        updated_at: '2026-10-08T00:00:00.000Z',
-      });
-      await settle();
-      fixture.detectChanges();
-      expect(api.getVendor).toHaveBeenCalledTimes(before);
-      expect(api.listAudit.mock.calls.length).toBeGreaterThan(audits);
-      expect(el.querySelector('[data-testid="plan-pricing-preview"]')?.textContent?.trim()).toBe(
-        'Free until December 12',
-      );
-    });
+  it("routes a child control's announcement into the page's live region", async () => {
+    const { fixture, el } = await setup(makeApiMock(makeVendor()));
+    fixture.componentInstance['onAnnounce']('Correction saved.');
+    fixture.detectChanges();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Correction saved.');
   });
 
   describe('the public-page link (AECI-694)', () => {
@@ -899,7 +815,7 @@ describe('VendorDetail', () => {
       expect(el.textContent).toContain('Ada Lovelace');
     });
 
-    it('announces that the revoke left the entitlement and badge alone', async () => {
+    it("announces that the revoke left the vendor's licenses alone", async () => {
       const { el, fixture } = await setup(makeApiMock(makeVendor()));
       buttonByText(el, 'Remove seat')!.click();
       fixture.detectChanges();
@@ -911,7 +827,7 @@ describe('VendorDetail', () => {
 
       const live = el.querySelector('[role="status"]')?.textContent ?? '';
       expect(live).toContain('Ada Lovelace');
-      expect(live).toContain('entitlement and badge are unchanged');
+      expect(live).toContain("The vendor's licenses are unchanged.");
     });
 
     it('keeps the seat and explains a 404 rather than dropping the row', async () => {
@@ -1109,7 +1025,7 @@ describe('VendorDetail', () => {
     });
 
     it('exposes EXACTLY ONE polite live region for the whole page', async () => {
-      // The entitlement control and the seat revoke both feed it. A control that
+      // The child controls and the seat revoke all feed it. A control that
       // rendered its own would give this page two.
       const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
       const regions = el.querySelectorAll('[role="status"]');
@@ -1240,7 +1156,6 @@ describe('VendorDetail — products by role', () => {
           provideZonelessChangeDetection(),
           provideRouter([{ path: 'admin/vendors/:id', component: VendorDetail }]),
           { provide: AdminVendorsApi, useValue: api },
-          { provide: AdminEntitlementApi, useValue: { setEntitlement: vi.fn() } },
           { provide: SeatProvisionApi, useValue: { provisionSeat: vi.fn() } },
         ],
       });
@@ -1451,7 +1366,7 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     expect(status?.textContent).toContain('Seat added');
     // Load-bearing: the operator must not have to read the Basics table to learn
     // that provisioning did not open an entitlement.
-    expect(status?.textContent).toContain('No entitlement was opened.');
+    expect(status?.textContent).toContain('No license was granted.');
   });
 
   it('disables submit on an empty address — field validation, not the gate', async () => {
@@ -1493,7 +1408,7 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     // and cannot be reached by the axe e2e lane without one. Four properties:
     // both fields are labelled, both carry their hint via aria-describedby, the
     // failure message is an alert, and the PAGE still owns exactly one live
-    // region — the extraction contract `EntitlementControl` established.
+    // region. Child controls feed the page's region through `announce`.
     const { el, fixture } = await setup(makeApiMock(makeVendor()));
     await openForm(el, fixture);
 

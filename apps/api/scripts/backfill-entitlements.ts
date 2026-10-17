@@ -31,9 +31,9 @@
  *   - Emits NO `audit_log` row (there is no handler). The `notes` column carries the
  *     provenance instead.
  *
- * PROOF IT LANDED is the `entitlement_mirror_drift` data-quality check (Guard 2, 04:00
- * UTC): "the backfill ran on staging but not demo" is otherwise invisible until a
- * reader notices a missing badge. Run this on EVERY deployed tier.
+ * PROOF IT LANDED was the `entitlement_mirror_drift` data-quality check (04:00 UTC),
+ * retired 2026-10-17 (AECI-1375). Its row feeds `ops:backfill-licenses`, whose proof
+ * is `license_mirror_drift`. Run this on EVERY deployed tier.
  *
  * USAGE (from apps/api; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
  *   # dry-run — report both drift directions, write nothing:
@@ -208,8 +208,8 @@ export async function main(argv: string[]): Promise<number> {
   console.log('');
   console.log(
     'Note: this writes no audit_log row (Tier 0 — there is no handler to route it through);\n' +
-      'the `notes` column carries the provenance. Confirm on the next 04:00 UTC data-quality\n' +
-      'run that `entitlement_mirror_drift` reports 0 for this tier — that is the proof it landed.',
+      'the `notes` column carries the provenance. Run `ops:backfill-licenses` next, then\n' +
+      'confirm on the next 04:00 UTC data-quality run that `license_mirror_drift` reports 0.',
   );
   return 0;
 }

@@ -1,16 +1,15 @@
 import { formatDate } from '@angular/common';
 
 /**
- * How a term date is rendered, everywhere it is rendered (AECI-694): the
- * entitlement control on `/admin/vendors/:id`, the read-only copy on
- * `/admin/claims`, the Term ends column on `/admin/vendors`, the admin and
- * vendor Billing tabs' license dates, and the early-unassign queue.
+ * How a term date is rendered, everywhere it is rendered (AECI-694): the admin
+ * and vendor Billing tabs' license dates and the early-unassign queue. The
+ * entitlement readouts that also used it were retired in AECI-1375.
  *
  * Lives in `shared/` since AECI-1390 (E5.4): the vendor portal's Billing tab
  * reads the same dates, and a vendor-side copy is the drift this file exists to
- * prevent. `entitlementTermLabel` stays in `admin/entitlement/entitlement-term.ts`.
+ * prevent.
  *
- * One implementation because those three surfaces show the same value, and the
+ * One implementation because those surfaces show the same value, and the
  * §5.2/§5.3/§5.4 copy invariants around it are exactly the sentences whose
  * divergence produces an incident rather than a typo.
  *

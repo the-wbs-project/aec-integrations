@@ -9,12 +9,14 @@
  *      (`owner_seat_lapsed_at`) is set only when the missing seat is the one reason.
  *   2. The seat return (unban, and a new seat grant): a stamped contest the owner may
  *      not decide stays with AECi and loses its stamp. Both anchor tables.
- *   3. The entitlement clear (ruling B): it also clears the stamp on the vendor's
- *      stamped AECi contests on connector-powered rows, so no later seat event can
- *      send them back, and leaves stamps on ordinary rows alone.
+ *   3. The last-license revoke (ruling B; the retired entitlement clear's job until
+ *      AECI-1375): it also clears the stamp on the vendor's stamped AECi contests on
+ *      connector-powered rows, so no later seat event can send them back, and leaves
+ *      stamps on ordinary rows alone.
  *   4. An accept that makes a row connector-powered: the same stamp handling.
- *   5. The races: a return loses to a clear (409 VENDOR_SEATS_CHANGED, nothing
- *      written), and the clear's fingerprint moves when a seat event lands mid-clear.
+ *   5. The races: a return loses to a last-license revoke (409 VENDOR_SEATS_CHANGED,
+ *      nothing written), and the re-route fingerprint moves when a seat event lands
+ *      mid-revoke.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -52,7 +54,7 @@ import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createModerateClaimHandler } from './admin-claims';
 import { createModerateContestHandler } from './admin-contests';
-import { createSetVendorEntitlementHandler } from './admin-entitlements';
+import { createUpdateLicenseHandler } from './admin-licenses';
 import { createBanReviewerHandler } from './admin-reviewers';
 import { createProvisionSeatHandler } from './admin-vendors';
 import { createSubmitContestHandler } from './vendor-contests';
@@ -149,9 +151,10 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-/** Managed, as the dual-write leaves it (AECI-1353): the entitlement row, which the
- *  admin clear's 422 gate reads, and a live license, which the owner checks read
- *  since AECI-1355. */
+/** Managed, as the dual-write left it (AECI-1353): the entitlement row, which the
+ *  claim grant still reads, and a live license, which the owner checks read since
+ *  AECI-1355. The license id is kept so {@link revokeLast} can end it. */
+const licenseOf = new Map<string, string>();
 const entitle = async (vendorId: string) => {
   await t.db.insert(vendorEntitlements).values({
     vendorId,
@@ -161,7 +164,7 @@ const entitle = async (vendorId: string) => {
     createdAt: CLAIMED_AT,
     updatedAt: CLAIMED_AT,
   });
-  await seedLicense(t.db, vendorId);
+  licenseOf.set(vendorId, await seedLicense(t.db, vendorId));
 };
 const banSeatDirectly = (seatId: string) =>
   t.db.update(profiles).set({ bannedAt: BANNED_AT }).where(eq(profiles.id, seatId));
@@ -218,7 +221,14 @@ function app(auth: Auth) {
   });
   a.post('/api/vendor/integrations/:id/contests', createSubmitContestHandler(t.factory));
   a.patch('/api/admin/contests/:id', createModerateContestHandler(t.factory, fileIssue));
-  a.patch('/api/admin/vendors/:id/entitlement', createSetVendorEntitlementHandler(t.factory));
+  a.patch(
+    '/api/admin/licenses/:id',
+    createUpdateLicenseHandler(
+      t.factory,
+      async () => new Map<string, string>(),
+      async () => 'sent' as const,
+    ),
+  );
   a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   a.patch(
     '/api/admin/claims/:id',
@@ -275,8 +285,14 @@ const submit = (id: string, field: string, proposed: string) =>
   });
 const unban = (seatId: string) =>
   call(AUTH_ADMIN, `/api/admin/reviewers/${seatId}`, { action: 'unban' }, 'PATCH');
-const clearEntitlement = (vendorId: string) =>
-  call(AUTH_ADMIN, `/api/admin/vendors/${vendorId}/entitlement`, { action: 'clear' }, 'PATCH');
+/** Revoke the vendor's only live license: the last-license revoke (AECI-1375). */
+const revokeLast = (vendorId: string) =>
+  call(
+    AUTH_ADMIN,
+    `/api/admin/licenses/${licenseOf.get(vendorId)}`,
+    { action: 'revoke', reason: 'The pilot ended.' },
+    'PATCH',
+  );
 const provisionSeat = (vendorId: string) =>
   call(AUTH_ADMIN, `/api/admin/vendors/${vendorId}/seats`, {
     email: 'new-seat@example.test',
@@ -428,34 +444,30 @@ describe('the seat return withholds what the owner may not decide', () => {
   });
 });
 
-// ─── 3. The entitlement clear ────────────────────────────────────────────────
+// ─── 3. The last-license revoke ──────────────────────────────────────────────
 
-describe('the entitlement clear makes stamped connector-row contests AECi’s for good', () => {
+describe('the last-license revoke makes stamped connector-row contests AECi’s for good', () => {
   it('clears the stamp on connector rows only, so a later unban returns the ordinary one alone', async () => {
     await entitle(VENDOR_B);
     await banSeatDirectly(SEAT_B);
     const powered = await stampedContest({ integrationId: I_POWERED });
     const plain = await stampedContest({ integrationId: I_PLAIN });
 
-    expect((await clearEntitlement(VENDOR_B)).status).toBe(200);
+    expect((await revokeLast(VENDOR_B)).status).toBe(200);
     expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
     expect(await contest(plain)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: STAMP });
     expect(await auditsFor(powered)).toEqual([
       { action: 'integration.contest.seat_stamp_cleared', reason: 'entitlement-cleared' },
     ]);
 
-    // Re-entitling later does not bring it back either: the stamp is gone.
-    await t.db
-      .update(vendorEntitlements)
-      .set({ status: 'active', tier: 'verified' })
-      .where(eq(vendorEntitlements.vendorId, VENDOR_B));
+    // A new license later does not bring it back either: the stamp is gone.
     await seedLicense(t.db, VENDOR_B);
     await unban(SEAT_B);
     expect((await contest(powered)).routedTo).toBe('aeci');
     expect((await contest(plain)).routedTo).toBe('owner');
   });
 
-  it('forwards the entitlement row and every cleared stamp in ONE batched request (AECI-1112)', async () => {
+  it('forwards the license row and every cleared stamp in ONE batched request (AECI-1112)', async () => {
     await entitle(VENDOR_B);
     await banSeatDirectly(SEAT_B);
     // Seven contests, past the Worker's ~6 open connections (AECI-666). One open
@@ -472,7 +484,7 @@ describe('the entitlement clear makes stamped connector-row contests AECi’s fo
     for (const field of fields) await stampedContest({ integrationId: I_POWERED, field });
     vi.mocked(logBatchToPosthog).mockClear();
 
-    expect((await clearEntitlement(VENDOR_B)).status).toBe(200);
+    expect((await revokeLast(VENDOR_B)).status).toBe(200);
 
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
@@ -480,17 +492,17 @@ describe('the entitlement clear makes stamped connector-row contests AECi’s fo
       source: string;
     }[];
     const messages = events.map((e) => e.message);
-    expect(messages.filter((m) => m.startsWith('audit vendor_entitlement.'))).toHaveLength(1);
+    expect(messages.filter((m) => m.startsWith('audit license.revoked'))).toHaveLength(1);
     expect(
       messages.filter((m) => m.startsWith('audit integration.contest.seat_stamp_cleared ')),
     ).toHaveLength(fields.length);
-    expect(events.every((e) => e.source === 'admin-entitlement')).toBe(true);
+    expect(events.every((e) => e.source === 'admin-licenses')).toBe(true);
   });
 
   it('clears the stamp on an evidenced-pair contest too', async () => {
     await entitle(VENDOR_T);
     const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
-    await clearEntitlement(VENDOR_T);
+    await revokeLast(VENDOR_T);
     expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
   });
 });
@@ -535,15 +547,14 @@ describe('an accept that makes a row connector-powered handles stamped contests 
 // ─── 5. Races ────────────────────────────────────────────────────────────────
 
 describe('the reconciliation races', () => {
-  it('a return that loses to a clear writes nothing and answers 409 VENDOR_SEATS_CHANGED', async () => {
+  it('a return that loses to a last-license revoke writes nothing and answers 409 VENDOR_SEATS_CHANGED', async () => {
     await entitle(VENDOR_B);
     await banSeatDirectly(SEAT_B);
     const id = await stampedContest({ integrationId: I_POWERED });
-    // The clear commits between the unban's read and its batch.
+    // The revoke commits between the unban's read and its batch.
     const original = t.db.batch.bind(t.db);
     vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
-      await t.db.delete(vendorEntitlements).where(eq(vendorEntitlements.vendorId, VENDOR_B));
-      // AECI-1355: the clear ends the vendor's licenses in the same batch.
+      // AECI-1355: the owner checks read licenses.
       await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
       return original(stmts);
     }) as never);
@@ -555,14 +566,13 @@ describe('the reconciliation races', () => {
     expect(seat.bannedAt).toBe(BANNED_AT);
   });
 
-  it('a seat grant that loses to a clear answers 409 VENDOR_SEATS_CHANGED too', async () => {
+  it('a seat grant that loses to a last-license revoke answers 409 VENDOR_SEATS_CHANGED too', async () => {
     await entitle(VENDOR_T);
     await banSeatDirectly(SEAT_T);
     const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
     const original = t.db.batch.bind(t.db);
     vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
-      await t.db.delete(vendorEntitlements).where(eq(vendorEntitlements.vendorId, VENDOR_T));
-      // AECI-1355: the clear ends the vendor's licenses in the same batch.
+      // AECI-1355: the owner checks read licenses.
       await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
       return original(stmts);
     }) as never);
@@ -572,7 +582,7 @@ describe('the reconciliation races', () => {
     expect((await contest(id)).routedTo).toBe('aeci');
   });
 
-  it('the clear’s fingerprint moves when a stamped contest changes mid-clear', async () => {
+  it('the re-route fingerprint moves when a stamped contest changes mid-revoke', async () => {
     await entitle(VENDOR_B);
     const id = await stampedContest({ integrationId: I_PLAIN });
     const plan = await planEntitlementClearReroute(
@@ -581,7 +591,7 @@ describe('the reconciliation races', () => {
       { actorId: ADMIN, actorType: 'admin' },
       STAMP,
     );
-    // Another writer clears the stamp after the clear's read. The owner-routed set is
+    // Another writer clears the stamp after the plan's read. The owner-routed set is
     // untouched, so only the stamped half of the fingerprint can catch it.
     await t.db
       .update(integrationFieldChallenges)

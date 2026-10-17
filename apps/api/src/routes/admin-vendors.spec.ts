@@ -6,11 +6,9 @@
  * regression tests for defects the design review found rather than happy-path
  * coverage:
  *
- *  1. **`?verified=false` returns UNVERIFIED vendors.** The old public
- *     `VendorsListQuerySchema` used `z.coerce.boolean()`, and
- *     `Boolean("false") === true`, so copying it would have shipped a filter that
- *     returns the exact opposite of what it says (AECI-691). AECI-1266 retired
- *     that public filter. This is the single most valuable assertion in the file.
+ *  1. **The live license count counts live licenses only.** An ended license is
+ *     not counted, so the column and the `license_mirror_drift` check agree
+ *     (AECI-1375 replaced the `?verified=` filter and the entitlement columns).
  *  2. **A literal `%` in `search` matches literally.** That is the entire reason
  *     `likeContains` escapes and emits `ESCAPE '\'`.
  *  3. **The audit viewer reaches rows that `entity_id = <vendor>` cannot.** A
@@ -19,7 +17,7 @@
  *     it) are both invisible to the obvious query. Each has its own test; if one
  *     starts failing, that scope's disjunct has been dropped.
  *  4. **The revoke never touches `vendors`.** Asserted by reading the row back:
- *     clearing an entitlement and revoking a seat are orthogonal (§5.2), and an
+ *     revoking a license and revoking a seat are orthogonal (§5.2), and an
  *     admin who conflates them creates an incident.
  */
 
@@ -38,7 +36,6 @@ import {
   products,
   profiles,
   vendorEntitlements,
-  vendorPlanPricing,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -176,16 +173,13 @@ describe('GET /api/admin/vendors', () => {
       companyName: 'Beta Tools',
       verified: false,
     });
-    await t.db.insert(vendorEntitlements).values({
-      id: u(40),
-      vendorId: VENDOR,
-      tier: 'verified',
-      status: 'active',
-      periodEnd: '2027-01-01',
-    });
+    // Acme: two live licenses and one ended. Beta: none.
+    await seedLicense(t.db, VENDOR);
+    await seedLicense(t.db, VENDOR);
+    await seedLicense(t.db, VENDOR, { endedAt: '2026-06-01T00:00:00.000Z', endReason: 'revoked' });
   });
 
-  it('returns the paginated envelope with the entitlement joined on', async () => {
+  it('returns the paginated envelope with the live license count', async () => {
     const res = await send(
       mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
       '/api/admin/vendors',
@@ -196,29 +190,27 @@ describe('GET /api/admin/vendors', () => {
     expect(b.total).toBe(2);
     expect(b.page).toBe(1);
     const acme = b.data.find((r: { slug: string }) => r.slug === 'acme-corp');
+    // The ended license is not counted: live is `ended_at IS NULL`.
     expect(acme).toMatchObject({
       company_name: 'Acme Corp',
       verified: true,
-      tier: 'verified',
-      status: 'active',
-      period_end: '2027-01-01',
+      live_license_count: 2,
     });
+    expect(acme).not.toHaveProperty('tier');
+    expect(acme).not.toHaveProperty('period_end');
   });
 
-  it('reports tier and status as null for a vendor with no entitlement row', async () => {
+  it('reports zero live licenses for a vendor that holds none', async () => {
     const res = await send(
       mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
       '/api/admin/vendors',
     );
     const b = await body(res);
     const beta = b.data.find((r: { slug: string }) => r.slug === 'beta-100%-tools');
-    // `null`, not a fabricated 'unclaimed' — the absence of a row is a distinct
-    // state from a cleared one, and the operator has to be able to see which.
-    expect(beta.tier).toBeNull();
-    expect(beta.status).toBeNull();
+    expect(beta.live_license_count).toBe(0);
   });
 
-  it('does not multiply a vendor that has an entitlement (the join is 1:1)', async () => {
+  it('does not multiply a vendor that holds several licenses', async () => {
     const res = await send(
       mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
       '/api/admin/vendors',
@@ -255,24 +247,13 @@ describe('GET /api/admin/vendors', () => {
     expect(b.data.map((r: { slug: string }) => r.slug)).toEqual(['beta-100%-tools']);
   });
 
-  it('?verified=false returns the UNVERIFIED vendors (AECI-691 regression)', async () => {
-    // `z.coerce.boolean()` — which the public list schema still uses — coerces
-    // the string "false" to `true`, so this exact query would return Acme.
+  it('ignores a ?verified= filter, which AECI-1375 retired', async () => {
     const res = await send(
       mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
       '/api/admin/vendors?verified=false',
     );
-    const b = await body(res);
-    expect(b.data.map((r: { slug: string }) => r.slug)).toEqual(['beta-100%-tools']);
-  });
-
-  it('?verified=true returns only the verified vendors', async () => {
-    const res = await send(
-      mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
-      '/api/admin/vendors?verified=true',
-    );
-    const b = await body(res);
-    expect(b.data.map((r: { slug: string }) => r.slug)).toEqual(['acme-corp']);
+    expect(res.status).toBe(200);
+    expect((await body(res)).total).toBe(2);
   });
 
   it('reports `total` for the FILTER, not for the page', async () => {
@@ -315,11 +296,10 @@ describe('GET /api/admin/vendors', () => {
   // ── Sorting ────────────────────────────────────────────────────────────────
   //
   // Every column the operator's table renders is sortable, which is only true
-  // because the API can order by all of them. These pin the three cases that are
-  // not a bare column: the SELECT alias, the status rank, and NULLs-last on the
-  // term. In this fixture `acme-corp` is verified with an ACTIVE entitlement
-  // ending 2027-01-01, and `beta-100%-tools` is unverified with NO entitlement
-  // row at all — so each key below has a defensible expected order.
+  // because the API can order by all of them. These pin the two cases that are
+  // not a bare column: the two count SELECT aliases. In this fixture `acme-corp`
+  // is verified with two live licenses, and `beta-100%-tools` is unverified with
+  // none — so each key below has a defensible expected order.
   async function slugsSortedBy(sort: string, order?: 'asc' | 'desc'): Promise<string[]> {
     const res = await send(
       mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
@@ -352,22 +332,38 @@ describe('GET /api/admin/vendors', () => {
     expect(await slugsSortedBy('verified')).toEqual(['acme-corp', 'aardvark', 'beta-100%-tools']);
   });
 
-  it('ranks the entitlement by urgency, putting "no row at all" last', async () => {
+  it('sorts by the live-license-count SELECT alias, most first, name breaking ties', async () => {
     await seedAardvark();
-    // Alphabetically `active` would sort before `revoked`, which is an accident;
-    // the CASE makes the order operational, and a vendor with NO entitlement row
-    // — the majority case — sorts behind every vendor that has one.
-    await t.db.insert(vendorEntitlements).values({
-      id: u(41),
-      vendorId: OTHER_VENDOR,
-      tier: 'verified',
-      status: 'revoked',
-    });
-    expect(await slugsSortedBy('entitlement')).toEqual([
-      'acme-corp',
-      'beta-100%-tools',
+    // Beta gets one live license, Aardvark none. Aardvark sorts first by name, so
+    // it trailing proves the count ordered the list; Acme (2) leads.
+    await seedLicense(t.db, OTHER_VENDOR);
+    expect(await slugsSortedBy('licenses')).toEqual(['acme-corp', 'beta-100%-tools', 'aardvark']);
+    expect(await slugsSortedBy('licenses', 'asc')).toEqual([
       'aardvark',
+      'beta-100%-tools',
+      'acme-corp',
     ]);
+  });
+
+  it('breaks a live-license tie by company name, then id (AECI-99)', async () => {
+    await seedAardvark();
+    // Beta and Aardvark both hold none: name orders them in BOTH directions.
+    expect(await slugsSortedBy('licenses')).toEqual(['acme-corp', 'aardvark', 'beta-100%-tools']);
+    expect(await slugsSortedBy('licenses', 'asc')).toEqual([
+      'aardvark',
+      'beta-100%-tools',
+      'acme-corp',
+    ]);
+  });
+
+  it('rejects the retired entitlement and term sort keys (AECI-1375)', async () => {
+    for (const sort of ['entitlement', 'term']) {
+      const res = await send(
+        mount('get', '/api/admin/vendors', createAdminVendorsListHandler(t.factory)),
+        `/api/admin/vendors?sort=${sort}`,
+      );
+      expect(res.status, sort).toBe(400);
+    }
   });
 
   it('sorts by the product-count SELECT alias, most first', async () => {
@@ -377,15 +373,6 @@ describe('GET /api/admin/vendors', () => {
     // which is what proves the ORDER BY resolved the alias instead of being
     // silently dropped.
     expect(await slugsSortedBy('products')).toEqual(['beta-100%-tools', 'acme-corp']);
-  });
-
-  it('sorts by term end soonest-first, with no-term-on-record LAST', async () => {
-    await seedAardvark();
-    // SQLite orders NULLs FIRST under ASC, which would bury every real renewal
-    // date under the vendors that have no entitlement row — so `aardvark` (no
-    // row) and `beta-100%-tools` (no row) must both trail the dated term, even
-    // though the first of them sorts ahead of everything alphabetically.
-    expect(await slugsSortedBy('term')).toEqual(['acme-corp', 'aardvark', 'beta-100%-tools']);
   });
 
   // ── Direction ──────────────────────────────────────────────────────────────
@@ -412,18 +399,6 @@ describe('GET /api/admin/vendors', () => {
       'aardvark',
       'beta-100%-tools',
       'acme-corp',
-    ]);
-  });
-
-  it('keeps no-term-on-record LAST even when the term sort is reversed', async () => {
-    await seedAardvark();
-    // The one term that deliberately does NOT flip. Reversing the NULL guard too
-    // would float every perpetual/no-row vendor to the top on the second click —
-    // the exact burial that guard exists to prevent.
-    expect(await slugsSortedBy('term', 'desc')).toEqual([
-      'acme-corp',
-      'aardvark',
-      'beta-100%-tools',
     ]);
   });
 
@@ -476,7 +451,7 @@ describe('GET /api/admin/vendors/:id', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns basics, a null entitlement, and the seat roster', async () => {
+  it('returns basics and the seat roster, with no entitlement or plan price (AECI-1375)', async () => {
     const res = await send(
       mount(
         'get',
@@ -489,7 +464,8 @@ describe('GET /api/admin/vendors/:id', () => {
     const b = await body(res);
 
     expect(b).toMatchObject({ slug: 'acme-corp', company_name: 'Acme Corp', verified: true });
-    expect(b.entitlement).toBeNull();
+    expect(b).not.toHaveProperty('entitlement');
+    expect(b).not.toHaveProperty('plan_pricing');
     expect(b.seats.map((s: { display_name: string }) => s.display_name)).toEqual(['Ada', 'Ben']);
     expect(b.seats[0].email).toBe('ada@acme.test');
   });
@@ -535,38 +511,6 @@ describe('GET /api/admin/vendors/:id', () => {
       u(23), // zed
       u(22), // unnamed
     ]);
-  });
-
-  it('reports the plan price overrides, all-null when none are set (§13.13)', async () => {
-    const handler = createAdminVendorDetailHandler(t.factory, emailSeam());
-    const none = await body(
-      await send(mount('get', '/api/admin/vendors/:id', handler), `/api/admin/vendors/${VENDOR}`),
-    );
-    expect(none.plan_pricing).toEqual({
-      vendor_id: VENDOR,
-      managed_price_cents: null,
-      message: null,
-      updated_by: null,
-      updated_at: null,
-    });
-
-    await t.db.insert(vendorPlanPricing).values({
-      vendorId: VENDOR,
-      managedPriceCents: 1250,
-      priceMessage: null,
-      updatedBy: SEAT_A,
-      updatedAt: '2026-10-08T00:00:00.000Z',
-    });
-    const set = await body(
-      await send(mount('get', '/api/admin/vendors/:id', handler), `/api/admin/vendors/${VENDOR}`),
-    );
-    expect(set.plan_pricing).toEqual({
-      vendor_id: VENDOR,
-      managed_price_cents: 1250,
-      message: null,
-      updated_by: SEAT_A,
-      updated_at: '2026-10-08T00:00:00.000Z',
-    });
   });
 
   it('includes a BANNED seat on the roster', async () => {
@@ -1696,10 +1640,10 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     expect(after).toEqual(before);
   });
 
-  it('leaves entitlement_mirror_drift clean (§8.9(4))', async () => {
-    // The drift check counts vendors where `verified = 1` XOR an active row
-    // exists. A seat with no entitlement touches NEITHER side, so it is invisible
-    // to the sweep — intended, but the issue asked that it be confirmed rather
+  it('leaves license_mirror_drift clean (§8.9(4))', async () => {
+    // The drift check counts vendors where `verified = 1` XOR a live license
+    // exists. A seat with no license touches NEITHER side, so it is invisible
+    // to the sweep. Intended, but the issue asked that it be confirmed rather
     // than assumed.
     await provision(VENDOR, linked());
 
@@ -1707,7 +1651,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
       db: t.db as never,
       fetchImpl: (async () => new Response('{}')) as never,
     } as never);
-    const mirror = drifted.find((check) => check.id === 'entitlement_mirror_drift');
+    const mirror = drifted.find((check) => check.id === 'license_mirror_drift');
     expect(mirror?.count).toBe(0);
   });
 

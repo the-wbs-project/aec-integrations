@@ -1,8 +1,8 @@
 /**
  * The ONE client for `POST /api/admin/vendors/:id/seats` (AECI-740).
  *
- * Split out of `AdminVendorsApi` for the same reason `AdminEntitlementApi` and
- * `ManagedByApi` are split out of their siblings: the one endpoint that writes
+ * Split out of `AdminVendorsApi` for the same reason `ManagedByApi` is split
+ * out of its sibling: the one endpoint that writes
  * `profiles.role = 'vendor_admin'` standalone — with no claim and no invite behind
  * it — gets exactly one caller, so the blast radius is greppable.
  *

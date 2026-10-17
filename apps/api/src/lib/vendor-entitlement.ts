@@ -4,6 +4,11 @@
  * transition `lib/license.ts` is a second writer of `verified` only, through its
  * mirror reconcile (AECI-1352), and this module leaves `MIRROR_WRITE_EXEMPT` at E1.9.
  *
+ * AECI-1375 retired the admin set / renew / clear route (`PATCH /api/admin/vendors/:id/
+ * entitlement`), so the activate, renew and deactivate builders below have no route
+ * caller left; the claim approval still reads `loadEntitlement`. "The §5 handler" in
+ * the notes below is that retired route. E1.9 deletes this module with the table.
+ *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts` and `lib/vendor-grant.ts`, each builder RETURNS the Drizzle
  * statements (plus the audit entry the caller forwards post-commit — §26.5, PostHog
@@ -19,9 +24,9 @@
  * a guarded single-row `UPDATE … WHERE <current state>` and therefore safe under
  * concurrency without a transaction. An ESLint `no-restricted-syntax` rule
  * (`eslint.config.base.mjs`) rejects a `.set({ verified })` / `.values({ verified })`
- * on `vendors` anywhere else (Guard 1); the `entitlement_mirror_drift` data-quality
- * check (`lib/data-quality.ts`, 04:00 UTC) is the run-time backstop (Guard 2), and
- * `license_mirror_drift` (AECI-1354) checks the same bit against live licenses.
+ * on `vendors` anywhere else (Guard 1). The run-time backstop (Guard 2) is
+ * `license_mirror_drift` (`lib/data-quality.ts`, 04:00 UTC), which checks the bit
+ * against live licenses. `entitlement_mirror_drift` was retired 2026-10-17 (AECI-1375).
  *
  * ── `vendors.updated_at` MOVES IFF `vendors.verified` MOVES (R2) ────────────────
  * It is stamped EXPLICITLY, never left to `$onUpdate`, and it rides inside the same
@@ -777,7 +782,7 @@ export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): E
  * a drifted `verified = 1` with no active row by clearing the bit: that would be a
  * mirror write with no entitlement transition behind it. Down-drift is repaired by the
  * `ops:backfill-entitlements` script (§2.4), which the `entitlement_mirror_drift` check
- * exists to demand.
+ * existed to demand until AECI-1375 retired it.
  *
  * NOTE the asymmetry with a SEAT revoke (`revokeSeatStatements`): clearing an
  * entitlement does NOT revoke seats. Logins and the dashboard survive, read-only

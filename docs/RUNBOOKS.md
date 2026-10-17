@@ -1067,8 +1067,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
 `stats_cache`, duplicate vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140
-Algolia drift, the AECI-609 `entitlement_mirror_drift` guard and its AECI-1354 license twin
-`license_mirror_drift`, and the two telemetry tripwires —
+Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
+telemetry tripwires —
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
@@ -1086,18 +1086,19 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
 
-> **`license_mirror_drift` on its own means the licenses were never back-filled on that tier.** It
-> counts vendors whose `verified` disagrees with EXISTS(a live license). `entitlement_mirror_drift`
-> still checks the same bit against the entitlement row, which the dual-write keeps in step until E4. `license_mirror_drift` is `error` since
+> **`license_mirror_drift` usually means the licenses were never back-filled on that tier.** It
+> counts vendors whose `verified` disagrees with EXISTS(a live license). It is the only mirror check.
+> Its entitlement twin, `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375). E4.1 grants
+> and E4.2 revokes move `verified` through licenses, and nothing writes the entitlement row any more,
+> so that check would have flagged correct vendors. `license_mirror_drift` is `error` since
 > AECI-1355 (E1.6), so it trips the `data-quality-error` alert: plan resolution reads licenses, so
-> drift means a vendor's badge disagrees with what it can edit. When only the license
-> check fails, run `ops:backfill-licenses` on the tier: dry run first, then `--apply`
-> (`--allow-production` on production). The script writes the missing billing accounts and licenses
-> and one `billing_account.backfilled` audit row per vendor, and a re-run writes nothing
-> (`apps/api/scripts/README.md`). It refuses any vendor whose entitlement check is also failing,
-> and lists it. Fix that vendor through the admin entitlement actions first, then re-run. When both
-> checks fail on the same vendor, start with the entitlement one: the back-fill does not touch
-> `verified`.
+> drift means a vendor's badge disagrees with what it can edit. Run `ops:backfill-licenses` on the
+> tier: dry run first, then `--apply` (`--allow-production` on production). The script writes the
+> missing billing accounts and licenses and one `billing_account.backfilled` audit row per vendor,
+> and a re-run writes nothing (`apps/api/scripts/README.md`). It refuses any vendor whose
+> `verified` disagrees with its entitlement row, and lists it. The back-fill does not touch
+> `verified`. The admin entitlement actions that used to fix that case are retired (AECI-1375), and
+> no admin control is left for it. File a Linear issue for the vendor rather than editing D1.
 >
 > **Cutover order for the license-based expiry sweep (AECI-1356).** Run the back-fill, deploy
 > E1.6/E1.7, then re-run the back-fill before the next 11:00 UTC expiry run. Until that deploy
@@ -1129,7 +1130,7 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
    `job_runs.detail`, and the page opens on it — same rows the email carried, no inbox needed, no
    `?recompute=1` click, and stamped with the run's own time so you can tell a stale result from a fresh
    one. "Run data-quality checks" re-runs the suite live once you have made a fix. The stored history
-   also makes "when did `entitlement_mirror_drift` start failing" answerable, which it was not before.
+   also makes "when did `license_mirror_drift` start failing" answerable, which it was not before.
 2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
    (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
    A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
@@ -2217,46 +2218,48 @@ provisioned. It is not a fault.
 
 Not an alert. This is the operator procedure for a pilot vendor's free Managed term. Ruled 2026-10-14 (AECI-1325, `STAGE_2_PAID_TIERS_SPEC.md` §7.3). No code ends a pilot. The operator does each step by hand.
 
-**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends by an admin Clear.
+*As revised 2026-10-17 (AECI-1375):* every step now runs on the Billing tab with licenses. The entitlement Set, Renew and Clear controls and the plan message override are retired. The pre-AECI-1375 procedure is in git history.
 
-**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one with an active Managed entitlement whose arrangement notes say "pilot". Keep a calendar reminder per vendor on its end date. The expiry job sends one notice per term and nothing on the end date itself, so the calendar is the only reminder that lands on the day.
+**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends by an admin Revoke.
+
+**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary licenses granted with "Pilot" in the grant notes. The notes go to the audit trail only. Keep a calendar reminder per vendor on its end date. The expiry job sends one notice per term and nothing on the end date itself, so the calendar is the only reminder that lands on the day.
 
 ### 1. Start the pilot
 
-1. Open the vendor at `/admin/vendors/:id`.
-2. Choose **Set**. Tier: Managed.
-3. Set **Term end date** to the sign-on date plus one month.
-4. Put "Pilot" and the sign-on date in **Arrangement notes**.
-5. Confirm. Then add the calendar reminder for the term end date.
-6. Optional: set the plan message override on the same page (§13.13), for example "Free pilot until 14 November". It is display only.
+1. Open the vendor at `/admin/vendors/:id?tab=billing`.
+2. Choose **Grant licenses**. Number: one per product in the pilot. Source: Complimentary.
+3. Set the start date to the sign-on date and the end date to the sign-on date plus one month.
+4. Put "Pilot" and the sign-on date in **Notes**.
+5. Confirm. Then add the calendar reminder for the end date.
+6. Tell the vendor's owner to assign the licenses to products from its own Billing tab. A grant assigns nothing.
 
 The next 11:00 UTC expiry run emails the vendor's seats and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
 ### 2. Extend the pilot
 
-Do not use **Renew** until E4.6 ships (ruled 2026-10-16). Renew re-terms every live license from the entitlement row, so it would overwrite licenses granted or extended on the Billing tab.
-
 1. Open the vendor at `/admin/vendors/:id?tab=billing`.
-2. On each live license row, choose **Extend**. Set the new end date one month later.
+2. On each live license row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
 3. Confirm, then move the calendar reminder.
 
-Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. The entitlement row's `period_end` is not moved; nothing vendor-facing reads it since E1.6. Update the message override if you set one.
+Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term.
 
 ### 3. End the pilot
 
-1. Open the vendor at `/admin/vendors/:id` on or after the term end date.
-2. Choose **Clear**. Enter "Pilot ended" as the internal reason.
-3. Confirm. Remove the message override if you set one.
+1. Open the vendor at `/admin/vendors/:id?tab=billing` on or after the end date.
+2. On each live license row, choose **Revoke**. Or check the rows and choose **Revoke**.
+3. Enter "Pilot ended" as the reason. The vendor sees this reason. Put anything internal in the internal note.
+4. Confirm.
 
-What Clear does:
+What the revoke does:
 
 | Effect | Detail |
 |---|---|
-| Plan | The vendor moves to the Free plan. Seats, logins and everything it entered stay. |
-| Portal | The plan-ended banner shows on every portal page (§13.11). |
-| Owner contests | Open owner contests on connector-powered rows move to AECi (§5.1, AECI-1092). |
-| Cache | The vendor and product pages are purged. |
+| Plan | Each product on a revoked license moves to the Free plan. Seats, logins and everything the vendor entered stay. |
+| Portal | The vendor's seats read the reason in Messages. The plan-ended banner shows once no license is live (§13.11). |
+| Email | Each seat and the billing email get `managed-ended` once per product. |
+| Owner contests | When the last live license ends, open owner contests on connector-powered rows move to AECi (AECI-1092). |
+| Cache | The product and vendor pages are purged. |
 
 ### `revoked` versus `expired`
 
-Clear records the entitlement as `revoked`, with a `vendor_entitlement.cleared` audit row. A pilot that ends on schedule therefore reads as a revocation in the audit log and in reports, even though nothing was wrong. `expired` means a term that lapsed on its own, and nothing writes it today, because the expiry job never writes `status`. The vendor sees no difference: the banner reads "Your Managed plan has ended" for both. When reading reports, treat a `revoked` row whose reason is "Pilot ended" as a normal pilot end.
+A revoke ends the license with `end_reason = 'revoked'` and a `license.revoked` audit row. A pilot that ends on schedule therefore reads as a revocation in the audit log and in reports, even though nothing was wrong. Nothing ends a license as lapsed today, because the expiry job only warns. The vendor sees no difference: the banner reads "Your Managed plan has ended" for both. When reading reports, treat a `revoked` row whose reason is "Pilot ended" as a normal pilot end.

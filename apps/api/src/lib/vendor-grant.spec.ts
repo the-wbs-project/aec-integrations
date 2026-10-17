@@ -612,8 +612,8 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
     expect(await vendorOf()).toEqual(beforeRow);
     const seat = (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0];
     expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
-    // No entitlement was opened, so `entitlement_mirror_drift` (which counts
-    // `verified = 1` XOR an active row) sees nothing on either side — §8.9(4).
+    // No entitlement or license was opened, so `license_mirror_drift` (which counts
+    // `verified = 1` XOR a live license) sees nothing on either side, §8.9(4).
     expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
     expect((await t.db.select().from(auditLog))[0]?.action).toBe('vendor_seat.provisioned');
   });

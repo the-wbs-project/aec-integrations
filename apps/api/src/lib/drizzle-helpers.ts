@@ -66,7 +66,6 @@ import type {
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
-  VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
   VendorOwnedIntegrations,
@@ -2430,11 +2429,10 @@ export function toAdminVendorRequest(
  *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
  *  `null` = signal unavailable (degraded), `[]` = computed-and-empty.
  *
- *  `entitlementVendor` / `entitlement` (AECI-532 / §5) are the same shape: the
- *  RESOLVED target vendor (a product claim → its primary vendor) and its current
- *  entitlement, so the queue can render the entitlement column and address the
- *  `PATCH /api/admin/vendors/:id/entitlement` control. Both null when there is no
- *  vendor to act on or the enrichment degraded.
+ *  `entitlementVendor` (AECI-532) is the same shape: the RESOLVED target vendor (a
+ *  product claim → its primary vendor), so the queue can link to that vendor's
+ *  Billing tab. AECI-1375 dropped the entitlement readout beside it. Null when there
+ *  is no vendor to act on or the enrichment degraded.
  *
  *  `productRoles` / `isPureConnectorVendor` (AECI-738 / §5.2) are the payer test
  *  for that same resolved vendor. Same null convention — but note the ASYMMETRY
@@ -2465,7 +2463,6 @@ export function toAdminClaim(
   seatEmailsAvailable: boolean,
   relatedRequests: RelatedRequestRef[] | null,
   entitlementVendor: LinkRef | null = null,
-  entitlement: VendorEntitlementResponse | null = null,
   productRoles: VendorProductRoles | null = null,
   isPureConnectorVendor: boolean | null = null,
   ownedIntegrations: VendorOwnedIntegrations | null = null,
@@ -2479,7 +2476,6 @@ export function toAdminClaim(
     seat_emails_available: seatEmailsAvailable,
     related_requests: relatedRequests,
     entitlement_vendor: entitlementVendor,
-    entitlement,
     product_roles: productRoles,
     is_pure_connector_vendor: isPureConnectorVendor,
     owned_integrations: ownedIntegrations,

@@ -3,8 +3,9 @@
  * `docs/STAGE_2_PAID_TIERS_SPEC.md` §13.13). Display only: the plan panel's price
  * line. Nothing here bills, gates a capability or touches ranking.
  *
- * The one writer is `PUT /api/admin/vendors/:id/plan-pricing`
- * (`routes/admin-plan-pricing.ts`).
+ * No writer is left: decision 8 retired the override, and AECI-1375 removed its admin
+ * route (`PUT /api/admin/vendors/:id/plan-pricing`). Rows already written still show
+ * on the vendor plan panel until E1.8 removes this module with the table.
  */
 
 import type { PlanPrice, VendorPlanPricingResponse } from '@aeci/shared';

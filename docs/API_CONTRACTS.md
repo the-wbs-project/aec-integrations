@@ -276,7 +276,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333) |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
-| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/vendors/:id/entitlement` `clear` (AECI-1092), when the vendor's open owner-routed contests changed twice while it re-routed them; nothing was written, try again |
+| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/licenses/:id` `revoke` of the vendor's last live license (AECI-1092, moved there from the retired entitlement `clear` by AECI-1375), when the vendor's open owner-routed contests, or its live licenses, changed twice while it revoked; nothing was written, try again |
 | `CONTEST_VALUE_STALE` | 409 | `PATCH /api/admin/contests/:id` accept of a **content** contest on a **claimed** row, when the column no longer holds the value recorded at submit (almost always the owner's own edit, AECI-1006). Accepting would overwrite that change, so nothing is written. Checked on the handler's read and again inside the batch. The admin declines, or the submitter withdraws and re-files against the current value |
 | `PROTEST_NOT_AVAILABLE` | 409 | `POST /api/vendor/contests/:id/protest` when the contest cannot be protested now. `details.reason` is `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`), `window_closed`, `contest_open` (the caller has another open contest on the same integration and field; checked on the read and inside the batch), or `contest_changed` for a lost race (AECI-1009, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12) |
 | `PROTEST_NOT_OPEN` | 409 | A protest reply, withdraw or decision on a protest that is absent, already decided or withdrawn, or that lost a race (AECI-1009) |
@@ -294,8 +294,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
-| `ENTITLEMENT_CHANGED` | 409 | `PATCH /api/admin/vendors/:id/entitlement` `set`, or a Managed claim grant (`PATCH /api/admin/claims/:id`), that lost a race with another activate of the same vendor's entitlement between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
+| `ENTITLEMENT_CHANGED` | 409 | **No route raises it since 2026-10-17 (AECI-1375).** The Managed claim grant stopped activating an entitlement on 2026-10-15 (AECI-1367), and the entitlement `set` was retired by AECI-1375. The code stays registered until E1.9 removes `apps/api/src/lib/vendor-entitlement.ts`. It meant: an activate of a vendor's entitlement lost a race with another between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
@@ -753,7 +753,7 @@ export type VendorsListResponse = z.infer<typeof VendorsListResponseSchema>;
 vendors on a paid plan. A stale `?verified=` param is not rejected with a 400. Zod strips
 the unknown key and the caller gets the unfiltered list. No public vendor shape carries
 `verified` either: not `VendorListItem`, not `VendorDetail`, not `VendorLink`. The admin
-`GET /api/admin/vendors?verified=` filter is a separate schema and is unchanged.
+`GET /api/admin/vendors` `verified` filter was retired too, on 2026-10-17 (AECI-1375).
 
 #### `GET /api/vendors/:slug`
 
@@ -2201,9 +2201,9 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
     created_at: z.string(),
   })).nullable(),                                         // null = signal unavailable, [] = none
 
-  // Stage 2 paid tiers (AECI-532). Both REQUIRED-nullable, not optional (R10).
-  entitlement_vendor: LinkRefSchema.nullable(),           // the RESOLVED vendor the entitlement applies to
-  entitlement: VendorEntitlementResponseSchema.nullable(), // that vendor's current entitlement; null = none on record
+  // Stage 2 paid tiers (AECI-532). REQUIRED-nullable, not optional (R10).
+  // The `entitlement` readout beside it was dropped 2026-10-17 (AECI-1375).
+  entitlement_vendor: LinkRefSchema.nullable(),           // the RESOLVED vendor a grant would touch
 
   // The §5.2 PAYER TEST (AECI-738), about the same resolved vendor. Both
   // REQUIRED-nullable (R10); null = signal unavailable, and they move together.
@@ -2306,13 +2306,16 @@ apart. A vendor that owns nothing is a ZEROED breakdown, not `null`: `null` mean
 enrichment degraded and is reserved for that, exactly like `existing_seats`.
 
 **`entitlement_vendor` is pre-resolved, and that is the point.** `target_id` alone cannot
-address `PATCH /api/admin/vendors/:id/entitlement`, because on a `target_type='product'` claim
-it is a *product* id. This field carries the same resolution the grant path runs
-(`resolveTargetVendor`: the target itself for a vendor claim, the product's **primary** vendor
-for a product claim), so the queue's inline entitlement control always names the row a grant
-would actually touch. `null` when there is no vendor to act on (a product with no
-`product_vendors` row) or when the enrichment degraded. `entitlement` is the same readout the
-PATCH returns, so a successful action drops straight into the row with no refetch.
+address the vendor, because on a `target_type='product'` claim it is a *product* id. This
+field carries the same resolution the grant path runs (`resolveTargetVendor`: the target
+itself for a vendor claim, the product's **primary** vendor for a product claim), so the
+"Manage billing" link (`/admin/vendors/:id?tab=billing`) and the vendor audit-trail link
+always name the vendor a grant would actually touch. `null` when there is no vendor to act on
+(a product with no `product_vendors` row) or when the enrichment degraded.
+
+*As built 2026-10-17 (AECI-1375):* the `entitlement` readout and the queue's inline
+entitlement control are gone. The claim no longer reads `vendor_entitlements`. Licenses and
+grants are managed on the vendor's Billing tab.
 
 **Every status is filterable since AECI-739.** The enum offered only
 `open | resolved | rejected` until then, so an `in_review` claim — the status the Linear
@@ -2448,7 +2451,7 @@ Errors:
   claim) committed between this handler's read and its batch. The batch's first
   statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
   `details.status` is the claim's status now (AECI-1333).
-- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again.
+- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again.
 - ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
   never activates an entitlement, so there is no activate to lose a race. The seat-return
   sentinel still gives `VENDOR_SEATS_CHANGED` above.
@@ -2552,8 +2555,7 @@ export const SaveClaimNotesSchema = z.object({
 // → AdminClaimDetail (the refreshed claim), 200.
 ```
 
-**A sub-resource, not a third `ModerateClaimSchema.action`.** It mirrors
-`PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status transition
+**A sub-resource, not a third `ModerateClaimSchema.action`.** Moderation is a one-way status transition
 that grants a paid account or declines one by email, and a note is neither. Keeping them
 apart is also what lets the note be **writable at every status** — a `resolved` or
 `rejected` claim is exactly where "why we parked it, and what happened next" is worth
@@ -2561,8 +2563,8 @@ having.
 
 **An unchanged note is a 200 no-op.** Nothing is written and no `audit_log` row is
 emitted — the same idempotency rule this resource already applies to re-granting an
-already-granted claim, and NOT the 422 `PATCH /api/admin/vendors/:id/entitlement` uses
-(that gate rejects invalid *state transitions*; text that did not change is not one). It
+already-granted claim, and NOT a 422 (that code rejects invalid *state transitions*; text
+that did not change is not one). It
 matters because **the audit rows ARE the note's history**: each write records the full old
 and new note in `before_state` / `after_state`, so a trail of identical states would
 degrade the very record this endpoint exists to keep. That history shows on the claim page itself
@@ -2586,10 +2588,15 @@ plus `VALIDATION_FAILED` (400) over the 2000-char cap, and the shared 401/403.
 
 #### `GET /api/admin/vendors` (Stage 2 — AECI-652)
 
-The operator's **vendor list** — paginated, with name/slug search and a tri-state
-verified filter. Behind `requireAdmin()`. This is the way in to a vendor that never
-filed a claim; before it, the only route to a vendor's entitlement ran through an
-`/admin/claims` card, which made concierge onboarding structurally unreachable.
+The operator's **vendor list** — paginated, with name/slug search. Behind
+`requireAdmin()`. This is the way in to a vendor that never filed a claim; before it, the
+only route to a vendor's entitlement ran through an `/admin/claims` card, which made
+concierge onboarding structurally unreachable.
+
+*As built 2026-10-17 (AECI-1375):* the tri-state `verified` filter, the `entitlement` and
+`term` sort keys and the row's `tier`, `status` and `period_end` are gone. The list no
+longer joins `vendor_entitlements`. The row carries `live_license_count` and sorts on
+`licenses` instead. The pre-AECI-1375 shape is in git history.
 Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 `apps/api/src/routes/admin-vendors.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.6.
 
@@ -2598,17 +2605,14 @@ Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 // One key per column the operator's table renders; `created` is absent because
 // `created_at` is not on the row, so no header could state its direction.
 export const AdminVendorSortSchema = z
-  .enum(['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated'])
+  .enum(['name', 'slug', 'verified', 'licenses', 'products', 'updated'])
   .default('name');
 
 export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   sort: AdminVendorSortSchema,
   order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
-  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the old public
-  // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
-  // The public filter itself was retired by AECI-1266.
-  verified: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  // No `verified` filter since AECI-1375. The column still sorts.
 });
 
 export const AdminVendorRowSchema = z.object({
@@ -2616,9 +2620,8 @@ export const AdminVendorRowSchema = z.object({
   slug: z.string().min(1),
   company_name: z.string().min(1),
   verified: z.boolean(),                          // the `vendors.verified` mirror, as-is
-  tier: EntitlementTierSchema.nullable(),         // null = NO entitlement row at all
-  status: EntitlementStatusSchema.nullable(),     // …not the same as a cleared one
-  period_end: z.string().nullable(),
+  // Licenses with `ended_at IS NULL` across ALL of the vendor's billing accounts.
+  live_license_count: z.number().int().nonnegative(),
   product_count: z.number().int().min(0),
   updated_at: z.string(),
 });
@@ -2629,7 +2632,7 @@ export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendo
 
 **There is no `integration_count` on the row.** The list rendered that column until
 the vendor-list revision and it earned nothing — an operator on this screen is
-triaging entitlements and seats, and the number they act on is the one on
+triaging licenses and seats, and the number they act on is the one on
 `GET /api/admin/vendors/:id` (the §13.5 union of direct + connector-evidenced
 edges). Dropping it also dropped a correlated subquery per row.
 `vendorListConfig.extras.integrationCount` is untouched: the public vendor list
@@ -2643,58 +2646,54 @@ every link and bookmark written before the parameter existed orders exactly as i
 `ADMIN_VENDOR_SORT_DEFAULT_ORDER` in `packages/shared`, which the table also reads to
 draw its arrows — **one copy, because two would drift silently**: a header would render
 ↑ while the server sorted descending and nothing would fail. Naturally: `name`/`slug`
-ASC, `verified` DESC (verified first), `products` DESC, `updated` DESC, `entitlement`
-and `term` ASC.
+ASC, `verified` DESC (verified first), `licenses` DESC (most live licenses first),
+`products` DESC, `updated` DESC.
 
 **Only the PRIMARY term flips.** The `id ASC` tiebreaker and the intermediate
 `company_name` term never move — they are what make the order total and the page stable
 (AECI-99), and reversing a tiebreaker is how a paginated list starts duplicating and
-skipping rows. `term` additionally pins its NULL guard ascending: only the date
-reverses, so `order=desc` reads "who lapses last" with the perpetual and no-row vendors
-still at the bottom.
+skipping rows.
 
 *(This replaces the original no-`order` rule, which held that the arrow states how a
 column sorts rather than toggling it. That was defensible when the endpoint could order
-by two keys; with seven it became a defect — an arrow on a clickable header reads as a
+by two keys; with six it became a defect — an arrow on a clickable header reads as a
 toggle, and a control that silently no-ops on the second click is a worse lie than the
 one the rule was avoiding.)*
 
-Two keys are not a bare column:
+**`licenses` counts live licenses, not grants.** `live_license_count` is a correlated
+count of `licenses` rows with `ended_at IS NULL` whose billing account belongs to the
+vendor (`liveLicenseCountSql()` in `apps/api/src/lib/license.ts`, the same expression the
+`license_mirror_drift` check uses). An ended license is not counted. Zero means the vendor
+holds no live license on any account.
 
-- **`entitlement`** ranks the status operationally — `active < pending < expired <
-  revoked < no row at all` — because sorting the raw text would interleave
-  "expired" between "active" and "pending" and mean nothing.
-- **`term`** puts the soonest expiry first ("who lapses next") and NULL — perpetual,
-  or no entitlement row — LAST. SQLite orders NULLs first under ASC, which would
-  bury every real renewal date under the vendors that have no row.
-
-`products` orders by the `product_count` SELECT alias rather than repeating the
-correlated subquery in the ORDER BY. Sorting by an entitlement column is safe under
-the "`total` must describe `data`" rule below: ORDER BY changes the order of `data`,
-never its membership. **A key the enum does not know is a `400 VALIDATION_FAILED`,
+`products` and `licenses` order by their SELECT aliases rather than repeating the
+correlated subquery in the ORDER BY. A count column is safe under the "`total` must
+describe `data`" rule below: ORDER BY changes the order of `data`, never its
+membership. **A key the enum does not know is a `400 VALIDATION_FAILED`,
 not a silent fall back to the default** — including the public `created`.
 
-**`verified` and the entitlement are both reported, and neither is derived from the
-other.** `verified` is a denormalized mirror of "an active entitlement row exists"
-(§2.1); rendering only one of them would hide drift, which is the failure mode
-`entitlement_mirror_drift` exists to catch.
+**`verified` and the live license count are both reported, and neither is derived from
+the other.** `verified` is a denormalized mirror of "the vendor holds a live license"
+(`STAGE_2_PAID_TIERS_SPEC.md` §2.1, licenses since AECI-1355). Rendering only one of them
+would hide drift, which is the failure mode `license_mirror_drift` exists to catch.
 
 **Search escapes `LIKE` metacharacters.** A literal `%` or `_` in the operator's box
 matches literally — `likeContains` (`apps/api/src/lib/sql-like.ts`) escapes and emits an
 explicit `ESCAPE '\'`, because Drizzle's `like()` emits none. The leading `%` means this
 cannot use `vendors_company_name_idx`; at AECi's cardinality that is the right trade.
 
-Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for a
-`verified` value other than `true`/`false` or a `perPage` above 100.
+Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for an unknown
+`sort` key or a `perPage` above 100. A leftover `?verified=` is ignored, not refused.
 
 #### `GET /api/admin/vendors/:id` (Stage 2 — AECI-652)
 
-One vendor: basics, entitlement, the seat roster with pending invites, and the
-product / integration / claim counts. Behind `requireAdmin()`.
+One vendor: basics, the seat roster with pending invites, and the product /
+integration / claim counts. Behind `requireAdmin()`. Licenses are on
+`GET /api/admin/vendors/:id/billing` below.
 
-**Not to be confused with the *rejected* `PATCH /api/admin/vendors/:id`** documented
-under the entitlement endpoint below — AECI-532's original shape, refused because it
-would have made a second direct writer of `vendors.verified`. This is a GET. **AECI-652
+**Not to be confused with the *rejected* `PATCH /api/admin/vendors/:id`**: AECI-532's
+original shape, refused because it would have made a second direct writer of
+`vendors.verified`. This is a GET. **AECI-652
 adds no vendor-edit endpoint**, which is why it does not close the §5.4 lockout.
 
 ```typescript
@@ -2713,10 +2712,7 @@ export const AdminVendorDetailSchema = z.object({
   last_reviewed_at: z.string().nullable(),
   created_at: z.string(), updated_at: z.string(),
 
-  entitlement: VendorEntitlementResponseSchema.nullable(),   // null = none on record
-  // Ruling 2026-10-08: the display-only plan price overrides. Never null: no
-  // override reads all-null fields. See `PUT …/plan-pricing` below.
-  plan_pricing: VendorPlanPricingResponseSchema,
+  // `entitlement` and `plan_pricing` dropped 2026-10-17 (AECI-1375).
 
   seats: AdminVendorSeatRowSchema.array().nullable(),        // null = UNAVAILABLE, [] = none
   seat_emails_available: z.boolean(),
@@ -3149,7 +3145,7 @@ written here — that column keeps exactly one writer
 (`apps/api/src/routes/banned-at-writers.spec.ts`).
 
 **What it deliberately does not do.** No `vendors` statement, so `verified` and the mirror are
-untouched and `entitlement_mirror_drift` stays clean (§8.9(4)). **No email** — AECI-528's
+untouched and `license_mirror_drift` stays clean (§8.9(4)). **No email** — AECI-528's
 templates are claim-shaped, so firing one would assert a claim decision that did not happen,
 and §5.2 step 4 already has the operator in an out-of-band conversation. **No cache purge**
 (matching the revoke) and **no `workflow_instances` row** (a seat is not a claim transition,
@@ -3161,7 +3157,7 @@ Errors:
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id. Checked **before** identity resolution, so a bad id cannot orphan a provisioned `auth.users` row |
 | 409 | `GRANT_CONFLICT` | The account is a site `admin`, or is already linked to a **different** vendor. `details.reason` is `already_admin` \| `other_vendor` |
-| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the provision did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again |
+| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the provision did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again |
 | 503 | `DEPENDENCY_FAILURE` | `SUPABASE_SERVICE_ROLE_KEY` absent or GoTrue errored. Refuses rather than half-provisioning |
 | 400 | `VALIDATION_FAILED` | Malformed body or email (the shared `ZodError` mapping), or a missing path parameter |
 | 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
@@ -3180,139 +3176,22 @@ fallback. New rows spell that metadata key `vendorId` (`DATABASE_SCHEMA.md` §8.
 When the vendor has no billing account the same batch also inserts one, with its own
 `billing_account.created` row (AECI-1351, `DATABASE_SCHEMA.md` §8.6b). The wire shape is unchanged.
 
-#### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
+#### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532): retired
 
-Set, renew or clear a vendor's paid entitlement. Behind `requireAdmin()`. **This is the
-only writer that can take `vendors.verified` back down** — the un-verify half that
-`STAGE_2_VENDOR_PORTAL_SPEC.md` §3 closed its epic with explicitly unowned. Source of
-truth: `packages/shared/src/api/admin-entitlements.ts`,
-`apps/api/src/routes/admin-entitlements.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.
+**Retired 2026-10-17 (AECI-1375, E4.6).** The route is gone and answers `404`. It set,
+renewed or cleared a `vendor_entitlements` row. Licenses are the only write path now:
 
-```typescript
-export const EntitlementTierSchema = z.enum(TIERS);           // READ shape: includes 'unclaimed'
-export const PaidEntitlementTierSchema = z.enum(PAID_TIERS);  // WRITE shape: grantable tiers only
-export const EntitlementStatusSchema = z.enum(ENTITLEMENT_STATUSES); // pending|active|expired|revoked
-export const EntitlementTermDateSchema = z.union([z.string().date(), z.string().datetime()]);
+- Grant: `POST /api/admin/vendors/:id/licenses` below.
+- Renew: `PATCH /api/admin/licenses/:id` with `extend`.
+- Clear: `PATCH /api/admin/licenses/:id` with `revoke`. When the revoke ends the vendor's
+  last live license, it takes `vendors.verified` down and carries the AECI-1092 contest
+  re-route that `clear` used to carry.
 
-export const EntitlementArrangementSchema = z.object({  // the offline PO/invoice record
-  payer: z.string().max(200).optional(),
-  amount: z.string().max(100).optional(),               // free-form; "USD 5,000 / yr"
-  terms: z.string().max(500).optional(),
-  arranged_by: z.string().max(200).optional(),
-  invoice_ref: z.string().max(200).optional(),
-  notes: z.string().max(1000).optional(),
-});
-
-export const SetVendorEntitlementSchema = EntitlementArrangementSchema.extend({
-  action: z.enum(['set', 'renew', 'clear']),
-  tier: PaidEntitlementTierSchema.optional(),           // defaults to the paid entry rung on `set`
-  period_start: EntitlementTermDateSchema.optional(),
-  period_end: EntitlementTermDateSchema.optional(),
-  reason: z.string().max(500).optional(),               // INTERNAL audit note; never emailed
-});
-
-export const VendorEntitlementResponseSchema = z.object({
-  vendor_id: z.string().uuid(),
-  tier: EntitlementTierSchema,
-  status: EntitlementStatusSchema,
-  period_start: z.string().nullable(),
-  period_end: z.string().nullable(),                    // null = PERPETUAL, not "unknown"
-  granted_at: z.string().datetime(),
-  ended_at: z.string().datetime().nullable(),
-  verified: z.boolean(),                                // read-only readout of the mirror
-  payer: z.string().nullable(),
-  amount: z.string().nullable(),
-  terms: z.string().nullable(),
-  arranged_by: z.string().nullable(),
-  invoice_ref: z.string().nullable(),
-  notes: z.string().nullable(),
-});
-```
-
-**`verified` is never in the request body.** It is a mirror of the entitlement row
-(`DATABASE_SCHEMA.md` §4.1/§8.6), written in the same batch by
-`apps/api/src/lib/vendor-entitlement.ts` and by nothing else. AECI-532's original shape — a
-`PATCH /api/admin/vendors/:id` that set `verified` directly — would have created a second
-direct writer and broken the invariant. It appears on the **response** only, as a readout of
-where the mirror landed.
-
-**Two tier vocabularies, on purpose.** `EntitlementTierSchema` is the **read** shape and
-includes `unclaimed`, because the session block (§6.14) and the grant summary must be able to
-*report* that a vendor has no entitlement. A `set` request uses `PaidEntitlementTierSchema` —
-`TIERS` minus `unclaimed`. The distinction is not tidiness: an `active` row at `unclaimed`
-would flip the mirror while resolving to only the Free capabilities every seat already holds
-(AECI-1214), i.e. a vendor billed for an account status that unlocks nothing. The flipped mirror
-unlocks the pair version-diff depth. It no longer shows in public. (Until 2026-10-09 it also
-showed the public account label, which AECI-1264 removed. Until 2026-10-12 it switched the
-claim button to "Request access to this listing" and set a public `verified` field. AECI-1266
-removed both.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
-
-The three actions:
-
-- **`set`** — grant or replace. Writes every arrangement column (absent keys become `null`), so
-  a re-activation cannot inherit a stale previous term. Leaves the mirror `true`.
-- **`renew`** — extend the term of the **active** entitlement. **Patches, it does not
-  replace**: only the keys actually supplied are written, so extending a term keeps the PO
-  reference that a `set` would deliberately null. Emits **no `vendors` statement at all** — the
-  mirror cannot move on a renewal — which is also why it skips the cache purge.
-- **`clear`** — end it. Writes `status: 'revoked'` (`revoked` = pulled for cause;
-  `expired` = lapsed amicably, which only the §7 sweep would have grounds to write, and per
-  §7.3 it never writes `status`). Takes the mirror to `false`. **Does not revoke seats**: the
-  vendor keeps its logins and its dashboard, read-only. **Re-routes contests (AECI-1092,
-  ruling B):** in the same batch, every open owner-routed contest the vendor decides on a
-  connector-powered row (either table) moves to `routed_to = 'aeci'`, each with an
-  `integration.contest.rerouted` audit row (`metadata.reason: 'entitlement-cleared'`) and an
-  `open → open` workflow transition. A guard first in those statements aborts the batch if
-  that set of contests changed after the handler read it (its count and newest `updated_at`); the handler re-plans and retries
-  once, then answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written
-  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). **Reconciled with AECI-989:** the same batch
-  clears `owner_seat_lapsed_at` on the vendor's open stamped AECi contests on
-  connector-powered rows (`integration.contest.seat_stamp_cleared`,
-  `metadata.reason: 'entitlement-cleared'`), so a later seat grant or unban cannot send them
-  back, and the guard fingerprints that stamped set too.
-
-One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified` +
-`updated_at` flip, and the `audit_log` row (`vendor_entitlement.set` / `.renewed` /
-`.cleared`, `entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id,
-`actor_type: 'admin'`, `metadata.source: 'admin-entitlement'`). Since AECI-1353 the same
-batch also carries the license dual-write: the billing account when `set` finds none, and
-the licenses granted, re-termed or ended to match the row, each with its own audit row under
-`entity_type: 'billing_account'` (`DATABASE_SCHEMA.md` §8.6c). The wire shape is unchanged.
-A `set` that loses a race with another activate writes nothing and answers `409
-ENTITLEMENT_CHANGED`. Before AECI-1353's sentinel it answered 200 with an audit row for a write
-that did not happen.
-**No `workflow_instances`
-row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-effort: metric
-`aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
-Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
-`index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
-whether the mirror actually flipped: a redundant purge costs one cache miss. The `product:`
-tags are the ones that matter. A pair page carries both endpoints' `product:` tags, and a
-missed purge leaves a stale version-diff gate on it. (This said "a wrong badge" until
-AECI-1264 removed the public badge on 2026-10-09. It said "wrong claim button copy" until
-AECI-1266 made the claim button stateless on 2026-10-12.)
-
-Errors:
-
-| Status | Code | When |
-|---|---|---|
-| 400 | `VALIDATION_FAILED` | Body fails `SetVendorEntitlementSchema` — including **`tier: 'unclaimed'`**, which the write enum rejects outright. Also `period_end` at or before `period_start`, compared as **instants** (the wire type accepts date-only alongside timestamps, and the two forms do not sort lexicographically against each other) |
-| 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
-| 403 | `FORBIDDEN` | Not an admin — or a `tier` that grants **no capabilities**. The second case is unreachable today (Zod rejects `unclaimed` first) and is kept as the semantic rule, so it keeps biting if a future rung joins `PAID_TIERS` before its capabilities do |
-| 404 | `NOT_FOUND` | Unknown vendor id |
-| 409 | `ENTITLEMENT_CHANGED` | `set` that lost a race: another activate committed between this request's read and its batch (AECI-1353). The whole batch rolled back, so no second set of licenses lands. Reload; the entitlement is now active, so renew it if the term should change |
-| 422 | `INVALID_STATE_TRANSITION` | `set` on an already-`active` entitlement (renew it, or clear it first); `renew`/`clear` on one that is not active (the message distinguishes "no entitlement on record" from "entitlement is `<status>`, not active") |
-
-Search freshness is **nightly, in both directions**: a flip bumps `vendors.updated_at`, so the
-next Algolia watermark window picks it up within ~24h. **Admin UI copy must not promise instant
-search.**
-
-**Known consequence — the lapsed-and-claimed edit lockout.** `loadClaimedVendorIds` defines
-"claimed" as ≥1 *active* seat (deliberately not `verified`), and `POST /api/promote` refuses to
-write a claimed vendor. Clearing an entitlement leaves the seats, so the promote block stays in
-force while the portal's writes now 403 — **nobody can edit that vendor.** Un-verify is rare and
-deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
-`apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
+The `aeci.entitlement.action` metric went with it. The read-side schemas in
+`packages/shared/src/api/admin-entitlements.ts` stay for the vendor portal until E1.9
+removes `vendor_entitlements`. Historical `vendor_entitlement.*` audit rows still render on
+the vendor's audit trail. The pre-AECI-1375 contract is in git history. The edit lockout it
+documented is in `STAGE_2_PAID_TIERS_SPEC.md` §5.4.
 
 #### `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1)
 
@@ -3468,6 +3347,28 @@ the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
 never the internal note). No statement names `products`: the Managed-field content stays.
 A Stripe license can be revoked; its subscription is not touched (E9).
 
+**Last live license: contest re-route (AECI-1092, moved here 2026-10-17 by AECI-1375).**
+When the revoke ends the vendor's last live license (the mirror flips), the same batch
+re-routes the vendor's open owner-routed contests on connector-powered rows (either table)
+to `routed_to = 'aeci'`. Each gets an `integration.contest.rerouted` audit row and an
+`open → open` workflow transition. The same batch clears `owner_seat_lapsed_at` on the
+vendor's open stamped AECi contests on connector-powered rows
+(`integration.contest.seat_stamp_cleared`), so a later seat grant cannot send them back.
+Both audit rows carry `entity_type: 'integration_field_challenge'`,
+`metadata.reason: 'entitlement-cleared'`, `metadata.license_id` and the vendor id. "Last" is
+read from the license rows, never from the `vendors.verified` pre-read. Two guards ride the
+batch: the plan's own (the contest set changed after the handler read it) and
+`noLiveLicenseSentinel` (a grant committed since the read). On an abort the handler
+re-reads. A license that ended meanwhile is refusal 7. A live license elsewhere means the
+revoke is no longer the last, so it commits without a re-route. Otherwise it re-plans once,
+and a second abort answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). A revoke that leaves another live license
+re-routes nothing. The plan is
+`planEntitlementClearReroute` in `apps/api/src/lib/integration-contests.ts`.
+
+**Seats stay.** A revoke is not a seat revoke and not a ban: the vendor keeps its seats and
+logins. The confirm copy on the Billing tab says so (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+
 **Post-commit, assigned license only.** Purge `product:{slug}`, `index:products` and the
 vendor set (`vendorPurgeTags`), and send `managed-ended` to every unbanned seat and the
 billing email when set, keyed `managed-ended:{licenseId}:{recipient hash}`
@@ -3481,64 +3382,21 @@ as the grant does. A failed send never fails the response.
 | 400 | `VALIDATION_FAILED` / `MALFORMED_REQUEST` | refusal 1 or 6 |
 | 404 | `NOT_FOUND` | refusal 2 |
 | 409 | `LICENSE_SOURCE_STRIPE` | refusal 4 |
+| 409 | `CONTEST_INTEGRATION_CHANGED` | a last-license revoke whose contest set changed twice while it re-routed them (AECI-1375) |
 | 422 | `INVALID_STATE_TRANSITION` | refusal 3, 5 or 7 |
 
 Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
 rate limit's 429.
 
-#### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08)
+#### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08): retired
 
-Set or reset a vendor's plan price overrides. Behind `requireAdmin()` and
-`rateLimit('write')`. **Display only:** it changes the price line on the vendor
-portal's plan panel and nothing else. No billing, no entitlement, no capability, no
-ranking. It is not part of the entitlement: a vendor with no entitlement row can carry
-one, and a `clear` leaves it alone. Source of truth:
-`packages/shared/src/api/admin-plan-pricing.ts`, `apps/api/src/routes/admin-plan-pricing.ts`;
-model: `STAGE_2_PAID_TIERS_SPEC.md` §13.13.
-
-```typescript
-// Request: a full replacement. Both keys required; both null = reset to default.
-export const SetVendorPlanPricingSchema = z.object({
-  managed_price_cents: z.number().int().min(0).max(10_000_000).nullable(), // whole US cents
-  message: PlanPriceMessageSchema, // whitespace folded + trimmed; "" → null; 1..280; no markup or control chars
-});
-
-// Response, and `AdminVendorDetail.plan_pricing`.
-export const VendorPlanPricingResponseSchema = z.object({
-  vendor_id: z.string().uuid(),
-  managed_price_cents: z.number().int().min(0).nullable(),
-  message: z.string().nullable(),
-  updated_by: z.string().nullable(), // admin profiles.id; admin-only, never on the vendor wire
-  updated_at: z.string().nullable(),
-});
-```
-
-```json
-PUT /api/admin/vendors/0000…0002/plan-pricing
-{ "managed_price_cents": 1250, "message": null }
-
-200
-{ "vendor_id": "0000…0002", "managed_price_cents": 1250, "message": null,
-  "updated_by": "0000…0900", "updated_at": "2026-10-08T12:00:00.000Z" }
-```
-
-**Precedence on the panel:** `message`, then `managed_price_cents`, then the default
-(`MANAGED_LIST_PRICE_CENTS = 2500`, `@aeci/shared/entitlements`).
-
-**Writes.** An upsert, or a `DELETE` when both fields are null, plus its `audit_log` row,
-in one `db.batch`. Actions `vendor_plan_pricing.set` / `vendor_plan_pricing.cleared`,
-`entity_type = 'vendor_plan_pricing'`, `entity_id` = the vendor id, `vendor_id` stamped.
-A request that changes nothing writes nothing and returns the stored state. No cache
-purge: no public page renders it.
-
-| Status | Code | When |
-|---|---|---|
-| 400 | `VALIDATION_FAILED` | a key missing; a price that is negative, fractional, a string or over the cap; a message over 280 characters, or carrying markup or control characters |
-| 400 | `MALFORMED_REQUEST` | the body is not JSON |
-| 404 | `NOT_FOUND` | unknown vendor id |
-
-Plus the shared 401/403 (a `vendor_admin`, including one on this vendor, is 403) and the
-`write` rate limit's 429.
+**Retired 2026-10-17 (AECI-1375, E4.6).** The route is gone and answers `404`, per
+`VENDOR_SIGNUP_PROCESS.md` decision 8. It set a display-only price override on the vendor
+portal's plan panel. Existing `vendor_plan_pricing` rows still show on that panel until E1.8
+removes the table and its reader (`apps/api/src/lib/vendor-plan-pricing.ts`). The write
+schemas left `packages/shared/src/api/admin-plan-pricing.ts`. `PlanPriceSchema` and
+`VendorPlanPricingResponseSchema` stay until E1.8. Historical `vendor_plan_pricing.*` audit
+rows still render. The pre-AECI-1375 contract is in git history.
 
 #### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
 
@@ -3956,7 +3814,7 @@ never goes to the owner. A contest that fails either is not returned. It stays w
 its stamp clears (`integration.contest.seat_stamp_cleared`,
 `metadata.reason = 'owner-may-not-decide'`), so no later seat event returns it. A return of
 a contest on a connector-powered row carries the owner-entitlement sentinel, so a
-return that loses a race with an entitlement clear writes nothing and answers
+return that loses a race with the end of the owner's last live license writes nothing and answers
 `409 VENDOR_SEATS_CHANGED` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). A ban
 hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is still no
 cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
@@ -7051,7 +6909,7 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
-Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the invite was revoked or spent between the handler's read and its batch (`inviteSpentSentinel`, AECI-1374); or the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the invite was revoked or spent between the handler's read and its batch (`inviteSpentSentinel`, AECI-1374); or the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
 
 #### `GET /api/vendor/notifications`
 

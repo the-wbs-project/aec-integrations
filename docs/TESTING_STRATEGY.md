@@ -198,7 +198,7 @@ Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md`
 | **Mirror sole-writer** (`apps/api`, over the batch builders) | `grantSeatStatements` — and every route handler — emits **no statement touching `vendors.verified`**; only `lib/vendor-entitlement.ts` does, and never one side of the *iff* without the other. Plus: `vendors.updated_at` moves **iff** `vendors.verified` moves, in **both** directions | The ESLint sole-writer rule catches the syntax; this catches the semantics the rule cannot see. The both-directions clause exists because the un-verify direction had no writer at all until AECI-532, so nothing had ever exercised it |
 | **Reads are never gated** (`apps/api`) | `GET /api/vendor/me` returns **200** for a vendor whose entitlement is `revoked`/`expired`, carrying the downgraded `entitlement` block | A one-line mistake with total blast radius on exactly the cohort being billed: `vendorMeResolver` maps 403 onto a **404 render**, so gating this read would hide the renewal notice inside a 404 dashboard |
 
-Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear`; `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write; since AECI-1356 it stamps `licenses`, and the same test asserts no statement names `ended_at`, `assigned_product_id` or `vendors`); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`. Since AECI-1355 the same spec (`drizzle-helpers.read-path.spec.ts`) also pins the exact set of modules that may name `vendor_entitlements` (the admin and retirement set), so a new reader fails it and so does a listed module that stops reading it.
+Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear` (retired with its route by AECI-1375, 2026-10-17); `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write; since AECI-1356 it stamps `licenses`, and the same test asserts no statement names `ended_at`, `assigned_product_id` or `vendors`); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`. Since AECI-1355 the same spec (`drizzle-helpers.read-path.spec.ts`) also pins the exact set of modules that may name `vendor_entitlements` (the admin and retirement set), so a new reader fails it and so does a listed module that stops reading it.
 
 **A caveat worth generalizing.** An invariant asserted in a file where its subject is *mocked* passes vacuously. Where a cron-level suite mocks the sweep it is testing, the real obligation belongs in the sweep's own spec, and any exemption list in the mocking file should say which entries are genuinely exempt versus merely asserted elsewhere.
 
@@ -559,10 +559,11 @@ Run axe on:
   (AECI-652), for the same reason as `/admin/traffic`: the rows do not exist until
   the authorized `GET /api/admin/vendors` resolves, so the spec waits for a real
   row before analyzing. The list rather than the detail page, deliberately — the
-  list is where the new layout primitives are (a search field, an Aria combobox
-  filter, a card list and the paginator), while the detail page's most complex
-  sub-tree is `EntitlementControl`, whose heading and live-region contract is
-  asserted structurally in its own component spec.
+  list is where the new layout primitives are (a search field, a sortable table and
+  the paging footer). *As built 2026-10-17 (AECI-1375):* the list's Aria combobox
+  filter (Account status) and the detail page's `EntitlementControl` are gone. The
+  license controls on the Billing tab carry their heading and live-region contract in
+  their own component specs (`license-row-actions`, `license-bulk-actions`).
 - `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
   `vendor-dashboard.spec.ts` (AECI-606), for the
   same reason and with the same shape: it authorizes server-side via

@@ -594,7 +594,7 @@ async function fileContestIssue(
  * being planned takes the row away from the owner they were routed to (AECI-1005
  * review). Without it the old owner kept an inbox of contests on a row it no longer
  * owns, and could still accept them. The statements are
- * `rerouteToAeciStatements`'s, shared with ruling B's entitlement clear. The vendor
+ * `rerouteToAeciStatements`'s, shared with ruling B's last-license revoke. The vendor
  * decide handler also refuses a caller that no longer owns the row, so a contest
  * submitted in the gap is covered too.
  */

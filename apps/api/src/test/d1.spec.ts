@@ -42,7 +42,7 @@ import {
   type OwnedProductRow,
   type StampLagRow,
 } from '../lib/backfill-licenses';
-import { checkEntitlementMirrorDrift, checkLicenseMirrorDrift } from '../lib/data-quality';
+import { checkLicenseMirrorDrift } from '../lib/data-quality';
 import { productListConfig } from '../lib/drizzle-helpers';
 import {
   endLicensesStatements,
@@ -1808,8 +1808,7 @@ describe('license back-fill (AECI-1354)', () => {
       });
       expect((act?.afterState as { licenses: unknown[] }).licenses).toHaveLength(2);
 
-      // Both halves of the mirror agree.
-      expect((await checkEntitlementMirrorDrift(t.db)).lines).toEqual([]);
+      // The mirror agrees with the licenses.
       expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
 
       // Re-running plans nothing and writes nothing.
@@ -1940,9 +1939,8 @@ describe('license back-fill (AECI-1354)', () => {
       expect(
         await t.db.select().from(billingAccounts).where(eq(billingAccounts.vendorId, 'v-act')),
       ).toEqual([]);
-      // The entitlement check still sees it. The license check does not, because
-      // no license was written for it: the drift is reported, not moved.
-      expect((await checkEntitlementMirrorDrift(t.db)).lines).toHaveLength(1);
+      // The license check does not see it, because no license was written for
+      // it: the drift is reported by the back-fill, not moved.
       expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
     } finally {
       t.dispose();

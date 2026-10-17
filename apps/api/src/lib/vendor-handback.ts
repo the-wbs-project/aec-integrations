@@ -944,7 +944,7 @@ function rerouteContest(
           eq(integrationFieldChallenges.id, contest.id),
           eq(integrationFieldChallenges.status, 'open'),
           eq(integrationFieldChallenges.routedTo, from),
-          // A return needs the stamp still set: an entitlement clear or a
+          // A return needs the stamp still set: a last-license revoke or a
           // connector-making accept that cleared it made the contest AECi's for good.
           ...(move.to === 'owner' ? [isNotNull(integrationFieldChallenges.ownerSeatLapsedAt)] : []),
         ),
