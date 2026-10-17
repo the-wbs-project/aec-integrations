@@ -40,7 +40,7 @@
  *
  * ── NO SEAT IS GRANTED HERE ─────────────────────────────────────────────────────
  * `vendorId` records who the catalogue was handed to and grants nothing.
- * `STAGE_2_SPEC.md` §8.9(2) fences the connector seat off from `vendor_entitlements`
+ * `STAGE_2_SPEC.md` §8.9(2) fences the connector seat off from the plan tables
  * entirely, and §8.9(3) leaves provisioning — no route writes `profiles.role =
  * 'vendor_admin'` today — to AECI-722 / AECI-724.
  */
@@ -208,12 +208,11 @@ export function createSetConnectorCatalogManagementHandler(
         connector_product_id: existing.connectorProductId,
         ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
         ...(payload.reason ? { reason: payload.reason } : {}),
-        // Explicit in the trail rather than inferred from `managed_by`, the same way
-        // `lib/vendor-entitlement.ts` says `seats_untouched` out loud: a reader of this
+        // Explicit in the trail rather than inferred from `managed_by`: a reader of this
         // row should not have to know that `vendor` implies the promote lane is shut.
         review_lane_frozen: to === 'vendor',
         // Equally explicit: this hands over authorship, not a portal seat. No
-        // `vendor_entitlements` row is opened and no `vendor_admin` role is written
+        // license is granted and no `vendor_admin` role is written
         // (§8.9(2)/(3)) — provisioning is AECI-722 / AECI-724's.
         seat_not_granted: true,
       },

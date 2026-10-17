@@ -75,12 +75,12 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import {
+  licenses,
   profileAudiences,
   profileDetails,
   profiles,
   reviews,
   taxonomyAudiences,
-  vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -339,64 +339,61 @@ export function createAdminUserDetailHandler(
     const userId = requiredParam(c, 'id');
     const { db } = dbFor(c.env);
 
-    const [profileRows, reviewRows, invitesSent, entitlementsGranted, audienceRows] =
-      await db.batch([
-        db
-          .select({
-            id: profiles.id,
-            displayName: profiles.displayName,
-            role: profiles.role,
-            vendorId: profiles.vendorId,
-            trustTier: profiles.trustTier,
-            workEmailVerified: profiles.workEmailVerified,
-            seatOwner: profiles.seatOwner,
-            bannedAt: profiles.bannedAt,
-            banReason: profiles.banReason,
-            createdAt: profiles.createdAt,
-            updatedAt: profiles.updatedAt,
-            vendorCompanyName: vendors.companyName,
-            vendorSlug: vendors.slug,
-            companyType: profileDetails.companyType,
-            companySize: profileDetails.companySize,
-            primaryRole: profileDetails.primaryRole,
-            firmName: profileDetails.firmName,
-            linkedinUrl: profileDetails.linkedinUrl,
-            onboardingCompletedAt: profileDetails.onboardingCompletedAt,
-            onboardingSkippedAt: profileDetails.onboardingSkippedAt,
-          })
-          .from(profiles)
-          .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
-          // AECI-1296: the "About you" answers, at most one row per profile.
-          .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
-          .where(eq(profiles.id, userId)),
-        // Grouped, not four scalar counts: one statement, and a status the CHECK
-        // gains later shows up as an unmapped key rather than silently vanishing.
-        db
-          .select({ status: reviews.status, value: count() })
-          .from(reviews)
-          .where(eq(reviews.reviewerId, userId))
-          .groupBy(reviews.status),
-        // All time, any state — a spent or revoked invite still happened.
-        db
-          .select({ value: count() })
-          .from(vendorSeatInvites)
-          .where(eq(vendorSeatInvites.invitedById, userId)),
-        db
-          .select({ value: count() })
-          .from(vendorEntitlements)
-          .where(eq(vendorEntitlements.grantedBy, userId)),
-        // The audiences the person picked, A to Z with the `id` tiebreaker (AECI-1243).
-        db
-          .select({
-            id: taxonomyAudiences.id,
-            name: taxonomyAudiences.name,
-            slug: taxonomyAudiences.slug,
-          })
-          .from(profileAudiences)
-          .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, profileAudiences.audienceId))
-          .where(eq(profileAudiences.profileId, userId))
-          .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.id)),
-      ]);
+    const [profileRows, reviewRows, invitesSent, licensesGranted, audienceRows] = await db.batch([
+      db
+        .select({
+          id: profiles.id,
+          displayName: profiles.displayName,
+          role: profiles.role,
+          vendorId: profiles.vendorId,
+          trustTier: profiles.trustTier,
+          workEmailVerified: profiles.workEmailVerified,
+          seatOwner: profiles.seatOwner,
+          bannedAt: profiles.bannedAt,
+          banReason: profiles.banReason,
+          createdAt: profiles.createdAt,
+          updatedAt: profiles.updatedAt,
+          vendorCompanyName: vendors.companyName,
+          vendorSlug: vendors.slug,
+          companyType: profileDetails.companyType,
+          companySize: profileDetails.companySize,
+          primaryRole: profileDetails.primaryRole,
+          firmName: profileDetails.firmName,
+          linkedinUrl: profileDetails.linkedinUrl,
+          onboardingCompletedAt: profileDetails.onboardingCompletedAt,
+          onboardingSkippedAt: profileDetails.onboardingSkippedAt,
+        })
+        .from(profiles)
+        .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
+        // AECI-1296: the "About you" answers, at most one row per profile.
+        .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
+        .where(eq(profiles.id, userId)),
+      // Grouped, not four scalar counts: one statement, and a status the CHECK
+      // gains later shows up as an unmapped key rather than silently vanishing.
+      db
+        .select({ status: reviews.status, value: count() })
+        .from(reviews)
+        .where(eq(reviews.reviewerId, userId))
+        .groupBy(reviews.status),
+      // All time, any state — a spent or revoked invite still happened.
+      db
+        .select({ value: count() })
+        .from(vendorSeatInvites)
+        .where(eq(vendorSeatInvites.invitedById, userId)),
+      // Licenses this account granted, any state (AECI-1358).
+      db.select({ value: count() }).from(licenses).where(eq(licenses.grantedBy, userId)),
+      // The audiences the person picked, A to Z with the `id` tiebreaker (AECI-1243).
+      db
+        .select({
+          id: taxonomyAudiences.id,
+          name: taxonomyAudiences.name,
+          slug: taxonomyAudiences.slug,
+        })
+        .from(profileAudiences)
+        .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, profileAudiences.audienceId))
+        .where(eq(profileAudiences.profileId, userId))
+        .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.id)),
+    ]);
 
     const profile = profileRows[0];
     // 404 before anything else is rendered: an unknown id must not come back as
@@ -492,7 +489,7 @@ export function createAdminUserDetailHandler(
       counts: {
         reviews: reviewCounts,
         seat_invites_sent: invitesSent[0]?.value ?? 0,
-        entitlements_granted: entitlementsGranted[0]?.value ?? 0,
+        licenses_granted: licensesGranted[0]?.value ?? 0,
         requests_by_email: requestsByEmail,
       },
       // Server-computed from the same constant the moderation queue uses, so the

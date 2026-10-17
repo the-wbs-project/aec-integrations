@@ -31,9 +31,11 @@
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
  * `profiles(id)` has eighteen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
  * so they must be nulled before the profile delete. Three (`notification_preferences`,
- * `profile_details`, `profile_audiences`) cascade, so the batch nulls the other
- * fifteen. Under D1 that erasure is ONE atomic `db.batch([...])` (null all 15 refs
- * + the PII-free `account.deleted` audit + delete the profile).
+ * `profile_details`, `profile_audiences`) cascade. `vendor_entitlements.granted_by`
+ * is left to its own `ON DELETE SET NULL`: nothing reads or writes that table since
+ * AECI-1358, and its PR 2 drops it. The batch nulls the other fourteen. Under D1 that
+ * erasure is ONE atomic `db.batch([...])` (null all 14 refs + the PII-free
+ * `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -88,7 +90,6 @@ import {
   reviews,
   taxonomyAudiences,
   userActivityDaily,
-  vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
   workflowInstances,
@@ -482,10 +483,9 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the ten SET NULL
-    // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by`,
-    // `vendor_seat_invites.invited_by_id`, the five contest/protest columns and the two
-    // reply columns — made explicit), plus the two no-FK actor columns
+    // One atomic unit: null every inbound reference (five NO ACTION + the nine SET NULL
+    // refs — `reviews.reviewer_id`, `vendor_seat_invites.invited_by_id`, the five
+    // contest/protest columns and the two reply columns — made explicit), plus the two no-FK actor columns
     // `billing_accounts.created_by` and `licenses.granted_by`, plus any
     // `billing_accounts.billing_email` equal to the person's address → PII-free audit
     // → delete the profile.
@@ -520,15 +520,6 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      // AECI-609 / R6: one of the sixteen inbound FKs to `profiles.id`
-      // (`AUTH_AND_RLS.md` §8). It is `ON DELETE SET NULL`, so SQLite would cover it,
-      // but it is nulled explicitly like `reviews.reviewer_id` so the erasure test
-      // asserts it directly rather than trusting the cascade. The entitlement ROW
-      // survives — only the granting admin's link is severed.
-      db
-        .update(vendorEntitlements)
-        .set({ grantedBy: null })
-        .where(eq(vendorEntitlements.grantedBy, userId)),
       // AECI-1350: two actor columns with NO FK to `profiles`, so SQLite would leave
       // the erased id on them and nothing else would clear it. Nulled here for the
       // same reason `user_activity_daily` is deleted: erasure must leave no linkage.

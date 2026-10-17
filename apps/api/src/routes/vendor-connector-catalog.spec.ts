@@ -5,8 +5,8 @@
  *
  * What is pinned:
  *
- *   - **A seat is the whole gate.** The seat has no `vendor_entitlements` row (the
- *     AECI-740 shape) and reads.
+ *   - **A seat is the whole gate.** The seat holds no license (the AECI-740 shape)
+ *     and reads.
  *   - **Ownership and role are one 404.** Another vendor's connector product, and the
  *     owner's product when it is not `connector`-role, answer the same 404.
  *   - **The read never shows a row the PATCH would refuse on ownership.** Every mapping
@@ -26,10 +26,10 @@ import {
   connectorCatalogs,
   connectorStubMappings,
   connectorStubs,
+  licenses,
   productVendors,
   products,
   profiles,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -231,9 +231,9 @@ async function read(query = '', as: string | null = AGAVE_SEAT, productId = AGAV
 }
 
 describe('GET /api/vendor/products/:id/connector-catalog — the owner seat', () => {
-  it('reads with NO entitlement row, and ships the summary the tab needs', async () => {
+  it('reads with NO license, and ships the summary the tab needs', async () => {
     await seed();
-    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    expect(await t.db.select().from(licenses)).toHaveLength(0);
 
     const { res, body } = await read();
     expect(res.status).toBe(200);

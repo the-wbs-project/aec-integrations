@@ -5,12 +5,10 @@
  * One row per vendor today (`billing_accounts_vendor_key`). It is created by the
  * batch that seats the vendor's first owner: the claim approval
  * (`routes/admin-claims.ts`, Free and Managed alike) and the operator's provision-seat
- * route (`routes/admin-vendors.ts`). The entitlement activate's license dual-write
- * (`lib/vendor-entitlement.ts`, AECI-1353) composes it too, so an admin grant on a
- * vendor with no seat also creates the account. On the claim path that dual-write
- * creates it first, and the route passes the new id as `existing`, so one batch
- * carries one INSERT. A later seat on a vendor that already has an account writes
- * nothing here, which is the §2.3 second-seat posture the entitlement builder set.
+ * route (`routes/admin-vendors.ts`). A later seat on a vendor that already has an
+ * account writes nothing here, which is the §2.3 second-seat posture. Until AECI-1358
+ * the entitlement activate's license dual-write (`lib/vendor-entitlement.ts`,
+ * AECI-1353) composed it too. That module is deleted.
  *
  * D1 has no interactive transactions. Like `lib/audit.ts` and `lib/vendor-grant.ts`,
  * the builder RETURNS the statements plus the audit entry the caller forwards after

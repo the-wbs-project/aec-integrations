@@ -156,7 +156,7 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
  *  - **`licenses`** orders by `live_license_count` (AECI-1375; the vendor's
  *    licenses with `ended_at IS NULL`, `liveLicenseCountSql` in `lib/license.ts`).
  *    It replaced the `entitlement` and `term` keys, which read the retired
- *    `vendor_entitlements` join.
+ *    entitlement join.
  *
  * Every case ends in the AECI-99 `id ASC` tiebreaker; the ones whose primary key
  * is low-cardinality (`verified`, `licenses`, `products`) sort by company name in

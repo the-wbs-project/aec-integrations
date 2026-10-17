@@ -41,14 +41,7 @@ vi.mock('../posthog', async (importOriginal) => {
   };
 });
 
-import {
-  connectorEvidencedPairs,
-  productVendors,
-  products,
-  profiles,
-  vendorEntitlements,
-  vendors,
-} from '../db/schema';
+import { connectorEvidencedPairs, productVendors, products, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { syncIndexTargets } from '../lib/algolia-sync';
@@ -110,14 +103,6 @@ beforeEach(async () => {
     docsUrl: 'https://example.test/docs',
     builtByVendorId: VENDOR_T,
     claimedAt: NOW,
-  });
-  await t.db.insert(vendorEntitlements).values({
-    vendorId: VENDOR_T,
-    tier: 'verified',
-    status: 'active',
-    grantedAt: NOW,
-    createdAt: NOW,
-    updatedAt: NOW,
   });
   // AECI-1355: the owner checks read licenses.
   await seedLicense(t.db, VENDOR_T);

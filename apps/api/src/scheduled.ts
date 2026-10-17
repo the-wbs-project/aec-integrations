@@ -2208,7 +2208,7 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return undefined;
     case 'entitlement_expiry':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-613 / §7.1): one
-      // indexed read over `vendor_entitlements_expiry_idx` plus a handful of
+      // indexed read over `licenses_ends_idx` (AECI-1356) plus a handful of
       // fail-open emails does not justify a new `aeci-entitlement-expiry-{env}`
       // queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues
       // create` step in `deploy.yml` / `promote-to-prod.yml`. A missed night is

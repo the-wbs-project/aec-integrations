@@ -761,10 +761,10 @@ export const integrationTimelineConfig = {
  * `vendor` cannot disagree about *which* vendor of a multi-vendor product the gate
  * reads. The mirror stays on the raw row: no public payload carries it (AECI-1266).
  *
- * `verified` is the denormalized mirror of an `active` entitlement row. **Nothing
- * here may join the entitlement table** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids
- * it on a read path, and `drizzle-helpers.read-path.spec.ts` asserts it (which is
- * why this comment names the mirror rather than the table).
+ * `verified` is the denormalized mirror of a live license. **Nothing here may join
+ * the plan tables** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids it on a read path,
+ * and `drizzle-helpers.read-path.spec.ts` asserts it (which is why this comment
+ * names the mirror rather than the tables).
  */
 export const productVersionDiffGateConfig = {
   columns: { id: true },

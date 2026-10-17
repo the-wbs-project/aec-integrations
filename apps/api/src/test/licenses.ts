@@ -1,7 +1,7 @@
 /**
  * Test seeds for `billing_accounts` and `licenses` (AECI-1355). Since plan resolution
  * reads licenses, a spec that needs a vendor on Managed seeds a live license here,
- * where it used to seed an active `vendor_entitlements` row.
+ * where it used to seed an active entitlement row (retired by AECI-1358).
  *
  * Raw inserts, not the `lib/license.ts` builders, so a spec states the exact row it
  * means and no audit row lands beside it.

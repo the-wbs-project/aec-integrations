@@ -62,8 +62,8 @@ export interface AuditLogEntry {
   productId?: string | null;
   /**
    * The vendor's plan when the row was written (AECI-1193): `audit_log.vendor_tier`
-   * and `audit_log.vendor_entitlement_status`. Build it with `vendorPlanSnapshot`
-   * from `@aeci/shared/entitlements` so "no entitlement row" records `'none'`
+   * and `audit_log.vendor_entitlement_status`. Build it with `licensePlanSnapshot`
+   * from `@aeci/shared/entitlements` so "no license" records `'none'`
    * rather than NULL. Absent (NULL columns) means "not snapshotted", which is what
    * every row written before AECI-1193 carries.
    */

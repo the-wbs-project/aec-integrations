@@ -14,14 +14,14 @@
 INSERT INTO "vendors" ("id","slug","company_name","description","website","headquarters","verified","promotion_status","created_at","updated_at") VALUES
   ('a0000000-0000-4000-8000-000000000001','autodesk','Autodesk','Design and make software for AEC, manufacturing, and media.','https://www.autodesk.com','San Francisco, CA, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000002','procore','Procore Technologies','Cloud-based construction management platform.','https://www.procore.com','Carpinteria, CA, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  -- bluebeam is deliberately verified = 0: it carries the `revoked` entitlement row
-  -- below, so its license is ended, and `verified` is a MIRROR of a live license
+  -- bluebeam is deliberately verified = 0: its license below is ended (revoked),
+  -- and `verified` is a MIRROR of a live license
   -- (§2.1). Seeding it as 1 would make `license_mirror_drift` flag the local DB.
   ('a0000000-0000-4000-8000-000000000003','bluebeam','Bluebeam','PDF markup and collaboration for design and construction.','https://www.bluebeam.com','Pasadena, CA, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   -- Trade-specific vendors (AECI-544). Needed so the local catalog exercises the
   -- fourth facet at all: none of the five products above may carry a trade tag.
-  -- trimble is verified = 1, so it must carry an `active` entitlement row below, which
-  -- becomes its live license. Otherwise `license_mirror_drift` flags it.
+  -- trimble is verified = 1, so it must carry a live license below. Otherwise
+  -- `license_mirror_drift` flags it.
   ('a0000000-0000-4000-8000-000000000004','trimble','Trimble','Estimating, fabrication, and field software for specialty contractors.','https://www.trimble.com','Westminster, CO, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000005','mccormick-systems','McCormick Systems','Estimating software for electrical and plumbing contractors.','https://www.mccormicksys.com','Chandler, AZ, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000006','conest','ConEst Software Systems','Electrical estimating and project management software.','https://www.conest.com','Manchester, NH, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -29,61 +29,22 @@ ON CONFLICT ("slug") DO UPDATE SET
   "company_name" = excluded."company_name",
   "description" = excluded."description",
   -- `verified` MUST be refreshed here (AECI-609). Without it, re-seeding an existing
-  -- local D1 leaves bluebeam at its old `verified = 1` while the entitlement upsert
-  -- below sets `revoked` — mirror drift that only reproduces for developers with a
+  -- local D1 leaves bluebeam at its old `verified = 1` while the license upsert
+  -- below ends its license: mirror drift that only reproduces for developers with a
   -- pre-existing DB, and surfaces as an unrelated-looking data-quality error.
   "verified" = excluded."verified",
   "promotion_status" = excluded."promotion_status",
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- ---------------------------------------------------------------------------
--- Vendor entitlements (AECI-609 / STAGE_2_PAID_TIERS_SPEC.md §2.4)
--- ---------------------------------------------------------------------------
--- The licenses below are read from these rows, and `vendors.verified` mirrors a live
--- license, so these MUST agree with the `verified` values above or
--- `license_mirror_drift` flags the local DB. Three
--- deliberate states are seeded across the seed set so every downstream AECI-515 issue
--- has something local to work against:
---   * near-expiry active — autodesk (+20d), so the §7 expiry cron has a local bite
---   * far-future active  — procore, trimble (and the …061 fixture vendor in
---                          phase2-fixtures). trimble is here because AECI-544 seeded it
---                          verified = 1 for the trades facet; every verified vendor needs
---                          a backing row or the mirror check flags it.
---   * revoked            — bluebeam, so §8's downgraded read-only dashboard is
---                          demoable without hand-editing D1. Its vendor is verified = 0.
--- `granted_by` is NULL in every row: db:seed:local runs catalog.sql BEFORE
--- auth-fixtures.sql, so no `profiles` row exists yet and a non-null FK would fail.
--- Idempotent on the unique index `vendor_entitlements_vendor_key`.
-INSERT INTO "vendor_entitlements"
-  ("id","vendor_id","tier","status","period_start","period_end","payer","amount","terms","arranged_by","invoice_ref","notes","granted_by","granted_at","ended_at","created_at","updated_at") VALUES
-  ('e0000000-0000-4000-8000-000000000001','a0000000-0000-4000-8000-000000000001','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now','-345 days'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+20 days'),'Autodesk AP','USD 5,000 / yr','Annual, net 30','Local Seed','SEED-0001','Local seed: NEAR-EXPIRY active term, so the AECI-613 expiry cron has something to warn on locally.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('e0000000-0000-4000-8000-000000000002','a0000000-0000-4000-8000-000000000002','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),'Procore AP','USD 5,000 / yr','Annual, net 30','Local Seed','SEED-0002','Local seed: far-future active term — the quiet steady state.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('e0000000-0000-4000-8000-000000000003','a0000000-0000-4000-8000-000000000003','verified','revoked', strftime('%Y-%m-%dT%H:%M:%fZ','now','-400 days'), strftime('%Y-%m-%dT%H:%M:%fZ','now','-35 days'),'Bluebeam AP','USD 5,000 / yr','Annual, net 30','Local Seed','SEED-0003','Local seed: REVOKED, so the AECI-614 downgraded read-only dashboard is demoable. Its vendor is verified = 0 — that is the mirror invariant, not a data error.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now','-400 days'), strftime('%Y-%m-%dT%H:%M:%fZ','now','-35 days'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('e0000000-0000-4000-8000-000000000004','a0000000-0000-4000-8000-000000000004','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),'Trimble AP','USD 5,000 / yr','Annual, net 30','Local Seed','SEED-0004','Local seed: far-future active term backing the AECI-544 trades vendor, whose verified = 1 would otherwise be unmirrored. Also the only verified vendor carrying a trade tag, so the badge is demoable on /trades/:slug.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-ON CONFLICT ("vendor_id") DO UPDATE SET
-  "tier" = excluded."tier",
-  "status" = excluded."status",
-  "period_start" = excluded."period_start",
-  "period_end" = excluded."period_end",
-  "payer" = excluded."payer",
-  "amount" = excluded."amount",
-  "terms" = excluded."terms",
-  "arranged_by" = excluded."arranged_by",
-  "invoice_ref" = excluded."invoice_ref",
-  "notes" = excluded."notes",
-  "ended_at" = excluded."ended_at",
-  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
-
--- ---------------------------------------------------------------------------
 -- Billing accounts (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1)
 -- ---------------------------------------------------------------------------
--- One per vendor with an entitlement row above (and so every vendor the local seat
--- scripts seat: `db:grant-vendor:local` defaults to autodesk). Until the E1.6
--- switch-over the licenses below must say what the entitlement rows say, because
--- `vendors.verified` mirrors both. Idempotent: a vendor that already has an account
--- (made by a local claim approval, with a random id) keeps it, and the licenses
--- below find it by vendor, not by these ids. `created_by` is NULL for the same
--- reason `granted_by` is: no `profiles` row exists yet.
+-- One per vendor with a license below (and so every vendor the local seat scripts
+-- seat: `db:grant-vendor:local` defaults to autodesk). Idempotent: a vendor that
+-- already has an account (made by a local claim approval, with a random id) keeps
+-- it, and the licenses below find it by vendor, not by these ids. `created_by` is
+-- NULL because db:seed:local runs catalog.sql BEFORE auth-fixtures.sql, so no
+-- `profiles` row exists yet.
 INSERT INTO "billing_accounts" ("id","vendor_id","name","billing_email","created_by","created_at","updated_at") VALUES
   ('ba000000-0000-4000-8000-000000000001','a0000000-0000-4000-8000-000000000001','Autodesk',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('ba000000-0000-4000-8000-000000000002','a0000000-0000-4000-8000-000000000002','Procore Technologies',NULL,NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -129,29 +90,35 @@ ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------
 -- Licenses (AECI-1353 / VENDOR_SIGNUP_PROCESS.md §5 E1)
 -- ---------------------------------------------------------------------------
--- The entitlement rows above, as licenses: one per owned product (autodesk owns
--- three), mapped by the 2026-10-14 rule (`licenseTermsForEntitlement`,
--- `lib/license.ts`). Every row has a `period_end` and an `invoice_ref`, so every
--- license is `invoice`, `ends_at` = `period_end`, `reference` = `invoice_ref`. The
--- dates are read FROM the entitlement row, not recomputed, so the two cannot drift
--- by the milliseconds between two `strftime('now')` calls. `starts_at` is the row's
--- `period_start` (every row has one) and `assigned_at` its `granted_at`, as the
--- dual-write stamps them. bluebeam's row is
--- `revoked`, so its license is ended with `end_reason = 'revoked'` at the row's
--- `ended_at`, and keeps its product (decision 14, the hand-back).
+-- `vendors.verified` mirrors a live license, so these MUST agree with the `verified`
+-- values above or `license_mirror_drift` flags the local DB. Three deliberate
+-- states, so every plan feature has something local to work against:
+--   * near-expiry active: autodesk, one license per owned product (three), ending
+--     in 20 days, so the license expiry cron has a local bite.
+--   * far-future active: procore, trimble (and the …061 fixture vendor in
+--     phase2-fixtures). trimble is here because AECI-544 seeded it verified = 1
+--     for the trades facet, and every verified vendor needs a live license.
+--   * revoked: bluebeam, ended 35 days ago with `end_reason = 'revoked'`. It keeps
+--     its product (decision 14, the hand-back), so the downgraded read-only
+--     dashboard is demoable without hand-editing D1. Its vendor is verified = 0.
+-- Every license is `invoice` with a SEED-000N `reference`. `granted_by` is NULL:
+-- no `profiles` row exists yet.
 --
--- `vendors.verified` above already agrees: true IFF a live license exists here.
--- Idempotent on the license id: a re-seed refreshes the term with the entitlement
--- upsert. A license the local app already put on one of these products under
--- another id makes the insert a no-op (the trailing DO NOTHING), never an error.
+-- As built (AECI-1358, 2026-10-17): these dates and references used to be read
+-- from the seeded entitlement rows. That table is retired, so the values are
+-- inline now, the same values those rows held.
+--
+-- Idempotent on the license id: a re-seed refreshes the term. A license the local
+-- app already put on one of these products under another id makes the insert a
+-- no-op (the trailing DO NOTHING), never an error.
 INSERT INTO "licenses"
   ("id","billing_account_id","source","starts_at","ends_at","ended_at","end_reason","reference","assigned_product_id","assigned_at","created_at","updated_at") VALUES
-  ('ac000000-0000-4000-8000-000000000001',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000001',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('ac000000-0000-4000-8000-000000000002',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000002',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('ac000000-0000-4000-8000-000000000003',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'b0000000-0000-4000-8000-000000000003',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('ac000000-0000-4000-8000-000000000004',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),'b0000000-0000-4000-8000-000000000004',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('ac000000-0000-4000-8000-000000000005',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),(SELECT "ended_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'revoked',(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'b0000000-0000-4000-8000-000000000005',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('ac000000-0000-4000-8000-000000000006',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),'invoice',(SELECT "period_start" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),(SELECT "period_end" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),NULL,NULL,(SELECT "invoice_ref" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),'b0000000-0000-4000-8000-000000000006',(SELECT "granted_at" FROM "vendor_entitlements" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('ac000000-0000-4000-8000-000000000001',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now','-345 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+20 days'),NULL,NULL,'SEED-0001','b0000000-0000-4000-8000-000000000001',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000002',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now','-345 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+20 days'),NULL,NULL,'SEED-0001','b0000000-0000-4000-8000-000000000002',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000003',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000001'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now','-345 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+20 days'),NULL,NULL,'SEED-0001','b0000000-0000-4000-8000-000000000003',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000004',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000002'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),NULL,NULL,'SEED-0002','b0000000-0000-4000-8000-000000000004',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000005',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000003'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now','-400 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-35 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-35 days'),'revoked','SEED-0003','b0000000-0000-4000-8000-000000000005',strftime('%Y-%m-%dT%H:%M:%fZ','now','-400 days'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('ac000000-0000-4000-8000-000000000006',(SELECT "id" FROM "billing_accounts" WHERE "vendor_id" = 'a0000000-0000-4000-8000-000000000004'),'invoice',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),NULL,NULL,'SEED-0004','b0000000-0000-4000-8000-000000000006',strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("id") DO UPDATE SET
   "source" = excluded."source",
   "starts_at" = excluded."starts_at",

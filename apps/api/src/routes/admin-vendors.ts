@@ -169,8 +169,8 @@ function parseQuery<T>(c: AdminVendorContext, schema: { parse: (input: unknown) 
  *
  * `live_license_count` is `liveLicenseCountSql` (`lib/license.ts`): a correlated
  * count of the vendor's licenses with `ended_at IS NULL`, the same expression the
- * `license_mirror_drift` check reads (AECI-1375 replaced the old
- * `vendor_entitlements` join with it).
+ * `license_mirror_drift` check reads (AECI-1375 replaced the old entitlement join
+ * with it).
  *
  * The per-row product count is `vendorListConfig.extras.productCount` verbatim: a
  * correlated scalar subquery that the public `/api/vendors` already ships on a
@@ -985,16 +985,16 @@ function emitSeatProvision(
  * the owner seat brings it, with its `billing_account.created` row (AECI-1351).
  *
  * ── THE INVARIANT THIS ENDPOINT EXISTS TO HOLD ───────────────────────────────
- * **It opens no `vendor_entitlements` row, so it never turns `vendors.verified` on.**
+ * **It grants no license, so it never turns `vendors.verified` on.**
  * That is not a side effect of the implementation — it is the entire point.
  * §8.9(1) settled that a pure connector vendor is never sold verification and
- * gets a catalogue-maintenance seat instead; §8.9(2) proved every existing path
- * to a seat opens an entitlement on the way (`approveClaim` composes
- * `grantSeatStatements` with `activateEntitlementStatements` at
- * `GRANT_TIER = 'verified'`), which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
- * had to tell operators not to press Grant. This handler therefore **must never
- * import `activateEntitlementStatements`**, and `routes/vendor-admin-role-writers.spec.ts`
- * asserts that at the source level — behaviour cannot test for the absence of a
+ * gets a catalogue-maintenance seat instead; §8.9(2) proved every path to a seat
+ * then opened an entitlement on the way, which is why
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 had to tell operators not to press Grant.
+ * This handler therefore **must never use a license writer** (`grantLicensesStatements`
+ * and its siblings in `lib/license.ts`; the entitlement activator until AECI-1358
+ * deleted it), and `routes/vendor-admin-role-writers.spec.ts` asserts that at the
+ * source level — behaviour cannot test for the absence of a
  * coupling that does not exist yet.
  *
  * ── IT WARNS, IT DOES NOT GATE ───────────────────────────────────────────────

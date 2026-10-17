@@ -26,7 +26,6 @@ const RAW_CLEAN: RawVendorFootprintRow = {
   integrations: 0,
   evidenced_pairs: 0,
   profiles: 0,
-  entitlements: 0,
   seat_invites: 0,
   billing_accounts: 0,
   claims: 3,
@@ -86,7 +85,6 @@ describe('buildVendorFootprintSql', () => {
       '"integrations"',
       '"connector_evidenced_pairs"',
       '"profiles"',
-      '"vendor_entitlements"',
       '"vendor_seat_invites"',
       '"billing_accounts"',
       '"claims"',
@@ -187,7 +185,6 @@ describe('classifyVendorRetraction', () => {
     ['integrations', 'integration'],
     ['evidencedPairs', 'connector-evidenced pair'],
     ['profiles', 'profile'],
-    ['entitlements', 'entitlement'],
     ['seatInvites', 'seat invite'],
     ['billingAccounts', 'billing account'],
   ];
@@ -214,11 +211,10 @@ describe('classifyVendorRetraction', () => {
       integrations: 1,
       evidencedPairs: 1,
       profiles: 1,
-      entitlements: 1,
       seatInvites: 1,
       billingAccounts: 1,
     });
-    expect(c.blockers).toHaveLength(7);
+    expect(c.blockers).toHaveLength(6);
   });
 });
 
@@ -273,7 +269,6 @@ describe('buildVendorDeleteStatements', () => {
       '"product_vendors"',
       '"connector_evidenced_pairs"',
       '"profiles"',
-      '"vendor_entitlements"',
       '"vendor_seat_invites"',
       '"billing_accounts"',
     ]) {
@@ -300,7 +295,7 @@ describe('buildVendorAuditInsert', () => {
     // actor_id is NULL — a CLI run has no profile row.
     expect(sql).toContain(`,NULL,'system','vendor.deleted','vendor','${VENDOR.id}',`);
     // The row is about the vendor it deletes. A retractable vendor holds no
-    // entitlement row, so its plan is `none` on both axes (AECI-1193).
+    // license, so its plan is `none` on both axes (AECI-1193).
     expect(sql).toContain(`,'${VENDOR.id}','none','none','${AUDIT_ARGS.now}');`);
   });
 

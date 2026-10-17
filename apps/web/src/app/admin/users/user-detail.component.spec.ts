@@ -57,7 +57,7 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
     counts: {
       reviews: { pending: 0, approved: 3, rejected: 1, archived: 0 },
       seat_invites_sent: 0,
-      entitlements_granted: 0,
+      licenses_granted: 0,
       requests_by_email: 2,
     },
     repeat_offender: false,

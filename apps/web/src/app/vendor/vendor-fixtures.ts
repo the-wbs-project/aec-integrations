@@ -457,9 +457,9 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   requests: [],
   seat_count: 1,
   seat_owner: true,
-  // The mirror's other side: no active entitlement → `unclaimed` → the Free
+  // The mirror's other side: no live license → `unclaimed` → the Free
   // capabilities (AECI-1214), and `verified: false` above. `status: null` = no
-  // `vendor_entitlements` row at all, as opposed to a lapsed one.
+  // license at all, as opposed to a lapsed one.
   entitlement: FREE_PLAN,
 };
 

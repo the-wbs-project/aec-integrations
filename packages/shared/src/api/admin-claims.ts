@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
-import { EntitlementTierSchema } from './admin-entitlements';
+import { EntitlementTierSchema } from './vendor';
 import {
   AdminAuditRowSchema,
   VendorOwnedIntegrationsSchema,
@@ -26,7 +26,7 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *
  * Since AECI-1367 (`VENDOR_SIGNUP_PROCESS.md` §3 step 2) every approval lands on
  * Free: the grant writes the seat, the billing account when the vendor has none, and
- * the claim's acceptance link, and never a `vendor_entitlements` row. AECI-1215's plan
+ * the claim's acceptance link, and never a license. AECI-1215's plan
  * choice is gone. `ClaimGrantSummary.tier` reports the vendor's live state.
  */
 

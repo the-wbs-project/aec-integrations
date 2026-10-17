@@ -30,7 +30,7 @@ import { ManagedByApi } from './managed-by-api';
  *
  * It also says what it does NOT do. `vendorId` is recorded in the audit metadata
  * and grants nothing: `STAGE_2_SPEC.md` §8.9(2) fences the connector seat off
- * from `vendor_entitlements` entirely, and §8.9(3) leaves provisioning unbuilt.
+ * from the plan tables entirely, and §8.9(3) leaves provisioning unbuilt.
  * An operator who assumed "hand over the catalogue" also handed over a login
  * would be wrong in a way nothing else on the page corrects.
  *

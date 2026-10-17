@@ -22,14 +22,14 @@ import { CONNECTOR_MANAGED_BY } from './promote-connector';
  * the promote rejection delivers that unconditionally while the flag reads `vendor`.
  * The flag itself is an operator control that moves both ways, because
  * `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism that answers "is the feed
- * still arriving?" for a connector seat that carries no `vendor_entitlements` row and so
- * has no expiry cron to sweep it. That duty is only actionable if a lane can be
+ * still arriving?" for a connector seat that holds no license and so has no expiry
+ * cron to sweep it. That duty is only actionable if a lane can be
  * reclaimed when a vendor stops feeding. Reversing the flag re-opens the promote lane
  * going forward and does nothing else — it reconciles nothing the vendor wrote.
  *
  * ── NO SEAT IS GRANTED HERE ─────────────────────────────────────────────────────
  * `vendorId` records WHO the catalogue was handed to, in the audit row. It grants
- * nothing: §8.9(2) fences the connector seat off from `vendor_entitlements` entirely
+ * nothing: §8.9(2) fences the connector seat off from the plan tables entirely
  * ("no row, no tier, no capability id, no migration"), and §8.9(3) leaves provisioning
  * — no route writes `profiles.role = 'vendor_admin'` today — to AECI-722 / AECI-724.
  */

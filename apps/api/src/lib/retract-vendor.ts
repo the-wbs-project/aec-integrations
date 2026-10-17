@@ -33,7 +33,7 @@
  *   integrations                  built_by_vendor_id       —           REFUSE (owned edge)
  *   connector_evidenced_pairs     built_by_vendor_id       —           REFUSE (owned edge)
  *   profiles                      vendor_id                —           REFUSE (claimed, or was)
- *   vendor_entitlements           vendor_id                cascade     REFUSE (a seat exists)
+ *   vendor_entitlements           vendor_id                cascade     deleted by the FK action
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
  *   review_responses              vendor_id                cascade     allowed; deleted + counted
@@ -53,6 +53,11 @@
  * Neither table has a seat-free writer, so a vendor with rows in either almost always
  * trips the `profiles` refusal first. The reply table is named only where it exists
  * (`reviewResponsesTable`), because a tier without 0058 would fail the whole batch.
+ *
+ * As built (AECI-1358, 2026-10-17): `vendor_entitlements` no longer refuses. Nothing
+ * reads or writes it since licenses replaced it, so a dead row goes with its vendor by
+ * the FK's own `ON DELETE CASCADE`. The plan never names the table, so the batch also
+ * runs on a tier where PR 2 has dropped it. A seat or a billing account still refuses.
  *
  * `integration_vendor_links` (AECI-1007, migration 0045) is the one row above the plan
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
@@ -94,7 +99,7 @@ import {
   escapeSqlLiteral,
   REVIEW_RESPONSES_TABLE_SQL,
 } from './retract-product';
-import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 
 /** AECI-1350: does `billing_accounts` exist on the target tier (migration 0073)? */
 export const BILLING_ACCOUNTS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'billing_accounts';`;
@@ -114,7 +119,9 @@ export {
  *  - `delete`     counted; deleted explicitly before the vendor, counted on its tombstone.
  *  - `detach`     counted; the column is NULLed explicitly, the row survives.
  *  - `fk-action`  handled by the FK's own action, never named in the plan: NULLed by
- *                 `ON DELETE SET NULL` (`integration_vendor_links`). See the header.
+ *                 `ON DELETE SET NULL` (`integration_vendor_links`), or deleted by
+ *                 `ON DELETE CASCADE` (the retired `vendor_entitlements`, AECI-1358).
+ *                 See the header.
  */
 export type VendorFkOutcome = 'refuse' | 'delete' | 'detach' | 'fk-action';
 
@@ -125,7 +132,7 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'integrations.built_by_vendor_id': 'refuse',
   'connector_evidenced_pairs.built_by_vendor_id': 'refuse',
   'profiles.vendor_id': 'refuse',
-  'vendor_entitlements.vendor_id': 'refuse',
+  'vendor_entitlements.vendor_id': 'fk-action',
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'review_responses.vendor_id': 'delete',
@@ -224,7 +231,6 @@ export function buildVendorFootprintSql(
     (SELECT count(*) FROM "integrations" WHERE "built_by_vendor_id" = ${v}) AS integrations,
     (SELECT count(*) FROM "connector_evidenced_pairs" WHERE "built_by_vendor_id" = ${v}) AS evidenced_pairs,
     (SELECT count(*) FROM "profiles" WHERE "vendor_id" = ${v}) AS profiles,
-    (SELECT count(*) FROM "vendor_entitlements" WHERE "vendor_id" = ${v}) AS entitlements,
     (SELECT count(*) FROM "vendor_seat_invites" WHERE "vendor_id" = ${v}) AS seat_invites,
     ${billingAccounts} AS billing_accounts,
     (SELECT count(*) FROM "claims" WHERE "created_by_vendor_id" = ${v}) AS claims,
@@ -241,7 +247,6 @@ export interface RawVendorFootprintRow {
   integrations: number;
   evidenced_pairs: number;
   profiles: number;
-  entitlements: number;
   seat_invites: number;
   /** AECI-1350. Optional so a row built before it still parses. */
   billing_accounts?: number;
@@ -259,7 +264,6 @@ export interface VendorFootprint {
   integrations: number;
   evidencedPairs: number;
   profiles: number;
-  entitlements: number;
   seatInvites: number;
   /** Billing accounts (AECI-1350). Any row refuses. */
   billingAccounts: number;
@@ -282,7 +286,6 @@ export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprin
     integrations: row.integrations,
     evidencedPairs: row.evidenced_pairs,
     profiles: row.profiles,
-    entitlements: row.entitlements,
     seatInvites: row.seat_invites,
     billingAccounts: row.billing_accounts ?? 0,
     claims: row.claims,
@@ -300,7 +303,7 @@ export interface VendorRetractionClassification {
 }
 
 /**
- * Does this vendor own anything? Seven counts refuse and there is no override for any of
+ * Does this vendor own anything? Six counts refuse and there is no override for any of
  * them. `claims`, `attestations`, `page_views` and owned contests never refuse — they are
  * detached, not destroyed. Replies and filed contests never refuse either — they are the
  * vendor's own text and go with it (AECI-1226). The CLI reports each count.
@@ -318,8 +321,6 @@ export function classifyVendorRetraction(
     );
   if (footprint.profiles > 0)
     blockers.push(`${footprint.profiles} profile(s) attached — the vendor is claimed, or was`);
-  if (footprint.entitlements > 0)
-    blockers.push(`${footprint.entitlements} entitlement row(s) — a seat exists`);
   if (footprint.seatInvites > 0)
     blockers.push(`${footprint.seatInvites} seat invite(s) — a seat is pending`);
   if (footprint.billingAccounts > 0)
@@ -416,9 +417,9 @@ export function buildVendorAuditInsert({
     'created_at',
   ];
   // AECI-1192 / AECI-1193: the row is about the vendor it deletes. A retractable
-  // vendor holds no `vendor_entitlements` row (a row refuses the retraction), so its
-  // plan is `none`, the same value `vendorPlanSnapshot(null)` gives.
-  const plan = vendorPlanSnapshot(null, now);
+  // vendor holds no billing account (one refuses the retraction), so it holds no
+  // license and its plan is `none`, the value `licensePlanSnapshot([])` gives.
+  const plan = licensePlanSnapshot([], now);
   const vals = [
     sqlLiteral(auditId),
     'NULL',
@@ -503,7 +504,6 @@ export function formatVendorFootprintReport(entry: VendorPlanEntry): string {
     ['integrations built', footprint.integrations],
     ['connector-evidenced pairs built', footprint.evidencedPairs],
     ['profiles attached', footprint.profiles],
-    ['entitlements', footprint.entitlements],
     ['seat invites', footprint.seatInvites],
     ['billing accounts', footprint.billingAccounts],
     ['claims → created_by NULLed', footprint.claims],

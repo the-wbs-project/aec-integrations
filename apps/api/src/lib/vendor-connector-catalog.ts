@@ -16,7 +16,7 @@
  * through `product_vendors`, AND that product is `connector`-role. A vendor holding
  * the product in some other role reads nothing, exactly as its PATCH is a 404.
  *
- * No `vendor_entitlements` read and no capability: the §8.9 seat has neither
+ * No plan read and no capability: the §8.9 seat has neither
  * (`STAGE_2_SPEC.md` §8.9(2)).
  *
  * Behind `/api/vendor/*` there is no RLS, so this `WHERE` IS the authorization, and the

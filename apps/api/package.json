@@ -35,8 +35,6 @@
     "ops:purge-algolia-orphans": "tsx scripts/purge-algolia-orphans.ts",
     "ops:retract-product": "tsx scripts/retract-product.ts",
     "ops:retract-vendor": "tsx scripts/retract-vendor.ts",
-    "ops:backfill-entitlements": "tsx scripts/backfill-entitlements.ts",
-    "ops:backfill-licenses": "tsx scripts/backfill-licenses.ts",
     "ops:backfill-metrics-daily": "tsx scripts/backfill-metrics-daily.ts",
     "ops:submit-trade-urls": "tsx scripts/submit-trade-urls.ts",
     "ops:traffic-shadow": "tsx scripts/traffic-classification-shadow.ts",

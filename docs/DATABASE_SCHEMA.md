@@ -1070,7 +1070,7 @@ create table profiles (
   -- handler writes it directly, so no seat write can skip its audit row. Asserted at
   -- source level by apps/api/src/routes/vendor-admin-role-writers.spec.ts, which also
   -- pins the AECI-740 fence: nothing may compose provisionSeatStatements with
-  -- activateEntitlementStatements. 'admin' has no writer at all — granting it is the
+  -- a license writer (the entitlement activator until AECI-1358 deleted it). 'admin' has no writer at all — granting it is the
   -- per-environment SQL runbook (environments.md §10.7).
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
@@ -1663,6 +1663,8 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   and vendor seat (revoke, provision) routes do too, over `loadVendorLicenses`. The admin
   entitlement and plan-pricing routes that still used `vendorPlanSnapshot` were retired
   2026-10-17 (AECI-1375). No route calls it now; it leaves with `vendor_entitlements` at E1.9.
+  *As built (AECI-1358, 2026-10-17): `vendorPlanSnapshot` and `loadEntitlement` are deleted.
+  `licensePlanSnapshot` is the only snapshot builder.*
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
@@ -1802,6 +1804,14 @@ Notes:
 
 ### 8.6 `vendor_entitlements`
 
+> **As built (AECI-1358, E1.9 PR 1, 2026-10-17). Nothing reads or writes this table.** Licenses
+> (§8.6c) replaced it. `lib/vendor-entitlement.ts`, `ops:backfill-entitlements`,
+> `ops:backfill-licenses` and `vendorPlanSnapshot` are deleted. The claim grant, the admin user
+> detail, account erasure and the vendor delete no longer touch it, and the seeds no longer insert
+> it. Its only code reference is the `schema.ts` definition. PR 2 drops the table, after PR 1 is on
+> production, because CI applies migrations before the Worker deploys (`docs/migrations.md` §3.2).
+> The rest of this section is the as-designed history.
+
 The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
 (AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
 (§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
@@ -1911,8 +1921,8 @@ create table vendor_plan_pricing (
 The account Managed licenses are sold on: one bill, one term, one Stripe customer
 (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
 may add rows later, so one-per-vendor is a unique index, not the primary key. The E1.5
-back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) creates one for every existing vendor
-with a seat or an entitlement row. The vendor's Billing tab reads it
+back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) created one for every existing vendor
+with a seat or an entitlement row. It ran on every tier and was deleted by AECI-1358. The vendor's Billing tab reads it
 (`GET /api/vendor/billing`, AECI-1387), and an owner may set or clear `billing_email` there
 (`PUT /api/vendor/billing/email`, AECI-1389).
 
@@ -2130,7 +2140,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   first (`d1.spec.ts`). `updated_at` moves only when `verified` moves. The builder's
   `verifiedFlipped` is a prediction from the pre-read; the SQL is the truth. Guard 1
   (`MIRROR_WRITE_EXEMPT` in `eslint.config.base.mjs`) exempts this file and
-  `lib/vendor-entitlement.ts` until E1.9 retires the latter.
+  `lib/vendor-entitlement.ts` until E1.9 retires the latter. *As built (AECI-1358,
+  2026-10-17): the entitlement module is deleted, and this file is the only exempt writer.*
 - **Audit.** Rows file under the account: `entity_type = 'billing_account'`, `entity_id` =
   the account id, `metadata.license_id`, `audit_log.vendor_id` and `product_id` filled. One
   row per license written, in the same batch. Actions are `license.*` (`LICENSE_ACTION`,
@@ -2144,7 +2155,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   (AECI-1355) switched the readers on 2026-10-14. The admin entitlement routes still write
   `vendor_entitlements`, and this dual-write is how they reach `licenses`, until E4 replaces
   them.* *As built 2026-10-17 (AECI-1375): those routes are retired, so no route runs the
-  dual-write. The builders leave with `vendor_entitlements` at E1.9.* The three builders
+  dual-write. The builders leave with `vendor_entitlements` at E1.9.* *As built (AECI-1358,
+  2026-10-17): the builders and `licenseTermsForEntitlement` are deleted. This bullet is
+  history.* The three builders
   in `apps/api/src/lib/vendor-entitlement.ts` append the matching license batch to their
   own, in the same `db.batch`, and take a second pre-read (`loadLicenseDualWrite`: the
   account, the vendor's licenses, its owned products with their live-license state).
@@ -2168,7 +2181,9 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   (`d1.spec.ts`). The local seeds (`catalog.sql`,
   `phase2-fixtures.sql`) carry matching accounts and licenses, idempotent on fixed ids.
   E1.5's back-fill (AECI-1354) covers the deployed environments.
-- **The back-fill (AECI-1354, E1.5).** `ops:backfill-licenses` (`apps/api/scripts/`,
+- **The back-fill (AECI-1354, E1.5).** *Deleted 2026-10-17 (AECI-1358): it ran on every tier,
+  and it read `vendor_entitlements`, which PR 2 drops. This bullet is history.*
+  `ops:backfill-licenses` (`apps/api/scripts/`,
   core `apps/api/src/lib/backfill-licenses.ts`) brings a deployed tier to the state the
   dual-write keeps. It reaches every vendor with a `vendor_admin` seat or an entitlement
   row, and skips any vendor that already carries a license. Per vendor it writes the
@@ -2451,7 +2466,7 @@ Notes:
   paid-tiers spec) and the claim grant, which composed the same builder into its batch. The
   claim grant stopped on 2026-10-15 (AECI-1367) and the route was retired on 2026-10-17
   (AECI-1375), so the module has no caller left that writes `verified`. The license end path
-  (`reconcileVerifiedMirror` in any batch that ends a license, today only the admin revoke) is the only writer that takes it down now.
+  (`reconcileVerifiedMirror` in any batch that ends a license, today only the admin revoke) is the only writer that takes it down now. *As built (AECI-1358, 2026-10-17): the module is deleted.*
 - **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a **closed** CHECK
   and opening it on SQLite is a full table rebuild; `audit_log.entity_type` is deliberately
   unconstrained, so `'vendor_entitlement'` costs nothing. Entitlement writes audit and do not
@@ -2465,7 +2480,7 @@ Notes:
   `vendor_entitlements_expiry_idx` have no reader. An active term
   past its end date stays active until an admin clears it.
 - **Backfill is a script, not a migration** (`apps/api/scripts/backfill-entitlements.ts`, run
-  per environment). Rows already `verified = 1` from the Airtable/claim era get
+  per environment; deleted 2026-10-17 by AECI-1358 after it ran on every tier). Rows already `verified = 1` from the Airtable/claim era get
   `{ tier: 'verified', status: 'active', period_end: null }` — perpetual and termless, so the
   partial expiry index ignores them. `migrations.md` keeps migrations declarative; the drift
   check is the proof the backfill actually landed on every tier.

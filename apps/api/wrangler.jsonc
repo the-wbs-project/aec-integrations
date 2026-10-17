@@ -459,7 +459,7 @@
       // audit_log ledger. It reads a spine the earlier batch may have moved.
       // "0 11 * * *" is the daily Stage 2 §7 entitlement term-expiry sweep
       // (AECI-613 / STAGE_2_PAID_TIERS_SPEC.md §7, queue-less): one indexed read
-      // over vendor_entitlements_expiry_idx for active terms inside the 30-day
+      // over licenses_ends_idx (AECI-1356) for live terms inside the 30-day
       // horizon → a renewal prompt to the vendor's seats + an operator copy to
       // SUPPORT_EMAIL, fenced by expiry_notice_sent_at so a term earns ONE
       // notice, not one per night. It WARNS and never lapses — it never writes

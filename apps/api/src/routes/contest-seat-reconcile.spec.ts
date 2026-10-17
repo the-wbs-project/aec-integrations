@@ -37,7 +37,6 @@ import {
   products,
   profiles,
   licenses,
-  vendorEntitlements,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -151,19 +150,10 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-/** Managed, as the dual-write left it (AECI-1353): the entitlement row, which the
- *  claim grant still reads, and a live license, which the owner checks read since
- *  AECI-1355. The license id is kept so {@link revokeLast} can end it. */
+/** Managed: a live license, which the owner checks (AECI-1355) and the claim grant's
+ *  `tier` (AECI-1358) read. The license id is kept so {@link revokeLast} can end it. */
 const licenseOf = new Map<string, string>();
 const entitle = async (vendorId: string) => {
-  await t.db.insert(vendorEntitlements).values({
-    vendorId,
-    tier: 'verified',
-    status: 'active',
-    grantedAt: CLAIMED_AT,
-    createdAt: CLAIMED_AT,
-    updatedAt: CLAIMED_AT,
-  });
   licenseOf.set(vendorId, await seedLicense(t.db, vendorId));
 };
 const banSeatDirectly = (seatId: string) =>
@@ -411,16 +401,16 @@ describe('the seat return withholds what the owner may not decide', () => {
       }),
     );
 
-    it('keeps a connector-row contest with AECi when the owner holds no entitlement', async () => {
+    it('keeps a connector-row contest with AECi when the owner holds no license', async () => {
       const powered = await stampedContest({ integrationId: I_POWERED });
       const plain = await stampedContest({ integrationId: I_PLAIN });
       expect((await approve()).status).toBe(200);
       expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
       expect(await contest(plain)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
-      expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+      expect(await t.db.select().from(licenses)).toHaveLength(0);
     });
 
-    it('returns it when the vendor already holds an entitlement', async () => {
+    it('returns it when the vendor already holds a license', async () => {
       await entitle(VENDOR_B);
       const powered = await stampedContest({ integrationId: I_POWERED });
       expect((await approve()).status).toBe(200);

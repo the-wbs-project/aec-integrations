@@ -24,39 +24,16 @@ import {
   productVersions,
   taxonomyDataObjects,
   taxonomyTrades,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { auditInsert, type BatchTuple } from '../lib/audit';
-import {
-  BILLING_ACCOUNT_BACKFILLED_ACTION,
-  buildOwnedProductsSql,
-  buildStampLagSql,
-  buildStampReconcileStatements,
-  LICENSE_EXPIRY_STAMP_RECONCILED_ACTION,
-  buildVendorStatements,
-  buildVendorsSql,
-  planLicenseBackfill,
-  planStampReconcile,
-  type BackfillVendorRow,
-  type OwnedProductRow,
-  type StampLagRow,
-} from '../lib/backfill-licenses';
-import { checkLicenseMirrorDrift } from '../lib/data-quality';
 import { productListConfig } from '../lib/drizzle-helpers';
 import {
   endLicensesStatements,
   grantLicensesStatements,
-  licenseTermsForEntitlement,
   loadVendorLicenses,
   type LicenseBatch,
 } from '../lib/license';
-import {
-  activateEntitlementStatements,
-  isEntitlementChangedError,
-  loadEntitlement,
-  loadLicenseDualWrite,
-} from '../lib/vendor-entitlement';
 import { makeTestDb, type TestDb } from './d1';
 
 describe('in-memory D1 harness (AECI-253)', () => {
@@ -1485,111 +1462,13 @@ describe('license mirror reconcile under concurrent batches (AECI-1352)', () => 
   });
 });
 
-// AECI-1353: two activates built from ONE pre-read of a revoked vendor (two admins
-// pressing `set`, or two Managed claim approvals). The entitlement UPDATE is guarded on
-// `status <> 'active'`, so the second matches no row. Its license INSERTs are not
-// guarded, so before the sentinel they still committed: a second set of live
-// licenses, or a `licenses_live_product_idx` failure. The second batch must now roll
-// back whole, recognisably.
-describe('activate race on a revoked vendor (AECI-1353)', () => {
-  const NOW = '2026-10-15T12:00:00.000Z';
-
-  async function seed(t: TestDb, withProduct: boolean): Promise<void> {
-    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
-    await t.db.insert(vendorEntitlements).values({
-      vendorId: 'v1',
-      tier: 'verified',
-      status: 'revoked',
-      grantedAt: '2026-01-01T00:00:00.000Z',
-      endedAt: '2026-06-01T00:00:00.000Z',
-    });
-    await t.db.insert(billingAccounts).values({ id: 'ba1', vendorId: 'v1', name: 'Acme' });
-    // The revoked term's license, ended: no live license is left.
-    await t.db.insert(licenses).values({
-      id: 'l-old',
-      billingAccountId: 'ba1',
-      source: 'complimentary',
-      startsAt: '2026-01-01T00:00:00.000Z',
-      endedAt: '2026-06-01T00:00:00.000Z',
-      endReason: 'revoked',
-      assignedProductId: null,
-    });
-    if (withProduct) {
-      await t.db
-        .insert(products)
-        .values({ id: 'p1', slug: 'acme-one', name: 'Acme One', promotionStatus: 'promoted' });
-      await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1' });
-    }
-  }
-
-  async function twoBatchesFromOnePreRead(t: TestDb) {
-    const existing = await loadEntitlement(t.db, 'v1');
-    const licensesBefore = await loadLicenseDualWrite(t.db, 'v1');
-    const build = () =>
-      activateEntitlementStatements(t.db, {
-        vendorId: 'v1',
-        tier: 'verified',
-        now: NOW,
-        actorId: null,
-        actorType: 'system',
-        existing,
-        vendorWasVerified: false,
-        licenses: licensesBefore,
-        vendorName: 'Acme',
-      });
-    return [build(), build()] as const;
-  }
-
-  const counts = async (t: TestDb) => ({
-    licenses: (await t.db.select().from(licenses)).length,
-    audits: (await t.db.select().from(auditLog)).length,
-    accounts: (await t.db.select().from(billingAccounts)).length,
-  });
-
-  it.each([
-    ['no products: one unassigned license', false],
-    ['an unlicensed owned product', true],
-  ])('%s: the second batch aborts and writes nothing', async (_label, withProduct) => {
-    const t = await makeTestDb();
-    try {
-      await seed(t, withProduct);
-      const [first, second] = await twoBatchesFromOnePreRead(t);
-      expect(second.raceGuarded).toBe(true);
-
-      await t.db.batch(first.stmts as BatchTuple);
-      const afterFirst = await counts(t);
-
-      const error = await t.db.batch(second.stmts as BatchTuple).then(
-        () => null,
-        (e: unknown) => e,
-      );
-      expect(isEntitlementChangedError(error)).toBe(true);
-      // No partial writes: every table is exactly as the first batch left it.
-      expect(await counts(t)).toEqual(afterFirst);
-
-      const live = (await t.db.select().from(licenses)).filter((l) => l.endedAt === null);
-      expect(live).toHaveLength(1);
-      expect(live[0]!.assignedProductId).toBe(withProduct ? 'p1' : null);
-      const sets = (await t.db.select().from(auditLog)).filter(
-        (a) => a.action === 'vendor_entitlement.set',
-      );
-      expect(sets).toHaveLength(1);
-      const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, 'v1'));
-      expect(vendor!.verified).toBe(true);
-    } finally {
-      t.dispose();
-    }
-  });
-});
-
-// AECI-1353 (E1.4): the local seed carries the dual-write's state. Every
-// `vendor_entitlements` row in catalog.sql and phase2-fixtures.sql has a billing
-// account and matching licenses, so a fresh local D1 has no vendor whose `verified`
-// disagrees with EXISTS(live license), and re-seeding changes nothing.
-describe('seed files: entitlements, billing accounts and licenses agree (AECI-1353)', () => {
+// AECI-1353 (E1.4): the local seed's licenses agree with the mirror. A fresh local D1
+// has no vendor whose `verified` disagrees with EXISTS(live license), and re-seeding
+// changes nothing. Since AECI-1358 the license values are inline in the seed files.
+describe('seed files: billing accounts and licenses agree with the mirror (AECI-1353)', () => {
   async function seeded(): Promise<TestDb> {
     const t = await makeTestDb();
-    // The `db:seed:local` order, up to the two files that carry entitlements.
+    // The `db:seed:local` order, up to the two files that carry licenses.
     for (const file of [
       'taxonomy.sql',
       'data-objects.sql',
@@ -1603,51 +1482,12 @@ describe('seed files: entitlements, billing accounts and licenses agree (AECI-13
   }
 
   async function state(t: TestDb) {
-    const [allVendors, ents, accounts, rows] = await Promise.all([
-      t.db.select().from(vendors),
-      t.db.select().from(vendorEntitlements),
+    const [accounts, rows] = await Promise.all([
       t.db.select().from(billingAccounts),
       t.db.select().from(licenses),
     ]);
-    return { allVendors, ents, accounts, rows };
+    return { accounts, rows };
   }
-
-  it('gives every entitlement vendor an account and licenses mapped from its row', async () => {
-    const t = await seeded();
-    try {
-      const { ents, accounts, rows } = await state(t);
-      expect(ents.length).toBeGreaterThanOrEqual(5);
-      for (const ent of ents) {
-        const account = accounts.find((a) => a.vendorId === ent.vendorId);
-        expect(account, `no billing account for ${ent.vendorId}`).toBeDefined();
-        const mine = rows.filter((l) => l.billingAccountId === account!.id);
-        const owned = await t.db
-          .select({ productId: productVendors.productId })
-          .from(productVendors)
-          .where(eq(productVendors.vendorId, ent.vendorId));
-        // One per owned product, at least one.
-        expect(mine).toHaveLength(Math.max(1, owned.length));
-        const terms = licenseTermsForEntitlement(ent);
-        for (const l of mine) {
-          expect(l).toMatchObject({
-            source: terms.source,
-            startsAt: terms.startsAt ?? ent.grantedAt,
-            endsAt: terms.endsAt,
-            reference: terms.reference,
-          });
-          if (ent.status === 'active') {
-            expect(l.endedAt).toBeNull();
-          } else {
-            // The revoked row: ended, `revoked`, and it keeps its product (decision 14).
-            expect(l).toMatchObject({ endedAt: ent.endedAt, endReason: 'revoked' });
-            expect(l.assignedProductId).not.toBeNull();
-          }
-        }
-      }
-    } finally {
-      t.dispose();
-    }
-  });
 
   it('leaves no vendor whose verified disagrees with EXISTS(live license)', async () => {
     const t = await seeded();
@@ -1677,271 +1517,6 @@ describe('seed files: entitlements, billing accounts and licenses agree (AECI-13
         before.accounts.map((a) => a.id).sort(),
       );
       expect(after.rows.map((l) => l.id).sort()).toEqual(before.rows.map((l) => l.id).sort());
-    } finally {
-      t.dispose();
-    }
-  });
-});
-
-// AECI-1354 (E1.5): the back-fill, end to end, over the real migrated schema. One
-// vendor per entitlement status, a perpetual row, a zero-product vendor and a
-// seat-only vendor. The generated statements run as the CLI runs them (one execute per
-// vendor), a re-run writes nothing, and both drift checks read 0 afterwards.
-describe('license back-fill (AECI-1354)', () => {
-  const NOW = '2026-10-14T12:00:00.000Z';
-
-  function fixture(t: TestDb): void {
-    t.raw.exec(`
-      INSERT INTO vendors (id, slug, company_name, verified, promotion_status, created_at, updated_at) VALUES
-        ('v-act',  'act-co',  'Active Co',    1, 'promoted', '${NOW}', '${NOW}'),
-        ('v-perp', 'perp-co', 'Perpetual Co', 1, 'promoted', '${NOW}', '${NOW}'),
-        ('v-pend', 'pend-co', 'Pending Co',   0, 'promoted', '${NOW}', '${NOW}'),
-        ('v-exp',  'exp-co',  'Expired Co',   0, 'promoted', '${NOW}', '${NOW}'),
-        ('v-rev',  'rev-co',  'Revoked Co',   0, 'promoted', '${NOW}', '${NOW}'),
-        ('v-seat', 'seat-co', 'Seat Co',      0, 'promoted', '${NOW}', '${NOW}'),
-        ('v-none', 'none-co', 'Bystander Co', 0, 'promoted', '${NOW}', '${NOW}');
-      INSERT INTO products (id, slug, name, promotion_status, created_at, updated_at) VALUES
-        ('p-a1', 'a1', 'A1', 'promoted', '${NOW}', '${NOW}'),
-        ('p-a2', 'a2', 'A2', 'promoted', '${NOW}', '${NOW}'),
-        ('p-e1', 'e1', 'E1', 'promoted', '${NOW}', '${NOW}'),
-        ('p-r1', 'r1', 'R1', 'promoted', '${NOW}', '${NOW}');
-      INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES
-        ('p-a1', 'v-act', 1, '${NOW}'), ('p-a2', 'v-act', 1, '${NOW}'),
-        ('p-e1', 'v-exp', 1, '${NOW}'), ('p-r1', 'v-rev', 1, '${NOW}');
-      INSERT INTO vendor_entitlements
-        (id, vendor_id, tier, status, period_start, period_end, amount, invoice_ref, granted_at, ended_at, created_at, updated_at) VALUES
-        ('e-act',  'v-act',  'verified', 'active',  '2026-01-01', '2027-01-01', 'USD 5,000', 'INV-1', '${NOW}', NULL, '${NOW}', '${NOW}'),
-        ('e-perp', 'v-perp', 'verified', 'active',  NULL,         NULL,         NULL,        NULL,    '${NOW}', NULL, '${NOW}', '${NOW}'),
-        ('e-pend', 'v-pend', 'verified', 'pending', NULL,         '2027-06-01', NULL,        'PO-9',  '${NOW}', NULL, '${NOW}', '${NOW}'),
-        ('e-exp',  'v-exp',  'verified', 'expired', '2025-01-01', '2026-01-01', NULL,        NULL,    '${NOW}', '2026-01-02T00:00:00.000Z', '${NOW}', '${NOW}'),
-        ('e-rev',  'v-rev',  'verified', 'revoked', '2025-01-01', '2026-12-01', NULL,        'INV-2', '${NOW}', '2026-03-01T00:00:00.000Z', '${NOW}', '${NOW}');
-      INSERT INTO profiles (id, role, vendor_id, created_at, updated_at) VALUES ('u-seat', 'vendor_admin', 'v-seat', '${NOW}', '${NOW}');
-    `);
-  }
-
-  /** One back-fill run as the CLI performs it. Returns the rows changed. */
-  async function run(t: TestDb) {
-    const vendorRows = t.raw.prepare(buildVendorsSql()).all() as BackfillVendorRow[];
-    const owned = t.raw.prepare(buildOwnedProductsSql()).all() as OwnedProductRow[];
-    const plan = await planLicenseBackfill(vendorRows, owned, { now: NOW });
-    const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-    for (const p of plan.vendors) {
-      const stmts = buildVendorStatements(p, { now: NOW });
-      if (stmts.length > 0) t.raw.transaction(() => t.raw.exec(stmts.join('\n')))();
-    }
-    const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-    return { plan, changes: after.n - before.n };
-  }
-
-  it('maps every status, lists the perpetual and zero-product vendors, and is idempotent', async () => {
-    const t = await makeTestDb();
-    try {
-      fixture(t);
-      const first = await run(t);
-      // Bystander Co has no seat, no row and verified = 0: out of scope.
-      expect(first.plan.vendors.map((v) => v.slug)).toEqual([
-        'act-co',
-        'exp-co',
-        'pend-co',
-        'perp-co',
-        'rev-co',
-        'seat-co',
-      ]);
-      expect(first.plan.vendors.every((v) => v.outcome === 'write')).toBe(true);
-      expect(first.plan.vendors.filter((v) => v.perpetual).map((v) => v.slug)).toEqual(['perp-co']);
-
-      const rows = await t.db.select().from(licenses);
-      const accounts = await t.db.select().from(billingAccounts);
-      const accountOf = (vendorId: string) => accounts.find((a) => a.vendorId === vendorId)!.id;
-      const of = (vendorId: string) =>
-        rows.filter((l) => l.billingAccountId === accountOf(vendorId));
-
-      expect(accounts).toHaveLength(6);
-      expect(accounts.find((a) => a.vendorId === 'v-act')?.name).toBe('Active Co');
-      // active: one live license per owned product, invoice-sourced, dated.
-      expect(of('v-act').map((l) => [l.assignedProductId, l.endedAt, l.source, l.endsAt])).toEqual([
-        ['p-a1', null, 'invoice', '2027-01-01T00:00:00.000Z'],
-        ['p-a2', null, 'invoice', '2027-01-01T00:00:00.000Z'],
-      ]);
-      // perpetual, zero products: one unassigned complimentary license, no end date.
-      expect(of('v-perp')).toEqual([
-        expect.objectContaining({
-          source: 'complimentary',
-          endsAt: null,
-          endedAt: null,
-          assignedProductId: null,
-        }),
-      ]);
-      // pending and seat-only: the account, no license.
-      expect(of('v-pend')).toEqual([]);
-      expect(of('v-seat')).toEqual([]);
-      // expired and revoked: ended history that keeps the product.
-      expect(of('v-exp')).toEqual([
-        expect.objectContaining({
-          endedAt: '2026-01-02T00:00:00.000Z',
-          endReason: 'lapsed',
-          assignedProductId: 'p-e1',
-        }),
-      ]);
-      expect(of('v-rev')).toEqual([
-        expect.objectContaining({
-          endedAt: '2026-03-01T00:00:00.000Z',
-          endReason: 'revoked',
-          assignedProductId: 'p-r1',
-          reference: 'INV-2',
-        }),
-      ]);
-
-      // One audit row per vendor written, filed under its account.
-      const audits = await t.db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.action, BILLING_ACCOUNT_BACKFILLED_ACTION));
-      expect(audits).toHaveLength(6);
-      const act = audits.find((a) => a.vendorId === 'v-act');
-      expect(act).toMatchObject({
-        actorType: 'system',
-        entityType: 'billing_account',
-        entityId: accountOf('v-act'),
-        vendorTier: 'verified',
-        vendorEntitlementStatus: 'active',
-      });
-      expect((act?.afterState as { licenses: unknown[] }).licenses).toHaveLength(2);
-
-      // The mirror agrees with the licenses.
-      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
-
-      // Re-running plans nothing and writes nothing.
-      const second = await run(t);
-      expect(second.changes).toBe(0);
-      expect(second.plan.vendors.filter((v) => v.outcome === 'write')).toEqual([]);
-
-      // Re-executing the FIRST run's statements (a half-landed tier re-run, or a read
-      // that raced the write) is a no-op too: every INSERT is guarded.
-      const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-      for (const p of first.plan.vendors)
-        t.raw.exec(buildVendorStatements(p, { now: NOW }).join('\n'));
-      const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-      expect(after.n - before.n).toBe(0);
-    } finally {
-      t.dispose();
-    }
-  });
-
-  it('copies the entitlement stamp onto an already-licensed vendor, same term only (AECI-1356)', async () => {
-    const t = await makeTestDb();
-    try {
-      fixture(t);
-      await run(t);
-      const account = (
-        await t.db.select().from(billingAccounts).where(eq(billingAccounts.vendorId, 'v-act'))
-      )[0]!.id;
-      // After the back-fill, the old sweep warns Active Co's term on the entitlement
-      // only (period_end is stored date-only), and the account gains three more
-      // licenses: one ended on the same term, one monthly, one on a different term.
-      const STAMP = '2026-12-02T11:00:00.000Z';
-      t.raw.exec(`
-        UPDATE vendor_entitlements SET expiry_notice_sent_at = '${STAMP}' WHERE id IN ('e-act', 'e-perp', 'e-rev');
-        INSERT INTO licenses (id, billing_account_id, source, starts_at, ends_at, ended_at, end_reason, created_at, updated_at) VALUES
-          ('l-ended',   '${account}', 'invoice',       '${NOW}', '2027-01-01T00:00:00.000Z', '${NOW}', 'lapsed', '${NOW}', '${NOW}'),
-          ('l-monthly', '${account}', 'complimentary', '${NOW}', NULL,                       NULL,     NULL,     '${NOW}', '${NOW}'),
-          ('l-other',   '${account}', 'invoice',       '${NOW}', '2028-01-01T00:00:00.000Z', NULL,     NULL,     '${NOW}', '${NOW}');
-      `);
-
-      // The re-run's plan skips every vendor as already licensed; the lag read still
-      // finds Active Co's two live licenses on the warned term.
-      const second = await run(t);
-      expect(second.changes).toBe(0);
-      expect(second.plan.vendors.find((v) => v.vendorId === 'v-act')?.outcome).toBe(
-        'already-licensed',
-      );
-      const lag = t.raw.prepare(buildStampLagSql()).all() as StampLagRow[];
-      expect(lag.map((r) => [r.slug, r.ends_at, r.stamp])).toEqual([
-        ['act-co', '2027-01-01T00:00:00.000Z', STAMP],
-        ['act-co', '2027-01-01T00:00:00.000Z', STAMP],
-      ]);
-      const stamped = new Set(lag.map((r) => r.license_id));
-
-      // The reconcile as the CLI runs it: one execute per vendor, audit row first.
-      const LATER = '2026-12-03T00:00:00.000Z';
-      const reconcile = async () => {
-        const rows = t.raw.prepare(buildStampLagSql()).all() as StampLagRow[];
-        const plan = await planStampReconcile(rows, { now: LATER });
-        const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-        for (const r of plan) {
-          const stmts = buildStampReconcileStatements(r, { now: LATER });
-          t.raw.transaction(() => t.raw.exec(stmts.join('\n')))();
-        }
-        const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-        return { plan, changes: after.n - before.n };
-      };
-      const auditCount = () =>
-        (t.raw.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n;
-      const auditsBefore = auditCount();
-
-      const first = await reconcile();
-      expect(first.plan.map((r) => r.vendorId)).toEqual(['v-act']);
-      // Two licenses stamped and one audit row.
-      expect(first.changes).toBe(3);
-      for (const l of await t.db.select().from(licenses)) {
-        if (stamped.has(l.id)) {
-          expect(l).toMatchObject({ expiryNoticeSentAt: STAMP, updatedAt: LATER });
-        } else {
-          // Ended, monthly, other-term, perpetual and revoked licenses keep NULL.
-          expect(l.expiryNoticeSentAt).toBeNull();
-        }
-      }
-      expect(auditCount()).toBe(auditsBefore + 1);
-      const [row] = await t.db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.action, LICENSE_EXPIRY_STAMP_RECONCILED_ACTION));
-      expect(row).toMatchObject({
-        actorType: 'system',
-        entityType: 'billing_account',
-        entityId: account,
-        vendorId: 'v-act',
-        vendorTier: 'verified',
-        vendorEntitlementStatus: 'active',
-      });
-      expect(row!.metadata).toMatchObject({
-        source: 'ops:backfill-licenses',
-        license_ids: [...stamped].sort(),
-        expiry_notice_sent_at: STAMP,
-      });
-
-      // Idempotent: the lag read is empty, a re-run changes nothing and writes no audit
-      // row, and re-executing the first run's statements is a no-op too.
-      expect(t.raw.prepare(buildStampLagSql()).all()).toEqual([]);
-      expect((await reconcile()).changes).toBe(0);
-      const before = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-      for (const r of first.plan)
-        t.raw.exec(buildStampReconcileStatements(r, { now: LATER }).join('\n'));
-      const after = t.raw.prepare('SELECT total_changes() AS n').get() as { n: number };
-      expect(after.n - before.n).toBe(0);
-      expect(auditCount()).toBe(auditsBefore + 1);
-      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
-    } finally {
-      t.dispose();
-    }
-  });
-
-  it('refuses mirror drift and writes nothing for that vendor', async () => {
-    const t = await makeTestDb();
-    try {
-      fixture(t);
-      // Reverse drift: an active row on a verified = 0 vendor.
-      t.raw.exec(`UPDATE vendors SET verified = 0 WHERE id = 'v-act'`);
-      const { plan } = await run(t);
-      expect(plan.vendors.find((v) => v.vendorId === 'v-act')).toMatchObject({
-        outcome: 'refused',
-      });
-      expect(
-        await t.db.select().from(billingAccounts).where(eq(billingAccounts.vendorId, 'v-act')),
-      ).toEqual([]);
-      // The license check does not see it, because no license was written for
-      // it: the drift is reported by the back-fill, not moved.
-      expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
     } finally {
       t.dispose();
     }

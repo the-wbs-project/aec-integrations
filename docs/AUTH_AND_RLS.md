@@ -226,6 +226,9 @@ that also backs production. That is the accepted ADR-0017 cost, and it is why lo
 `activateEntitlementStatements` (`lib/vendor-entitlement.ts`) contributes the entitlement row
 and the `vendors.verified` flip into the **same** batch (§4.3). Since AECI-1353 it also
 contributes the billing account and the vendor's licenses (`DATABASE_SCHEMA.md` §8.6c).
+*As built (AECI-1367, AECI-1358, 2026-10-17): a claim grant composes no plan at all, and
+`lib/vendor-entitlement.ts` is deleted. The grant is the seat, the billing account and the
+acceptance link.*
 
 **Since AECI-740 there is a SECOND grant path, and its defining property is what it omits.**
 `POST /api/admin/vendors/:id/seats` writes the seat — `role`, `vendor_id`, `seat_owner` — and
@@ -240,7 +243,9 @@ removed the public badge on 2026-10-09. Since AECI-1266 on 2026-10-12 the mirror
 public. It only drives the API's pair version-diff gate.) The two paths are held apart by
 `apps/api/src/routes/vendor-admin-role-writers.spec.ts`, which asserts at the source level
 that `vendor_admin` has exactly two writers (both `lib/` batch builders) and that no module
-composes `provisionSeatStatements` with `activateEntitlementStatements`.
+composes `provisionSeatStatements` with `activateEntitlementStatements`. *Since AECI-1358
+the fence names the license writers (`grantLicensesStatements`, `assignLicenseStatements`,
+`setLicensesTermStatements`), because the entitlement activator is deleted.*
 
 **`vendors.verified` is no longer the entitlement model; it is a mirror of one.** The AECI-515
 epic (`docs/STAGE_2_PAID_TIERS_SPEC.md` §2) introduced a `vendor_entitlements` table carrying
@@ -260,7 +265,9 @@ authorization:
   a `.set({ verified })` / `.values({ verified })` on `vendors` anywhere else, and the daily
   `license_mirror_drift` data-quality check (AECI-1354; `error` since AECI-1355) is the
   run-time backstop, checking the bit against live licenses. Its entitlement twin,
-  `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375).
+  `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375). *As built (AECI-1358,
+  2026-10-17): `lib/vendor-entitlement.ts` is deleted. `lib/license.ts` is the sole writer,
+  and `verified` mirrors EXISTS(live license). Nothing reads or writes `vendor_entitlements`.*
 - **The arrangement is a row now, not just audit metadata.** It is still written to the grant
   audit row's metadata as well — `audit_log` is the renewal ledger (§2.1 of the paid-tiers
   spec), keyed `entity_type='vendor_entitlement', entity_id=<vendor_id>`.
@@ -1020,7 +1027,7 @@ full list:
 | `workflow_instances.initiated_by` | NO ACTION | nulled |
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
-| `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609 |
+| `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609. *No longer nulled by the batch since AECI-1358 PR 1 (2026-10-17): nothing reads or writes the table, and its own `ON DELETE SET NULL` still clears the column. The table is dropped in PR 2, which also lowers the FK count.* |
 | `vendor_seat_invites.invited_by_id` | SET NULL | nulled (explicit too; the **invite survives its sender's erasure** — a pending invite is the invitee's to redeem, so only the sender's link is severed) — AECI-664 |
 | `integration_field_challenges.submitted_by` | SET NULL | nulled (explicit too; the **contest survives** — it is the vendor's record, so only the filing person's link is severed) — AECI-1008 |
 | `integration_field_challenges.decided_by` | SET NULL | nulled (explicit too; the decision survives, only the deciding person's link is severed) — AECI-1008 |

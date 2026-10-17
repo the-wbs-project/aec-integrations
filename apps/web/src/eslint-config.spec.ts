@@ -46,18 +46,17 @@ const FIXTURE_FILES = {
   webTest: { cwd: WEB, file: join(WEB, 'src/server/seo-headers.spec.ts') },
   apiSource: { cwd: API, file: join(API, 'src/index.ts') },
   apiTest: { cwd: API, file: join(API, 'src/routes/vendors.spec.ts') },
-  // AECI-609 sole-writer tier: the two exempt files (the entitlement-era writer, and
-  // AECI-1352's license module, which coexist until E1.9), the file whose TEMPORARY
-  // carve-out AECI-612 removed, and a neighbouring lib — so the exemption is proven to
-  // be exactly those files, not "anything under lib/".
-  apiMirrorWriter: { cwd: API, file: join(API, 'src/lib/vendor-entitlement.ts') },
-  apiMirrorLicenseWriter: { cwd: API, file: join(API, 'src/lib/license.ts') },
+  // AECI-609 sole-writer tier: the one exempt file (AECI-1352's license module; the
+  // entitlement-era writer beside it was deleted by E1.9, AECI-1358), the file whose
+  // TEMPORARY carve-out AECI-612 removed, and a neighbouring lib — so the exemption is
+  // proven to be exactly that file, not "anything under lib/".
+  apiMirrorWriter: { cwd: API, file: join(API, 'src/lib/license.ts') },
   apiMirrorFormerBaseline: { cwd: API, file: join(API, 'src/lib/vendor-grant.ts') },
   apiMirrorNeighbour: { cwd: API, file: join(API, 'src/lib/vendor-cache-tags.ts') },
   /** The capability registry — the one file that may not import zod. */
   sharedRegistry: { cwd: SHARED, file: join(SHARED, 'src/entitlements.ts') },
   /** Its wire-contract sibling — zod is exactly where it belongs. */
-  sharedWireContract: { cwd: SHARED, file: join(SHARED, 'src/api/admin-entitlements.ts') },
+  sharedWireContract: { cwd: SHARED, file: join(SHARED, 'src/api/vendor.ts') },
 } as const;
 
 type Target = keyof typeof FIXTURE_FILES;
@@ -215,7 +214,9 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
     expect(syntaxMessages('webTest')).not.toContain(CONSTRAINT.mirror);
   });
 
-  it('lib/vendor-entitlement.ts is exempt from the mirror rule but keeps both other tiers', () => {
+  it('lib/license.ts is exempt from the mirror rule but keeps both other tiers', () => {
+    // The license module's `reconcileVerifiedMirror` is the sole writer (AECI-1352).
+    // Since E1.9 (AECI-1358) it is the only exempt file.
     const messages = syntaxMessages('apiMirrorWriter');
     expect(messages).not.toContain(CONSTRAINT.mirror);
     // The flat-config trap: an `ignores` on the wrong block would drop these too.
@@ -224,26 +225,15 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
     }
   });
 
-  it('lib/license.ts is exempt from the mirror rule but keeps both other tiers (AECI-1352)', () => {
-    // The license module's `reconcileVerifiedMirror` is the license-era writer. It and
-    // vendor-entitlement.ts coexist until E1.9 (AECI-1358) retires the old one.
-    const messages = syntaxMessages('apiMirrorLicenseWriter');
-    expect(messages).not.toContain(CONSTRAINT.mirror);
-    for (const fragment of [...ALL_TIER, ...SOURCE_TIER]) {
-      expect(messages, `the license writer lost: ${fragment}`).toContain(fragment);
-    }
-  });
-
   it('lib/vendor-grant.ts LOST its temporary exemption once AECI-612 landed', () => {
     // AECI-609 carved vendor-grant.ts out because it still emitted the `verified`
-    // flip. AECI-612 (§6 step 1) deleted that statement and composed
-    // `activateEntitlementStatements` into the same batch instead, so the carve-out
-    // was removed. Asserting the rule is now ACTIVE here — rather than deleting the
+    // flip. AECI-612 (§6 step 1) deleted that statement and composed the entitlement
+    // activator into the same batch instead, so the carve-out was removed. Asserting the rule is now ACTIVE here — rather than deleting the
     // case — is what stops the flip being reintroduced under a stale exemption.
     expect(syntaxMessages('apiMirrorFormerBaseline')).toContain(CONSTRAINT.mirror);
   });
 
-  it('the exemption is exactly the two writers — a neighbouring lib still carries the rule', () => {
+  it('the exemption is exactly the one writer — a neighbouring lib still carries the rule', () => {
     expect(syntaxMessages('apiMirrorNeighbour')).toContain(CONSTRAINT.mirror);
   });
 });
@@ -440,16 +430,10 @@ describe('constraint rules do not fire on legitimate code', () => {
     expect(lint('webSource', 'this.model.set({ verified: true });')).toEqual([]);
   });
 
-  it('lets the sole writer write the mirror', () => {
-    expect(
-      lint('apiMirrorWriter', 'db.update(vendors).set({ verified: true, updatedAt: now });'),
-    ).toEqual([]);
-  });
-
-  it('lets the license module write the reconcile (AECI-1352)', () => {
+  it('lets the sole writer, the license module, write the reconcile (AECI-1352)', () => {
     expect(
       lint(
-        'apiMirrorLicenseWriter',
+        'apiMirrorWriter',
         'db.update(vendors).set({ verified: liveLicenseExists(id), updatedAt: now });',
       ),
     ).toEqual([]);

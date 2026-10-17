@@ -8,7 +8,6 @@ import {
   LICENSE_SOURCES,
 } from '../entitlements';
 
-import { EntitlementTermDateSchema } from './admin-entitlements';
 import { AdminOverrideReasonSchema } from './admin-reason';
 
 /**
@@ -29,6 +28,14 @@ import { AdminOverrideReasonSchema } from './admin-reason';
  * writing nothing and sending no email. A `grant_id` whose rows only partly match
  * the request is `409 LICENSE_GRANT_CONFLICT`.
  */
+
+/**
+ * An ISO-8601 term boundary. Accepts a date-only value (`2027-08-14`, what a
+ * date picker submits) as well as a full timestamp; the handler normalizes on
+ * write. The license grant and extend bodies use it. Moved here from
+ * `admin-entitlements.ts` when AECI-1358 deleted that file.
+ */
+export const EntitlementTermDateSchema = z.union([z.string().date(), z.string().datetime()]);
 
 /** The sources an admin may grant. `stripe` is refused here: only E9's webhook writes it. */
 export const AdminGrantLicenseSourceSchema = z.enum(ADMIN_GRANT_LICENSE_SOURCES);

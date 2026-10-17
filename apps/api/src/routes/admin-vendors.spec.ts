@@ -35,7 +35,6 @@ import {
   productVendors,
   products,
   profiles,
-  vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -1358,12 +1357,6 @@ describe('GET /api/admin/vendors/:id/audit', () => {
 describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
   beforeEach(async () => {
     await seedVendor(VENDOR, { verified: true });
-    await t.db.insert(vendorEntitlements).values({
-      id: u(41),
-      vendorId: VENDOR,
-      tier: 'verified',
-      status: 'active',
-    });
     // AECI-1355: the audit plan snapshot reads the vendor's licenses.
     await seedLicense(t.db, VENDOR);
     await t.db
@@ -1493,8 +1486,8 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
-  it('leaves the entitlement, the mirror and vendors.updated_at alone', async () => {
-    // §5.2 — clearing an entitlement and revoking a seat are orthogonal. A revoke
+  it('leaves the license, the mirror and vendors.updated_at alone', async () => {
+    // §5.2 — ending a plan and revoking a seat are orthogonal. A revoke
     // that moved the mirror would silently un-verify a vendor whose arrangement
     // is still live and still paid for.
     const [before] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
@@ -1503,11 +1496,9 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     expect(after.verified).toBe(true);
     expect(after.updatedAt).toBe(before.updatedAt);
 
-    const [ent] = await t.db
-      .select()
-      .from(vendorEntitlements)
-      .where(eq(vendorEntitlements.vendorId, VENDOR));
-    expect(ent.status).toBe('active');
+    const held = await t.db.select().from(licenses);
+    expect(held).toHaveLength(1);
+    expect(held[0]!.endedAt).toBeNull();
   });
 
   it('404s for a seat on a DIFFERENT vendor', async () => {
@@ -1549,7 +1540,8 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
 
 /**
  * The provisioning action, and the one property every test here exists to pin:
- * **it creates a `vendor_admin` seat and opens NO `vendor_entitlements` row.**
+ * **it creates a `vendor_admin` seat and grants NO license.** (Before AECI-1358 the
+ * property read "opens no entitlement row"; licenses replaced that row.)
  *
  * `STAGE_2_SPEC.md` §8.9(1) settled that a pure connector vendor is never sold
  * verification and gets a catalogue-maintenance seat instead; §8.9(2) showed the
@@ -1622,7 +1614,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     expect(seat.seatOwner).toBe(true);
   });
 
-  it('opens NO entitlement row and never lights the badge — the whole point', async () => {
+  it('grants NO license and never lights the badge — the whole point', async () => {
     // §8.9(2). This is the assertion the endpoint exists for; if it ever fails,
     // a connector vendor has been handed the paid `verified` status the carve-out says
     // they will never be sold, through a one-way door.
@@ -1632,7 +1624,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     expect((await body(res)).entitlement_granted).toBe(false);
     expect((await body(await provision(VENDOR, linked()))).verified).toBe(false);
 
-    expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
+    expect(await t.db.select().from(licenses)).toEqual([]);
     const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
     // Byte-identical, including `updated_at` — nothing must reach the nightly
     // Algolia push as a changed vendor record (§5.2 step 2's approve-then-clear
@@ -1675,10 +1667,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     expect(metadata.is_pure_connector_vendor).toBe(true);
   });
 
-  it('snapshots the plan from licenses, not the entitlement row (AECI-1355)', async () => {
-    await t.db
-      .insert(vendorEntitlements)
-      .values({ vendorId: VENDOR, tier: 'verified', status: 'active' });
+  it('snapshots the plan as none when the vendor holds no license (AECI-1355)', async () => {
     await provision(VENDOR, linked());
     const [none] = await t.db
       .select()

@@ -79,7 +79,7 @@ import { logToPosthog } from '../posthog';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { uuidv5 } from '../lib/backfill-licenses';
+import { uuidv5 } from '../lib/uuidv5';
 import { loadBillingAccount } from '../lib/billing-account';
 import { sendLicensesGrantedEmail, sendManagedEndedEmail, type EmailContext } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';

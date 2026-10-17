@@ -429,10 +429,10 @@ export async function checkAlgoliaDrift(
  * `docs/VENDOR_SIGNUP_PROCESS.md` §5 E1, `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1).
  *
  * Guard 2 of the mirror. Guard 1 is the sole-writer ESLint rule. This check catches
- * what lint cannot: hand-written D1 SQL against a tier, the `apps/datatool` worker,
- * or an `ops:backfill-licenses` run that never happened on this tier. It replaced
- * `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375): license grants and
- * revokes move `verified`, and nothing writes `vendor_entitlements` any more.
+ * what lint cannot: hand-written D1 SQL against a tier, or the `apps/datatool` worker.
+ * It replaced `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375): license
+ * grants and revokes move `verified`, and nothing writes the old entitlement table
+ * any more. The one-off license back-fill it once proved was deleted by AECI-1358.
  *
  * The predicate is the one `reconcileVerifiedMirror` in `lib/license.ts` writes, so
  * a vendor the reconcile would move is exactly a finding.

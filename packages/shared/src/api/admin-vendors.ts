@@ -519,9 +519,9 @@ export type AdminVendorAuditResponse = z.infer<typeof AdminVendorAuditResponseSc
  * **Why this endpoint exists at all.** §8.9(1) settled that a pure *connector*
  * vendor — one whose every product is `product_role = 'connector'` — is never
  * sold verification, and gets a **catalogue-maintenance seat** instead, carried
- * by **no `vendor_entitlements` row**. §8.9(2) then proved every existing path to
- * a seat was foreclosed: `approveClaim` composes `grantSeatStatements` with
- * `activateEntitlementStatements` at `GRANT_TIER = 'verified'` in one batch, so
+ * by **no plan** (no entitlement row then, no license now). §8.9(2) then proved
+ * every existing path to a seat was foreclosed: `approveClaim` composed
+ * `grantSeatStatements` with the entitlement activator in one batch, so
  * approving such a claim *always* opened an entitlement and flipped `verified`
  * (AECI-1367 has since made every approval land on Free, with no entitlement); the
  * seat-invite redeem needs an existing OWNER seat, which only a grant creates;
@@ -562,8 +562,8 @@ export type AdminRevokeSeat = z.infer<typeof AdminRevokeSeatSchema>;
  * What a provision reports back.
  *
  * **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** That is the
- * §8.9(2) fence expressed as a type: a future edit that composes this path with
- * `activateEntitlementStatements` cannot report the truth without failing to
+ * §8.9(2) fence expressed as a type: a future edit that composes this path with a
+ * license writer (`lib/license.ts`) cannot report the truth without failing to
  * compile. It mirrors the `seat_not_granted: true` literal AECI-720 writes into
  * its own audit metadata, from the opposite direction — that endpoint says "I
  * granted no seat", this one says "I opened no entitlement".

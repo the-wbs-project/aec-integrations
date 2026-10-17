@@ -39,7 +39,7 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * retry of a destructive job is the last thing worth automating.
  * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
  * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
- * `vendor_entitlements_expiry_idx` → a renewal prompt to the vendor's seats and
+ * `licenses_ends_idx` (AECI-1356) → a renewal prompt to the vendor's seats and
  * an operator copy to `SUPPORT_EMAIL`, fenced by `expiry_notice_sent_at` so a
  * term earns one notice rather than one per night. Queue-less like
  * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes

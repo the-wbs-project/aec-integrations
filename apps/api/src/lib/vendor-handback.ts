@@ -43,8 +43,8 @@
  *   hand-back ends that claim. A later re-claim is newer than the stamp.
  * - Claims, attestations, links and contests are kept. Nothing is deleted.
  * - `last_reviewed_at` is never touched in either direction (§13.4).
- * - `vendors.verified` and `vendor_entitlements` are untouched. Seat and
- *   entitlement stay orthogonal (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+ * - `vendors.verified` and the vendor's licenses are untouched. Seat and plan stay
+ *   orthogonal (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
  *
  * A write that would change nothing is omitted with its audit row, the way
  * `aeciMaintainedFlip` returns `null` in `routes/vendor-attestations.ts`.

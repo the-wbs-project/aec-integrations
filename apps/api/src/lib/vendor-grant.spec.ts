@@ -6,12 +6,12 @@
  * be deleted without reopening the spec.
  *
  * **`lib/vendor-grant.ts` must never emit a statement that touches `vendors`.**
- * `vendors.verified` is a denormalized MIRROR of `vendor_entitlements` (§2.1); the
- * *iff* it encodes is only safe under D1's no-interactive-transactions model if both
- * sides move inside one `db.batch`, so exactly one module emits both —
- * `lib/vendor-entitlement.ts`. AECI-519 originally shipped the flip here, and AECI-612
- * deleted it. Since AECI-1367 no claim grant composes an entitlement at all: every
- * approval lands on Free.
+ * `vendors.verified` is a denormalized MIRROR of a live license (§2.1); the *iff* it
+ * encodes is only safe under D1's no-interactive-transactions model if both sides move
+ * inside one `db.batch`, so exactly one module emits both: `lib/license.ts`. AECI-519
+ * originally shipped the flip here, and AECI-612 deleted it. Since AECI-1367 no claim
+ * grant composes a plan at all: every approval lands on Free. Until AECI-1358 the one
+ * module was the entitlement writer (`lib/vendor-entitlement.ts`), now deleted.
  *
  * Two independent guards, because each catches what the other cannot:
  *
@@ -23,8 +23,8 @@
  *     the SQL match (`db.update(schema.vendors)`, raw SQL) — the same blind spot
  *     `eslint.config.base.mjs` records for Guard 1.
  *
- * The complement to this file is `vendor-entitlement.spec.ts`, which proves the mirror
- * DOES move — from the one module allowed to move it.
+ * The complement to this file is `license.spec.ts`, which proves the mirror DOES move,
+ * from the one module allowed to move it.
  */
 
 import { eq } from 'drizzle-orm';
@@ -33,8 +33,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditLog,
   billingAccounts,
+  licenses,
   profiles,
-  vendorEntitlements,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -74,7 +74,7 @@ function sqlOf(stmt: BatchStmt): string {
 }
 
 /** Statements whose SQL names the `vendors` table. Matches the QUOTED identifier so
- *  `"vendor_requests"` and `"vendor_entitlements"` are not false positives. */
+ *  `"vendor_requests"` and `"vendor_seat_invites"` are not false positives. */
 function vendorsStatements(stmts: BatchStmt[]): string[] {
   return stmts.map(sqlOf).filter((sql) => /"vendors"/.test(sql));
 }
@@ -524,15 +524,15 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
     expect(sql).toContain('"audit_log"');
   });
 
-  it('names neither `vendors` nor `vendor_entitlements`', () => {
-    // The §8.9(2) fence, structurally: `vendors.verified` mirrors off an ACTIVE
-    // entitlement row, so a statement on either table could flip `verified`,
-    // which this seat must never do.
+  it('names neither `vendors` nor `licenses`', () => {
+    // The §8.9(2) fence, structurally: `vendors.verified` mirrors off a live
+    // license, so a statement on either table could flip `verified`, which this
+    // seat must never do.
     const { stmts } = provisionSeatStatements(t.db, provisionArgs());
     const sql = stmts.map(sqlOf).join('\n');
 
     expect(vendorsStatements(stmts)).toEqual([]);
-    expect(sql).not.toContain('"vendor_entitlements"');
+    expect(sql).not.toContain('"licenses"');
     // And no workflow row: a seat is not a claim state change, and
     // `workflow_instances_type_check` is a closed CHECK besides.
     expect(sql).not.toContain('"workflow_instances"');
@@ -612,9 +612,9 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
     expect(await vendorOf()).toEqual(beforeRow);
     const seat = (await t.db.select().from(profiles).where(eq(profiles.id, CLAIMANT_ID)))[0];
     expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
-    // No entitlement or license was opened, so `license_mirror_drift` (which counts
+    // No license was granted, so `license_mirror_drift` (which counts
     // `verified = 1` XOR a live license) sees nothing on either side, §8.9(4).
-    expect(await t.db.select().from(vendorEntitlements)).toEqual([]);
+    expect(await t.db.select().from(licenses)).toEqual([]);
     expect((await t.db.select().from(auditLog))[0]?.action).toBe('vendor_seat.provisioned');
   });
 });

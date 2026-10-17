@@ -15,7 +15,7 @@
 -- WHAT
 --   * Eight APPROVED reviews and one PENDING review on Dynamo for Revit
 --     (c…710, extension-fixtures.sql), which Autodesk (a…001, catalog.sql,
---     `verified` with an active entitlement) owns. Autodesk is the default
+--     `verified` with a live license) owns. Autodesk is the default
 --     `LOCAL_VENDOR_SLUG`, so a locally seated vendor account sees them.
 --     Dynamo is chosen because no e2e or Lighthouse target reads it.
 --   * Five Autodesk replies, one per status: pending, published, rejected,

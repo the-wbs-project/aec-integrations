@@ -15,8 +15,8 @@
  * the same day gets ONE notice naming the count, not three. Licenses on one account with
  * different end dates are different terms and each earns its own notice: the email
  * names one date, and two dates are two decisions for the vendor. Today every
- * account's licenses share a term (E1.4's dual-write moves them together), so in
- * practice this is one notice per account.
+ * account's licenses share a term (the admin grant and term edit move them
+ * together), so in practice this is one notice per account.
  *
  * ── THE NON-NEGOTIABLE (§7.3) ───────────────────────────────────────────────────
  *

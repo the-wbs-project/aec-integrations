@@ -134,22 +134,16 @@ describe('AECI-1350 — no read path queries billing_accounts or licenses', () =
  * referencing the table must be dropped from the list, which keeps the list an
  * honest inventory for E1.9. The pattern is the Drizzle identifier or the quoted
  * SQL name, never the word in prose.
+ *
+ * As built (AECI-1358, 2026-10-17): E1.9 PR 1 deleted every reader and writer, so the
+ * list is the table definition alone. PR 2 drops the table and empties it.
  */
 const ENTITLEMENT_CODE_REFERENCE = /\bvendorEntitlements\b|"vendor_entitlements"/;
 
 /** Why each module may still name the table. */
 const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
-  // The definition.
+  // The definition, until E1.9 PR 2 drops the table.
   'db/schema.ts': 'the table itself',
-  // Retirement set: the old writers and checks E1.9 deletes with the table.
-  'lib/vendor-entitlement.ts': 'the entitlement writer, dual-writing licenses (AECI-1353)',
-  'lib/backfill-entitlements.ts': 'the AECI-609 back-fill',
-  'lib/backfill-licenses.ts': 'the AECI-1354 license back-fill (reads the old row to map it)',
-  'lib/retract-vendor.ts': 'the vendor-delete refusal count (FK handling)',
-  'routes/account.ts': 'account erasure NULLs granted_by (a write, not a plan read)',
-  // Admin set: operator surfaces. AECI-1375 removed the set / renew / clear route and
-  // the admin vendor list's and claims queue's entitlement reads.
-  'routes/admin-users.ts': 'user erasure preview (admin)',
 };
 
 function sourceModules(dir: string): string[] {
@@ -160,7 +154,7 @@ function sourceModules(dir: string): string[] {
   });
 }
 
-describe('AECI-1355 — vendor_entitlements is read only by the admin and retirement set', () => {
+describe('AECI-1355 / AECI-1358 — only the schema names vendor_entitlements', () => {
   it('the modules naming the table are exactly the allow-list', () => {
     const referencing = sourceModules(SRC)
       .filter((path) => ENTITLEMENT_CODE_REFERENCE.test(readFileSync(path, 'utf8')))
@@ -168,7 +162,7 @@ describe('AECI-1355 — vendor_entitlements is read only by the admin and retire
       .sort();
     expect(
       referencing,
-      'A module outside the admin and retirement set references vendor_entitlements, or ' +
+      'A module other than the schema references vendor_entitlements, or ' +
         'one on the list no longer does. Plan resolution reads `licenses` (AECI-1355): ' +
         'read the session (`entitlementTier`, `licensedProductIds`) or `lib/license.ts`.',
     ).toEqual(Object.keys(ENTITLEMENT_TABLE_ALLOWED).sort());

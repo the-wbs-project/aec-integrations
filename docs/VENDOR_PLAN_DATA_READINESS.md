@@ -226,7 +226,7 @@ Order: S1, then S2 with S3, then S4. S5 to S9 are independent. S2 touches about 
 `vendor_entitlements`. The main ones are `lib/authz.ts`, `lib/integration-entitlement.ts`,
 `lib/integration-contests.ts`, `lib/vendor-entitlement.ts`, `lib/entitlement-expiry.ts`,
 `lib/data-quality.ts`, `routes/admin-entitlements.ts`, `routes/admin-claims.ts`,
-`routes/vendor-updates.ts` and the portal plan panel. *(`routes/admin-entitlements.ts` was retired 2026-10-17 by AECI-1375.)*
+`routes/vendor-updates.ts` and the portal plan panel. *(`routes/admin-entitlements.ts` was retired 2026-10-17 by AECI-1375. `lib/vendor-entitlement.ts` was deleted 2026-10-17 by AECI-1358.)*
 
 Also: every approved claim opens a `verified` entitlement today (`routes/admin-claims.ts:178,526`,
 confirmed in AECI-1103). Under a free-seat model that hands out paid capability. Claim approval needs
