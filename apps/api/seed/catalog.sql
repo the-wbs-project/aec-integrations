@@ -15,13 +15,13 @@ INSERT INTO "vendors" ("id","slug","company_name","description","website","headq
   ('a0000000-0000-4000-8000-000000000001','autodesk','Autodesk','Design and make software for AEC, manufacturing, and media.','https://www.autodesk.com','San Francisco, CA, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000002','procore','Procore Technologies','Cloud-based construction management platform.','https://www.procore.com','Carpinteria, CA, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   -- bluebeam is deliberately verified = 0: it carries the `revoked` entitlement row
-  -- below, and `verified` is a MIRROR of an `active` row (AECI-609 / §2.1). Seeding it
-  -- as 1 would make `entitlement_mirror_drift` flag the local DB on the first cron run.
+  -- below, so its license is ended, and `verified` is a MIRROR of a live license
+  -- (§2.1). Seeding it as 1 would make `license_mirror_drift` flag the local DB.
   ('a0000000-0000-4000-8000-000000000003','bluebeam','Bluebeam','PDF markup and collaboration for design and construction.','https://www.bluebeam.com','Pasadena, CA, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   -- Trade-specific vendors (AECI-544). Needed so the local catalog exercises the
   -- fourth facet at all: none of the five products above may carry a trade tag.
-  -- trimble is verified = 1, so AECI-609's mirror invariant requires it to carry an
-  -- `active` entitlement row below — otherwise `entitlement_mirror_drift` flags it.
+  -- trimble is verified = 1, so it must carry an `active` entitlement row below, which
+  -- becomes its live license. Otherwise `license_mirror_drift` flags it.
   ('a0000000-0000-4000-8000-000000000004','trimble','Trimble','Estimating, fabrication, and field software for specialty contractors.','https://www.trimble.com','Westminster, CO, USA',1,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000005','mccormick-systems','McCormick Systems','Estimating software for electrical and plumbing contractors.','https://www.mccormicksys.com','Chandler, AZ, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a0000000-0000-4000-8000-000000000006','conest','ConEst Software Systems','Electrical estimating and project management software.','https://www.conest.com','Manchester, NH, USA',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -39,8 +39,9 @@ ON CONFLICT ("slug") DO UPDATE SET
 -- ---------------------------------------------------------------------------
 -- Vendor entitlements (AECI-609 / STAGE_2_PAID_TIERS_SPEC.md §2.4)
 -- ---------------------------------------------------------------------------
--- `vendors.verified` is a MIRROR of an `active` row here, so these MUST agree with the
--- `verified` values above or `entitlement_mirror_drift` flags the local DB. Three
+-- The licenses below are read from these rows, and `vendors.verified` mirrors a live
+-- license, so these MUST agree with the `verified` values above or
+-- `license_mirror_drift` flags the local DB. Three
 -- deliberate states are seeded across the seed set so every downstream AECI-515 issue
 -- has something local to work against:
 --   * near-expiry active — autodesk (+20d), so the §7 expiry cron has a local bite

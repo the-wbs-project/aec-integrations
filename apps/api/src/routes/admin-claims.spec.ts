@@ -1505,27 +1505,22 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(body.data[0]!.seat_emails_available).toBe(true);
   });
 
-  // ── The entitlement column (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ──────
+  // ── The resolved vendor (AECI-532; readout dropped by AECI-1375) ───────────
 
-  it('resolves the entitlement vendor + readout for a vendor claim', async () => {
+  it('resolves the entitlement vendor for a vendor claim, with no entitlement readout', async () => {
     await seedVendor({ verified: true });
     await seedEntitlement('active');
     await seedRequest();
 
     const row = (await parseClaims(await getClaims())).data[0]!;
-    // The control addresses `PATCH /api/admin/vendors/:id/entitlement`, so it needs a
+    // The "Manage billing" link addresses the vendor's Billing tab, so it needs a
     // VENDOR id — `target_id` happens to be one here, but not on a product claim.
     expect(row.entitlement_vendor).toEqual({
       id: VENDOR_ID,
       name: 'Autodesk, Inc.',
       slug: 'autodesk',
     });
-    expect(row.entitlement).toMatchObject({
-      vendor_id: VENDOR_ID,
-      tier: 'verified',
-      status: 'active',
-      verified: true,
-    });
+    expect(row).not.toHaveProperty('entitlement');
   });
 
   it('resolves a PRODUCT claim to the primary vendor, not the product', async () => {
@@ -1538,9 +1533,8 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
 
     const row = (await parseClaims(await getClaims())).data[0]!;
     // Same resolution `resolveTargetVendor` runs on the grant path — otherwise the
-    // queue would offer an entitlement control pointed at a product id.
+    // queue would offer a billing link pointed at a product id.
     expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
-    expect(row.entitlement).toBeNull();
   });
 
   // AECI-1364: a product-page claim is stored on the company with the product as context.
@@ -1561,23 +1555,6 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
 
     const row = (await parseClaims(await getClaims())).data[0]!;
     expect(row.context_product).toBeNull();
-  });
-
-  it('reports entitlement: null (not an error) for a vendor that has never been entitled', async () => {
-    await seedVendor();
-    await seedRequest();
-    const row = (await parseClaims(await getClaims())).data[0]!;
-    expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
-    expect(row.entitlement).toBeNull();
-  });
-
-  it('surfaces a CLEARED entitlement as its terminal status with verified false', async () => {
-    await seedVendor({ verified: false });
-    await seedEntitlement('revoked');
-    await seedRequest();
-
-    const row = (await parseClaims(await getClaims())).data[0]!;
-    expect(row.entitlement).toMatchObject({ status: 'revoked', verified: false });
   });
 
   it('reports an empty seat roster (not null) for a first claim', async () => {

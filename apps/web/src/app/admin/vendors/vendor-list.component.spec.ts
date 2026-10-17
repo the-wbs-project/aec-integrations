@@ -6,9 +6,10 @@
  * loading state. Here we assert the filter/pagination logic and the structural
  * invariants axe relies on.
  *
- * The filter cases carry the weight. This screen exists so an operator can find a
- * vendor that never filed a claim, so "search finds nothing" and "the Unverified
- * filter returns active-account vendors" are both failures of the whole point.
+ * The search cases carry the weight. This screen exists so an operator can find
+ * a vendor that never filed a claim, so "search finds nothing" is a failure of
+ * the whole point. AECI-1375 dropped the Account status filter and the
+ * Entitlement and Term ends columns, and added a sortable Live licenses column.
  *
  * AECI-694 turned the cards into a table with two sortable headers, so the
  * structural assertions target `tbody tr` rather than `article`, and the sort
@@ -45,9 +46,7 @@ function makeRow(over: Partial<AdminVendorRow> = {}): AdminVendorRow {
     slug: 'autodesk',
     company_name: 'Autodesk, Inc.',
     verified: true,
-    tier: 'verified',
-    status: 'active',
-    period_end: '2027-09-01',
+    live_license_count: 2,
     product_count: 4,
     updated_at: '2026-08-20T00:00:00.000Z',
     ...over,
@@ -125,15 +124,29 @@ describe('VendorList', () => {
     expect(link.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
   });
 
-  it('shows the mirror and the entitlement side by side, not one derived from the other', async () => {
-    // `verified` is a denormalized copy of "an active entitlement row exists".
-    // Rendering only one of them would hide drift, which is the failure mode the
-    // `entitlement_mirror_drift` check exists for.
-    const { el } = await setup(
-      makeApiMock([makeRow({ verified: true, tier: null, status: null, period_end: null })]),
-    );
-    expect(el.textContent).toContain('Active');
-    expect(el.textContent).toContain('No entitlement');
+  it('shows Account active and the live license count side by side (AECI-1375)', async () => {
+    // Neither is derived from the other on screen, so an active account with no
+    // live license is visible at a glance.
+    const { el } = await setup(makeApiMock([makeRow({ verified: true, live_license_count: 0 })]));
+    expect(header(el, 'Account active')).toBeTruthy();
+    expect(header(el, 'Live licenses')).toBeTruthy();
+    const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
+    expect(cells).toContain('Active');
+    expect(cells).toContain('0');
+  });
+
+  it('renders the live license count from the row', async () => {
+    const { el } = await setup(makeApiMock([makeRow({ live_license_count: 7, product_count: 4 })]));
+    const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
+    expect(cells).toContain('7');
+  });
+
+  it('has no Entitlement or Term ends column and no Account status filter (AECI-1375)', async () => {
+    const { el } = await setup(makeApiMock([makeRow()]));
+    expect(header(el, 'Entitlement')).toBeFalsy();
+    expect(header(el, 'Term ends')).toBeFalsy();
+    expect(el.querySelector('aec-select')).toBeNull();
+    expect(el.textContent).not.toContain('Account status');
   });
 
   it('renders the per-row product count, and no integration column at all', async () => {
@@ -157,17 +170,6 @@ describe('VendorList', () => {
     expect(cells).toContain('autodesk');
   });
 
-  it('renders a date-only term end on the day it actually ends', async () => {
-    // `period_end` is legally a bare `YYYY-MM-DD` (`EntitlementTermDateSchema`
-    // is a union, and the admin form is an `<input type="date">`). Handing that
-    // to `DatePipe` with `'UTC'` parses it as LOCAL midnight and then shifts it,
-    // so west of UTC a term ending on 1 September renders as 31 August. This
-    // asserts the day, which is the part an operator would take to a supplier.
-    const { el } = await setup(makeApiMock([makeRow({ period_end: '2027-09-01' })]));
-    expect(el.textContent).toContain('Sep 1, 2027');
-    expect(el.textContent).not.toContain('Aug 31, 2027');
-  });
-
   it('sends the search term only on submit, not on every keystroke', async () => {
     const { el, fixture, api } = await setup(makeApiMock([makeRow()]));
     const input = el.querySelector('input[type="search"]') as HTMLInputElement;
@@ -189,20 +191,9 @@ describe('VendorList', () => {
     expect(lastQuery(api)['search']).toBe('auto');
   });
 
-  it('omits `verified` entirely for the "any status" default', async () => {
+  it('never sends a `verified` filter: the API no longer takes one', async () => {
     const { api } = await setup(makeApiMock([makeRow()]));
     expect(lastQuery(api)).not.toHaveProperty('verified');
-  });
-
-  it("sends verified='false' as a string the API can distinguish", async () => {
-    // The API's query schema is an enum-plus-transform, not `z.coerce.boolean()`
-    // — sending a real `false` would be coerced back to `true` by the public
-    // schema's shape (AECI-691). The string is the contract.
-    const { fixture, api } = await setup(makeApiMock([makeRow()]));
-    fixture.componentInstance['onVerifiedChange']('false');
-    await settle();
-    fixture.detectChanges();
-    expect(lastQuery(api)['verified']).toBe('false');
   });
 
   it('resets to chunk 1 AND discards the accumulation on any filter change', async () => {
@@ -215,7 +206,8 @@ describe('VendorList', () => {
     expect(lastQuery(api)['page']).toBe(2);
     expect(bodyRows(el)).toHaveLength(2);
 
-    fixture.componentInstance['onVerifiedChange']('true');
+    fixture.componentInstance['searchDraft'].set('auto');
+    fixture.componentInstance['submitSearch']();
     await settle();
     fixture.detectChanges();
     expect(lastQuery(api)['page']).toBe(1);
@@ -281,18 +273,10 @@ describe('VendorList', () => {
     it('gives EVERY column a control, and each sends a key the API accepts', async () => {
       // The rule is unchanged — a header the server cannot honour would reorder
       // only what is loaded and present it as a ranking. What changed is that
-      // `resolveAdminVendorOrderBy` now orders by all seven columns, so parsing
+      // `resolveAdminVendorOrderBy` now orders by all six columns, so parsing
       // each emitted key against the real schema is what keeps them honest.
       const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
-      const labels = [
-        'Vendor',
-        'Slug',
-        'Account active',
-        'Entitlement',
-        'Products',
-        'Term ends',
-        'Updated',
-      ];
+      const labels = ['Vendor', 'Slug', 'Account active', 'Live licenses', 'Products', 'Updated'];
       for (const label of labels) {
         const button = header(el, label)?.querySelector('button');
         expect(button, label).toBeTruthy();
@@ -315,6 +299,18 @@ describe('VendorList', () => {
       fixture.detectChanges();
       expect(lastQuery(api)['sort']).toBe('updated');
       expect(lastQuery(api)['order']).toBe('desc');
+    });
+
+    it('sorts Live licenses by the `licenses` key, most licenses first (AECI-1375)', async () => {
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      expect(header(el, 'Live licenses')?.getAttribute('aria-sort')).toBe('none');
+      header(el, 'Live licenses')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('licenses');
+      expect(lastQuery(api)['order']).toBe('desc');
+      expect(lastQuery(api)['page']).toBe(1);
+      expect(header(el, 'Live licenses')?.getAttribute('aria-sort')).toBe('descending');
     });
 
     it('REVERSES on a second click of the active column', async () => {

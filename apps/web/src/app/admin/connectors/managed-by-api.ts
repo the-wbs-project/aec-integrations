@@ -1,9 +1,8 @@
 /**
  * The ONE client for `PATCH /api/admin/connector-catalogs/:id` (AECI-720).
  *
- * Split out of `AdminConnectorsApi` for the same reason `AdminEntitlementApi` is
- * split out of `AdminVendorsApi`: the endpoint that can freeze a promote lane
- * gets exactly one caller, so the blast radius is greppable.
+ * Split out of `AdminConnectorsApi` so the endpoint that can freeze a promote
+ * lane gets exactly one caller, and the blast radius is greppable.
  *
  * This client re-implements none of the action. AECI-720 owns the audit row, the
  * 422 same-state gate and the 404 on an unknown `vendorId`; the control renders

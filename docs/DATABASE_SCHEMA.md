@@ -220,7 +220,7 @@ create table vendors (
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
 
   -- Operational
-  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, plus apps/api/src/lib/license.ts during the license transition (AECI-1352, §8.6c: reconciled to EXISTS(live license)), enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift and license_mirror_drift checks. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
+  verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; lib/vendor-entitlement.ts stays on the sole-writer exempt list until E1.9, enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -260,9 +260,9 @@ the claim button copy that switched on it. The remaining readers are internal:
 
 - the API's pair version-diff gate, which reads the raw vendor row through
   `pickPrimaryVendorRow` (`apps/api/src/lib/drizzle-helpers.ts`) and answers `diff_access`
-- the admin vendor surfaces, including the separate `GET /api/admin/vendors?verified=` filter
+- the admin vendor surfaces (the `GET /api/admin/vendors` `?verified=` filter was retired 2026-10-17, AECI-1375; the column still shows and sorts)
 - the vendor portal's `VendorAccountSchema`, as read-only state
-- the `entitlement_mirror_drift` and `license_mirror_drift` data-quality checks, the retract path and the backfills
+- the `license_mirror_drift` data-quality check, the retract path and the backfills
 
 `vendorLinkColumns` still selects the column for the gate. `toVendorLink` and
 `toVendorListItem` no longer emit it. The column, `vendors_verified_idx` and the invariant are
@@ -1660,9 +1660,10 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   row (§8.6c). The column names stay, to avoid an `audit_log` recreate. **Since AECI-1355 the
   vendor path and the shared admin helper (`vendorAuditStamp`, the hand-back, the seat-invite
   accept) also use `licensePlanSnapshot`**: the vendor path over the licenses on the session, the
-  others over `loadVendorLicenses`. The admin claim approval, integration retire/restore,
-  plan-pricing and vendor seat (revoke, provision) routes do too, over `loadVendorLicenses`. Only
-  the admin entitlement routes still use `vendorPlanSnapshot`, until E4 replaces them.
+  others over `loadVendorLicenses`. The admin claim approval, integration retire/restore
+  and vendor seat (revoke, provision) routes do too, over `loadVendorLicenses`. The admin
+  entitlement and plan-pricing routes that still used `vendorPlanSnapshot` were retired
+  2026-10-17 (AECI-1375). No route calls it now; it leaves with `vendor_entitlements` at E1.9.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
   the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
@@ -1878,9 +1879,12 @@ create table vendor_plan_pricing (
   `vendor_entitlements` (§8.6), because a Free vendor with no entitlement row must still carry
   an override, and clearing an entitlement must not wipe it.
 - **No row is the default.** The one writer, `PUT /api/admin/vendors/:id/plan-pricing`,
-  deletes the row when both overrides are cleared, so a row always holds at least one.
-- **No CHECK.** Bounds live in `SetVendorPlanPricingSchema` (price 0 to 10,000,000 cents;
-  message 1 to 280 characters). A CHECK change would force a D1 table recreate
+  deleted the row when both overrides were cleared, so a row always holds at least one.
+  *As built 2026-10-17 (AECI-1375):* that route is retired, so the table has **no writer**.
+  Existing rows are read by `loadPlanPrice` for the vendor plan panel until E1.8 drops the
+  table (`VENDOR_SIGNUP_PROCESS.md` decision 8).
+- **No CHECK.** Bounds lived in `SetVendorPlanPricingSchema` (price 0 to 10,000,000 cents;
+  message 1 to 280 characters), removed with the route by AECI-1375. A CHECK change would force a D1 table recreate
   (`docs/migrations.md` §0).
 - **Domain state.** Every write emits `vendor_plan_pricing.set` or `.cleared` into the same
   `db.batch` (§8.4), keyed `entity_type = 'vendor_plan_pricing'`, `entity_id` = the vendor id.
@@ -1889,7 +1893,8 @@ create table vendor_plan_pricing (
   means nothing without the vendor, and its history is in `audit_log`.
 - **Read paths.** `GET /api/vendor/me`, the product PATCH echo and both checklist reads put
   `{ managed_price_cents, message }` on every `plan` block, one primary-key read each.
-  `GET /api/admin/vendors/:id` returns it with `updated_by` / `updated_at` as `plan_pricing`.
+  `GET /api/admin/vendors/:id` returned it with `updated_by` / `updated_at` as `plan_pricing`
+  until AECI-1375 (2026-10-17) dropped that field.
 
 ### 8.6b `billing_accounts` (AECI-1350, migration 0073)
 
@@ -1929,7 +1934,7 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
   batch, seat included, rolls back. The entitlement activate's license dual-write (AECI-1353,
   §8.6c) composes the same builder, so `PATCH /api/admin/vendors/:id/entitlement` on a vendor
-  with no seat creates the account too. On a Managed claim the dual-write creates it first
+  with no seat created the account too, until AECI-1375 retired that route on 2026-10-17. On a Managed claim the dual-write creates it first
   and the route treats it as existing, so the batch carries one INSERT.
 - **Owner seats are not here.** The owner flag is `profiles.seat_owner` (§7.1, AECI-664),
   which is decision 10's owner flag. `ownerSeatsOf(vendorId)` in
@@ -2128,7 +2133,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `vendor_entitlements` (§8.6) stays the truth and these rows mirror it. *As built: E1.6
   (AECI-1355) switched the readers on 2026-10-14. The admin entitlement routes still write
   `vendor_entitlements`, and this dual-write is how they reach `licenses`, until E4 replaces
-  them.* The three builders
+  them.* *As built 2026-10-17 (AECI-1375): those routes are retired, so no route runs the
+  dual-write. The builders leave with `vendor_entitlements` at E1.9.* The three builders
   in `apps/api/src/lib/vendor-entitlement.ts` append the matching license batch to their
   own, in the same `db.batch`, and take a second pre-read (`loadLicenseDualWrite`: the
   account, the vendor's licenses, its owned products with their live-license state).
@@ -2167,7 +2173,7 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   re-run writes nothing. It never writes `vendors.verified`: a vendor whose mirror
   disagrees with its entitlement is refused and listed. Rows with `period_end` NULL are
   listed for a date decision (ruling 2026-10-14). Proof it landed: the
-  `license_mirror_drift` data-quality check reads 0 beside `entitlement_mirror_drift`.
+  `license_mirror_drift` data-quality check reads 0.
   Every run then copies the entitlement's `expiry_notice_sent_at` onto live licenses of
   the same term that lack it, for every vendor (a NULL-only fill, with one
   `license.expiry_stamp_reconciled` audit row per vendor stamped), so the
@@ -2428,10 +2434,14 @@ Notes:
   that can move either side of the *iff*, and never one without the other. An ESLint
   `no-restricted-syntax` rule rejects a `.set({ verified })` / `.values({ verified })` on
   `vendors` in any other file. The exempt list is that module and, since AECI-1352,
-  `lib/license.ts` (§8.6c) until E1.9. The daily `entitlement_mirror_drift` data-quality
-  check counts `verified = 1` XOR an active row as the run-time backstop. Its twin
-  `license_mirror_drift` (AECI-1354) does the same against live licenses. Callers are `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
-  paid-tiers spec) and the claim grant, which composes the same builder into its batch.
+  `lib/license.ts` (§8.6c) until E1.9. The run-time backstop is the daily
+  `license_mirror_drift` data-quality check (AECI-1354), which counts `verified = 1` XOR a
+  live license. Its entitlement twin, `entitlement_mirror_drift`, was retired 2026-10-17
+  (AECI-1375): license grants and revokes move `verified`, and nothing writes this table. Callers were `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
+  paid-tiers spec) and the claim grant, which composed the same builder into its batch. The
+  claim grant stopped on 2026-10-15 (AECI-1367) and the route was retired on 2026-10-17
+  (AECI-1375), so the module has no caller left that writes `verified`. The license end path
+  (`reconcileVerifiedMirror` in any batch that ends a license, today only the admin revoke) is the only writer that takes it down now.
 - **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a **closed** CHECK
   and opening it on SQLite is a full table rebuild; `audit_log.entity_type` is deliberately
   unconstrained, so `'vendor_entitlement'` costs nothing. Entitlement writes audit and do not
@@ -4944,8 +4954,8 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
-- `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351) and the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `vendor_plan_pricing` (§8.6a): no writer since AECI-1375 (2026-10-17); it was admin-only (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351), the admin license grant and edit (AECI-1370, AECI-1371) and, until AECI-1375 retired its route, the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 

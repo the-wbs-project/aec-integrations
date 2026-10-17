@@ -13,10 +13,9 @@ import {
 } from './admin-vendors';
 
 /**
- * The AECI-652 wire contracts. Two of these cases guard decisions that are easy
- * to "simplify" back into defects:
+ * The AECI-652 wire contracts. One of these cases guards a decision that is easy
+ * to "simplify" back into a defect:
  *
- *  - `verified` is an ENUM-plus-transform, not `z.coerce.boolean()`.
  *  - `before_state` is `z.unknown().nullable()`, which in Zod 4 still REJECTS a
  *    missing key while accepting any present value. `z.record(...)` would reject
  *    a historical scalar snapshot; a plain `.optional()` would let a missed
@@ -36,9 +35,14 @@ describe('AdminVendorsListQuerySchema', () => {
   });
 
   it('accepts a sort key for every column the operator table renders', () => {
-    for (const key of ['name', 'slug', 'verified', 'entitlement', 'products', 'term', 'updated']) {
+    for (const key of ['name', 'slug', 'verified', 'licenses', 'products', 'updated']) {
       expect(AdminVendorSortSchema.safeParse(key).success, key).toBe(true);
     }
+  });
+
+  it('rejects the entitlement and term keys AECI-1375 retired', () => {
+    expect(AdminVendorSortSchema.safeParse('entitlement').success).toBe(false);
+    expect(AdminVendorSortSchema.safeParse('term').success).toBe(false);
   });
 
   it('rejects the public sort keys it does not implement', () => {
@@ -52,25 +56,8 @@ describe('AdminVendorsListQuerySchema', () => {
     expect(AdminVendorsListQuerySchema.safeParse({ perPage: '101' }).success).toBe(false);
   });
 
-  it("parses verified='true' as true", () => {
-    expect(AdminVendorsListQuerySchema.parse({ verified: 'true' }).verified).toBe(true);
-  });
-
-  it("parses verified='false' as FALSE, not true", () => {
-    // `z.coerce.boolean()` — which the public `VendorsListQuerySchema` still uses
-    // — yields `true` here, because `Boolean("false") === true`. That is the
-    // AECI-691 defect, and copying the public schema would have reproduced it on
-    // a surface that genuinely needs the negative filter.
-    expect(AdminVendorsListQuerySchema.parse({ verified: 'false' }).verified).toBe(false);
-  });
-
-  it('rejects any other verified value rather than guessing', () => {
-    expect(AdminVendorsListQuerySchema.safeParse({ verified: '1' }).success).toBe(false);
-    expect(AdminVendorsListQuerySchema.safeParse({ verified: 'yes' }).success).toBe(false);
-  });
-
-  it('omits verified entirely when absent — that is the "any" state', () => {
-    expect(AdminVendorsListQuerySchema.parse({}).verified).toBeUndefined();
+  it('no longer carries a verified filter (AECI-1375)', () => {
+    expect(AdminVendorsListQuerySchema.parse({ verified: 'true' })).not.toHaveProperty('verified');
   });
 });
 
@@ -80,9 +67,7 @@ describe('AdminVendorRowSchema', () => {
     slug: 'acme-corp',
     company_name: 'Acme Corp',
     verified: true,
-    tier: 'verified',
-    status: 'active',
-    period_end: '2027-01-01',
+    live_license_count: 2,
     product_count: 3,
     updated_at: '2026-08-20T00:00:00.000Z',
   };
@@ -91,19 +76,22 @@ describe('AdminVendorRowSchema', () => {
     expect(AdminVendorRowSchema.parse(base).slug).toBe('acme-corp');
   });
 
-  it('accepts null tier/status/period_end for a vendor with no entitlement row', () => {
-    const parsed = AdminVendorRowSchema.parse({
-      ...base,
-      tier: null,
-      status: null,
-      period_end: null,
-    });
-    expect(parsed.tier).toBeNull();
+  it('accepts zero live licenses', () => {
+    expect(AdminVendorRowSchema.parse({ ...base, live_license_count: 0 }).live_license_count).toBe(
+      0,
+    );
   });
 
-  it('rejects a MISSING tier — nullable, never optional (R10)', () => {
-    const { tier: _tier, ...withoutTier } = base;
-    expect(AdminVendorRowSchema.safeParse(withoutTier).success).toBe(false);
+  it('rejects a negative or fractional live license count', () => {
+    expect(AdminVendorRowSchema.safeParse({ ...base, live_license_count: -1 }).success).toBe(false);
+    expect(AdminVendorRowSchema.safeParse({ ...base, live_license_count: 1.5 }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects a MISSING live_license_count (R10)', () => {
+    const { live_license_count: _count, ...without } = base;
+    expect(AdminVendorRowSchema.safeParse(without).success).toBe(false);
   });
 });
 
@@ -122,14 +110,6 @@ describe('AdminVendorDetailSchema', () => {
     last_reviewed_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-08-20T00:00:00.000Z',
-    entitlement: null,
-    plan_pricing: {
-      vendor_id: VENDOR_ID,
-      managed_price_cents: null,
-      message: null,
-      updated_by: null,
-      updated_at: null,
-    },
     seats: [],
     seat_emails_available: true,
     pending_invites: [],
@@ -141,7 +121,7 @@ describe('AdminVendorDetailSchema', () => {
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
   };
 
-  it('accepts a vendor with no entitlement and no seats', () => {
+  it('accepts a vendor with no seats', () => {
     expect(AdminVendorDetailSchema.parse(base).seats).toEqual([]);
   });
 
@@ -329,14 +309,6 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     last_reviewed_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
-    entitlement: null,
-    plan_pricing: {
-      vendor_id: VENDOR_ID,
-      managed_price_cents: null,
-      message: null,
-      updated_by: null,
-      updated_at: null,
-    },
     seats: [],
     seat_emails_available: true,
     pending_invites: [],

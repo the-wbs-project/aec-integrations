@@ -438,7 +438,7 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
   // The entitlement block (AECI-611). `vendors.verified` is a MIRROR of an
   // ACTIVE entitlement (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), so a fixture with
   // `verified: true` must carry an active row or it describes a drifted state
-  // the daily `entitlement_mirror_drift` check would flag as an error.
+  // the daily `license_mirror_drift` check would flag as an error.
   entitlement: MANAGED_PLAN,
 };
 

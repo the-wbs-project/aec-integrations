@@ -110,7 +110,7 @@ All under `/admin`, requires the D1 `profiles.role` admin grant.
 - [ ] `/admin/claims` — list renders; `product_role` breakdown and `is_pure_connector_vendor` visible (the §5.2 payer test).
 - [ ] `/admin/claims/:id` — detail route; **operator note** field saves (this is migration `0028`; if the column is missing the save 500s, which is your migration canary).
 - [ ] `/admin/vendors` and `/admin/vendors/:id` — basics, entitlement panel, seats, audit trail.
-- [ ] `/admin/vendors/:id` — entitlement **set / renew / clear**. Setting one should flip `vendors.verified`; clearing should flip it back **and** bump `updated_at` so search re-indexes.
+- [ ] `/admin/vendors/:id` — entitlement **set / renew / clear**. Setting one should flip `vendors.verified`; clearing should flip it back **and** bump `updated_at` so search re-indexes. *(Retired 2026-10-17 by AECI-1375. Test the Billing tab grant and revoke instead: the first grant flips `verified` on, and revoking the last live license flips it off.)*
 - [ ] `/admin/users` and `/admin/users/:id` — accounts, last login, seats, ban/reinstate. Ban now lives here (AECI-692 folded `/admin/reviewers`).
 - [ ] `/admin/connectors` and `/admin/connectors/:id` — read-only triage; the `managed_by` flip control is present and audited.
 - [ ] `/admin/overview`, `/activity`, `/traffic`, `/audience`, `/catalog`, `/system` — regression pass, these existed before.
@@ -145,8 +145,7 @@ Expected state on demo: **reachable but empty**, because no seats are granted. C
 - [ ] Sign-in works (magic link + Google OAuth — note Google OAuth 400s until the provider is enabled in the dashboard).
 - [ ] axe-core pass on the changed public surfaces: product detail, pair page, search, nav.
 - [ ] No console errors on the main public routes.
-- [ ] `entitlement_mirror_drift` reports 0 after the 04:00 UTC data-quality run.
-- [ ] `license_mirror_drift` reports 0 after the same run. It is `error` since AECI-1355, so a finding trips the `data-quality-error` alert. Run `ops:backfill-licenses` on the tier first if it does not.
+- [ ] `license_mirror_drift` reports 0 after the 04:00 UTC data-quality run. It is `error` since AECI-1355, so a finding trips the `data-quality-error` alert. Run `ops:backfill-licenses` on the tier first if it does not.
 
 ---
 

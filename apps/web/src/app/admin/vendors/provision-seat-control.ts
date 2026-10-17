@@ -57,8 +57,8 @@ const REASON_MAX_LENGTH = 500;
  * because only the claimant can say whether it wants to manage those integrations.
  *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
- * No heading and no live region, matching `EntitlementControl`'s and
- * `ManagedByControl`'s extraction contract: `VendorDetail` owns the page's single
+ * No heading and no live region, matching `ManagedByControl`'s extraction
+ * contract: `VendorDetail` owns the page's single
  * `role="status"` region and the heading level its outline requires, and
  * announcements leave through {@link announce}.
  */
@@ -77,7 +77,7 @@ export class ProvisionSeatControl {
   /** The §5.2 step 1a owner test (AECI-1041). Drives the owner warning ONLY. */
   readonly ownedIntegrations = input.required<VendorOwnedIntegrations>();
   /** Prefix for the form controls' `id`/`for` pairs, so two controls could share
-   *  a page without colliding — the rule `EntitlementControl` states. */
+   *  a page without colliding. */
   readonly idPrefix = input.required<string>();
   readonly labelledBy = input<string | null>(null);
 
@@ -167,7 +167,7 @@ export class ProvisionSeatControl {
     if (result.noop) {
       return $localize`:@@admin.vendors.provision.announce.noop:${email}:EMAIL: already holds this seat. Nothing changed.`;
     }
-    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No entitlement was opened.`;
+    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No license was granted.`;
   }
 }
 

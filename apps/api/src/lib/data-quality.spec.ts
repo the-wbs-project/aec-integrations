@@ -27,7 +27,6 @@ import {
   taxonomyDataObjects,
   taxonomyPhases,
   taxonomyTrades,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -38,7 +37,6 @@ import {
   checkArrivalCfCoverage,
   checkDuplicateProducts,
   checkDuplicateVendors,
-  checkEntitlementMirrorDrift,
   checkLandingCfCoverage,
   checkLicenseMirrorDrift,
   checkLogo404Sample,
@@ -462,65 +460,6 @@ describe('checkAlgoliaDrift', () => {
   });
 });
 
-// ── #11 entitlement_mirror_drift (AECI-609 Guard 2) ───────────────────────────
-
-describe('checkEntitlementMirrorDrift', () => {
-  /** Seed a vendor + (optionally) its entitlement row in one go. */
-  async function seedPair(
-    id: string,
-    slug: string,
-    verified: boolean,
-    status: string | null,
-  ): Promise<void> {
-    await t.db.insert(vendors).values({ id, slug, companyName: slug, verified });
-    if (status !== null) {
-      await t.db
-        .insert(vendorEntitlements)
-        .values({ vendorId: id, tier: 'verified', status, grantedAt: OLD });
-    }
-  }
-
-  it('flags a verified vendor with NO entitlement row (the backfill-did-not-run case)', async () => {
-    await seedPair('v1', 'autodesk', true, null);
-    const finding = await checkEntitlementMirrorDrift(t.db);
-    expect(finding.lines).toHaveLength(1);
-    expect(finding.lines[0]).toContain('no entitlement row');
-    expect(finding.lines[0]).toContain('verified=1');
-  });
-
-  it('flags a verified vendor whose entitlement is NOT active', async () => {
-    // This is the case that silently disappears if the `isNull(id)` disjunct is
-    // "simplified" away — `status <> 'active'` is NULL, not true, for a missing row,
-    // so the two halves of the predicate must both be present.
-    await seedPair('v1', 'bluebeam', true, 'revoked');
-    const finding = await checkEntitlementMirrorDrift(t.db);
-    expect(finding.lines).toHaveLength(1);
-    expect(finding.lines[0]).toContain("entitlement is 'revoked'");
-  });
-
-  it('flags the reverse half — an active entitlement on an unverified vendor', async () => {
-    await seedPair('v1', 'procore', false, 'active');
-    const finding = await checkEntitlementMirrorDrift(t.db);
-    expect(finding.lines).toHaveLength(1);
-    expect(finding.lines[0]).toContain('verified=0');
-    expect(finding.lines[0]).toContain("entitlement is 'active'");
-  });
-
-  it('is clean for every in-sync shape', async () => {
-    await seedPair('v1', 'autodesk', true, 'active'); // verified + active
-    await seedPair('v2', 'procore', false, null); // unclaimed baseline
-    await seedPair('v3', 'bluebeam', false, 'revoked'); // lapsed, mirror cleared
-    await seedPair('v4', 'trimble', false, 'pending'); // PO issued, not yet effective
-    expect((await checkEntitlementMirrorDrift(t.db)).lines).toEqual([]);
-  });
-
-  it('is registered at `error` severity — this invariant pages', () => {
-    const spec = CHECKS.find((c) => c.id === 'entitlement_mirror_drift');
-    expect(spec).toBeDefined();
-    expect(spec!.severity).toBe('error');
-  });
-});
-
 // ── license_mirror_drift (AECI-1354) ─────────────────────────────────────────
 
 describe('checkLicenseMirrorDrift', () => {
@@ -575,10 +514,11 @@ describe('checkLicenseMirrorDrift', () => {
     expect((await checkLicenseMirrorDrift(t.db)).lines).toEqual([]);
   });
 
-  // `warn` until the back-fill lands on every tier; AECI-1355 raises it to `error`.
-  it('is registered at `warn` severity, right after the entitlement check', () => {
+  // `error` since AECI-1355. It is Guard 2 of the mirror now that AECI-1375
+  // retired `entitlement_mirror_drift`, which must not come back.
+  it('is registered at `error` severity, and the entitlement check is retired', () => {
     const ids = CHECKS.map((c) => c.id);
-    expect(ids.indexOf('license_mirror_drift')).toBe(ids.indexOf('entitlement_mirror_drift') + 1);
+    expect(ids).not.toContain('entitlement_mirror_drift');
     expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
   });
 });

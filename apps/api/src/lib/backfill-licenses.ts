@@ -50,7 +50,7 @@
  * reconcile. For a vendor whose mirror already agrees with its entitlement, the
  * mapping gives a live license exactly when `verified = 1`, so `license_mirror_drift`
  * reads 0 without touching the bit. A vendor whose mirror DISAGREES with its
- * entitlement (`entitlement_mirror_drift`, either direction) is REFUSED and reported,
+ * entitlement (either direction) is REFUSED and reported,
  * not repaired: writing licenses for it would either carry the drift into the new
  * table or need a `verified` write, which only the sole-writer modules may make
  * (§2.1). That is the `backfill-entitlements` posture.
@@ -451,7 +451,7 @@ export interface BackfillPlan {
 const END_REASON: Record<string, 'lapsed' | 'revoked'> = { expired: 'lapsed', revoked: 'revoked' };
 
 /** Which way the §2.1 mirror disagrees with the entitlement row, or `null`. Same
- *  predicate as `entitlement_mirror_drift`. */
+ *  predicate as the retired `entitlement_mirror_drift` check (AECI-1375). */
 export function entitlementDrift(row: BackfillVendorRow): string | null {
   const active = row.ent_status === 'active';
   const verified = Number(row.verified) === 1;

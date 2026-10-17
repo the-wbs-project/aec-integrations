@@ -288,6 +288,10 @@ describe('LicenseBulkActions in the Billing table', () => {
     await refresh();
 
     expect(text(el)).toContain('Revoke 3 licenses? Each ends now.');
+    // Paid Tiers §5.2: a license revoke is not a seat revoke and not a ban.
+    expect(text(el.querySelector('[data-testid="license-bulk-revoke-not-seat"]'))).toBe(
+      'Seats and logins stay. This is not a seat revoke or a ban.',
+    );
     expect(text(el.querySelector('[data-testid="license-bulk-revoke-products"]'))).toContain(
       '2 are on products. Each of those products drops to the Free plan.',
     );
@@ -343,6 +347,34 @@ describe('LicenseBulkActions in the Billing table', () => {
       'Revoked 1 of the selected licenses. 1 could not be changed. They are still selected. ' +
         'Stopped by the rate limit with 2 not tried. Wait a minute, then run it again.',
     );
+  });
+
+  it('gives a 409 CONTEST_INTEGRATION_CHANGED its own sentence and keeps that license checked (AECI-1375)', async () => {
+    const updateLicense = vi.fn(async (id: string, input: UpdateLicenseBody) => {
+      if (id === 'l1') {
+        throw new HttpErrorResponse({
+          status: 409,
+          error: { error: { code: 'CONTEST_INTEGRATION_CHANGED', message: 'x' } },
+        });
+      }
+      return okFor(id, input);
+    });
+    const { el, refresh } = await setup(updateLicense);
+    click(rowBoxes(el)[0]!);
+    await refresh();
+    button(el, 'Revoke').click();
+    await refresh();
+    type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, 'Contract ended');
+    await refresh();
+    button(el, 'Revoke 1 license').click();
+    await refresh();
+
+    expect(rowBoxes(el)[0]!.checked).toBe(true);
+    const failures = el.querySelector('[data-testid="license-bulk-failures"]')!;
+    expect(text(failures)).toContain(
+      "Field contests on this vendor's integrations changed while the license was being revoked. Nothing was saved. Try again.",
+    );
+    expect(text(failures)).not.toContain('Stripe manages this license.');
   });
 
   it('locks the checkboxes and keeps the bar while a run is in flight', async () => {

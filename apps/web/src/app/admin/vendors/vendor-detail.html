@@ -7,8 +7,8 @@
   </h2>
 
   <!--
-    The page's ONE polite live region. `EntitlementControl` and the seat revoke
-    both feed it rather than rendering their own — see the component docblock.
+    The page's ONE polite live region. The child controls and the seat revoke
+    all feed it rather than rendering their own. See the component docblock.
   -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
@@ -365,48 +365,17 @@
     </div>
   </section>
 
-  <!-- ── Entitlement ──────────────────────────────────────────────────────── -->
-  <section class="mt-6" aria-labelledby="admin-vendor-entitlement">
-    <h3
-      id="admin-vendor-entitlement"
-      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.detail.entitlement"
-    >
-      Entitlement
-    </h3>
-    <div class="mt-2">
-      <aec-entitlement-control
-        [vendor]="{ id: v.id, name: v.company_name, slug: v.slug }"
-        [entitlement]="v.entitlement"
-        [idPrefix]="'vendor-' + v.id"
-        labelledBy="admin-vendor-entitlement"
-        (changed)="onEntitlementChanged($event)"
-        (announce)="onAnnounce($event)"
-      />
-    </div>
-  </section>
-
-  <!-- Plan price: display only, separate from the entitlement (ruling 2026-10-08). -->
-  <section class="mt-6" aria-labelledby="admin-vendor-plan-price">
-    <h3
-      id="admin-vendor-plan-price"
-      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.detail.planPrice"
-    >
-      Plan price
-    </h3>
-    <div class="mt-2">
-      <aec-plan-pricing-control
-        [vendorId]="v.id"
-        [vendorName]="v.company_name"
-        [pricing]="v.plan_pricing"
-        [idPrefix]="'vendor-' + v.id"
-        labelledBy="admin-vendor-plan-price"
-        (changed)="onPlanPricingChanged($event)"
-        (announce)="onAnnounce($event)"
-      />
-    </div>
-  </section>
+  <!-- AECI-1375: licenses are the plan, and they live on the Billing tab. Same
+       routerLink shape as the tab row, so it lands on the identical URL. -->
+  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.billingPointer">
+    Licenses and grants are on the
+    <a
+      [routerLink]="[]"
+      [queryParams]="tabQueryParams('billing')"
+      class="rounded-(--radius-sm) font-medium text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >Billing tab</a
+    >.
+  </p>
 
   <!-- ── Seats ────────────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-seats">
@@ -424,10 +393,10 @@
       human out everywhere. Ban lives on the person's own page (AECI-692), which
       is also where the rest of their account is legible.
     -->
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro">
-      People with portal access to this vendor. Removing a seat does not change the entitlement or
-      anything the vendor's other colleagues can do. To lock one person out of AECi entirely, open
-      their user page and ban them there instead.
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro2">
+      People with portal access to this vendor. A seat is a login, not a license. Removing a seat
+      does not change the vendor's licenses or anything its other colleagues can do. To lock one
+      person out of AECi entirely, open their user page and ban them there instead.
     </p>
 
     <!--
@@ -775,8 +744,7 @@
   <!-- ── Billing (AECI-1372) ─────────────────────────────────────────────────
        The E4.1 grant control projected into the Licenses section, and the E4.2
        per-license actions (AECI-1371) through the table's rowActions seam, and the
-       bulk Set end date and Revoke over the checked rows through bulkActions. The
-       Entitlement and Plan price sections stay on the Vendor tab until E4.6. -->
+       bulk Set end date and Revoke over the checked rows through bulkActions. -->
   <ng-template #licenseActions let-row>
     <aec-license-row-actions
       [row]="row"

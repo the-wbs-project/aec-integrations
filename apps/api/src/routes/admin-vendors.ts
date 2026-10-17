@@ -3,20 +3,20 @@
  * Drizzle/D1, behind `requireAdmin()`.
  *
  *   GET    /api/admin/vendors                    — paginated list + name/slug search
- *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
+ *   GET    /api/admin/vendors/:id                — basics, seats, counts
  *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
  *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat; body `{ reason }` (AECI-1191)
  *
- * Until this shipped, the only vendor-management surface in the panel was the
- * entitlement control embedded in a `/admin/claims` card — so a vendor that never
+ * Until this shipped, the only vendor-management surface in the panel was a
+ * `/admin/claims` card — so a vendor that never
  * filed a claim had no row to hang it on, and concierge onboarding (where AECi
  * approaches the vendor) was simply unreachable. §5.6 reverses the §11 deferral.
  *
  * ── THREE READS AND ONE REVOKE — NO NEW `vendors.verified` WRITER ─────────────
- * The entitlement write stays `PATCH /api/admin/vendors/:id/entitlement`
- * (`admin-entitlements.ts`), still the only writer that can take the mirror back
- * down, and it does so through the entitlement row. The revoke here composes
+ * The plan is licenses, written on the Billing tab (`admin-licenses.ts`), whose
+ * builders reconcile the mirror (AECI-1375 retired the old entitlement write). The
+ * seat revoke here composes
  * `revokeSeatStatements` (`lib/vendor-grant.ts`), a module an ESLint rule and a
  * generated-SQL assertion both prove never names `vendors` at all.
  *
@@ -60,7 +60,6 @@ import {
   type AdminVendorSeatRow,
   type AdminVendorsListResponse,
   type ProvisionVendorSeatResponse,
-  type VendorEntitlementResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
 import {
@@ -86,7 +85,6 @@ import {
   productVendors,
   products,
   profiles,
-  vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -105,7 +103,6 @@ import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
-import { selectPlanPricing, toPlanPricingResponse } from '../lib/vendor-plan-pricing';
 import {
   CLAIM_AUDIT_SOURCE,
   provisionSeatStatements,
@@ -138,7 +135,7 @@ import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
 import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
-import { loadVendorLicenses } from '../lib/license';
+import { liveLicenseCountSql, loadVendorLicenses } from '../lib/license';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 
@@ -163,43 +160,17 @@ function parseQuery<T>(c: AdminVendorContext, schema: { parse: (input: unknown) 
   return schema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
 }
 
-/** Map a joined `vendor_entitlements` row → the wire readout. Same field-by-field
- *  shape as `loadClaimEntitlements`; `verified` is the vendor's mirror, reported
- *  as-is rather than derived, so drift is visible instead of papered over. */
-function toEntitlement(
-  vendorId: string,
-  verified: boolean,
-  row: typeof vendorEntitlements.$inferSelect | null,
-): VendorEntitlementResponse | null {
-  if (!row) return null;
-  return {
-    vendor_id: vendorId,
-    tier: row.tier as VendorEntitlementResponse['tier'],
-    status: row.status as VendorEntitlementResponse['status'],
-    period_start: row.periodStart,
-    period_end: row.periodEnd,
-    granted_at: row.grantedAt,
-    ended_at: row.endedAt,
-    verified,
-    payer: row.payer,
-    amount: row.amount,
-    terms: row.terms,
-    arranged_by: row.arrangedBy,
-    invoice_ref: row.invoiceRef,
-    notes: row.notes,
-  };
-}
-
 // ─── GET /api/admin/vendors ──────────────────────────────────────────────────
 
 /**
  * The vendor list.
  *
- * A plain `db.select().leftJoin()`, deliberately NOT the relational builder:
- * `vendorEntitlements` has no `relations()` entry (that is load-bearing — it is
- * what stops a public read config growing a `with: { entitlement: true }`), so
- * the join is the only way to get tier/status alongside the vendor. It cannot
- * multiply rows — `vendor_entitlements_vendor_key` is UNIQUE on `vendor_id`.
+ * A plain `db.select()` over `vendors`, no join, so it cannot multiply rows.
+ *
+ * `live_license_count` is `liveLicenseCountSql` (`lib/license.ts`): a correlated
+ * count of the vendor's licenses with `ended_at IS NULL`, the same expression the
+ * `license_mirror_drift` check reads (AECI-1375 replaced the old
+ * `vendor_entitlements` join with it).
  *
  * The per-row product count is `vendorListConfig.extras.productCount` verbatim: a
  * correlated scalar subquery that the public `/api/vendors` already ships on a
@@ -212,15 +183,13 @@ function toEntitlement(
  * `count-lockstep.spec.ts`.
  *
  * **The ORDER BY is `resolveAdminVendorOrderBy`, not the public resolver.** Every
- * column the table renders is sortable, including the two that live on the joined
- * `vendor_entitlements` row and the one that is a SELECT alias (`product_count`)
- * rather than a column. The join is already there for the readout, so ordering by
- * `status` / `period_end` costs nothing extra.
+ * column the table renders is sortable, including the two SELECT aliases
+ * (`product_count`, `live_license_count`), which SQLite resolves so each count is
+ * computed once per row.
  *
- * The `count()` statement takes no join because every filter is on `vendors`.
- * Adding a tier/status filter later would have to add it there too — the two
- * predicates must stay identical or `total` stops describing `data`. (Sorting by
- * an entitlement column is safe under that rule: ORDER BY changes the order of
+ * The `count()` statement shares the `where` because every filter is on `vendors`.
+ * The two predicates must stay identical or `total` stops describing `data`.
+ * (Sorting by a count is safe under that rule: ORDER BY changes the order of
  * `data`, never its membership.)
  */
 export function createAdminVendorsListHandler(
@@ -235,7 +204,6 @@ export function createAdminVendorsListHandler(
       search
         ? or(likeContains(vendors.companyName, search), likeContains(vendors.slug, search))
         : undefined,
-      query.verified === undefined ? undefined : eq(vendors.verified, query.verified),
     );
 
     const [rows, totals] = await db.batch([
@@ -246,13 +214,12 @@ export function createAdminVendorsListHandler(
           companyName: vendors.companyName,
           verified: vendors.verified,
           updatedAt: vendors.updatedAt,
-          tier: vendorEntitlements.tier,
-          status: vendorEntitlements.status,
-          periodEnd: vendorEntitlements.periodEnd,
           productCount: vendorListConfig.extras.productCount,
+          // Aliased so `resolveAdminVendorOrderBy` orders by the alias, not a
+          // second copy of the subquery.
+          liveLicenseCount: liveLicenseCountSql().as('live_license_count'),
         })
         .from(vendors)
-        .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
         .where(where)
         .orderBy(...resolveAdminVendorOrderBy(query.sort, query.order))
         .limit(query.perPage)
@@ -267,9 +234,7 @@ export function createAdminVendorsListHandler(
           slug: row.slug,
           company_name: row.companyName,
           verified: row.verified,
-          tier: (row.tier as AdminVendorRow['tier']) ?? null,
-          status: (row.status as AdminVendorRow['status']) ?? null,
-          period_end: row.periodEnd ?? null,
+          live_license_count: Number(row.liveLicenseCount ?? 0),
           product_count: Number(row.productCount ?? 0),
           updated_at: row.updatedAt,
         }),
@@ -298,9 +263,9 @@ const EMPTY_CLAIM_COUNTS: AdminVendorClaimCounts = {
 /**
  * The vendor detail.
  *
- * **Two D1 round trips, not eight.** The first is the 404 gate — nothing may be
+ * **Two D1 round trips, not seven.** The first is the 404 gate — nothing may be
  * reported about a vendor that does not exist. The second is one `db.batch` of
- * eight reads: the batch is the round-trip tool here, not an atomicity one (the
+ * six reads: the batch is the round-trip tool here, not an atomicity one (the
  * same use `GET /api/vendor/updates` documents). It is deliberately NOT a
  * `UNION` — D1 compiles SQLite with `SQLITE_MAX_COMPOUND_SELECT = 5`, which the
  * admin System screen already got bitten by, and a batch has no such ceiling.
@@ -325,76 +290,69 @@ export function createAdminVendorDetailHandler(
     const invitedBy = alias(profiles, 'invited_by_profile');
     const now = new Date().toISOString();
 
-    const [
-      entitlementRows,
-      pricingRows,
-      seatRows,
-      inviteRows,
-      productRoleGroups,
-      integrationCounts,
-      evidencedCounts,
-      claimRows,
-    ] = await db.batch([
-      db.select().from(vendorEntitlements).where(eq(vendorEntitlements.vendorId, vendorId)),
-      // The display-only plan price overrides (ruling 2026-10-08, §13.13).
-      selectPlanPricing(db, vendorId),
-      db
-        .select({
-          id: profiles.id,
-          displayName: profiles.displayName,
-          role: profiles.role,
-          workEmailVerified: profiles.workEmailVerified,
-          seatOwner: profiles.seatOwner,
-          bannedAt: profiles.bannedAt,
-          createdAt: profiles.createdAt,
-        })
-        .from(profiles)
-        .where(seatsOf(vendorId))
-        // A to Z by the name the roster shows, unnamed seats last, then id
-        // (AECI-1243).
-        .orderBy(blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id)),
-      // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
-      // the latter covers only the two terminal columns, and an invite that merely
-      // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
-      // as pending would misreport the account's live invitations — and the shared
-      // predicate is what stops this read drifting from the vendor portal's, which
-      // is the AECI-927 defect.
-      db
-        .select({
-          id: vendorSeatInvites.id,
-          email: vendorSeatInvites.email,
-          expiresAt: vendorSeatInvites.expiresAt,
-          createdAt: vendorSeatInvites.createdAt,
-          invitedByName: invitedBy.displayName,
-        })
-        .from(vendorSeatInvites)
-        .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
-        .where(liveInvitesFor(vendorId, now))
-        .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id)),
-      // `product_count` AND the §5.2 role breakdown out of ONE grouped read
-      // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
-      // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5
-      // items 11/12 got two drifting copies of one operator number. The join
-      // cannot undercount the old bare count — `product_vendors.product_id` is
-      // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
-      selectProductRoleGroups(db, productRolesForVendor(vendorId)),
-      // The owned-integration counts (AECI-1041 / §5.2 step 1a) — lockstep site
-      // 14b. Both delivered-tier tables, live rows only, through the module the
-      // claim queue reads too, so the two screens cannot count one vendor
-      // differently. An operator opening Agave's vendor page must not read 0 while
-      // its product page renders twelve pairs.
-      ...selectOwnedIntegrationGroups(db, [vendorId]),
-      db
-        .select({ status: vendorRequests.status, value: count() })
-        .from(vendorRequests)
-        .where(
-          and(
-            eq(vendorRequests.kind, 'claim'),
-            vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
+    const [seatRows, inviteRows, productRoleGroups, integrationCounts, evidencedCounts, claimRows] =
+      await db.batch([
+        db
+          .select({
+            id: profiles.id,
+            displayName: profiles.displayName,
+            role: profiles.role,
+            workEmailVerified: profiles.workEmailVerified,
+            seatOwner: profiles.seatOwner,
+            bannedAt: profiles.bannedAt,
+            createdAt: profiles.createdAt,
+          })
+          .from(profiles)
+          .where(seatsOf(vendorId))
+          // A to Z by the name the roster shows, unnamed seats last, then id
+          // (AECI-1243).
+          .orderBy(
+            blankLast(profiles.displayName),
+            textAsc(profiles.displayName),
+            asc(profiles.id),
           ),
-        )
-        .groupBy(vendorRequests.status),
-    ]);
+        // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
+        // the latter covers only the two terminal columns, and an invite that merely
+        // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
+        // as pending would misreport the account's live invitations — and the shared
+        // predicate is what stops this read drifting from the vendor portal's, which
+        // is the AECI-927 defect.
+        db
+          .select({
+            id: vendorSeatInvites.id,
+            email: vendorSeatInvites.email,
+            expiresAt: vendorSeatInvites.expiresAt,
+            createdAt: vendorSeatInvites.createdAt,
+            invitedByName: invitedBy.displayName,
+          })
+          .from(vendorSeatInvites)
+          .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
+          .where(liveInvitesFor(vendorId, now))
+          .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id)),
+        // `product_count` AND the §5.2 role breakdown out of ONE grouped read
+        // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
+        // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5
+        // items 11/12 got two drifting copies of one operator number. The join
+        // cannot undercount the old bare count — `product_vendors.product_id` is
+        // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
+        selectProductRoleGroups(db, productRolesForVendor(vendorId)),
+        // The owned-integration counts (AECI-1041 / §5.2 step 1a) — lockstep site
+        // 14b. Both delivered-tier tables, live rows only, through the module the
+        // claim queue reads too, so the two screens cannot count one vendor
+        // differently. An operator opening Agave's vendor page must not read 0 while
+        // its product page renders twelve pairs.
+        ...selectOwnedIntegrationGroups(db, [vendorId]),
+        db
+          .select({ status: vendorRequests.status, value: count() })
+          .from(vendorRequests)
+          .where(
+            and(
+              eq(vendorRequests.kind, 'claim'),
+              vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
+            ),
+          )
+          .groupBy(vendorRequests.status),
+      ]);
 
     // One bounded GoTrue fan-out, AFTER the batch so it never widens the D1 hop.
     const lookup = await fetchEmails(
@@ -433,8 +391,6 @@ export function createAdminVendorDetailHandler(
       last_reviewed_at: vendor.lastReviewedAt,
       created_at: vendor.createdAt,
       updated_at: vendor.updatedAt,
-      entitlement: toEntitlement(vendor.id, vendor.verified, entitlementRows[0] ?? null),
-      plan_pricing: toPlanPricingResponse(vendor.id, pricingRows[0]),
       seats: seatRows.map(
         (row): AdminVendorSeatRow => ({
           user_id: row.id,
@@ -1239,8 +1195,8 @@ export function createProvisionSeatHandler(
     // Every abort here answers `409 VENDOR_SEATS_CHANGED` with nothing written, and
     // the admin's retry re-plans against the new state:
     // - AECI-1092 reconciliation: a return of a contest on a connector-powered row
-    //   carries `ownerEntitlementActiveSentinel`. An entitlement clear that commits
-    //   first aborts the batch.
+    //   carries `ownerEntitlementActiveSentinel`. An end of the vendor's last live
+    //   license that commits first aborts the batch.
     // - AECI-1374 (E4.5): a last-seat ban that committed after the flag read above
     //   left `vendor-banned` flags the return did not plan to clear.
     //   `vendorBannedFlagsRaceSentinel` goes LAST, after the seat upsert and the

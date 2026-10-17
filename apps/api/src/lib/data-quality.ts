@@ -43,6 +43,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { textAsc } from './collation';
+import { liveLicenseCountSql } from './license';
 import {
   and,
   asc,
@@ -73,7 +74,6 @@ import {
   taxonomyDataObjects,
   taxonomyPhases,
   taxonomyTrades,
-  vendorEntitlements,
   vendors,
 } from '../db/schema';
 
@@ -424,78 +424,25 @@ export async function checkAlgoliaDrift(
 }
 
 /**
- * #11 — the §2.1 MIRROR INVARIANT: `vendors.verified = 1` XOR an `active`
- * `vendor_entitlements` row (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1).
- *
- * Guard 2 of the mirror. Guard 1 is the sole-writer ESLint rule; this is the one that
- * catches what lint structurally cannot: hand-written D1 SQL against a tier, the
- * `apps/datatool` worker (which binds all four tiers and can write prod D1), and — the
- * likely one — a backfill (§2.4) that ran on staging but not demo. Without it, that
- * drift is invisible until a human notices.
- *
- * A LEFT JOIN, not two subqueries: `vendor_entitlements_vendor_key` is UNIQUE, so
- * there is at most one row per vendor and no row multiplication — and joining
- * UNFILTERED (rather than `AND status = 'active'`) carries the offending status into
- * the digest line, which is what makes the finding triageable rather than just a count.
- *
- * ⚠️ SQL nuance: `status <> 'active'` is NULL — i.e. NOT true — when there is no row,
- * so the `isNull(id)` disjunct is REQUIRED. Drop it and the check silently misses the
- * "no entitlement row at all" case, which is precisely the backfill-did-not-run case
- * this exists to catch.
- */
-export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding> {
-  const rows = await db
-    .select({
-      slug: vendors.slug,
-      name: vendors.companyName,
-      verified: vendors.verified,
-      status: vendorEntitlements.status,
-      entitlementId: vendorEntitlements.id,
-    })
-    .from(vendors)
-    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
-    .where(
-      or(
-        // Verified, but no active entitlement backs it.
-        and(
-          eq(vendors.verified, true),
-          or(isNull(vendorEntitlements.id), ne(vendorEntitlements.status, 'active')),
-        ),
-        // An active entitlement exists, but the mirror was never flipped.
-        and(eq(vendors.verified, false), eq(vendorEntitlements.status, 'active')),
-      ),
-    )
-    .orderBy(textAsc(vendors.companyName));
-
-  return {
-    lines: rows.map((r) => {
-      const state =
-        r.entitlementId === null ? 'no entitlement row' : `entitlement is '${r.status}'`;
-      return `${r.name} (${r.slug}) — verified=${r.verified ? 1 : 0}, ${state}`;
-    }),
-  };
-}
-
-/**
  * The license half of the mirror: `vendors.verified = 1` XOR a LIVE license
  * (`ended_at IS NULL`) on any of the vendor's billing accounts (AECI-1354,
  * `docs/VENDOR_SIGNUP_PROCESS.md` §5 E1, `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1).
  *
- * Until the E1.6 switch-over `verified` mirrors BOTH the entitlement row and the
- * licenses, so this runs beside `entitlement_mirror_drift`, and both read 0 on a
- * healthy tier. A finding here with none there means the licenses fell out of step:
- * the `ops:backfill-licenses` run that never happened on this tier, or a hand-written
- * write to either table. The predicate is the one `reconcileVerifiedMirror` in
- * `lib/license.ts` writes, so a vendor the reconcile would move is exactly a finding.
+ * Guard 2 of the mirror. Guard 1 is the sole-writer ESLint rule. This check catches
+ * what lint cannot: hand-written D1 SQL against a tier, the `apps/datatool` worker,
+ * or an `ops:backfill-licenses` run that never happened on this tier. It replaced
+ * `entitlement_mirror_drift`, retired 2026-10-17 (AECI-1375): license grants and
+ * revokes move `verified`, and nothing writes `vendor_entitlements` any more.
+ *
+ * The predicate is the one `reconcileVerifiedMirror` in `lib/license.ts` writes, so
+ * a vendor the reconcile would move is exactly a finding.
  *
  * Live is stored state only, never `ends_at` at read time (`DATABASE_SCHEMA.md`
- * §8.6c). Severity is set in `CHECKS` (`warn` until the back-fill lands). The seeds
+ * §8.6c). Severity is set in `CHECKS` (`error` since AECI-1355). The seeds
  * carry matching licenses (`d1.spec.ts` proves a fresh local D1 reads 0).
  */
 export async function checkLicenseMirrorDrift(db: Db): Promise<CheckFinding> {
-  // Spelled out with aliases: on a one-table select Drizzle renders `${col}` without
-  // its table, which is ambiguous ("id") inside a joined subquery.
-  const liveCount = sql<number>`(select count(*) from "licenses" l inner join "billing_accounts" b on b."id" = l."billing_account_id" where b."vendor_id" = "vendors"."id" and l."ended_at" is null)`;
+  const liveCount = liveLicenseCountSql();
   const rows = await db
     .select({
       slug: vendors.slug,
@@ -836,12 +783,6 @@ export const CHECKS: CheckSpec[] = [
     label: 'Algolia index drift (Supabase ≠ Algolia)',
     severity: 'warn',
     run: ({ runDrift }) => checkAlgoliaDrift(runDrift),
-  },
-  {
-    id: 'entitlement_mirror_drift',
-    label: 'Vendors whose `verified` flag disagrees with their entitlement',
-    severity: 'error',
-    run: ({ db }) => checkEntitlementMirrorDrift(db),
   },
   {
     id: 'license_mirror_drift',

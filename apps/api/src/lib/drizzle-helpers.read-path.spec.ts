@@ -24,8 +24,8 @@
  *
  * The companion structural guarantee lives in `db/schema.ts`: `vendorEntitlements`
  * deliberately has **no `relations()` entry**, so a `with: { entitlement: … }` read
- * cannot even compile. The `entitlement_mirror_drift` check uses an explicit `leftJoin`,
- * which needs no relation. The §4 gate read the table the same way until AECI-1355
+ * cannot even compile. The retired `entitlement_mirror_drift` check (AECI-1375) used an
+ * explicit `leftJoin`, which needs no relation. The §4 gate read the table the same way until AECI-1355
  * moved it onto `licenses` (the allow-list below).
  *
  * The behavioural half of this guard was a drifted-pair test of `?verified=` in
@@ -145,15 +145,11 @@ const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
   'lib/vendor-entitlement.ts': 'the entitlement writer, dual-writing licenses (AECI-1353)',
   'lib/backfill-entitlements.ts': 'the AECI-609 back-fill',
   'lib/backfill-licenses.ts': 'the AECI-1354 license back-fill (reads the old row to map it)',
-  'lib/data-quality.ts': 'the entitlement_mirror_drift check',
   'lib/retract-vendor.ts': 'the vendor-delete refusal count (FK handling)',
   'routes/account.ts': 'account erasure NULLs granted_by (a write, not a plan read)',
-  // Admin set: operator surfaces, replaced by E4.
-  'lib/sort.ts': 'the admin vendor list sort by entitlement status and term',
-  'routes/admin-claims.ts': 'claim approval (admin)',
-  'routes/admin-entitlements.ts': 'set / renew / clear (admin)',
+  // Admin set: operator surfaces. AECI-1375 removed the set / renew / clear route and
+  // the admin vendor list's and claims queue's entitlement reads.
   'routes/admin-users.ts': 'user erasure preview (admin)',
-  'routes/admin-vendors.ts': 'the admin vendor list and detail',
 };
 
 function sourceModules(dir: string): string[] {

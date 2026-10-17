@@ -262,8 +262,19 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; so does an admin approve or remove of a vendor's reply to a review (`PATCH /api/admin/review-responses/:id`, AECI-1177, `source: 'moderation'`), while a reject purges nothing because a pending reply was never on the page; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified`, which drives the API's pair version-diff gate (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
-**(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
-/api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
+**(b1) the admin license grant and revoke (AECI-1370, AECI-1371).** Since AECI-1375
+(2026-10-17) these are the only admin writers that move `vendors.verified`. `POST
+/api/admin/vendors/:id/licenses` enqueues `vendorPurgeTags` only when it predicts the mirror
+flips on. `PATCH /api/admin/licenses/:id` `revoke` of an assigned license enqueues
+`product:{slug}`, `index:products` and the vendor set. An unassigned revoke purges nothing
+unless it ends the vendor's last live license, which flips the mirror down and purges the
+vendor set. `extend` and `reference` purge nothing. Contract: `API_CONTRACTS.md` §6.10.
+
+*Retired 2026-10-17 (AECI-1375): the entitlement set / clear below.* The rest of (b1) is
+history, kept for the reasoning the license paths inherit.
+
+**Entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
+/api/admin/vendors/:id/entitlement` enqueued **the same tag set as the claim grant
 above**, from the same builder: `vendorPurgeTags` was promoted out of
 `admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
 because this epic added a second writer of it, and duplicated tag construction is how
@@ -275,8 +286,9 @@ miss. *(Reworded 2026-10-09, AECI-1264, which removed the public account label. 
 2026-10-12, AECI-1266, which made the claim button stateless and dropped `verified` from every
 public payload. The tag set is unchanged both times.)*
 
-Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
-that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5). A missed purge
+Two deliberate details. **`clear` purges as hard as `set`**: this was the only writer
+that took `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5) until the license
+revoke replaced it. A missed purge
 there leaves a stale version-diff gate on every cached pair page of a vendor who is no longer
 paying. And the purge is **not gated on whether the mirror actually flipped**. On a drifted
 vendor a redundant purge costs one cache miss, while a missed one is a wrong gate with a full

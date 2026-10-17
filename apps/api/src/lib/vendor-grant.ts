@@ -651,8 +651,9 @@ export function ownerAcceptClaimStatements(db: Db, p: OwnerAcceptClaimParams): C
  * and unlink `vendor_id`, audited. **Never touches `vendors.verified`** —
  * `verified` is a vendor-level paid state, not a seat property, so revoking one of
  * several seats must not un-verify the vendor (`STAGE_2_SPEC.md` §8.3(2)); the
- * vendor-level un-verify is a separate entitlement action, owned by
- * `deactivateEntitlementStatements` (`STAGE_2_PAID_TIERS_SPEC.md` §5.2 — three
+ * vendor-level un-verify is the end of the vendor's last live license (the license
+ * revoke or lapse, through `reconcileVerifiedMirror` in `lib/license.ts`; AECI-1375
+ * retired the entitlement clear) (`STAGE_2_PAID_TIERS_SPEC.md` §5.2 — three
  * orthogonal "take it away" actions).
  * The `WHERE` is scoped to an ACTIVE `vendor_admin` seat on this vendor, so
  * revoking a non-seat is a safe no-op that still records its audit row.
@@ -890,8 +891,7 @@ export interface ClaimNotesBatch {
  * `vendor_claim` workflow tracks the claim's STATUS (`open → resolved|rejected`), and
  * a note changes no status — it is writable at any of the four, including the two
  * terminal ones. A note is not a transition, and `workflow_instances_type_check` is a
- * closed CHECK whose widening is a full SQLite table rebuild besides
- * (`routes/admin-entitlements.ts`).
+ * closed CHECK whose widening is a full SQLite table rebuild besides.
  *
  * **The audit rows ARE the note's history.** The column holds only the current text;
  * `before_state`/`after_state` carry the full old and new note on every write, so the

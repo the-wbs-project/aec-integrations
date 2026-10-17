@@ -41,7 +41,7 @@ const STAMPED_DOWNSTREAM: Record<string, string> = {
   'lib/vendor-handback.ts':
     '`sealed()` stamps every row with `p.vendorId` and its plan before the inserts are built',
   'lib/integration-contests.ts':
-    'reroute rows are stamped by their callers: `admin-entitlements.ts`, `admin-contests.ts`, `sealed()` in `vendor-handback.ts`, and `vendorAuditEntry` on the vendor routes',
+    'reroute rows are stamped by their callers: `admin-licenses.ts` (the last-license revoke), `admin-contests.ts`, `sealed()` in `vendor-handback.ts`, and `vendorAuditEntry` on the vendor routes',
   'lib/integration-claims.ts':
     'claim rows are written only by vendor routes, through `vendorAuditEntry`',
   'lib/integration-owner-writes.ts':

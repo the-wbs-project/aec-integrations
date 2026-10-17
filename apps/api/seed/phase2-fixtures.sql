@@ -58,7 +58,8 @@ ON CONFLICT ("slug") DO UPDATE SET
 -- `vendor_admin` on it), so once the AECI-611 entitlement gate lands, anything other
 -- than an active entitlement 403s every `/api/vendor/*` write and breaks
 -- `vendor-dashboard.spec.ts`. The `verified = 1` above is the MIRROR of this row —
--- change one and you must change the other, or `entitlement_mirror_drift` flags it.
+-- change one and you must change the other (and the license read from it below),
+-- or `license_mirror_drift` flags it.
 -- `granted_by` is NULL: this file runs before auth-fixtures.sql, so no `profiles`
 -- row exists yet and a non-null FK would fail.
 INSERT INTO "vendor_entitlements"

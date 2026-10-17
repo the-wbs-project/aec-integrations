@@ -11,9 +11,8 @@
  * user actions / `afterNextRender`, never during SSR render (the gate and shell
  * already SSR via `adminSummaryResolver`).
  *
- * The entitlement WRITE is not here — it is `AdminEntitlementApi`, injected by
- * `EntitlementControl`, so the one endpoint that can move `vendors.verified` has
- * exactly one client.
+ * License writes are not here. They are `AdminLicensesApi`, used by the Billing
+ * tab's grant and license actions (AECI-1375 retired the entitlement write).
  */
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
@@ -51,7 +50,7 @@ export class AdminVendorsApi {
     );
   }
 
-  /** `GET /api/admin/vendors/:id` — basics, entitlement, seats, counts. */
+  /** `GET /api/admin/vendors/:id` — basics, seats, counts. */
   getVendor(id: string): Promise<AdminVendorDetail> {
     return firstValueFrom(
       this.http.get<AdminVendorDetail>(`/api/admin/vendors/${encodeURIComponent(id)}`),
@@ -179,9 +178,9 @@ export class AdminVendorsApi {
   /**
    * `DELETE /api/admin/vendors/:id/seats/:userId` — revoke one seat.
    *
-   * A seat revoke is NOT an entitlement change and NOT a ban (§5.2): the badge,
-   * the entitlement row and `vendors.verified` are all untouched, and banning a
-   * person is `/admin/users/:id`. It only un-grants this one person's access.
+   * A seat revoke is NOT a license change and NOT a ban (§5.2): the vendor's
+   * licenses and `vendors.verified` are untouched, and banning a person is
+   * `/admin/users/:id`. It only un-grants this one person's access.
    *
    * AECI-1191: the body carries the admin's required `reason`, which the API
    * records in the `vendor_claim.seat_revoked` audit row. AECI-1159: the reason is

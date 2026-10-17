@@ -88,7 +88,7 @@ import {
   type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { billingAccounts, licenses, productVendors, vendors } from '../db/schema';
@@ -262,9 +262,53 @@ export async function loadOwnedProductLicenseState(
     .orderBy(productVendors.productId);
 }
 
+/**
+ * The number of LIVE licenses (`ended_at IS NULL`) on every billing account of the
+ * OUTER query's vendor, as a correlated scalar subquery. Select it from `vendors`:
+ * it reads `"vendors"."id"`. Spelled out with aliases because on a one-table select
+ * Drizzle renders `${col}` without its table, which is ambiguous (`id`) inside a
+ * joined subquery. One definition read by the `license_mirror_drift` check
+ * (`lib/data-quality.ts`) and the admin vendor list (AECI-1375), so the column an
+ * operator sorts by and the drift finding count the same thing.
+ */
+export function liveLicenseCountSql(): SQL<number> {
+  return sql<number>`(select count(*) from "licenses" l inner join "billing_accounts" b on b."id" = l."billing_account_id" where b."vendor_id" = "vendors"."id" and l."ended_at" is null)`;
+}
+
 /** EXISTS(a live license on any billing account of the vendor). */
 function liveLicenseExists(vendorId: string) {
   return sql`exists (select 1 from ${licenses} inner join ${billingAccounts} on ${billingAccounts.id} = ${licenses.billingAccountId} where ${billingAccounts.vendorId} = ${vendorId} and ${licenses.endedAt} is null)`;
+}
+
+/**
+ * A batch statement that ABORTS the batch when the vendor still holds a live license
+ * at that point in the batch. The last-license revoke puts it after its license UPDATE
+ * (`routes/admin-licenses.ts`), so a grant that commits between the revoke's pre-read
+ * and its batch cannot leave the vendor licensed with its contests re-routed away
+ * (AECI-1375). `json(...)` on a non-JSON string is malformed JSON, so the whole batch
+ * rolls back. Reads only; it is not a `vendors` statement.
+ */
+export function noLiveLicenseSentinel(db: Db, vendorId: string): BatchStmt {
+  return db
+    .select({
+      guard: sql`CASE WHEN ${liveLicenseExists(vendorId)} THEN json('license-still-live') END`,
+    })
+    .from(sql`(SELECT 1)`);
+}
+
+/**
+ * The inverse of {@link noLiveLicenseSentinel}: ABORTS the batch when the vendor holds
+ * NO live license at that point in the batch. A revoke that read another live license,
+ * and so planned no re-route, puts it after its license UPDATE: two revokes racing on a
+ * vendor's last two licenses would otherwise both commit and leave its owner-routed
+ * contests with an owner who can no longer decide them (AECI-1375).
+ */
+export function liveLicenseRemainsSentinel(db: Db, vendorId: string): BatchStmt {
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT ${liveLicenseExists(vendorId)} THEN json('no-live-license') END`,
+    })
+    .from(sql`(SELECT 1)`);
 }
 
 /**

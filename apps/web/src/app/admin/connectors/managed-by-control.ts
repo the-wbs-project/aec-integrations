@@ -35,8 +35,8 @@ import { ManagedByApi } from './managed-by-api';
  * would be wrong in a way nothing else on the page corrects.
  *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
- * No heading and no live region, matching `EntitlementControl`'s extraction
- * contract: the host owns its single `role="status"` region and the heading level
+ * No heading and no live region, the console's extraction contract: the host
+ * owns its single `role="status"` region and the heading level
  * its outline requires, and announcements go out through {@link announce}.
  */
 @Component({
@@ -52,7 +52,7 @@ export class ManagedByControl {
   /** The connector product, for copy that names what is being handed over. */
   readonly connector = input.required<LinkRef>();
   /** Prefix for the form controls' `id`/`for` pairs, so two controls could share
-   *  a page without colliding — the same rule `EntitlementControl` states. */
+   *  a page without colliding. */
   readonly idPrefix = input.required<string>();
   readonly labelledBy = input<string | null>(null);
 

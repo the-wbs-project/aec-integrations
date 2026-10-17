@@ -13,7 +13,7 @@
  *
  * **The `managed_by` WRITE is not here** — it is `ManagedByApi`, injected by
  * `ManagedByControl`, so the one endpoint that can freeze a promote lane has
- * exactly one client. Same split, and the same reason, as `AdminEntitlementApi`.
+ * exactly one client.
  */
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';

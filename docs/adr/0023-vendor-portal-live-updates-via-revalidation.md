@@ -20,7 +20,7 @@ So the first thing this epic did was enumerate every event that can change a ven
 | The vendor's own edit (profile / product / attestation / claim) | the caller's own request | **zero transport** — the PATCH/PUT echo already carries post-edit state |
 | Detector nudge (`silent-counterparty`, `open-conflict`, `stale-version`, `claim-denied`) | `ATTESTATION_NOTIFY_CRON = '0 10 * * *'` — **once a day** | ≤ minutes; email is the primary channel |
 | Term-expiry warning | `ENTITLEMENT_EXPIRY_CRON = '0 11 * * *'` — **once a day** | ≤ minutes; email is primary |
-| Entitlement set/renew/clear (the concierge toggle) | a human admin, `PATCH /api/admin/vendors/:id/entitlement` | ≤ ~1 min — this is the *only* concrete latency need on the surface |
+| Entitlement set/renew/clear (the concierge toggle; retired 2026-10-17 by AECI-1375, the admin license grant and revoke carry this need now) | a human admin, `PATCH /api/admin/vendors/:id/entitlement` | ≤ ~1 min — this is the *only* concrete latency need on the surface |
 | Counterparty attests / retracts | another vendor, human-paced | ≤ minutes |
 | Claim approved → seat granted | a human admin | the vendor has no portal until it lands |
 

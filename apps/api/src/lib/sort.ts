@@ -59,7 +59,7 @@ import type {
 import { asc, desc, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
-import { integrations, products, profiles, vendorEntitlements, vendors } from '../db/schema';
+import { integrations, products, profiles, vendors } from '../db/schema';
 import { blankLast, textAsc, textDir } from './collation';
 
 type Direction = 'asc' | 'desc';
@@ -129,11 +129,9 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
  *
  * Deliberately separate from {@link resolveVendorOrderBy}: that one serves the
  * PUBLIC `/api/vendors` directory, whose §7.4 key set (`created|name|updated`)
- * is a published contract. Four of the keys below (`slug`, `verified`,
- * `entitlement`, `term`) address operator concerns — mirror drift, renewal
- * windows — that the public list has no column for, and two of them
- * (`entitlement`, `term`) read `vendor_entitlements`, which the public list does
- * not join at all.
+ * is a published contract. Three of the keys below (`slug`, `verified`,
+ * `licenses`) address operator concerns — mirror drift, live licenses — that the
+ * public list has no column for.
  *
  * **Each key has a NATURAL direction — the one an operator wants first — and the
  * caller may reverse it.** An `order`-less call gets the natural direction, so
@@ -150,30 +148,19 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
  * for no reader benefit, and reversing a tiebreaker is how a paginated list
  * starts duplicating and skipping rows.
  *
- * `term` is the one key where something deliberately does NOT flip. It sorts by
- * "is the date NULL" and then by the date; only the DATE reverses. Flipping the
- * NULL guard too would float every perpetual/no-row vendor to the top on the
- * second click — the exact burial that guard exists to prevent — and "who lapses
- * last" is still a question about vendors that lapse.
+ * Two cases are not a bare column. Each orders by a SELECT alias, not by
+ * repeating the correlated subquery in the ORDER BY: SQLite resolves an output
+ * alias, so the count is computed once per row rather than twice.
  *
- * Three cases are not a bare column:
- *
- *  - **`products`** orders by the SELECT alias `product_count`, not by repeating
- *    the correlated subquery in the ORDER BY. SQLite resolves an output alias,
- *    so the count is computed once per row rather than twice.
- *  - **`entitlement`** ranks the status by operational urgency, not
- *    alphabetically — `active < pending < expired < revoked < none`. Sorting the
- *    raw text would interleave "expired" between "active" and "pending" and mean
- *    nothing. A vendor with no entitlement row sorts last, which is where the
- *    majority live.
- *  - **`term`** puts the soonest expiry first ("who lapses next"), and pushes
- *    NULL — perpetual, or no row at all — LAST. SQLite orders NULLs first under
- *    ASC, which would have buried every real renewal date under thousands of
- *    blanks, so the `IS NULL` expression sorts ahead of the date itself.
+ *  - **`products`** orders by `product_count`.
+ *  - **`licenses`** orders by `live_license_count` (AECI-1375; the vendor's
+ *    licenses with `ended_at IS NULL`, `liveLicenseCountSql` in `lib/license.ts`).
+ *    It replaced the `entitlement` and `term` keys, which read the retired
+ *    `vendor_entitlements` join.
  *
  * Every case ends in the AECI-99 `id ASC` tiebreaker; the ones whose primary key
- * is low-cardinality (`verified`, `entitlement`, `products`, `term`) sort by
- * company name in between, so the page inside a tie is still scannable.
+ * is low-cardinality (`verified`, `licenses`, `products`) sort by company name in
+ * between, so the page inside a tie is still scannable.
  */
 export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrder): SQL[] {
   // The requested direction applies to the PRIMARY term directly, so a header
@@ -193,33 +180,13 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
       return [dir(vendors.slug), asc(vendors.id)];
     case 'verified':
       return [dir(vendors.verified), textAsc(vendors.companyName), asc(vendors.id)];
-    case 'entitlement':
-      // Ascending ranks by operational urgency; descending reverses that ranking
-      // rather than sorting the status text alphabetically.
-      return [
-        dir(sql`case ${vendorEntitlements.status}
-          when 'active' then 0
-          when 'pending' then 1
-          when 'expired' then 2
-          when 'revoked' then 3
-          else 4 end`),
-        textAsc(vendors.companyName),
-        asc(vendors.id),
-      ];
+    case 'licenses':
+      // The `live_license_count` SELECT alias (`routes/admin-vendors.ts`).
+      return [dir(sql`live_license_count`), textAsc(vendors.companyName), asc(vendors.id)];
     case 'products':
       // The `product_count` SELECT alias, resolved by SQLite — not a second copy
       // of the correlated subquery.
       return [dir(sql`product_count`), textAsc(vendors.companyName), asc(vendors.id)];
-    case 'term':
-      // The NULL guard is PINNED ascending — see the docblock. Only the date
-      // flips, so descending reads "who lapses last" with the perpetual and
-      // no-row vendors still at the bottom where they belong.
-      return [
-        asc(sql`${vendorEntitlements.periodEnd} is null`),
-        dir(vendorEntitlements.periodEnd),
-        textAsc(vendors.companyName),
-        asc(vendors.id),
-      ];
     case 'updated':
       return [dir(vendors.updatedAt), asc(vendors.id)];
     default:

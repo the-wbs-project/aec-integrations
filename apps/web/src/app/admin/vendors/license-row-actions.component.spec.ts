@@ -232,6 +232,10 @@ describe('LicenseRowActions', () => {
     await refresh();
     expect(el.textContent).toContain('Revit drops to the Free plan');
     expect(el.textContent).toContain('Nothing is refunded or deleted');
+    // Paid Tiers §5.2: a license revoke is not a seat revoke and not a ban.
+    expect(el.querySelector('[data-testid="license-revoke-not-seat"]')?.textContent?.trim()).toBe(
+      'Seats and logins stay. This is not a seat revoke or a ban.',
+    );
     const reason = el.querySelector<HTMLTextAreaElement>('#host-1-license-reason')!;
     expect(document.activeElement).toBe(reason);
 
@@ -269,6 +273,7 @@ describe('LicenseRowActions', () => {
     button(el, 'Revoke').click();
     await refresh();
     expect(el.textContent).toContain('It is not on a product, so no product changes plan');
+    expect(el.textContent).toContain('Seats and logins stay. This is not a seat revoke or a ban.');
     type(el.querySelector<HTMLTextAreaElement>('#host-1-license-reason')!, 'Mistake.');
     await refresh();
     button(el, 'Confirm revoke').click();
@@ -293,6 +298,28 @@ describe('LicenseRowActions', () => {
     await refresh();
     expect(el.textContent).toContain('Stripe manages this license.');
     expect(el.querySelector('#host-1-license-end')).not.toBeNull();
+    expect(host.changes).toHaveLength(0);
+  });
+
+  it('explains a 409 CONTEST_INTEGRATION_CHANGED on revoke and keeps the form open (AECI-1375)', async () => {
+    const updateLicense = vi.fn(async () => {
+      throw new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'CONTEST_INTEGRATION_CHANGED', message: 'x' } },
+      });
+    });
+    const { el, host, refresh } = await setup(makeLicense(), updateLicense);
+    button(el, 'Revoke').click();
+    await refresh();
+    type(el.querySelector<HTMLTextAreaElement>('#host-1-license-reason')!, 'Not paid.');
+    await refresh();
+    button(el, 'Confirm revoke').click();
+    await refresh();
+    expect(el.textContent).toContain(
+      "Field contests on this vendor's integrations changed while the license was being revoked. Nothing was saved. Try again.",
+    );
+    expect(el.textContent).not.toContain('Stripe manages this license.');
+    expect(el.querySelector('#host-1-license-reason')).not.toBeNull();
     expect(host.changes).toHaveLength(0);
   });
 

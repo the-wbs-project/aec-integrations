@@ -28,8 +28,6 @@ import type {
   AdminVendorDetail,
   AdminVendorProductRow,
   AdminVendorSeatRow,
-  VendorEntitlementResponse,
-  VendorPlanPricingResponse,
 } from '@aeci/shared';
 import { ADMIN_REASON_MAX } from '@aeci/shared';
 
@@ -38,9 +36,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
-import { EntitlementControl } from '../entitlement/entitlement-control';
 import { GrantLicensesControl } from './grant-licenses-control';
-import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BillingLicensesTable } from './billing-licenses-table';
 import { LicenseBulkActions } from './license-bulk-actions';
@@ -73,13 +69,13 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
  * `STAGE_2_PAID_TIERS_SPEC.md` §5.6), rendered in the `AdminShell` layout outlet.
  *
  * ── FIVE TABS, ONE COMPONENT, ONE ROUTE ─────────────────────────────────────
- * The screen is a horizontal tab row — **Vendor** (basics, entitlement, seats),
- * **Billing** (AECI-1372: the account, its licenses, the grant), **Products**,
- * **Integrations**, **Audit trail** — over one panel. Basics/entitlement/seats stay
- * on ONE tab because an operator reads them together: the entitlement state
- * explains the seats, and a decision about either needs both on screen. Products
- * and the trail are the two blocks that are long, separately paginated, and
- * scanned rather than read alongside the rest.
+ * The screen is a horizontal tab row — **Vendor** (basics, field corrections,
+ * seats), **Billing** (AECI-1372: the account, its licenses, the grant),
+ * **Products**, **Integrations**, **Audit trail** — over one panel. Licenses are
+ * the plan (AECI-1375 retired the entitlement set/renew/clear screen and the
+ * plan price override), so the Vendor tab carries one line pointing at Billing.
+ * Products and the trail are the two blocks that are long, separately paginated,
+ * and scanned rather than read alongside the rest.
  *
  * It is still one component and one route. The tab lives in `?tab=`, not in a
  * child route: a child route per tab would cost two more lazy components and two
@@ -95,11 +91,9 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
  * screen owns the only `h2`.
  *
  * ── THE PAGE OWNS THE LIVE REGION ────────────────────────────────────────────
- * There is exactly one `role="status"` on this page, at the top, and
- * `EntitlementControl` feeds it through its `announce` output rather than
- * rendering its own. That is why the control renders neither a live region nor a
- * heading: on `/admin/claims` it appears once per row, so an internal live region
- * would multiply.
+ * There is exactly one `role="status"` on this page, at the top, and the child
+ * controls (seat provisioning, field corrections, the license actions) feed it
+ * through their `announce` outputs rather than rendering their own.
  *
  * ── WHAT THIS SCREEN DELIBERATELY CANNOT DO ──────────────────────────────────
  * **Ban a person.** Ban/unban lives on `/admin/users/:id` (AECI-524 owns the
@@ -118,12 +112,10 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
  * queue's Grant writes it too, and so does redeeming an owner's seat invite, but
  * both need a claim or an invite behind them. It exists because
  * `STAGE_2_SPEC.md` §8.9 gives a pure connector vendor a catalogue-maintenance
- * seat and NOT a Managed entitlement, while every other path to a seat opens an
- * entitlement on the way — which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told
- * operators to park such a claim rather than grant it. It belongs here rather
- * than on `/admin/claims/:id` or `/admin/users/:id` for the reason the revoke
- * does: this is the only screen showing the blast radius — the other seats and
- * the entitlement state — that makes the decision safe.
+ * seat and NOT a Managed plan. A seat is a login, not a license: provisioning one
+ * grants no license. It belongs here rather than on `/admin/claims/:id` or
+ * `/admin/users/:id` for the reason the revoke does: this is the only screen
+ * showing the blast radius (the other seats) that makes the decision safe.
  *
  * ── THE AUDIT TRAIL LIVES IN A SHARED COMPONENT (AECI-694) ───────────────
  * `<aec-audit-trail>` owns the table, the collapsed diffs and the paginator.
@@ -139,8 +131,6 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     AdminFieldCorrections,
     RouterLink,
     AuditTrail,
-    EntitlementControl,
-    PlanPricingControl,
     GrantLicensesControl,
     BillingLicensesTable,
     LicenseRowActions,
@@ -318,7 +308,7 @@ export class VendorDetail {
     });
 
     // Lazy per-tab loads. The audit trail is fetched up front because the page
-    // reloads it after every write (an entitlement change, a seat revoke) and
+    // reloads it after every write (a license change, a seat revoke) and
     // therefore has to hold it regardless of which tab is open; Products has no
     // such coupling, so it waits until someone asks for it.
     effect(() => {
@@ -365,24 +355,6 @@ export class VendorDetail {
     } finally {
       this.loading.set(false);
     }
-  }
-
-  // ── Entitlement ────────────────────────────────────────────────────────────
-
-  /** The control returns the committed readout, so the section updates with no
-   *  refetch — the same reason the claim queue patches in place. */
-  protected onEntitlementChanged(entitlement: VendorEntitlementResponse): void {
-    this.vendor.update((v) => (v ? { ...v, entitlement, verified: entitlement.verified } : v));
-    // The audit trail just gained a row. Reload it rather than leaving a page
-    // that visibly disagrees with the action the operator just took.
-    void this.loadAudit();
-  }
-
-  /** The plan price control returns the committed overrides (§13.13). Display
-   *  only, so nothing else on the page moves. */
-  protected onPlanPricingChanged(planPricing: VendorPlanPricingResponse): void {
-    this.vendor.update((v) => (v ? { ...v, plan_pricing: planPricing } : v));
-    void this.loadAudit();
   }
 
   /** A grant wrote N licenses and one `license.granted` row per license
@@ -455,7 +427,7 @@ export class VendorDetail {
       );
       this.revokeConfirmId.set(null);
       this.liveMessage.set(
-        $localize`:@@admin.vendors.seats.announce.revoked:Seat removed for ${this.seatName(seat)}:NAME:. The vendor's entitlement and badge are unchanged.`,
+        $localize`:@@admin.vendors.seats.announce.revoked2:Seat removed for ${this.seatName(seat)}:NAME:. The vendor's licenses are unchanged.`,
       );
       void this.loadAudit();
     } catch (err) {

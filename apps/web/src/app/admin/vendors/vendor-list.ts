@@ -1,32 +1,24 @@
 import { DatePipe } from '@angular/common';
-import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ADMIN_VENDOR_SORT_DEFAULT_ORDER } from '@aeci/shared';
 import type { AdminVendorRow, AdminVendorSort, SortOrder } from '@aeci/shared';
 
-import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
-import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminVendorsApi } from './admin-vendors-api';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
 const PAGE_SIZE = 25;
 
-/** The verified filter's three states. A tri-state, not a toggle: an operator
- *  auditing entitlements needs "show me the unverified ones" as often as the
- *  inverse, and the API's `verified` param is an explicit `'true'|'false'` enum
- *  precisely so `false` cannot be coerced back into `true` (AECI-691). */
-type VerifiedFilter = 'any' | 'true' | 'false';
-
 /**
  * `/admin/vendors` — the operator's vendor list (AECI-652 /
  * `STAGE_2_PAID_TIERS_SPEC.md` §5.6), rendered in the `AdminShell` layout outlet.
  *
  * This is the screen whose absence was the whole problem. Until it existed the
- * only path to a vendor's entitlement ran through a `/admin/claims` card, so a
+ * only path to a vendor's plan ran through a `/admin/claims` card, so a
  * vendor that never filed a claim had no row to act on and concierge onboarding —
  * where AECi approaches the vendor rather than the reverse — could not be done at
  * all.
@@ -62,19 +54,19 @@ type VerifiedFilter = 'any' | 'true' | 'false';
  *
  * ── A TABLE, AND EVERY COLUMN SORTS ─────────────────────────────────────────
  * The rows were cards. Every field here is short and every row has the same
- * fields, which is the case a table is for: an operator comparing entitlement
- * state across a page of vendors is scanning a column, and cards made them read
- * a paragraph per row.
+ * fields, which is the case a table is for: an operator comparing license counts
+ * across a page of vendors is scanning a column, and cards made them read a
+ * paragraph per row.
  *
  * Sorting is server-side or not offered at all — that rule has not changed, and a
  * header that reordered the rows already loaded while leaving the rest of the
  * catalog alone would be worse than no control, because under scroll paging the
  * operator cannot even see where the reordered set ends. What changed is the API:
- * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` now order by all seven of
- * this table's columns, including the two that live on the joined
- * `vendor_entitlements` row (`entitlement`, `term`) and the one that is a SELECT
- * alias rather than a column (`products`). Add a column here and it gets a case
- * there, or it gets no header control.
+ * `AdminVendorSortSchema` + `resolveAdminVendorOrderBy` order by all six of this
+ * table's columns, including the two that are SELECT aliases rather than columns
+ * (`licenses`, the live license count, and `products`). AECI-1375 dropped the
+ * entitlement and term columns with the entitlement screen. Add a column here and
+ * it gets a case there, or it gets no header control.
  *
  * Each key still has a NATURAL direction, which is what an inactive header states
  * and what its first click produces; clicking the ACTIVE header reverses it and
@@ -82,18 +74,17 @@ type VerifiedFilter = 'any' | 'true' | 'false';
  * {@link order}.
  *
  * The Integrations column is gone. An operator on this screen is triaging
- * entitlements and seats; the integration count is a catalog fact they act on at
+ * licenses and seats; the integration count is a catalog fact they act on at
  * `/admin/vendors/:id`, and dropping it also dropped a correlated subquery per
  * row from the query.
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [RouterLink, PaginationFooter, AecSelect, SortHeader, DatePipe],
+  imports: [RouterLink, PaginationFooter, SortHeader, DatePipe],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {
   private readonly api = inject(AdminVendorsApi);
-  private readonly locale = inject(LOCALE_ID);
 
   /** Every row loaded so far — chunk 1 plus whatever scroll has appended. */
   protected readonly vendors = signal<readonly AdminVendorRow[]>([]);
@@ -115,7 +106,6 @@ export class VendorList {
    *  question the operator has not finished asking. */
   protected readonly search = signal('');
   protected readonly searchDraft = signal('');
-  protected readonly verified = signal<VerifiedFilter>('any');
 
   /**
    * The active sort key. Component state, not a URL parameter, matching the
@@ -140,12 +130,6 @@ export class VendorList {
    * natural direction — moving from "Updated ↓" to "Vendor" gives A–Z, not Z–A.
    */
   protected readonly order = signal<SortOrder>(ADMIN_VENDOR_SORT_DEFAULT_ORDER['name']);
-
-  protected readonly verifiedOptions: readonly AecSelectOption[] = [
-    { value: 'any', label: $localize`:@@admin.vendors.filter.verified.any:Any status` },
-    { value: 'true', label: $localize`:@@admin.vendors.filter.verified.yes:Account active` },
-    { value: 'false', label: $localize`:@@admin.vendors.filter.verified.no:Account inactive` },
-  ];
 
   protected readonly isEmpty = computed(() => !this.loading() && this.vendors().length === 0);
 
@@ -192,11 +176,6 @@ export class VendorList {
     this.refilter();
   }
 
-  protected onVerifiedChange(value: string | null): void {
-    this.verified.set((value as VerifiedFilter | null) ?? 'any');
-    this.refilter();
-  }
-
   /** Scroll sentinel or the "Load more" button: append the next chunk. Guarded
    *  so a sentinel that fires twice before the response lands cannot request the
    *  same chunk (or skip one) — the footer debounces on `pending` too, but the
@@ -231,14 +210,12 @@ export class VendorList {
     this.loadFailed.set(false);
     try {
       const search = this.search();
-      const verified = this.verified();
       const response = await this.api.listVendors({
         page: this.page(),
         perPage: PAGE_SIZE,
         sort: this.sort(),
         order: this.order(),
         ...(search ? { search } : {}),
-        ...(verified === 'any' ? {} : { verified }),
       });
       this.vendors.update((rows) => (append ? [...rows, ...response.data] : response.data));
       this.total.set(response.total);
@@ -259,44 +236,6 @@ export class VendorList {
     } finally {
       this.loading.set(false);
       this.loadingMore.set(false);
-    }
-  }
-
-  /**
-   * The entitlement readout for a row.
-   *
-   * `tier`/`status` are `null` together when the vendor has no
-   * `vendor_entitlements` row at all — which is the majority, and which is NOT the
-   * same as a cleared one. Rendered alongside `verified` rather than instead of
-   * it: `verified` is the denormalized mirror, and showing both is how an operator
-   * spots drift between them.
-   */
-  /**
-   * The term end, formatted.
-   *
-   * NOT the `date` pipe: `period_end` is legally a bare `YYYY-MM-DD` (the admin
-   * form is an `<input type="date">`), and a date-only string handed to the pipe
-   * with `'UTC'` is parsed as LOCAL midnight and then shifted, so west of UTC a
-   * term ending on the 1st renders as the 31st. `formatTermDate` pins the
-   * calendar case to UTC midnight first. Shared with the two entitlement
-   * readouts so all three agree.
-   */
-  protected termEnds(row: AdminVendorRow): string {
-    return row.period_end ? formatTermDate(row.period_end, this.locale) : '';
-  }
-
-  protected entitlementLabel(row: AdminVendorRow): string {
-    switch (row.status) {
-      case 'active':
-        return $localize`:@@admin.vendors.ent.active:Entitlement active`;
-      case 'pending':
-        return $localize`:@@admin.vendors.ent.pending:Arrangement pending`;
-      case 'expired':
-        return $localize`:@@admin.vendors.ent.expired:Term expired`;
-      case 'revoked':
-        return $localize`:@@admin.vendors.ent.revoked:Entitlement cleared`;
-      default:
-        return $localize`:@@admin.vendors.ent.none:No entitlement`;
     }
   }
 }

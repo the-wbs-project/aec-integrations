@@ -40,15 +40,6 @@
         </button>
         }
       </form>
-
-      <aec-select
-        i18n-label="@@admin.vendors.filter.verified.label"
-        label="Account status"
-        [options]="verifiedOptions"
-        [value]="verified()"
-        idPrefix="admin-vendors-verified"
-        (changed)="onVerifiedChange($event)"
-      />
     </div>
   </div>
 
@@ -57,9 +48,9 @@
     filed a claim; this is the one that reaches the rest, which is what concierge
     onboarding needs.
   -->
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.intro">
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.intro2">
     Every vendor in the catalog, including those that never filed a claim. Open one to manage its
-    entitlement, review its seats, and read its audit trail.
+    licenses, review its seats, and read its audit trail.
   </p>
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
@@ -92,8 +83,8 @@
   } @else {
   <div class="mt-6 overflow-x-auto">
     <table class="w-full min-w-[60rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.table.caption">
-        Vendors in the catalog, with entitlement state and counts
+      <caption class="sr-only" i18n="@@admin.vendors.table.caption2">
+        Vendors in the catalog, with account state, live licenses and counts
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -133,11 +124,11 @@
           <th
             scope="col"
             aec-sort-header
-            sortKey="entitlement"
-            i18n-label="@@admin.vendors.col.entitlement"
-            label="Entitlement"
+            sortKey="licenses"
+            i18n-label="@@admin.vendors.col.liveLicenses"
+            label="Live licenses"
             [activeSort]="sort()"
-            [direction]="directionFor('entitlement')"
+            [direction]="directionFor('licenses')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
           ></th>
@@ -149,17 +140,6 @@
             label="Products"
             [activeSort]="sort()"
             [direction]="directionFor('products')"
-            (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
-          ></th>
-          <th
-            scope="col"
-            aec-sort-header
-            sortKey="term"
-            i18n-label="@@admin.vendors.col.termEnds"
-            label="Term ends"
-            [activeSort]="sort()"
-            [direction]="directionFor('term')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
           ></th>
@@ -197,10 +177,8 @@
           <td class="py-2.5 pe-4 font-mono text-xs text-(--text-tertiary)">{{ v.slug }}</td>
 
           <!--
-            The mirror and the entitlement sit in adjacent columns and neither is
-            derived from the other: `verified` is a denormalized copy of "an
-            active entitlement row exists", and seeing the two disagree is the
-            only way an operator catches drift.
+            Account active and Live licenses sit in adjacent columns so an operator
+            can see an active account with no live license, or the reverse.
           -->
           <td class="py-2.5 pe-4">
             @if (v.verified) {
@@ -220,20 +198,9 @@
             }
           </td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ entitlementLabel(v) }}</td>
+          <td class="py-2.5 pe-4 tabular-nums text-(--text-primary)">{{ v.live_license_count }}</td>
 
           <td class="py-2.5 pe-4 tabular-nums text-(--text-primary)">{{ v.product_count }}</td>
-
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
-            @if (v.period_end) { {{ termEnds(v) }} } @else {
-            <span
-              class="text-(--text-tertiary)"
-              i18n-aria-label="@@admin.vendors.termEnds.none"
-              aria-label="No term end on record"
-              >&ndash;</span
-            >
-            }
-          </td>
 
           <td class="py-2.5 text-(--text-secondary)">
             {{ v.updated_at | date: 'mediumDate' : 'UTC' }}

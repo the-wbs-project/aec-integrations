@@ -52,9 +52,7 @@ import {
   createAdminConnectorPairsHandler,
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
-import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes/admin-licenses';
-import { createSetVendorPlanPricingHandler } from './routes/admin-plan-pricing';
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
@@ -629,14 +627,9 @@ app.route('/', authActivity);
 //     AECI-692 and still the SOLE writer of `profiles.banned_at` anywhere —
 //     `/admin/users/:id` is now the surface that calls it, but it added no
 //     second writer (`banned-at-writers.spec.ts` asserts this at the source).
-//   - PATCH /api/admin/vendors/:id/entitlement (S2 §5, AECI-532) — set / renew /
-//     clear a vendor's paid entitlement. The ONLY writer that can take
-//     `vendors.verified` back down, and it does so through the entitlement row:
-//     `verified` is never in the payload, it follows in the same `db.batch` via
-//     `lib/vendor-entitlement.ts` (the mirror's sole writer, §2.1). Audit-only —
-//     no `workflow_instances` row, because that CHECK is closed (§1.2). Clearing
-//     is NOT a seat revoke and NOT a ban (§5.2): seats, logins and the dashboard
-//     survive, read-only.
+//   - (retired) PATCH /api/admin/vendors/:id/entitlement and PUT
+//     /api/admin/vendors/:id/plan-pricing: AECI-1375 removed both. Licenses are
+//     the plan; the license revoke below now takes `vendors.verified` down.
 //   - PATCH /api/admin/connector-catalogs/:id (AECI-720) — the per-iPaaS management
 //     cutoff. Flips `connector_catalogs.managed_by`; `vendor` freezes the review
 //     lane for that catalogue and the promote arm then refuses its pages with
@@ -648,16 +641,16 @@ app.route('/', authActivity);
 //     Audit row filed under the catalogue, same batch; purges the reach line.
 //   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
 //     vendor list + name/slug search. The way in for a vendor that never filed a
-//     claim; before this the entitlement control could only be reached through a
-//     `/admin/claims` card, which made concierge onboarding unreachable.
+//     claim; before this a vendor could only be reached through a `/admin/claims`
+//     card, which made concierge onboarding unreachable.
 //   - GET    /api/admin/vendors/:id               (S2 §5.6, AECI-652) — basics,
-//     entitlement, the seat roster + pending invites, and product / integration /
+//     the seat roster + pending invites, and product / integration /
 //     claim counts. Two D1 round trips: a 404 gate, then ONE `db.batch` of six
 //     reads (a batch for the round trip, not for atomicity — and deliberately not
 //     a `UNION`, which D1 caps at 5 compound terms).
 //   - GET    /api/admin/vendors/:id/products      (AP §5.7) — the vendor's product
 //     roster behind the detail page's Products tab. Paginated and separate from
-//     the detail payload so the entitlement/seat read costs the same for a vendor
+//     the detail payload so the seat read costs the same for a vendor
 //     with sixty products as for one with two. Joins EVERY `product_vendors` row,
 //     not just the primary — a co-owned product is owned (§8.8(1)).
 //   - GET    /api/admin/vendors/:id/audit         (S2 §5.6, AECI-652) — the FIRST
@@ -689,11 +682,14 @@ app.route('/', authActivity);
 //     two (409); an ended license refuses all three (422). A revoke ends the license
 //     (it keeps its product as history) with `license.revoked` and the vendor's
 //     Messages row in one batch; when it was on a product, post-commit purge of the
-//     product and vendor tags and the `managed-ended` email.
+//     product and vendor tags and the `managed-ended` email. A revoke that ends the
+//     vendor's last live license also re-routes its owner-routed contests on
+//     connector-powered rows to AECi in the same batch (AECI-1092, moved by
+//     AECI-1375). NOT a seat revoke and NOT a ban (§5.2): seats and logins stay.
 //   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
-//     names `vendors`: revoking a seat is orthogonal to the entitlement and never
+//     names `vendors`: revoking a seat is orthogonal to the licenses and never
 //     moves the mirror (§5.2). Requires a `{ reason }` body (AECI-1191), recorded
 //     in that row's `metadata.reason`. Ban/unban stays on `/api/admin/reviewers/:id`.
 //   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
@@ -877,31 +873,13 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
-// Stage 2 / AECI-532: the admin entitlement action (set / renew / clear). Owns the
-// un-verify half that AECI-520 left unowned, and clears the bit through the
-// entitlement row — never by writing the mirror (§5.1 / §2.1).
-authAdmin.patch(
-  '/api/admin/vendors/:id/entitlement',
-  requireAdmin(),
-  createSetVendorEntitlementHandler(),
-);
-// Ruling 2026-10-08 (STAGE_2_PAID_TIERS_SPEC.md §13.13): the display-only plan price
-// overrides. Not part of the entitlement: a Free vendor can carry one, and a clear
-// leaves it alone. A write, so `rateLimit('write')` after the guard.
-authAdmin.put(
-  '/api/admin/vendors/:id/plan-pricing',
-  requireAdmin(),
-  rateLimit('write'),
-  createSetVendorPlanPricingHandler(),
-);
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
-// revoke. Registered AFTER the entitlement PATCH so the literal `/entitlement`
-// and `/seats/:userId` segments are unambiguous against the bare `/:id`; Hono's
-// trie separates them by segment count anyway, but the order documents intent.
+// revoke. The literal `/seats/:userId` segments are unambiguous against the bare
+// `/:id`: Hono's trie separates them by segment count.
 // The GETs write nothing — reads emit no `audit_log` row (§9.3). The DELETE does
 // write, and reuses `revokeSeatStatements`, so its audit row rides the same
 // `db.batch` and NO statement names `vendors` — a seat revoke is orthogonal to
-// the entitlement and never moves the mirror (§5.2).
+// the licenses and never moves the mirror (§5.2).
 authAdmin.post(
   '/api/admin/logo',
   requireAdmin(),

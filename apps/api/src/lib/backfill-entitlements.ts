@@ -24,9 +24,9 @@
  * thing §2.1 forbids, and an ops script is not exempt. Reverse drift means a batch
  * half-landed and wants a human, not a sweep.
  *
- * PROOF IT LANDED is the `entitlement_mirror_drift` data-quality check (Guard 2, 04:00
- * UTC) — which is why §2 does not ship without it: "the backfill ran on staging but not
- * demo" is otherwise invisible until someone notices by hand.
+ * PROOF IT LANDED was the `entitlement_mirror_drift` data-quality check (04:00 UTC),
+ * retired 2026-10-17 (AECI-1375). "The backfill ran on staging but not demo" is now
+ * caught by `license_mirror_drift`, once `ops:backfill-licenses` has run.
  *
  * CAVEAT (§26.1): a raw backfill writes no `audit_log` row — there is no handler to
  * route it through. `notes` carries the provenance instead, and the CLI prints the

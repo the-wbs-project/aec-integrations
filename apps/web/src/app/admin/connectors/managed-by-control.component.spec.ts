@@ -5,7 +5,7 @@
  * rather than about it working:
  *
  *  1. **The host-owned chrome contract.** No heading and no live region of its
- *     own, matching `EntitlementControl`. A control that owned a `role="status"`
+ *     own, matching `ProvisionSeatControl`. A control that owned a `role="status"`
  *     would give a page N live regions the moment a second one appeared — an a11y
  *     regression a `querySelector('[role="status"]')` assertion would not even
  *     catch, since it keeps finding the first.

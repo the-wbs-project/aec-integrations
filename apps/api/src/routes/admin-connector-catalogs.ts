@@ -21,8 +21,8 @@
  *   - **No `workflow_transitions` row.** `createBanReviewerHandler` writes one, but
  *     `workflow_instances_type_check` is a CLOSED check — `('vendor_claim',
  *     'review_moderation', 'correction_request', 'reviewer_ban')` — and opening it on
- *     SQLite is a full table rebuild. `audit_log` IS the ledger here, exactly as
- *     `admin-entitlements.ts` settles for entitlements: `audit_log_entity_idx` is
+ *     SQLite is a full table rebuild. `audit_log` IS the ledger here, exactly as the
+ *     retired entitlement route settled for entitlements: `audit_log_entity_idx` is
  *     `(entity_type, entity_id, created_at)`, so `entity_type='connector_catalog',
  *     entity_id=<catalogue>` yields the whole handover trail with no new index and no
  *     new read path.
@@ -239,7 +239,7 @@ export function createSetConnectorCatalogManagementHandler(
     // ── 6. Response ──────────────────────────────────────────────────────────
     // Derived from the action, not re-read: the guarded UPDATE either applied or the
     // batch threw, so the post-state is known exactly and cannot disagree with the batch
-    // that just ran (the same argument `admin-entitlements.ts` makes for the mirror).
+    // that just ran.
     const body: ConnectorCatalogManagementResponse = {
       id,
       connector_product_id: existing.connectorProductId,

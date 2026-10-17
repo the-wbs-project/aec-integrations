@@ -1,12 +1,12 @@
 /**
- * The vendor Cache-Tag purge set — ONE definition, TWO writers (AECI-609 /
- * `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.5).
+ * The vendor Cache-Tag purge set — ONE definition, shared by every writer that can move
+ * `vendors.verified` (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.5).
  *
  * Promoted verbatim out of `routes/admin-claims.ts`, where it shipped as the
- * claim-grant's module-private `grantPurgeTags` (AECI-519). The Paid-Tiers epic adds a
- * SECOND writer of the identical set — §5's `PATCH /api/admin/vendors/:id/entitlement`
- * — and duplicated tag construction is exactly how a page goes stale on one path and
- * not the other. Renamed off "grant" because the set is no longer grant-specific.
+ * claim-grant's module-private `grantPurgeTags` (AECI-519). The license grant and
+ * revoke (`routes/admin-licenses.ts`) use it now; the entitlement set/renew/clear
+ * route that first shared it was retired by AECI-1375. Duplicated tag construction is
+ * exactly how a page goes stale on one path and not the other. Renamed off "grant" because the set is no longer grant-specific.
  *
  * Why the FULL set and not just `vendor:{slug}`: `vendors.verified` drives the
  * version-diff gate on every pair page, and a pair page carries both endpoints'

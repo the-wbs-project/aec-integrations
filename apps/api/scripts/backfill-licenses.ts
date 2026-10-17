@@ -32,8 +32,7 @@
  *     every INSERT has a `WHERE NOT EXISTS` re-guard. The stamp reconcile only fills a
  *     NULL stamp. A re-run writes nothing.
  *
- * PROOF IT LANDED is the `license_mirror_drift` data-quality check (04:00 UTC) beside
- * `entitlement_mirror_drift`. Run this on EVERY deployed tier before the E1.6
+ * PROOF IT LANDED is the `license_mirror_drift` data-quality check (04:00 UTC). Run this on EVERY deployed tier before the E1.6
  * switch-over, and AGAIN after the E1.6/E1.7 deploy and before the next 11:00 UTC
  * expiry run: the re-run copies any stamp the old sweep wrote in between.
  *

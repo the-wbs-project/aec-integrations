@@ -14,10 +14,9 @@
  * `in_review` filter tab; the note is written on `/admin/claims/:id`, so what is
  * asserted here is that a parked claim is legible from the LIST.
  *
- * The entitlement set/renew/clear form is NOT tested here any more — AECI-652
- * moved it to `admin/entitlement/entitlement-control`, which has its own spec.
- * What stayed is the readout and the link out, plus the single-live-region
- * assertion that the extraction could have silently broken.
+ * The entitlement set/renew/clear form left this page in AECI-652, and AECI-1375
+ * retired it and the entitlement readout. What stays is the target vendor's name
+ * and the "Manage billing" link, plus the single-live-region assertion.
  *
  * Harness mirrors `request-queue.component.spec.ts`: browser platform + a macrotask
  * `settle()` drains `afterNextRender`'s async load.
@@ -33,7 +32,6 @@ import type {
   ListVendorClaimsResponse,
   ModerateClaimInput,
   ModerateClaimResponse,
-  VendorEntitlementResponse,
 } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
@@ -67,13 +65,11 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     existing_seats: 'existing_seats' in over ? over.existing_seats! : [],
     seat_emails_available: over.seat_emails_available ?? true,
     related_requests: 'related_requests' in over ? over.related_requests! : [],
-    // AECI-532: the resolved target vendor + its entitlement, so the queue can render
-    // the entitlement column and address the set/renew/clear control.
+    // AECI-532: the resolved target vendor, so the card can link to its Billing tab.
     entitlement_vendor:
       'entitlement_vendor' in over
         ? over.entitlement_vendor!
         : { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
-    entitlement: 'entitlement' in over ? over.entitlement! : null,
     // AECI-738: the §5.2 payer test. Default is an ordinary endpoint vendor.
     product_roles:
       'product_roles' in over
@@ -99,29 +95,6 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
 }
 
 const VENDOR_ID = '00000000-0000-4000-8000-000000000002';
-
-/** An `active` entitlement readout, i.e. the vendor currently holds the badge. */
-function activeEntitlement(
-  over: Partial<VendorEntitlementResponse> = {},
-): VendorEntitlementResponse {
-  return {
-    vendor_id: VENDOR_ID,
-    tier: 'verified',
-    status: 'active',
-    period_start: null,
-    period_end: '2027-09-01',
-    granted_at: '2026-06-01T00:00:00.000Z',
-    ended_at: null,
-    verified: true,
-    payer: null,
-    amount: null,
-    terms: null,
-    arranged_by: null,
-    invoice_ref: 'PO-4471',
-    notes: null,
-    ...over,
-  };
-}
 
 interface ApiMock {
   listClaims: ReturnType<typeof vi.fn>;
@@ -832,36 +805,24 @@ describe('ClaimQueue', () => {
     expect(el.querySelectorAll('article')).toHaveLength(1);
   });
 
-  // ── Entitlement control (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ─────────
+  // ── Billing link (AECI-532; readout retired in AECI-1375) ──────────────────
 
-  describe('entitlement readout + link (the CONTROL moved out in AECI-652)', () => {
-    it('renders the status readout without any form control', async () => {
+  describe('the target vendor and the Billing link', () => {
+    it('shows the vendor name and no entitlement readout or form control', async () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
       const card = cardFor(el, 'Procore');
-      expect(card.textContent).toContain('No entitlement on record');
-      // The set/renew/clear form lives on /admin/vendors/:id now. A second copy
-      // here would mean a second copy of the §5.2/§5.3/§5.4 copy invariants, and
-      // those are the sentences whose drift causes an incident.
+      expect(card.textContent).toContain('Autodesk, Inc.');
+      // AECI-1375: licenses are the plan; the entitlement status line is gone.
+      expect(card.textContent).not.toContain('No entitlement on record');
+      expect(card.textContent).not.toContain('Account active: entitlement active');
       expect(() => buttonByText(card, 'Grant entitlement')).toThrow();
       expect(() => buttonByText(card, 'Clear entitlement')).toThrow();
       expect(card.querySelector('aec-entitlement-control')).toBeNull();
     });
 
-    it('shows the active term and paperwork', async () => {
-      const { el } = await setup(
-        makeApiMock([makeClaim({ id: 'c1', entitlement: activeEntitlement() })]),
-      );
-      const card = cardFor(el, 'Procore');
-      expect(card.textContent).toContain('Account active: entitlement active');
-      // Formatted, and formatted the SAME way as `/admin/vendors/:id` — both
-      // readouts share `entitlementTermLabel` so they cannot drift (AECI-694).
-      expect(card.textContent).toContain('Sep 1, 2027');
-      expect(card.textContent).toContain('PO-4471'); // the arrangement is admin-side
-    });
-
     it('links out to the vendor page by VENDOR id, not by claim or target id', async () => {
-      // A product claim's entitlement belongs to that product's PRIMARY vendor, so
-      // `target_id` cannot address it — which is why the row carries a resolved
+      // A product claim's licenses belong to that product's PRIMARY vendor, so
+      // `target_id` cannot address it. That is why the row carries a resolved
       // `entitlement_vendor` at all.
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
       const card = cardFor(el, 'Procore');
@@ -875,22 +836,19 @@ describe('ClaimQueue', () => {
     it('renders no link when the claim has no vendor to act on', async () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', entitlement_vendor: null })]));
       const card = cardFor(el, 'Procore');
-      expect(card.textContent).toContain('Unavailable');
       expect(
         [...card.querySelectorAll('a')].some((a) => a.textContent?.trim() === 'Manage billing'),
       ).toBe(false);
     });
 
-    it('stays visible on a resolved claim — renewing a months-old grant is ordinary', async () => {
-      const { el } = await setup(
-        makeApiMock([
-          makeClaim({ id: 'c1', status: 'resolved', entitlement: activeEntitlement() }),
-        ]),
-      );
+    it('stays visible on a resolved claim: managing a months-old grant is ordinary', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', status: 'resolved' })]));
       const card = cardFor(el, 'Procore');
-      // The moderation buttons are gone (terminal row) but the readout is not.
+      // The moderation buttons are gone (terminal row) but the link is not.
       expect(() => buttonByText(card, 'Grant vendor account')).toThrow();
-      expect(card.textContent).toContain('Account active: entitlement active');
+      expect(
+        [...card.querySelectorAll('a')].some((a) => a.textContent?.trim() === 'Manage billing'),
+      ).toBe(true);
     });
   });
 
@@ -905,8 +863,9 @@ describe('ClaimQueue', () => {
       expect(el.querySelectorAll('h1')).toHaveLength(0);
       expect(el.querySelectorAll('h2')).toHaveLength(1);
       expect(el.querySelectorAll('h3')).toHaveLength(2); // one per card
-      // Two h4 subsections per card: verification signals + entitlement (AECI-532).
-      expect(el.querySelectorAll('h4')).toHaveLength(4);
+      // One h4 subsection per card: verification signals. The entitlement h4 is
+      // gone with its readout (AECI-1375).
+      expect(el.querySelectorAll('h4')).toHaveLength(2);
       expect(el.querySelector('h5, h6')).toBeNull();
     });
 
@@ -919,11 +878,9 @@ describe('ClaimQueue', () => {
     });
 
     it('exposes EXACTLY ONE polite live region, however many rows are on screen', async () => {
-      // The count is the point. The entitlement control used to be inline, once
-      // per row; a version of it that rendered its own `role="status"` would give
-      // this page N live regions, and a `querySelector` assertion would keep
-      // passing on the first one. That is why the extracted control announces
-      // through an output instead.
+      // The count is the point. A per-row control that rendered its own
+      // `role="status"` would give this page N live regions, and a
+      // `querySelector` assertion would keep passing on the first one.
       const { el } = await setup(
         makeApiMock([
           makeClaim({ id: 'c1' }),
