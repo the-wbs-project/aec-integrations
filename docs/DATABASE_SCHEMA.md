@@ -136,7 +136,6 @@ Tables grouped by domain:
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
-- `vendor_plan_pricing` — per-vendor plan price overrides for the portal's plan panel; display only, never billing (§8.6a, ruling 2026-10-08)
 - `billing_accounts` — one per vendor; the account Managed licenses are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
 - `agreement_acceptances` — one acceptance of one version of the vendor terms or the Managed plan agreement; evidence that survives erasure (§8.6d, AECI-1362)
@@ -1860,6 +1859,14 @@ create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
 
 ### 8.6a `vendor_plan_pricing` (ruling 2026-10-08, migration 0066)
 
+> **Dropped 2026-10-17 (AECI-1357, migration 0081).** The table no longer exists.
+> `apps/api/migrations/0081_daffy_vision.sql` is one `DROP TABLE`. It is a leaf drop:
+> nothing held an FK into the table, so it cascades nothing. `migration-0081.spec.ts` is the
+> tripwire. `vendorPlanPricing` is gone from `schema.ts` and from `VENDOR_FK_HANDLING`. The audit
+> actions `vendor_plan_pricing.set` and `.cleared` stay as labels, so historical `audit_log` rows
+> still render. Those rows are now the only record of an override. The rest of this section
+> is history.
+
 Per-vendor overrides for what the vendor portal's plan panel says Managed costs.
 **Display only.** Nothing bills from it, and no entitlement, capability or ranking reads
 it. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 is the model.
@@ -1881,18 +1888,19 @@ create table vendor_plan_pricing (
 - **No row is the default.** The one writer, `PUT /api/admin/vendors/:id/plan-pricing`,
   deleted the row when both overrides were cleared, so a row always holds at least one.
   *As built 2026-10-17 (AECI-1375):* that route is retired, so the table has **no writer**.
-  *As built 2026-10-17 (AECI-1357):* the table also has **no reader**. `loadPlanPrice` is
-  deleted and the table is unread. The `DROP TABLE` migration ships in PR 2, after PR 1
-  reaches prod, because CI applies migrations before the Worker deploys
-  (`docs/migrations.md` §3.2). Decision 8 of `VENDOR_SIGNUP_PROCESS.md` rules it.
+  *As built 2026-10-17 (AECI-1357):* the table also had **no reader**. `loadPlanPrice` was
+  deleted in PR 1. Migration 0081 dropped the table in PR 2, after PR 1 reached prod,
+  because CI applies migrations before the Worker deploys (`docs/migrations.md` §3.2).
+  Decision 8 of `VENDOR_SIGNUP_PROCESS.md` rules it.
 - **No CHECK.** Bounds lived in `SetVendorPlanPricingSchema` (price 0 to 10,000,000 cents;
   message 1 to 280 characters), removed with the route by AECI-1375. A CHECK change would force a D1 table recreate
   (`docs/migrations.md` §0).
 - **Domain state.** Every write emits `vendor_plan_pricing.set` or `.cleared` into the same
   `db.batch` (§8.4), keyed `entity_type = 'vendor_plan_pricing'`, `entity_id` = the vendor id.
-- **Vendor retraction.** The `ON DELETE CASCADE` is left to the FK on purpose
+- **Vendor retraction.** The `ON DELETE CASCADE` was left to the FK on purpose
   (`VENDOR_FK_HANDLING` outcome `fk-action` in `apps/api/src/lib/retract-vendor.ts`). The row
-  means nothing without the vendor, and its history is in `audit_log`.
+  meant nothing without the vendor, and its history is in `audit_log`. The entry was removed with
+  the table (AECI-1357, 2026-10-17). `integration_vendor_links` is now the only `fk-action` entry.
 - **Read paths.** None since AECI-1357 (2026-10-17). `GET /api/vendor/me`, the product PATCH
   echo and both checklist reads used to put `{ managed_price_cents, message }` on every `plan`
   block, one primary-key read each. `GET /api/admin/vendors/:id` returned it with
@@ -1915,7 +1923,7 @@ create table billing_accounts (
   name text not null,
   billing_email text,       -- null until an owner sets it or checkout does (decision 16); lower-cased
   stripe_customer_id text,
-  created_by text,          -- a profiles.id; NO FK, as vendor_plan_pricing.updated_by
+  created_by text,          -- a profiles.id; NO FK, as notification_settings.updated_by
   created_at text not null,
   updated_at text not null
 );
@@ -4956,7 +4964,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
-- `vendor_plan_pricing` (§8.6a): no writer since AECI-1375 and no reader since AECI-1357 (2026-10-17); it was admin-only (`requireAdmin()`). It used to be read by a vendor only for its own row's two display fields, folded into its `plan` block by `vendor_id`, never `updated_by`. The drop is pending in PR 2
+- `vendor_plan_pricing` (§8.6a): dropped by migration 0081 (AECI-1357, 2026-10-17). It had no writer after AECI-1375 and no reader after AECI-1357 PR 1. It was admin-only (`requireAdmin()`), and a vendor saw only its own row's two display fields, folded into its `plan` block by `vendor_id`, never `updated_by`
 - `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351), the admin license grant and edit (AECI-1370, AECI-1371) and, until AECI-1375 retired its route, the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)

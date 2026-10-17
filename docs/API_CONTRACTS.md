@@ -3395,7 +3395,7 @@ rate limit's 429.
 portal's plan panel. *As built 2026-10-17 (AECI-1357):* the read is gone too.
 `apps/api/src/lib/vendor-plan-pricing.ts` and `packages/shared/src/api/admin-plan-pricing.ts`
 are deleted, with `PlanPriceSchema` and `VendorPlanPricingResponseSchema`. No route reads
-`vendor_plan_pricing`. The table is unread and a later migration drops it. Historical
+`vendor_plan_pricing`. Migration 0081 dropped the table (2026-10-17). Historical
 `vendor_plan_pricing.*` audit rows still render. The pre-AECI-1375 contract is in git history.
 
 #### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)

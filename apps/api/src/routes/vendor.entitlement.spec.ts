@@ -62,7 +62,6 @@ import {
   profiles,
   licenses,
   taxonomyCategories,
-  vendorPlanPricing,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -324,21 +323,14 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
   });
 
-  it('carries no price block, even over a leftover override row (AECI-1357)', async () => {
-    // The override is retired (VENDOR_SIGNUP_PROCESS.md §2 decision 8). A row left
-    // in `vendor_plan_pricing` until its table is dropped must not reach the vendor.
-    await t.db.insert(vendorPlanPricing).values({
-      vendorId: VENDOR_UNCLAIMED,
-      managedPriceCents: 1250,
-      priceMessage: 'Free until December 12',
-      updatedBy: SEAT_PAID,
-    });
+  it('carries no price block (AECI-1357)', async () => {
+    // The override is retired (VENDOR_SIGNUP_PROCESS.md §2 decision 8) and its table
+    // dropped (migration 0081).
     const { status, body } = await call('/api/vendor/me', 'GET', SEAT_UNCLAIMED);
     expect(status).toBe(200);
     expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
     expect(body.entitlement).not.toHaveProperty('price');
     for (const product of body.products) expect(product.plan).not.toHaveProperty('price');
-    expect(JSON.stringify(body)).not.toContain('Free until December 12');
 
     // The product PATCH response carries the same block.
     const write = await call(`/api/vendor/products/${PRODUCT_UNCLAIMED}`, 'PATCH', SEAT_UNCLAIMED, {
