@@ -1,5 +1,8 @@
 <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- AEC Integrations monogram. Letters are outlined from Atkinson Hyperlegible Next
+       (SIL Open Font License 1.1): AEC upright and i italic, both weight 600 at 24 units.
+       Construction: branding/logo-construction.md. -->
   <rect width="80" height="80" rx="12" fill="#F5F2EA"/>
-  <text x="32" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#1E3A2F" text-anchor="middle">AEC</text>
-  <text x="64" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" font-style="italic" fill="#E89668">i</text>
+  <path transform="translate(9.58 50)" fill="#1E3A2F" d="M0.17 0.00 6.22 -16.03H9.68L15.72 0.00H12.34L11.26 -3.14H4.63L3.54 0.00ZM5.49 -5.72H10.38L7.93 -12.78Z M17.46 0.00V-16.03H29.06V-13.30H20.58V-9.61H26.29V-6.88H20.58V-2.73H29.16V0.00Z M38.08 0.29Q35.67 0.29 33.94 -0.75Q32.22 -1.78 31.30 -3.65Q30.39 -5.52 30.39 -8.03Q30.39 -10.55 31.35 -12.41Q32.32 -14.27 34.08 -15.29Q35.84 -16.32 38.22 -16.32Q40.38 -16.32 42.04 -15.34Q43.70 -14.37 44.57 -12.64L41.82 -11.64Q41.29 -12.66 40.31 -13.20Q39.33 -13.74 38.10 -13.74Q36.86 -13.74 35.84 -13.08Q34.83 -12.42 34.24 -11.14Q33.65 -9.86 33.65 -8.03Q33.65 -6.20 34.23 -4.92Q34.81 -3.64 35.84 -2.97Q36.87 -2.30 38.15 -2.30Q38.95 -2.30 39.67 -2.52Q40.40 -2.75 40.98 -3.21Q41.57 -3.67 41.93 -4.38L44.67 -3.38Q43.75 -1.64 42.02 -0.68Q40.29 0.29 38.08 0.29Z"/>
+  <path transform="translate(63.19 50)" fill="#E89668" d="M1.11 0.00 3.15 -9.65H1.31L1.80 -11.90H6.58L4.04 0.00ZM5.70 -14.00Q4.94 -14.00 4.38 -14.55Q3.83 -15.10 3.83 -15.86Q3.83 -16.65 4.38 -17.19Q4.94 -17.73 5.70 -17.73Q6.48 -17.73 7.02 -17.19Q7.56 -16.65 7.56 -15.86Q7.56 -15.10 7.02 -14.55Q6.48 -14.00 5.70 -14.00Z"/>
 </svg>

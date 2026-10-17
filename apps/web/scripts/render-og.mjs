@@ -18,9 +18,11 @@
 // this tool, never of the shipped site). If the browser binary is missing, run
 // `npx playwright install chromium` once.
 //
-// Reproducibility note: the wordmark is a system-font lockup by design
-// (branding/logo-construction.md), so the logo glyphs follow the generating OS's
-// UI font (SF on macOS). Regenerate on the same platform for a byte-stable card.
+// Reproducibility note: the wordmark is outlined paths (Atkinson Hyperlegible
+// Next, branding/logo-construction.md), so it no longer depends on the generating
+// OS's fonts. The headline, subline and footer text are live webfonts, and their
+// anti-aliasing can still shift a few pixels between platforms and font versions.
+// Regenerate on the same platform for a byte-stable card.
 
 import { chromium } from '@playwright/test';
 import { fileURLToPath } from 'node:url';

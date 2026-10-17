@@ -20,12 +20,16 @@ import { RouterLink } from '@angular/router';
  * The link's `aria-label` stays the accessible name, so screen readers still
  * hear "AEC Integrations home" and not the image alt.
  *
- * Connector geometry deliberately diverges from the landing page's: measured in
- * the system font, "AEC" ink ends at x≈52.3 and "Integrations" ink starts at
- * x=86.5, so the landing's connector (centre 72.25) sat ~10.5 from "AEC" but
- * only ~4.75 from "Integrations". The mark is shifted ~2.85 left (centre ≈69.4)
- * to sit optically centred in that gap. Keep it balanced if the text x-values
- * in `wordmark.svg` ever change.
+ * The letters are outlined paths, not `<text>`. Until 2026-10-17 the file drew
+ * live text in the visitor's system font, so the connector gaps varied by OS
+ * and the brand spec's 7-unit gaps held on exactly one platform. The outlines
+ * come from Atkinson Hyperlegible Next (the body font, SIL Open Font License),
+ * so the mark renders identically everywhere and the spec's gaps are measured
+ * on the file itself: C ink ends at x=50.34, first dot starts at 57.34,
+ * second dot ends at 76.34, I ink starts at 83.34. Rebuild instructions and the
+ * full coordinate table are in `branding/logo-construction.md` §The wordmark.
+ * The `branding/` wordmark family, stacked logo, monogram and OG cards were
+ * outlined the same day, so every logo asset shares these letterforms.
  */
 @Component({
   selector: 'aec-brand-logo',
@@ -50,7 +54,7 @@ import { RouterLink } from '@angular/router';
         class="block h-full w-auto"
         ngSrc="/branding/wordmark.svg"
         [priority]="priority()"
-        width="220"
+        width="196"
         height="30"
         i18n-alt="@@app.brand.logoAlt"
         alt="AEC Integrations"

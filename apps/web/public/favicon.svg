@@ -1,3 +1,5 @@
 <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <text x="32" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="48" font-weight="600" font-style="italic" fill="#E89668" text-anchor="middle">i</text>
+  <!-- AEC Integrations favicon. The italic i is outlined from Atkinson Hyperlegible Next
+       (SIL Open Font License 1.1), weight 600 at 48 units. Construction: branding/logo-construction.md. -->
+  <path transform="translate(23.33 50)" fill="#E89668" d="M2.21 0.00 6.31 -19.30H2.62L3.61 -23.81H13.17L8.08 0.00ZM11.40 -28.00Q9.87 -28.00 8.77 -29.10Q7.67 -30.20 7.67 -31.72Q7.67 -33.30 8.77 -34.38Q9.87 -35.46 11.39 -35.46Q12.97 -35.46 14.05 -34.38Q15.13 -33.29 15.13 -31.73Q15.13 -30.20 14.05 -29.10Q12.96 -28.00 11.40 -28.00Z"/>
 </svg>
