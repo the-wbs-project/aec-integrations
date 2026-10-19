@@ -29,6 +29,7 @@ import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
 import { VendorBillingSummary } from '../components/vendor-billing-summary';
+import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -78,7 +79,8 @@ function documentLabel(document: string): string {
  * `…/billing`: the owner-only Billing tab (AECI-1390, E5.4;
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The billing email, the company's
  * licenses and the agreements it accepted. A summary card in a right-hand column
- * counts the licenses (`VendorBillingSummary`).
+ * counts the licenses (`VendorBillingSummary`). A "Learn more" link under the
+ * intro opens the Billing help page (AECI-1400, E8.3).
  *
  * ── OWNERS ONLY ─────────────────────────────────────────────────────────────
  * Billing is an owner's act (decision 10). The nav drops the tab for a member seat
@@ -115,6 +117,7 @@ function documentLabel(document: string): string {
     VendorBillingEmailForm,
     VendorBillingLicenses,
     VendorBillingSummary,
+    VendorDocsLink,
     VendorLicenseActions,
     VendorLicenseAssign,
   ],
@@ -141,9 +144,10 @@ function documentLabel(document: string): string {
             class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.billing.intro"
           >
-            A license covers one product. Plans change what a listing can show, never where it
-            ranks.
+            Your company's Managed licenses are held here. Assign each one to a product to put it on
+            Managed. Plans change what a listing can show, never where it ranks.
           </p>
+          <p class="mt-1"><aec-vendor-docs-link page="billing" /></p>
 
           @if (loading()) {
             <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.billing.loading">

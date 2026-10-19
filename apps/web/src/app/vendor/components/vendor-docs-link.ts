@@ -27,6 +27,7 @@ export const VENDOR_GUIDE_PAGES = {
     $localize`:@@vendor.docsLink.page.contests:Requesting changes and appeals`,
   'replying-to-reviews': () => $localize`:@@vendor.docsLink.page.replying:Replying to reviews`,
   plans: () => $localize`:@@vendor.docsLink.page.plans:Plans`,
+  billing: () => $localize`:@@vendor.docsLink.page.billing:Billing`,
   checklists: () => $localize`:@@vendor.docsLink.page.checklists:Your checklists`,
   'change-history': () => $localize`:@@vendor.docsLink.page.history:Your change history`,
 } as const satisfies Record<string, () => string>;

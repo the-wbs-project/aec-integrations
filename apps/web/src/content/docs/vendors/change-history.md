@@ -2,7 +2,7 @@
 title: Your change history
 description: Where to see every change to your company, products, integrations and seats, who made it, and why AEC Integrations changed something.
 section: vendors
-order: 13
+order: 14
 last_updated: October 16, 2026
 ---
 

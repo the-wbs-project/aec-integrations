@@ -50,6 +50,7 @@ const VENDOR_SLUGS = [
   'requesting-changes-and-appeals',
   'replying-to-reviews',
   'plans',
+  'billing',
   'checklists',
   'change-history',
   'connector-vendors',

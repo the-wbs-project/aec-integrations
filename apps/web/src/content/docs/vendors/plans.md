@@ -84,31 +84,9 @@ The portal shows your plan's status, and the end date where there is one. Before
 
 Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.
 
-## The Billing tab
-
-Owners see a **Billing** tab in the vendor portal. Members do not. It has four parts.
-
-- **Billing email.** License grant and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there.
-- **At a glance.** A card that counts your live licenses: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many licenses come off at renewal, when either count is above zero.
-- **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**.
-- **Agreements.** The agreements your company accepted, with who accepted each one and when.
-
-You cannot buy licenses on the tab yet. We grant them, and they appear here.
-
-### Put a license on a product
-
-On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal.
-
-### Free a product's license
-
-Open the actions menu at the end of the license's row and choose **Release license**. Then pick when:
-
-- **At renewal.** The license comes off its product at the next renewal, and the product goes back to Free then. The row shows **Releases at renewal**. To undo it, choose **Keep at renewal** from the same menu.
-- **Now.** Give a reason and choose **Send request**. We review the request. If we approve it, the license goes back to your pool and the product goes back to Free. The row shows **Early unassign requested** until we answer.
-
 ## Related
 
 - Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
-- Next: [Your checklists](/docs/vendors/checklists).
+- Next: [Billing](/docs/vendors/billing).
 - [How ranking works](/docs/trust/how-ranking-works).
 - [How we research and verify listings](/methodology).
