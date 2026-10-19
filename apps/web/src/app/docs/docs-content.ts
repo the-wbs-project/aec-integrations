@@ -52,6 +52,7 @@ import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
 import rankingMd from '../../content/docs/trust/how-ranking-works.md';
 import listingSubmissionsMd from '../../content/docs/trust/listing-submissions.md';
 import vendorGuideIntroMd from '../../content/docs/vendors/_index.md';
+import billingMd from '../../content/docs/vendors/billing.md';
 import attestingMd from '../../content/docs/vendors/confirming-integration-data.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
 import checklistsMd from '../../content/docs/vendors/checklists.md';
@@ -281,6 +282,7 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'requesting-changes-and-appeals', source: contestsMd },
     { slug: 'replying-to-reviews', source: replyingMd },
     { slug: 'plans', source: plansMd },
+    { slug: 'billing', source: billingMd },
     { slug: 'checklists', source: checklistsMd },
     { slug: 'change-history', source: changeHistoryMd },
     { slug: 'connector-vendors', source: connectorVendorsMd },

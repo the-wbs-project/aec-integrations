@@ -26,7 +26,7 @@ There are three ways to get a seat:
 - **An invitation from a colleague.** The person invited becomes a member.
 - **AEC Integrations adds one** at your company's request. That seat is an owner.
 
-Owners and members can do the same things with your company's listings. The difference is that only owners manage seats and see the **Billing** tab. See [Plans](/docs/vendors/plans#the-billing-tab).
+Owners and members can do the same things with your company's listings. The difference is that only owners manage seats and see the **Billing** tab. See [Billing](/docs/vendors/billing).
 
 ## Invite a colleague
 
