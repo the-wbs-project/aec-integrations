@@ -6062,8 +6062,10 @@ export interface PromoteResponse {
   //
   // AECI-1407 adds `kind: 'license_hand_back'`: a claimed vendor's product with no
   // live license took only `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` (not
-  // over an admin-written block) and AECi claims on its existing edges. On the product's `ref`, `reason` lists the
-  // withheld fields after a colon and `count` is how many. On an integration's `ref`,
+  // over an admin-written block) and AECi claims on its existing edges. On the
+  // product's `ref`, `reason` names the hand-back fields the UPDATE actually wrote,
+  // then the withheld fields after a colon, and `count` is how many were withheld.
+  // On an integration's `ref`,
   // only its claims were written (`REVIEW_APP_PROMOTE_API.md` §4a).
   preserved: {
     ref: string;

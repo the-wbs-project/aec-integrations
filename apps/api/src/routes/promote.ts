@@ -1100,10 +1100,22 @@ const BLOCKED_INTEGRATION_REASON =
 const HAND_BACK_PRODUCT_FIELDS = ['toolIntegrationsUrl', 'apiDocsUrl', 'usefulness'] as const;
 /** Payload keys that address the product rather than describe it. Never "withheld". */
 const PRODUCT_ADDRESS_FIELDS = new Set(['ref', 'supabaseId']);
-/** `preserved[] { kind: 'license_hand_back' }` on the product's `ref`. The withheld
- *  field names follow after a colon. */
-export const PRESERVED_LICENSE_HAND_BACK_PRODUCT =
-  'product has no live license, so promote wrote only toolIntegrationsUrl, apiDocsUrl and usefulness; the claimed vendor keeps';
+/**
+ * `preserved[] { kind: 'license_hand_back' }` reason on the product's `ref`. Names the
+ * hand-back fields the UPDATE actually carries, so an admin-fenced `usefulness` (left
+ * out of the write) is not claimed as written. The withheld field names follow after
+ * a colon.
+ */
+export function licenseHandBackProductReason(
+  written: readonly string[],
+  withheld: readonly string[],
+): string {
+  const list =
+    written.length <= 1
+      ? written.join('')
+      : `${written.slice(0, -1).join(', ')} and ${written[written.length - 1]}`;
+  return `product has no live license, so promote wrote only ${list}; the claimed vendor keeps: ${withheld.join(', ')}`;
+}
 /** `preserved[] { kind: 'license_hand_back' }` on an integration's `ref`. */
 export const PRESERVED_LICENSE_HAND_BACK_INTEGRATION =
   'endpoint product has no live license, so promote wrote only the AECi claims on this existing edge; its columns stay as they are';
@@ -3032,11 +3044,15 @@ export async function runPromoteIngest(
             !(Array.isArray(value) && value.length === 0),
         )
         .map(([key]) => key);
+      // Built from the UPDATE's own SET keys, in payload-field order, so the receipt
+      // can never claim a field the statement left out. `usefulnessSource` rides with
+      // `usefulness` and is not a payload field.
+      const written = HAND_BACK_PRODUCT_FIELDS.filter((field) => field in handBackSet);
       if (withheld.length > 0) {
         preserved.push({
           ref: p.ref,
           kind: 'license_hand_back',
-          reason: `${PRESERVED_LICENSE_HAND_BACK_PRODUCT}: ${withheld.join(', ')}`,
+          reason: licenseHandBackProductReason(written, withheld),
           count: withheld.length,
         });
       }

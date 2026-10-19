@@ -65,7 +65,6 @@ import {
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
   PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-  PRESERVED_LICENSE_HAND_BACK_PRODUCT,
   REFUSED_CLAIMED_INTEGRATION,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
@@ -4985,7 +4984,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
       const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
       expect(receipt).toMatchObject({ ref: 'p1', count: 5 });
       expect(receipt?.reason).toBe(
-        `${PRESERVED_LICENSE_HAND_BACK_PRODUCT}: name, productRole, description, categories, lastReviewedAt`,
+        'product has no live license, so promote wrote only toolIntegrationsUrl, apiDocsUrl and usefulness; the claimed vendor keeps: name, productRole, description, categories, lastReviewedAt',
       );
 
       const [audit] = await t.db
@@ -5011,6 +5010,11 @@ describe('createPromoteHandler — claimed-vendor block', () => {
       });
       expect(body.preserved).toContainEqual(
         expect.objectContaining({ ref: 'p1', kind: 'usefulness', count: 1 }),
+      );
+      // The receipt names only what the UPDATE wrote: usefulness was left out.
+      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
+      expect(receipt?.reason).toBe(
+        'product has no live license, so promote wrote only toolIntegrationsUrl and apiDocsUrl; the claimed vendor keeps: name, productRole, description, categories',
       );
     });
 

@@ -1090,13 +1090,15 @@ The `result` object in full:
   treat it as an error.
 - **`kind: "license_hand_back"` (AECI-1407) is the receipt for the §4a hand-back.**
   It appears only when a claimed vendor's product holds no live license and the push
-  was partly written. On the **product's** `ref` it lists the product fields the
-  vendor kept, after a colon in `reason`, and `count` is how many. Only
-  `toolIntegrationsUrl`, `apiDocsUrl` and `usefulness` were written. `usefulness` is
-  not written over an admin-written block, which gets its own `kind: "usefulness"`
-  entry instead. `productRole` is
-  listed even when you omit it, because the schema defaults it. On an
-  **integration's** `ref` it means the edge's AECi claims were written and its columns
+  was partly written. On the **product's** `ref`, `reason` names the hand-back fields
+  the write actually carried, then lists the product fields the vendor kept after a
+  colon, and `count` is how many were kept. The written fields are some of
+  `toolIntegrationsUrl`, `apiDocsUrl` and `usefulness`. `usefulness` is not written
+  over an admin-written block, so it is left out of the written list there and gets
+  its own `kind: "usefulness"` entry instead. That case reads:
+  `product has no live license, so promote wrote only toolIntegrationsUrl and apiDocsUrl; the claimed vendor keeps: name, description`.
+  `productRole` is listed as kept even when you omit it, because the schema
+  defaults it. On an **integration's** `ref` it means the edge's AECi claims were written and its columns
   were not. It is `preserved[]` and not `skipped[]` because part of the entity did
   land, and `skipped[]` means "never written". Re-pushing does not change it. The
   entries stop when the product takes a license, and the whole product is then
