@@ -328,12 +328,24 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
 
     expect(banner).not.toBeNull();
     expect(banner?.textContent).toContain('Nothing you entered was removed');
-    expect(banner?.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe(
-      'Talk to us about Managed',
-    );
+    // AECI-1408: the fixture is an owner seat, so the path is Billing.
+    const cta = banner?.querySelector<HTMLAnchorElement>('[data-testid="plan-ended-get-licenses"]');
+    expect(cta?.textContent?.trim()).toBe('Get licenses');
+    expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
+    expect(banner?.querySelector('a[href="/contact"]')).toBeNull();
     // Not dismissible: it states the current state.
     expect(banner?.querySelector('button')).toBeNull();
     expect(el.querySelector('aec-vendor-checklist')).not.toBeNull();
+  });
+
+  it('gives a member seat the contact path, because a member cannot open Billing (AECI-1408)', async () => {
+    const el = root(await open('overview', { ...VENDOR_ME_DOWNGRADED_FIXTURE, seat_owner: false }));
+    const banner = el.querySelector('[data-testid="plan-ended-banner"]');
+
+    expect(banner?.querySelector('[data-testid="plan-ended-get-licenses"]')).toBeNull();
+    expect(banner?.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe(
+      'Talk to us about Managed',
+    );
   });
 
   it('keeps company details editable for a revoked vendor, off CAPABILITIES (AECI-1214)', async () => {

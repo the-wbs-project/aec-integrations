@@ -179,7 +179,10 @@ import { planHasEnded } from './vendor-plan';
         vendor's plan ended. Above the tabs, so it heads every portal page, and
         not dismissible, because it states the current state.
       -->
-      <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
+      <aec-vendor-plan-ended-banner
+        [entitlement]="m.entitlement"
+        [billingLink]="m.seat_owner ? 'billing' : null"
+      />
 
       <!--
         AECI-1408 (VENDOR_SIGNUP_PROCESS.md section 3 step 10): the open product's

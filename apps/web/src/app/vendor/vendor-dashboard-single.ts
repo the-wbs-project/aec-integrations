@@ -56,7 +56,10 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
         <!-- AECI-1218: the plan-ended banner (section 13.11). Each product's plan panel is on the tabbed
              concept's product overview. -->
         <div>
-          <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
+          <aec-vendor-plan-ended-banner
+            [entitlement]="m.entitlement"
+            [billingLink]="m.seat_owner ? 'billing' : null"
+          />
           <!-- AECI-1408: one product, so its product-ended banner has no product header to sit under. The
                vendor-wide banner wins: a vendor never sees two. -->
           @if (soleProduct(); as p) {

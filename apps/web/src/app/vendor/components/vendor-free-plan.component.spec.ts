@@ -289,9 +289,10 @@ describe('VendorLooksRight', () => {
 // ── The plan-ended banner (§13.11) ──────────────────────────────────────────
 
 describe('VendorPlanEndedBanner', () => {
-  function create(entitlement: VendorEntitlementBlock) {
+  function create(entitlement: VendorEntitlementBlock, billingLink: string | null = null) {
     const f = TestBed.createComponent(VendorPlanEndedBanner);
     f.componentRef.setInput('entitlement', entitlement);
+    f.componentRef.setInput('billingLink', billingLink);
     f.detectChanges();
     return f;
   }
@@ -331,6 +332,26 @@ describe('VendorPlanEndedBanner', () => {
   it('lists no public account label among the things that went read-only', () => {
     const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement);
     expect(textOf(f)).not.toMatch(/Active on AEC Integrations|account label/i);
+  });
+
+  // AECI-1408: an owner gets "Get licenses" to Billing, like the product-ended
+  // banner and the plan panel. A member cannot open Billing, so keeps /contact.
+  it('an owner gets "Get licenses" to the Billing tab', () => {
+    const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement, '/vendor/summit-bim/billing');
+    const links = banner(f)?.querySelectorAll('a') ?? [];
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute('data-testid')).toBe('plan-ended-get-licenses');
+    expect(links[0]?.textContent?.trim()).toBe('Get licenses');
+    expect(links[0]?.getAttribute('href')).toBe('/vendor/summit-bim/billing');
+  });
+
+  it('a member keeps "Talk to us about Managed" on /contact', () => {
+    const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement, null);
+    const links = banner(f)?.querySelectorAll('a') ?? [];
+    expect(links).toHaveLength(1);
+    expect(links[0]?.textContent?.trim()).toBe('Talk to us about Managed');
+    expect(links[0]?.getAttribute('href')).toBe('/contact');
+    expect(banner(f)?.querySelector('[data-testid="plan-ended-get-licenses"]')).toBeNull();
   });
 
   it('still reads without an ended_at', () => {

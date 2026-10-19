@@ -2663,6 +2663,7 @@ Decision 4 names the fields that stay Managed-only. On a Free product they stay 
 - The banner shows when the entitlement `status` is `expired` or `revoked`. It never shows for a vendor that never had a plan. `STAGE_2_PAID_TIERS_SPEC.md` §13.11 gives the rule.
 - It is calm and not dismissible. It gives the end date from `ended_at`.
 - It lists what still works and what went read-only. It says "nothing you entered was removed".
+- **Button (AECI-1408, ruling 2026-10-19).** An owner seat (`me().seat_owner`) gets "Get licenses" to the Billing tab (§6.21), like the product-ended banner and the plan panel. A member cannot open Billing, so a member keeps "Talk to us about Managed" on `/contact`. The host passes `billingLink` the same way it does to the product-ended banner. i18n ids `@@vendor.planEnded.cta.getLicenses` and `@@vendor.planEnded.cta`.
 
 #### Product-ended banner (AECI-1408, built 2026-10-19)
 
@@ -2702,7 +2703,7 @@ Every plan panel carries decision 10's line, word for word:
 | Products list: score and plan badge per row | `sections/vendor-product-list-page.ts`, `components/vendor-plan-badge.ts` | the checklist summary, `product.plan` |
 | Product overview (new route `…/products/:slug/overview`, now the product default and the first product tab, "Product Overview") | `sections/vendor-product-overview-page.ts`, `components/vendor-checklist.ts`, `components/vendor-plan-panel.ts` | `GET /api/vendor/products/:id/checklist`, `product.plan` |
 | "Looks right" | `components/vendor-looks-right.ts`, `components/vendor-review-strip.ts` | the three §13.8 routes |
-| Plan-ended banner | `components/vendor-plan-ended-banner.ts`, in the shell above the tabs | `me().entitlement` (a vendor surface) |
+| Plan-ended banner | `components/vendor-plan-ended-banner.ts`, in the shell above the tabs | `me().entitlement` (a vendor surface); `me().seat_owner` picks the button (AECI-1408) |
 | Locked fields | `components/vendor-product-form.ts`, `components/vendor-product-facet-editor.ts` | `productCan(product, cap)` |
 | "Not ours?" | `components/vendor-not-ours.ts` (`VendorNotOurs`) | `POST /api/vendor/integrations/:id/contests`, `contests` |
 

@@ -1297,6 +1297,8 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 
 > **Product-ended banner (AECI-1408, 2026-10-19).** The banner above covers a vendor whose last license ended. A vendor that keeps Managed on other products gets a banner per product instead: `vendor-product-ended-banner.ts`, under the product header, when that product's `plan` is `ended` and its `ended_at` is within the last 90 days. "Get licenses" goes to the Billing tab, for an owner seat only. When the vendor-wide banner shows, the product banner is hidden, so a vendor never sees two. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 has the rule and the copy.
 
+> **Button (AECI-1408, ruling 2026-10-19).** The vendor-wide banner follows the same rule. An owner seat's button is "Get licenses" to the Billing tab. A member keeps "Talk to us about Managed" on `/contact`, because a member cannot open Billing. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 records it.
+
 ### 13.12 Sub-issue map
 
 | Issue | Scope | Governed by |
