@@ -30,8 +30,26 @@
  * guarded on `ended_at IS NULL` and the scanned `ends_at`, and followed here by a
  * `changedOneRowSentinel`. So an admin extend or revoke that commits between the read
  * and the batch matches no row, the sentinel rolls the whole term back, and the admin
- * write wins. A term is never half-ended. A rolled-back term counts as a batch
- * failure and is read again tomorrow.
+ * write wins. A term is never half-ended. The rolled-back term is rebuilt once from a
+ * fresh read (below), and a second roll-back counts as a batch failure, read again
+ * tomorrow.
+ *
+ * ── THE LAST LIVE LICENSE RE-ROUTES CONTESTS (ruled 2026-10-19) ────────────────
+ * A term whose end leaves the vendor no live license also moves the vendor's open
+ * owner-routed contests on connector-powered rows to AECi, in the same batch, exactly
+ * as the admin revoke does (`planLastLicenseReroute`, ruling B,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). The actor is the system. "Last" is read
+ * from the license rows: a carried product's pool license is live, and so is a
+ * license on another term that has passed but not lapsed yet (the run reaches that
+ * term next and re-routes then). The guards are the revoke's: the plan's own and
+ * `noLiveLicenseSentinel` with a re-route, `liveLicenseRemainsSentinel` without one.
+ * The re-route sends nothing after commit, because the revoke's re-route sends nothing
+ * either. Its audit rows join the run's one forward.
+ *
+ * Any abort in a term batch (a license sentinel or a re-route guard) sends the term
+ * back to a fresh read and a rebuilt batch ONCE, as the revoke does. The rebuild
+ * follows the fresh rows: an extended license is off the term, and a grant drops the
+ * re-route. A second abort counts as a batch failure.
  *
  * ── FEWER LICENSES THAN PRODUCTS (AECI-1405, decision 12) ───────────────────────
  * In the same batch, after the ends, a product on a lapsing license moves onto a live,
@@ -65,11 +83,12 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { CACHE_PURGE_QUEUE_MAX_TAGS } from '@aeci/shared';
 import { and, asc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 
-import type { BatchStmt, BatchTuple } from './audit';
+import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
 import type { EmailContext, EmailOutcome, sendManagedEndedEmail } from './email';
 import { EXPIRY_BATCH_CAP } from './entitlement-expiry';
 import { recipientHash } from './hash';
+import { planLastLicenseReroute, type LastLicenseReroutePlan } from './integration-contests';
 import {
   lapseTermStatements,
   loadVendorLicenses,
@@ -87,6 +106,9 @@ import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../postho
 
 /** `metadata.source` on every audit row, and the log source. */
 export const LAPSE_AUDIT_SOURCE = 'license-lapse-cron';
+
+/** Every lapse write is the system's: no admin acts. */
+const LAPSE_ACTOR = { actorId: null, actorType: 'system' } as const;
 
 /** Counted when a run hits the term cap. The value is the terms left for tomorrow
  *  that the run could see (at least one). */
@@ -128,8 +150,11 @@ export interface LapseResult {
   droppedProducts: number;
   /** Terms the cap left for tomorrow (at least this many). */
   capped: number;
-  /** Term batches that rolled back: a lost race or a D1 error. Read again tomorrow. */
+  /** Term batches that rolled back twice, or hit a D1 error. Read again tomorrow. */
   batchFailures: number;
+  /** Open owner-routed contests moved to AECi because a term ended the vendor's last
+   *  live license (ruling B, §11b.13). */
+  reroutedContests: number;
   /** One outcome per address per notice. */
   emails: Record<EmailOutcome, number>;
 }
@@ -304,6 +329,7 @@ export async function runLicenseLapse(
     droppedProducts: 0,
     capped: 0,
     batchFailures: 0,
+    reroutedContests: 0,
     emails: emptyOutcomes(),
   };
 
@@ -330,35 +356,71 @@ export async function runLicenseLapse(
   // One term at a time, each from a fresh read: two terms of one vendor must each see
   // what the other committed (the plan snapshot, the mirror prediction).
   for (const term of terms) {
-    let batch: LapseTermBatch;
+    let batch: LapseTermBatch | null;
+    let reroute: LastLicenseReroutePlan['reroute'] = null;
     let wasVerified: boolean;
     // The reads sit inside the catch too: a D1 error on one term must not end the run
     // before the terms already committed are forwarded, purged and emailed.
     try {
-      const [vendorLicenses, vendorRow] = await Promise.all([
-        loadVendorLicenses(db, term.vendorId),
-        db.query.vendors.findFirst({
-          columns: { verified: true },
-          where: eq(vendors.id, term.vendorId),
-        }),
-      ]);
-      wasVerified = vendorRow?.verified ?? false;
-      batch = lapseTermStatements(db, {
-        vendorId: term.vendorId,
-        now: nowIso,
-        actorId: null,
-        actorType: 'system',
-        vendorLicenses,
-        vendorWasVerified: wasVerified,
-        source: LAPSE_AUDIT_SOURCE,
-        extraMetadata: { ends_at: term.endsAt },
-        billingAccountId: term.billingAccountId,
-        endsAt: term.endsAt,
-        noCarryProductIds: await loadNoCarry(db, term, vendorLicenses),
-      });
-      // Nothing live on the term any more: an admin write since the scan.
-      if (batch.ended.length === 0) continue;
-      await db.batch(withRaceSentinels(db, batch) as BatchTuple);
+      // At most two attempts, as the revoke does: a guard that trips sends the term
+      // back to a fresh read and a rebuilt batch once. A second abort is a failure,
+      // and the term is read again tomorrow.
+      for (let attempt = 1; ; attempt++) {
+        const [vendorLicenses, vendorRow] = await Promise.all([
+          loadVendorLicenses(db, term.vendorId),
+          db.query.vendors.findFirst({
+            columns: { verified: true },
+            where: eq(vendors.id, term.vendorId),
+          }),
+        ]);
+        wasVerified = vendorRow?.verified ?? false;
+        batch = lapseTermStatements(db, {
+          vendorId: term.vendorId,
+          now: nowIso,
+          ...LAPSE_ACTOR,
+          vendorLicenses,
+          vendorWasVerified: wasVerified,
+          source: LAPSE_AUDIT_SOURCE,
+          extraMetadata: { ends_at: term.endsAt },
+          billingAccountId: term.billingAccountId,
+          endsAt: term.endsAt,
+          noCarryProductIds: await loadNoCarry(db, term, vendorLicenses),
+        });
+        // Nothing live on the term any more: an admin write since the scan.
+        if (batch.ended.length === 0) {
+          batch = null;
+          break;
+        }
+        // Ruling B (§11b.13): the term's end leaves the vendor no live license, so its
+        // open owner-routed contests on connector-powered rows move to AECi here.
+        const plan = await planLastLicenseReroute(db, {
+          vendorId: term.vendorId,
+          actor: LAPSE_ACTOR,
+          now: nowIso,
+          vendorLicenses,
+          endingLicenseIds: new Set(batch.ended.map((e) => e.licenseId)),
+          extra: {
+            source: LAPSE_AUDIT_SOURCE,
+            billing_account_id: term.billingAccountId,
+            ends_at: term.endsAt,
+          },
+        });
+        reroute = plan.reroute;
+        try {
+          await db.batch([
+            ...withRaceSentinels(db, batch),
+            ...(plan.remainsGuard ? [plan.remainsGuard] : []),
+            ...(reroute?.stmts ?? []),
+            ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
+          ] as BatchTuple);
+          break;
+        } catch (error) {
+          // The license, contest and live-license sentinels all raise the same
+          // malformed-JSON abort, so the fresh read tells them apart.
+          if (attempt >= 2 || !isReleaseRaceError(error)) throw error;
+        }
+      }
+      if (!batch) continue;
     } catch (error) {
       result.batchFailures++;
       failures.push({
@@ -378,7 +440,8 @@ export async function runLicenseLapse(
     result.lapsedTerms++;
     result.lapsedLicenses += batch.ended.length;
     result.carried += batch.carried.length;
-    audits.push(...batch.auditEntries);
+    result.reroutedContests += reroute?.rerouted ?? 0;
+    audits.push(...batch.auditEntries, ...(reroute?.audits ?? []));
 
     // A carried product stays on Managed: no email and no purge for it.
     const carried = new Set(batch.carried.map((c) => c.productId));

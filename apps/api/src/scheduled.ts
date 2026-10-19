@@ -1596,7 +1596,7 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
     ]);
     logToPosthog(ctx, env, req, {
       level: result.batchFailures > 0 || (lapse?.batchFailures ?? 0) > 0 ? 'error' : 'info',
-      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
       source: 'entitlement-expiry-cron',
     });
     // A run with per-notice send failures is `ok` with the counts in `detail`, not
@@ -1619,6 +1619,7 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         lapsed_terms: lapse?.lapsedTerms ?? 0,
         lapsed_licenses: lapse?.lapsedLicenses ?? 0,
         carried: lapse?.carried ?? 0,
+        rerouted_contests: lapse?.reroutedContests ?? 0,
         lapse_capped: lapse?.capped ?? 0,
         lapse_batch_failures: lapse?.batchFailures ?? 0,
         ...(lapse ? { lapse_email: lapse.emails } : {}),

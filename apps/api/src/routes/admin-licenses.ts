@@ -62,11 +62,7 @@ import {
   type UpdateLicenseResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import {
-  LICENSE_SOURCES,
-  licensePlanSnapshot,
-  type LicenseSource,
-} from '@aeci/shared/entitlements';
+import { LICENSE_SOURCES, type LicenseSource } from '@aeci/shared/entitlements';
 import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -85,13 +81,15 @@ import { loadBillingAccount } from '../lib/billing-account';
 import { sendLicensesGrantedEmail, sendManagedEndedEmail, type EmailContext } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
-import { isContestRaceError, planEntitlementClearReroute } from '../lib/integration-contests';
+import {
+  isContestRaceError,
+  planLastLicenseReroute,
+  type LastLicenseReroutePlan,
+} from '../lib/integration-contests';
 import {
   endLicensesStatements,
   grantLicensesStatements,
   loadVendorLicenses,
-  liveLicenseRemainsSentinel,
-  noLiveLicenseSentinel,
   setLicensesTermStatements,
   toIsoTimestamp,
   type LicenseBatch,
@@ -523,9 +521,10 @@ export async function emailLicensesGranted(
 // ── THE LAST LIVE LICENSE RE-ROUTES CONTESTS (AECI-1092, moved by AECI-1375) ──
 // A revoke that leaves the vendor no live license also moves its open owner-routed
 // contests on connector-powered rows to AECi, in THIS batch
-// (`planEntitlementClearReroute`, ruling B, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13):
+// (`planLastLicenseReroute`, ruling B, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13):
 // deciding them now needs a live license the vendor no longer holds. This was the
-// retired entitlement `clear`'s job. "Last" is read from the license rows
+// retired entitlement `clear`'s job. The term-end lapse runs the same plan
+// (`lib/license-lapse.ts`, AECI-1404). "Last" is read from the license rows
 // (`vendorLicenses`), never from the `vendors.verified` pre-read, so a drifted mirror
 // cannot skip the re-route. Two guards ride that batch: the plan's own (the contest
 // set changed since it was read) and `noLiveLicenseSentinel` (a grant committed
@@ -628,24 +627,18 @@ export function createUpdateLicenseHandler(
     // The revoke's re-route (AECI-1092 ruling B), and the guard it needs. Null unless
     // the revoke ends the vendor's last live license. When it does not, `remainsGuard`
     // holds the inverse guard instead: some other license must still be live at commit.
-    let reroute: { stmts: BatchStmt[]; audits: AuditLogEntry[] } | null = null;
+    let reroute: LastLicenseReroutePlan['reroute'] = null;
     let remainsGuard: BatchStmt | null = null;
-    const planReroute = async (
-      licensesNow: readonly LicenseBefore[],
-    ): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[] }> => {
-      const planned = await planEntitlementClearReroute(db, vendor.id, actor, now, {
-        license_id: before.id,
+    // Ruling B's decision and guards, shared with the term-end lapse.
+    const planReroute = (licensesNow: readonly LicenseBefore[]) =>
+      planLastLicenseReroute(db, {
+        vendorId: vendor.id,
+        actor,
+        now,
+        vendorLicenses: licensesNow,
+        endingLicenseIds: new Set([before.id]),
+        extra: { license_id: before.id },
       });
-      // AECI-1192 / AECI-1193: each re-routed contest is one the vendor OWNS, so its
-      // row carries the vendor and the plan it held before this revoke.
-      const vendorPlan = licensePlanSnapshot(licensesNow, now);
-      return {
-        stmts: [...planned.stmts, noLiveLicenseSentinel(db, vendor.id)],
-        audits: planned.audits.map((entry) =>
-          entry.vendorId ? entry : { ...entry, vendorId: vendor.id, vendorPlan },
-        ),
-      };
-    };
     // The revoke's license batch, built from a license set and the mirror as read. A
     // retry rebuilds it from a fresh read, so its audit rows and flip prediction stay true.
     let revokeMetadata: Record<string, unknown> = {};
@@ -721,11 +714,7 @@ export function createUpdateLicenseHandler(
         revokeMetadata = vendorVisibleReasonMetadata(payload);
         batch = revokeBatch(vendorLicenses, vendor.verified);
         after = { ...before, endedAt: now, endReason: 'revoked' };
-        if (vendorLicenses.some((l) => l.id !== before.id && l.endedAt === null)) {
-          remainsGuard = liveLicenseRemainsSentinel(db, vendor.id);
-        } else {
-          reroute = await planReroute(vendorLicenses);
-        }
+        ({ reroute, remainsGuard } = await planReroute(vendorLicenses));
         notice = aeciOverrideNotificationAudit('portal-license-revoked-by-aeci', actor, {
           event: 'license_revoked',
           vendorId: vendor.id,
@@ -807,13 +796,7 @@ export function createUpdateLicenseHandler(
         // Rebuild from the fresh read: the audit rows, the `vendor_plan` snapshot and
         // the flip prediction all follow it, and so does the re-route decision.
         batch = revokeBatch(fresh, freshVendor?.verified ?? vendor.verified);
-        if (fresh.some((l) => l.id !== before.id && l.endedAt === null)) {
-          reroute = null;
-          remainsGuard = liveLicenseRemainsSentinel(db, vendor.id);
-        } else {
-          reroute = await planReroute(fresh);
-          remainsGuard = null;
-        }
+        ({ reroute, remainsGuard } = await planReroute(fresh));
       }
     }
     // AECI-1092 / AECI-1112: the license rows and every re-route row go in ONE request,

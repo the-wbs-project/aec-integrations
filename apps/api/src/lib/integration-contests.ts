@@ -31,6 +31,7 @@ import {
   type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -47,6 +48,7 @@ import { workflowTransitionInsert, type BatchStmt } from './audit';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
+import { liveLicenseRemainsSentinel, noLiveLicenseSentinel, type LicenseBefore } from './license';
 import { integrationLiveSentinel } from './live-integration';
 import type { ContestPortalNotificationId } from './notifications/registry';
 import { chunked } from './promote-claims';
@@ -450,24 +452,27 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
 // ─── Ruling B: ending the last live license re-routes the owner's contests ──
 
 /**
- * What an admin license revoke that ends the vendor's LAST live license adds to its
- * batch (AECI-1040 follow-up ruling 2, "ruling B"; `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * What a license end that leaves the vendor NO live license adds to its batch: an
+ * admin revoke or the term-end lapse (AECI-1040 follow-up ruling 2, "ruling B";
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.13): every OPEN owner-routed contest this vendor decides on a
  * CONNECTOR-POWERED row (either table) moves to the AECi queue, because deciding it
  * is an owner write that now needs an entitlement the vendor no longer holds.
  * Contests on rows that are not connector-powered keep their owner route: those rows
  * keep the seat as their whole gate (decision 15).
  *
- * Its only caller is the revoke in `routes/admin-licenses.ts` (AECI-1375 moved it
- * there from the retired entitlement `clear`, which ended every live license the same
- * way). "Holds" means a live license (AECI-1355), so after the commit
+ * Its only caller is {@link planLastLicenseReroute}, which the revoke in
+ * `routes/admin-licenses.ts` (AECI-1375 moved it there from the retired entitlement
+ * `clear`) and the term-end lapse in `lib/license-lapse.ts` (AECI-1404, ruled
+ * 2026-10-19) both call. "Holds" means a live license (AECI-1355), so after the commit
  * `vendorHoldsActiveEntitlement` and `ownerEntitlementActiveSentinel`, which both
  * read `licenses`, agree with this re-route. The name and the `entitlement-cleared`
  * audit reason are kept so the audit trail reads alike before and after; E1.9 owns
  * the rename.
  *
  * `extra` rides every audit row's metadata, after the fixed keys are set (the revoke
- * passes `license_id`).
+ * passes `license_id`; the lapse passes its own `source`, the account and `ends_at`).
+ * The actor is the admin on a revoke and the system (`actorId` null) on a lapse.
  *
  * A re-route IN the revoke's batch, not a read-time check, so every reader agrees
  * from the commit on: `routed_to` is what `pending_contests`, the owner's Received
@@ -483,7 +488,7 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
 export async function planEntitlementClearReroute(
   db: Db,
   vendorId: string,
-  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   now: string,
   extra: Record<string, unknown> = {},
 ): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number }> {
@@ -587,6 +592,66 @@ export async function planEntitlementClearReroute(
   };
 }
 
+/** {@link planLastLicenseReroute}'s result. Exactly one of the two is set. */
+export interface LastLicenseReroutePlan {
+  /** Set when the end leaves the vendor no live license: the re-route and its guards
+   *  (the plan's own guard first, `noLiveLicenseSentinel` last), and its audit rows. */
+  reroute: { stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number } | null;
+  /** Set when another live license remains: `liveLicenseRemainsSentinel`, so a
+   *  concurrent end of that license aborts the batch instead of skipping the re-route. */
+  remainsGuard: BatchStmt | null;
+}
+
+/**
+ * Ruling B for any write that ends licenses (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13):
+ * the admin revoke (`routes/admin-licenses.ts`) and the term-end lapse
+ * (`lib/license-lapse.ts`). One decision and one set of guards for both, so the two
+ * paths cannot drift.
+ *
+ * "Last" is read from the license rows (`vendorLicenses`, as the caller read them),
+ * never from the `vendors.verified` mirror, so a drifted mirror cannot skip the
+ * re-route. A license is live while `ended_at IS NULL`, so a license past its end date
+ * that the lapse has not reached yet still counts as live.
+ *
+ *  - Some license NOT in `endingLicenseIds` is live: no re-route, and `remainsGuard`.
+ *  - None is: {@link planEntitlementClearReroute}, then `noLiveLicenseSentinel` (a grant
+ *    committed since the read). Each re-routed contest is one the vendor OWNS, so its
+ *    audit row carries the vendor and the plan it held before this end (AECI-1192 /
+ *    AECI-1193).
+ *
+ * Every statement goes AFTER the caller's license UPDATEs, so the sentinels read those
+ * licenses as ended. Every abort is the same malformed-JSON error
+ * ({@link isContestRaceError}). The caller re-reads and rebuilds its whole batch once,
+ * and treats a second abort as lost.
+ */
+export async function planLastLicenseReroute(
+  db: Db,
+  p: {
+    vendorId: string;
+    actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] };
+    now: string;
+    vendorLicenses: readonly LicenseBefore[];
+    endingLicenseIds: ReadonlySet<string>;
+    extra?: Record<string, unknown>;
+  },
+): Promise<LastLicenseReroutePlan> {
+  if (p.vendorLicenses.some((l) => l.endedAt === null && !p.endingLicenseIds.has(l.id))) {
+    return { reroute: null, remainsGuard: liveLicenseRemainsSentinel(db, p.vendorId) };
+  }
+  const planned = await planEntitlementClearReroute(db, p.vendorId, p.actor, p.now, p.extra);
+  const vendorPlan = licensePlanSnapshot(p.vendorLicenses, p.now);
+  return {
+    reroute: {
+      stmts: [...planned.stmts, noLiveLicenseSentinel(db, p.vendorId)],
+      audits: planned.audits.map((entry) =>
+        entry.vendorId ? entry : { ...entry, vendorId: p.vendorId, vendorPlan },
+      ),
+      rerouted: planned.rerouted,
+    },
+    remainsGuard: null,
+  };
+}
+
 // ─── The seat-lapse stamp (AECI-989, reconciled by AECI-1092) ───────────────
 
 /**
@@ -621,7 +686,7 @@ export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared
  * decider both hold.
  *
  * Three callers: the seat return, for a contest its owner may not decide
- * (`lib/vendor-handback.ts`); the last-license revoke (ruling B, below); and the accept
+ * (`lib/vendor-handback.ts`); the last-license revoke or lapse (ruling B, above); and the accept
  * that makes a row connector-powered (`routes/admin-contests.ts`).
  */
 export function clearSeatStamp(
@@ -675,16 +740,16 @@ export function clearSeatStamp(
  * `integration.contest.rerouted` audit row. Pushed into the caller's batch.
  *
  * Two callers. An AECi accept that takes a claimed row away from its owner
- * (AECI-1005, `routes/admin-contests.ts`), and an admin revoke that ends a vendor's
- * last live license, which sends that vendor's open contests on connector-powered
- * rows back to AECi (ruling B, `routes/admin-licenses.ts`). The UPDATE is guarded on
+ * (AECI-1005, `routes/admin-contests.ts`), and a revoke or term-end lapse that ends a
+ * vendor's last live license, which sends that vendor's open contests on
+ * connector-powered rows back to AECi (ruling B, {@link planLastLicenseReroute}). The UPDATE is guarded on
  * `routed_to = 'owner'` as well as `status = 'open'`. `updated_at` moves, so the
  * submitter's `contests` cursor sees it.
  */
 export function rerouteToAeciStatements(
   db: Db,
   contests: readonly ContestRow[],
-  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   now: string,
   reason: string,
   extra: Record<string, unknown>,
