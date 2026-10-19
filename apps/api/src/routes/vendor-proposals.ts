@@ -149,7 +149,7 @@ const vendorMissing = (vendorIds: readonly string[]) =>
   new ApiError(
     409,
     ApiErrorCode.PROPOSAL_VENDOR_MISSING,
-    'A company this product would be listed under no longer exists, so it cannot be accepted. Decline it. You can add the product yourself from the Products tab.',
+    'A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and contact us.',
     { details: { vendor_ids: [...vendorIds] } },
   );
 

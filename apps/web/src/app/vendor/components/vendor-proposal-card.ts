@@ -21,6 +21,8 @@ import type {
   VendorProposalTerm,
 } from '@aeci/shared';
 
+import { RouterLink } from '@angular/router';
+
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
@@ -70,7 +72,7 @@ export function proposalDecisionErrorMessage(err: unknown, decision: Decision): 
     case 'VENDOR_NOT_OWNED':
       return $localize`:@@vendor.proposals.error.notOwned:Your company no longer owns its records, so this product cannot be added from here. Contact AEC Integrations.`;
     case 'PROPOSAL_VENDOR_MISSING':
-      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists, so it cannot be accepted. Decline it. You can add the product yourself from the Products tab.`;
+      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and contact us.`;
     case 'SLUG_CONFLICT':
       return $localize`:@@vendor.proposals.error.slug:Another product took this name at the same moment. Try again.`;
   }
@@ -118,6 +120,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
   selector: 'aec-vendor-proposal-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
+  imports: [RouterLink],
   template: `
     <article
       class="rounded-(--radius-md) border bg-(--surface-raised) p-5"
@@ -218,7 +221,13 @@ export function proposalDecisionIsStale(err: unknown): boolean {
         >
           <span i18n="@@vendor.proposals.card.vendorMissing"
             >A company this product would be listed under no longer exists, so it cannot be
-            accepted. Decline it. You can add the product yourself from the Products tab.</span
+            accepted. Decline it and
+            <a
+              routerLink="/contact"
+              class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              data-testid="proposal-vendor-missing-contact"
+              >contact us</a
+            >.</span
           >
         </p>
       }
