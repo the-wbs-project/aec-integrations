@@ -1161,7 +1161,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.6',
     summary: 'Files the REVIEW - issue that carries an accepted contest to the review lane.',
-    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
   },
   'linear-request-resolution': {
     channel: 'linear',
