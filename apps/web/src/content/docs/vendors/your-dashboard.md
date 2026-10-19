@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banner you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 16, 2026
+last_updated: October 19, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -81,7 +81,7 @@ Turning Managed back on needs nothing re-entered. [Plans](/docs/vendors/plans) c
 
 ## The portal stays current
 
-While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite.
+While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite. A billing email change by another owner shows on the **Billing** tab when you reload the page.
 
 ## Related
 
