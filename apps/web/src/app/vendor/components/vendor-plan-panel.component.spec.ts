@@ -7,8 +7,9 @@
  * `LOCALE_ID` and `routerLink`).
  *
  * Pinned here:
- *  1. each state renders, and the right one: Managed, expiring, pending, ended,
- *     Free, and the connector catalogue seat;
+ *  1. each state renders, and the right one: Managed, expiring, overdue,
+ *     pending, ended, Free, and the connector catalogue seat. "Ends today" only
+ *     on the end day itself (AECI-1408);
  *  2. `status: null` and `status: 'revoked'` are different panels (never had a
  *     plan vs. a plan that ended);
  *  3. decision 10's line, word for word, in every state;
@@ -43,13 +44,17 @@ beforeEach(() => {
   });
 });
 
+const BILLING = '/vendor/summit-bim/billing';
+
 function create(
   plan: VendorEntitlementBlock,
   productRole: string | null = 'product',
+  billingLink: string | null = null,
 ): ComponentFixture<VendorPlanPanel> {
   const fixture = TestBed.createComponent(VendorPlanPanel);
   fixture.componentRef.setInput('plan', plan);
   fixture.componentRef.setInput('productRole', productRole);
+  fixture.componentRef.setInput('billingLink', billingLink);
   fixture.componentRef.setInput('now', NOW);
   fixture.detectChanges();
   return fixture;
@@ -62,6 +67,8 @@ const state = (f: ComponentFixture<VendorPlanPanel>) =>
   el(f).querySelector('[data-plan-state]')?.getAttribute('data-plan-state');
 const cta = (f: ComponentFixture<VendorPlanPanel>) =>
   el(f).querySelector<HTMLAnchorElement>('a[href="/contact"]');
+const getLicenses = (f: ComponentFixture<VendorPlanPanel>) =>
+  el(f).querySelector<HTMLAnchorElement>('[data-testid="plan-get-licenses"]');
 
 const MANAGED_CAPS = [...capabilitiesFor('verified')];
 const FREE_CAPS = [...capabilitiesFor('unclaimed')];
@@ -74,6 +81,10 @@ function managedIn(days: number | null): VendorEntitlementBlock {
     ended_at: null,
     capabilities: MANAGED_CAPS,
   };
+}
+/** A live Managed block whose term ends at exactly `iso`. */
+function endsOn(iso: string): VendorEntitlementBlock {
+  return { ...managedIn(0), period_end: iso };
 }
 const FREE: VendorEntitlementBlock = {
   tier: 'unclaimed',
@@ -100,6 +111,7 @@ const PENDING: VendorEntitlementBlock = {
 const ALL: ReadonlyArray<[string, VendorEntitlementBlock, string | null]> = [
   ['managed', managedIn(300), 'product'],
   ['expiring', managedIn(12), 'product'],
+  ['overdue', managedIn(-1), 'product'],
   ['pending', PENDING, 'product'],
   ['ended', ENDED, 'product'],
   ['free', FREE, 'product'],
@@ -121,17 +133,55 @@ describe('VendorPlanPanel: the states', () => {
     expect(text(create(managedIn(null)))).toContain('with no end date on record');
   });
 
-  it('expiring: counts the days and offers a renewal path, still Managed', () => {
+  it('expiring: states the date and counts the days, with a renewal path, still Managed', () => {
     const f = create(managedIn(12));
     expect(state(f)).toBe('expiring');
-    expect(text(f)).toContain('Managed ends in 12 days for this product');
+    expect(text(f)).toContain('Managed ends on October 14, 2026 for this product, in 12 days.');
     expect(text(f)).toContain('Nothing changes before then');
     expect(cta(f)?.textContent?.trim()).toBe('Renew Managed');
   });
 
+  it('expiring: an end date 30 days out is inside the window and dated', () => {
+    const f = create(managedIn(30));
+    expect(state(f)).toBe('expiring');
+    expect(text(f)).toContain('Managed ends on November 1, 2026 for this product, in 30 days.');
+  });
+
   it('expiring: "1 day" and "today", never "1 days" or "in 0 days"', () => {
-    expect(text(create(managedIn(1)))).toContain('ends in 1 day for');
-    expect(text(create(managedIn(0)))).toContain('Managed ends today');
+    expect(text(create(managedIn(1)))).toContain('for this product, in 1 day.');
+    expect(text(create(managedIn(0)))).toContain(
+      'Managed ends today, October 2, 2026, for this product.',
+    );
+  });
+
+  // AECI-1408: the "ends today" bug. The end day is a UTC calendar day, so a term
+  // that ended at 00:00Z today still reads "today", and only today.
+  it('end date today: "ends today", even after midnight UTC has passed', () => {
+    const f = create(endsOn('2026-10-02T00:00:00.000Z'));
+    expect(state(f)).toBe('expiring');
+    expect(text(f)).toContain('Managed ends today, October 2, 2026, for this product.');
+  });
+
+  it('end date in the past: "ended on {date}", never "ends today"', () => {
+    for (const end of ['2026-10-01T00:00:00.000Z', '2026-09-20T00:00:00.000Z']) {
+      const f = create(endsOn(end));
+      expect(state(f)).toBe('overdue');
+      expect(text(f)).not.toContain('ends today');
+      expect(text(f)).toContain('The change is on its way.');
+    }
+    expect(text(create(endsOn('2026-10-01T00:00:00.000Z')))).toContain(
+      'Managed ended on October 1, 2026. The change is on its way.',
+    );
+  });
+
+  it('overdue: still Managed until the job runs, with the ended call to action', () => {
+    const f = create(managedIn(-1));
+    expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Managed');
+    expect(text(f)).toContain('Managed covers');
+    expect(cta(f)?.textContent?.trim()).toBe('Ask about Managed for this product');
+    expect(getLicenses(create(managedIn(-1), 'product', BILLING))?.getAttribute('href')).toBe(
+      BILLING,
+    );
   });
 
   it('pending: Free until it switches on, with no call to action', () => {
@@ -148,6 +198,20 @@ describe('VendorPlanPanel: the states', () => {
     expect(text(f)).toContain('Nothing you entered was removed');
     expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Free');
     expect(cta(f)?.textContent?.trim()).toBe('Ask about Managed for this product');
+    expect(getLicenses(f)).toBeNull();
+  });
+
+  // AECI-1408 ruling 4: an owner gets licenses on the Billing tab.
+  it('ended: an owner is sent to Billing to get licenses, in place of the contact path', () => {
+    const f = create(ENDED, 'product', BILLING);
+    expect(getLicenses(f)?.textContent?.trim()).toBe('Get licenses');
+    expect(getLicenses(f)?.getAttribute('href')).toBe(BILLING);
+    expect(cta(f)).toBeNull();
+  });
+
+  it('a Billing link changes nothing on the Free and expiring states', () => {
+    expect(getLicenses(create(FREE, 'product', BILLING))).toBeNull();
+    expect(getLicenses(create(managedIn(12), 'product', BILLING))).toBeNull();
   });
 
   it('Free (never had a plan) is a different panel from a plan that ended', () => {

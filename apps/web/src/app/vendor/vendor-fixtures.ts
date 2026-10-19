@@ -582,6 +582,33 @@ export const VENDOR_ME_PILOT_ENDED_FIXTURE: VendorMeResponse = withProductPlans(
 });
 
 /**
+ * One product's license ended (AECI-1408, `VENDOR_SIGNUP_PROCESS.md` §3 step 10).
+ *
+ * The vendor still holds Managed, so the vendor-wide banner stays hidden. The
+ * second product's license lapsed 10 days ago, so its pages carry the
+ * product-ended banner and its plan panel reads `ended`. The primary product's
+ * end day was yesterday and the daily job has not ended it yet, so its panel
+ * reads `overdue`: "Managed ended on {date}. The change is on its way."
+ */
+export const VENDOR_ME_PRODUCT_ENDED_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  products: [
+    { ...PRIMARY_PRODUCT, plan: { ...MANAGED_PLAN, period_end: inDays(-1) } },
+    {
+      ...SECONDARY_PRODUCT,
+      plan: {
+        tier: 'unclaimed',
+        status: 'expired',
+        period_end: inDays(-10),
+        ended_at: inDays(-10),
+        capabilities: [...capabilitiesFor('unclaimed')],
+      },
+    },
+  ],
+  entitlement: MANAGED_PLAN,
+};
+
+/**
  * A vendor whose catalog is big enough to test the product list (§6.11) at length.
  *
  * The two-product fixture above is the honest shape of the seeded vendor and is

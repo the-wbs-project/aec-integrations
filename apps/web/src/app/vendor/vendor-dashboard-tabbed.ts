@@ -20,6 +20,8 @@ import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vend
 import { VendorPortalNav } from './vendor-portal-nav';
 import { VendorPlanBadge } from './components/vendor-plan-badge';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
+import { VendorProductEndedBanner } from './components/vendor-product-ended-banner';
+import { planHasEnded } from './vendor-plan';
 
 /**
  * Concept A — the vendor portal shell (AECI-522): a breadcrumb, a title, one
@@ -106,6 +108,7 @@ import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
     RequestDrawer,
     VendorPlanBadge,
     VendorPlanEndedBanner,
+    VendorProductEndedBanner,
   ],
   template: `
     @let m = me();
@@ -178,6 +181,20 @@ import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
       -->
       <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
 
+      <!--
+        AECI-1408 (VENDOR_SIGNUP_PROCESS.md section 3 step 10): the open product's
+        Managed plan ended. Under the product header, so it heads every product
+        tab. The vendor-wide banner above wins: a vendor never sees two.
+      -->
+      @if (product(); as p) {
+        @if (!vendorPlanEnded()) {
+          <aec-vendor-product-ended-banner
+            [plan]="p.plan"
+            [billingLink]="m.seat_owner ? 'billing' : null"
+          />
+        }
+      }
+
       <aec-vendor-portal-nav [items]="navItems()" [ariaLabel]="navLabel()" />
 
       <div class="min-w-0">
@@ -243,6 +260,10 @@ export class VendorDashboardTabbed {
     if (slug === null) return null;
     return this.me().products.find((p) => p.slug === slug) ?? null;
   });
+
+  /** The vendor-wide plan-ended banner shows (AECI-1218). It then wins over the
+   *  product-ended banner (AECI-1408). */
+  protected readonly vendorPlanEnded = computed(() => planHasEnded(this.me().entitlement));
 
   protected readonly publicHref = computed(() => {
     const p = this.product();
