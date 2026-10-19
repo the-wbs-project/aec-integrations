@@ -2252,7 +2252,7 @@ Nothing to do. On the end date, the 11:00 UTC run ends every live license of the
 
 To end a pilot **early**, revoke the licenses on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live license.
 
-To check a run, open `/admin/system`. The `entitlement-expiry` row's detail carries `lapsed_terms`, `lapsed_licenses` and `lapse_batch_failures`. A non-zero `lapse_batch_failures` is a term that an admin edit raced, or a D1 error. Either way the next run reads that term again.
+To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried` and `lapse_batch_failures`. A non-zero `lapse_batch_failures` is a term that an admin edit raced, or a D1 error. Either way the next run reads that term again.
 
 ### 4. Undo a wrong lapse
 

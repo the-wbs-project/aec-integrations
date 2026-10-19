@@ -396,6 +396,30 @@ describe('after commit', () => {
     expect(forwards[0]!.messages).toHaveLength(2);
   });
 
+  it('sends no email that would print a product id when the product read fails', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const failingNames = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop !== 'select') return Reflect.get(target, prop, receiver);
+        return (...args: Parameters<Db['select']>) => {
+          const builder = target.select(...args);
+          const from = builder.from.bind(builder);
+          return Object.assign(builder, {
+            from: (table: Parameters<typeof from>[0]) => {
+              if (table === products) throw new Error('D1 down');
+              return from(table);
+            },
+          });
+        };
+      },
+    }) as Db;
+    const s = sender();
+    const result = await lapse({ db: failingNames }, s);
+    expect(result.lapsedTerms).toBe(1);
+    expect(s.sent).toHaveLength(0);
+    expect(result.emails.skipped).toBe(1);
+  });
+
   it('a failed purge or send never undoes the lapse', async () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
     const sendBatch = vi.fn().mockRejectedValue(new Error('queue down'));

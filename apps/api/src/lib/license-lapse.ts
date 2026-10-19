@@ -413,6 +413,12 @@ export async function runLicenseLapse(
   let names = new Map<string, { slug: string; name: string }>();
   try {
     names = await loadProductNames(db, droppedProductIds);
+  } catch (error) {
+    // The purge then covers the vendor sets alone, and the emails skip the products
+    // they cannot name rather than print an id.
+    warn(c, 'aeci.license.lapse.product_read_failed', error);
+  }
+  try {
     await purge(c, db, droppedProductIds, names, [...purgeVendors.values()]);
   } catch (error) {
     warn(c, 'aeci.license.lapse.purge_failed', error);
@@ -492,11 +498,16 @@ async function sendNotices(
       (seats.get(term.vendorId) ?? []).map((s) => s.email),
       billingEmails.get(term.billingAccountId),
     );
-    if (addresses.length === 0) {
+    // A product with no row to name it (deleted, or the read failed) is left out: the
+    // email must never print an id.
+    const productList = notice.productIds.flatMap((id) => {
+      const named = names.get(id);
+      return named ? [named] : [];
+    });
+    if (addresses.length === 0 || productList.length === 0) {
       result.emails.skipped++;
       continue;
     }
-    const productList = notice.productIds.map((id) => names.get(id) ?? { slug: id, name: id });
     for (const to of addresses) {
       const outcome = await sendEnded(c, {
         to,
