@@ -79,6 +79,11 @@
  * pool license for the `200`.
  *
  * AECI-1389 adds `PUT /api/vendor/billing/email` under the same owner-seat cells.
+ *
+ * AECI-1417 adds the owner's "Proposed products": `GET /api/vendor/proposals` and the
+ * two decisions. Owner-seat routes. The granted-seat cell of each decision aims at an
+ * unknown proposal id, so it proves the guard passed with the `404` a proposal of
+ * another vendor also gets (`vendor-proposals.spec.ts` covers the rest).
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -147,6 +152,11 @@ import {
 } from './vendor-product-requests';
 import { createVendorUpdatesHandler } from './vendor-updates';
 import { createVendorBillingHandler } from './vendor-billing';
+import {
+  createAcceptVendorProposalHandler,
+  createDeclineVendorProposalHandler,
+  createListVendorProposalsHandler,
+} from './vendor-proposals';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './vendor-billing-email';
 import {
@@ -537,6 +547,23 @@ function makeApp() {
     requireVendor(guard),
     createUpdateVendorLicenseHandler(t.factory),
   );
+  // AECI-1417 — seat; the owner rule is inside each handler. The limiter is not under
+  // test here (`vendor-proposals.registration.spec.ts`).
+  app.get(
+    '/api/vendor/proposals',
+    requireVendor(guard),
+    createListVendorProposalsHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/proposals/:id/accept',
+    requireVendor(guard),
+    createAcceptVendorProposalHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/proposals/:id/decline',
+    requireVendor(guard),
+    createDeclineVendorProposalHandler(t.factory),
+  );
   return app;
 }
 
@@ -578,6 +605,10 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/billing/acceptances', method: 'GET' },
   // AECI-1387 — owner seats only.
   { path: '/api/vendor/billing', method: 'GET' },
+  // AECI-1417 — owner seats only. An unknown proposal id is the decisions' 404.
+  { path: '/api/vendor/proposals', method: 'GET' },
+  { path: `/api/vendor/proposals/${uuid(990)}/accept`, method: 'POST', ok: 404 },
+  { path: `/api/vendor/proposals/${uuid(990)}/decline`, method: 'POST', ok: 404 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
   { path: '/api/vendor/billing/email', method: 'PUT', body: { billing_email: 'ap@autodesk.com' } },
   // AECI-1373 — owner seats only; LICENSE_A is live on PRODUCT_A.

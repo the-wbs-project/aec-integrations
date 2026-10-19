@@ -156,8 +156,16 @@ export const ApiErrorCode = {
   // open product proposal for the vendor between the return's read and its batch, so the
   // return would have deleted a proposal its audit row does not list. Nothing was written.
   VENDOR_PROPOSALS_CHANGED: 'VENDOR_PROPOSALS_CHANGED',
+  // AECI-1417: `POST /api/vendor/proposals/:id/accept` and `/decline`, both 409.
+  // `PROPOSAL_ALREADY_DECIDED`: the proposal is accepted or declined already, by another
+  // owner or another tab. `PROPOSAL_VENDOR_MISSING` (accept only): a vendor the proposal
+  // links no longer exists, so the product would be half-linked. Nothing was written.
+  PROPOSAL_ALREADY_DECIDED: 'PROPOSAL_ALREADY_DECIDED',
+  PROPOSAL_VENDOR_MISSING: 'PROPOSAL_VENDOR_MISSING',
   // AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci`, all 409.
   // `VENDOR_NOT_OWNED`: the vendor's records are AECi's already (`owned_at` is NULL).
+  // AECI-1417 reuses it on `POST /api/vendor/proposals/:id/accept`: the addressed vendor
+  // no longer owns its record, so an owner click may not create a product under it.
   // `VENDOR_HAS_SEATS`: the vendor still holds a `vendor_admin` seat, banned or not.
   // Revoke every seat first. Nothing was written.
   VENDOR_NOT_OWNED: 'VENDOR_NOT_OWNED',

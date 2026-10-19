@@ -84,6 +84,8 @@ import type {
   VendorLicenseResponse,
   CreateLicenseReleaseRequest,
   CreateLicenseReleaseRequestResponse,
+  ListVendorProposalsResponse,
+  AcceptVendorProposalResponse,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -191,6 +193,30 @@ export class VendorApi {
   getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
     return firstValueFrom(
       this.http.get<VendorAgreementAcceptancesResponse>('/api/vendor/billing/acceptances'),
+    );
+  }
+
+  /** `GET /api/vendor/proposals` (AECI-1417): the open product proposals addressed to
+   *  the company, oldest first. Owner seats only. */
+  listProposals(): Promise<ListVendorProposalsResponse> {
+    return firstValueFrom(this.http.get<ListVendorProposalsResponse>('/api/vendor/proposals'));
+  }
+
+  /** `POST /api/vendor/proposals/:id/accept` (AECI-1417): create the product exactly as
+   *  proposed. The answer names the new product and every value it dropped. */
+  acceptProposal(proposalId: string): Promise<AcceptVendorProposalResponse> {
+    return firstValueFrom(
+      this.http.post<AcceptVendorProposalResponse>(
+        `/api/vendor/proposals/${encodeURIComponent(proposalId)}/accept`,
+        null,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/proposals/:id/decline` (AECI-1417): 204, nothing is created. */
+  declineProposal(proposalId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.post<void>(`/api/vendor/proposals/${encodeURIComponent(proposalId)}/decline`, null),
     );
   }
 

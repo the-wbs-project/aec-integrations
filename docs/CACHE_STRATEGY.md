@@ -327,6 +327,19 @@ changes. After commit `afterVendorWrite` enqueues `product:{slug}`, `index:produ
 release-at-renewal flag (`PATCH /api/vendor/licenses/:id`) purges nothing, because no public
 read renders it.
 
+**(b1e) the owner's proposal accept (AECI-1417)** — `POST /api/vendor/proposals/:id/accept`
+creates a product an owned vendor accepted (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22). It purges
+what a promote create purges, from the same deriver: `cacheTagsForPromote`
+(`routes/promote-cache-tags.ts`) over a promote-shaped result, so `product:{slug}`,
+`index:products`, `sitemap`, `vendor:{slug}` for every linked vendor, one
+`category|audience|phase:{slug}` per linked term, `trade:{slug}` + `index:trades` +
+`taxonomy` + `sitemap` when it has a trade, and `product:{host}` per extension host. Never
+`taxonomy` for the three minted facets, because an accept mints nothing. `afterVendorWrite`
+enqueues them with `source: 'vendor'`. Two promote hooks are left out on purpose: no
+home-stats refresh (`index:home` waits for the daily cron, as for every vendor write) and no
+re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
+decline purges nothing.
+
 **(b1d) the term-end lapse (AECI-1404)** — the 11:00 `entitlement-expiry` job ends every
 passed term first (`lib/license-lapse.ts`, `STAGE_2_PAID_TIERS_SPEC.md` §7.6). After every
 term batch has committed it enqueues ONE message for the whole run, `source: 'moderation'`:

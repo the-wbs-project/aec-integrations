@@ -27,6 +27,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'product_version.created': $localize`:@@vendor.history.action.productVersionCreated:Product version added`,
   'product_version.updated': $localize`:@@vendor.history.action.productVersionUpdated:Product version updated`,
   'product_version.deleted': $localize`:@@vendor.history.action.productVersionDeleted:Product version removed`,
+  // AECI-1417: an owner's decision on a product AEC Integrations proposed.
+  'product_proposal.accepted': $localize`:@@vendor.history.action.productProposalAccepted:Proposed product accepted`,
+  'product_proposal.declined': $localize`:@@vendor.history.action.productProposalDeclined:Proposed product declined`,
 
   // ── Integrations ─────────────────────────────────────────────────────────
   'claim.created': $localize`:@@vendor.history.action.claimCreated:Integration claim made`,

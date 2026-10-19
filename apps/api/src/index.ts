@@ -256,6 +256,11 @@ import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
 import {
+  createAcceptVendorProposalHandler,
+  createDeclineVendorProposalHandler,
+  createListVendorProposalsHandler,
+} from './routes/vendor-proposals';
+import {
   createAcceptSeatInviteHandler,
   createSeatInvitePreviewHandler,
 } from './routes/seat-invites';
@@ -1640,6 +1645,23 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorLicenseHandler(),
+);
+// AECI-1417 (E6b.5, ADR 0042): the owner's "Proposed products". The Billing gate order:
+// `requireVendor()`, the limiter on the two writes, then `requireSeatOwner()` inside each
+// handler. The read is never limited. An accept creates the product exactly as proposed
+// and purges what a promote create purges; a decline records the decision only.
+authVendor.get('/api/vendor/proposals', requireVendor(), createListVendorProposalsHandler());
+authVendor.post(
+  '/api/vendor/proposals/:id/accept',
+  requireVendor(),
+  rateLimit('write'),
+  createAcceptVendorProposalHandler(),
+);
+authVendor.post(
+  '/api/vendor/proposals/:id/decline',
+  requireVendor(),
+  rateLimit('write'),
+  createDeclineVendorProposalHandler(),
 );
 app.route('/', authVendor);
 

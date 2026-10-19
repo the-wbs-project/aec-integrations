@@ -229,8 +229,10 @@ export const products = sqliteTable(
      *
      * Nullable and unset for rows created before the column existed until
      * `scripts/ops/backfill-products-promoted-at.sql` runs on that tier; that
-     * backfill is `:= created_at` and is **exact**, because promote is D1's only
+     * backfill is `:= created_at` and is **exact**, because promote was D1's only
      * INSERT path into `products` and retraction is a hard delete (§4's correction).
+     * Since AECI-1417 an owner's proposal accept also inserts, and sets this column to
+     * the accept time, the same request that stamps its `created_at`.
      * Which is also why the column buys nothing *today* — it is future-proofing
      * against a Tier-1 retract endpoint introducing a real un-promote → re-promote
      * cycle, after which `created_at` stops tracking go-live irrecoverably.

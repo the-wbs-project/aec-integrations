@@ -131,6 +131,7 @@ import {
   promoteOwnershipSentinels,
 } from '../lib/claimed-vendors';
 import { PROPOSAL_REF_RE, proposalVendorOwnedSentinel } from '../lib/product-proposals';
+import { emailOwnersOfProposal } from '../lib/product-proposal-notify';
 import {
   isPromoteClaimFenceError,
   promoteClaimFenceSentinel,
@@ -297,8 +298,10 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** Generate a slug or throw a typed 400 for the two expected failure modes. */
-function generateSlug(name: string, existing: Set<string>, vendorSlug?: string): string {
+/** Generate a slug or throw a typed 400 for the two expected failure modes. Shared with
+ *  the owner's proposal accept (AECI-1417, `routes/vendor-proposal-accept.ts`), so a
+ *  product created there is slugged exactly as promote slugs it. */
+export function generateSlug(name: string, existing: Set<string>, vendorSlug?: string): string {
   let base: string;
   try {
     base = slugify(name);
@@ -330,7 +333,7 @@ function generateSlug(name: string, existing: Set<string>, vendorSlug?: string):
  * failed: products.slug`; a non-slug UNIQUE violation returns false and falls
  * through to the generic 500 so unrelated violations are never mislabeled.
  */
-function isSlugUniqueViolation(err: unknown): boolean {
+export function isSlugUniqueViolation(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { message?: unknown; code?: unknown };
   const msg =
@@ -423,7 +426,9 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
   });
 }
 
-function productEditableData(p: PromoteProduct): Record<string, unknown> {
+/** The product columns a promote writes from its payload. Shared with the owner's proposal
+ *  accept (AECI-1417), which creates the proposed product from the same projection. */
+export function productEditableData(p: PromoteProduct): Record<string, unknown> {
   return compact({
     description: p.description,
     website: p.website,
@@ -1859,6 +1864,24 @@ export type PromoteIngestDeps = {
   syncAlgolia?: PromoteAlgoliaSync;
   notifyIndexNow?: PromoteIndexNowNotify;
   refreshHomeStats?: PromoteHomeStatsRefresh;
+  /** AECI-1417: email the owner seats of a proposal this promote stored. */
+  notifyProposalOwners?: PromoteProposalNotify;
+};
+
+/**
+ * Post-commit seam for the owner email of a stored proposal (AECI-1417). Default sends
+ * `product-proposal-owner-review` through `lib/product-proposal-notify.ts`, which reads
+ * the proposal on the write's bookmark and keys each send per proposal per owner. Never
+ * throws. Injected for tests.
+ */
+export type PromoteProposalNotify = (rc: PromoteRunCtx, proposalId: string) => Promise<void>;
+
+const defaultProposalNotify: PromoteProposalNotify = async (rc, proposalId) => {
+  await emailOwnersOfProposal(
+    { env: rc.env, executionCtx: { waitUntil: (p) => rc.waitUntil(p) }, req: { raw: rc.request } },
+    getDb(rc.env, { bookmark: rc.bookmark() }).db,
+    proposalId,
+  );
 };
 
 /** What the committed ingest hands back: the caller's ID map plus the inputs the
@@ -4110,6 +4133,7 @@ export function dispatchPromoteHooks(
   const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
   const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
+  const notifyProposalOwners = deps.notifyProposalOwners ?? defaultProposalNotify;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
   // Best-effort §26.5 audit forwards AFTER the commit, as ONE request per vendor
@@ -4179,6 +4203,16 @@ export function dispatchPromoteHooks(
   // accumulates rows the drain would submit the moment a key appeared.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls, jobId));
+  }
+
+  // AECI-1417: one owner email per proposal this promote STORED. Only the
+  // `PROPOSED_PRODUCT_REASON` entry is a new proposal: a refused re-send (Q5) carries
+  // the first proposal's id too, and its owners were asked when it was stored. Each
+  // send is keyed per proposal per owner, so a replayed hook sends nothing twice.
+  for (const entry of response.skipped) {
+    if (entry.reason === PROPOSED_PRODUCT_REASON && entry.proposalId) {
+      dispatchHook(rc, 'proposal-owner-email', notifyProposalOwners(rc, entry.proposalId));
+    }
   }
 
   // Surface any `skipped[]` entries (§4) in the observability plane: a completed job

@@ -71,6 +71,8 @@ const NAV_LABELS = [
   'Changes',
   'Seats',
   'Billing',
+  // AECI-1417: owner seats only, like Billing.
+  'Proposed products',
 ];
 
 /**
@@ -213,7 +215,7 @@ const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
-  it('lists the seven sections, with Messages and Changes between Products and Seats', async () => {
+  it('lists the eight sections, with Messages and Changes between Products and Seats', async () => {
     // AECI-666: Integrations left this row for the product row; Messages took
     // its slot.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
@@ -223,16 +225,25 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     const harness = await open();
 
     expect([...navItems(harness)].map((a) => a.getAttribute('href'))).toEqual(
-      ['overview', 'profile', 'products', 'messages', 'history', 'seats', 'billing'].map(
-        (p) => `/vendor/${SLUG}/${p}`,
-      ),
+      [
+        'overview',
+        'profile',
+        'products',
+        'messages',
+        'history',
+        'seats',
+        'billing',
+        'proposals',
+      ].map((p) => `/vendor/${SLUG}/${p}`),
     );
   });
 
-  it('offers Billing to owner seats only (AECI-1390, decision 10)', async () => {
+  it('offers Billing and Proposed products to owner seats only (AECI-1390, AECI-1417)', async () => {
     const harness = await open('overview', { ...VENDOR_ME_FIXTURE, seat_owner: false });
 
-    expect(navLabels(harness)).toEqual(NAV_LABELS.filter((label) => label !== 'Billing'));
+    expect(navLabels(harness)).toEqual(
+      NAV_LABELS.filter((label) => label !== 'Billing' && label !== 'Proposed products'),
+    );
   });
 
   it('does not render the Integrations section until its route is active', async () => {
