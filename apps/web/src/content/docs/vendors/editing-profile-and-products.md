@@ -81,7 +81,7 @@ Points publish to your product page as soon as you save, with no review. The sec
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 
-While the product is on Managed, our catalog updates do not change these points. When its license ends, your points stay published. We may then replace them in a later update, and the "Written by" line goes with them.
+Our catalog updates never change these points. When the product's license ends, your points stay published as you left them, with the "Written by" line, and you can no longer edit them.
 
 ## When a change shows
 

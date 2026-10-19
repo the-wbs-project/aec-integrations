@@ -2,8 +2,9 @@
  * The term-end lapse (AECI-1404, E6.1; `docs/VENDOR_SIGNUP_PROCESS.md` §3 steps 9 and
  * 10, decision 14; `docs/STAGE_2_PAID_TIERS_SPEC.md` §7). A license whose term has
  * passed ends on its own: `ended_at` is stamped, the product drops to Free, and the
- * Managed fields are handed back to AECi (decision 14). The hand-back itself writes
- * nothing here: promote checks for a live license when it writes (ruled 2026-10-19).
+ * vendor loses the edit right on the Managed fields (decision 14, the hand-back). The
+ * hand-back writes nothing: the text freezes as the vendor left it, and promote never
+ * writes it again (AECI-1414, ruling on AECI-1341, 2026-10-19).
  *
  * ── WHERE IT RUNS ───────────────────────────────────────────────────────────────
  * A pre-step of the 11:00 `entitlement_expiry` job (`runEntitlementExpiryJob` in
