@@ -16,7 +16,6 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  auditLog,
   integrations,
   productVendors,
   products,
@@ -29,10 +28,11 @@ import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
-  BLOCKED_NEW_PRODUCT_REASON,
   BLOCKED_OWNED_ENDPOINT_REASON,
   BLOCKED_PRODUCT_REASON,
   BLOCKED_VENDOR_REASON,
+  PROPOSED_PRODUCT_INTEGRATION_REASON,
+  PROPOSED_PRODUCT_REASON,
   runPromoteIngest,
   type PromoteIngestDeps,
   type PromoteRunCtx,
@@ -181,7 +181,7 @@ describe('promote refuses an owned record (AECI-1415)', () => {
     expect(joins.map((j) => j.vendorId)).toEqual([FREE]);
   });
 
-  it('does not create a NEW product that would join an owned vendor, and says why', async () => {
+  it('does not create a NEW product that would join an owned vendor; it becomes a proposal (AECI-1416)', async () => {
     const before = await t.db.select().from(products);
     const { response } = await ingest({
       vendors: [{ ref: 'v1', supabaseId: OWNED, companyName: 'Bentley' }],
@@ -194,19 +194,16 @@ describe('promote refuses an owned record (AECI-1415)', () => {
     expect(response.skipped).toContainEqual({
       ref: 'p1',
       kind: 'product',
-      reason: BLOCKED_NEW_PRODUCT_REASON,
+      reason: PROPOSED_PRODUCT_REASON,
+      proposalId: expect.any(String),
     });
-    expect(response.skipped).toContainEqual(
-      expect.objectContaining({ ref: 'i1', kind: 'integration' }),
-    );
+    expect(response.skipped).toContainEqual({
+      ref: 'i1',
+      kind: 'integration',
+      reason: PROPOSED_PRODUCT_INTEGRATION_REASON,
+    });
     expect(await t.db.select().from(products)).toEqual(before);
     expect(response.taxonomy.categories).toEqual([]);
-    const blocked = (await t.db.select().from(auditLog)).filter(
-      (r) => r.action === 'promote.blocked',
-    );
-    expect(blocked.map((r) => r.metadata)).toContainEqual(
-      expect.objectContaining({ cause: 'new-product-on-owned-vendor', ownedVendorIds: [OWNED] }),
-    );
   });
 
   it("skips an integration whose FAR endpoint is owned, on another product's push (Q2)", async () => {

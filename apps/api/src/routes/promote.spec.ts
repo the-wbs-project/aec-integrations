@@ -61,7 +61,7 @@ import { seedLicense } from '../test/licenses';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import {
-  BLOCKED_NEW_PRODUCT_REASON,
+  PROPOSED_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
   refreshHomeStatsAfterPromote,
@@ -4752,9 +4752,9 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.name).toBe('MicroStation');
   });
 
-  it('blocks a CREATE that would join an owned vendor (AECI-1415)', async () => {
-    // Ruled 2026-10-19: until AECI-1416 makes it a proposal to the vendor, a new
-    // product under an owned vendor's name is skipped, not created.
+  it('turns a CREATE that would join an owned vendor into a proposal (AECI-1416)', async () => {
+    // Ruled 2026-10-19: a new product under an owned vendor's name is not created. It
+    // is stored as a proposal to the owner (`promote-proposals.spec.ts`).
     const res = await promote({
       vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
       product: { ref: 'p1', name: 'Revit' },
@@ -4764,7 +4764,8 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(body.skipped).toContainEqual({
       ref: 'p1',
       kind: 'product',
-      reason: BLOCKED_NEW_PRODUCT_REASON,
+      reason: PROPOSED_PRODUCT_REASON,
+      proposalId: expect.any(String),
     });
     const joins = await t.db
       .select()

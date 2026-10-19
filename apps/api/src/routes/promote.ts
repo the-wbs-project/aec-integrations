@@ -98,6 +98,7 @@ import {
   productCategories,
   productExtensions,
   productPhases,
+  productProposals,
   products,
   productTrades,
   productVendors,
@@ -356,6 +357,21 @@ export function isPromoteJobDuplicate(err: unknown): boolean {
   const msg =
     `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
   return msg.includes('constraint') && msg.includes('promote_jobs');
+}
+
+/**
+ * True when `err` is the `product_proposals_ref_key` violation (AECI-1416): another
+ * promote stored a proposal for the same product ref between this one's plan read and
+ * its batch. SQLite names the column, `UNIQUE constraint failed: product_proposals.ref`,
+ * and D1 wraps the same text. Disjoint from {@link isPromoteJobDuplicate} (no
+ * `promote_jobs`) and from {@link isSlugUniqueViolation} (no `slug`).
+ */
+export function isProductProposalRefConflict(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { message?: unknown; code?: unknown };
+  const msg =
+    `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
+  return msg.includes('unique') && msg.includes('product_proposals.ref');
 }
 
 /** Columns named in a `UNIQUE constraint failed: <table>.<col>, …` message →
@@ -1076,8 +1092,22 @@ export const BLOCKED_VENDOR_REASON =
   'vendor owns its record; review-app writes to a vendor-owned record are refused';
 export const BLOCKED_PRODUCT_REASON =
   'product belongs to a vendor that owns its record; review-app writes to it are refused';
-export const BLOCKED_NEW_PRODUCT_REASON =
-  'new product would join a vendor that owns its record; it is not created, and becomes a proposal to the vendor once AECI-1416 ships';
+// ─── Product proposals (AECI-1416, rulings Q4 and Q5 of 2026-10-19) ───────────
+// A NEW product that would join an owned vendor is not created. It is stored in
+// `product_proposals` for the owner to accept or decline (AECI-1417), and the skip
+// carries `proposalId`. One send per ref, ever: a re-send is refused whatever state
+// the first proposal is in, with that state in the reason.
+export const PROPOSED_PRODUCT_REASON =
+  'new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline';
+export const ALREADY_PROPOSED_REASONS = {
+  open: 'product was already sent to the vendor that owns its record as a proposal, which is still open; a ref is sent once, so nothing was written',
+  accepted:
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor accepted; a ref is sent once, so nothing was written',
+  declined:
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor declined; a ref is sent once, so nothing was written',
+} as const;
+export const PROPOSED_PRODUCT_INTEGRATION_REASON =
+  'an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored';
 export const BLOCKED_INTEGRATION_REASON =
   'an endpoint is a product this promote refuses because its vendor owns its record';
 export const BLOCKED_OWNED_ENDPOINT_REASON =
@@ -2238,10 +2268,29 @@ export async function runPromoteIngest(
     (existingProductVendorIds.some((id) => claimedVendorIds.has(id)) || joinsOwnedVendor);
   // A NEW product that would join an owned vendor is not created either (ruled
   // 2026-10-19). Creating it would put a record under the vendor's name that the
-  // vendor did not make. Until AECI-1416 turns it into a proposal to the vendor, it is
-  // skipped with its own reason.
+  // vendor did not make. It becomes a proposal to the owner instead (AECI-1416).
   const newProductBlocked = Boolean(payload.product) && !productRowExists && joinsOwnedVendor;
   const productSkipped = productBlocked || newProductBlocked;
+
+  // ── Product proposal plan (AECI-1416) ─────────────────────────────────────
+  // The proposal goes to the FIRST owned vendor in payload order: the payload names
+  // its vendors in the order the review app ranks them, so the first owned one is the
+  // owner the curator meant. `ref` is the identity a re-send is refused on (Q5): any
+  // existing proposal for it, whatever its decision, refuses this one at plan time.
+  // The commit-time half is the unique index on `product_proposals.ref`.
+  const proposalVendorId = newProductBlocked
+    ? updatedVendorIds.find((id) => claimedVendorIds.has(id))
+    : undefined;
+  const priorProposal =
+    newProductBlocked && payload.product
+      ? await db.query.productProposals.findFirst({
+          columns: { id: true, decision: true },
+          where: eq(productProposals.ref, payload.product.ref),
+        })
+      : undefined;
+  // The insert is held out of `stmts` until after `catalogWrites` is read: a proposal
+  // changes no catalog state, so it must not schedule the post-commit refreshes.
+  const proposalStmts: BatchStmt[] = [];
 
   // ── Vendors ──────────────────────────────────────────────────────────────
   const vendorIdByRef = new Map<string, string>();
@@ -2860,18 +2909,50 @@ export async function runPromoteIngest(
       entityType: 'product',
       entityId: p.supabaseId as string,
     });
-  } else if (p && newProductBlocked) {
-    // No row exists, so the audit row names the owned vendors it would have joined.
-    skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_NEW_PRODUCT_REASON });
+  } else if (p && newProductBlocked && priorProposal) {
+    // Q5: one send per ref, ever. Nothing about the product is written; the audit row
+    // names the proposal that already holds the ref.
+    const state = priorProposal.decision ?? 'open';
+    skipped.push({
+      ref: p.ref,
+      kind: 'product',
+      reason: ALREADY_PROPOSED_REASONS[state],
+      proposalId: priorProposal.id,
+    });
     audit({
       actorType: 'system',
       action: 'promote.blocked',
-      entityType: 'product',
-      entityId: p.supabaseId ?? null,
+      entityType: 'product_proposal',
+      entityId: priorProposal.id,
+      vendorId: proposalVendorId ?? null,
+      metadata: { ref: p.ref, cause: 'product-already-proposed', state },
+    });
+  } else if (p && newProductBlocked && proposalVendorId) {
+    // The product is stored as sent, frozen: no taxonomy resolved or minted, no slug,
+    // no joins. The owner accepts or declines it (AECI-1417).
+    const proposalId = crypto.randomUUID();
+    proposalStmts.push(
+      db.insert(productProposals).values({
+        id: proposalId,
+        vendorId: proposalVendorId,
+        ref: p.ref,
+        payload: p,
+        proposedAt: promotedAtIso,
+        promoteJobId: opts.jobId ?? null,
+      }),
+    );
+    skipped.push({ ref: p.ref, kind: 'product', reason: PROPOSED_PRODUCT_REASON, proposalId });
+    audit({
+      actorType: 'system',
+      action: 'product_proposal.created',
+      entityType: 'product_proposal',
+      entityId: proposalId,
+      vendorId: proposalVendorId,
       metadata: {
         ref: p.ref,
-        cause: 'new-product-on-owned-vendor',
+        vendorId: proposalVendorId,
         ownedVendorIds: updatedVendorIds.filter((id) => claimedVendorIds.has(id)),
+        promoteJobId: opts.jobId ?? null,
       },
     });
   }
@@ -3008,7 +3089,16 @@ export async function runPromoteIngest(
       (intg.poweredByProduct?.ref !== undefined &&
         touchesBlockedProduct({ ref: intg.poweredByProduct.ref }))
     ) {
-      skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
+      // Q4: an edge touching a proposed (or already-proposed) product is never stored.
+      // It has its own reason, so the curator knows it is not an ownership refusal of
+      // the edge itself and can re-send it once the product exists.
+      skipped.push({
+        ref: intg.ref,
+        kind: 'integration',
+        reason: newProductBlocked
+          ? PROPOSED_PRODUCT_INTEGRATION_REASON
+          : BLOCKED_INTEGRATION_REASON,
+      });
       continue;
     }
     const sourceId = await resolveProduct(intg.sourceProduct);
@@ -3769,6 +3859,9 @@ export async function runPromoteIngest(
   // occur without an accompanying write, so the two points were equivalent.
   const catalogWrites = stmts.length;
 
+  // ── AECI-1416: the proposal insert, after the snapshot (see `proposalStmts`) ──
+  stmts.push(...proposalStmts);
+
   // ── Audit rows (appended last; same atomic batch as the writes above) ─────
   for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
 
@@ -3858,6 +3951,18 @@ export async function runPromoteIngest(
         // re-planning is the duplicate this whole change exists to prevent.
         if (!prior) throw err;
         return replayPromoteJob(rc, dbCtx, opts.jobId, prior.result, 'batch-conflict');
+      }
+      // AECI-1416: a racing promote stored a proposal for this product ref first. No
+      // ON CONFLICT on the insert: the `product_proposal.created` audit row rides the
+      // same batch and would then record a proposal that was never stored. The batch
+      // rolled back, ledger row included, so a re-push plans against the stored
+      // proposal and refuses the ref as already sent (Q5).
+      if (isProductProposalRefConflict(err)) {
+        throw new ApiError(
+          409,
+          'PRODUCT_PROPOSED_DURING_PROMOTE',
+          'Another promote sent this product as a proposal to its owner while this one was running. Nothing was written; re-push the bundle.',
+        );
       }
       // AECI-1005: an edge planned as unclaimed was claimed before the batch ran. The
       // whole batch rolled back, so nothing was written, including the ledger row, and

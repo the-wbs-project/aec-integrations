@@ -647,6 +647,15 @@ export interface PromoteSkipped {
    * (AECI-1088). `REVIEW_APP_PROMOTE_API.md` §4c. Absent otherwise.
    */
   existingId?: string;
+  /**
+   * The `product_proposals` row this skip is about (AECI-1416), on `kind: 'product'`
+   * only. Set when a NEW product for a vendor that owns its record was stored as a
+   * proposal to the owner instead of being created, and when a re-send of a ref that
+   * already has a proposal (open, accepted or declined) was refused.
+   * `REVIEW_APP_PROMOTE_API.md` §4a. **Optional and additive**: a result written by an
+   * API Worker that predates AECI-1416 has no such key, so read it as possibly absent.
+   */
+  proposalId?: string;
 }
 
 /**

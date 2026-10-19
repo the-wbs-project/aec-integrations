@@ -1066,6 +1066,9 @@ as a commercial change. `apps/api/src/routes/account.spec.ts` asserts it.
 `vendor_plan_pricing.updated_by` was the same shape and was not nulled. That gap closed on 2026-10-17, when migration 0081 dropped the table (AECI-1357).
 AECI-1373 adds two more of the same shape: `license_release_requests.requested_by` and
 `decided_by`. The batch nulls both with `updated_at` pinned, and the request survives.
+AECI-1416 adds one more: `product_proposals.decided_by`, the owner seat that decided a product
+proposal. The batch nulls it with `updated_at` pinned, and the proposal and its frozen payload
+survive.
 
 **A billing email equal to the person's address is nulled (AECI-1389, ruling 2026-10-16).**
 `billing_accounts.billing_email` is an address an owner typed, not a profile link, so no FK

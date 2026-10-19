@@ -23,7 +23,7 @@
  * not a delete.
  *
  * WHAT POINTS AT `vendors` (the latest drizzle-kit snapshot under `apps/api/migrations/meta/`).
- * Every one of the thirteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
+ * Every one of the fourteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
  * `retract-vendor-fk-coverage.spec.ts` fails when the latest snapshot carries one that
  * does not, so the next table cannot become a silent cascade (AECI-1226):
  *
@@ -35,6 +35,7 @@
  *   profiles                      vendor_id                —           REFUSE (claimed, or was)
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
+ *   product_proposals             vendor_id                —           REFUSE (an owner's proposal)
  *   review_responses              vendor_id                cascade     allowed; deleted + counted
  *   integration_field_challenges  submitter_vendor_id      cascade     allowed; deleted + counted
  *   integration_field_challenges  owner_vendor_id          set null    allowed; NULLed + counted
@@ -61,6 +62,10 @@
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
  * explicit UPDATE would fail the whole batch on a tier that has not applied 0045 yet.
  * The link itself survives: it describes the product, not the company that typed it.
+ *
+ * `product_proposals` (AECI-1416, migration 0084) refuses too. A proposal exists only on a
+ * vendor that owns its record, and its `vendor_id` is NO ACTION. Probed like billing
+ * accounts (`productProposalsTable`, {@link PRODUCT_PROPOSALS_TABLE_SQL}).
  *
  * `billing_accounts` (AECI-1350, migration 0073) refuses. It is a commercial record with
  * licenses under it, and its `vendor_id` is NO ACTION, so the vendor DELETE would fail
@@ -102,6 +107,9 @@ import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 /** AECI-1350: does `billing_accounts` exist on the target tier (migration 0073)? */
 export const BILLING_ACCOUNTS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'billing_accounts';`;
 
+/** AECI-1416: does `product_proposals` exist on the target tier (migration 0084)? */
+export const PRODUCT_PROPOSALS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'product_proposals';`;
+
 export {
   AUDIT_LOG_DDL_SQL,
   ddlHasAuditVendorColumns,
@@ -130,6 +138,7 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'profiles.vendor_id': 'refuse',
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
+  'product_proposals.vendor_id': 'refuse',
   'review_responses.vendor_id': 'delete',
   'integration_field_challenges.submitter_vendor_id': 'delete',
   'integration_field_challenges.owner_vendor_id': 'detach',
@@ -210,6 +219,9 @@ export function buildVendorFootprintSql(
     /** AECI-1350: `billing_accounts` exists (migration 0073). Defaults to true; the CLI
      *  passes its {@link BILLING_ACCOUNTS_TABLE_SQL} probe. */
     billingAccountsTable?: boolean;
+    /** AECI-1416: `product_proposals` exists (migration 0084). Defaults to true; the CLI
+     *  passes its {@link PRODUCT_PROPOSALS_TABLE_SQL} probe. */
+    productProposalsTable?: boolean;
   } = {},
 ): string {
   const v = `'${escapeSqlLiteral(id)}'`;
@@ -221,6 +233,10 @@ export function buildVendorFootprintSql(
     (opts.billingAccountsTable ?? true)
       ? `(SELECT count(*) FROM "billing_accounts" WHERE "vendor_id" = ${v})`
       : '0';
+  const productProposals =
+    (opts.productProposalsTable ?? true)
+      ? `(SELECT count(*) FROM "product_proposals" WHERE "vendor_id" = ${v})`
+      : '0';
   return `SELECT
     (SELECT count(*) FROM "product_vendors" WHERE "vendor_id" = ${v}) AS products,
     (SELECT count(*) FROM "integrations" WHERE "built_by_vendor_id" = ${v}) AS integrations,
@@ -228,6 +244,7 @@ export function buildVendorFootprintSql(
     (SELECT count(*) FROM "profiles" WHERE "vendor_id" = ${v}) AS profiles,
     (SELECT count(*) FROM "vendor_seat_invites" WHERE "vendor_id" = ${v}) AS seat_invites,
     ${billingAccounts} AS billing_accounts,
+    ${productProposals} AS product_proposals,
     (SELECT count(*) FROM "claims" WHERE "created_by_vendor_id" = ${v}) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "attested_by_vendor_id" = ${v}) AS attestations,
     (SELECT count(*) FROM "page_views" WHERE "vendor_id" = ${v}) AS page_views,
@@ -245,6 +262,8 @@ export interface RawVendorFootprintRow {
   seat_invites: number;
   /** AECI-1350. Optional so a row built before it still parses. */
   billing_accounts?: number;
+  /** AECI-1416. Optional so a row built before it still parses. */
+  product_proposals?: number;
   claims: number;
   attestations: number;
   page_views: number;
@@ -262,6 +281,8 @@ export interface VendorFootprint {
   seatInvites: number;
   /** Billing accounts (AECI-1350). Any row refuses. */
   billingAccounts: number;
+  /** Product proposals sent to the vendor (AECI-1416). Any row refuses. */
+  productProposals: number;
   claims: number;
   attestations: number;
   pageViews: number;
@@ -283,6 +304,7 @@ export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprin
     profiles: row.profiles,
     seatInvites: row.seat_invites,
     billingAccounts: row.billing_accounts ?? 0,
+    productProposals: row.product_proposals ?? 0,
     claims: row.claims,
     attestations: row.attestations,
     pageViews: row.page_views,
@@ -298,7 +320,7 @@ export interface VendorRetractionClassification {
 }
 
 /**
- * Does this vendor own anything? Six counts refuse and there is no override for any of
+ * Does this vendor own anything? Seven counts refuse and there is no override for any of
  * them. `claims`, `attestations`, `page_views` and owned contests never refuse — they are
  * detached, not destroyed. Replies and filed contests never refuse either — they are the
  * vendor's own text and go with it (AECI-1226). The CLI reports each count.
@@ -320,6 +342,10 @@ export function classifyVendorRetraction(
     blockers.push(`${footprint.seatInvites} seat invite(s) — a seat is pending`);
   if (footprint.billingAccounts > 0)
     blockers.push(`${footprint.billingAccounts} billing account(s) — a commercial record exists`);
+  if (footprint.productProposals > 0)
+    blockers.push(
+      `${footprint.productProposals} product proposal(s) — the vendor owns its record (AECI-1416)`,
+    );
   return { safe: blockers.length === 0, blockers };
 }
 
@@ -501,6 +527,7 @@ export function formatVendorFootprintReport(entry: VendorPlanEntry): string {
     ['profiles attached', footprint.profiles],
     ['seat invites', footprint.seatInvites],
     ['billing accounts', footprint.billingAccounts],
+    ['product proposals', footprint.productProposals],
     ['claims → created_by NULLed', footprint.claims],
     ['attestations → attested_by NULLed', footprint.attestations],
     ['page_views → vendor_id NULLed', footprint.pageViews],

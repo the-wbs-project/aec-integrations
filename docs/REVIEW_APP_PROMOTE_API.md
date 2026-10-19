@@ -242,7 +242,10 @@ Two different identifiers appear throughout the payload:
 - **`ref`** — a **client-local label you make up** (any unique non-empty string,
   e.g. `"v1"`, `"p1"`). It exists only to wire entities together *inside one
   request* (e.g. "this integration's source is the product `p1`"). Refs must be
-  **unique across the whole payload**. They are not stored.
+  **unique across the whole payload**. They are not stored, with one exception: a new
+  product for a vendor that owns its record is stored as a proposal keyed on its `ref`
+  (AECI-1416, §4a). Make a product `ref` stable per review-app record (the review app
+  sends `p:<recId>`).
 - **`supabaseId`** — the **AECi database UUID** you previously stored. Its
   presence means **update this existing row**; its absence means **create a new
   row**.
@@ -1043,7 +1046,12 @@ The `result` object in full:
   push) **or when the product was blocked** because an owned vendor owns it
   (§4a); otherwise it carries the product's `id`, `slug`, and `operation`. Tell
   the two apart by looking for a `skipped[]` entry with `kind: "product"` and
-  your product's `ref`.
+  your product's `ref`. It is also `null` when a new product for an owned vendor was
+  stored as a proposal (§4a, AECI-1416). That `skipped[]` entry then carries
+  **`proposalId`**, the AECi id of the proposal, so you can record that the product was
+  sent and must not be sent again. A refused re-send carries the existing proposal's
+  `proposalId` too. `proposalId` is optional and additive: a result stored before
+  AECI-1416 never has it, so tolerate its absence.
 - Map each returned `id` back to your record by its `ref` (or, for taxonomy, by
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
@@ -1131,8 +1139,10 @@ What that looks like in a response:
 |---|---|
 | You update an **owned vendor** | The vendor is **absent** from `vendors[]`; `skipped[]` gains `{ ref, kind: "vendor", reason: BLOCKED_VENDOR_REASON }`, "vendor owns its record; review-app writes to a vendor-owned record are refused". Its columns are unchanged. |
 | You update an **existing product an owned vendor owns** (any joined vendor owned counts, so a co-owned product is owned) | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: BLOCKED_PRODUCT_REASON }`, "product belongs to a vendor that owns its record; review-app writes to it are refused". Nothing about the product changes, including its vendor/taxonomy/extension links. |
-| You **create** a new product that would join an owned vendor | **Not created.** `skipped[]` gains `{ ref, kind: "product", reason: BLOCKED_NEW_PRODUCT_REASON }`, "new product would join a vendor that owns its record; it is not created, and becomes a proposal to the vendor once AECI-1416 ships". Until AECI-1416 lands, nothing creates it. Before AECI-1415 promote created it. |
-| An integration in that same payload has an endpoint on a product this promote skipped, including as its `poweredByProduct` | Skipped with `kind: "integration"` and `BLOCKED_INTEGRATION_REASON`, "an endpoint is a product this promote refuses because its vendor owns its record". |
+| You **create** a new product that would join an owned vendor (a `supabaseId` that names no row counts as a create) | **Not created; stored as a proposal** (AECI-1416). `product` is `null` and `skipped[]` gains `{ ref, kind: "product", reason: PROPOSED_PRODUCT_REASON, proposalId }`, "new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline". The proposal holds the `product` object exactly as you sent it after validation, and it never changes after that. Its taxonomy is not resolved and no term is created. A product that would join several owned vendors is proposed once, to the **first** owned vendor in `vendors[]` order. The other vendors in the payload are not stored with it. The owner accepts or declines it in the portal (AECI-1417). Before AECI-1416 the product was skipped with `BLOCKED_NEW_PRODUCT_REASON`, and before AECI-1415 promote created it. |
+| You send a new product for an owned vendor **again**, with a `ref` that already has a proposal | **Refused, nothing written for it.** A `ref` is sent once, ever (ruling Q5). `skipped[]` gains `{ ref, kind: "product", reason, proposalId }` naming the existing proposal, and `reason` says its state: `ALREADY_PROPOSED_REASONS.open`, `.accepted` or `.declined`. That holds while the proposal is open, after the owner declines it and after the owner accepts it. Do not retry: the owner has it, or has decided. |
+| An integration in that same payload touches a product sent as a proposal (new or refused re-send) | Skipped with `kind: "integration"` and `PROPOSED_PRODUCT_INTEGRATION_REASON`, "an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored". A proposal carries the product only (ruling Q4). Re-send the edge once the product exists. |
+| An integration in that same payload has an endpoint on an existing product this promote skipped, including as its `poweredByProduct` | Skipped with `kind: "integration"` and `BLOCKED_INTEGRATION_REASON`, "an endpoint is a product this promote refuses because its vendor owns its record". |
 | An integration whose **source or target** product is owned, whichever product the payload is about | Skipped with `kind: "integration"` and `BLOCKED_OWNED_ENDPOINT_REASON`, "the source or target product belongs to a vendor that owns its record; review-app writes to the integration are refused". It also holds when an update would move the edge away from an owned product, because the stored endpoints count. An edge where the owned product is only the `poweredByProduct` connector still writes. |
 | You **create** a new vendor | Never blocked, nothing vendor-owned exists yet. |
 | Anything else in the same payload | Promotes normally. |
@@ -1189,6 +1199,25 @@ row, that abort it if a vendor the plan treated as unowned and writes, or any wr
 endpoint product, became owned before commit. The job ends `errored` with
 `VENDOR_OWNED_DURING_PROMOTE` (409, §6.2) and nothing is written. Re-push with a new `jobId`
 and the fence skips those rows.
+
+**Product proposals (AECI-1416, ruled 2026-10-19 on AECI-1341).** Once a company is owned,
+promote sends nothing about the vendor or any product it holds. The one thing it may still
+send is a **new** product, and it lands in `product_proposals` (`DATABASE_SCHEMA.md` §8.6f) with
+a `product_proposal.created` audit row in the same batch. A proposal-only promote changes no
+catalog state, so it fires no cache purge, search sync or home-stats refresh. Three rules:
+
+- **The `ref` is the proposal's identity.** §3.1 calls `ref` a client-local label. For a
+  product that may become a proposal, it is also the key a re-send is refused on, so it must be
+  **stable for one review-app record and unique across records**. The review app sends
+  `p:<recId>`, which is both. A bare label such as `p1` would make a second, different
+  product look like a re-send of the first.
+- **One send per `ref`, ever.** The plan refuses a `ref` that already has a proposal in any
+  state. Two promotes of one `ref` racing each other cannot both commit: a unique index on
+  `product_proposals.ref` aborts the later batch, and its job ends `errored` with
+  `PRODUCT_PROPOSED_DURING_PROMOTE` (409, §6.2). Re-push with a new `jobId` and the plan
+  reports the `ref` as already sent.
+- **A replay of the same `jobId` returns the recorded result** through the `promote_jobs` ledger
+  (§2.1), the same `proposalId` included. It never stores a second proposal.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1862,6 +1891,7 @@ Synchronous rejections use the standard AECi envelope:
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
 | `VENDOR_OWNED_DURING_PROMOTE` | A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed (§4a, AECI-1415). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports those rows in `skipped[]` and commits the rest. |
+| `PRODUCT_PROPOSED_DURING_PROMOTE` | Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (§4a, AECI-1416). The unique index on `product_proposals.ref` aborted the whole batch | Re-push with a **new `jobId`**. The re-push reports the product as already sent, with the stored `proposalId`, and commits the rest. |
 | `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
@@ -2261,7 +2291,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Retry a failed *kick-off* with the same `jobId` (free, idempotent); retry a failed *job* with a NEW `jobId` (§6.2).
 - [ ] Assemble one product bundle per "Promote" click (product + its vendors + its integrations).
 - [ ] For a "push just the vendor edit" action, send only `vendors[]` with the stored `supabaseId` (§3.5); expect `product: null` back.
-- [ ] Use made-up `ref`s to wire the bundle together; keep them unique per request.
+- [ ] Use made-up `ref`s to wire the bundle together; keep them unique per request. Keep a **product** `ref` stable per record and unique across records (`p:<recId>`): a new product for an owned vendor is stored as a proposal keyed on it (§4a).
 - [ ] Omit `supabaseId` on first promote; include stored IDs on re-push.
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
@@ -2270,7 +2300,8 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, **always**, even on a `poweredByProduct` edge, which AECi re-anchors itself (§3.4a), `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
-- [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **owned by its vendor and not writable from here** (a new product that would join an owned vendor is not created until AECI-1416 ships) — don't retry, and don't treat `product: null` as "no product sent" without checking.
+- [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **owned by its vendor and not writable from here** (a new product that would join an owned vendor is not created; it becomes a proposal, next item) — don't retry, and don't treat `product: null` as "no product sent" without checking.
+- [ ] Handle a `kind: "product"` skip that carries **`proposalId`** (§4a, AECI-1416): the new product was stored as a proposal for the vendor that owns its record, or a re-send was refused because that `ref` was already sent. Record that the product was sent, show the curator the reason (it names the proposal's state), and never send that `ref` again. Integrations touching it come back skipped with `PROPOSED_PRODUCT_INTEGRATION_REASON`; re-send them once the product exists. An `errored` job with `PRODUCT_PROPOSED_DURING_PROMOTE` is re-pushed with a new `jobId`. Tolerate `proposalId` being absent on older results.
 - [ ] Handle `skipped[]` `kind: "integration"` with the claimed-integration reason (§4b): the integration's **owner has claimed it**, so it is vendor-owned and nothing about it is writable from here, including its claims. Show the curator that, and don't retry. An `errored` job with `INTEGRATION_CLAIMED_DURING_PROMOTE` or `VENDOR_OWNED_DURING_PROMOTE` is the one case to re-push, with a new `jobId`.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.

@@ -1720,6 +1720,77 @@ export const licenseReleaseRequests = sqliteTable(
 );
 
 /**
+ * Product proposals (AECI-1416, E6b.4; ADR 0042, `REVIEW_APP_PROMOTE_API.md` §4a). Once
+ * a vendor owns its record (`vendors.owned_at`), promote writes nothing about it. The one
+ * thing the review app may still send for an owned company is a NEW product, and it lands
+ * here as a proposal the owner accepts or declines (AECI-1417) instead of being created.
+ *
+ * FROZEN ON SEND. `payload` is the promote payload's `product` sub-object exactly as
+ * `PromoteProductSchema` validated it. Its taxonomy is not resolved and nothing is
+ * minted. No writer updates `payload`, `ref`, `vendor_id` or `proposed_at` after the
+ * insert. Integrations in the same payload that touch the product are skipped, never
+ * stored (ruling Q4, 2026-10-19).
+ *
+ * ONE SEND PER REF, EVER (ruling Q5). `ref` is the review app's product ref, and the
+ * unique index on it is the race guard: two promotes of one ref cannot both commit. A
+ * re-send while open, after a decline or after an accept is refused at plan time.
+ *
+ * `decision` IS CHECK constrained (`accepted | declined`, NULL while open). A new table,
+ * so the CHECK costs nothing today. A later vocabulary change is a table recreate
+ * (`docs/migrations.md` §0). Nothing references this table, so that recreate would
+ * cascade into nothing.
+ *
+ * `vendor_id` is NO ACTION to `vendors`. A proposal only exists on an owned vendor, and
+ * an owned vendor already holds a NO ACTION `billing_accounts` row, so a vendor delete
+ * is refused either way and leaves no orphan. NO ACTION also survives a `vendors`
+ * recreate, where CASCADE would empty this table. `decided_by` holds a `profiles.id`
+ * with no FK, so the `DELETE /api/account` erasure batch nulls it (`AUTH_AND_RLS.md`
+ * §8). `created_product_id` (set on accept, AECI-1417) and `promote_job_id` have no FK:
+ * both are history pointers that must survive a product retraction or a ledger prune.
+ *
+ * Domain state (a request): the insert and the decision each write their `audit_log`
+ * row in the same `db.batch` (ADR 0022): `product_proposal.created` from promote. No
+ * `relations()` entry.
+ */
+export const productProposals = sqliteTable(
+  'product_proposals',
+  {
+    id: uuidPk(),
+    /** The owned vendor the product would join. NO ACTION FK. */
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id),
+    /** The review app's product ref: the identity a re-send is refused on (Q5). */
+    ref: text('ref').notNull(),
+    /** The validated `product` sub-object, frozen at insert. */
+    payload: text('payload', { mode: 'json' }).$type<unknown>().notNull(),
+    proposedAt: text('proposed_at').notNull(),
+    /** The promote job that sent it. No FK. NULL only on a promote run without a job id. */
+    promoteJobId: text('promote_job_id'),
+    /** NULL while open, then `accepted` or `declined`. */
+    decision: text('decision', { enum: ['accepted', 'declined'] }),
+    decidedAt: text('decided_at'),
+    /** The deciding owner seat's `profiles.id`. No FK; nulled by the erasure batch. */
+    decidedBy: text('decided_by'),
+    /** The product an accept created (AECI-1417). No FK. */
+    createdProductId: text('created_product_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'product_proposals_decision_check',
+      sql`"decision" IS NULL OR "decision" IN ('accepted', 'declined')`,
+    ),
+    uniqueIndex('product_proposals_ref_key').on(t.ref),
+    // The owner's "Proposed changes" list: open proposals by vendor, newest first.
+    index('product_proposals_vendor_open_idx')
+      .on(t.vendorId, t.proposedAt)
+      .where(sql`"decision" IS NULL`),
+  ],
+);
+
+/**
  * Agreement acceptances (AECI-1362, E2.4; `VENDOR_SIGNUP_PROCESS.md` §4, decisions 3, 9
  * and 17). One row is one acceptance of one version of one legal agreement: the vendor
  * terms at claim (`source = 'claim'`) or the Managed plan agreement at Stripe checkout
@@ -4862,6 +4933,7 @@ export const schema = {
   auditLog,
   fieldOverrides,
   promoteJobs,
+  productProposals,
   pageViews,
   statsCache,
   jobRuns,

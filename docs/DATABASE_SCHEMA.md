@@ -2410,6 +2410,68 @@ create index license_release_requests_vendor_created_idx
   `apps/api/src/lib/license-release-requests.ts`. `pending_requests` in
   `lib/admin-queue-counts.ts` counts open rows. No `relations()` entry.
 
+### 8.6f `product_proposals` (AECI-1416, migration 0084)
+
+New products the review app sent for a vendor that owns its record (ADR 0042,
+`REVIEW_APP_PROMOTE_API.md` §4a). Once a company is owned, promote writes nothing about the vendor
+or any product it holds. A new product for it is stored here instead of being created, and the owner
+accepts or declines it (AECI-1417, not built).
+
+```sql
+create table product_proposals (
+  id text primary key,
+  vendor_id text not null references vendors(id),  -- NO ACTION
+  ref text not null,             -- the review app's product ref; the Q5 identity
+  payload text not null,         -- JSON: the validated promote `product` object, frozen
+  proposed_at text not null,     -- the promote run's timestamp
+  promote_job_id text,           -- the promote job that sent it; NO FK
+  decision text                  -- NULL while open
+    constraint product_proposals_decision_check
+    check (decision is null or decision in ('accepted', 'declined')),
+  decided_at text,
+  decided_by text,               -- the deciding owner seat's profiles.id; NO FK; nulled on erasure
+  created_product_id text,       -- the product an accept created (AECI-1417); NO FK
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index product_proposals_ref_key on product_proposals(ref);
+create index product_proposals_vendor_open_idx
+  on product_proposals(vendor_id, proposed_at) where decision is null;
+```
+
+- **One send per ref, ever (ruling Q5, 2026-10-19).** Promote refuses a `ref` that already has a
+  row, whatever its `decision`, and writes nothing for it. The unique index is the race guard: two
+  promotes of one `ref` cannot both commit, and the later batch errors with
+  `PRODUCT_PROPOSED_DURING_PROMOTE`. The insert has no `ON CONFLICT`, because its audit row rides
+  the same batch and would then record a proposal that was never stored.
+- **Frozen on send.** `payload` is exactly what `PromoteProductSchema` produced, defaults included.
+  Its taxonomy is not resolved and no term is minted. No writer changes `payload`, `ref`,
+  `vendor_id` or `proposed_at` after the insert. A proposal carries the product only (ruling Q4):
+  integrations in the same payload that touch it are skipped and never stored, and the payload's
+  other vendors are not recorded.
+- **`vendor_id` is the first owned vendor in the payload's `vendors[]` order.**
+- **`vendor_id` is NO ACTION to `vendors`.** A proposal only exists on an owned vendor, and an owned
+  vendor already holds a NO ACTION `billing_accounts` row, so a vendor delete is refused either way
+  and leaves no orphan. NO ACTION also survives a `vendors` recreate, where CASCADE would empty this
+  table (`docs/migrations.md` §0). Nothing references this table, so a later recreate of it cascades
+  into nothing. `src/test/migration-0084.spec.ts` pins both facts. The vendor retraction lane
+  refuses a vendor with any proposal (`VENDOR_FK_HANDLING` outcome `refuse` in
+  `apps/api/src/lib/retract-vendor.ts`, probed per tier like `billing_accounts`).
+- **The CHECK on `decision` is deliberate.** This table is new, so the CHECK costs nothing today. A
+  later vocabulary change is a table recreate.
+- **Erasure.** `decided_by` has no FK, so the `DELETE /api/account` batch nulls it, with
+  `updated_at` pinned (`AUTH_AND_RLS.md` §8). The proposal survives.
+- **Domain state, audited.** A proposal is a request (ADR 0022), so every write carries its
+  `audit_log` row in the same batch. Promote writes `product_proposal.created`
+  (`entity_type = 'product_proposal'`, `entity_id` = the proposal, `vendor_id` set, `metadata.ref`,
+  `metadata.vendorId`, `metadata.ownedVendorIds`, `metadata.promoteJobId`). A refused re-send writes
+  `promote.blocked` with `metadata.cause = 'product-already-proposed'` and the proposal's `state`.
+  The accept and decline writers are AECI-1417.
+- **Writers and readers.** The only writer today is the promote ingest (`routes/promote.ts`), which
+  reads the row by `ref` at plan time. The owner's list and decision are AECI-1417. No `relations()`
+  entry.
+
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
 A pending self-serve seat invite. A row is an **INTENT, never an account**: this
