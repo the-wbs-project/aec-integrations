@@ -17,11 +17,11 @@
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
  * dialog (`shared/claim-dialog/`), and every one reads "Claim your listing": the hero,
  * both plan cards, the rail, the phone bar and the panel. E8.2 (2026-10-19) retired
- * "Start with Managed": claim is the one action. Each page mounts exactly one `aec-claim-dialog-host`. Each control is a link to
- * `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click without JS or into a new
- * tab still lands where a visitor can find the listing and its claim form. Claim is
- * the only plan action. Never "Get Managed", "Buy" or "Start now": there is no
- * checkout.
+ * "Start with Managed": claim is the one action. Each page mounts exactly one
+ * `aec-claim-dialog-host`. Each control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the
+ * search page), so a click without JS or into a new tab still lands where a visitor
+ * can find the listing and its claim form. Claim is the only plan action. Never "Get
+ * Managed", "Buy" or "Start now": there is no checkout.
  *
  * **Questions? Contact us** (`PlanContactLinkComponent`, E8.1, 2026-10-19). A plain
  * link to `/contact`, with no topic and no form. It replaced the plan inquiry dialog

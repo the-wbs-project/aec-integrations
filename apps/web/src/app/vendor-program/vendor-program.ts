@@ -40,9 +40,9 @@
  * the phone bar (`mobile_bar`) and the closing panel (`bottom`). No rail on this page: it would reserve an empty column beside
  * every section (2026-10-12). The docs Plans page keeps its rail. Every one of them
  * opens the one claim dialog (AECI-1293), and every one reads "Claim your listing"
- * (E8.2 retired "Start with Managed", 2026-10-19). Without JS they link to `/search` (`CLAIM_DIALOG_FALLBACK_HREF`), where
- * the visitor finds the listing and its own claim form. Claim is the only plan
- * action. "Questions? Contact us" (`aec-plan-contact-link`, a plain link to
+ * (E8.2 retired "Start with Managed", 2026-10-19). Without JS they link to `/search`
+ * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
+ * claim form. Claim is the only plan action. "Questions? Contact us" (`aec-plan-contact-link`, a plain link to
  * `/contact`) sits in the closing panel and under the FAQ, not on the hero (E8.1,
  * 2026-10-19). The plan cards carry `data-plans-cta`, so the phone bar also hides
  * while they are on screen. Exactly one `aec-claim-dialog-host`.
