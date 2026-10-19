@@ -33,6 +33,7 @@ import {
 
 import { Analytics } from '../analytics/analytics';
 import { SessionStatus } from '../auth/session-status';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ClaimRoutedNotice } from './claim-routed-notice';
 import { ClaimantFields } from './claimant-fields';
@@ -98,7 +99,7 @@ interface RequestModel {
  */
 @Component({
   selector: 'aec-request-form-body',
-  imports: [FormField, RouterLink, ClaimantFields, ClaimRoutedNotice, VendorTermsBox],
+  imports: [FormField, RouterLink, ClaimantFields, ClaimRoutedNotice, VendorTermsBox, NewTabIcon],
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
