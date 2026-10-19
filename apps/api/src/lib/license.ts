@@ -265,6 +265,68 @@ export async function loadOwnedProductLicenseState(
     .orderBy(productVendors.productId);
 }
 
+/** Max product ids per `IN (...)` in {@link loadLicensedProductIds}. D1 caps bound
+ *  parameters per query well below local SQLite, and the test harness will not show it. */
+const PRODUCT_ID_CHUNK = 90;
+
+/**
+ * Which of these products hold a live license, from ANY billing account (AECI-1407,
+ * E6.4). Promote's hand-back reads it: a claimed vendor's product with no live license
+ * is handed back to AECi for the Managed-only fields (`VENDOR_SIGNUP_PROCESS.md`
+ * decision 14). "Any account's" for the reason {@link loadOwnedProductLicenseState}
+ * gives: a co-owned product is Managed for whichever vendor holds its license.
+ *
+ * A plan-time read. Every write that depends on it re-tests the same predicate in SQL
+ * ({@link productHasLiveLicenseSql}, {@link noLiveProductLicenseSentinel}), so a license
+ * assigned between this read and the batch still wins.
+ */
+export async function loadLicensedProductIds(
+  db: Db,
+  productIds: readonly string[],
+): Promise<Set<string>> {
+  const licensed = new Set<string>();
+  const unique = [...new Set(productIds)];
+  for (let i = 0; i < unique.length; i += PRODUCT_ID_CHUNK) {
+    const rows = await db
+      .select({ productId: licenses.assignedProductId })
+      .from(licenses)
+      .where(
+        and(
+          inArray(licenses.assignedProductId, unique.slice(i, i + PRODUCT_ID_CHUNK)),
+          isNull(licenses.endedAt),
+        ),
+      );
+    for (const row of rows) if (row.productId) licensed.add(row.productId);
+  }
+  return licensed;
+}
+
+/**
+ * EXISTS(a live license assigned to the product), for SQL guards (AECI-1407). Pass the
+ * product id as a value, or as SQL naming the outer row's column. Spelled with an alias
+ * because a bare `${licenses.id}`-style column inside an UPDATE's subquery renders
+ * without its table, and an unqualified `id` would bind to the inner `licenses` row.
+ */
+export function productHasLiveLicenseSql(productId: string | SQL): SQL<boolean> {
+  return sql<boolean>`exists (select 1 from "licenses" hb_l where hb_l."assigned_product_id" = ${productId} and hb_l."ended_at" is null)`;
+}
+
+/**
+ * A batch statement that ABORTS the batch when the product holds a live license at that
+ * point in the batch (AECI-1407). Promote puts it ahead of the AECi claim statements it
+ * planned on a hand-back product's edges: a license assigned between the plan read and
+ * the batch means the product is Managed again, and its data flows are the vendor's.
+ * `json(...)` on a non-JSON string is malformed JSON, the same abort
+ * {@link noLiveLicenseSentinel} uses. Reads only.
+ */
+export function noLiveProductLicenseSentinel(db: Db, productId: string): BatchStmt {
+  return db
+    .select({
+      guard: sql`CASE WHEN ${productHasLiveLicenseSql(productId)} THEN json('product-license-live') END`,
+    })
+    .from(sql`(SELECT 1)`);
+}
+
 /**
  * The number of LIVE licenses (`ended_at IS NULL`) on every billing account of the
  * OUTER query's vendor, as a correlated scalar subquery. Select it from `vendors`:

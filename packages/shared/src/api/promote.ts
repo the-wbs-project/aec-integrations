@@ -676,13 +676,24 @@ export interface PromoteSkipped {
  * a vendor edit landing mid-promote still wins), while this receipt comes from
  * the planning read a moment earlier. In the narrow window between the two, the
  * receipt can be absent for a value that was in fact preserved. The SQL is
- * authoritative; this is the notification. It can never report the opposite
- * error — a preserved receipt with no fence — because nothing clears
- * `usefulness_source`.
+ * authoritative; this is the notification. Since AECI-1407 the fence holds only
+ * while the product has a live license, and the receipt fires only when the plan
+ * read saw one. A license that ends between the read and the commit lets the
+ * write through under a receipt that says it was kept. That window is a license
+ * ending mid-promote, which a lapse job or an admin revoke makes rare.
+ *
+ * **`kind: 'license_hand_back'` (AECI-1407, E6.4)** is the receipt for the one
+ * opening in the claimed-vendor block (`REVIEW_APP_PROMOTE_API.md` §4a). A product
+ * a claimed vendor owns, with no live license, takes only the hand-back fields
+ * (`toolIntegrationsUrl`, `apiDocsUrl`, `usefulness`) and, on its existing edges,
+ * only AECi's claims. The entry lists what the claimed vendor kept: on the
+ * PRODUCT's `ref`, the product fields that were withheld; on an integration's
+ * `ref`, that its columns were withheld and only its claims were written. Not
+ * `skipped[]`, because part of the entity WAS written.
  */
 export interface PromotePreserved {
   ref: string;
-  kind: 'claim' | 'attestation' | 'usefulness';
+  kind: 'claim' | 'attestation' | 'usefulness' | 'license_hand_back';
   reason: string;
   count: number;
 }

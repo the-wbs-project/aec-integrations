@@ -126,10 +126,15 @@ export interface ClaimIngestItem {
   isNewAnchor: boolean;
   /**
    * True when the payload's `sourceProduct` is endpoint B of the anchor (AECI-996).
-   * Only an `evidenced_pair` anchor can be reversed: its A is the lower product id,
-   * while a payload claim's direction is written against source → target. Each
-   * one-way payload direction is flipped into the anchor's frame BEFORE it is matched
-   * or stored, so a reversed pair stores what the integration asserts.
+   * An `evidenced_pair` anchor is reversed when the source sorts second: its A is the
+   * lower product id, while a payload claim's direction is written against source →
+   * target. Each one-way payload direction is flipped into the anchor's frame BEFORE
+   * it is matched or stored, so a reversed pair stores what the integration asserts.
+   *
+   * An `integration` anchor is reversed only on the license hand-back (AECI-1407):
+   * there promote writes the claims but not the row, so a payload that names the
+   * stored row's endpoints the other way round is flipped into the row's frame.
+   * Everywhere else the row is rewritten in the payload's own frame first.
    */
   frameReversed?: boolean;
   /**

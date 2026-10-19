@@ -191,9 +191,12 @@ export const products = sqliteTable(
      *  same reason as `logoSource` below (AECI-955 / ADR 0032). `null` means the
      *  field is promote-owned; non-null means a local editor owns it and promote
      *  must leave it alone, which it enforces INSIDE the SQL UPDATE rather than
-     *  from a planning read (`routes/promote.ts`). Promote never writes this
-     *  column. `'admin'` has no writer yet and is declared so a later admin
-     *  editor needs no migration. */
+     *  from a planning read (`routes/promote.ts`). Since AECI-1407 the fence
+     *  holds only while the product has a live license: a promote that writes
+     *  `usefulness` to a product with none also sets this back to NULL, in the
+     *  same CASE (ADR 0033, 2026-10-19 amendment). Promote never sets it non-null.
+     *  `'admin'` has no writer yet and is declared so a later admin editor needs
+     *  no migration. */
     usefulnessSource: text('usefulness_source', { enum: ['vendor', 'admin'] }),
 
     productRole: text('product_role').notNull().default('application'),
