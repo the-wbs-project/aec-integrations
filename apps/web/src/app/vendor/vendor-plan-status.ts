@@ -48,14 +48,10 @@ export class VendorPlanStatus {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   private readonly _vendorSlug = signal<string | null>(null);
-  private readonly _vendorName = signal<string | null>(null);
   private readonly _managed = signal<boolean | null>(null);
 
   /** The vendor's public slug (`vendors.slug`), or `null` until resolved. */
   readonly vendorSlug = this._vendorSlug.asReadonly();
-
-  /** The vendor's company name (`vendors.company_name`), or `null` until resolved. */
-  readonly vendorName = this._vendorName.asReadonly();
 
   /**
    * Whether the vendor's plan is Managed, per `isManaged` over the vendor-level
@@ -120,11 +116,9 @@ export class VendorPlanStatus {
       const me = await this.vendorApi.getMe();
       if (generation !== this.generation) return;
       const slug = me.vendor.slug;
-      const name = me.vendor.company_name;
       const managed = isManaged(me.entitlement);
-      if (typeof slug !== 'string' || typeof name !== 'string') return;
+      if (typeof slug !== 'string') return;
       this._vendorSlug.set(slug);
-      this._vendorName.set(name);
       this._managed.set(managed);
     } catch {
       // Any failure, including a body missing the fields above, reads as signed
@@ -138,7 +132,6 @@ export class VendorPlanStatus {
     this.probe = null;
     this.probedFor = null;
     this._vendorSlug.set(null);
-    this._vendorName.set(null);
     this._managed.set(null);
   }
 }

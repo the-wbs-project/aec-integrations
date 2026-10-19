@@ -2918,128 +2918,9 @@ export function sendLandingFeedbackNotification(
   });
 }
 
-/**
- * A plan inquiry as `POST /api/plan-inquiries` saved it (AECI-1279). Feeds both the
- * visitor's receipt and the operator alert, so the two can never describe different
- * inquiries.
- */
-export interface PlanInquirySummary {
-  /** The `plan_inquiries.id` of the saved row. */
-  inquiryId: string;
-  /** The plan's display name, e.g. `Managed`. */
-  planName: string;
-  email: string;
-  company: string;
-  details: string | null;
-}
-
-/**
- * The reply promise. It repeats the contact page (`apps/web/.../contact/contact.ts`), the
- * plan cards (`shared/plan-cta/plan-cards.ts`) and the plan inquiry form
- * (`shared/plan-inquiry/plan-inquiry-form.ts`) word for word. Change them together, or
- * none of them.
- */
-const PLAN_INQUIRY_REPLY_PROMISE = 'We reply to most messages within a couple of business days.';
-
 /** One line of visitor text for a subject: whitespace collapsed, at most 80 characters. */
 function subjectSafe(text: string): string {
   return excerpt(text.replace(/\s+/g, ' '), 80);
-}
-
-/**
- * What the visitor typed, as table rows. Every value is `plain`: the address is typed,
- * not verified, so AECi's own markup must never turn a stranger's text into a link in
- * someone else's inbox (the AECI-1197 rule for vendor-written values).
- */
-function planInquiryRows(inquiry: PlanInquirySummary, empty: string | null): EmailTableRow[] {
-  const rows: EmailTableRow[] = [
-    ['Plan', inquiry.planName],
-    ['Email', inquiry.email, { plain: true }],
-    ['Company', inquiry.company, { plain: true }],
-  ];
-  if (inquiry.details) rows.push(['Details', inquiry.details, { plain: true }]);
-  else if (empty !== null) rows.push(['Details', empty]);
-  return rows;
-}
-
-/**
- * The visitor's receipt for a plan inquiry (AECI-1279). Says we have it, repeats the
- * reply promise, and echoes their answers. No CTA: there is nothing for them to do.
- *
- * The address is typed, not verified, so the caller passes a dedupe key of one receipt
- * per address per UTC day. Reply-to is `SUPPORT_EMAIL` when set, so a reply to add
- * something reaches a person rather than the sending address.
- */
-export function sendPlanInquiryReceivedEmail(
-  c: EmailContext,
-  opts: { inquiry: PlanInquirySummary } & SendDedupe,
-): Promise<EmailOutcome> {
-  const { inquiry } = opts;
-  const support = c.env.SUPPORT_EMAIL?.trim() || undefined;
-  const opening = `Thanks for asking about the ${inquiry.planName} plan on AEC Integrations. ${PLAN_INQUIRY_REPLY_PROMISE}`;
-  const echo = support
-    ? 'Here is what you sent us. To add anything, reply to this email.'
-    : 'Here is what you sent us.';
-  const subject = `We got your ${inquiry.planName} plan inquiry`;
-  const shared = {
-    preheader: `Thanks for asking about ${inquiry.planName}. ${PLAN_INQUIRY_REPLY_PROMISE}`,
-    heading: subject,
-    table: planInquiryRows(inquiry, null),
-  };
-  return sendTransactionalEmail(c, {
-    to: inquiry.email,
-    template: 'plan-inquiry-received',
-    subject,
-    render: () => houseBody(shared, [opening, echo], [escapeHtml(opening), escapeHtml(echo)]),
-    dedupeKey: opts.dedupeKey,
-    entity: opts.entity,
-    ...(support ? { replyTo: support } : {}),
-  });
-}
-
-/**
- * Operator alert: someone asked about a plan (AECI-1279). To `SUPPORT_EMAIL`, with every
- * field, and reply-to set to the visitor so answering is one click. Absent
- * `SUPPORT_EMAIL` → `'skipped'`; the `plan_inquiries` row is the durable record. No CTA:
- * no admin screen lists plan inquiries yet, which is also why this entry is not pausable.
- */
-export function sendPlanInquiryAlert(
-  c: EmailContext,
-  opts: {
-    inquiry: PlanInquirySummary;
-    city: string | null;
-    region: string | null;
-    country: string | null;
-    referrer: string | null;
-  } & SendDedupe,
-): Promise<EmailOutcome> {
-  const { inquiry } = opts;
-  const host = environmentHost(c.env);
-  const rows = planInquiryRows(inquiry, '(none)');
-  rows.push([
-    'Location',
-    [opts.city, opts.region, opts.country].filter(Boolean).join(', ') || 'unknown',
-  ]);
-  // A recorded fact the visitor's browser sent, not a link we built: plain, never tagged.
-  rows.push(['Referrer', opts.referrer ?? 'none', { plain: true }]);
-  rows.push(['Inquiry id', inquiry.inquiryId]);
-  if (host) rows.push(['Environment', host]);
-
-  const intro = `${inquiry.email} asked about the ${inquiry.planName} plan. Reply to this email to answer them.`;
-  const shared = {
-    preheader: intro,
-    heading: `${inquiry.planName} plan inquiry from ${subjectSafe(inquiry.company)}`,
-    table: rows,
-  };
-  return sendTransactionalEmail(c, {
-    to: c.env.SUPPORT_EMAIL ?? '',
-    template: 'plan-inquiry-alert',
-    subject: `[AECi] ${inquiry.planName} plan inquiry from ${subjectSafe(inquiry.company)}`,
-    render: () => houseBody(shared, [intro], [escapeHtml(intro)]),
-    replyTo: inquiry.email,
-    dedupeKey: opts.dedupeKey,
-    entity: opts.entity,
-  });
 }
 
 /** A typed-in listing as `POST /api/requests/listing` saved it (AECI-1293). */
@@ -3110,8 +2991,7 @@ export function sendListingRequestAlert(
 /**
  * The per-address, per-day ledger key of the claim receipt (AECI-1366): at most one
  * `claim-received` per address per UTC day, across claims and listing requests. The key
- * holds the address's hash, never the address (AECI-1203), as `plan-inquiry-received`
- * does.
+ * holds the address's hash, never the address (AECI-1203).
  *
  * It is also the per-request bound. A request has one address and sends its receipt
  * once, post-commit, so no request can send two. A second request from the same address

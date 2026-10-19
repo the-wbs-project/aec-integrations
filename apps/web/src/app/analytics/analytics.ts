@@ -135,18 +135,11 @@ export const INTERNAL_PERSON_PROPERTY = 'is_internal';
 export type PlanCtaPlacement = 'top' | 'card' | 'rail' | 'mobile_bar' | 'bottom';
 
 /**
- * Which page a plan call to action sits on (`plan_cta_clicked.page`,
- * `plan_inquiry_submitted.page`): the vendor guide's Plans page
+ * Which page a plan call to action sits on (`plan_cta_clicked.page`): the vendor
+ * guide's Plans page
  * (`/docs/vendors/plans`) or the public vendor program page (`/vendor-program`).
  */
 export type PlanCtaPage = 'docs_plans' | 'vendor_program';
-
-/**
- * Where a plan inquiry form was sent from (`plan_inquiry_submitted.placement`): a
- * plan call to action that opened the dialog, or the form on
- * `/contact?topic=managed`.
- */
-export type PlanInquiryPlacement = PlanCtaPlacement | 'contact';
 
 /**
  * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
@@ -367,9 +360,9 @@ export class Analytics {
   /**
    * A click on a plan call to action (`shared/plan-cta/`), on the vendor guide's
    * Plans page or the vendor program page. `placement` says which copy of the
-   * button it was and `page` which page it sat on, so both can be compared. A
-   * Managed click opens the inquiry dialog (AECI-1279), so this counts opens, not
-   * inquiries: see `planInquirySubmitted`. Consent-gated like every event.
+   * button it was and `page` which page it sat on, so both can be compared. Every
+   * click opens the claim dialog, so this counts opens, not claims. Consent-gated like
+   * every event.
    */
   planCtaClicked(input: {
     plan: 'free' | 'managed';
@@ -380,26 +373,6 @@ export class Analytics {
       plan: input.plan,
       placement: input.placement,
       page: input.page,
-    });
-  }
-
-  /**
-   * A plan inquiry the API accepted (`POST /api/plan-inquiries` → 201, AECI-1279),
-   * fired by the inquiry form. `placement` is the button that opened it, or `contact`.
-   * `page` is the page that button sat on. The `/contact` form has no `page`, so the
-   * key is left out rather than sent empty. No field the visitor typed is sent (§2).
-   * Consent-gated like every event, so the `plan_inquiries` table stays the
-   * authoritative count.
-   */
-  planInquirySubmitted(input: {
-    topic: 'managed';
-    placement: PlanInquiryPlacement;
-    page?: PlanCtaPage;
-  }): void {
-    this.capture('plan_inquiry_submitted', {
-      topic: input.topic,
-      placement: input.placement,
-      ...(input.page ? { page: input.page } : {}),
     });
   }
 

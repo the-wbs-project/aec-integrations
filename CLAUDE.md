@@ -124,7 +124,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 - **Hosting:** Cloudflare Workers: SSR Worker + private API Worker over a service binding. The API
   Worker also runs the `PromoteWorkflow` Cloudflare Workflow (ADR 0021).
 - **Database:** Cloudflare D1 via Drizzle over the `DB` binding (ADR 0016). Supabase is Auth only.
-  Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, `/api/plan-inquiries`, tokenized soft-delete unsubscribe);
+  Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, tokenized soft-delete unsubscribe);
   `docs/email.md`.
 - **Search:** Algolia + InstantSearch Angular. **Auth:** Supabase Auth (magic link + Google OAuth).
 - **Observability:** PostHog only (ADR 0024). Workers hold no observability secret; the `phc_`

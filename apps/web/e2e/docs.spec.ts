@@ -317,6 +317,7 @@ test.describe('/docs shell — AECI-1248', () => {
     '/docs/vendors/editing-profile-and-products',
     '/docs/vendors/notifications-and-messages',
     '/docs/vendors/plans',
+    '/docs/vendors/billing',
     '/docs/vendors/connector-vendors',
     '/docs/getting-started/checking-before-you-buy',
     '/docs/trust/how-ranking-works',

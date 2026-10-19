@@ -27,8 +27,6 @@ import { firstValueFrom } from 'rxjs';
 import type {
   FeedbackSubmit,
   LandingSubmitResult,
-  PlanInquiryResult,
-  PlanInquirySubmit,
   SubscribeSubmit,
   UnsubscribeResult,
 } from '@aeci/shared';
@@ -99,14 +97,6 @@ export class LandingApi {
   /** Free-text product/tool feedback. Always returns `created: true`. */
   submitFeedback(input: FeedbackSubmit): Promise<LandingSubmitResult> {
     return firstValueFrom(this.http.post<LandingSubmitResult>('/api/feedback', input));
-  }
-
-  /**
-   * A plan inquiry from the "Talk to us about Managed" form (AECI-1279). Always
-   * `{ received: true }` on 201; the receipt and the support alert are sent server-side.
-   */
-  submitPlanInquiry(input: PlanInquirySubmit): Promise<PlanInquiryResult> {
-    return firstValueFrom(this.http.post<PlanInquiryResult>('/api/plan-inquiries', input));
   }
 
   /**

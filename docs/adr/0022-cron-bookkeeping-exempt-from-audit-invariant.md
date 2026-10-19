@@ -278,6 +278,9 @@ Nothing above is reversed, and no new class is added. `plan_inquiries` (`DATABAS
 `POST /api/plan-inquiries` (`apps/api/src/routes/plan-inquiries.ts`): the topic, the visitor's
 email, company and free-text details, trusted geo and the referrer.
 
+**Note 2026-10-19 (E8.1, AECI-1398).** The route, its handler and the form were removed. The
+table has no writer. E8.6 drops it, and this amendment then has nothing left to govern.
+
 **Why it is exempt.** It passes the three-part test the way `feedback` does. (a) It is a
 lead-capture log: one insert per submit, never updated, never deleted by the app. (b) It is
 invisible on every public surface, and nothing in search, ranking or a listing reads it.

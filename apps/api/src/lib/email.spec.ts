@@ -49,9 +49,6 @@ import {
   sendLandingFeedbackNotification,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
-  sendPlanInquiryAlert,
-  sendPlanInquiryReceivedEmail,
-  type PlanInquirySummary,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendProductRequestDecidedEmail,
@@ -2425,14 +2422,14 @@ describe('entitlement expiry templates', () => {
   });
 });
 
-describe('sendTransactionalEmail reply-to (AECI-1279)', () => {
+describe('sendTransactionalEmail reply-to', () => {
   it('passes replyTo to Resend as reply_to', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendTransactionalEmail(fakeContext(), {
       to: 'ops@aecintegrations.com',
       subject: 'Hi',
       text: 'Body',
-      template: 'plan-inquiry-alert',
+      template: 'listing-request-alert',
       replyTo: 'buyer@example.com',
     });
     expect(lastBody(fetchSpy).reply_to).toBe('buyer@example.com');
@@ -2447,154 +2444,6 @@ describe('sendTransactionalEmail reply-to (AECI-1279)', () => {
       template: 'review-submitted',
     });
     expect(lastBody(fetchSpy)).not.toHaveProperty('reply_to');
-  });
-});
-
-const INQUIRY: PlanInquirySummary = {
-  inquiryId: '42',
-  planName: 'Managed',
-  email: 'buyer@example.com',
-  company: 'Acme Construction Software',
-  details: 'Procore connector, see https://acme.example/products',
-};
-
-describe('sendPlanInquiryReceivedEmail (AECI-1279)', () => {
-  it('thanks the visitor, repeats the reply promise and echoes their answers', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const outcome = await sendPlanInquiryReceivedEmail(
-      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
-      { inquiry: INQUIRY, dedupeKey: 'plan-inquiry-received:abc:2026-10-12' },
-    );
-
-    expect(outcome).toBe('sent');
-    const body = lastBody(fetchSpy);
-    expect(body.to).toBe('buyer@example.com');
-    expect(body.subject).toBe('We got your Managed plan inquiry');
-    // A reply reaches the support inbox, not the sending address.
-    expect(body.reply_to).toBe('support@aecintegrations.com');
-    const text = String(body.text);
-    expect(text).toContain('We reply to most messages within a couple of business days.');
-    expect(text).toContain('Plan: Managed');
-    expect(text).toContain('Email: buyer@example.com');
-    expect(text).toContain('Company: Acme Construction Software');
-    expect(text).toContain('Details: Procore connector, see https://acme.example/products');
-    expect(text).toContain('reply to this email');
-    // The visitor's text is never turned into a link by our markup.
-    expect(String(body.html)).not.toContain('href="https://acme.example');
-    for (const part of [body.subject, text, body.html]) expect(String(part)).not.toContain('—');
-    // No exclamation marks in the copy (PRODUCT.md). The HTML doctype has one, so
-    // check the subject and the text part.
-    for (const part of [body.subject, text]) expect(String(part)).not.toContain('!');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:plan-inquiry-received']]);
-  });
-
-  it('carries the dedupe key as a Resend Idempotency-Key', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendPlanInquiryReceivedEmail(fakeContext(), {
-      inquiry: INQUIRY,
-      dedupeKey: 'plan-inquiry-received:abc:2026-10-12',
-    });
-    const headers = (fetchSpy.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
-    expect(headers['Idempotency-Key']).toBeTruthy();
-  });
-
-  it('leaves out the details row and the reply line when they do not apply', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendPlanInquiryReceivedEmail(fakeContext(), {
-      inquiry: { ...INQUIRY, details: null },
-    });
-    const body = lastBody(fetchSpy);
-    expect(String(body.text)).not.toContain('Details');
-    expect(String(body.text)).not.toContain('reply to this email');
-    expect(body).not.toHaveProperty('reply_to');
-  });
-
-  it('is suppressed outside production for an outside address (production-external)', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    expect(
-      await sendPlanInquiryReceivedEmail(fakeContext({ ENV: 'development' }), {
-        inquiry: INQUIRY,
-      }),
-    ).toBe('suppressed');
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe('sendPlanInquiryAlert (AECI-1279)', () => {
-  it('sends every field to SUPPORT_EMAIL with reply-to set to the visitor', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const outcome = await sendPlanInquiryAlert(
-      fakeContext({
-        SUPPORT_EMAIL: 'support@aecintegrations.com',
-        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
-      }),
-      {
-        inquiry: INQUIRY,
-        city: 'London',
-        region: 'England',
-        country: 'GB',
-        referrer: 'https://www.aecintegrations.com/docs/vendors/plans',
-      },
-    );
-
-    expect(outcome).toBe('sent');
-    const body = lastBody(fetchSpy);
-    expect(body.to).toBe('support@aecintegrations.com');
-    expect(body.reply_to).toBe('buyer@example.com');
-    expect(body.subject).toBe('[AECi] Managed plan inquiry from Acme Construction Software');
-    const text = String(body.text);
-    expect(text).toContain('buyer@example.com asked about the Managed plan.');
-    expect(text).toContain('Company: Acme Construction Software');
-    expect(text).toContain('Details: Procore connector');
-    expect(text).toContain('Location: London, England, GB');
-    expect(text).toContain('Referrer: https://www.aecintegrations.com/docs/vendors/plans');
-    expect(text).toContain('Inquiry id: 42');
-    expect(text).toContain('Environment: staging.aecintegrations.com');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:plan-inquiry-alert']]);
-  });
-
-  it('keeps a company name to one short line in the subject', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendPlanInquiryAlert(fakeContext({ SUPPORT_EMAIL: 'ops@aecintegrations.com' }), {
-      inquiry: { ...INQUIRY, company: `Acme\nBcc: x@y.z ${'w'.repeat(120)}`, details: null },
-      city: null,
-      region: null,
-      country: null,
-      referrer: null,
-    });
-    const body = lastBody(fetchSpy);
-    expect(String(body.subject)).not.toContain('\n');
-    expect(String(body.subject).length).toBeLessThanOrEqual(120);
-    const text = String(body.text);
-    expect(text).toContain('Details: (none)');
-    expect(text).toContain('Location: unknown');
-    expect(text).toContain('Referrer: none');
-  });
-
-  it('escapes visitor text in the HTML part', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendPlanInquiryAlert(fakeContext({ SUPPORT_EMAIL: 'ops@aecintegrations.com' }), {
-      inquiry: { ...INQUIRY, company: '<script>x</script>' },
-      city: null,
-      region: null,
-      country: null,
-      referrer: null,
-    });
-    expect(String(lastBody(fetchSpy).html)).not.toContain('<script>');
-  });
-
-  it('skips when SUPPORT_EMAIL is unset', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    expect(
-      await sendPlanInquiryAlert(fakeContext(), {
-        inquiry: INQUIRY,
-        city: null,
-        region: null,
-        country: null,
-        referrer: null,
-      }),
-    ).toBe('skipped');
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

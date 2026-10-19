@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorBillingResponse, VendorMeResponse } from '@aeci/shared';
 
+import { expectVendorDocsLink } from '../components/vendor-docs-link.testing';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ACCEPTANCES_FIXTURE,
@@ -85,6 +86,14 @@ describe('VendorBillingSection', () => {
     // 1.0 is the current version, so it links to the live page, not an archive.
     expect(acceptances[0]!.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms');
     expect(el.querySelector('[data-testid="billing-owners-only"]')).toBeNull();
+  });
+
+  it('shows an owner the intro and a Learn more link to the Billing page (AECI-1400)', async () => {
+    const fixture = await create();
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.textContent).toContain("Your company's Managed licenses are held here.");
+    expectVendorDocsLink(el, 'billing');
   });
 
   it('gives each license the actions its state allows (AECI-1391)', async () => {
@@ -191,6 +200,7 @@ describe('VendorBillingSection', () => {
 
     expect(el.querySelector('[data-testid="billing-owners-only"]')).not.toBeNull();
     expect(el.querySelector('table')).toBeNull();
+    expect(el.querySelector('a[data-docs-link]')).toBeNull();
     expect(getBilling).not.toHaveBeenCalled();
     expect(getAcceptances).not.toHaveBeenCalled();
   });

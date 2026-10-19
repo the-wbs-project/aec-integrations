@@ -12,8 +12,8 @@ import { ClaimDialogService } from './claim-dialog.service';
 
 /**
  * The claim dialog (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): a BrnDialog
- * shell around `ClaimDialogFlow`, built on the plan inquiry dialog's shell. One per
- * page, mounted by `ClaimDialogHost` inside a `@defer`.
+ * shell around `ClaimDialogFlow`: `BrnDialog` with `BrnDialogContent`, a
+ * `BrnDialogTitle` and a `BrnDialogDescription`, over the CDK overlay. One per page, mounted by `ClaimDialogHost` inside a `@defer`.
  *
  * **Never opened from an `effect()`** (NG0602). The dialog registers its `open()` with
  * `ClaimDialogService`, which calls it from the click handler. The first click arrives

@@ -104,7 +104,7 @@ describe('VendorPlanStatus', () => {
     await settle();
 
     http.expectNone('/api/vendor/me');
-    expect(fixture.componentInstance.status.vendorName()).toBeNull();
+    expect(fixture.componentInstance.status.vendorSlug()).toBeNull();
   });
 
   it('calls once for a vendor however often it is read, and maps Free', async () => {
@@ -123,7 +123,6 @@ describe('VendorPlanStatus', () => {
     http.expectNone('/api/vendor/me');
 
     expect(status.vendorSlug()).toBe('acme');
-    expect(status.vendorName()).toBe('Acme Software');
     expect(status.managed()).toBe(false);
   });
 
@@ -161,7 +160,6 @@ describe('VendorPlanStatus', () => {
 
     http.expectNone('/api/vendor/me');
     expect(status.vendorSlug()).toBeNull();
-    expect(status.vendorName()).toBeNull();
     expect(status.managed()).toBeNull();
   });
 

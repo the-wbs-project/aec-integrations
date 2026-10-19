@@ -6,8 +6,9 @@ import type { ClaimDialogEntry, PlanCtaPage } from '../../analytics/analytics';
 import { ClaimDialogService } from './claim-dialog.service';
 
 /**
- * Opens the claim dialog from a "Claim your listing" or "Start with Managed" link
- * (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.1), the `PlanInquiryTrigger` pattern.
+ * Opens the claim dialog from a "Claim your listing" link
+ * (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.1). A directive on the anchor itself:
+ * a primary click asks `ClaimDialogService` to open the page's one dialog.
  *
  * Progressive enhancement: the anchor keeps a plain `href`
  * (`CLAIM_DIALOG_FALLBACK_HREF`, the search page). Without JS,
