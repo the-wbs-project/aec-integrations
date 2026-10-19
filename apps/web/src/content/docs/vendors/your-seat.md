@@ -3,10 +3,10 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: October 16, 2026
+last_updated: October 19, 2026
 ---
 
-A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on your company's plan, Free or Managed, set out below.
+A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
 
 A field that AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason, and no seat can change it until AEC Integrations lifts the lock. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
 
@@ -70,7 +70,7 @@ On every plan, including Free, you can:
 - request a change to a detail on an integration your company does not own ([Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals)),
 - maintain the catalog of a connector product your company makes, on that product's **Catalog** tab, once we have handed the catalog to you ([For connector vendors](/docs/vendors/connector-vendors)).
 
-On Managed, you can also:
+On a product with Managed, you can also:
 
 - edit a product's integrations page URL, API docs URL, trades, audiences, phases and "How teams use it",
 - confirm or deny data flows ([Confirming integration data](/docs/vendors/confirming-integration-data)),
@@ -81,7 +81,7 @@ Where your company and products appear in search is worked out from how well eac
 
 ## If a Managed plan ends
 
-Your company moves to Free. Your seats stay, and so does sign-in. The portal becomes read-only for anything that needs Managed. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
+A product whose license ends moves to Free. Your seats stay, and so does sign-in. The portal becomes read-only for anything that needs Managed. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
 
 ## Related
 
