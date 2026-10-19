@@ -185,14 +185,18 @@ describe('promote refuses an owned record (AECI-1415)', () => {
     const before = await t.db.select().from(products);
     const { response } = await ingest({
       vendors: [{ ref: 'v1', supabaseId: OWNED, companyName: 'Bentley' }],
-      product: { ref: 'p1', name: 'OpenRoads', categories: ['Civil'] },
+      product: { ref: 'p:recOpenRoads1', name: 'OpenRoads', categories: ['Civil'] },
       integrations: [
-        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: P_OTHER } },
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p:recOpenRoads1' },
+          targetProduct: { supabaseId: P_OTHER },
+        },
       ],
     });
     expect(response.product).toBeNull();
     expect(response.skipped).toContainEqual({
-      ref: 'p1',
+      ref: 'p:recOpenRoads1',
       kind: 'product',
       reason: PROPOSED_PRODUCT_REASON,
       proposalId: expect.any(String),

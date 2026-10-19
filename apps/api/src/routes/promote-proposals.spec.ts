@@ -31,6 +31,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
   ALREADY_PROPOSED_REASONS,
+  PROPOSAL_REF_REFUSED_REASON,
   PROPOSED_PRODUCT_INTEGRATION_REASON,
   PROPOSED_PRODUCT_REASON,
   runPromoteIngest,
@@ -131,8 +132,13 @@ describe('a new product for an owned vendor becomes a proposal', () => {
       decidedBy: null,
       createdProductId: null,
     });
-    // The product sub-object exactly as validated, defaults included.
-    expect(row!.payload).toEqual(PromotePayloadSchema.parse(body).product);
+    // The whole product as validated, defaults included, and every vendor it named.
+    const parsed = PromotePayloadSchema.parse(body);
+    expect(row!.payload).toEqual({
+      version: 1,
+      product: parsed.product,
+      vendors: [{ vendorId: OWNED, isPrimary: true, owned: true, sent: parsed.vendors[0] }],
+    });
 
     expect(response.product).toBeNull();
     expect(response.skipped.filter((s) => s.kind === 'product')).toEqual([
@@ -208,6 +214,36 @@ describe('a new product for an owned vendor becomes a proposal', () => {
     expect(free?.companyName).toBe('Autodesk Inc');
   });
 
+  it('stores every vendor the payload named, with resolved ids, a new vendor included (ruling B)', async () => {
+    const { response } = await ingest(
+      newProductBody([
+        { ref: 'v:recAutodesk01', supabaseId: FREE, name: 'Autodesk' },
+        { ref: 'v:recBentley001', supabaseId: OWNED, name: 'Bentley' },
+        { ref: 'v:recNewCo00001', name: 'NewCo' },
+      ]),
+    );
+    const created = response.vendors.find((v) => v.ref === 'v:recNewCo00001');
+    expect(created?.operation).toBe('created');
+    const [row] = await proposals();
+    const stored = row!.payload as { vendors: Array<Record<string, unknown>> };
+    expect(
+      stored.vendors.map((v) => [
+        v.vendorId,
+        v.isPrimary,
+        v.owned,
+        (v.sent as { ref: string }).ref,
+      ]),
+    ).toEqual([
+      [FREE, true, false, 'v:recAutodesk01'],
+      [OWNED, false, true, 'v:recBentley001'],
+      [created!.id, false, false, 'v:recNewCo00001'],
+    ]);
+    // The new vendor row exists, so an accept can link it.
+    expect(
+      await t.db.query.vendors.findFirst({ where: eq(vendors.id, created!.id) }),
+    ).toBeDefined();
+  });
+
   it('proposes to the FIRST owned vendor in payload order when several are owned', async () => {
     await ingest(
       newProductBody([
@@ -229,6 +265,43 @@ describe('a new product for an owned vendor becomes a proposal', () => {
     expect(response.skipped.filter((s) => s.kind === 'product')).toEqual([]);
     expect(await proposals()).toEqual([]);
     expect(await auditActions()).not.toContain('product_proposal.created');
+  });
+});
+
+describe('the proposal ref must be a review-app record ref (ruling A)', () => {
+  it.each(['p1', 'p:not-a-rec', 'v:recBentley001', 'p:rec'])(
+    'refuses %s for an owned vendor and writes nothing',
+    async (ref) => {
+      const { response, wrote } = await ingest({
+        vendors: [{ ref: 'v1', supabaseId: OWNED, companyName: 'Bentley' }],
+        product: { ref, name: 'OpenRoads' },
+        integrations: [
+          { ref: 'i1', sourceProduct: { ref }, targetProduct: { supabaseId: P_OTHER } },
+        ],
+      });
+      expect(wrote).toBe(false);
+      expect(response.product).toBeNull();
+      expect(response.skipped).toContainEqual({
+        ref,
+        kind: 'product',
+        reason: PROPOSAL_REF_REFUSED_REASON,
+      });
+      expect(response.skipped).toContainEqual({
+        ref: 'i1',
+        kind: 'integration',
+        reason: PROPOSED_PRODUCT_INTEGRATION_REASON,
+      });
+      expect(await proposals()).toEqual([]);
+      expect(await auditActions()).not.toContain('product_proposal.created');
+    },
+  );
+
+  it('does not check the ref of a new product for an unowned vendor', async () => {
+    const { response } = await ingest({
+      vendors: [{ ref: 'v1', supabaseId: FREE, companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Forma' },
+    });
+    expect(response.product?.operation).toBe('created');
   });
 });
 
@@ -313,6 +386,23 @@ describe('races and replays', () => {
       reason: ALREADY_PROPOSED_REASONS.open,
       proposalId: RACER,
     });
+  });
+
+  it('aborts with VENDOR_RETURNED_DURING_PROMOTE when the vendor is returned mid-promote, then creates on re-push', async () => {
+    const racing = racingFactory(t.factory, () => {
+      t.raw.prepare(`UPDATE vendors SET owned_at = NULL WHERE id = ?`).run(OWNED);
+    });
+    const body = newProductBody([{ ref: 'v1', supabaseId: OWNED, name: 'Bentley' }]);
+    await expect(ingest(body, { jobId: 'job-returned', dbFor: racing })).rejects.toMatchObject({
+      status: 409,
+      code: 'VENDOR_RETURNED_DURING_PROMOTE',
+    });
+    expect(await proposals()).toEqual([]);
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
+
+    const { response } = await ingest(body, { jobId: 'job-returned-2' });
+    expect(response.product?.operation).toBe('created');
+    expect(await proposals()).toEqual([]);
   });
 
   it('a replay of the same job id returns the recorded result and stores no second proposal', async () => {

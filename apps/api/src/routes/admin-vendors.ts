@@ -88,6 +88,7 @@ import type { Context } from 'hono';
 import { getDb, type Db } from '../db/client';
 import {
   auditLog,
+  productProposals,
   productVendors,
   products,
   profiles,
@@ -103,6 +104,11 @@ import { stampOwnershipStatement, VENDOR_ADMIN_ROLE } from '../lib/claimed-vendo
 import { blankLast, textAsc } from '../lib/collation';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { ensureBillingAccountStatements, loadBillingAccount } from '../lib/billing-account';
+import {
+  loadOpenProposalIds,
+  openProposalsFor,
+  openProposalsUnchangedSentinel,
+} from '../lib/product-proposals';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
@@ -297,69 +303,74 @@ export function createAdminVendorDetailHandler(
     const invitedBy = alias(profiles, 'invited_by_profile');
     const now = new Date().toISOString();
 
-    const [seatRows, inviteRows, productRoleGroups, integrationCounts, evidencedCounts, claimRows] =
-      await db.batch([
-        db
-          .select({
-            id: profiles.id,
-            displayName: profiles.displayName,
-            role: profiles.role,
-            workEmailVerified: profiles.workEmailVerified,
-            seatOwner: profiles.seatOwner,
-            bannedAt: profiles.bannedAt,
-            createdAt: profiles.createdAt,
-          })
-          .from(profiles)
-          .where(seatsOf(vendorId))
-          // A to Z by the name the roster shows, unnamed seats last, then id
-          // (AECI-1243).
-          .orderBy(
-            blankLast(profiles.displayName),
-            textAsc(profiles.displayName),
-            asc(profiles.id),
+    const [
+      seatRows,
+      inviteRows,
+      productRoleGroups,
+      integrationCounts,
+      evidencedCounts,
+      claimRows,
+      proposalRows,
+    ] = await db.batch([
+      db
+        .select({
+          id: profiles.id,
+          displayName: profiles.displayName,
+          role: profiles.role,
+          workEmailVerified: profiles.workEmailVerified,
+          seatOwner: profiles.seatOwner,
+          bannedAt: profiles.bannedAt,
+          createdAt: profiles.createdAt,
+        })
+        .from(profiles)
+        .where(seatsOf(vendorId))
+        // A to Z by the name the roster shows, unnamed seats last, then id
+        // (AECI-1243).
+        .orderBy(blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id)),
+      // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
+      // the latter covers only the two terminal columns, and an invite that merely
+      // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
+      // as pending would misreport the account's live invitations — and the shared
+      // predicate is what stops this read drifting from the vendor portal's, which
+      // is the AECI-927 defect.
+      db
+        .select({
+          id: vendorSeatInvites.id,
+          email: vendorSeatInvites.email,
+          expiresAt: vendorSeatInvites.expiresAt,
+          createdAt: vendorSeatInvites.createdAt,
+          invitedByName: invitedBy.displayName,
+        })
+        .from(vendorSeatInvites)
+        .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
+        .where(liveInvitesFor(vendorId, now))
+        .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id)),
+      // `product_count` AND the §5.2 role breakdown out of ONE grouped read
+      // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
+      // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5
+      // items 11/12 got two drifting copies of one operator number. The join
+      // cannot undercount the old bare count — `product_vendors.product_id` is
+      // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
+      selectProductRoleGroups(db, productRolesForVendor(vendorId)),
+      // The owned-integration counts (AECI-1041 / §5.2 step 1a) — lockstep site
+      // 14b. Both delivered-tier tables, live rows only, through the module the
+      // claim queue reads too, so the two screens cannot count one vendor
+      // differently. An operator opening Agave's vendor page must not read 0 while
+      // its product page renders twelve pairs.
+      ...selectOwnedIntegrationGroups(db, [vendorId]),
+      db
+        .select({ status: vendorRequests.status, value: count() })
+        .from(vendorRequests)
+        .where(
+          and(
+            eq(vendorRequests.kind, 'claim'),
+            vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
           ),
-        // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
-        // the latter covers only the two terminal columns, and an invite that merely
-        // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
-        // as pending would misreport the account's live invitations — and the shared
-        // predicate is what stops this read drifting from the vendor portal's, which
-        // is the AECI-927 defect.
-        db
-          .select({
-            id: vendorSeatInvites.id,
-            email: vendorSeatInvites.email,
-            expiresAt: vendorSeatInvites.expiresAt,
-            createdAt: vendorSeatInvites.createdAt,
-            invitedByName: invitedBy.displayName,
-          })
-          .from(vendorSeatInvites)
-          .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
-          .where(liveInvitesFor(vendorId, now))
-          .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id)),
-        // `product_count` AND the §5.2 role breakdown out of ONE grouped read
-        // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
-        // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5
-        // items 11/12 got two drifting copies of one operator number. The join
-        // cannot undercount the old bare count — `product_vendors.product_id` is
-        // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
-        selectProductRoleGroups(db, productRolesForVendor(vendorId)),
-        // The owned-integration counts (AECI-1041 / §5.2 step 1a) — lockstep site
-        // 14b. Both delivered-tier tables, live rows only, through the module the
-        // claim queue reads too, so the two screens cannot count one vendor
-        // differently. An operator opening Agave's vendor page must not read 0 while
-        // its product page renders twelve pairs.
-        ...selectOwnedIntegrationGroups(db, [vendorId]),
-        db
-          .select({ status: vendorRequests.status, value: count() })
-          .from(vendorRequests)
-          .where(
-            and(
-              eq(vendorRequests.kind, 'claim'),
-              vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
-            ),
-          )
-          .groupBy(vendorRequests.status),
-      ]);
+        )
+        .groupBy(vendorRequests.status),
+      // AECI-1416: the open product proposals the return would discard.
+      db.select({ value: count() }).from(productProposals).where(openProposalsFor(vendorId)),
+    ]);
 
     // One bounded GoTrue fan-out, AFTER the batch so it never widens the D1 hop.
     const lookup = await fetchEmails(
@@ -427,6 +438,7 @@ export function createAdminVendorDetailHandler(
       owned_integrations: ownedIntegrations,
       integration_count: ownedIntegrations.total,
       claim_counts: claimCounts,
+      open_proposal_count: proposalRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -978,7 +990,11 @@ export const RECORDS_RETURNED_ACTION = 'vendor.records_returned';
  *     AECi record;
  *  4. `planVendorHandback`: the markers back to `'aeci'`, the live claimed
  *     integrations and pairs un-claimed, the open owner contests to AECi;
- *  5. the `vendor.records_returned` audit row with the reason and the counts.
+ *  5. the vendor's OPEN product proposals deleted (AECI-1416, ruled 2026-10-19), behind
+ *     `openProposalsUnchangedSentinel`, so a proposal stored after the read cannot be
+ *     deleted unrecorded (`409 VENDOR_PROPOSALS_CHANGED`). Decided proposals stay;
+ *  6. the `vendor.records_returned` audit row with the reason, the counts and the
+ *     discarded proposal ids.
  *
  * Post-commit: one batched audit forward and the purge of every page whose marker
  * flipped. The response lists what was handed back. That list is the hook for the
@@ -1014,13 +1030,14 @@ export function createReturnRecordsHandler(
     }
 
     const now = new Date().toISOString();
-    const [seat, vendorLicenses, liveInviteRows] = await Promise.all([
+    const [seat, vendorLicenses, liveInviteRows, openProposalIds] = await Promise.all([
       db.query.profiles.findFirst({ columns: { id: true }, where: seatsOf(vendorId) }),
       loadVendorLicenses(db, vendorId),
       db
         .select({ id: vendorSeatInvites.id, email: vendorSeatInvites.email })
         .from(vendorSeatInvites)
         .where(liveInvitesFor(vendorId, now)),
+      loadOpenProposalIds(db, vendorId),
     ]);
     if (seat) {
       throw new ApiError(
@@ -1072,6 +1089,8 @@ export function createReturnRecordsHandler(
         evidenced_pair_count: returned.evidencedPairIds.length,
         contests_rerouted: returned.contestsRerouted,
         invites_revoked: liveInviteRows.length,
+        proposals_discarded: openProposalIds.length,
+        discarded_proposal_ids: openProposalIds,
       },
     };
 
@@ -1085,10 +1104,25 @@ export function createReturnRecordsHandler(
         ...inviteRevokes.flatMap((r) => r.stmts),
         pendingInviteRaceSentinel(db, vendorId, now),
         ...handback.stmts,
+        // AECI-1416: the open proposals go with the ownership. Decided ones stay.
+        openProposalsUnchangedSentinel(db, vendorId, openProposalIds),
+        db.delete(productProposals).where(openProposalsFor(vendorId)),
         auditInsert(db, auditEntry),
       ] as BatchTuple);
     } catch (error) {
-      if (isSeatsChangedError(error)) throw seatsChangedError();
+      if (isSeatsChangedError(error)) {
+        // Every sentinel here raises the same error, so re-read the one that is not
+        // about seats. The batch rolled back, so the open set is what it is now.
+        const current = await loadOpenProposalIds(db, vendorId);
+        if (current.join() !== openProposalIds.join()) {
+          throw new ApiError(
+            409,
+            ApiErrorCode.VENDOR_PROPOSALS_CHANGED,
+            'A new product proposal for this vendor arrived while the request ran, so nothing was saved. Reload and try again.',
+          );
+        }
+        throw seatsChangedError();
+      }
       throw error;
     }
 
@@ -1108,6 +1142,7 @@ export function createReturnRecordsHandler(
       integration_ids: returned.integrationIds,
       evidenced_pair_ids: returned.evidencedPairIds,
       contests_rerouted: returned.contestsRerouted,
+      discarded_proposal_ids: openProposalIds,
     };
     validateResponseInDev(c.env, () => AdminReturnRecordsResponseSchema.parse(body));
     return json(body);

@@ -58,6 +58,14 @@ Rule 5's interim skip is replaced. A new product that would join an owned vendor
 
 Accept and decline, and the owner's list, are AECI-1417.
 
+## Amendment 2026-10-19 (later): rulings A, B and C on AECI-1416
+
+Chris ruled on the three open points of the AECI-1416 build.
+
+- **A. The ref shape is enforced.** A new product that would become a proposal must carry the review app's record ref, `p:rec…`. Any other ref is refused with `PROPOSAL_REF_REFUSED_REASON` and nothing is written for it. A product for an unowned vendor is not checked.
+- **B. Accept means exactly what was sent.** The proposal stores the whole product and every vendor the payload named, owned and unowned, each with the AECi id it resolved to (`ProductProposalPayload`). An accept creates that product with every one of those vendor links. `vendor_id` stays the owned vendor the proposal is addressed to, the first in payload order.
+- **C. A return discards open proposals, and promote re-checks at commit.** "Return records to AECi" deletes the vendor's open proposals in its own batch and lists their ids in its audit row. Decided ones stay. A proposal that arrives between the return's read and its batch aborts the return with `VENDOR_PROPOSALS_CHANGED`. A promote that planned a proposal and commits after a return aborts with `VENDOR_RETURNED_DURING_PROMOTE`, the inverse of the rule 6 sentinel, and a re-push creates the product. The return's confirmation shows "N open product proposals will be discarded." from `open_proposal_count` on the vendor read.
+
 ## Revisit
 
 When AECI-1417 builds accept and decline, when AECI-1418 sends the return to the review app, or when AECI-1343 decides the connector catalogue.

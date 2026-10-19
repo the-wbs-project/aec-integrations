@@ -2422,7 +2422,7 @@ create table product_proposals (
   id text primary key,
   vendor_id text not null references vendors(id),  -- NO ACTION
   ref text not null,             -- the review app's product ref; the Q5 identity
-  payload text not null,         -- JSON: the validated promote `product` object, frozen
+  payload text not null,         -- JSON: ProductProposalPayload, frozen (below)
   proposed_at text not null,     -- the promote run's timestamp
   promote_job_id text,           -- the promote job that sent it; NO FK
   decision text                  -- NULL while open
@@ -2445,12 +2445,28 @@ create index product_proposals_vendor_open_idx
   promotes of one `ref` cannot both commit, and the later batch errors with
   `PRODUCT_PROPOSED_DURING_PROMOTE`. The insert has no `ON CONFLICT`, because its audit row rides
   the same batch and would then record a proposal that was never stored.
-- **Frozen on send.** `payload` is exactly what `PromoteProductSchema` produced, defaults included.
+- **Frozen on send, and it is the whole product (ruled 2026-10-19, "accept means exactly what was
+  sent").** `payload` is `ProductProposalPayload` from `packages/shared/src/api/promote.ts`:
+  `{ version: 1, product, vendors: [{ vendorId, isPrimary, owned, sent }] }`. `product` is exactly
+  what `PromoteProductSchema` produced, defaults included. `vendors` lists EVERY vendor the payload
+  named, owned and unowned, in payload order. Payload refs are throwaway labels, so each entry
+  carries the AECi `vendorId` it resolved to in the proposing promote: the stored row for a live
+  `supabaseId`, or the row the same batch created for a new vendor. `isPrimary` is the resolved
+  flag, `owned` says whether the vendor owned its record then, and `sent` is the vendor object as
+  validated. An accept (AECI-1417) creates exactly this product and links exactly these vendors.
   Its taxonomy is not resolved and no term is minted. No writer changes `payload`, `ref`,
-  `vendor_id` or `proposed_at` after the insert. A proposal carries the product only (ruling Q4):
-  integrations in the same payload that touch it are skipped and never stored, and the payload's
-  other vendors are not recorded.
-- **`vendor_id` is the first owned vendor in the payload's `vendors[]` order.**
+  `vendor_id` or `proposed_at` after the insert. Integrations in the same payload that touch it are
+  skipped and never stored (ruling Q4).
+- **`ref` is always `p:rec…`.** Promote refuses any other ref for a product that would become a
+  proposal (`PROPOSAL_REF_RE` in `apps/api/src/lib/product-proposals.ts`).
+- **`vendor_id` is the owned vendor the proposal is addressed to:** the first owned vendor in the
+  payload's `vendors[]` order. A commit-time sentinel aborts the promote batch
+  (`VENDOR_RETURNED_DURING_PROMOTE`) when that vendor stopped owning its record before commit.
+- **A return to AECi deletes the open rows.** `POST /api/admin/vendors/:id/return-to-aeci` deletes
+  the vendor's rows with `decision IS NULL` in its own batch, behind a sentinel that aborts when a
+  proposal arrived after its read (`409 VENDOR_PROPOSALS_CHANGED`), and lists their ids in the
+  `vendor.records_returned` audit row (`proposals_discarded`, `discarded_proposal_ids`). Decided
+  rows stay. That delete is a domain-state write and is audited by that row.
 - **`vendor_id` is NO ACTION to `vendors`.** A proposal only exists on an owned vendor, and an owned
   vendor already holds a NO ACTION `billing_accounts` row, so a vendor delete is refused either way
   and leaves no orphan. NO ACTION also survives a `vendors` recreate, where CASCADE would empty this
@@ -2468,8 +2484,9 @@ create index product_proposals_vendor_open_idx
   `metadata.vendorId`, `metadata.ownedVendorIds`, `metadata.promoteJobId`). A refused re-send writes
   `promote.blocked` with `metadata.cause = 'product-already-proposed'` and the proposal's `state`.
   The accept and decline writers are AECI-1417.
-- **Writers and readers.** The only writer today is the promote ingest (`routes/promote.ts`), which
-  reads the row by `ref` at plan time. The owner's list and decision are AECI-1417. No `relations()`
+- **Writers and readers.** Promote inserts (`routes/promote.ts`) and reads the row by `ref` at plan
+  time. The admin return deletes open rows. `GET /api/admin/vendors/:id` counts them
+  (`open_proposal_count`). The owner's list and decision are AECI-1417. No `relations()`
   entry.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)

@@ -4757,12 +4757,12 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     // is stored as a proposal to the owner (`promote-proposals.spec.ts`).
     const res = await promote({
       vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
-      product: { ref: 'p1', name: 'Revit' },
+      product: { ref: 'p:recRevit0001', name: 'Revit' },
     });
     const body = (await res.json()) as PromoteResponse;
     expect(body.product).toBeNull();
     expect(body.skipped).toContainEqual({
-      ref: 'p1',
+      ref: 'p:recRevit0001',
       kind: 'product',
       reason: PROPOSED_PRODUCT_REASON,
       proposalId: expect.any(String),

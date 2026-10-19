@@ -319,6 +319,31 @@ export const PromoteProductSchema = z.object({
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
 
 /**
+ * What `product_proposals.payload` holds (AECI-1416; ruled 2026-10-19, "accept means
+ * exactly what was sent"). The whole product as the review app sent it, frozen, with
+ * every vendor the payload named, owned and unowned. Accept (AECI-1417) creates the
+ * product from this and links every vendor here, nothing else.
+ *
+ * Payload `ref`s are throwaway labels, so every vendor carries the AECi `vendorId` it
+ * resolved to in the proposing promote: the stored row for a vendor with a live
+ * `supabaseId`, or the row that same batch created for a new one. `isPrimary` is the
+ * resolved flag (the payload's, or `true` for the first vendor). `sent` is the vendor
+ * object exactly as validated. Integrations are not stored (ruling Q4).
+ */
+export interface ProductProposalVendor {
+  vendorId: string;
+  isPrimary: boolean;
+  /** Whether the vendor owned its record when the proposal was stored. */
+  owned: boolean;
+  sent: PromoteVendor;
+}
+export interface ProductProposalPayload {
+  version: 1;
+  product: PromoteProduct;
+  vendors: ProductProposalVendor[];
+}
+
+/**
  * One attestation on a claim: who asserts it and whether they affirm it
  * (`STAGE_1_5_SPEC.md` §3.3). In Stage 1.5 AECi writes exactly one attestation
  * per claim (`source: 'aeci', asserted: true`). `introducedAt` / `deprecatedAt`

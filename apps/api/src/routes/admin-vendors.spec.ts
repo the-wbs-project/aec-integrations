@@ -32,6 +32,7 @@ import {
   connectorEvidencedPairs,
   integrations,
   licenses,
+  productProposals,
   productVendors,
   products,
   profiles,
@@ -605,6 +606,33 @@ describe('GET /api/admin/vendors/:id', () => {
     );
     const b = await body(res);
     expect(b.claim_counts).toEqual({ open: 1, in_review: 1, resolved: 0, rejected: 1 });
+  });
+
+  it('counts the open product proposals only (AECI-1416)', async () => {
+    const row = (id: string, ref: string, decision: 'declined' | null) => ({
+      id,
+      vendorId: VENDOR,
+      ref,
+      payload: {},
+      proposedAt: '2026-10-19T00:00:00.000Z',
+      decision,
+    });
+    await t.db
+      .insert(productProposals)
+      .values([
+        row(u(70), 'p:recOne000001', null),
+        row(u(71), 'p:recTwo000001', null),
+        row(u(72), 'p:recThree0001', 'declined'),
+      ]);
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    expect((await body(res)).open_proposal_count).toBe(2);
   });
 
   // ── The §5.2 payer test (AECI-738) ────────────────────────────────────────

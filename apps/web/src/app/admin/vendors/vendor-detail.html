@@ -755,6 +755,7 @@
         [vendorId]="v.id"
         [ownedAt]="v.owned_at"
         [hasSeats]="hasAnySeat()"
+        [openProposalCount]="v.open_proposal_count"
         idPrefix="detail"
         (returned)="onRecordsReturned()"
         (announce)="onAnnounce($event)"

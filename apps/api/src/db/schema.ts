@@ -1725,13 +1725,18 @@ export const licenseReleaseRequests = sqliteTable(
  * thing the review app may still send for an owned company is a NEW product, and it lands
  * here as a proposal the owner accepts or declines (AECI-1417) instead of being created.
  *
- * FROZEN ON SEND. `payload` is the promote payload's `product` sub-object exactly as
- * `PromoteProductSchema` validated it. Its taxonomy is not resolved and nothing is
- * minted. No writer updates `payload`, `ref`, `vendor_id` or `proposed_at` after the
- * insert. Integrations in the same payload that touch the product are skipped, never
- * stored (ruling Q4, 2026-10-19).
+ * FROZEN ON SEND, AND WHOLE. `payload` is a `ProductProposalPayload`
+ * (`@aeci/shared`): the product exactly as `PromoteProductSchema` validated it, plus
+ * every vendor the payload named, owned and unowned, each with the AECi id it resolved
+ * to. An accept (AECI-1417) creates exactly that (ruled 2026-10-19). Its taxonomy is not
+ * resolved and nothing is minted. No writer updates `payload`, `ref`, `vendor_id` or
+ * `proposed_at` after the insert. Integrations in the same payload that touch the
+ * product are skipped, never stored (ruling Q4, 2026-10-19).
  *
- * ONE SEND PER REF, EVER (ruling Q5). `ref` is the review app's product ref, and the
+ * The admin "Return records to AECi" deletes the vendor's OPEN rows in its own batch.
+ * Decided rows stay.
+ *
+ * ONE SEND PER REF, EVER (ruling Q5). `ref` is the review app's `p:rec…` product ref, and the
  * unique index on it is the race guard: two promotes of one ref cannot both commit. A
  * re-send while open, after a decline or after an accept is refused at plan time.
  *
@@ -1748,8 +1753,9 @@ export const licenseReleaseRequests = sqliteTable(
  * §8). `created_product_id` (set on accept, AECI-1417) and `promote_job_id` have no FK:
  * both are history pointers that must survive a product retraction or a ledger prune.
  *
- * Domain state (a request): the insert and the decision each write their `audit_log`
- * row in the same `db.batch` (ADR 0022): `product_proposal.created` from promote. No
+ * Domain state (a request): the insert, the decision and the return's delete each write
+ * their `audit_log` row in the same `db.batch` (ADR 0022): `product_proposal.created`
+ * from promote, `vendor.records_returned` from the return. No
  * `relations()` entry.
  */
 export const productProposals = sqliteTable(

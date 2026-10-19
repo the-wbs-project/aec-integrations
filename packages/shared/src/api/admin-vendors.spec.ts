@@ -122,6 +122,7 @@ describe('AdminVendorDetailSchema', () => {
     owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
+    open_proposal_count: 0,
   };
 
   it('accepts a vendor with no seats', () => {
@@ -322,6 +323,7 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
+    open_proposal_count: 0,
   };
 
   it('parses with the breakdown present', () => {
@@ -436,6 +438,7 @@ describe('AdminReturnRecordsSchema (AECI-1415)', () => {
       integration_ids: [],
       evidenced_pair_ids: [],
       contests_rerouted: 0,
+      discarded_proposal_ids: ['pp1'],
     };
     expect(AdminReturnRecordsResponseSchema.parse(body)).toEqual(body);
     expect(

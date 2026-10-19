@@ -7,7 +7,8 @@
  *  2. an owned vendor with seats left gets a disabled button that says why;
  *  3. the confirm step requires a reason before it calls the API;
  *  4. a success emits the result and announces through the host;
- *  5. a `VENDOR_HAS_SEATS` refusal is shown in its own words.
+ *  5. a `VENDOR_HAS_SEATS` refusal is shown in its own words;
+ *  6. the confirm step names the open product proposals the return discards (AECI-1416).
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
@@ -28,6 +29,7 @@ const RESULT: AdminReturnRecordsResponse = {
   integration_ids: [],
   evidenced_pair_ids: [],
   contests_rerouted: 0,
+  discarded_proposal_ids: [],
 };
 
 @Component({
@@ -39,6 +41,7 @@ const RESULT: AdminReturnRecordsResponse = {
       [vendorId]="vendorId"
       [ownedAt]="ownedAt()"
       [hasSeats]="hasSeats()"
+      [openProposalCount]="openProposalCount()"
       idPrefix="host"
       (returned)="results.push($event)"
       (announce)="announced.set($event)"
@@ -49,6 +52,7 @@ class TestHost {
   readonly vendorId = VENDOR_ID;
   readonly ownedAt = signal<string | null>('2026-10-01T00:00:00.000Z');
   readonly hasSeats = signal<boolean | null>(false);
+  readonly openProposalCount = signal(0);
   readonly announced = signal('');
   readonly results: AdminReturnRecordsResponse[] = [];
 }
@@ -57,7 +61,7 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 async function setup(
   returnRecords: ReturnType<typeof vi.fn>,
-  state: { ownedAt?: string | null; hasSeats?: boolean | null } = {},
+  state: { ownedAt?: string | null; hasSeats?: boolean | null; openProposalCount?: number } = {},
 ) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -69,6 +73,9 @@ async function setup(
   const fixture = TestBed.createComponent(TestHost);
   if (state.ownedAt !== undefined) fixture.componentInstance.ownedAt.set(state.ownedAt);
   if (state.hasSeats !== undefined) fixture.componentInstance.hasSeats.set(state.hasSeats);
+  if (state.openProposalCount !== undefined) {
+    fixture.componentInstance.openProposalCount.set(state.openProposalCount);
+  }
   fixture.detectChanges();
   await fixture.whenStable();
   const el = fixture.nativeElement as HTMLElement;
@@ -152,6 +159,49 @@ describe('ReturnRecordsControl', () => {
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(
       'This vendor still has a seat.',
+    );
+  });
+
+  it('names the open product proposals the return discards (AECI-1416)', async () => {
+    const { el, refresh, button } = await setup(vi.fn(), { openProposalCount: 3 });
+    button('Return records to AECi')!.click();
+    await refresh();
+    expect(el.querySelector('#host-return-proposals')?.textContent?.trim()).toBe(
+      '3 open product proposals will be discarded.',
+    );
+  });
+
+  it('uses the singular for one proposal, and says nothing when there are none', async () => {
+    const one = await setup(vi.fn(), { openProposalCount: 1 });
+    one.button('Return records to AECi')!.click();
+    await one.refresh();
+    expect(one.el.querySelector('#host-return-proposals')?.textContent?.trim()).toBe(
+      '1 open product proposal will be discarded.',
+    );
+
+    const none = await setup(vi.fn());
+    none.button('Return records to AECi')!.click();
+    await none.refresh();
+    expect(none.el.querySelector('#host-return-proposals')).toBeNull();
+  });
+
+  it('shows the proposal race in its own words', async () => {
+    const returnRecords = vi.fn(async () => {
+      throw new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'VENDOR_PROPOSALS_CHANGED', message: 'x' } },
+      });
+    });
+    const { el, refresh, button } = await setup(returnRecords);
+    button('Return records to AECi')!.click();
+    await refresh();
+    const reason = el.querySelector<HTMLTextAreaElement>('#host-return-reason')!;
+    reason.value = 'Approved by mistake';
+    reason.dispatchEvent(new Event('input'));
+    button('Return the records')!.click();
+    await refresh();
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+      'A new product proposal for this vendor arrived',
     );
   });
 });

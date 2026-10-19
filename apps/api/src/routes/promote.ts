@@ -73,6 +73,7 @@ import {
   type PromoteOperation,
   type PromotePreserved,
   type PromoteResponse,
+  type ProductProposalPayload,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
   type PromoteUnresolvedLink,
@@ -129,6 +130,7 @@ import {
   loadOwnedVendorIds,
   promoteOwnershipSentinels,
 } from '../lib/claimed-vendors';
+import { PROPOSAL_REF_RE, proposalVendorOwnedSentinel } from '../lib/product-proposals';
 import {
   isPromoteClaimFenceError,
   promoteClaimFenceSentinel,
@@ -1106,6 +1108,8 @@ export const ALREADY_PROPOSED_REASONS = {
   declined:
     'product was already sent to the vendor that owns its record as a proposal, which the vendor declined; a ref is sent once, so nothing was written',
 } as const;
+export const PROPOSAL_REF_REFUSED_REASON =
+  'new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written';
 export const PROPOSED_PRODUCT_INTEGRATION_REASON =
   'an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored';
 export const BLOCKED_INTEGRATION_REASON =
@@ -2281,8 +2285,12 @@ export async function runPromoteIngest(
   const proposalVendorId = newProductBlocked
     ? updatedVendorIds.find((id) => claimedVendorIds.has(id))
     : undefined;
+  // Ruled 2026-10-19: a proposal's ref must be the review app's `p:rec…` record ref,
+  // because Q5 keys on it forever. Anything else is refused and nothing is written.
+  const proposalRefUsable =
+    newProductBlocked && payload.product ? PROPOSAL_REF_RE.test(payload.product.ref) : false;
   const priorProposal =
-    newProductBlocked && payload.product
+    proposalRefUsable && payload.product
       ? await db.query.productProposals.findFirst({
           columns: { id: true, decision: true },
           where: eq(productProposals.ref, payload.product.ref),
@@ -2909,6 +2917,16 @@ export async function runPromoteIngest(
       entityType: 'product',
       entityId: p.supabaseId as string,
     });
+  } else if (p && newProductBlocked && !proposalRefUsable) {
+    skipped.push({ ref: p.ref, kind: 'product', reason: PROPOSAL_REF_REFUSED_REASON });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product',
+      entityId: null,
+      vendorId: proposalVendorId ?? null,
+      metadata: { ref: p.ref, cause: 'proposal-ref-unusable' },
+    });
   } else if (p && newProductBlocked && priorProposal) {
     // Q5: one send per ref, ever. Nothing about the product is written; the audit row
     // names the proposal that already holds the ref.
@@ -2929,14 +2947,31 @@ export async function runPromoteIngest(
     });
   } else if (p && newProductBlocked && proposalVendorId) {
     // The product is stored as sent, frozen: no taxonomy resolved or minted, no slug,
-    // no joins. The owner accepts or declines it (AECI-1417).
+    // no joins. The owner accepts or declines it (AECI-1417), and an accept creates
+    // exactly this, linked to every vendor below (ruled 2026-10-19). Every vendor ref
+    // is resolved to its AECi id here, after the vendor loop registered each one: the
+    // stored row, or the row this same batch creates for a new vendor.
     const proposalId = crypto.randomUUID();
+    const proposalPayload: ProductProposalPayload = {
+      version: 1,
+      product: p,
+      vendors: payload.vendors.map((v, i) => ({
+        vendorId: vendorIdByRef.get(v.ref) as string,
+        isPrimary: v.isPrimary ?? i === 0,
+        owned:
+          v.supabaseId !== undefined && v.supabaseId !== null && claimedVendorIds.has(v.supabaseId),
+        sent: v,
+      })),
+    };
+    // Commit-time half: abort if the addressed vendor stopped owning its record before
+    // the batch (the admin return). The re-push then creates the product normally.
+    proposalStmts.push(proposalVendorOwnedSentinel(db, proposalVendorId));
     proposalStmts.push(
       db.insert(productProposals).values({
         id: proposalId,
         vendorId: proposalVendorId,
         ref: p.ref,
-        payload: p,
+        payload: proposalPayload,
         proposedAt: promotedAtIso,
         promoteJobId: opts.jobId ?? null,
       }),
@@ -3968,6 +4003,19 @@ export async function runPromoteIngest(
       // whole batch rolled back, so nothing was written, including the ledger row, and
       // a re-push plans against the claimed row and skips it.
       if (isPromoteClaimFenceError(err)) {
+        // AECI-1416: the proposal sentinel raises the same SQLite error. A re-read that
+        // finds the addressed vendor no longer owned is the one that fired.
+        if (
+          proposalVendorId !== undefined &&
+          proposalStmts.length > 0 &&
+          !(await loadOwnedVendorIds(db, [proposalVendorId])).has(proposalVendorId)
+        ) {
+          throw new ApiError(
+            409,
+            'VENDOR_RETURNED_DURING_PROMOTE',
+            'The vendor this new product was being proposed to stopped owning its records while the promote was running. Nothing was written; re-push the bundle and the product is created.',
+          );
+        }
         // AECI-1415: the ownership sentinel raises the same SQLite error. The batch
         // rolled back, so a re-read that finds a guarded vendor or endpoint owned now
         // is the one that fired.
