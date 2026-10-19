@@ -257,36 +257,6 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     expect(captured(client)).not.toContain('plan_cta_clicked');
   });
 
-  // AECI-1279: a sent inquiry, with where it came from and no typed field.
-  it('fires plan_inquiry_submitted with the topic and placement once consented', async () => {
-    const { analytics, client } = setup();
-    TestBed.tick();
-    analytics.planInquirySubmitted({ topic: 'managed', placement: 'contact' });
-    await flush();
-    expect(client.capture).toHaveBeenCalledWith(
-      'plan_inquiry_submitted',
-      expect.objectContaining({ topic: 'managed', placement: 'contact' }),
-    );
-    const props = client.capture.mock.calls.find(
-      (call) => call[0] === 'plan_inquiry_submitted',
-    )![1] as Record<string, unknown>;
-    expect(Object.keys(props)).not.toContain('email');
-    expect(Object.keys(props)).not.toContain('company');
-    // The /contact form sits on no plan page, so the key is absent, not empty.
-    expect(Object.keys(props)).not.toContain('page');
-  });
-
-  it('carries the page of the button that opened the inquiry dialog', async () => {
-    const { analytics, client } = setup();
-    TestBed.tick();
-    analytics.planInquirySubmitted({ topic: 'managed', placement: 'card', page: 'vendor_program' });
-    await flush();
-    expect(client.capture).toHaveBeenCalledWith(
-      'plan_inquiry_submitted',
-      expect.objectContaining({ topic: 'managed', placement: 'card', page: 'vendor_program' }),
-    );
-  });
-
   // AECI-1293 (VENDOR_PROGRAM_PAGE_SPEC.md §15.7): a step, never typed text.
   it('fires claim_dialog_step with step, page, entry and path only', async () => {
     const { analytics, client } = setup();
@@ -325,14 +295,6 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     for (const key of ['plan_interest', 'listing_name', 'website', 'email', 'name']) {
       expect(Object.keys(props)).not.toContain(key);
     }
-  });
-
-  it('does not fire plan_inquiry_submitted before consent is granted', async () => {
-    const { analytics, client } = setup({ consent: 'unknown' });
-    TestBed.tick();
-    analytics.planInquirySubmitted({ topic: 'managed', placement: 'top' });
-    await flush();
-    expect(captured(client)).not.toContain('plan_inquiry_submitted');
   });
 
   it('does not fire mailing_list_signup before consent is granted', async () => {

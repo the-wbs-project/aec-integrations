@@ -101,14 +101,11 @@ describe('withForwardedLandingCf', () => {
   });
 });
 
-// AECI-1279: every handler that reads LANDING_CF_HEADERS must sit behind the
-// strip-then-set proxy, or a client could forge its own geo on that path.
+// Every handler that reads LANDING_CF_HEADERS must sit behind the strip-then-set
+// proxy, or a client could forge its own geo on that path. The plan inquiry route
+// was removed in E8.1 (2026-10-19), so two paths remain.
 describe('LANDING_CF_PATHS', () => {
-  it('covers the three lead-capture POSTs, the plan inquiry form included', () => {
-    expect([...LANDING_CF_PATHS].sort()).toEqual([
-      '/api/feedback',
-      '/api/plan-inquiries',
-      '/api/subscribe',
-    ]);
+  it('covers the two lead-capture POSTs', () => {
+    expect([...LANDING_CF_PATHS].sort()).toEqual(['/api/feedback', '/api/subscribe']);
   });
 });

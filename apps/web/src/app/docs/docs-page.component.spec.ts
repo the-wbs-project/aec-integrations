@@ -164,8 +164,8 @@ describe('DocsPageComponent', () => {
     expect(host.querySelector('aec-plan-cta-panel')?.closest('.aec-prose')).toBeNull();
     expect(host.querySelector('aec-plan-cta-rail')).not.toBeNull();
     expect(host.querySelector('aec-plan-cta-mobile-bar')).not.toBeNull();
-    // Exactly one inquiry dialog host for every Managed button on the page.
-    expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
+    // Exactly one claim dialog host for every claim control on the page.
+    expect(host.querySelectorAll('aec-claim-dialog-host')).toHaveLength(1);
     // The closing panel shows the annual price beside the monthly one, then the
     // one-year term. The Markdown above it does not repeat either (2026-10-13).
     const panelText = host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ');
@@ -181,7 +181,7 @@ describe('DocsPageComponent', () => {
       'aec-plan-cta-panel',
       'aec-plan-cta-rail',
       'aec-plan-cta-mobile-bar',
-      'aec-plan-inquiry-host',
+      'aec-claim-dialog-host',
       '[data-testid="docs-plans-vendor-program"]',
     ]) {
       expect(other.querySelector(tag), tag).toBeNull();

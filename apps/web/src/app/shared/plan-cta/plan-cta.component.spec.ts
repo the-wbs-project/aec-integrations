@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../../analytics/analytics';
 import { ClaimDialogService } from '../claim-dialog/claim-dialog.service';
-import { PlanInquiryService } from '../plan-inquiry/plan-inquiry.service';
 import {
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
@@ -32,18 +31,14 @@ function render<T>(
       { provide: Analytics, useValue: { planCtaClicked } },
     ],
   });
-  // Mounted hosts, as on the Plans page, so a click opens a dialog in place rather
+  // A mounted host, as on the Plans page, so a click opens the dialog in place rather
   // than following its link.
-  const inquiry = TestBed.inject(PlanInquiryService);
   const claim = TestBed.inject(ClaimDialogService);
-  if (hosted) {
-    inquiry.attachHost();
-    claim.attachHost();
-  }
+  if (hosted) claim.attachHost();
   const fixture = TestBed.createComponent(component);
   for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, planCtaClicked, inquiry, claim, fixture };
+  return { host: fixture.nativeElement as HTMLElement, planCtaClicked, claim, fixture };
 }
 
 /** Clicks like a mouse and reports whether the link's navigation was prevented. */
@@ -53,23 +48,22 @@ function click(link: HTMLElement, init: MouseEventInit = {}): boolean {
   return event.defaultPrevented;
 }
 
-const MANAGED_HREF = '/contact?topic=managed';
+const CONTACT_HREF = '/contact';
 const CLAIM_HREF = '/search';
 
 const linkTexts = (host: HTMLElement) =>
   [...host.querySelectorAll('a')].map((a) => a.textContent?.replace(/\s+/g, ' ').trim());
 
 describe('Plans calls to action', () => {
-  // AECI-1293 (spec §15.1): one claim control, then the pricing question as a text link.
-  it('top row: "Claim your listing" opens the claim dialog, the pricing link the inquiry', () => {
-    const { host, planCtaClicked, claim, inquiry } = render(PlanCtaActionsComponent, true, {
+  // AECI-1293 (spec §15.1): one claim control. E8.1: no contact link on the hero.
+  it('top row: "Claim your listing" opens the claim dialog, with no other link', () => {
+    const { host, planCtaClicked, claim } = render(PlanCtaActionsComponent, true, {
       page: 'vendor_program',
     });
-    expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
-    expect(host.textContent).toContain('Questions about Managed or pricing?');
-    const [claimLink, pricing] = [...host.querySelectorAll('a')];
+    expect(linkTexts(host)).toEqual(['Claim your listing']);
+    expect(host.querySelector('aec-plan-contact-link')).toBeNull();
+    const [claimLink] = [...host.querySelectorAll('a')];
     expect(claimLink.getAttribute('href')).toBe(CLAIM_HREF);
-    expect(pricing.getAttribute('href')).toBe(MANAGED_HREF);
     expect(host.getAttribute('data-plans-cta')).toBe('top');
 
     expect(click(claimLink)).toBe(true);
@@ -79,16 +73,12 @@ describe('Plans calls to action', () => {
       placement: 'top',
       page: 'vendor_program',
     });
-
-    expect(click(pricing)).toBe(true);
-    expect(inquiry.placement()).toBe('top');
-    expect(inquiry.page()).toBe('vendor_program');
   });
 
-  it('never says "Talk to us about Managed" or "Claim your listing free" any more', () => {
+  it('never says "Talk to us" or "Claim your listing free" any more', () => {
     for (const c of [PlanCtaActionsComponent, PlanCtaPanelComponent, PlanCtaRailComponent]) {
       const { host } = render(c);
-      expect(host.textContent).not.toContain('Talk to us about Managed');
+      expect(host.textContent).not.toContain('Talk to us');
       expect(host.textContent).not.toContain('Claim your listing free');
     }
   });
@@ -106,8 +96,6 @@ describe('Plans calls to action', () => {
     portal.click();
     expect(planCtaClicked).not.toHaveBeenCalled();
     expect(claim.isOpen()).toBe(false);
-    // The pricing question stays: a Free company asking about Managed is the inquiry's job.
-    expect(linkTexts(host)).toContain('Talk to us');
   });
 
   // With no dialog on the page the link is left alone, so it reaches the search page.
@@ -163,8 +151,11 @@ describe('Plans calls to action', () => {
       'Find your listing and tell us which plan you want.',
       'We review it, generally within 48 hours, and email you the result.',
     ]);
-    expect(linkTexts(host)).toEqual(['Claim your listing', 'Talk to us']);
-    const link = host.querySelector('a')!;
+    // E8.1: "Questions? Contact us" beside the claim button, a plain link to /contact.
+    expect(linkTexts(host)).toEqual(['Claim your listing', 'Contact us']);
+    expect(text).toContain('Questions? Contact us');
+    const [link, contact] = [...host.querySelectorAll('a')];
+    expect(contact.getAttribute('href')).toBe(CONTACT_HREF);
     expect(link.getAttribute('href')).toBe(CLAIM_HREF);
     expect(click(link)).toBe(true);
     expect(claim.opening()?.entry).toBe('bottom');
@@ -187,17 +178,17 @@ describe('Plans calls to action', () => {
   });
 
   // The steps describe the claim dialog, so a Free seat's "Go to your portal" drops them.
-  it('bottom panel keeps the pricing link but drops the steps for a Free vendor seat', () => {
+  it('bottom panel keeps the contact link but drops the steps for a Free vendor seat', () => {
     const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',
       portal: true,
     });
-    expect(linkTexts(host)).toEqual(['Go to your portal', 'Talk to us']);
+    expect(linkTexts(host)).toEqual(['Go to your portal', 'Contact us']);
     expect(host.querySelector('ol')).toBeNull();
   });
 
-  // Spec §5 hook: a Managed company sees no pricing question and no steps.
-  it('bottom panel drops the pricing link and the steps when hideManaged is set', () => {
+  // Spec §5 hook: a Managed company sees no contact link and no steps.
+  it('bottom panel drops the contact link and the steps when hideManaged is set', () => {
     const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',
       portal: true,

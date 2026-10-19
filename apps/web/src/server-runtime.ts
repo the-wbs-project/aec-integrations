@@ -962,14 +962,10 @@ export function applyLandingCfHeaders(headers: Headers, request: Request): void 
 
 /**
  * The lead-capture POSTs whose API handler reads `LANDING_CF_HEADERS`, so the proxy
- * must strip and set them (AECI-275; `/api/plan-inquiries`, AECI-1279). A path that
- * reads the headers but is missing here would trust whatever the client sent.
+ * must strip and set them (AECI-275). A path that reads the headers but is missing
+ * here would trust whatever the client sent.
  */
-export const LANDING_CF_PATHS: ReadonlySet<string> = new Set([
-  '/api/subscribe',
-  '/api/feedback',
-  '/api/plan-inquiries',
-]);
+export const LANDING_CF_PATHS: ReadonlySet<string> = new Set(['/api/subscribe', '/api/feedback']);
 
 /**
  * Rebuild a proxied lead-capture POST (`LANDING_CF_PATHS`) request carrying
@@ -1378,8 +1374,7 @@ export function createApp(options: {
   //     `PAGE_VIEW_WRITER_HEADER` provenance stamp (AECI-871) that tells the API
   //     this write really did come from a browser POST rather than from a body
   //     field claiming so.
-  //   - `POST /api/subscribe` + `/api/feedback` (AECI-275) and
-  //     `/api/plan-inquiries` (AECI-1279), the `LANDING_CF_PATHS` →
+  //   - `POST /api/subscribe` + `/api/feedback` (AECI-275), the `LANDING_CF_PATHS` →
   //     `LANDING_CF_HEADERS`, the lead-capture geo. UTM + referrer still ride the
   //     body; only geo is header-forwarded.
   // Every other `/api/*` request still forwards `c.req.raw` byte-for-byte.

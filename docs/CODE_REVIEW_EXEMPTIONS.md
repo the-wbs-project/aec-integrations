@@ -113,9 +113,6 @@ scope:
     - apps/api/src/lib/recompute-counts.ts
     - apps/api/src/routes/page-views.ts
     - apps/api/src/routes/landing-forms.ts
-    # Added 2026-10-12 (AECI-1279): the plan inquiry form's `plan_inquiries` insert,
-    # lead capture on the `feedback` footing (ADR 0022, 2026-10-12 amendment).
-    - apps/api/src/routes/plan-inquiries.ts
     # Added 2026-08-14 (AECI-587): the three Phase 8.3 bookkeeping writers this
     # exemption was reasoned about but never listed. `metrics-snapshot.ts` and
     # `job-runs.ts` write unaudited by design; `retention-prune.ts` is here for

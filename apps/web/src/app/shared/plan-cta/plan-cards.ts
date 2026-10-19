@@ -15,9 +15,9 @@
  *
  * Inputs, as on the other plan calls to action (`plan-cta.ts`): `page` and the
  * signed-in `portal` swap. Both buttons open the claim dialog (AECI-1293, spec
- * §15.1): "Claim your listing" with Free preselected, "Start with Managed" with
- * Managed preselected. Under the Managed button, "Questions about Managed or
- * pricing? Talk to us" opens the plan inquiry dialog. A vendor seat sees "Go to your portal" on both.
+ * §15.1): "Claim your listing" and "Start with Managed". The Managed card's
+ * inquiry link and reply line were removed on 2026-10-19 (E8.1): claim is the only
+ * plan action. A vendor seat sees "Go to your portal" on both.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Every string is `$localize`d or
@@ -33,11 +33,11 @@ import { Analytics, type PlanCtaPage } from '../../analytics/analytics';
 import { formatPlanPrice, planLabel } from '../../vendor/vendor-plan';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
-import { PORTAL_PATH, PlanPricingLinkComponent } from './plan-cta';
+import { PORTAL_PATH } from './plan-cta';
 
 @Component({
   selector: 'aec-plan-cards',
-  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
+  imports: [RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
     <div class="grid gap-4 sm:grid-cols-2">
@@ -130,13 +130,6 @@ import { PORTAL_PATH, PlanPricingLinkComponent } from './plan-cta';
             >Start with Managed</a
           >
         }
-        <aec-plan-pricing-link class="mt-3 text-center" [page]="page()" placement="card" />
-        <p
-          class="mt-1 text-center text-xs text-(--text-secondary)"
-          i18n="@@app.docs.plans.managed.reply"
-        >
-          We reply to most messages within a couple of business days.
-        </p>
         <p
           class="mt-5 text-xs font-medium text-(--text-secondary)"
           i18n="@@app.docs.plans.managed.includes"
@@ -174,7 +167,7 @@ export class PlanCardsComponent {
   protected readonly managedButtonClass =
     'mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
-  /** Which page the cards sit on, for `plan_cta_clicked` and the inquiry dialog. */
+  /** Which page the cards sit on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();
   /** A signed-in vendor: the claim link becomes "Go to your portal" (spec §5). */
   readonly portal = input(false);

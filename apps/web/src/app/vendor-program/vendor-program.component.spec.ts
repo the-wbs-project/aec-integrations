@@ -367,7 +367,7 @@ describe('VendorProgramPage', () => {
   });
 
   describe('calls to action (AECI-1285 placements)', () => {
-    it('mounts the hero pair, the cards, the phone bar, the panel and one host of each dialog', async () => {
+    it('mounts the hero button, the cards, the phone bar, the panel and one claim dialog host', async () => {
       const { host } = await setup({ plan: stub() });
       const hero = host.querySelector('section')!;
       expect(hero.querySelector('aec-plan-cta-actions')).not.toBeNull();
@@ -375,7 +375,8 @@ describe('VendorProgramPage', () => {
         expect(host.querySelectorAll(tag), tag).toHaveLength(1);
       }
       expect(host.querySelectorAll('aec-claim-dialog-host')).toHaveLength(1);
-      expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
+      // E8.1: the plan inquiry dialog is gone.
+      expect(host.querySelector('aec-plan-inquiry-host')).toBeNull();
       // The cards count as a full call to action for the phone bar.
       expect(host.querySelector('aec-plan-cards')?.getAttribute('data-plans-cta')).toBe('card');
     });
@@ -405,15 +406,21 @@ describe('VendorProgramPage', () => {
       ]);
     });
 
-    it('asks the pricing question as a text link to the inquiry, three times', async () => {
+    // E8.1 (ruled 2026-10-19): "Questions? Contact us" beside the closing panel's
+    // claim button and under the FAQ. Not on the hero, and no topic on the link.
+    it('shows "Questions? Contact us" twice, as a plain link to /contact', async () => {
       const { host } = await setup({ plan: stub() });
-      const pricing = links(host, 'Talk to us');
-      // Hero, Managed card, closing panel. The phone bar is hidden until scrolled.
-      expect(pricing).toHaveLength(3);
-      for (const a of pricing) {
-        expect(a.getAttribute('href')).toBe('/contact?topic=managed');
-        expect(text(a.parentElement)).toContain('Questions about Managed or pricing?');
+      expect(links(host, 'Talk to us')).toHaveLength(0);
+      const contact = links(host, 'Contact us');
+      expect(contact).toHaveLength(2);
+      for (const a of contact) {
+        expect(a.getAttribute('href')).toBe('/contact');
+        expect(text(a.parentElement)).toContain('Questions?');
       }
+      const hero = host.querySelector('section')!;
+      expect(links(hero as HTMLElement, 'Contact us')).toHaveLength(0);
+      expect(host.querySelector('aec-plan-cta-panel aec-plan-contact-link')).not.toBeNull();
+      expect(host.querySelector('#vp-faq aec-plan-contact-link')).not.toBeNull();
     });
 
     // Full width at desktop (spec section 11, 2026-10-12): no rail, so no column is
@@ -445,14 +452,14 @@ describe('VendorProgramPage', () => {
   });
 
   describe('signed-in variants (AECI-1286)', () => {
-    it('signed out: claim controls stay, every pricing link shows', async () => {
+    it('signed out: claim controls stay, every contact link shows', async () => {
       const { host } = await setup({ plan: stub('signed-out') });
       expect(links(host, 'Go to your portal')).toHaveLength(0);
       expect(links(host, 'Claim your listing')).toHaveLength(3);
       expect(links(host, 'Start with Managed')).toHaveLength(1);
     });
 
-    it('a Free vendor seat: every dialog control becomes "Go to your portal", pricing links stay', async () => {
+    it('a Free vendor seat: every dialog control becomes "Go to your portal", contact links stay', async () => {
       const { host } = await setup({ plan: stub('free') });
       expect(links(host, 'Claim your listing')).toHaveLength(0);
       expect(links(host, 'Start with Managed')).toHaveLength(0);
@@ -460,15 +467,16 @@ describe('VendorProgramPage', () => {
       // Hero, Free card, Managed card, closing panel.
       expect(portal).toHaveLength(4);
       for (const a of portal) expect(a.getAttribute('href')).toBe('/vendor');
-      expect(links(host, 'Talk to us')).toHaveLength(3);
+      expect(links(host, 'Contact us')).toHaveLength(2);
     });
 
-    it('a Managed vendor seat: also no pricing link in the panel', async () => {
+    it('a Managed vendor seat: also no contact link in the panel', async () => {
       const { host } = await setup({ plan: stub('managed') });
       expect(links(host, 'Go to your portal')).toHaveLength(4);
       const panel = host.querySelector('aec-plan-cta-panel')!;
-      expect(links(panel as HTMLElement, 'Talk to us')).toHaveLength(0);
-      expect(links(host, 'Talk to us')).toHaveLength(2);
+      expect(links(panel as HTMLElement, 'Contact us')).toHaveLength(0);
+      // The FAQ's link stays.
+      expect(links(host, 'Contact us')).toHaveLength(1);
     });
 
     it('a failed vendor probe leaves the signed-out page, with no error', async () => {

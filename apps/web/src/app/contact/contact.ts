@@ -2,9 +2,9 @@
  * Contact page (`/contact`, AECI-238 / Phase 7.3). The general contact path is a
  * `mailto:` link (the acceptance criteria explicitly permits it; no general contact
  * form and no `/api/contact` endpoint — vendor/listing issues already flow through
- * the per-entity claim/correction forms). The one form here is the Managed plan
- * inquiry on `?topic=managed` (AECI-1279, below). A short editorial intro, the email as the
- * primary contact path, and a pointer to the correction flow for listing fixes.
+ * the per-entity claim/correction forms). A short editorial intro, the email as the
+ * primary contact path, and a pointer to the correction flow for listing fixes. The
+ * plan pages' "Questions? Contact us" link lands here with no topic.
  *
  * **Non-cacheable, SSR, indexable.** `/contact` is "No cache" per §3.1 — it is not
  * in `ROUTE_CACHE_PATTERNS`, so the SSR Worker emits the fail-closed default
@@ -19,14 +19,6 @@
  * strings authored with `i18n`/`$localize`; the email address itself is literal
  * (not translated) and shared between the visible label and the `mailto:` href.
  *
- * **`?topic=managed`** (the plan call-to-action buttons, `shared/plan-cta/`).
- * Those pages open the plan inquiry form in a dialog (AECI-1279). This page is
- * those buttons' link target, so a click without JS, or into a new tab, lands on the
- * same form, inline (`PlanInquiryForm`, `POST /api/plan-inquiries`). The page also
- * says what happens next. Any other topic value is ignored. `/contact` is not cached,
- * so reading the query in SSR is safe, and the canonical URL stays `/contact`. The
- * general "Email us" card is unchanged for every other question.
- *
  * **`?topic=add-product`** (`VENDOR_PROGRAM_PAGE_SPEC.md` §6; its in-app link,
  * Find your product, was removed on 2026-10-12, and the topic keeps working for
  * outside links). A vendor whose product is not in the
@@ -35,19 +27,20 @@
  * page shows a panel whose button is the same support `mailto:` with the subject
  * and a prompt filled in: product name, website, and the products it integrates
  * with. The message reaches the same mailbox as every other email.
- * Topic values live in `contact-topics.ts`.
+ * Topic values live in `contact-topics.ts`. Any other topic value is ignored, including
+ * `managed`, whose inline inquiry form was removed on 2026-10-19 (E8.1). `/contact` is
+ * not cached, so reading the query in SSR is safe, and the canonical URL stays `/contact`.
  */
 import { Component, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-import { PlanInquiryForm } from '../shared/plan-inquiry/plan-inquiry-form';
-import { ADD_PRODUCT_TOPIC, MANAGED_TOPIC } from './contact-topics';
+import { ADD_PRODUCT_TOPIC } from './contact-topics';
 
 @Component({
   selector: 'app-contact',
-  imports: [RouterLink, PlanInquiryForm],
+  imports: [RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
@@ -72,29 +65,6 @@ import { ADD_PRODUCT_TOPIC, MANAGED_TOPIC } from './contact-topics';
       </section>
 
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        @if (managed) {
-          <section
-            class="mb-6 max-w-5xl rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
-            data-testid="contact-managed"
-          >
-            <h2
-              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
-              i18n="@@app.contact.managed.heading"
-            >
-              Talk to us about Managed
-            </h2>
-            <p
-              class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.managed.formBody"
-            >
-              Tell us who you are and which products you want on Managed. We agree the price and the
-              term with you, then switch Managed on for your company.
-            </p>
-            <div class="mt-6 max-w-xl">
-              <aec-plan-inquiry-form idPrefix="contact-plan-inquiry" placement="contact" />
-            </div>
-          </section>
-        }
         @if (addProduct) {
           <section
             class="mb-6 max-w-5xl rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
@@ -190,8 +160,6 @@ export class ContactPage {
   private readonly meta = inject(MetaService);
 
   private readonly topic = inject(ActivatedRoute).snapshot.queryParamMap.get('topic');
-  /** `?topic=managed`: asked from the Plans page. */
-  protected readonly managed = this.topic === MANAGED_TOPIC;
   /** `?topic=add-product`: a product not in the directory (spec §6). */
   protected readonly addProduct = this.topic === ADD_PRODUCT_TOPIC;
 
