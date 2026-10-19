@@ -70,7 +70,7 @@ export function proposalDecisionErrorMessage(err: unknown, decision: Decision): 
     case 'VENDOR_NOT_OWNED':
       return $localize`:@@vendor.proposals.error.notOwned:Your company no longer owns its records, so this product cannot be added from here. Contact AEC Integrations.`;
     case 'PROPOSAL_VENDOR_MISSING':
-      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists. Decline it, and AEC Integrations can send it again.`;
+      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists, so it cannot be accepted. Decline it. You can add the product yourself from the Products tab.`;
     case 'SLUG_CONFLICT':
       return $localize`:@@vendor.proposals.error.slug:Another product took this name at the same moment. Try again.`;
   }
@@ -218,7 +218,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
         >
           <span i18n="@@vendor.proposals.card.vendorMissing"
             >A company this product would be listed under no longer exists, so it cannot be
-            accepted. Decline it, and AEC Integrations can send it again.</span
+            accepted. Decline it. You can add the product yourself from the Products tab.</span
           >
         </p>
       }
