@@ -77,6 +77,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { logToPosthog } from '../posthog';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
+import { loadBillingEmails, mergeRecipientAddresses } from '../lib/billing-recipients';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { uuidv5 } from '../lib/uuidv5';
@@ -403,12 +404,9 @@ async function billingRecipients(
   fetchSeatEmails: FetchSeatEmails,
   template: string,
 ): Promise<string[]> {
-  const [seatMap, accountRow] = await Promise.all([
+  const [seatMap, billingEmails] = await Promise.all([
     loadVendorSeatRecipients(db, c.env, [vendorId], fetchSeatEmails),
-    db.query.billingAccounts.findFirst({
-      columns: { billingEmail: true },
-      where: eq(billingAccounts.id, billingAccountId),
-    }),
+    loadBillingEmails(db, [billingAccountId]),
   ]);
   const seats = seatMap.get(vendorId) ?? [];
   if (seats.length === 0) {
@@ -417,15 +415,10 @@ async function billingRecipients(
     warn(c, `${template}: no seat address resolved; sending to the billing email only`);
   }
 
-  const addresses: string[] = [];
-  const seen = new Set<string>();
-  for (const address of [...seats.map((s) => s.email), accountRow?.billingEmail ?? '']) {
-    const key = address.trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    addresses.push(address.trim());
-  }
-  return addresses;
+  return mergeRecipientAddresses(
+    seats.map((s) => s.email),
+    billingEmails.get(billingAccountId),
+  );
 }
 
 /**
