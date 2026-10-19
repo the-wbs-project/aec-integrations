@@ -663,7 +663,7 @@ describe('DELETE /api/account', () => {
     });
   });
 
-  it('pins the inbound FKs to profiles(id) at eighteen — AUTH_AND_RLS.md §8 is the register', () => {
+  it('pins the inbound FKs to profiles(id) at seventeen — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -689,7 +689,6 @@ describe('DELETE /api/account', () => {
       'review_responses.moderated_by',
       'reviews.moderated_by',
       'reviews.reviewer_id',
-      'vendor_entitlements.granted_by',
       'vendor_requests.resolved_by',
       'vendor_seat_invites.invited_by_id',
       'workflow_instances.initiated_by',

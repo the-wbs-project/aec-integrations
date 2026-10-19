@@ -7188,7 +7188,7 @@ The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) �
 ```typescript
 export const VendorRevisionsSchema = z.object({
   profile: z.string().nullable(),        // vendors.updated_at (moves on the `verified` mirror flip too)
-  entitlement: z.string().nullable(),    // MAX(vendor_entitlements.updated_at) — vendor_id is UNIQUE, so ≤ 1 row
+  entitlement: z.string().nullable(),    // MAX(licenses.updated_at) over the vendor's billing accounts since AECI-1355 (STAGE_2_REALTIME_SPEC.md §2.2); was MAX(vendor_entitlements.updated_at), a table migration 0082 dropped (AECI-1358)
   products: z.string().nullable(),       // MAX(products.updated_at) over product_vendors
   integrations: z.string().nullable(),   // MAX over integrations ∪ claims ∪ attestations on the attestable surface (row term: AECI-992; it is also what moves on an AECI-1005 claim)
                                          // ∪ the rows the vendor owns in either table (AECI-1089, the `owned` list's predicates)

@@ -267,7 +267,8 @@ authorization:
   run-time backstop, checking the bit against live licenses. Its entitlement twin,
   `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375). *As built (AECI-1358,
   2026-10-17): `lib/vendor-entitlement.ts` is deleted. `lib/license.ts` is the sole writer,
-  and `verified` mirrors EXISTS(live license). Nothing reads or writes `vendor_entitlements`.*
+  and `verified` mirrors EXISTS(live license). Nothing reads or writes `vendor_entitlements`.
+  Migration 0082 dropped the table in E1.9 PR 2 (2026-10-17).*
 - **The arrangement is a row now, not just audit metadata.** It is still written to the grant
   audit row's metadata as well — `audit_log` is the renewal ledger (§2.1 of the paid-tiers
   spec), keyed `entity_type='vendor_entitlement', entity_id=<vendor_id>`.
@@ -1013,7 +1014,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **eighteen** inbound FKs to `profiles(id)` in D1 today. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the first that is `ON DELETE CASCADE`. AECI-1296 added `profile_details.profile_id` and `profile_audiences.profile_id`, both `ON DELETE CASCADE` (`ACCOUNT_ONBOARDING_SPEC.md`). So the erasure batch nulls fifteen, and the three cascading rows go with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02.
+**The FK trap (AECI-202).** There are **seventeen** inbound FKs to `profiles(id)` in D1 today. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the first that is `ON DELETE CASCADE`. AECI-1296 added `profile_details.profile_id` and `profile_audiences.profile_id`, both `ON DELETE CASCADE` (`ACCOUNT_ONBOARDING_SPEC.md`). So the erasure batch nulls fourteen, and the three cascading rows go with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02. *(AECI-1358, 2026-10-17): the count was eighteen until migration 0082 dropped `vendor_entitlements`, which took `vendor_entitlements.granted_by` off the register. The batch had already stopped nulling it in PR 1, so it nulls fourteen. `account.spec.ts` pins the seventeen.*
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -1027,7 +1028,6 @@ full list:
 | `workflow_instances.initiated_by` | NO ACTION | nulled |
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
-| `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609. *No longer nulled by the batch since AECI-1358 PR 1 (2026-10-17): nothing reads or writes the table, and its own `ON DELETE SET NULL` still clears the column. The table is dropped in PR 2, which also lowers the FK count.* |
 | `vendor_seat_invites.invited_by_id` | SET NULL | nulled (explicit too; the **invite survives its sender's erasure** — a pending invite is the invitee's to redeem, so only the sender's link is severed) — AECI-664 |
 | `integration_field_challenges.submitted_by` | SET NULL | nulled (explicit too; the **contest survives** — it is the vendor's record, so only the filing person's link is severed) — AECI-1008 |
 | `integration_field_challenges.decided_by` | SET NULL | nulled (explicit too; the decision survives, only the deciding person's link is severed) — AECI-1008 |
@@ -1039,6 +1039,10 @@ full list:
 | `notification_preferences.profile_id` | CASCADE | not nulled; the seat's preference row is deleted with the profile. It holds only the mute state and token, so nothing survives to anonymize — added by AECI-1204 |
 | `profile_details.profile_id` | CASCADE | not nulled. The "About you" answers, firm name and LinkedIn link included, are deleted with the profile. Added by AECI-1296 |
 | `profile_audiences.profile_id` | CASCADE | not nulled. The person's audience picks are deleted with the profile. The `taxonomy_audiences` terms survive. Added by AECI-1296 |
+
+`vendor_entitlements.granted_by` (SET NULL, AECI-609) was on this list too. The batch nulled
+it explicitly, matching `reviews.reviewer_id`, until AECI-1358 PR 1 stopped touching the table.
+Migration 0082 dropped the table on 2026-10-17 (AECI-1358), so the FK is gone.
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
@@ -1222,10 +1226,11 @@ hand-back, run in the erasure batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Its
 carry a `null` actor, because the actor's profile is deleted in the same batch. A lost
 seat race re-plans up to three times rather than failing the erasure. There is still
 **no inbound FK from `vendors` to `profiles`**, so
-the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
-(AECI-609 added the seventh ref, `vendor_entitlements.granted_by`. It points at the *granting
-admin*, not the vendor, so deleting a seat still cannot disturb the vendor's entitlement — the
-row survives with `granted_by` nulled.)
+the erasure batch's FK trap (§8, above) is unaffected and nothing cascades to the vendor.
+(AECI-609 added what was then the seventh ref, `vendor_entitlements.granted_by`. It pointed at
+the *granting admin*, not the vendor, so deleting a seat could not disturb the vendor's
+entitlement. Migration 0082 dropped that table on 2026-10-17 (AECI-1358), so the ref is gone.
+The no-FK `licenses.granted_by` plays the same part today and is nulled the same way.)
 
 **The last-seat edge (2026-07-24 epic review, AECI-513).** Deleting a vendor's **only**
 `vendor_admin` seat removes the last seat but leaves **`vendors.verified = true`**. This is a
@@ -1235,7 +1240,9 @@ seats — the same §8.3(2) decoupling under which revoke and ban never un-verif
 `docs/STAGE_2_PAID_TIERS_SPEC.md` §5), and it changes nothing here: it is a **deliberate admin
 act on the vendor**, not a consequence of a seat disappearing, and account-deletion still does
 not reach for it. **The entitlement is vendor-level and the seat is not, so losing the last
-seat leaves the entitlement row — and therefore the mirror — intact, by design.** The vendor is
+seat leaves the entitlement row — and therefore the mirror — intact, by design.** *As built
+(AECI-1358, 2026-10-17): the entitlement row is gone. The same holds for licenses: they sit on
+the vendor's billing account, so the last seat's erasure leaves them, and the mirror, intact.* The vendor is
 therefore **verified-but-unclaimed**, and that is the correct reading: somebody paid for a term
 that has not ended. It diverges from the
 "claimed = ≥1 *active* `vendor_admin` seat" predicate (`loadClaimedVendorIds`,
@@ -1257,9 +1264,9 @@ Stage 2 introduces the **vendor portal** (`vendor_admin`). Its authorization is 
 - **Ban gate** — `profiles.banned_at` already gates vendor seats through the existing §4.2 / §7 check; portal abuse is a ban path (per-seat — it never touches `vendors.verified`).
 - **The entitlement tier on the session** — **shipped** (AECI-611, `docs/STAGE_2_PAID_TIERS_SPEC.md` §4). `AuthenticatedSession` carries `entitlementTier` + `entitlement`, loaded by the `vendor_admin` guard branch, and `/api/vendor/*` **writes** assert a capability against it (§4.2b). This is the one part of Stage 2 authorization that **did** need a migration — see below.
 
-**Stage 2 authorization needed no migration; Stage 2 *entitlements* needed exactly one.** The authorization hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already existed, which is why the vendor portal (AECI-513) shipped without DDL. The Paid Tiers epic (AECI-515) could not: there was no reserved entitlement table, so it added **`vendor_entitlements`** (`DATABASE_SCHEMA.md` §8.5) and demoted `vendors.verified` to a mirror of it (§3.2 above). That is the only schema change either epic made, and it is additive — no reader changed.
+**Stage 2 authorization needed no migration; Stage 2 *entitlements* needed exactly one.** The authorization hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already existed, which is why the vendor portal (AECI-513) shipped without DDL. The Paid Tiers epic (AECI-515) could not: there was no reserved entitlement table, so it added **`vendor_entitlements`** (`DATABASE_SCHEMA.md` §8.6) and demoted `vendors.verified` to a mirror of it (§3.2 above). *Licenses replaced it, and migration 0082 dropped it (AECI-1358, 2026-10-17).* That is the only schema change either epic made, and it is additive — no reader changed.
 
-The `vendor_admin` surface is **fully documented above** (AECI-525, extended by AECI-615): role-exclusivity, the grant/revoke/ban mechanics and the mirror invariant in **§3.2**, the split-identity claimant seam #4 in **§3.1**, the entitlement tier on the session in **§4.2b**, the endpoint-by-endpoint rows + `vendor_id`-scoping obligations in **§4.4**, the seventh inbound FK in **§8**, and the GDPR last-seat edge in **§8.2**. The bullets above are the summary; those sections are the contract.
+The `vendor_admin` surface is **fully documented above** (AECI-525, extended by AECI-615): role-exclusivity, the grant/revoke/ban mechanics and the mirror invariant in **§3.2**, the split-identity claimant seam #4 in **§3.1**, the entitlement tier on the session in **§4.2b**, the endpoint-by-endpoint rows + `vendor_id`-scoping obligations in **§4.4**, the inbound-FK register in **§8**, and the GDPR last-seat edge in **§8.2**. The bullets above are the summary; those sections are the contract.
 
 ---
 

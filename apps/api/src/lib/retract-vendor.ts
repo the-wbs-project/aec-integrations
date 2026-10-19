@@ -23,7 +23,7 @@
  * not a delete.
  *
  * WHAT POINTS AT `vendors` (the latest drizzle-kit snapshot under `apps/api/migrations/meta/`).
- * Every one of the fifteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
+ * Every one of the thirteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
  * `retract-vendor-fk-coverage.spec.ts` fails when the latest snapshot carries one that
  * does not, so the next table cannot become a silent cascade (AECI-1226):
  *
@@ -33,7 +33,6 @@
  *   integrations                  built_by_vendor_id       —           REFUSE (owned edge)
  *   connector_evidenced_pairs     built_by_vendor_id       —           REFUSE (owned edge)
  *   profiles                      vendor_id                —           REFUSE (claimed, or was)
- *   vendor_entitlements           vendor_id                cascade     deleted by the FK action
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
  *   review_responses              vendor_id                cascade     allowed; deleted + counted
@@ -54,10 +53,9 @@
  * trips the `profiles` refusal first. The reply table is named only where it exists
  * (`reviewResponsesTable`), because a tier without 0058 would fail the whole batch.
  *
- * As built (AECI-1358, 2026-10-17): `vendor_entitlements` no longer refuses. Nothing
- * reads or writes it since licenses replaced it, so a dead row goes with its vendor by
- * the FK's own `ON DELETE CASCADE`. The plan never names the table, so the batch also
- * runs on a tier where PR 2 has dropped it. A seat or a billing account still refuses.
+ * As built (AECI-1358, 2026-10-17): `vendor_entitlements` is gone. Licenses replaced
+ * it, and migration 0082 dropped the table, so its line above and its `fk-action` entry are
+ * removed. The plan never named the table. A seat or a billing account still refuses.
  *
  * `integration_vendor_links` (AECI-1007, migration 0045) is the one row above the plan
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
@@ -119,9 +117,7 @@ export {
  *  - `delete`     counted; deleted explicitly before the vendor, counted on its tombstone.
  *  - `detach`     counted; the column is NULLed explicitly, the row survives.
  *  - `fk-action`  handled by the FK's own action, never named in the plan: NULLed by
- *                 `ON DELETE SET NULL` (`integration_vendor_links`), or deleted by
- *                 `ON DELETE CASCADE` (the retired `vendor_entitlements`, AECI-1358).
- *                 See the header.
+ *                 `ON DELETE SET NULL` (`integration_vendor_links`). See the header.
  */
 export type VendorFkOutcome = 'refuse' | 'delete' | 'detach' | 'fk-action';
 
@@ -132,7 +128,6 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'integrations.built_by_vendor_id': 'refuse',
   'connector_evidenced_pairs.built_by_vendor_id': 'refuse',
   'profiles.vendor_id': 'refuse',
-  'vendor_entitlements.vendor_id': 'fk-action',
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'review_responses.vendor_id': 'delete',

@@ -575,6 +575,13 @@
       "when": 1792222086005,
       "tag": "0081_daffy_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1792230751328,
+      "tag": "0082_lying_paper_doll",
+      "breakpoints": true
     }
   ]
 }

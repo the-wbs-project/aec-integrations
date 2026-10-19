@@ -22,11 +22,15 @@
  * `sql\`\`` correlated subqueries inside `extras` (which name tables as bare text), and
  * the schema import block.
  *
- * The companion structural guarantee lives in `db/schema.ts`: `vendorEntitlements`
- * deliberately has **no `relations()` entry**, so a `with: { entitlement: … }` read
- * cannot even compile. The retired `entitlement_mirror_drift` check (AECI-1375) used an
+ * The companion structural guarantee lived in `db/schema.ts`: `vendorEntitlements`
+ * deliberately had **no `relations()` entry**, so a `with: { entitlement: … }` read
+ * could not even compile. The retired `entitlement_mirror_drift` check (AECI-1375) used an
  * explicit `leftJoin`, which needs no relation. The §4 gate read the table the same way until AECI-1355
- * moved it onto `licenses` (the allow-list below).
+ * moved it onto `licenses`.
+ *
+ * As built (AECI-1358, 2026-10-17): migration 0082 dropped the table and `schema.ts` no
+ * longer defines it. The scan below stays as a cheap guard against a resurrected name.
+ * The live form of the rule is the `billing_accounts` / `licenses` block that follows.
  *
  * The behavioural half of this guard was a drifted-pair test of `?verified=` in
  * `routes/vendors.spec.ts` (R9). That filter is retired (AECI-1266), so the test
@@ -68,14 +72,6 @@ describe('§2.5 — no read path queries vendor_entitlements', () => {
     expect('db.select().from(vendorEntitlements)').toMatch(ENTITLEMENT_REFERENCE);
     expect('JOIN "vendor_entitlements" e').toMatch(ENTITLEMENT_REFERENCE);
     expect('db.select().from(vendors)').not.toMatch(ENTITLEMENT_REFERENCE);
-  });
-
-  it('vendorEntitlements has no relations() entry, so `with:` cannot compile', async () => {
-    const schemaSource = readFileSync(join(SRC, 'db/schema.ts'), 'utf8');
-    expect(schemaSource).not.toMatch(/vendorEntitlementsRelations/);
-    // And the table itself IS exported to the aggregate, or db.query would not see it.
-    const { schema } = await import('../db/schema');
-    expect(schema).toHaveProperty('vendorEntitlements');
   });
 });
 
@@ -135,16 +131,11 @@ describe('AECI-1350 — no read path queries billing_accounts or licenses', () =
  * honest inventory for E1.9. The pattern is the Drizzle identifier or the quoted
  * SQL name, never the word in prose.
  *
- * As built (AECI-1358, 2026-10-17): E1.9 PR 1 deleted every reader and writer, so the
- * list is the table definition alone. PR 2 drops the table and empties it.
+ * As built (AECI-1358, 2026-10-17): E1.9 PR 1 deleted every reader and writer, which
+ * left the table definition alone on the list. PR 2 dropped the table (migration 0082)
+ * and its definition, so the list is empty: no module may name the table at all.
  */
 const ENTITLEMENT_CODE_REFERENCE = /\bvendorEntitlements\b|"vendor_entitlements"/;
-
-/** Why each module may still name the table. */
-const ENTITLEMENT_TABLE_ALLOWED: Record<string, string> = {
-  // The definition, until E1.9 PR 2 drops the table.
-  'db/schema.ts': 'the table itself',
-};
 
 function sourceModules(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -154,35 +145,18 @@ function sourceModules(dir: string): string[] {
   });
 }
 
-describe('AECI-1355 / AECI-1358 — only the schema names vendor_entitlements', () => {
-  it('the modules naming the table are exactly the allow-list', () => {
+describe('AECI-1355 / AECI-1358 — no module references vendor_entitlements', () => {
+  it('no non-spec module names the dropped table', () => {
     const referencing = sourceModules(SRC)
       .filter((path) => ENTITLEMENT_CODE_REFERENCE.test(readFileSync(path, 'utf8')))
       .map((path) => relative(SRC, path).split('\\').join('/'))
       .sort();
     expect(
       referencing,
-      'A module other than the schema references vendor_entitlements, or ' +
-        'one on the list no longer does. Plan resolution reads `licenses` (AECI-1355): ' +
-        'read the session (`entitlementTier`, `licensedProductIds`) or `lib/license.ts`.',
-    ).toEqual(Object.keys(ENTITLEMENT_TABLE_ALLOWED).sort());
-  });
-
-  it('the plan-resolution modules are not on it', () => {
-    for (const path of [
-      'lib/authz.ts',
-      'lib/integration-entitlement.ts',
-      'lib/integration-contests.ts',
-      'lib/vendor-snapshot.ts',
-      'lib/audit-vendor.ts',
-      'lib/vendor-handback.ts',
-      'routes/vendor.ts',
-      'routes/vendor-shared.ts',
-      'routes/vendor-updates.ts',
-      'routes/seat-invites.ts',
-    ]) {
-      expect(ENTITLEMENT_TABLE_ALLOWED).not.toHaveProperty(path);
-    }
+      'A module references vendor_entitlements, which migration 0082 dropped ' +
+        '(AECI-1358). Plan resolution reads `licenses` (AECI-1355): read the session ' +
+        '(`entitlementTier`, `licensedProductIds`) or `lib/license.ts`.',
+    ).toEqual([]);
   });
 
   it('the pattern matches code and skips prose', () => {

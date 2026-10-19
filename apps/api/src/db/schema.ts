@@ -1327,8 +1327,8 @@ export const vendorRequests = sqliteTable(
     // approve form's plan radios stay unselected whatever it says
     // (STAGE_2_PAID_TIERS_SPEC.md §13.6). Deliberately NO CHECK: a CHECK change is a
     // drizzle-kit table recreate, and this table has FK children
-    // (`agreement_acceptances.vendor_request_id`, and the retired entitlement
-    // table's `source_request_id` until AECI-1358's PR 2 drops it), so the recreate
+    // (`agreement_acceptances.vendor_request_id`; the entitlement table's
+    // `source_request_id` went with migration 0082, AECI-1358), so the recreate
     // is the cascade hazard of docs/migrations.md §0.
     // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
     // column any more. Existing rows keep their old answers. E10 of
@@ -1497,124 +1497,6 @@ export const productRequests = sqliteTable(
   (t) => [
     index('product_requests_status_created_idx').on(t.status, t.createdAt),
     index('product_requests_vendor_created_idx').on(t.vendorId, t.createdAt),
-  ],
-);
-
-/**
- * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2).
- *
- * RETIRED (AECI-1358, 2026-10-17). Licenses replaced this table. Nothing reads or
- * writes it: its writer (`lib/vendor-entitlement.ts`), its back-fills and its last
- * readers are deleted, and the seeds no longer insert it. The definition stays only
- * until AECI-1358's PR 2 drops the table, because CI applies migrations before the
- * Worker deploys (`docs/migrations.md` §3.2). The text below is the as-designed
- * history. Where it says "this table", read "a live license" for today's mirror.
- *
- * Originally the real paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
- * table (§2.4/§2.5). It has no public reader left: AECI-1264 (2026-10-09) deleted
- * `aec-vendor-account-badge`, and AECI-1266 (2026-10-12) took the flag off
- * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the `?verified=` filter and
- * the Algolia vendor record. Its readers are internal: the pair version-diff gate,
- * admin, the vendor portal, data-quality, retract and the backfill.
- *
- * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
- * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate
- * is a single-row test — and both sides move inside ONE `db.batch([...])` emitted by
- * `lib/vendor-entitlement.ts`, the SOLE writer of either side. No route handler
- * writes `vendors.verified` directly: an ESLint `no-restricted-syntax` rule is the
- * compile-time guard. The run-time guard was the `entitlement_mirror_drift`
- * data-quality check, retired 2026-10-17 (AECI-1375): license grants and revokes now
- * move `verified` (`lib/license.ts`), and `license_mirror_drift` checks the bit
- * against live licenses instead.
- *
- * ONE ROW PER VENDOR, not a period history. The invariant has to be expressible as a
- * guarded single-row `UPDATE … WHERE status <> 'active'`, because D1 has no
- * interactive transactions and a read-then-write is a race with no available fix.
- * With history rows the predicate becomes `MAX(period_end)` over N rows, which is not
- * something you can put in a `WHERE`. `audit_log` IS the history ledger:
- * `audit_log_entity_idx` is `(entity_type, entity_id, created_at)`, so
- * `entity_type = 'vendor_entitlement', entity_id = <vendor_id>` yields the whole
- * grant/renew/lapse trail with no new index and no new reader. If finance later wants
- * a queryable term history, an append-only `vendor_entitlement_periods` child table is
- * purely additive and changes no reader.
- *
- * `tier` is DELIBERATELY UNCONSTRAINED — the `audit_log.entity_type` posture, NOT the
- * `workflow_instances_type_check` one three tables down. Adding a tier rung must be a
- * data edit in the capability registry (`@aeci/shared/entitlements`, §3.1), never a
- * SQLite table rebuild; an unknown tier resolves to ZERO capabilities (fail-closed),
- * which is strictly safer than a write-time CHECK failure. `status` IS CHECK
- * constrained: adding a status is a state-machine change, so it is a code change
- * anyway. Only `active` mirrors — `pending` is "arrangement recorded, PO issued, not
- * yet effective", `expired` is an amicable lapse, `revoked` is for cause.
- *
- * NO `workflow_instances` ROW is written for an entitlement change, deliberately:
- * `workflow_instances_type_check` (below) is a CLOSED check and opening it on SQLite
- * is a full table rebuild (§1.2 / R1). Settled here so §5 never has to discover it.
- *
- * `granted_by` is one of the ten inbound FKs to `profiles.id` — `ON DELETE SET NULL`
- * AND nulled explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
- * `docs/AUTH_AND_RLS.md` §8, which is the live register). Miss either and account
- * deletion FK-fails for any admin who ever granted an entitlement (R6).
- */
-export const vendorEntitlements = sqliteTable(
-  'vendor_entitlements',
-  {
-    id: uuidPk(),
-    vendorId: text('vendor_id')
-      .notNull()
-      .references(() => vendors.id, { onDelete: 'cascade' }),
-
-    /** Capability-registry tier id (§3.1). Unconstrained on purpose — see header. */
-    tier: text('tier').notNull().default('verified'),
-    status: text('status').notNull().default('active'),
-
-    /** ISO-8601. `period_start` null = open-ended; `period_end` null = PERPETUAL
-     *  (what the §2.4 backfill writes), which the partial expiry index ignores. */
-    periodStart: text('period_start'),
-    periodEnd: text('period_end'),
-
-    /** The offline PO/invoice arrangement — a superset of `ClaimEntitlementSchema`
-     *  (`packages/shared/src/api/admin-claims.ts`). `amount` stays TEXT, not `real`:
-     *  free-form and currency-agnostic ("USD 5,000 / yr"), matching the shipped
-     *  contract and keeping the model payer-agnostic (§8.1(4)). */
-    payer: text('payer'),
-    amount: text('amount'),
-    terms: text('terms'),
-    arrangedBy: text('arranged_by'),
-    invoiceRef: text('invoice_ref'),
-    notes: text('notes'),
-
-    grantedBy: text('granted_by').references(() => profiles.id, { onDelete: 'set null' }),
-    grantedAt: text('granted_at')
-      .notNull()
-      .$defaultFn(() => new Date().toISOString()),
-    /** Stamped when `status` leaves `'active'`. */
-    endedAt: text('ended_at'),
-    /** The §7 expiry cron's idempotency fence — one notice per term, not per night. */
-    expiryNoticeSentAt: text('expiry_notice_sent_at'),
-
-    /** The claim this arrangement came from, when it came from one (§6). NO ACTION:
-     *  nothing in the app deletes a `vendor_requests` row (erasure nulls
-     *  `resolved_by`, it does not delete). */
-    sourceRequestId: text('source_request_id').references(() => vendorRequests.id),
-
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
-  },
-  (t) => [
-    // The STRUCTURAL half of the mirror invariant: one row per vendor is what makes
-    // `status = 'active'` a legal single-row `WHERE`.
-    uniqueIndex('vendor_entitlements_vendor_key').on(t.vendorId),
-    index('vendor_entitlements_status_idx').on(t.status),
-    // The §7 cron's ONLY scan. PARTIAL, so perpetual + backfilled rows (null
-    // `period_end`) and every non-active row are invisible to it.
-    index('vendor_entitlements_expiry_idx')
-      .on(t.periodEnd)
-      .where(sql`"period_end" IS NOT NULL AND "status" = 'active'`),
-    check(
-      'vendor_entitlements_status_check',
-      sql`"status" IN ('pending', 'active', 'expired', 'revoked')`,
-    ),
   ],
 );
 
@@ -3276,7 +3158,7 @@ export const userActivityDaily = sqliteTable(
 
 /**
  * One row per ACTIVATED vendor per UTC day: a vendor with at least one unbanned
- * seat, an entitlement row, or a live invite. A catalog vendor with none of these
+ * seat, a license, or a live invite. A catalog vendor with none of these
  * gets no row.
  *
  * `day` is the snapshot day, yesterday at run time. The activity counts cover
@@ -3927,7 +3809,7 @@ export const gscRecrawlQueue = sqliteTable(
 // explicit that these are its OWN D1 ids, which merely keep Airtable's format.
 //
 // NO `relations()` BLOCKS YET, and that is a deferral rather than a decision like
-// `vendorEntitlements`' (see the note on the aggregate `schema` export below).
+// `licenses`' (see the note on the aggregate `schema` export below).
 // Nothing reads this data until AECI-715 / AECI-716 / AECI-722, and the relational
 // query builder is only needed for `with:` hydration; the sync's own bounded
 // pre-reads use `db.select()`. Whichever issue builds the first read config adds the
@@ -4958,7 +4840,6 @@ export const schema = {
   reviewResponses,
   vendorRequests,
   listingRequests,
-  vendorEntitlements,
   billingAccounts,
   licenses,
   agreementAcceptances,
@@ -4984,19 +4865,14 @@ export const schema = {
   connectorEvidencedPairs,
   feedback,
   mailingList,
-  // NOTE: `vendorEntitlements` deliberately has NO relations() entry, and that is
-  // load-bearing rather than an oversight. A relation is exactly what would make
-  // `db.query.vendors.findMany({ ...vendorListConfig, with: { entitlement: true } })`
-  // type-check and autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5
-  // forbids ("joining vendor_entitlements into the public ?verified= filter so it
-  // reads the truth rather than the mirror would defeat the entire denormalization").
-  // That filter is gone (AECI-1266); the rule still covers every read path.
-  // Without the relation that line does not compile. The §4 entitlement gate and the
-  // retired `entitlement_mirror_drift` check (AECI-1375) both used an explicit
-  // leftJoin, which needs none.
+  // NOTE: `billingAccounts` and `licenses` (AECI-1350) deliberately have NO relations()
+  // entry, and that is load-bearing rather than an oversight. A relation is exactly what
+  // would make a `with:` join of plan data into a catalog read type-check and
+  // autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids. Plan
+  // resolution reads them with explicit joins, never `with:`. The rule was first written
+  // for `vendor_entitlements`, which migration 0082 dropped (AECI-1358, 2026-10-17).
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
-  // has no relations entry either. `billingAccounts` and `licenses` (AECI-1350) follow
-  // the same rule: plan resolution reads them with explicit joins, never `with:`.
+  // has no relations entry either.
   //
   // The six `connector*` tables (AECI-714) had none for a weaker reason — deferral,
   // not prohibition. It is now discharged in two steps that both land below: AECI-721
