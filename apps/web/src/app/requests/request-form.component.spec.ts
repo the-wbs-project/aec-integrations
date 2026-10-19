@@ -278,7 +278,11 @@ describe('RequestForm', () => {
     expect(el.querySelector('strong')?.textContent).toBe('dana@acme.example');
     expect(el.textContent).toContain('What happens next');
     expect(el.textContent).toContain('Nothing is granted automatically');
-    expect(el.querySelector('a[href="/docs/vendors/claiming-your-listing"]')).not.toBeNull();
+    // The docs link opens in a new tab so the confirmation stays on screen.
+    const docsLink = el.querySelector('a[href="/docs/vendors/claiming-your-listing"]');
+    expect(docsLink?.getAttribute('target')).toBe('_blank');
+    expect(docsLink?.getAttribute('rel')).toBe('noopener');
+    expect(docsLink?.querySelector('aec-new-tab-icon')).not.toBeNull();
     // Focus leaves the removed submit button for the confirmation heading.
     await settle();
     expect(document.activeElement).toBe(el.querySelector('h1'));
