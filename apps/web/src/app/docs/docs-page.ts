@@ -55,7 +55,6 @@ import {
   PlanCtaRailComponent,
 } from '../shared/plan-cta/plan-cta';
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
-import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 
 /** A run of prose blocks, or one widget. */
 export interface DocsSegment {
@@ -92,7 +91,6 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
     PlanCtaPanelComponent,
     PlanCtaRailComponent,
     ClaimDialogHost,
-    PlanInquiryHost,
   ],
   template: `
     <div
@@ -164,10 +162,8 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           <app-docs-toc class="block w-10" [headings]="page.headings" [path]="page.path" />
         </div>
         <aec-plan-cta-mobile-bar page="docs_plans" />
-        <!-- One claim dialog for every claim control (AECI-1293) and one inquiry
-             dialog for the pricing links (AECI-1279), each loaded on first use. -->
+        <!-- One claim dialog for every claim control (AECI-1293), loaded on first use. -->
         <aec-claim-dialog-host />
-        <aec-plan-inquiry-host />
       } @else {
         <app-docs-toc
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"

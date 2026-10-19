@@ -45,7 +45,6 @@ packages/shared/
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
 │   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
-│   │   ├── plan-inquiry.ts    # Plan inquiry form (POST /api/plan-inquiries, AECI-1279)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
@@ -6434,6 +6433,12 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 **One non-200: `RATE_LIMITED` (429).** The route carries the `token` bucket, 10 per client IP per 10 s (§4.1a), for the same reason as `/api/unsubscribe`. Other errors: `VALIDATION_FAILED` (400, token missing or over 100 characters) · `MALFORMED_REQUEST` (400, body not JSON). No new codes.
 
 ### 6.13a Plan inquiries (AECI-1279)
+
+> **Removed 2026-10-19 (E8.1, AECI-1398).** The route, its handler, its Zod schemas
+> (`packages/shared/src/api/plan-inquiry.ts`), its two emails and the web form are gone. A
+> `POST /api/plan-inquiries` now gets the router's 404. The `plan_inquiries` table stays,
+> with no writer, until E8.6 drops it. The text below is the AECI-1279 contract, kept as a
+> record.
 
 #### `POST /api/plan-inquiries`
 

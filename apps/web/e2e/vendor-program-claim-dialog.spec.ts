@@ -300,17 +300,18 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     ).toBeFocused();
   });
 
-  test('the pricing link opens the inquiry dialog, not the claim dialog', async ({ page }) => {
+  // E8.1 (2026-10-19): the plan inquiry dialog is gone. "Questions? Contact us" is a
+  // plain link to /contact, with no topic, and opens no dialog.
+  test('the contact link goes to /contact', async ({ page }) => {
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
-    const pricing = page.locator('aec-plan-cards').getByRole('link', { name: 'Talk to us' });
-    await expect(pricing).toHaveAttribute('href', '/contact?topic=managed');
+    const contact = page.locator('aec-plan-cta-panel').getByRole('link', { name: 'Contact us' });
+    await expect(contact).toHaveAttribute('href', '/contact');
     await expect(async () => {
-      await pricing.click();
-      await expect(page.getByRole('dialog', { name: 'Talk to us about Managed' })).toBeVisible({
-        timeout: 2000,
-      });
+      await contact.click();
+      await expect(page).toHaveURL(/\/contact$/, { timeout: 2000 });
     }).toPass();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
 

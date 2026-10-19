@@ -34,18 +34,18 @@
  * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
  * A `routerLink` with a `target` builds the same absolute `/docs/...` href and lets
  * the browser open it, so `<base href>` does not touch it. Conversion links stay in
- * the tab: every claim link, the Managed inquiry and "Go to your portal".
+ * the tab: every claim link, the contact link and "Go to your portal".
  *
- * **Calls to action (§4.1, §15).** The hero pair (`top`), the plan cards (`card`),
+ * **Calls to action (§4.1, §15).** The hero button (`top`), the plan cards (`card`),
  * the phone bar (`mobile_bar`) and the closing panel (`bottom`). No rail on this page: it would reserve an empty column beside
  * every section (2026-10-12). The docs Plans page keeps its rail. Every one of them
  * opens the one claim dialog (AECI-1293): "Claim your listing", or "Start with
- * Managed" with Managed preselected. Without JS they link to `/search`
- * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
- * claim form. "Questions about Managed or pricing? Talk to us" opens the plan inquiry
- * dialog. The plan cards carry `data-plans-cta`, so the phone bar also hides while
- * they are on screen. Exactly one `aec-claim-dialog-host` and one
- * `aec-plan-inquiry-host`.
+ * Managed". Without JS they link to `/search` (`CLAIM_DIALOG_FALLBACK_HREF`), where
+ * the visitor finds the listing and its own claim form. Claim is the only plan
+ * action. "Questions? Contact us" (`aec-plan-contact-link`, a plain link to
+ * `/contact`) sits in the closing panel and under the FAQ, not on the hero (E8.1,
+ * 2026-10-19). The plan cards carry `data-plans-cta`, so the phone bar also hides
+ * while they are on screen. Exactly one `aec-claim-dialog-host`.
  *
  * **Static + edge-cached + SSR-safe.** No data fetch and no per-visitor state in the
  * HTML: `/vendor-program` carries `Cache-Tag: route:index` on the `/about` TTLs.
@@ -54,7 +54,7 @@
  * server HTML is the signed-out page for every visitor:
  *
  *  - a vendor seat: every claim dialog control becomes "Go to your portal";
- *  - a Managed company: also no phone bar, no pricing link or Managed steps in the panel.
+ *  - a Managed company: also no phone bar, no contact link or Managed steps in the panel.
  *
  * **Full width at desktop (§11).** Every section uses the whole `max-w-7xl`
  * container from `lg`: a 12-column split (heading left, content right), the Free
@@ -92,6 +92,7 @@ import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-mark
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
 import {
+  PlanContactLinkComponent,
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
   PlanCtaPanelComponent,
@@ -100,7 +101,6 @@ import {
   managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
-import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramBenefit } from './vendor-program-benefit';
 
@@ -117,16 +117,16 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
     MaintenanceMarker,
     NewTabIcon,
     PlanCardsComponent,
+    PlanContactLinkComponent,
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
     PlanCtaPanelComponent,
     ClaimDialogHost,
-    PlanInquiryHost,
     VendorProgramBenefit,
   ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- 1. Hero. Both calls to action, on the first screen at 375px. From lg the
+      <!-- 1. Hero. The claim call to action, on the first screen at 375px. From lg the
            copy takes the left seven columns and how claiming works the right five. -->
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
         <div
@@ -576,6 +576,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </p>
               </details>
             </div>
+            <aec-plan-contact-link class="lg:col-span-7 lg:col-start-6" />
           </section>
 
           <!-- 8. The closing panel, its own section (h2). -->
@@ -594,10 +595,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
         [portal]="portal()"
         [hideManaged]="hideManaged()"
       />
-      <!-- One claim dialog for every claim control on the page (AECI-1293), and one
-           inquiry dialog for the pricing links (AECI-1279). -->
+      <!-- One claim dialog for every claim control on the page (AECI-1293). -->
       <aec-claim-dialog-host />
-      <aec-plan-inquiry-host />
     </div>
 
     <ng-template #chevron>

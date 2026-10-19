@@ -4,7 +4,7 @@
  * `VENDOR_PROGRAM_PAGE_SPEC.md` §4 and §15. Moved here from `docs/docs-plans-cta.ts`
  * (AECI-1285). The placements:
  *
- *  - `top`        the hero pair (`PlanCtaActionsComponent`): under the docs intro, in
+ *  - `top`        the hero button (`PlanCtaActionsComponent`): under the docs intro, in
  *                 the vendor program hero.
  *  - `card`       the plan cards' buttons (`plan-cards.ts`).
  *  - `rail`       a small sticky card (`PlanCtaRailComponent`), on the docs Plans page
@@ -16,28 +16,27 @@
  *
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
  * dialog (`shared/claim-dialog/`): "Claim your listing" on the hero, the panel and the
- * Free card; "Start with Managed", with Managed preselected, on the Managed card, the
- * rail and the phone bar. Each page mounts exactly one `aec-claim-dialog-host`. Each
- * control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click
- * without JS or into a new tab still lands where a visitor can find the listing and
- * its claim form. "Talk to us about Managed" is now the text link "Questions about
- * pricing? Talk to us", which opens the plan inquiry dialog (AECI-1279,
- * `shared/plan-inquiry/`); each page also mounts one `aec-plan-inquiry-host`. Never
- * "Get Managed", "Buy" or "Start now": there is no checkout.
+ * Free card; "Start with Managed" on the Managed card, the rail and the phone bar.
+ * Each page mounts exactly one `aec-claim-dialog-host`. Each control is a link to
+ * `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click without JS or into a new
+ * tab still lands where a visitor can find the listing and its claim form. Claim is
+ * the only plan action. Never "Get Managed", "Buy" or "Start now": there is no
+ * checkout.
+ *
+ * **Questions? Contact us** (`PlanContactLinkComponent`, E8.1, 2026-10-19). A plain
+ * link to `/contact`, with no topic and no form. It replaced the plan inquiry dialog
+ * ("Talk to us"), which was removed with its route and emails. It sits beside the
+ * claim button in the closing panel, and the vendor program page also puts one under
+ * its FAQ. It is not on the hero.
  *
  * **Every component takes a `page`** (`docs_plans` | `vendor_program`), sent on
- * `plan_cta_clicked` and carried into both dialogs (`docs/ANALYTICS.md` §4).
+ * `plan_cta_clicked` and carried into the claim dialog (`docs/ANALYTICS.md` §4).
  *
  * **Signed-in hooks (spec §5, AECI-1286).** `portal` turns every dialog control into
  * "Go to your portal" (`/vendor`) and drops the panel's two claim steps. `hideManaged`
- * drops the rail card, the phone bar and the panel's pricing link, for a Managed company. Both default
- * to the signed-out page, so the SSR HTML stays visitor-neutral, and both are set only
- * after hydration.
- *
- * The reply line repeats the contact page's own promise ("most messages within a
- * couple of business days"), and so do the inquiry form's thanks line and the receipt
- * email (`PLAN_INQUIRY_REPLY_PROMISE`, `apps/api/src/lib/email.ts`). Change them
- * together, or none of them.
+ * drops the rail card, the phone bar and the panel's contact link, for a Managed
+ * company. Both default to the signed-out page, so the SSR HTML stays visitor-neutral,
+ * and both are set only after hydration.
  *
  * Static and visitor-neutral in the SSR HTML: the bar renders hidden and is shown only
  * by the browser, so the edge-cached HTML is the same for everyone. Every string is
@@ -64,14 +63,6 @@ import { Analytics, type PlanCtaPage, type PlanCtaPlacement } from '../../analyt
 import { formatPlanPrice, planLabel } from '../../vendor/vendor-plan';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
-import { PlanInquiryTrigger } from '../plan-inquiry/plan-inquiry-trigger';
-
-/**
- * The contact page, asked about Managed: the no-JS and new-tab destination of every
- * Managed button. It carries the same inquiry form the dialog does. A plain `href`,
- * not `routerLink`: `RouterLink` navigates even when the trigger prevented the click.
- */
-export const MANAGED_CONTACT_HREF = '/contact?topic=managed';
 
 /** Where "Go to your portal" points, for a signed-in vendor (spec §5). */
 export const PORTAL_PATH = '/vendor';
@@ -129,7 +120,7 @@ abstract class PlanCta {
   /** "Go to your portal" carries no click handler: a portal click is not a plan click. */
   protected readonly portalPath = PORTAL_PATH;
 
-  /** Which page this sits on, for `plan_cta_clicked` and both dialogs. */
+  /** Which page this sits on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();
   /** A signed-in vendor seat: every dialog control becomes "Go to your portal" (§5). */
   readonly portal = input(false);
@@ -140,10 +131,13 @@ abstract class PlanCta {
   }
 }
 
-/** "Questions about Managed or pricing? Talk to us": the plan inquiry dialog, in place (§15.1). */
+/**
+ * "Questions? Contact us": a plain link to the contact page, with no topic (E8.1).
+ * `inverse` on the Forest panel.
+ */
 @Component({
-  selector: 'aec-plan-pricing-link',
-  imports: [PlanInquiryTrigger],
+  selector: 'aec-plan-contact-link',
+  imports: [RouterLink],
   host: { class: 'block' },
   template: `
     <p
@@ -151,35 +145,30 @@ abstract class PlanCta {
         tone() === 'inverse' ? 'text-sm text-(--surface-base)' : 'text-sm text-(--text-secondary)'
       "
     >
-      <span i18n="@@planCta.pricing.lead">Questions about Managed or pricing?</span>
+      <span i18n="@@planCta.contact.lead">Questions?</span>
       {{ ' ' }}
       <a
-        [href]="contactHref"
-        [aecPlanInquiryTrigger]="placement()"
-        [aecPlanInquiryPage]="page()"
+        routerLink="/contact"
         [class]="
           tone() === 'inverse'
             ? 'font-semibold text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)'
             : 'font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
         "
-        i18n="@@planCta.pricing.link"
-        >Talk to us</a
+        i18n="@@planCta.contact.link"
+        >Contact us</a
       >
     </p>
   `,
 })
-export class PlanPricingLinkComponent {
-  protected readonly contactHref = MANAGED_CONTACT_HREF;
-  readonly page = input.required<PlanCtaPage>();
-  readonly placement = input.required<PlanCtaPlacement>();
+export class PlanContactLinkComponent {
   /** `inverse` on the Forest panel. */
   readonly tone = input<'default' | 'inverse'>('default');
 }
 
-/** The hero pair: under the docs intro, in the vendor program hero (`placement: top`). */
+/** The hero button: under the docs intro, in the vendor program hero (`placement: top`). */
 @Component({
   selector: 'aec-plan-cta-actions',
-  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
+  imports: [RouterLink, ClaimDialogTrigger],
   host: { class: 'block', 'data-plans-cta': 'top' },
   template: `
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
@@ -201,7 +190,6 @@ export class PlanPricingLinkComponent {
           >Claim your listing</a
         >
       }
-      <aec-plan-pricing-link [page]="page()" placement="top" />
     </div>
   `,
 })
@@ -214,7 +202,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
  */
 @Component({
   selector: 'aec-plan-cta-panel',
-  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
+  imports: [RouterLink, ClaimDialogTrigger, PlanContactLinkComponent],
   host: { class: 'block', 'data-plans-cta': 'bottom' },
   template: `
     <section
@@ -280,7 +268,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
             >
           }
           @if (!hideManaged()) {
-            <aec-plan-pricing-link [page]="page()" placement="bottom" tone="inverse" />
+            <aec-plan-contact-link tone="inverse" />
           }
         </div>
         @if (!portal() && !hideManaged()) {
@@ -311,7 +299,7 @@ export class PlanCtaPanelComponent extends PlanCta {
   /** `h3` under a page section (the docs page), `h2` as its own section. */
   readonly headingLevel = input<2 | 3>(3);
   /**
-   * A Managed company: drop the pricing link (spec §5). The two next steps describe the
+   * A Managed company: drop the contact link (spec §5). The two next steps describe the
    * claim dialog, so they show only while the button opens it, never beside "Go to your
    * portal" (ruled 2026-10-12, spec §4.1).
    */

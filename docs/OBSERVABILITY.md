@@ -382,7 +382,7 @@ contributes ≈490 between them.
 | `aeci.api.query.duration_ms` | 62 route patterns × 3 `status_class` | **186** |
 | `aeci.waf.ratelimit.blocked` | ~5 `rule` × ~3 `action` × ~3 `host` × 2 `source` | ~90 |
 | `aeci.stats.compute.key` | 2 `trigger` × 12 `home.*` keys × 3 `outcome` | 72 |
-| `aeci.email.send` | 29 `template` ids (27 transactional, 2 digests; AECI-1199, minus five and plus two attestation ids in AECI-1204, minus `claim-submitted-alert-retry` in AECI-1203, plus four protest ids in AECI-1205, plus two plan inquiry ids in AECI-1279) × 6 `outcome` (`suppressed` since AECI-1198, non-production only; `duplicate` since AECI-1202, only for a sender that passes a dedupe key; `unknown` since the AECI-1197 review, a timeout or thrown call), plus `paused` (AECI-1224) on the 16 pausable ids only | 190 |
+| `aeci.email.send` | 27 `template` ids (25 transactional, 2 digests; AECI-1199, minus five and plus two attestation ids in AECI-1204, minus `claim-submitted-alert-retry` in AECI-1203, plus four protest ids in AECI-1205, plus two plan inquiry ids in AECI-1279, minus those two in E8.1) × 6 `outcome` (`suppressed` since AECI-1198, non-production only; `duplicate` since AECI-1202, only for a sender that passes a dedupe key; `unknown` since the AECI-1197 review, a timeout or thrown call), plus `paused` (AECI-1224) on the 15 pausable ids only | 177 |
 | `aeci.email.switches.unavailable` | 2 `layer` (AECI-1224) | 2 |
 | `aeci.email.delivery` | recorded: ≤30 `template` (28 email ids including `mailing-list-welcome-operator-copy`, `supabase-sign-in`, `unknown`) × 5 `event` × 1 `tier` per project + replays of the same; drops: 5 `event` × ~7 `tier` × 3 `outcome` with `template:unknown` (AECI-1222). Worst case ≈300. Real volume is a few emails a day, so the series that actually appear in a window are far fewer: a template only makes series for the events it gets | ≤300 (worst), ~20 (expected) |
 | `aeci.cache.purge` | consumer (3 × 4) + `/admin/purge` (3 × 3 × 4 `mode`) | ~48 |
@@ -396,8 +396,9 @@ contributes ≈490 between them.
 | **During a deploy overlap** | ×2 for `version` | **≈1,872** |
 
 > **AECI-1279 adds 13 series to `aeci.email.send`: six outcomes for each of the two plan inquiry
-> ids, and `paused` on the pausable receipt.** The table's row above includes them; the totals
-> below it are left as AECI-645 computed them.
+> ids, and `paused` on the pausable receipt.** E8.1 (2026-10-19, AECI-1398) removed the two ids,
+> so those 13 series are gone again and the table's row above leaves them out. The totals below
+> it are left as AECI-645 computed them.
 >
 > **AECI-1224 adds 17 series: `outcome:paused` on the 15 pausable `aeci.email.send` ids and
 > the two-valued `aeci.email.switches.unavailable`.** That takes the steady state to ≈973 and

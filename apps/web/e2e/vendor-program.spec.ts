@@ -119,13 +119,11 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       await page.setViewportSize(size);
       await page.goto('/vendor-program');
       const hero = page.locator('aec-plan-cta-actions');
-      // AECI-1293: one claim control, and the pricing question as a text link.
+      // AECI-1293: one claim control. E8.1 (ruled 2026-10-19): no contact link on the hero.
       await expect(hero.getByRole('link', { name: 'Claim your listing' })).toBeInViewport({
         ratio: 1,
       });
-      await expect(hero.getByRole('link', { name: 'Talk to us' })).toBeInViewport({
-        ratio: 1,
-      });
+      await expect(hero.getByRole('link', { name: 'Contact us' })).toHaveCount(0);
     }
   });
 
