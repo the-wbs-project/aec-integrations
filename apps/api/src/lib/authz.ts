@@ -442,9 +442,9 @@ const LICENSE_TIER: EntitlementTier = 'verified';
  * Managed rights on a product (ruled 2026-10-14).
  *
  * Stored state only: a license is live while `ended_at` is NULL, whatever its
- * `ends_at` says. E6's daily job turns a passed `ends_at` into `ended_at`; until it
- * runs, the plan stays on. That is the same rule the retired entitlement row had
- * (nothing auto-lapsed a row), and the audit snapshot's clock check stays a RECORD rule.
+ * `ends_at` says. The 11:00 term-end lapse (`lib/license-lapse.ts`, AECI-1404) turns
+ * a passed `ends_at` into `ended_at`. Until it runs that day, the plan stays on. The
+ * audit snapshot's clock check stays a RECORD rule.
  *
  * Exported for `authz.spec.ts`: the derivation is pure, so its cases are pinned
  * without a database.

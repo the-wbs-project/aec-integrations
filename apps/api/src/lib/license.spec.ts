@@ -33,6 +33,7 @@ import {
   clearVendorBannedFlagsStatements,
   endLicensesStatements,
   grantLicensesStatements,
+  lapseTermStatements,
   loadLicensedProductIds,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
@@ -707,6 +708,228 @@ describe('endLicensesStatements', () => {
   });
 });
 
+describe('endLicensesStatements — expectEndsAt (AECI-1404)', () => {
+  const TERM = '2027-10-14T00:00:00.000Z';
+
+  it('guards the UPDATE on the scanned ends_at, so an extend that lands first wins', async () => {
+    await seedLicense('l-1', { endsAt: TERM });
+    const batch = endLicensesStatements(t.db, {
+      ...(await ctx()),
+      target: { licenseIds: ['l-1'] },
+      endReason: 'lapsed',
+      expectEndsAt: TERM,
+    });
+    expect(sqlOf(batch.stmts[0]!).sql).toMatch(/"ends_at" = \?/);
+    // An admin extend commits between the read and the batch.
+    await t.db.update(licenses).set({ endsAt: '2028-10-14T00:00:00.000Z' });
+    await run(batch);
+    expect((await licenseOf('l-1')).endedAt).toBeNull();
+  });
+
+  it('skips a target whose pre-read ends_at is not the expected term', async () => {
+    await seedLicense('l-1', { endsAt: '2028-10-14T00:00:00.000Z' });
+    const batch = endLicensesStatements(t.db, {
+      ...(await ctx()),
+      target: { licenseIds: ['l-1'] },
+      endReason: 'lapsed',
+      expectEndsAt: TERM,
+    });
+    expect(batch.stmts).toHaveLength(0);
+  });
+});
+
+describe('lapseTermStatements (AECI-1404)', () => {
+  const TERM = '2027-10-14T00:00:00.000Z';
+
+  it('ends the term: flagged licenses released, the rest lapsed, one reconcile', async () => {
+    await setVerified(true);
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-2', {
+      endsAt: TERM,
+      assignedProductId: P2,
+      assignedAt: OLD_TS,
+      releaseAtRenewal: true,
+    });
+    await seedLicense('l-pool', { endsAt: TERM });
+    // Another term on the same account, and a monthly license: neither is touched.
+    await seedLicense('l-later', { endsAt: '2028-10-14T00:00:00.000Z' });
+    await seedLicense('l-monthly', { endsAt: null });
+
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      actorId: null,
+      actorType: 'system',
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.stmts.filter(touchesVendors)).toHaveLength(1);
+    expect(batch.verifiedFlipped).toBe(false);
+    expect(batch.ended).toEqual(
+      expect.arrayContaining([
+        { licenseId: 'l-1', productId: P1, cause: 'lapsed' },
+        { licenseId: 'l-2', productId: P2, cause: 'released' },
+        { licenseId: 'l-pool', productId: null, cause: 'lapsed' },
+      ]),
+    );
+    expect(batch.ended).toHaveLength(3);
+    await run(batch);
+
+    expect(await licenseOf('l-1')).toMatchObject({
+      endedAt: NOW,
+      endReason: 'lapsed',
+      assignedProductId: P1,
+    });
+    expect(await licenseOf('l-2')).toMatchObject({ endedAt: NOW, endReason: 'released' });
+    expect((await licenseOf('l-later')).endedAt).toBeNull();
+    expect((await licenseOf('l-monthly')).endedAt).toBeNull();
+    const actions = (await audits()).map((a) => a.action).sort();
+    // AECI-1405: P1 carries onto the account's oldest live pool license, l-later.
+    expect(actions).toEqual([
+      'license.assigned',
+      'license.lapsed',
+      'license.lapsed',
+      'license.released',
+    ]);
+    expect((await licenseOf('l-later')).assignedProductId).toBe(P1);
+  });
+
+  it('predicts the flip once, over the whole term', async () => {
+    await setVerified(true);
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-2', { endsAt: TERM, releaseAtRenewal: true, assignedProductId: P2 });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.verifiedFlipped).toBe(true);
+    for (const entry of batch.auditEntries) {
+      expect(entry.metadata).toMatchObject({ verified_flipped: true });
+    }
+    await run(batch);
+    expect((await vendorOf()).verified).toBe(false);
+  });
+
+  describe('carry-over (AECI-1405, decision 12)', () => {
+    const P3 = 'p-3';
+    const LATER_TERM = '2028-10-14T00:00:00.000Z';
+    // The batch's `now` is NOW (2026-10-14), so the term must have passed by then.
+    const PAST = '2026-10-01T00:00:00.000Z';
+
+    beforeEach(async () => {
+      await t.db
+        .insert(products)
+        .values({ id: P3, slug: 'acme-three', name: 'Acme Three', promotionStatus: 'promoted' });
+      await setVerified(true);
+    });
+
+    const term = async (noCarryProductIds?: ReadonlySet<string>) =>
+      lapseTermStatements(t.db, {
+        ...(await ctx()),
+        actorId: null,
+        actorType: 'system',
+        billingAccountId: ACCOUNT_ID,
+        endsAt: PAST,
+        ...(noCarryProductIds ? { noCarryProductIds } : {}),
+      });
+
+    it('3 products, 2 pool licenses: the 2 assigned longest carry, the third ends', async () => {
+      await seedLicense('l-new', { endsAt: PAST, assignedProductId: P1, assignedAt: NOW });
+      await seedLicense('l-old', { endsAt: PAST, assignedProductId: P2, assignedAt: OLD_TS });
+      await seedLicense('l-mid', {
+        endsAt: PAST,
+        assignedProductId: P3,
+        assignedAt: '2024-01-01T00:00:00.000Z',
+      });
+      // The pool: oldest created first. A monthly and a later-term license.
+      await seedLicense('pool-b', { endsAt: null, createdAt: '2025-02-01T00:00:00.000Z' });
+      await seedLicense('pool-a', { endsAt: LATER_TERM, createdAt: '2025-01-01T00:00:00.000Z' });
+
+      const batch = await term();
+      expect(batch.carried).toEqual([
+        { productId: P2, fromLicenseId: 'l-old', toLicenseId: 'pool-a' },
+        { productId: P3, fromLicenseId: 'l-mid', toLicenseId: 'pool-b' },
+      ]);
+      expect(batch.fewerLicenses).toBe(true);
+      // The pool stays live, so the vendor stays verified.
+      expect(batch.verifiedFlipped).toBe(false);
+      expect(batch.stmts.filter(touchesVendors)).toHaveLength(1);
+      await run(batch);
+
+      expect(await licenseOf('pool-a')).toMatchObject({ assignedProductId: P2, assignedAt: NOW });
+      expect(await licenseOf('pool-b')).toMatchObject({ assignedProductId: P3, assignedAt: NOW });
+      for (const id of ['l-new', 'l-old', 'l-mid']) {
+        expect(await licenseOf(id)).toMatchObject({ endedAt: NOW, endReason: 'lapsed' });
+      }
+      const assigned = (await audits()).filter((a) => a.action === 'license.assigned');
+      expect(assigned.map((a) => a.metadata)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ license_id: 'pool-a', carried_from: 'l-old' }),
+          expect.objectContaining({ license_id: 'pool-b', carried_from: 'l-mid' }),
+        ]),
+      );
+      expect((await vendorOf()).verified).toBe(true);
+    });
+
+    it('never carries a product flagged release-at-renewal or cancel-at-term-end', async () => {
+      await seedLicense('l-rel', {
+        endsAt: PAST,
+        assignedProductId: P1,
+        assignedAt: OLD_TS,
+        releaseAtRenewal: true,
+      });
+      await seedLicense('l-ban', {
+        endsAt: PAST,
+        assignedProductId: P2,
+        assignedAt: OLD_TS,
+        cancelAtTermEnd: true,
+        cancelReason: 'vendor-banned',
+      });
+      await seedLicense('pool-a', { endsAt: null });
+
+      const batch = await term();
+      expect(batch.carried).toEqual([]);
+      expect(batch.fewerLicenses).toBe(false);
+      await run(batch);
+      expect((await licenseOf('pool-a')).assignedProductId).toBeNull();
+      expect((await licenseOf('l-rel')).endReason).toBe('released');
+      expect((await licenseOf('l-ban')).endReason).toBe('lapsed');
+    });
+
+    it('never assigns a product the caller pre-checked as licensed elsewhere', async () => {
+      await seedLicense('l-1', { endsAt: PAST, assignedProductId: P1, assignedAt: OLD_TS });
+      await seedLicense('l-2', { endsAt: PAST, assignedProductId: P2, assignedAt: NOW });
+      await seedLicense('pool-a', { endsAt: null });
+
+      const batch = await term(new Set([P1]));
+      expect(batch.carried).toEqual([
+        { productId: P2, fromLicenseId: 'l-2', toLicenseId: 'pool-a' },
+      ]);
+      expect(batch.fewerLicenses).toBe(false);
+    });
+
+    it('takes no pool license that is assigned, ended, or ending by now', async () => {
+      await seedLicense('l-1', { endsAt: PAST, assignedProductId: P1, assignedAt: OLD_TS });
+      await seedLicense('pool-held', { endsAt: null, assignedProductId: P2, assignedAt: OLD_TS });
+      await seedLicense('pool-ended', { endsAt: null, endedAt: OLD_TS, endReason: 'revoked' });
+      await seedLicense('pool-past', { endsAt: '2026-10-10T00:00:00.000Z' });
+      const batch = await term();
+      expect(batch.carried).toEqual([]);
+    });
+  });
+
+  it('is empty when nothing on the term is live', async () => {
+    await seedLicense('l-1', { endsAt: TERM, endedAt: OLD_TS, endReason: 'revoked' });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.stmts).toHaveLength(0);
+    expect(batch.ended).toEqual([]);
+  });
+});
+
 // ─── The mirror reconcile ────────────────────────────────────────────────────
 
 describe('the mirror reconcile', () => {
@@ -734,6 +957,12 @@ describe('the mirror reconcile', () => {
       }),
       // AECI-1353.
       setLicensesTermStatements(t.db, { ...c, licenseIds: ['l-held'], endsAt: '2028-01-01' }),
+      // AECI-1404.
+      lapseTermStatements(t.db, {
+        ...c,
+        billingAccountId: ACCOUNT_ID,
+        endsAt: '2027-10-14T00:00:00.000Z',
+      }),
     ];
   }
 

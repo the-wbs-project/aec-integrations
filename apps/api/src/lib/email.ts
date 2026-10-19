@@ -1666,8 +1666,9 @@ export function sendLicensesGrantedEmail(
 // `VENDOR_SIGNUP_PROCESS.md` §3 step 10: "Managed has ended for <products>." A license
 // on a product ended, so the product is on Free (decision 14, the hand-back). Sent
 // post-commit by the admin revoke (`PATCH /api/admin/licenses/:id`) to every unbanned
-// seat and to the billing email when set. E6's term-end job reuses this sender for a
-// lapse, so the subject takes several products and a cause, not a revoke's fields.
+// seat and to the billing email when set. The E6 term-end lapse (`lib/license-lapse.ts`,
+// AECI-1404) sends it too, one email per term and cause, so the subject takes several
+// products and a cause, not a revoke's fields.
 
 /** Why the license ended. The `LICENSE_END_REASONS` vocabulary. */
 export type ManagedEndedCause = 'revoked' | 'lapsed' | 'released';
@@ -1681,6 +1682,9 @@ export interface ManagedEndedSubject {
   cause: ManagedEndedCause;
   /** AECi's vendor-visible reason, on a revoke. Never an internal note. */
   reason: string | null;
+  /** A term-end lapse where the pool ran short, so the products assigned longest
+   *  kept a license and these did not (decision 12, AECI-1405). Adds one line. */
+  fewerLicenses?: boolean;
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -1719,12 +1723,15 @@ export function sendManagedEndedEmail(
       : opts.cause === 'lapsed'
         ? `${one ? 'The license' : 'The licenses'} reached ${one ? 'its' : 'their'} end date and ${one ? 'was' : 'were'} not renewed.`
         : `${one ? 'The license was' : 'The licenses were'} released.`;
+  const fewer = opts.fewerLicenses
+    ? 'You had fewer licenses than products. The products assigned longest kept theirs.'
+    : null;
   const handback =
     'Everything your team entered stays live, and nothing is deleted. Your team can no longer edit the Managed fields, and AEC Integrations may update them again.';
   const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
 
   const subject = `Managed has ended for ${subjectNames}`;
-  const paragraphs = [lead, why, handback, back];
+  const paragraphs = [lead, why, ...(fewer ? [fewer] : []), handback, back];
   const render = (link: LinkTagger): EmailContent => {
     const text = [...paragraphs];
     const html = paragraphs.map(escapeHtml);

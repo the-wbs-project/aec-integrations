@@ -328,6 +328,14 @@ changes. After commit `afterVendorWrite` enqueues `product:{slug}`, `index:produ
 release-at-renewal flag (`PATCH /api/vendor/licenses/:id`) purges nothing, because no public
 read renders it.
 
+**(b1d) the term-end lapse (AECI-1404)** — the 11:00 `entitlement-expiry` job ends every
+passed term first (`lib/license-lapse.ts`, `STAGE_2_PAID_TIERS_SPEC.md` §7.6). After every
+term batch has committed it enqueues ONE message for the whole run, `source: 'moderation'`:
+`product:{slug}` for every product that dropped to Free, `index:products`, and
+`vendorPurgeTags` for every vendor whose term dropped a product or flipped
+`vendors.verified`. More than one message only past `CACHE_PURGE_QUEUE_MAX_TAGS`. A term that
+ends only pool licenses and leaves the vendor another live license purges nothing.
+
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
 with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric

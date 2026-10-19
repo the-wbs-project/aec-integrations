@@ -3737,6 +3737,22 @@ describe('managed-ended (AECI-1371)', () => {
     });
     expect(String(lastBody(fetchSpy).text)).toContain('The license was released.');
   });
+
+  it('a lapse with too few licenses adds the carry-over line (AECI-1405), and only then', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const opts = {
+      ...base,
+      products: [{ slug: 'a', name: 'Alpha' }],
+      cause: 'lapsed' as const,
+      reason: null,
+    };
+    const line = 'You had fewer licenses than products. The products assigned longest kept theirs.';
+    await sendManagedEndedEmail(fakeContext(env), { ...opts, fewerLicenses: true });
+    expect(String(lastBody(fetchSpy).text)).toContain(line);
+    expect(String(lastBody(fetchSpy).html)).toContain(line);
+    await sendManagedEndedEmail(fakeContext(env), opts);
+    expect(String(lastBody(fetchSpy).text)).not.toContain(line);
+  });
 });
 
 describe('license-release-request-alert (AECI-1373)', () => {

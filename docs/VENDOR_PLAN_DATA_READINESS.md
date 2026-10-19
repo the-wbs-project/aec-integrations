@@ -215,7 +215,7 @@ that. Keep enums in code, as `tier` already is.
 | S1  | Tier ladder in `packages/shared/src/entitlements.ts`: `unclaimed`, `managed`, `insights`, `enhanced`. Capability subsets per tier. Move `analytics.view` out of Managed. Map existing `verified` rows to `managed`                                                                                                                 | Small  |
 | S2  | New `product_plans` table: `vendor_id`, `product_id`, `tier`, `status`, `period_start`, `period_end`, `renews_at`, `billing_frequency`, `auto_renew`, `commitment_months`, `ended_at`, `expiry_notice_sent_at`. Partial unique index for one live plan per product. Session carries a product-to-tier map. `requireCapability` becomes product-scoped, after `requireOwnedProduct` | Large  |
 | S3  | Label mirror: `vendors.verified` becomes "any active product plan", written in the same batch                                                                                                                                                                                                                                      | Medium |
-| S4  | Lifecycle: either a `read_only` status, or an auto-lapse cron writing `expired` at `period_end` with its own audit action. The second reverses the "warn, never lapse" rule in `STAGE_2_PAID_TIERS_SPEC.md` §7.3                                                                                                                  | Medium |
+| S4  | Lifecycle: either a `read_only` status, or an auto-lapse cron writing `expired` at `period_end` with its own audit action. The second reverses the "warn, never lapse" rule in `STAGE_2_PAID_TIERS_SPEC.md` §7.3. *Done on licenses 2026-10-19 (AECI-1404): the 11:00 job ends passed terms as `lapsed`, §7.6.* | Medium |
 | S5  | `plan_discounts`: kind (volume, founding, manual), percent, reason, start, end, approver. Volume position computed at quote time                                                                                                                                                                                                    | Small  |
 | S6  | `billing_accounts`, one per vendor: legal name, country, address, tax id, billing contact, `stripe_customer_id`, payment method (Stripe or wire). PII, so add it to the erasure register                                                                                                                                             | Medium |
 | S7  | `invoices` mirror: Stripe invoice id or Mercury reference, status, amount, period, `paid_at`, `paid_outside_stripe`. Fed by a Stripe webhook                                                                                                                                                                                     | Medium |
@@ -298,7 +298,7 @@ Issues marked "filed" were created on 2026-10-01. The rest are still proposals.
 | 10  | Claim approval can grant a seat with no plan                                 (filed AECI-1215) | app  | B      | Small    |
 | 11  | Tier ladder: Managed, Insights, Enhanced capability subsets (S1)             | app  | B      | Small    |
 | 12  | `product_plans` table and per-product capability gate (S2, S3)               | app  | B      | Large    |
-| 13  | Plan lifecycle: read-only state or auto-lapse, with audit (S4)               | app  | B      | Medium   |
+| 13  | Plan lifecycle: read-only state or auto-lapse, with audit (S4), done as the lapse (AECI-1404) | app  | B      | Medium   |
 | 14  | `billing_accounts`, `invoices`, `plan_discounts` (S5 to S7)                  | app  | B      | Medium   |
 | 15  | Enhanced: media table, testimonials table, structured use cases              | app  | E      | Large    |
 | 16  | Vendor replies to reviews                                                    (filed AECI-1173) | app  | M      | Medium   |
@@ -336,6 +336,9 @@ carries personal data and a consent obligation.
 2. **Answered 2026-10-14: no (AECI-1325).** "Warn, never lapse" stands. Each pilot vendor gets a
    one-month term from sign-on, extended case by case, and ended by an admin Clear. There is no
    shared 2026-12-14 end. `STAGE_2_PAID_TIERS_SPEC.md` §7.3 records the ruling.
+   **Superseded 2026-10-19 (AECI-1404):** licenses now lapse on their end date, so a pilot
+   ends on its own, not by hand. The one-month term from sign-on still stands.
+   `STAGE_2_PAID_TIERS_SPEC.md` §7.6.
 3. **Answered 2026-10-01.** Attestation stays a Managed feature. The four `listing_tier` fields
    become editable on every plan.
 4. **On a product listed under two vendors, who can buy its plan?** Company-profile editing is
