@@ -13,11 +13,11 @@ import type { VendorEntitlementBlock } from '@aeci/shared';
 
 import { isCatalogueSeat } from '../vendor-capabilities';
 import {
-  daysRemaining,
   noPlanChangesLine,
   parseDate,
   planPriceSentence,
   planState,
+  signedDaysRemaining,
   type PlanState,
 } from '../vendor-plan';
 
@@ -37,8 +37,12 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  *
  * ── The states (`vendor-plan.ts`) ───────────────────────────────────────────
  *  - `managed`: what Managed covers for this product, then what Free also gives.
- *  - `expiring`: the same, led by the end date and a renewal path. Nothing has
- *    been taken away yet, and the copy says so.
+ *  - `expiring`: the same, led by the end date, the days left and a renewal
+ *    path. Nothing has been taken away yet, and the copy says so. "Ends today"
+ *    only on the end day itself (AECI-1408).
+ *  - `overdue`: the end day passed and the daily lapse job has not ended the
+ *    license yet. "Managed ended on {date}. The change is on its way." It
+ *    offers the `ended` call to action, because the plan is going.
  *  - `pending`: Managed is arranged and not switched on, so the product is on
  *    Free until it is.
  *  - `ended`: the plan ended, the product is on Free, and nothing entered was
@@ -54,7 +58,9 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  * `catalogue` shows Managed's price, and nothing beyond Managed is offered
  * (decision 9). No promise of search placement or instant search. The vendor's
  * own arrangement (amount paid, terms, PO) is never shown. Renewal is a
- * conversation (`/contact`), not a checkout.
+ * conversation (`/contact`), not a checkout. Once the plan ended, an owner's
+ * button is "Get licenses" on the Billing tab (`billingLink`, AECI-1408); a
+ * member keeps the contact path.
  *
  * ── The price line ──────────────────────────────────────────────────────────
  * No "Draft price" label (ruling 2026-10-08). The line is Managed's two list
@@ -106,6 +112,9 @@ import { VendorPlanBadge } from './vendor-plan-badge';
         @case ('expiring') {
           <ng-container [ngTemplateOutlet]="managedLists" />
         }
+        @case ('overdue') {
+          <ng-container [ngTemplateOutlet]="managedLists" />
+        }
         @default {
           <h3 [class]="listHeadingClass" i18n="@@vendor.plan.free.includes">Free includes</h3>
           <ng-container [ngTemplateOutlet]="freeList" />
@@ -129,9 +138,10 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           >
         }
         @case ('ended') {
-          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
-            >Ask about Managed for this product</a
-          >
+          <ng-container [ngTemplateOutlet]="endedCta" />
+        }
+        @case ('overdue') {
+          <ng-container [ngTemplateOutlet]="endedCta" />
         }
         @case ('expiring') {
           <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.renew"
@@ -149,6 +159,26 @@ import { VendorPlanBadge } from './vendor-plan-badge';
         {{ decision10 }}
       </p>
     </section>
+
+    <!--
+      AECI-1408 (ruling 4): an owner is sent to the Billing tab to get licenses.
+      A member seat cannot open Billing, so it keeps the contact path.
+    -->
+    <ng-template #endedCta>
+      @if (billingLink(); as link) {
+        <a
+          [routerLink]="link"
+          [class]="ctaClass"
+          data-testid="plan-get-licenses"
+          i18n="@@vendor.plan.cta.getLicenses"
+          >Get licenses</a
+        >
+      } @else {
+        <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
+          >Ask about Managed for this product</a
+        >
+      }
+    </ng-template>
 
     <ng-template #managedLists>
       <h3 [class]="listHeadingClass" i18n="@@vendor.plan.managed.covers">Managed covers</h3>
@@ -199,6 +229,13 @@ export class VendorPlanPanel {
   readonly productRole = input<string | null>(null);
   /** Unique per page, so two panels never share a heading id. */
   readonly headingId = input('vendor-plan-panel-h');
+  /**
+   * Router commands to the Billing tab, for an owner seat only (AECI-1408,
+   * ruling 4). When set, the `ended` and `overdue` states offer "Get licenses"
+   * there. `null` for a member seat, which keeps the contact path. The host
+   * builds it relative to its own route, so the preview resolves it too.
+   */
+  readonly billingLink = input<string | readonly unknown[] | null>(null);
 
   /**
    * Clock injection point, read at day granularity, so the expiring state is
@@ -236,12 +273,19 @@ export class VendorPlanPanel {
           : $localize`:@@vendor.plan.lede.managed:This product is on Managed, through ${date}:DATE:.`;
       }
       case 'expiring': {
-        const days = daysRemaining(plan, this.now()) ?? 0;
+        // `expiring` always carries a term, so the date is never null here.
+        const date = this.format(plan.period_end) ?? '';
+        const days = signedDaysRemaining(plan, this.now()) ?? 0;
         return days === 0
-          ? $localize`:@@vendor.plan.lede.expiring.today:Managed ends today for this product. Nothing changes before then.`
+          ? $localize`:@@vendor.plan.lede.expiring.today:Managed ends today, ${date}:DATE:, for this product. Nothing changes before then.`
           : days === 1
-            ? $localize`:@@vendor.plan.lede.expiring.one:Managed ends in 1 day for this product. Nothing changes before then.`
-            : $localize`:@@vendor.plan.lede.expiring:Managed ends in ${days}:DAYS: days for this product. Nothing changes before then.`;
+            ? $localize`:@@vendor.plan.lede.expiring.one:Managed ends on ${date}:DATE: for this product, in 1 day. Nothing changes before then.`
+            : $localize`:@@vendor.plan.lede.expiring:Managed ends on ${date}:DATE: for this product, in ${days}:DAYS: days. Nothing changes before then.`;
+      }
+      case 'overdue': {
+        // The end day passed and the daily job has not ended the license yet.
+        const date = this.format(plan.period_end) ?? '';
+        return $localize`:@@vendor.plan.lede.overdue:Managed ended on ${date}:DATE:. The change is on its way.`;
       }
       case 'pending':
         return $localize`:@@vendor.plan.lede.pending:Managed is arranged for this product and switches on shortly. Until it does, the product is on Free.`;
@@ -258,11 +302,12 @@ export class VendorPlanPanel {
     }
   });
 
-  /** Bordered, never a fill. `expiring` takes the warm Bone wash because a term
-   *  running out is a calendar fact, not a failure. */
+  /** Bordered, never a fill. `expiring` and `overdue` take the warm Bone wash
+   *  because a term running out is a calendar fact, not a failure. */
   protected readonly shellClass = computed(() => {
     const base = 'block rounded-(--radius-md) border p-5 md:p-6';
-    return this.state() === 'expiring'
+    const state = this.state();
+    return state === 'expiring' || state === 'overdue'
       ? `${base} border-(--border-strong) bg-(--accent-warm)`
       : `${base} border-(--border-default) bg-(--surface-raised)`;
   });

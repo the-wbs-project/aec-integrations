@@ -22,10 +22,11 @@
  * the transport and a stubbed seam would never reach it.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, profiles, vendors } from '../db/schema';
+import { auditLog, billingAccounts, licenses, products, profiles, vendors } from '../db/schema';
 import type { BatchStmt } from './audit';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -104,6 +105,8 @@ async function seedLicense(
     expiryNoticeSentAt?: string | null;
     source?: string;
     reference?: string | null;
+    assignedProductId?: string | null;
+    termsVersion?: string | null;
   } = {},
 ) {
   await t.db.insert(licenses).values({
@@ -116,6 +119,9 @@ async function seedLicense(
     endReason: overrides.endedAt ? 'revoked' : null,
     reference: overrides.reference === undefined ? 'PO-4471' : overrides.reference,
     expiryNoticeSentAt: overrides.expiryNoticeSentAt ?? null,
+    assignedProductId: overrides.assignedProductId ?? null,
+    assignedAt: overrides.assignedProductId ? OLD_TS : null,
+    termsVersion: overrides.termsVersion ?? null,
     createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
@@ -129,7 +135,15 @@ async function seedTerm() {
 }
 
 interface Recorded {
-  vendor: Array<{ to: string; daysRemaining: number; periodEndDay: string }>;
+  vendor: Array<{
+    to: string;
+    daysRemaining: number;
+    periodEndDay: string;
+    licenseCount: number;
+    productNames: readonly string[];
+    sources: readonly string[];
+    termsChange: boolean;
+  }>;
   admin: Array<{
     to: string;
     vendorSlug: string;
@@ -150,6 +164,10 @@ function seams(outcomes: { vendor?: EmailOutcome; admin?: EmailOutcome } = {}) {
       to: o.to,
       daysRemaining: o.daysRemaining,
       periodEndDay: o.periodEndDay,
+      licenseCount: o.licenseCount,
+      productNames: o.productNames,
+      sources: o.sources,
+      termsChange: o.termsChange,
     });
     return outcomes.vendor ?? 'sent';
   }) as unknown as SendEntitlementExpiringEmail;
@@ -255,6 +273,7 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
     vendorNotice: 'sent' as const,
     adminNotice: 'sent' as const,
     vendorRecipients: 1,
+    termsChange: false,
   };
 
   it('names no `ended_at`, `assigned_product_id` or `vendors` in any statement, not even as a guard', () => {
@@ -365,7 +384,7 @@ describe('the scan', () => {
     expect(result.warned).toBe(0);
   });
 
-  it('DOES select a live license already past its end date — the state nothing lapses yet', async () => {
+  it('DOES select a live license already past its end date, so the operator hears of a term the lapse did not end', async () => {
     await seedVendor();
     await seedSeat();
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();
@@ -543,6 +562,172 @@ describe('the `expiry_notice_sent_at` fence — one notice per term, not one per
   });
 });
 
+describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
+  const P1 = 'p1111111-1111-4111-8111-111111111111';
+  const P2 = 'p2222222-2222-4222-8222-222222222222';
+  const L2 = '55555555-5555-4555-8555-555555555555';
+  const L3 = '66666666-6666-4666-8666-666666666666';
+
+  async function setBillingEmail(email: string | null) {
+    await t.db
+      .update(billingAccounts)
+      .set({ billingEmail: email })
+      .where(eq(billingAccounts.id, accountFor(VENDOR_ID)));
+  }
+
+  it('sends the vendor copy to every seat AND the billing email (decision 16)', async () => {
+    await seedTerm();
+    await setBillingEmail('ap@vendor.example');
+    const s = seams();
+
+    const result = await sweep(s);
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual([
+      'seat-2222@vendor.example',
+      'ap@vendor.example',
+    ]);
+    expect(result.vendor.sent).toBe(1);
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.vendor_recipients).toBe(2);
+  });
+
+  it('sends once when the billing email is a seat address in another case', async () => {
+    await seedTerm();
+    await setBillingEmail('  SEAT-2222@Vendor.Example ');
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual(['seat-2222@vendor.example']);
+  });
+
+  it('still reaches the billing email when no seat address resolves', async () => {
+    await seedTerm();
+    await setBillingEmail('ap@vendor.example');
+    const s = seams();
+
+    const result = await sweep(s, { fetchSeatEmails: noSeatEmails });
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual(['ap@vendor.example']);
+    expect(result.vendor.sent).toBe(1);
+  });
+
+  it('passes the license count, the products, the sources and no terms change', async () => {
+    await seedVendor();
+    await seedSeat();
+    await t.db.insert(products).values([
+      { id: P1, slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: P2, slug: 'bim-360', name: 'BIM 360', promotionStatus: 'promoted' },
+    ]);
+    await seedLicense({ assignedProductId: P1 });
+    await seedLicense({ id: L2, assignedProductId: P2, source: 'complimentary' });
+    // Unassigned: counted, but names no product.
+    await seedLicense({ id: L3 });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.vendor[0]).toMatchObject({
+      licenseCount: 3,
+      productNames: ['BIM 360', 'Revit'],
+      sources: ['complimentary', 'invoice'],
+      termsChange: false,
+    });
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.license_count).toBe(3);
+    expect(metadata.terms_change).toBe(false);
+  });
+
+  it('flags a terms change when a license accepted an older agreement version (decision 9)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: '0.9', source: 'stripe' });
+    await seedLicense({ id: L2, termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(true);
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.terms_change).toBe(true);
+  });
+
+  it('gives no terms notice for the current version', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(false);
+  });
+
+  it('gives no terms notice for a null version, because nothing was accepted', async () => {
+    await seedTerm();
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(false);
+  });
+
+  const sendRealNotice = async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
+    try {
+      await runEntitlementExpirySweep(
+        ctx({
+          ENV: 'production',
+          RESEND_API_KEY: 'rk_test',
+          EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+          POSTHOG_PROJECT_KEY: undefined,
+        }),
+        t.db,
+        {
+          now: NOW,
+          fetchSeatEmails: seatEmails,
+          sendVendorEmail: sendEntitlementExpiringEmail,
+          sendAdminEmail: async () => 'skipped',
+        },
+      );
+      const vendorSend = fetchSpy.mock.calls
+        .filter((call) => String(call[0]) === 'https://api.resend.com/emails')
+        .map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
+        .find((b) => JSON.stringify(b.to).includes('seat-2222@vendor.example'));
+      return String(vendorSend?.text);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  };
+
+  it('renders the price, the count and the terms notice through the real sender', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: '0.9', source: 'complimentary' });
+
+    const text = await sendRealNotice();
+
+    expect(text).toContain('Managed is $25 a month or $250 a year per product.');
+    expect(text).toContain('It covers 1 Managed license. It is not on a product yet.');
+    expect(text).toContain('A new version of the Managed plan agreement applies from');
+  });
+
+  it('leaves the list price out when a license in the term is invoice-sourced (ruling B)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ source: 'complimentary' });
+    await seedLicense({ id: 'lic-invoice', source: 'invoice' });
+
+    const text = await sendRealNotice();
+
+    expect(text).toContain('It covers 2 Managed licenses.');
+    expect(text).not.toContain('Managed is $25');
+  });
+});
+
 describe('without SUPABASE_SERVICE_ROLE_KEY', () => {
   it('reports the vendor send `skipped`, still sends the admin copy, and never throws', async () => {
     await seedTerm();
@@ -717,8 +902,8 @@ describe('multiple vendors', () => {
 
 describe('the batch cap — never-warned terms are read before the already-warned backlog', () => {
   it('warns a due term even when the cap is filled by already-warned past-term licenses', async () => {
-    // The steady-state backlog: past-term live licenses already warned for their
-    // (only) term. Nothing lapses yet, so they never leave the scan, they stay
+    // The backlog: past-term live licenses already warned for their (only) term.
+    // They are terms the lapse did not end, so they stay in the scan, they stay
     // stamped-and-suppressed, and their past `ends_at` sorts them to the FRONT of an
     // `ends_at`-only ordering.
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();

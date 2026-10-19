@@ -554,6 +554,11 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         vendorName: 'Bentley',
         periodEndDay: '2026-11-01',
         daysRemaining: 30,
+        licenseCount: 2,
+        productNames: ['MicroStation'],
+        sources: ['invoice'],
+        // Renders the agreement link, so its tag is checked too.
+        termsChange: true,
       }),
   },
   'licenses-granted': {

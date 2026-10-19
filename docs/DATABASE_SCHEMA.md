@@ -380,7 +380,7 @@ Neither column is indexed: both are read with the row and never filtered or sort
 
 Not indexed: it is read with the row, never filtered on.
 
-**Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
+**Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. **Since AECI-1407 the fence holds only while a live license is assigned to the product.** Promote's guard is `usefulness_source IS NULL OR (usefulness_source = 'vendor' AND NOT EXISTS (live license))`, and when it writes over a `'vendor'` block on a product with no live license, the same UPDATE sets `usefulness_source` back to NULL. An `'admin'` value stays fenced whatever the license state: the hand-back covers vendor-written usefulness only. That clear is promote's only write to the column; promote never sets it non-null. Nothing clears it when a license ends, so the hand-back happens at the next promote that sends `usefulness` (ADR 0033, 2026-10-19 amendment). Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
 
 ### 4.3 `integrations`
 
@@ -1673,7 +1673,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   *As built (AECI-1358, 2026-10-17): `vendorPlanSnapshot` and `loadEntitlement` are deleted.
   `licensePlanSnapshot` is the only snapshot builder.*
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
-  the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
+  the stored status. Nothing auto-lapsed a `vendor_entitlements` row: the expiry cron only
+  warned. (*As built 2026-10-19, AECI-1404: licenses now lapse on their end date, so the same
+  rule covers only the hours before the 11:00 job runs.*) So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
   'expired'`. `vendorPlanSnapshot` takes the row's `period_end` and the write's `now` for this.
   The vendor path reads `period_end` from the session's `entitlement` block. The admin path reads
@@ -1685,7 +1687,8 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   `licensePlanSnapshot`: live licenses whose `ends_at` are all at or before the write time record
   `expired`, and a null `ends_at` (monthly) never lapses on the clock. The vendor path reads
   `ends_at` from the session's `licenses`, the admin path from `loadVendorLicenses`. Session
-  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants.
+  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants
+  until the 11:00 lapse job ends it (AECI-1404).
 - **The cause product's plan: `product_tier`, `product_entitlement_status` (AECI-1376, migration
   `0080`, 2026-10-16).** Since AECI-1355 search-engine resubmission is per product
   (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)). These two columns record, at write time, the plan of the
@@ -2034,7 +2037,7 @@ create table licenses (
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
   terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
   granted_by text,               -- a profiles.id; NO FK
-  expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it
+  expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it, the lapse does not clear it
   created_at text not null,
   updated_at text not null
 );
@@ -2043,8 +2046,8 @@ create index licenses_account_idx on licenses(billing_account_id);
 -- One LIVE license per product. Ended licenses keep their assignment as history.
 create unique index licenses_live_product_idx on licenses(assigned_product_id)
   where ended_at is null;
--- The daily expiry sweep's scan (AECI-1356; E6 adds the lapse). Monthly and ended
--- rows are invisible to it.
+-- The daily scans: the 30-day expiry sweep (AECI-1356) and the lapse that ends passed
+-- terms (AECI-1404). Monthly and ended rows are invisible to both.
 create index licenses_ends_idx on licenses(ends_at)
   where ended_at is null and ends_at is not null;
 create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id)
@@ -2052,7 +2055,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 ```
 
 - **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
-  scheduled end; E6's daily job turns it into `ended_at`. Never derive "live" from `ends_at`
+  scheduled end; the 11:00 lapse job (`lib/license-lapse.ts`, AECI-1404) turns it into
+  `ended_at`. Never derive "live" from `ends_at`
   at read time.
 - **Monthly and annual share one column.** `ends_at` null on a `stripe` license is monthly
   (renews until cancelled). `ends_at` null on any other source has no end date yet: the E1.5
@@ -2065,6 +2069,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **Hand-back keeps the assignment** (decision 14). The lapse stamps `ended_at` and leaves
   `assigned_product_id`, which the partial unique index allows. The product's edit right
   goes because the gate finds no live license.
+- **`assigned_at` is seniority.** Every assign stamps now, except the term-end carry-over
+  (AECI-1405). A product carried onto a pool license keeps the lapsing license's
+  `assigned_at` (ruling A, 2026-10-19), because decision 12 lets the oldest assignment keep
+  the license. Its `license.assigned` audit row records the kept value in
+  `after_state.assigned_at`.
 - **Product retraction frees the slot, explicitly and audited.** `PRODUCT_FK_HANDLING` in
   `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to
   `force-detach`. The `ON DELETE SET NULL` is only a backstop. The FK action alone would
@@ -2123,10 +2132,17 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   PRODUCT_ALREADY_LICENSED`, never a 500. Their audit rows (`license.assigned`,
   `license.release_at_renewal_set` / `_cleared`) are receipts on the vendor's Changes page.
 - **How a license ended.** There is no status column. `end_reason` records why, written
-  with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
-  `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
-  action. It is NULL while the license is live. `cancel_reason` is a different question:
-  why a live license was set not to renew. Ending a license never touches it.
+  with `ended_at` (`LICENSE_END_REASONS` in `@aeci/shared/entitlements`: `lapsed`,
+  `released`, `revoked`). It also picks the audit action. It is NULL while the license is
+  live. Two writers set the pair. The admin revoke writes `revoked` through
+  `endLicensesStatements`. Since AECI-1404 the 11:00 lapse (`lib/license-lapse.ts`) writes
+  `lapsed`, or `released` for a license flagged release-at-renewal, through
+  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Both builders share
+  one private end writer, `endWrites` in `lib/license.ts`. The lapse skips
+  `source = 'stripe'` licenses: the Stripe webhook ends those (E9, decision 13). The
+  `ops:retract-product` lane does not end a license: it NULLs `assigned_product_id`.
+  `cancel_reason` is a different question: why a live license was set not to renew.
+  Ending a license never touches it.
 - **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
   `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
@@ -5179,7 +5195,7 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 
 ### Usefulness ownership (AECI-963)
 
-Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
+Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with two exceptions. Promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. And since AECI-1407 the fence holds only while the product has a live license: promote then writes the column and clears `usefulness_source` (§4.2). See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 
 ### Logo ownership (AECI-955)
 

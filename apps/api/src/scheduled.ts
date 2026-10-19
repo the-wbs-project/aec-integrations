@@ -77,9 +77,10 @@
  * inside 30 days → a renewal prompt to the vendor's seats and an operator copy to
  * `SUPPORT_EMAIL`, one notice per billing account per end date, fenced by
  * `licenses.expiry_notice_sent_at`. Queue-less (a small read plus a handful of
- * fail-open emails). **It warns and never lapses** — it writes
- * `expiry_notice_sent_at` and an audit row, never `ended_at` and never
- * `vendors.verified` (§7.3). Open-ended licenses are invisible to it.
+ * fail-open emails). The warning batch writes `expiry_notice_sent_at` and an audit
+ * row, never `ended_at` and never `vendors.verified` (§7.3). Before it, the term-end
+ * lapse (`./lib/license-lapse`, AECI-1404, §7.6) ends every passed term in batches of
+ * its own. Open-ended licenses are invisible to both.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -182,6 +183,7 @@ import {
   type GscInspectChunkResult,
 } from './lib/gsc-inspect-job';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import { runLicenseLapse, type LapseResult } from './lib/license-lapse';
 import {
   drainIndexNowQueue,
   drainMetricOutcome,
@@ -201,6 +203,7 @@ import {
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
+  sendManagedEndedEmail,
 } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
@@ -1539,15 +1542,20 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
  * vendor's seats and the operator once per billing account and end date, and stamp
  * `licenses.expiry_notice_sent_at`.
  *
- * The two email senders are injected here — the §1.3 route-seam pattern — so the
- * sweep module never reaches the Resend transport and its specs need no email
- * stubbing beyond these two parameters.
+ * First, the term-end lapse (AECI-1404, `lib/license-lapse.ts`): every term whose
+ * end has passed ends in its own batch, before the warnings run. So a lapsed term is
+ * never warned, and the lapse needs no cron or job key of its own.
+ *
+ * The email senders are injected here — the §1.3 route-seam pattern — so the
+ * modules never reach the Resend transport and their specs need no email
+ * stubbing beyond these parameters.
  *
  * Fail-safe like the read-only gauges rather than rethrowing like the attestation
- * sweep: this job WARNS, and a warning delayed by one night costs a day of lead
- * time on an offline renewal that a human performs anyway. Retrying it would also
- * re-send every notice whose fence write is what failed. So an unexpected error is
- * an `outcome:failed` heartbeat and a `failed` `job_runs` row, never a throw.
+ * sweep. A warning delayed by one night costs a day of lead time on an offline
+ * renewal that a human performs anyway. Retrying would re-send every notice whose
+ * fence write is what failed, and replay a lapse against licenses it already ended.
+ * So an unexpected error is an `outcome:failed` heartbeat and a `failed` `job_runs`
+ * row, never a throw.
  */
 async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/entitlement-expiry');
@@ -1555,30 +1563,49 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
 
   try {
     const { db } = cronDb(env);
-    const result = await runEntitlementExpirySweep(
-      { env, executionCtx: ctx, req: { raw: req } },
-      db,
-      {
+    const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
+    // AECI-1404: end passed terms FIRST, so a lapsed term is never warned. Its own
+    // catch: a failed lapse still lets the warnings go out, and fails the run.
+    let lapse: LapseResult | null = null;
+    let lapseError: string | null = null;
+    try {
+      lapse = await runLicenseLapse(emailCtx, db, {
         metrics: metricSink(ctx, env, req),
-        sendVendorEmail: sendEntitlementExpiringEmail,
-        sendAdminEmail: sendEntitlementExpiringAdminEmail,
-      },
-    );
-    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+        sendEnded: sendManagedEndedEmail,
+      });
+    } catch (error) {
+      lapseError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.license.lapse.crashed',
+        source: 'entitlement-expiry-cron',
+        reason: lapseError,
+      });
+    }
+    const result = await runEntitlementExpirySweep(emailCtx, db, {
+      metrics: metricSink(ctx, env, req),
+      sendVendorEmail: sendEntitlementExpiringEmail,
+      sendAdminEmail: sendEntitlementExpiringAdminEmail,
+    });
+    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, [
+      'trigger:cron',
+      lapseError ? 'outcome:failed' : 'outcome:ok',
+    ]);
     submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
     logToPosthog(ctx, env, req, {
-      level: result.batchFailures > 0 ? 'error' : 'info',
-      message: `aeci.entitlement.expiry due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      level: result.batchFailures > 0 || (lapse?.batchFailures ?? 0) > 0 ? 'error' : 'info',
+      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
       source: 'entitlement-expiry-cron',
     });
     // A run with per-notice send failures is `ok` with the counts in `detail`, not
     // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
     // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
-    // fence is retried tomorrow. Only the catch below is a failure.
+    // fence is retried tomorrow, and a rolled-back lapse term is re-scanned tomorrow.
+    // A crashed lapse scan and the catch below are failures.
     return {
-      outcome: 'ok',
+      outcome: lapseError ? 'failed' : 'ok',
       detail: {
         job: 'entitlement-expiry',
         due: result.due,
@@ -1589,6 +1616,14 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         batchFailures: result.batchFailures,
         vendor: result.vendor,
         admin: result.admin,
+        lapsed_terms: lapse?.lapsedTerms ?? 0,
+        lapsed_licenses: lapse?.lapsedLicenses ?? 0,
+        carried: lapse?.carried ?? 0,
+        rerouted_contests: lapse?.reroutedContests ?? 0,
+        lapse_capped: lapse?.capped ?? 0,
+        lapse_batch_failures: lapse?.batchFailures ?? 0,
+        ...(lapse ? { lapse_email: lapse.emails } : {}),
+        ...(lapseError ? { lapse_error: lapseError } : {}),
       },
     };
   } catch (error) {
@@ -2215,6 +2250,13 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // re-attempted tomorrow, and the `expiry_notice_sent_at` fence makes that
       // re-run pick up exactly what this one missed. No `ENTITLEMENT_EXPIRY_QUEUE`
       // binding exists, so it always runs inline.
+      //
+      // Since AECI-1404 the job also WRITES: its lapse pre-step ends passed terms.
+      // That is a second reason to stay queue-less, like `retention`: a queue retry
+      // would replay the run against licenses it already ended and re-send the
+      // `managed-ended` emails. The scan is the fence (an ended term is no longer
+      // selected), so tomorrow's cron is the only retry. This diverges on purpose
+      // from the usual "cron enqueues, consumer works" pattern.
       return undefined;
     case 'snapshot':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is

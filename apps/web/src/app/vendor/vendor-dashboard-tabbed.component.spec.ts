@@ -49,6 +49,7 @@ import {
   VENDOR_ME_FIXTURE,
   VENDOR_ME_FREE_FIXTURE,
   VENDOR_ME_PILOT_ENDED_FIXTURE,
+  VENDOR_ME_PRODUCT_ENDED_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
   NOTHING_CHECKED,
   productChecklistFixture,
@@ -327,12 +328,24 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
 
     expect(banner).not.toBeNull();
     expect(banner?.textContent).toContain('Nothing you entered was removed');
-    expect(banner?.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe(
-      'Talk to us about Managed',
-    );
+    // AECI-1408: the fixture is an owner seat, so the path is Billing.
+    const cta = banner?.querySelector<HTMLAnchorElement>('[data-testid="plan-ended-get-licenses"]');
+    expect(cta?.textContent?.trim()).toBe('Get licenses');
+    expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
+    expect(banner?.querySelector('a[href="/contact"]')).toBeNull();
     // Not dismissible: it states the current state.
     expect(banner?.querySelector('button')).toBeNull();
     expect(el.querySelector('aec-vendor-checklist')).not.toBeNull();
+  });
+
+  it('gives a member seat the contact path, because a member cannot open Billing (AECI-1408)', async () => {
+    const el = root(await open('overview', { ...VENDOR_ME_DOWNGRADED_FIXTURE, seat_owner: false }));
+    const banner = el.querySelector('[data-testid="plan-ended-banner"]');
+
+    expect(banner?.querySelector('[data-testid="plan-ended-get-licenses"]')).toBeNull();
+    expect(banner?.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe(
+      'Talk to us about Managed',
+    );
   });
 
   it('keeps company details editable for a revoked vendor, off CAPABILITIES (AECI-1214)', async () => {
@@ -1044,5 +1057,65 @@ describe('VendorDashboardTabbed — the Reviews tab (AECI-1179)', () => {
     const text = root(harness).textContent ?? '';
     expect(text).toContain('2 reviews of Summit Field Issues have no reply from you');
     expect(text).toContain('A review of Summit Model Coordination has no reply from you');
+  });
+});
+
+/**
+ * AECI-1408 (`VENDOR_SIGNUP_PROCESS.md` §3 step 10, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.18): one product's license ended while the vendor keeps Managed elsewhere.
+ * The product-ended banner heads every tab of THAT product, "Get licenses" goes
+ * to Billing for an owner only, and the vendor-wide banner wins when it shows.
+ */
+describe('VendorDashboardTabbed — the product-ended banner (AECI-1408)', () => {
+  const ENDED = VENDOR_ME_PRODUCT_ENDED_FIXTURE.products[1]!;
+  const LIVE = VENDOR_ME_PRODUCT_ENDED_FIXTURE.products[0]!;
+  const banner = (harness: RouterTestingHarness) =>
+    root(harness).querySelector('[data-testid="product-ended-banner"]');
+
+  it('heads every tab of the ended product, with "Get licenses" to Billing for an owner', async () => {
+    const harness = await open(`products/${ENDED.slug}/overview`, VENDOR_ME_PRODUCT_ENDED_FIXTURE);
+    expect(banner(harness)?.textContent).toContain('Managed ended for this product');
+    const cta = banner(harness)?.querySelector<HTMLAnchorElement>(
+      '[data-testid="product-ended-get-licenses"]',
+    );
+    expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
+
+    await go(harness, `products/${ENDED.slug}/profile`);
+    expect(banner(harness)).not.toBeNull();
+  });
+
+  it('the plan panel sends an owner to the same Billing tab', async () => {
+    const harness = await open(`products/${ENDED.slug}/overview`, VENDOR_ME_PRODUCT_ENDED_FIXTURE);
+    const cta = root(harness).querySelector<HTMLAnchorElement>('[data-testid="plan-get-licenses"]');
+    expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
+  });
+
+  it('shows a member the banner with no button, and the panel keeps the contact path', async () => {
+    const harness = await open(`products/${ENDED.slug}/overview`, {
+      ...VENDOR_ME_PRODUCT_ENDED_FIXTURE,
+      seat_owner: false,
+    });
+    expect(banner(harness)).not.toBeNull();
+    expect(banner(harness)?.querySelector('a')).toBeNull();
+    expect(root(harness).querySelector('[data-testid="plan-get-licenses"]')).toBeNull();
+    expect(
+      root(harness).querySelector('aec-vendor-plan-panel a[href="/contact"]')?.textContent?.trim(),
+    ).toBe('Ask about Managed for this product');
+  });
+
+  it('stays off a product whose license is still live, and off vendor pages', async () => {
+    const harness = await open(`products/${LIVE.slug}/overview`, VENDOR_ME_PRODUCT_ENDED_FIXTURE);
+    expect(banner(harness)).toBeNull();
+    await go(harness, 'overview');
+    expect(banner(harness)).toBeNull();
+  });
+
+  it('gives way to the vendor-wide banner: a vendor never sees two', async () => {
+    const harness = await open(
+      `products/${VENDOR_ME_PILOT_ENDED_FIXTURE.products[0]!.slug}/overview`,
+      VENDOR_ME_PILOT_ENDED_FIXTURE,
+    );
+    expect(root(harness).querySelector('[data-testid="plan-ended-banner"]')).not.toBeNull();
+    expect(banner(harness)).toBeNull();
   });
 });

@@ -29,6 +29,11 @@ import { parseDate, planHasEnded } from '../vendor-plan';
  * warning glyph. It lists what still works first, then what went read-only, and
  * says nothing entered was removed (decision 8).
  *
+ * Its button is "Get licenses" on the Billing tab for an owner seat, like the
+ * product-ended banner and the plan panel (AECI-1408). A member cannot open
+ * Billing, so the host passes `billingLink` as `null` and a member keeps "Talk
+ * to us about Managed" on /contact.
+ *
  * The shell renders it above the section tabs, so it heads every portal page.
  * It reads the vendor's block, which a vendor-wide surface may do; the product
  * screens read `product.plan` (§13.7).
@@ -104,12 +109,23 @@ import { parseDate, planHasEnded } from '../vendor-plan';
         </div>
 
         <p class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-(--text-secondary)">
-          <a
-            routerLink="/contact"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@vendor.planEnded.cta"
-            >Talk to us about Managed</a
-          >
+          <!--
+            AECI-1408: an owner is sent to the Billing tab to get licenses. A
+            member seat cannot open Billing, so it keeps the contact path.
+          -->
+          @if (billingLink(); as link) {
+            <a
+              [routerLink]="link"
+              [class]="ctaClass"
+              data-testid="plan-ended-get-licenses"
+              i18n="@@vendor.planEnded.cta.getLicenses"
+              >Get licenses</a
+            >
+          } @else {
+            <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.planEnded.cta"
+              >Talk to us about Managed</a
+            >
+          }
           <span i18n="@@vendor.planEnded.cta.note"
             >Turning it back on needs nothing re-entered.</span
           >
@@ -124,6 +140,8 @@ export class VendorPlanEndedBanner {
 
   /** The vendor's `entitlement` block from `GET /api/vendor/me`. */
   readonly entitlement = input.required<VendorEntitlementBlock>();
+  /** Router commands to the Billing tab for an owner seat. `null` for a member. */
+  readonly billingLink = input<string | readonly unknown[] | null>(null);
 
   protected readonly show = computed(() => planHasEnded(this.entitlement()));
 
@@ -136,6 +154,9 @@ export class VendorPlanEndedBanner {
     const date = formatDate(ended, 'MMMM d, y', this.locale, 'UTC');
     return $localize`:@@vendor.planEnded.lede:It ended on ${date}:DATE:. Your products are now on the Free plan. Nothing you entered was removed.`;
   });
+
+  protected readonly ctaClass =
+    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly listClass =
     'mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-primary)';

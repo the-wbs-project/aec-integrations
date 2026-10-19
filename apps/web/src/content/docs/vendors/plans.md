@@ -78,7 +78,7 @@ To start, claim your listing. The claim form does not ask about a plan. When we 
 
 An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.
 
-The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal for the whole plan, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the end date, an annual plan that you have not renewed ends, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
 
 ### Can we cancel a Managed plan early?
 

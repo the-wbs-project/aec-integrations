@@ -139,6 +139,10 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
+  // AECI-1407 (E6.4): a promote planned AECi claims on a hand-back product (a claimed
+  // vendor's product with no live license), and a license was assigned to it before
+  // the batch committed. The batch rolls back; re-push and the product is fenced whole.
+  LICENSE_GRANTED_DURING_PROMOTE: 'LICENSE_GRANTED_DURING_PROMOTE',
   // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
   // reach a request URL, which both Workers log; the search is a POST body (400).
   ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',

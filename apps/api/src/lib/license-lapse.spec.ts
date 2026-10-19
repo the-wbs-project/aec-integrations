@@ -1,0 +1,796 @@
+/**
+ * The term-end lapse (AECI-1404, E6.1). Asserted by observed effect on the real
+ * migrations in the in-memory harness: run the pass, read the rows back. The
+ * `managed-ended` sender and the seat-email seam are stubbed, so no spec here reaches
+ * Resend or GoTrue.
+ */
+
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  auditLog,
+  billingAccounts,
+  integrationFieldChallenges,
+  integrations,
+  licenses,
+  productVendors,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
+import type { Db } from '../db/client';
+import type { Env } from '../env';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { stubPosthogIntake } from '../test/posthog-intake';
+import type { EmailContext } from './email';
+import {
+  LAPSE_CAPPED_METRIC,
+  managedEndedTermDedupeKey,
+  runLicenseLapse,
+  type LapseDeps,
+  type SendManagedEnded,
+} from './license-lapse';
+
+const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
+const VENDOR_B_ID = '33333333-3333-4333-8333-333333333333';
+const SEAT_ID = '22222222-2222-4222-8222-222222222222';
+const ACCOUNT = 'ba-1';
+const ACCOUNT_B = 'ba-2';
+const OLD_TS = '2020-01-01T00:00:00.000Z';
+
+/** The 11:00 run on the end day. */
+const NOW = new Date('2026-11-01T11:00:00.000Z');
+/** A date-only end on that day, as every writer stores it. */
+const TODAY = '2026-11-01T00:00:00.000Z';
+const TOMORROW = '2026-11-02T00:00:00.000Z';
+const NEXT_YEAR = '2027-11-01T00:00:00.000Z';
+
+let t: TestDb;
+
+beforeEach(async () => {
+  t = await makeTestDb();
+  await t.db.insert(vendors).values([
+    { id: VENDOR_ID, slug: 'acme', companyName: 'Acme', verified: true, updatedAt: OLD_TS },
+    { id: VENDOR_B_ID, slug: 'bolt', companyName: 'Bolt', verified: true, updatedAt: OLD_TS },
+  ]);
+  await t.db.insert(billingAccounts).values([
+    { id: ACCOUNT, vendorId: VENDOR_ID, name: 'Acme', billingEmail: 'billing@acme.example' },
+    { id: ACCOUNT_B, vendorId: VENDOR_B_ID, name: 'Bolt' },
+  ]);
+  await t.db.insert(profiles).values({ id: SEAT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+  await t.db.insert(products).values([
+    { id: 'p-1', slug: 'acme-one', name: 'Acme One', promotionStatus: 'promoted' },
+    { id: 'p-2', slug: 'acme-two', name: 'Acme Two', promotionStatus: 'promoted' },
+    { id: 'p-3', slug: 'acme-three', name: 'Acme Three', promotionStatus: 'promoted' },
+    { id: 'p-b', slug: 'bolt-one', name: 'Bolt One', promotionStatus: 'promoted' },
+  ]);
+  await t.db.insert(productVendors).values([
+    { productId: 'p-1', vendorId: VENDOR_ID },
+    { productId: 'p-2', vendorId: VENDOR_ID },
+    { productId: 'p-3', vendorId: VENDOR_ID },
+    { productId: 'p-b', vendorId: VENDOR_B_ID },
+  ]);
+});
+afterEach(() => {
+  t.dispose();
+  vi.unstubAllGlobals();
+});
+
+async function seedLicense(
+  id: string,
+  over: Partial<typeof licenses.$inferInsert> = {},
+): Promise<void> {
+  await t.db.insert(licenses).values({
+    id,
+    billingAccountId: ACCOUNT,
+    source: 'complimentary',
+    startsAt: OLD_TS,
+    endsAt: TODAY,
+    createdAt: OLD_TS,
+    updatedAt: OLD_TS,
+    ...over,
+  });
+}
+
+const licenseOf = async (id: string) =>
+  (await t.db.select().from(licenses).where(eq(licenses.id, id)))[0]!;
+const vendorOf = async (id = VENDOR_ID) =>
+  (await t.db.select().from(vendors).where(eq(vendors.id, id)))[0]!;
+const audits = () => t.db.select().from(auditLog);
+
+interface Sent {
+  to: string;
+  products: string[];
+  cause: string;
+  dedupeKey: string | undefined;
+}
+
+function sender() {
+  const sent: Sent[] = [];
+  const send = vi.fn(async (_c, o) => {
+    sent.push({
+      to: o.to,
+      products: o.products.map((p: { slug: string }) => p.slug),
+      cause: o.cause,
+      dedupeKey: o.dedupeKey,
+    });
+    return 'sent' as const;
+  }) as unknown as SendManagedEnded;
+  return { sent, send };
+}
+
+function ctx(env: Partial<Env> = {}): EmailContext {
+  return {
+    env: { ...env } as Env,
+    executionCtx: { waitUntil: () => {} },
+    req: { raw: new Request('https://aeci-api/cron/entitlement-expiry') },
+  };
+}
+
+const seatEmails = async (_env: Env, ids: readonly string[]) =>
+  new Map(ids.map((id) => [id, `seat-${id.slice(0, 4)}@acme.example`]));
+
+function lapse(extra: Partial<LapseDeps> & { env?: Partial<Env>; db?: Db } = {}, s = sender()) {
+  const { env, db, ...deps } = extra;
+  return runLicenseLapse(ctx(env), db ?? t.db, {
+    now: NOW,
+    fetchSeatEmails: seatEmails,
+    sendEnded: s.send,
+    ...deps,
+  });
+}
+
+describe('the scan', () => {
+  it('ends a term on its end day from 00:00Z, and leaves tomorrow and monthly alone', async () => {
+    await seedLicense('l-today', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    // Assigned, so neither is a pool license the product could carry onto.
+    await seedLicense('l-tomorrow', { endsAt: TOMORROW, assignedProductId: 'p-2' });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 1, droppedProducts: 1 });
+    expect(await licenseOf('l-today')).toMatchObject({
+      endedAt: NOW.toISOString(),
+      endReason: 'lapsed',
+      // Decision 14: an ended license keeps its product as history.
+      assignedProductId: 'p-1',
+    });
+    expect((await licenseOf('l-tomorrow')).endedAt).toBeNull();
+    expect((await licenseOf('l-monthly')).endedAt).toBeNull();
+  });
+
+  it('ends an older passed term too: there is no lower bound', async () => {
+    await seedLicense('l-old', { endsAt: '2026-09-01T00:00:00.000Z' });
+    expect((await lapse()).lapsedTerms).toBe(1);
+    expect((await licenseOf('l-old')).endReason).toBe('lapsed');
+  });
+
+  it('writes one audit row per license, as the system, and drops the mirror on the last one', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await lapse();
+    const [row] = await audits();
+    expect(row).toMatchObject({
+      action: 'license.lapsed',
+      actorType: 'system',
+      actorId: null,
+      entityType: 'billing_account',
+      entityId: ACCOUNT,
+      productId: 'p-1',
+    });
+    expect(row!.metadata).toMatchObject({
+      source: 'license-lapse-cron',
+      license_id: 'l-1',
+      ends_at: TODAY,
+    });
+    expect((await vendorOf()).verified).toBe(false);
+  });
+
+  it('is idempotent: a re-run ends nothing and sends nothing', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await lapse();
+    const s = sender();
+    const again = await lapse({}, s);
+    expect(again).toMatchObject({ lapsedTerms: 0, lapsedLicenses: 0 });
+    expect(s.sent).toHaveLength(0);
+    expect(await audits()).toHaveLength(1);
+  });
+
+  it('caps the run in terms, counts the metric, and leaves the rest for tomorrow', async () => {
+    await seedLicense('l-a1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-a2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    await seedLicense('l-b', { billingAccountId: ACCOUNT_B, assignedProductId: 'p-b' });
+    const count = vi.fn();
+
+    const result = await lapse({ termCap: 1, metrics: { count } });
+
+    // The oldest term by (ends_at, account) goes first, whole: both of its licenses.
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 2, capped: 1 });
+    expect(count).toHaveBeenCalledWith(LAPSE_CAPPED_METRIC, 1, []);
+    expect((await licenseOf('l-b')).endedAt).toBeNull();
+    expect((await lapse()).lapsedTerms).toBe(1);
+    expect((await licenseOf('l-b')).endedAt).not.toBeNull();
+  });
+});
+
+/** A db whose `batch` runs `before(attempt)` first, the way a concurrent write lands
+ *  between the term's read and its batch. `attempt` counts batches from 1. */
+function racingDb(before: (attempt: number) => void | Promise<void>): Db {
+  let attempt = 0;
+  return new Proxy(t.db, {
+    get(target, prop, receiver) {
+      if (prop === 'batch') {
+        return async (stmts: Parameters<Db['batch']>[0]) => {
+          await before(++attempt);
+          return target.batch(stmts);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as Db;
+}
+
+describe('the race guard', () => {
+  it('an admin extend that commits between the read and the batch wins, and the term is rebuilt once', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    // Only l-2 is extended, so l-1's guarded UPDATE would still match on its own.
+    // The sentinel after l-2 rolls the first batch back: never half-ended. The rebuild
+    // reads l-2 off the term, so the term is l-1 alone.
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ endsAt: NEXT_YEAR }).where(eq(licenses.id, 'l-2'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 1, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await licenseOf('l-2')).toMatchObject({ endedAt: null, endsAt: NEXT_YEAR });
+    expect((await audits()).map((a) => a.metadata)).toEqual([
+      expect.objectContaining({ license_id: 'l-1' }),
+    ]);
+    expect(s.sent.every((m) => m.products.join() === 'acme-one')).toBe(true);
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('a term that rolls back twice is a batch failure, and nothing is written', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    // Each attempt sees a different license extended under it.
+    const racing = racingDb(async (attempt) => {
+      const id = attempt === 1 ? 'l-2' : 'l-1';
+      await t.db.update(licenses).set({ endsAt: NEXT_YEAR }).where(eq(licenses.id, id));
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 0, batchFailures: 1 });
+    expect((await licenseOf('l-1')).endedAt).toBeNull();
+    expect((await licenseOf('l-2')).endedAt).toBeNull();
+    expect(await audits()).toHaveLength(0);
+    expect(s.sent).toHaveLength(0);
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('a vendor assign on a term license between the read and the batch rolls back, and the rebuild ends it with the product', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    // Unassigned when read. Without the `assigned_product_id` guard the first batch
+    // would end it as a pool license, and its new product would get no email or purge.
+    await seedLicense('l-2');
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db
+          .update(licenses)
+          .set({ assignedProductId: 'p-2', assignedAt: NOW.toISOString() })
+          .where(eq(licenses.id, 'l-2'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 2, droppedProducts: 2 });
+    expect(await licenseOf('l-2')).toMatchObject({ endReason: 'lapsed', assignedProductId: 'p-2' });
+    expect(s.sent.length).toBeGreaterThan(0);
+    expect(s.sent.every((m) => m.products.join() === 'acme-one,acme-two')).toBe(true);
+  });
+
+  it('a release flag set between the read and the batch rolls back, and the rebuild ends it released and does not carry it', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    // Unflagged when read. Without the `release_at_renewal` guard the first batch would
+    // end it lapsed and carry p-1 onto the pool license the vendor meant to free.
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ releaseAtRenewal: true }).where(eq(licenses.id, 'l-1'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, carried: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('released');
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+    expect(s.sent.every((m) => m.cause === 'released')).toBe(true);
+  });
+
+  it('a cancel flag set between the read and the batch rolls back, and the rebuild does not carry it', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ cancelAtTermEnd: true }).where(eq(licenses.id, 'l-1'));
+      }
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, carried: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+  });
+});
+
+// ── the last live license re-routes contests (ruling B, §11b.13; ruled 2026-10-19) ──
+
+describe('the last live license re-routes open contests to AECi', () => {
+  const I_POWERED = 'i-powered';
+  const I_NATIVE = 'i-native';
+  let nextContest = 0;
+
+  beforeEach(async () => {
+    nextContest = 0;
+    await t.db.insert(integrations).values([
+      // Connector-powered: deciding a contest on it needs a live license.
+      {
+        id: I_POWERED,
+        sourceProductId: 'p-1',
+        targetProductId: 'p-b',
+        mechanismKind: 'iPaaS',
+        builtByVendorId: VENDOR_ID,
+        claimedAt: OLD_TS,
+      },
+      // Not connector-powered: the seat stays its whole gate (decision 15).
+      {
+        id: I_NATIVE,
+        sourceProductId: 'p-2',
+        targetProductId: 'p-b',
+        mechanismKind: 'native',
+        builtByVendorId: VENDOR_ID,
+        claimedAt: OLD_TS,
+      },
+    ]);
+  });
+
+  /** An open contest on `integrationId`, routed to Acme as owner, submitted by Bolt. */
+  function ownerContest(integrationId = I_POWERED): string {
+    const n = nextContest++;
+    const id = `contest-${n}`;
+    const fields = ['name', 'description', 'website', 'listing_url', 'docs_url', 'maturity'];
+    const at = `2026-10-23T10:00:0${n}.000Z`;
+    t.raw
+      .prepare(
+        `INSERT INTO integration_field_challenges (id, integration_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 'x', 'r', ?, 'owner', ?, 'open', ?, ?)`,
+      )
+      .run(id, integrationId, fields[n], VENDOR_B_ID, VENDOR_ID, at, at);
+    return id;
+  }
+
+  const routeOf = async (id: string) =>
+    (
+      await t.db
+        .select({ routedTo: integrationFieldChallenges.routedTo })
+        .from(integrationFieldChallenges)
+        .where(eq(integrationFieldChallenges.id, id))
+    )[0]!.routedTo;
+  const rerouteRows = async () =>
+    (await audits()).filter((a) => a.action === 'integration.contest.rerouted');
+
+  it('re-routes the owner contests on connector rows in the term batch, as the system, audited', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const powered = ownerContest();
+    const native = ownerContest(I_NATIVE);
+    let batches = 0;
+    const counting = racingDb((attempt) => {
+      batches = attempt;
+    });
+    const intake = stubPosthogIntake();
+
+    const result = await lapse({ db: counting, env: { POSTHOG_PROJECT_KEY: 'phc_test' } });
+
+    expect(batches).toBe(1);
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
+    expect(await routeOf(powered)).toBe('aeci');
+    expect(await routeOf(native)).toBe('owner');
+    const rows = await rerouteRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: 'system',
+      actorId: null,
+      entityId: powered,
+      // The owner, and the plan it held before the lapse (AECI-1192).
+      vendorId: VENDOR_ID,
+      vendorTier: 'verified',
+    });
+    expect(rows[0]!.metadata).toMatchObject({
+      source: 'license-lapse-cron',
+      reason: 'entitlement-cleared',
+      ownerVendorId: VENDOR_ID,
+      billing_account_id: ACCOUNT,
+      ends_at: TODAY,
+    });
+    // The re-route rows join the run's ONE forward.
+    const forwards = intake.auditRequests();
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.messages).toHaveLength(2);
+  });
+
+  it('re-routes nothing while another live license remains', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
+    const contest = ownerContest();
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0 });
+    expect(await routeOf(contest)).toBe('owner');
+    expect(await rerouteRows()).toHaveLength(0);
+  });
+
+  it('re-routes on the vendor’s last term of the run, not on the first', async () => {
+    await seedLicense('l-old', {
+      endsAt: '2026-10-01T00:00:00.000Z',
+      assignedProductId: 'p-1',
+      assignedAt: OLD_TS,
+    });
+    await seedLicense('l-today', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    const contest = ownerContest();
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 2, reroutedContests: 1 });
+    expect(await routeOf(contest)).toBe('aeci');
+    const rows = await rerouteRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({ ends_at: TODAY });
+  });
+
+  it('re-plans once when a contest lands mid-lapse, and moves the late contest too', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    ownerContest();
+    const racing = racingDb((attempt) => {
+      if (attempt === 1) ownerContest();
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 2, batchFailures: 0 });
+    const open = await t.db.select().from(integrationFieldChallenges);
+    expect(open.map((r) => r.routedTo)).toEqual(['aeci', 'aeci']);
+    expect(await rerouteRows()).toHaveLength(2);
+  });
+
+  it('a contest landing on both attempts rolls the term back whole, for tomorrow', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const first = ownerContest();
+    const s = sender();
+
+    const result = await lapse({ db: racingDb(() => void ownerContest()) }, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 0, reroutedContests: 0, batchFailures: 1 });
+    expect((await licenseOf('l-1')).endedAt).toBeNull();
+    expect(await routeOf(first)).toBe('owner');
+    expect(await audits()).toHaveLength(0);
+    expect(s.sent).toHaveLength(0);
+  });
+
+  it('a grant that lands mid-lapse drops the re-route, and the term still ends', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const contest = ownerContest();
+    const racing = racingDb(async (attempt) => {
+      if (attempt === 1) await seedLicense('l-granted', { endsAt: NEXT_YEAR });
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await routeOf(contest)).toBe('owner');
+    expect(await rerouteRows()).toHaveLength(0);
+    // The rebuild read the grant: its pool license carried the product.
+    expect((await licenseOf('l-granted')).assignedProductId).toBe('p-1');
+  });
+
+  it('a revoke of the other license mid-lapse makes the rebuilt term re-route', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
+    const contest = ownerContest();
+    const racing = racingDb(async (attempt) => {
+      if (attempt === 1) {
+        await t.db
+          .update(licenses)
+          .set({ endedAt: '2026-11-01T10:00:00.000Z', endReason: 'revoked' })
+          .where(eq(licenses.id, 'l-monthly'));
+      }
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
+    expect(await routeOf(contest)).toBe('aeci');
+  });
+});
+
+describe('Stripe licenses are the webhook’s to end (decision 13)', () => {
+  it('does not lapse a Stripe license past its end date', async () => {
+    await seedLicense('l-s', { source: 'stripe', assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const s = sender();
+
+    const result = await lapse({}, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 0, lapsedLicenses: 0, droppedProducts: 0 });
+    expect(await licenseOf('l-s')).toMatchObject({ endedAt: null, endReason: null });
+    expect(await audits()).toHaveLength(0);
+    expect(s.sent).toHaveLength(0);
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('leaves a Stripe license on the same term live, never carries it, and may carry onto a Stripe pool license', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: '2026-06-01T00:00:00.000Z' });
+    // Assigned longer ago than p-1: as a lapsing license it would win the one pool slot.
+    await seedLicense('l-s', { source: 'stripe', assignedProductId: 'p-2', assignedAt: OLD_TS });
+    await seedLicense('pool-s', { source: 'stripe', endsAt: NEXT_YEAR });
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 1, carried: 1 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await licenseOf('l-s')).toMatchObject({ endedAt: null, assignedProductId: 'p-2' });
+    expect((await licenseOf('pool-s')).assignedProductId).toBe('p-1');
+  });
+});
+
+describe('released versus lapsed, and the emails', () => {
+  it('ends a release-at-renewal license as released, in its own email', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', {
+      assignedProductId: 'p-2',
+      assignedAt: OLD_TS,
+      releaseAtRenewal: true,
+    });
+    await seedLicense('l-pool');
+    const s = sender();
+
+    const result = await lapse({}, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 3, droppedProducts: 2 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect((await licenseOf('l-2')).endReason).toBe('released');
+    expect((await licenseOf('l-pool')).endReason).toBe('lapsed');
+
+    // One email per cause, each to the seat and the billing email. The pool license
+    // changed no product, so it is in neither.
+    const lapsed = s.sent.filter((m) => m.cause === 'lapsed');
+    const released = s.sent.filter((m) => m.cause === 'released');
+    expect(lapsed.map((m) => m.to).sort()).toEqual([
+      'billing@acme.example',
+      'seat-2222@acme.example',
+    ]);
+    expect(lapsed.every((m) => m.products.join() === 'acme-one')).toBe(true);
+    expect(released.every((m) => m.products.join() === 'acme-two')).toBe(true);
+    expect(released).toHaveLength(2);
+    expect(lapsed[0]!.dedupeKey).toBe(
+      await managedEndedTermDedupeKey(ACCOUNT, TODAY, 'lapsed', lapsed[0]!.to),
+    );
+    expect(result.emails.sent).toBe(4);
+  });
+
+  it('sends each address once when the billing email is also a seat', async () => {
+    await t.db
+      .update(billingAccounts)
+      .set({ billingEmail: ' SEAT-2222@acme.example ' })
+      .where(eq(billingAccounts.id, ACCOUNT));
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const s = sender();
+    await lapse({}, s);
+    expect(s.sent.map((m) => m.to)).toEqual(['seat-2222@acme.example']);
+  });
+
+  it('sends nothing when only pool licenses lapse', async () => {
+    await seedLicense('l-pool');
+    const s = sender();
+    const result = await lapse({}, s);
+    expect(result.lapsedLicenses).toBe(1);
+    expect(s.sent).toHaveLength(0);
+  });
+});
+
+describe('fewer licenses than products: the carry-over (AECI-1405)', () => {
+  it('carries the 2 products assigned longest, and emails only the one left over', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: '2026-06-01T00:00:00.000Z' });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    await seedLicense('l-3', { assignedProductId: 'p-3', assignedAt: '2025-01-01T00:00:00.000Z' });
+    await seedLicense('pool-1', { endsAt: NEXT_YEAR, createdAt: '2026-01-01T00:00:00.000Z' });
+    await seedLicense('pool-2', { endsAt: null, createdAt: '2026-02-01T00:00:00.000Z' });
+    const s = sender();
+    const sent: Array<{ fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (c, o) => {
+      sent.push({ fewerLicenses: o.fewerLicenses });
+      return s.send(c, o);
+    }) as unknown as SendManagedEnded;
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+
+    const result = await lapse({
+      sendEnded: send,
+      env: { CACHE_PURGE_QUEUE: { sendBatch } as never },
+    });
+
+    expect(result).toMatchObject({ lapsedLicenses: 3, carried: 2, droppedProducts: 1 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBe('p-2');
+    expect((await licenseOf('pool-2')).assignedProductId).toBe('p-3');
+    // Ruling A (2026-10-19): a carried product keeps its seniority (decision 12).
+    expect((await licenseOf('pool-1')).assignedAt).toBe(OLD_TS);
+    expect((await licenseOf('pool-2')).assignedAt).toBe('2025-01-01T00:00:00.000Z');
+    const carriedAudit = (await audits()).find(
+      (a) => (a.metadata as Record<string, unknown>).license_id === 'pool-1',
+    );
+    expect((carriedAudit?.afterState as Record<string, unknown>).assigned_at).toBe(OLD_TS);
+    expect(s.sent.every((m) => m.products.join() === 'acme-one')).toBe(true);
+    expect(sent.every((m) => m.fewerLicenses === true)).toBe(true);
+    // The dropped product is purged. (The vendor set carries every owned product's tag.)
+    const tags = sendBatch.mock.calls[0]![0][0].body.tags as string[];
+    expect(tags).toContain('product:acme-one');
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('does not carry a product the vendor no longer owns', async () => {
+    await t.db.delete(productVendors).where(eq(productVendors.productId, 'p-1'));
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    const result = await lapse();
+    expect(result).toMatchObject({ carried: 0, droppedProducts: 1 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+  });
+
+  it('a product released at renewal does not carry, and its email has no carry-over line', async () => {
+    await seedLicense('l-1', {
+      assignedProductId: 'p-1',
+      assignedAt: OLD_TS,
+      releaseAtRenewal: true,
+    });
+    await seedLicense('pool-1', { endsAt: null });
+    const sent: Array<{ cause: string; fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (_c, o) => {
+      sent.push({ cause: o.cause, fewerLicenses: o.fewerLicenses });
+      return 'sent' as const;
+    }) as unknown as SendManagedEnded;
+    const result = await lapse({ sendEnded: send });
+    expect(result.carried).toBe(0);
+    expect(sent.every((m) => m.cause === 'released' && m.fewerLicenses === false)).toBe(true);
+  });
+
+  it('drops the carry-over line when the lapsed email mixes short products with ones that were never candidates', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: '2026-06-01T00:00:00.000Z' });
+    // Cancelled at term end: never a carry-over candidate, so the line is not its story.
+    await seedLicense('l-3', {
+      assignedProductId: 'p-3',
+      assignedAt: OLD_TS,
+      cancelAtTermEnd: true,
+    });
+    await seedLicense('pool-1', { endsAt: null });
+    const sent: Array<{ products: string[]; fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (_c, o) => {
+      sent.push({
+        products: o.products.map((p: { slug: string }) => p.slug),
+        fewerLicenses: o.fewerLicenses,
+      });
+      return 'sent' as const;
+    }) as unknown as SendManagedEnded;
+
+    const result = await lapse({ sendEnded: send });
+
+    expect(result).toMatchObject({ carried: 1, droppedProducts: 2 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBe('p-1');
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => m.products.join() === 'acme-two,acme-three')).toBe(true);
+    expect(sent.every((m) => m.fewerLicenses === false)).toBe(true);
+  });
+});
+
+describe('after commit', () => {
+  it('queues ONE purge message, source moderation, with the dropped products and the vendor set', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-b', { billingAccountId: ACCOUNT_B, assignedProductId: 'p-b' });
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+
+    await lapse({ env: { CACHE_PURGE_QUEUE: { sendBatch } as never } });
+
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    const [messages] = sendBatch.mock.calls[0]!;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].body.source).toBe('moderation');
+    expect(messages[0].body.tags).toEqual(
+      expect.arrayContaining([
+        'product:acme-one',
+        'product:bolt-one',
+        'index:products',
+        'vendor:acme',
+        'vendor:bolt',
+      ]),
+    );
+  });
+
+  it('purges the vendor set alone when an unassigned last license flips the mirror', async () => {
+    await seedLicense('l-pool');
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+    await lapse({ env: { CACHE_PURGE_QUEUE: { sendBatch } as never } });
+    const tags = sendBatch.mock.calls[0]![0][0].body.tags as string[];
+    expect(tags).toContain('vendor:acme');
+  });
+
+  it('forwards every committed audit row in ONE logs request', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-b', { billingAccountId: ACCOUNT_B, assignedProductId: 'p-b' });
+    const intake = stubPosthogIntake();
+    await lapse({ env: { POSTHOG_PROJECT_KEY: 'phc_test' } });
+    const forwards = intake.auditRequests();
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.messages).toHaveLength(2);
+  });
+
+  it('sends no email that would print a product id when the product read fails', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const failingNames = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop !== 'select') return Reflect.get(target, prop, receiver);
+        return (...args: Parameters<Db['select']>) => {
+          const builder = target.select(...args);
+          const from = builder.from.bind(builder);
+          return Object.assign(builder, {
+            from: (table: Parameters<typeof from>[0]) => {
+              if (table === products) throw new Error('D1 down');
+              return from(table);
+            },
+          });
+        };
+      },
+    }) as Db;
+    const s = sender();
+    const result = await lapse({ db: failingNames }, s);
+    expect(result.lapsedTerms).toBe(1);
+    expect(s.sent).toHaveLength(0);
+    expect(result.emails.skipped).toBe(1);
+  });
+
+  it('a failed purge or send never undoes the lapse', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const sendBatch = vi.fn().mockRejectedValue(new Error('queue down'));
+    const send = vi.fn().mockRejectedValue(new Error('resend down')) as unknown as SendManagedEnded;
+    const result = await lapse({
+      env: { CACHE_PURGE_QUEUE: { sendBatch } as never },
+      sendEnded: send,
+    });
+    expect(result.lapsedTerms).toBe(1);
+    expect((await licenseOf('l-1')).endedAt).not.toBeNull();
+  });
+});

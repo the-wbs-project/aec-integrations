@@ -1320,8 +1320,9 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * the AECI-619 reconciliation — it is queue-backed and writes D1, so it belongs on
  * the System screen's liveness table like every other cron. `entitlement-expiry`
  * is the twelfth, the Stage 2 term-expiry warning sweep (AECI-613 /
- * `STAGE_2_PAID_TIERS_SPEC.md` §7): it WARNS and never lapses, so its liveness row
- * is the only evidence an operator has that renewal notices are still going out.
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7). Since AECI-1404 it first ends passed terms
+ * (`lib/license-lapse.ts`), then warns, so its liveness row is the only evidence an
+ * operator has that lapses and renewal notices are still happening.
  * `asn-registry` is the thirteenth and the only WEEKLY one, added with the §7.6
  * read-time ASN classification (AECI-624); it met this vocabulary at the AECI-750
  * reconcile. A weekly series needs a >=2-week absence window — see the liveness

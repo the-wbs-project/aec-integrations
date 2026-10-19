@@ -62,7 +62,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
         </div>
       }
       <p [class]="hintClass" id="billing-email-hint" i18n="@@vendor.billing.email.hint">
-        License grant and plan-end emails go to this address and to every seat.
+        License grant, renewal notice and plan-end emails go to this address and to every seat.
       </p>
     </div>
 

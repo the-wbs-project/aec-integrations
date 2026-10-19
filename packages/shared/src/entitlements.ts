@@ -250,12 +250,12 @@ export const LICENSE_GRANT_NOTES_MAX = 1000;
 /**
  * The `licenses.end_reason` vocabulary (AECI-1352): why a license ended, written with
  * `ended_at` by `endLicensesStatements` (`apps/api/src/lib/license.ts`), so E4.2
- * (revoke), a reduction (release) and E6 (lapse) share one builder. NULL while live. Like
+ * (revoke), a reduction (release) and the lapse (E6) share one builder. NULL while live. Like
  * `source`, the column is UNCONSTRAINED at the DB layer; writers validate against this
  * list. It is not `cancel_reason`, which says why a LIVE license will not renew
  * (decision 15).
  *
- *  - `lapsed`   — the term ran out (E6's daily job), or Stripe cancelled the subscription
+ *  - `lapsed`   — the term ran out (the 11:00 lapse job, AECI-1404), or Stripe cancelled the subscription
  *  - `released` — AECi ended a license the vendor no longer wants (a reduction,
  *                 `VENDOR_SIGNUP_PROCESS.md` §3 step 8). E4.4's approved early unassign
  *                 is not this: it takes the license off its product and leaves it live
@@ -382,7 +382,7 @@ export interface LicensePlanRow {
  *  - no license at all → `none` / `none` (the Free plan);
  *  - any LIVE license (`ended_at` null) → `verified` / `active`, unless every live
  *    license's scheduled `ends_at` is at or before `now`, which records `expired`.
- *    That is the 2026-10-05 clock ruling carried over: E6's job turns `ends_at` into
+ *    That is the 2026-10-05 clock ruling carried over: the 11:00 lapse job turns `ends_at` into
  *    `ended_at`, and until it runs a write after the term must not read as a live plan;
  *  - every license ended → the most recently ended one decides: `revoked` when its
  *    `end_reason` is `revoked`, else `expired` (`lapsed`, `released`, or NULL).

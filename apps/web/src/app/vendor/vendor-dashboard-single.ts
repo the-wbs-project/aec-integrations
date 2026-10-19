@@ -8,6 +8,8 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
+import { VendorProductEndedBanner } from './components/vendor-product-ended-banner';
+import { planHasEnded } from './vendor-plan';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorNotificationsList } from './components/vendor-notifications-list';
@@ -28,6 +30,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
   selector: 'aec-vendor-dashboard-single',
   imports: [
     VendorPlanEndedBanner,
+    VendorProductEndedBanner,
     VendorNotificationsList,
     VendorRequestStatus,
     VendorProfileForm,
@@ -53,7 +56,18 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
         <!-- AECI-1218: the plan-ended banner (section 13.11). Each product's plan panel is on the tabbed
              concept's product overview. -->
         <div>
-          <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
+          <aec-vendor-plan-ended-banner
+            [entitlement]="m.entitlement"
+            [billingLink]="m.seat_owner ? 'billing' : null"
+          />
+          <!-- AECI-1408: one product, so its product-ended banner has no product header to sit under. The
+               vendor-wide banner wins: a vendor never sees two. -->
+          @if (soleProduct(); as p) {
+            <aec-vendor-product-ended-banner
+              [plan]="p.plan"
+              [billingLink]="m.seat_owner ? 'billing' : null"
+            />
+          }
         </div>
 
         <section aria-labelledby="vendor-requests-heading">
@@ -172,6 +186,18 @@ export class VendorDashboardSingle {
    *  Read-only here: the concept renders the channel, it does not decide what
    *  goes into it. */
   protected readonly liveMessage = inject(VendorPortalAnnouncer).message;
+
+  /**
+   * The vendor's only product, when it has exactly one and the vendor-wide
+   * plan-ended banner is not showing (AECI-1408). The product-ended banner
+   * reads it. With several products, each product's own page carries the banner
+   * on the tabbed concept, and this one-scroll page has no product header.
+   */
+  protected readonly soleProduct = computed(() => {
+    const m = this.me();
+    if (m.products.length !== 1 || planHasEnded(m.entitlement)) return null;
+    return m.products[0];
+  });
 
   /** Same §8 capability gate as the tabbed shell, so the two concepts cannot
    *  disagree about what a lapsed vendor may edit. */

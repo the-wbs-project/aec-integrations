@@ -5,8 +5,9 @@
  * A license carries a term (`ends_at`). As it approaches, this job **warns** the
  * vendor's seats and the operator, and stamps `licenses.expiry_notice_sent_at` so a
  * term earns one notice rather than one per night. Run by the daily 11:00 UTC cron
- * (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline. E6 extends it with the price line
- * and the lapse; until then it only warns.
+ * (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline. Since E6 (AECI-1404, AECI-1406) the
+ * lapse runs first as a pre-step and the notice carries the price, count, products and
+ * terms change; this sweep itself still only warns.
  *
  * ── ONE NOTICE PER ACCOUNT PER TERM ─────────────────────────────────────────────
  *
@@ -21,7 +22,8 @@
  * ── THE NON-NEGOTIABLE (§7.3) ───────────────────────────────────────────────────
  *
  * **This job never ends a license, never moves an assignment, and never writes
- * `vendors.verified`.** It warns; it never lapses (E6 adds the lapse). The only
+ * `vendors.verified`.** It warns. The lapse is a separate pre-step of the same job
+ * (`lib/license-lapse.ts`, AECI-1404) with its own batches, never this one. The only
  * columns this module mutates on `licenses` are `expiry_notice_sent_at` and the row's
  * own `updated_at` (`expiryNoticeStampStatements` in `lib/license.ts`); it emits no
  * statement against `vendors` at all. {@link expiryNoticeStatements} is exported as a
@@ -56,21 +58,25 @@
  *
  * ── FAIL-OPEN, AND WHY TWO TEMPLATES ────────────────────────────────────────────
  *
- * The vendor half needs seat addresses, which need `fetchAuthUserEmails` and
- * therefore `SUPABASE_SERVICE_ROLE_KEY` — present on staging/demo/prod, absent
- * locally. So it degrades to `skipped` while the operator copy
- * always lands. The fence is stamped when **either** channel was `sent`: writing
+ * The vendor half goes to every seat and the billing account's billing email,
+ * each address once (decision 16, `lib/billing-recipients.ts`, AECI-1406). Seat
+ * addresses need `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` —
+ * present on staging/demo/prod, absent locally. Without the key only the billing
+ * email remains, and with no billing email either the vendor half degrades to
+ * `skipped` while the operator copy always lands. The fence is stamped when **either** channel was `sent`: writing
  * it on attempt would silently consume the notice during a Resend outage, and
  * requiring BOTH would re-nag the operator every night on any tier without the
  * service-role key. Nothing here throws — `sendTransactionalEmail` never does, and
  * a batch failure is logged and skipped so one bad term cannot end the sweep.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
+import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
 import {
   emitExpiryDueMetric,
   emitExpiryNoticeMetrics,
@@ -83,7 +89,7 @@ import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import type { Db } from '../db/client';
-import { billingAccounts, licenses, vendors } from '../db/schema';
+import { billingAccounts, licenses, products, vendors } from '../db/schema';
 import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 
@@ -143,7 +149,11 @@ export type ExpiryContext = EmailContext;
 
 /** The §7.2 vendor renewal prompt (`entitlement-expiring`). Declared here as a
  *  seam — the §1.3 route-seam pattern — and injected by `scheduled.ts`, so this
- *  module never reaches the Resend transport and the specs never stub a fetch. */
+ *  module never reaches the Resend transport and the specs never stub a fetch.
+ *  Since AECI-1406 it carries what `VENDOR_SIGNUP_PROCESS.md` §3 step 8 lists: the
+ *  license count, the products, the sources (which decide renew or end, and whether
+ *  the list price line shows) and whether
+ *  a new Managed plan agreement version applies. */
 export type SendEntitlementExpiringEmail = (
   c: ExpiryContext,
   opts: {
@@ -151,6 +161,16 @@ export type SendEntitlementExpiringEmail = (
     vendorName: string;
     periodEndDay: string;
     daysRemaining: number;
+    /** How many licenses end on this date. */
+    licenseCount: number;
+    /** The names of the products those licenses are on, in `compareText` order. */
+    productNames: readonly string[];
+    /** The licenses' distinct `source` values (`stripe`, `invoice`, `complimentary`).
+     *  They decide renew or end, and any `invoice` drops the list price line (ruling B,
+     *  2026-10-19: an invoice deal may carry a different price). */
+    sources: readonly string[];
+    /** A license in the term accepted an older Managed plan agreement version. */
+    termsChange: boolean;
   },
 ) => Promise<EmailOutcome>;
 
@@ -227,6 +247,13 @@ interface ExpiringTerm {
   sources: string[];
   /** The distinct non-blank `reference` values, in `compareText` order. */
   references: string[];
+  /** The names of the products the term's licenses are on, one per assigned license,
+   *  in `compareText` order. An unassigned license contributes nothing. */
+  productNames: string[];
+  /** Whether any license accepted a Managed plan agreement version other than the
+   *  current one. A null `terms_version` (a complimentary or invoice grant, where
+   *  nothing was accepted) never counts (decision 9). */
+  termsChange: boolean;
   /** Licenses in the term with no stamp at all. */
   unstamped: number;
   /** The oldest stamp in the term, or null when none is stamped. */
@@ -243,6 +270,8 @@ interface ExpiringTermRow {
   licenseIds: string;
   sources: string;
   references: string;
+  productNames: string;
+  termsMismatched: number;
   unstamped: number;
   oldestStamp: string | null;
 }
@@ -266,6 +295,20 @@ function stringsOf(json: string, compare: (a: string, b: string) => number = byC
   return [...new Set(values)].sort(compare);
 }
 
+/** Like {@link stringsOf} but keeps duplicates: one name per assigned license. */
+function productNamesOf(json: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    .sort(compareText);
+}
+
 /**
  * Terms at or inside the horizon, **never-warned first, then oldest**.
  *
@@ -279,7 +322,8 @@ function stringsOf(json: string, compare: (a: string, b: string) => number = byC
  * `ends_at <= horizon` is a lexical string comparison, which is sound because
  * ISO-8601 is defined to sort lexically and every writer stamps `toISOString()`
  * (`toIsoTimestamp` in `lib/license.ts`). There is deliberately NO lower bound: a
- * live license already past its `ends_at` — the steady state until E6 adds the lapse —
+ * live license already past its `ends_at` — a term the lapse did not end (the lapse failed
+ * or hit its cap that day) —
  * is exactly what an operator most needs to see, and the fence still limits it to one
  * notice.
  *
@@ -296,6 +340,8 @@ function stringsOf(json: string, compare: (a: string, b: string) => number = byC
  */
 async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringTerm[]> {
   const unstamped = sql<number>`sum(case when ${licenses.expiryNoticeSentAt} is null then 1 else 0 end)`;
+  const currentTerms = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+  const termsMismatched = sql<number>`sum(case when ${licenses.termsVersion} is not null and ${licenses.termsVersion} <> ${currentTerms} then 1 else 0 end)`;
   const rows = (await db
     .select({
       billingAccountId: licenses.billingAccountId,
@@ -306,12 +352,19 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
       licenseIds: sql<string>`json_group_array(${licenses.id})`,
       sources: sql<string>`json_group_array(distinct ${licenses.source})`,
       references: sql<string>`json_group_array(distinct ${licenses.reference})`,
+      // One entry per assigned license, NOT distinct: two products may share a name,
+      // and the email compares this count with the license count. NULL for an
+      // unassigned license; `productNamesOf` drops it.
+      productNames: sql<string>`json_group_array(${products.name})`,
+      termsMismatched: termsMismatched.mapWith(Number),
       unstamped: unstamped.mapWith(Number),
       oldestStamp: sql<string | null>`min(${licenses.expiryNoticeSentAt})`,
     })
     .from(licenses)
     .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
     .innerJoin(vendors, eq(vendors.id, billingAccounts.vendorId))
+    // At most one product per license, so the join never multiplies a term's rows.
+    .leftJoin(products, eq(products.id, licenses.assignedProductId))
     .where(
       and(
         // Exactly `licenses_ends_idx`'s predicate, so the planner can use it.
@@ -345,6 +398,8 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
     licenseIds: stringsOf(r.licenseIds),
     sources: stringsOf(r.sources),
     references: stringsOf(r.references, compareText),
+    productNames: productNamesOf(r.productNames),
+    termsChange: Number(r.termsMismatched) > 0,
     unstamped: Number(r.unstamped),
     oldestStamp: r.oldestStamp,
   }));
@@ -432,8 +487,10 @@ export interface ExpiryNoticeParams {
   vendorLicenses: readonly LicensePlanRow[];
   vendorNotice: EmailOutcome;
   adminNotice: EmailOutcome;
-  /** How many seat addresses the vendor half reached. */
+  /** How many addresses the vendor half went to: seats plus the billing email, deduped. */
   vendorRecipients: number;
+  /** Whether the notice announced a new Managed plan agreement version (decision 9). */
+  termsChange: boolean;
 }
 
 /**
@@ -479,6 +536,7 @@ export function expiryNoticeStatements(
       vendor_notice: p.vendorNotice,
       vendor_recipients: p.vendorRecipients,
       admin_notice: p.adminNotice,
+      terms_change: p.termsChange,
       // Stated in the trail rather than left to be inferred: this row records a
       // WARNING. No license ended and `vendors.verified` did not move (§7.3).
       warning_only: true,
@@ -496,7 +554,8 @@ export function expiryNoticeStatements(
 // ─── Recipients ──────────────────────────────────────────────────────────────
 
 /**
- * Email addresses per vendor for the seats to warn — unbanned `vendor_admin`
+ * Email addresses per vendor for the seats to warn. The sweep adds the billing
+ * email per term (`mergeRecipientAddresses`). Unbanned `vendor_admin`
  * profiles only, matching `lib/attestation-notify.ts`. The read is the shared
  * `loadVendorSeatRecipients` (AECI-1205), which the protest emails use too.
  *
@@ -618,6 +677,12 @@ export async function runEntitlementExpirySweep(
   const vendorIds = batch.map((b) => b.term.vendorId);
   const adminRecipients = parseRecipients(c.env.SUPPORT_EMAIL);
   const seatEmails = await loadVendorSeatEmails(db, c.env, vendorIds, fetchSeatEmails);
+  // Decision 16: renewal emails go to every seat AND the billing email. The billing
+  // email needs no service-role key, so it still lands where the seat read degrades.
+  const billingEmails = await loadBillingEmails(
+    db,
+    batch.map((b) => b.term.billingAccountId),
+  );
   const planRows = await loadPlanRows(db, vendorIds);
 
   const outcomes: ExpiryNoticeOutcome[] = [];
@@ -630,7 +695,10 @@ export async function runEntitlementExpirySweep(
 
   for (const { term, daysRemaining } of batch) {
     const periodEndDay = term.endsAt.slice(0, 10);
-    const addresses = seatEmails.get(term.vendorId) ?? [];
+    const addresses = mergeRecipientAddresses(
+      seatEmails.get(term.vendorId) ?? [],
+      billingEmails.get(term.billingAccountId),
+    );
 
     const vendorSends: EmailOutcome[] = [];
     for (const to of addresses) {
@@ -640,6 +708,10 @@ export async function runEntitlementExpirySweep(
           vendorName: term.vendorName,
           periodEndDay,
           daysRemaining,
+          licenseCount: term.licenseIds.length,
+          productNames: term.productNames,
+          sources: term.sources,
+          termsChange: term.termsChange,
         }),
       );
     }
@@ -683,6 +755,7 @@ export async function runEntitlementExpirySweep(
       vendorNotice,
       adminNotice,
       vendorRecipients: addresses.length,
+      termsChange: term.termsChange,
     });
 
     try {

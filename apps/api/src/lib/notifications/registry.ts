@@ -607,8 +607,9 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
-    summary: "Warns a vendor's seats that their plan term ends soon.",
-    note: "Always on: warns of the end of a vendor's plan term, paid or pilot.",
+    summary:
+      "The 30-day notice to a vendor's seats and its billing email: the end date, the license count and products, the list price (left out for an invoice term), any new Managed plan agreement version, and how to opt out or reduce.",
+    note: "Always on: warns of the end of a vendor's license term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
   },
   'entitlement-expiring-admin': {
     channel: 'email',
@@ -642,24 +643,25 @@ export const NOTIFICATIONS = {
       "Tells a vendor's seats and its billing email that AECi granted it N complimentary or invoice Managed licenses, with the end date.",
     note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. Stripe wording waits for E9.',
   },
-  // AECI-1371 (E4.2). E6's term-end job reuses the sender for a lapse.
+  // AECI-1371 (E4.2). The E6 term-end lapse (AECI-1404) reuses the sender. Its dedupe
+  // key differs, but a license ends once, so at most one of the two ever sends about it.
   'managed-ended': {
     channel: 'email',
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts)',
+      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts); and the 0 11 entitlement-expiry cron, its term-end lapse pre-step (lib/license-lapse.ts)',
     },
     envRule: 'production-external',
     dedupe:
-      'Key managed-ended:{licenseId}:{recipient hash}, so one email per address per ended license.',
+      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended license. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      "Tells a vendor's seats and its billing email that Managed has ended for a product, why, and that its content stays live.",
-    note: 'Sent only when the ended license was on a product: an unassigned license changes no plan. A revoke carries the vendor-visible reason. Always on: the vendor learns its product left Managed only here and in portal messages.',
+      "Tells a vendor's seats and its billing email that Managed has ended for one or more products, why, and that their content stays live.",
+    note: 'Sent only when an ended license was on a product: an unassigned license changes no plan. A revoke carries the vendor-visible reason. A lapse sends one email per term for the products that lapsed, and a separate one for the products released at renewal. Always on: the vendor learns its product left Managed only here and in portal messages.',
   },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────
