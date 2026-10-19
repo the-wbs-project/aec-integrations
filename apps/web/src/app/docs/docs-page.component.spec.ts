@@ -164,15 +164,22 @@ describe('DocsPageComponent', () => {
     expect(host.querySelector('aec-plan-cta-panel')?.closest('.aec-prose')).toBeNull();
     expect(host.querySelector('aec-plan-cta-rail')).not.toBeNull();
     expect(host.querySelector('aec-plan-cta-mobile-bar')).not.toBeNull();
-    // Exactly one inquiry dialog host for every Managed button on the page.
-    expect(host.querySelectorAll('aec-plan-inquiry-host')).toHaveLength(1);
+    // Exactly one claim dialog host for every claim control on the page.
+    expect(host.querySelectorAll('aec-claim-dialog-host')).toHaveLength(1);
     // The closing panel shows the annual price beside the monthly one, then the
-    // one-year term. The Markdown above it does not repeat either (2026-10-13).
+    // monthly term and the 14-day refund (E8.2, 2026-10-19). The Markdown does not
+    // repeat the price or the term line. Its cancel answer opens with the same
+    // "no commitment" clause, so the check is on the price and the refund sentence.
     const panelText = host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ');
-    expect(panelText).toContain('$25 USD a month or $250 USD a year per product');
-    expect(panelText).toContain('Each product on Managed is on a one-year term');
+    expect(panelText).toContain('$25 USD a month or $250 USD a year per product.');
+    expect(panelText).toContain(
+      'Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.',
+    );
+    expect(panelText).not.toContain('invoice');
+    expect(panelText).not.toContain('one-year term');
     const prose = [...host.querySelectorAll('.aec-prose')].map((el) => el.textContent).join(' ');
-    expect(prose).not.toContain('one-year term');
+    expect(prose).not.toContain('USD a year per product');
+    expect(prose).not.toContain('We refund in full');
 
     const other = render('vendors', 'your-seat').host;
     for (const tag of [
@@ -181,7 +188,7 @@ describe('DocsPageComponent', () => {
       'aec-plan-cta-panel',
       'aec-plan-cta-rail',
       'aec-plan-cta-mobile-bar',
-      'aec-plan-inquiry-host',
+      'aec-claim-dialog-host',
       '[data-testid="docs-plans-vendor-program"]',
     ]) {
       expect(other.querySelector(tag), tag).toBeNull();

@@ -93,8 +93,15 @@ async function mockSubmits(
   return sent;
 }
 
+/** The Managed plan card's claim button. */
+const managedCardClaim = (page: Page) =>
+  page
+    .locator('aec-plan-cards section[aria-labelledby="plan-card-managed"]')
+    .getByRole('link', { name: 'Claim your listing' });
+
 async function openFromManagedCard(page: Page) {
-  const start = page.locator('aec-plan-cards').getByRole('link', { name: 'Start with Managed' });
+  // E8.2: the Managed card's button reads "Claim your listing", like the Free card's.
+  const start = managedCardClaim(page);
   // AECI-1364: the dialog's name changes to "Claim <Company>" once a listing is
   // chosen, so it is located by role and its name asserted separately.
   const dialog = page.getByRole('dialog');
@@ -295,22 +302,21 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(
-      page.locator('aec-plan-cards').getByRole('link', { name: 'Start with Managed' }),
-    ).toBeFocused();
+    await expect(managedCardClaim(page)).toBeFocused();
   });
 
-  test('the pricing link opens the inquiry dialog, not the claim dialog', async ({ page }) => {
+  // E8.1 (2026-10-19): the plan inquiry dialog is gone. "Questions? Contact us" is a
+  // plain link to /contact, with no topic, and opens no dialog.
+  test('the contact link goes to /contact', async ({ page }) => {
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
-    const pricing = page.locator('aec-plan-cards').getByRole('link', { name: 'Talk to us' });
-    await expect(pricing).toHaveAttribute('href', '/contact?topic=managed');
+    const contact = page.locator('aec-plan-cta-panel').getByRole('link', { name: 'Contact us' });
+    await expect(contact).toHaveAttribute('href', '/contact');
     await expect(async () => {
-      await pricing.click();
-      await expect(page.getByRole('dialog', { name: 'Talk to us about Managed' })).toBeVisible({
-        timeout: 2000,
-      });
+      await contact.click();
+      await expect(page).toHaveURL(/\/contact$/, { timeout: 2000 });
     }).toPass();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
 
@@ -318,7 +324,10 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
   test('the docs Plans page opens the same dialog from its cards', async ({ page }) => {
     await page.goto('/docs/vendors/plans');
     await waitForHydrationSettle(page);
-    const claim = page.locator('aec-plan-cards').getByRole('link', { name: 'Claim your listing' });
+    // E8.2: both cards now read "Claim your listing", so scope to the Free card.
+    const claim = page
+      .locator('aec-plan-cards section[aria-labelledby="plan-card-free"]')
+      .getByRole('link', { name: 'Claim your listing' });
     await expect(claim).toHaveAttribute('href', '/search');
     const dialog = page.getByRole('dialog', { name: 'Claim your company' });
     await expect(async () => {

@@ -1,13 +1,8 @@
-import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Title } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { SessionStatus } from '../auth/session-status';
-import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { ContactPage } from './contact';
 
 function setup(): { host: HTMLElement; title: Title } {
@@ -52,17 +47,13 @@ describe('ContactPage', () => {
     expect(document.querySelector('meta[name="robots"]')).toBeNull();
   });
 
-  // ?topic=managed (the Plans page buttons' link target, AECI-1279): the inquiry
-  // form inline, the same one the Plans page dialog shows.
-  it('shows the Managed inquiry form on ?topic=managed', () => {
+  // E8.1 (2026-10-19): the Managed inquiry form is gone, so the managed topic is
+  // ignored like any other unknown value. No panel, no form, the bare mailto.
+  it('ignores the managed topic: no panel and the bare mailto', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-        { provide: SessionStatus, useValue: { email: signal(null) } },
-        { provide: VendorPlanStatus, useValue: { vendorName: signal(null) } },
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { queryParamMap: convertToParamMap({ topic: 'managed' }) } },
@@ -72,16 +63,15 @@ describe('ContactPage', () => {
     const fixture = TestBed.createComponent(ContactPage);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    const panel = host.querySelector('[data-testid="contact-managed"]');
-    expect(panel?.querySelector('h2')?.textContent?.trim()).toBe('Talk to us about Managed');
-    const form = panel?.querySelector('aec-plan-inquiry-form form');
-    expect(form).not.toBeNull();
-    expect(form?.querySelector('#contact-plan-inquiry-email')).not.toBeNull();
-    // The panel no longer starts an email; the general card still does.
-    expect(panel?.querySelector('a[href^="mailto:"]')).toBeNull();
-    expect(host.querySelector('a[href^="mailto:"]')?.getAttribute('href')).toBe(
-      'mailto:support@aecintegrations.com',
+    expect(host.querySelector('[data-testid="contact-managed"]')).toBeNull();
+    expect(host.querySelector('[data-testid="contact-add-product"]')).toBeNull();
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.textContent).not.toContain('Talk to us about Managed');
+    const mailtos = [...host.querySelectorAll('a[href^="mailto:"]')].map((a) =>
+      a.getAttribute('href'),
     );
+    expect(mailtos.length).toBeGreaterThan(0);
+    for (const href of mailtos) expect(href).toBe('mailto:support@aecintegrations.com');
   });
 
   // ?topic=add-product (VENDOR_PROGRAM_PAGE_SPEC.md section 6, kept for outside links):

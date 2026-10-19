@@ -45,7 +45,6 @@ packages/shared/
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
 │   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
-│   │   ├── plan-inquiry.ts    # Plan inquiry form (POST /api/plan-inquiries, AECI-1279)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
@@ -6435,6 +6434,12 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 ### 6.13a Plan inquiries (AECI-1279)
 
+> **Removed 2026-10-19 (E8.1, AECI-1398).** The route, its handler, its Zod schemas
+> (`packages/shared/src/api/plan-inquiry.ts`), its two emails and the web form are gone. A
+> `POST /api/plan-inquiries` now gets the router's 404. The `plan_inquiries` table stays,
+> with no writer, until E8.6 drops it. The text below is the AECI-1279 contract, kept as a
+> record.
+
 #### `POST /api/plan-inquiries`
 
 The "Talk to us about Managed" form. It opens as a dialog from every Managed button on the vendor guide's Plans page (`/docs/vendors/plans`), and sits inline on `/contact?topic=managed`, which is those buttons' link target without JS. Public, no session. Schema in `@aeci/shared` (`api/plan-inquiry.ts`), handler `apps/api/src/routes/plan-inquiries.ts`.
@@ -6527,7 +6532,7 @@ export const VendorEntitlementBlockSchema = z.object({
 
 **`requests` ships newest first** (`created_at DESC, id DESC`, AECI-1243). The Messages list renders that order.
 
-**Callers.** The portal reads it through `VendorPortalStore` and the `/vendor` SSR resolver. Outside the portal, `VendorPlanStatus` (`apps/web/src/app/vendor/vendor-plan-status.ts`, AECI-1286) reads it once per session in the browser, only after `GET /api/account` reports `vendor_admin`. It keeps `vendor.slug`, `vendor.company_name` and `isManaged(entitlement)` so public pages can show the signed-in variants in `VENDOR_PROGRAM_PAGE_SPEC.md` §5. A failed call reads as signed out.
+**Callers.** The portal reads it through `VendorPortalStore` and the `/vendor` SSR resolver. Outside the portal, `VendorPlanStatus` (`apps/web/src/app/vendor/vendor-plan-status.ts`, AECI-1286) reads it once per session in the browser, only after `GET /api/account` reports `vendor_admin`. It keeps `vendor.slug` and `isManaged(entitlement)` so public pages can show the signed-in variants in `VENDOR_PROGRAM_PAGE_SPEC.md` §5. A failed call reads as signed out.
 
 **The `entitlement` block costs no query.** Every field is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. *As built (AECI-1357, 2026-10-17):* the block used to carry a `price` field, one primary-key read of `vendor_plan_pricing` (`STAGE_2_PAID_TIERS_SPEC.md` §13.13). That field and its read are removed. The plan panel's price line is constant copy. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 

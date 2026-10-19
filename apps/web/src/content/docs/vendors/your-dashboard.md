@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banner you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 16, 2026
+last_updated: October 19, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -18,7 +18,7 @@ Your company's tabs are:
 - **Messages**, your requests, change requests and notifications. See [Notifications and messages](/docs/vendors/notifications-and-messages).
 - **Changes**, every change to your listings and who made it. See [Your change history](/docs/vendors/change-history).
 - **Seats**, the people with access to your account. See [Your seat](/docs/vendors/your-seat).
-- **Billing**, your licenses, the billing email and the agreements your company accepted. Only owners see it. See [Plans](/docs/vendors/plans#the-billing-tab).
+- **Billing**, your licenses, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
 
 Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
 
@@ -81,7 +81,7 @@ Turning Managed back on needs nothing re-entered. [Plans](/docs/vendors/plans) c
 
 ## The portal stays current
 
-While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite.
+While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite. A billing email change by another owner shows on the **Billing** tab when you reload the page.
 
 ## Related
 

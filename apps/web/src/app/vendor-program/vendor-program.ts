@@ -27,25 +27,25 @@
  * Its lede says buyers read our account of your public pages until you claim.
  *
  * **What Managed adds** opens with its own lede (who Managed is for), then the
- * price and terms line in small text (copy pass 2026-10-12), then the one-year term
- * and renewal (2026-10-13).
+ * price line in small text (copy pass 2026-10-12), then the monthly term with its
+ * 14-day refund and the annual renewal (E8.2, 2026-10-19).
  *
  * **Doc links open in a new tab (ruling 2026-10-12).** Every link to `/docs/*` carries `target="_blank" rel="noopener"`
  * and `aec-new-tab-icon` (the drawn cue plus the sr-only "(opens in a new tab)").
  * A `routerLink` with a `target` builds the same absolute `/docs/...` href and lets
  * the browser open it, so `<base href>` does not touch it. Conversion links stay in
- * the tab: every claim link, the Managed inquiry and "Go to your portal".
+ * the tab: every claim link, the contact link and "Go to your portal".
  *
- * **Calls to action (§4.1, §15).** The hero pair (`top`), the plan cards (`card`),
+ * **Calls to action (§4.1, §15).** The hero button (`top`), the plan cards (`card`),
  * the phone bar (`mobile_bar`) and the closing panel (`bottom`). No rail on this page: it would reserve an empty column beside
  * every section (2026-10-12). The docs Plans page keeps its rail. Every one of them
- * opens the one claim dialog (AECI-1293): "Claim your listing", or "Start with
- * Managed" with Managed preselected. Without JS they link to `/search`
+ * opens the one claim dialog (AECI-1293), and every one reads "Claim your listing"
+ * (E8.2 retired "Start with Managed", 2026-10-19). Without JS they link to `/search`
  * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
- * claim form. "Questions about Managed or pricing? Talk to us" opens the plan inquiry
- * dialog. The plan cards carry `data-plans-cta`, so the phone bar also hides while
- * they are on screen. Exactly one `aec-claim-dialog-host` and one
- * `aec-plan-inquiry-host`.
+ * claim form. Claim is the only plan action. "Questions? Contact us" (`aec-plan-contact-link`, a plain link to
+ * `/contact`) sits in the closing panel and under the FAQ, not on the hero (E8.1,
+ * 2026-10-19). The plan cards carry `data-plans-cta`, so the phone bar also hides
+ * while they are on screen. Exactly one `aec-claim-dialog-host`.
  *
  * **Static + edge-cached + SSR-safe.** No data fetch and no per-visitor state in the
  * HTML: `/vendor-program` carries `Cache-Tag: route:index` on the `/about` TTLs.
@@ -54,7 +54,7 @@
  * server HTML is the signed-out page for every visitor:
  *
  *  - a vendor seat: every claim dialog control becomes "Go to your portal";
- *  - a Managed company: also no phone bar, no pricing link or Managed steps in the panel.
+ *  - a Managed company: also no phone bar, no contact link or Managed steps in the panel.
  *
  * **Full width at desktop (§11).** Every section uses the whole `max-w-7xl`
  * container from `lg`: a 12-column split (heading left, content right), the Free
@@ -92,15 +92,16 @@ import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-mark
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
 import {
+  PlanContactLinkComponent,
   PlanCtaActionsComponent,
   PlanCtaMobileBarComponent,
   PlanCtaPanelComponent,
+  managedCostAnswer,
   managedRenewalLine,
   managedTermLine,
   managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
-import { PlanInquiryHost } from '../shared/plan-inquiry/plan-inquiry-host';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramBenefit } from './vendor-program-benefit';
 
@@ -117,16 +118,16 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
     MaintenanceMarker,
     NewTabIcon,
     PlanCardsComponent,
+    PlanContactLinkComponent,
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
     PlanCtaPanelComponent,
     ClaimDialogHost,
-    PlanInquiryHost,
     VendorProgramBenefit,
   ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- 1. Hero. Both calls to action, on the first screen at 375px. From lg the
+      <!-- 1. Hero. The claim call to action, on the first screen at 375px. From lg the
            copy takes the left seven columns and how claiming works the right five. -->
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
         <div
@@ -196,7 +197,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.review.body"
                   >
-                    Generally within two days. We email you the result either way.
+                    A person reviews every claim and emails you the result.
                   </p>
                 </div>
               </li>
@@ -490,12 +491,13 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               </details>
               <details class="group border-t border-(--border-default)">
                 <summary [class]="summaryClass">
-                  <span i18n="@@vendorProgram.faq.approval.q">How long does approval take?</span>
+                  <span i18n="@@vendorProgram.faq.approval.q"
+                    >What happens after we send a claim?</span
+                  >
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.approval.a">
-                  Generally within 48 hours. A person at AEC Integrations reviews every claim and
-                  emails the result to the address you gave.
+                  A person reviews every claim and emails you the result.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -507,20 +509,16 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.products.a">
                   No. One claim gives you a seat on your company's account, and it covers every
-                  product your company makes. Plans are priced per product. Tell us which products
-                  you want on Managed, and we'll set it up with you.
+                  product your company makes. Managed is licensed per product. An owner assigns a
+                  license to each product you want on Managed.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
                 <summary [class]="summaryClass">
-                  <span i18n="@@vendorProgram.faq.billing.q"
-                    >Can we pay by invoice or purchase order?</span
-                  >
+                  <span i18n="@@vendorProgram.faq.billing.q">What does Managed cost?</span>
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
-                <p [class]="answerClass" i18n="@@vendorProgram.faq.billing.a">
-                  Yes. We bill paid plans by invoice or purchase order. Free plans require neither.
-                </p>
+                <p [class]="answerClass">{{ costAnswer }}</p>
               </details>
               <details class="group border-t border-(--border-default)">
                 <summary [class]="summaryClass">
@@ -530,8 +528,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.cancel.a">
-                  The term runs to the end of the paid year. If you opt out of renewal, you keep
-                  Managed through the current year, and we issue no further invoices.
+                  Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run
+                  to the end of the month you paid for. An annual license runs to its renewal date.
+                  If you opt out of renewal, it ends on that date.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -542,9 +541,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.ends.a">
-                  Your company moves to the free plan. Your seats, sign-in and portal stay. Nothing
-                  you entered is removed, and your listings stay published. What Managed adds
-                  becomes read-only. See
+                  Each product whose license ends moves to Free. Your seats, sign-in and portal
+                  stay. Nothing you entered is removed, and your listings stay published. What
+                  Managed adds becomes read-only. See
                   <a
                     [routerLink]="plansPath"
                     fragment="when-a-managed-plan-ends"
@@ -576,6 +575,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </p>
               </details>
             </div>
+            <aec-plan-contact-link class="lg:col-span-7 lg:col-start-6" />
           </section>
 
           <!-- 8. The closing panel, its own section (h2). -->
@@ -594,10 +594,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
         [portal]="portal()"
         [hideManaged]="hideManaged()"
       />
-      <!-- One claim dialog for every claim control on the page (AECI-1293), and one
-           inquiry dialog for the pricing links (AECI-1279). -->
+      <!-- One claim dialog for every claim control on the page (AECI-1293). -->
       <aec-claim-dialog-host />
-      <aec-plan-inquiry-host />
     </div>
 
     <ng-template #chevron>
@@ -652,12 +650,18 @@ export class VendorProgramPage {
     integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:Integration detail buyers can check`,
     replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
   };
-  /** `$25 USD a month or $250 USD a year per product, billed by invoice or purchase order.` */
+  /** `$25 USD a month or $250 USD a year per product.` */
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
-  /** The one-year term, beside the price (2026-10-13). */
+  /** Monthly with no commitment, and the 14-day refund, beside the price (E8.2). */
   protected readonly term = managedTermLine();
-  /** Renewal and the 30-day written notice, under the price (2026-10-13). */
+  /** Annual renewal and the 30-day written notice, under the price (E8.2). */
   protected readonly renewal = managedRenewalLine();
+  /**
+   * The FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both prices from the
+   * shared constants, monthly with no commitment, annual renewal and the 14-day refund.
+   * No payment method: E9 adds the card line.
+   */
+  protected readonly costAnswer = managedCostAnswer(inject(LOCALE_ID));
   /**
    * The date on the "after" label in What changes when you claim: today, in UTC, so
    * the example reads as "if you updated it today". The marker formats it in UTC, so

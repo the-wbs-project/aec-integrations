@@ -11,7 +11,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../../analytics/analytics';
 import { ClaimDialogService } from '../claim-dialog/claim-dialog.service';
-import { PlanInquiryService } from '../plan-inquiry/plan-inquiry.service';
 import { PlanCardsComponent } from './plan-cards';
 
 function render(inputs: Record<string, unknown>) {
@@ -23,8 +22,6 @@ function render(inputs: Record<string, unknown>) {
       { provide: Analytics, useValue: { planCtaClicked } },
     ],
   });
-  const inquiry = TestBed.inject(PlanInquiryService);
-  inquiry.attachHost();
   const claimDialog = TestBed.inject(ClaimDialogService);
   claimDialog.attachHost();
   const fixture = TestBed.createComponent(PlanCardsComponent);
@@ -32,7 +29,7 @@ function render(inputs: Record<string, unknown>) {
   fixture.detectChanges();
   const host = fixture.nativeElement as HTMLElement;
   const cards = host.querySelectorAll('.aec-plan-card');
-  return { host, cards, planCtaClicked, inquiry, claimDialog };
+  return { host, cards, planCtaClicked, claimDialog };
 }
 
 describe('PlanCardsComponent', () => {
@@ -45,9 +42,8 @@ describe('PlanCardsComponent', () => {
     expect(cards[1].classList).toContain('aec-plan-card-featured');
     expect(cards[0].textContent).toContain('$0');
     expect(cards[1].textContent).toContain('$25');
-    expect(cards[1].textContent).toContain(
-      'We reply to most messages within a couple of business days.',
-    );
+    // E8.1: the inquiry's reply promise went with the inquiry.
+    expect(cards[1].textContent).not.toContain('We reply to most messages');
   });
 
   const click = (link: HTMLElement): boolean => {
@@ -56,27 +52,25 @@ describe('PlanCardsComponent', () => {
     return event.defaultPrevented;
   };
 
-  // AECI-1293 (spec §15.1): both cards open the claim dialog, each preselecting its
-  // plan; the pricing question under Managed opens the inquiry dialog.
+  // AECI-1293 (spec §15.1): both cards open the claim dialog.
   // AECI-1365: no plan is seeded any more; both cards open the same dialog.
+  // E8.1: claim is the only plan action, so the Managed card carries no other link.
   it('opens the claim dialog from both cards', () => {
-    const { cards, planCtaClicked, claimDialog, inquiry } = render({ page: 'vendor_program' });
+    const { cards, planCtaClicked, claimDialog } = render({ page: 'vendor_program' });
     const claim = cards[0].querySelector('a')!;
     expect(claim.textContent?.trim()).toBe('Claim your listing');
     expect(claim.getAttribute('href')).toBe('/search');
     expect(click(claim)).toBe(true);
     expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
 
-    const [start, pricing] = [...cards[1].querySelectorAll('a')];
-    expect(start.textContent?.trim()).toBe('Start with Managed');
+    const managedLinks = [...cards[1].querySelectorAll('a')];
+    expect(managedLinks).toHaveLength(1);
+    const [start] = managedLinks;
+    // E8.2: "Start with Managed" is retired. Claim is the one action.
+    expect(start.textContent?.trim()).toBe('Claim your listing');
     expect(click(start)).toBe(true);
     expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
-
-    expect(pricing.textContent?.trim()).toBe('Talk to us');
-    expect(cards[1].textContent).toContain('Questions about Managed or pricing?');
-    expect(click(pricing)).toBe(true);
-    expect(inquiry.placement()).toBe('card');
-    expect(inquiry.page()).toBe('vendor_program');
+    expect(cards[1].textContent).not.toContain('Talk to us');
 
     expect(planCtaClicked.mock.calls).toEqual([
       [{ plan: 'free', placement: 'card', page: 'vendor_program' }],

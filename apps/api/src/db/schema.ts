@@ -4427,15 +4427,15 @@ export const mailingList = sqliteTable(
 );
 
 /**
- * A "Talk to us about Managed" inquiry (AECI-1279), written by
- * `POST /api/plan-inquiries` (`routes/plan-inquiries.ts`). Lead capture, like
- * `feedback`: write-once, invisible on every public surface, no `audit_log` row
- * (ADR 0022, the 2026-10-12 amendment). The support-inbox alert is the reader
- * today; there is no admin screen yet.
+ * A "Talk to us about Managed" inquiry (AECI-1279). **No writer and no reader since
+ * E8.1 (2026-10-19, AECI-1398):** `POST /api/plan-inquiries`, its Zod schema and its
+ * two emails were removed. E8.6 drops the table. Lead capture, like `feedback`:
+ * write-once, invisible on every public surface, no `audit_log` row (ADR 0022, the
+ * 2026-10-12 amendment).
  *
- * `topic` is not CHECK-constrained on purpose. The Zod enum
- * (`PlanInquirySubmitSchema`) is the gate, and a CHECK here would turn every new
- * topic into a drizzle-kit table recreate on D1 (`docs/migrations.md` §0).
+ * `topic` is not CHECK-constrained on purpose. The route's Zod enum was the gate, and
+ * a CHECK here would turn every new topic into a drizzle-kit table recreate on D1
+ * (`docs/migrations.md` §0).
  * Geo comes from the trusted `LANDING_CF_HEADERS` the SSR proxy sets, as for
  * `feedback`. No user id: the route is public and holds no session.
  */

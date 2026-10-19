@@ -34,9 +34,10 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1377 added the product request alert, its decision email and its feed row: 63.
  * AECI-1370 added the licenses-granted email: 64. AECI-1371 added the managed-ended
  * email and the license revoke feed row: 66. AECI-1373 added the early-unassign
- * alert and its two decision feed rows: 69.
+ * alert and its two decision feed rows: 69. E8.1 (AECI-1398) removed the plan inquiry
+ * receipt and alert: 67.
  */
-const EXPECTED_COUNT = 69;
+const EXPECTED_COUNT = 67;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -70,16 +71,17 @@ describe('notification registry shape', () => {
       // AECI-1205 added `protest-submitted-alert`, `contest-protest-opened`,
       // `contest-protest-reply-reminder` and `contest-declined-protest-window`.
       // AECI-1180 added `vendor-review-published`, `portal-review` and
-      // `portal-review-response`. AECI-1279 added `plan-inquiry-received` and
-      // `plan-inquiry-alert`. AECI-1293 added `listing-request-alert`. AECI-1368
+      // `portal-review-response`. AECI-1279 added the plan inquiry receipt and
+      // alert. AECI-1293 added `listing-request-alert`. AECI-1368
       // added `claim-owner-review` and `claim-owner-fallback-alert`. AECI-1366 added
       // `claim-received`. AECI-1377 added `product-request-alert`,
       // `product-request-decided` and `portal-product-request-decided`. AECI-1370
       // added `licenses-granted`. AECI-1371 added `managed-ended` and
       // `portal-license-revoked-by-aeci`. AECI-1373 added
       // `license-release-request-alert`, `portal-license-release-approved-by-aeci`
-      // and `portal-license-release-declined-by-aeci`.
-      email: 38,
+      // and `portal-license-release-declined-by-aeci`. E8.1 removed the plan
+      // inquiry receipt and alert.
+      email: 36,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 25,
@@ -193,9 +195,8 @@ describe('notification registry shape', () => {
 /**
  * Mail an operator must never be able to stop from `/admin/email`. Security- or
  * obligation-bearing: invites, decisions, the erasure confirmation, and every vendor email
- * that carries a deadline. `plan-inquiry-alert` is here because no screen lists plan
- * inquiries yet (AECI-1279), so pausing it would hide them. Moving an id out of this list is
- * a decision, so it is a test edit.
+ * that carries a deadline. Moving an id out of this list is a decision, so it is a test
+ * edit.
  */
 const ALWAYS_ON = [
   'account-deleted',
@@ -208,7 +209,6 @@ const ALWAYS_ON = [
   'contest-protest-reply-reminder',
   'entitlement-expiring',
   'mailing-list-welcome-operator-copy',
-  'plan-inquiry-alert',
   'product-request-decided',
   'review-approved',
   'review-rejected',
@@ -237,10 +237,11 @@ describe('pausable (AECI-1224)', () => {
     }
   });
 
-  // AECI-1373 added `license-release-request-alert`: 20.
-  it('pauses only what is listed: 20 pausable email entries', () => {
+  // AECI-1373 added `license-release-request-alert`: 20. E8.1 removed the pausable
+  // plan inquiry receipt: 19.
+  it('pauses only what is listed: 19 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(20);
+    expect(pausable).toHaveLength(19);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

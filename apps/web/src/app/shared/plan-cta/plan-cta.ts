@@ -4,7 +4,7 @@
  * `VENDOR_PROGRAM_PAGE_SPEC.md` §4 and §15. Moved here from `docs/docs-plans-cta.ts`
  * (AECI-1285). The placements:
  *
- *  - `top`        the hero pair (`PlanCtaActionsComponent`): under the docs intro, in
+ *  - `top`        the hero button (`PlanCtaActionsComponent`): under the docs intro, in
  *                 the vendor program hero.
  *  - `card`       the plan cards' buttons (`plan-cards.ts`).
  *  - `rail`       a small sticky card (`PlanCtaRailComponent`), on the docs Plans page
@@ -15,29 +15,28 @@
  *  - `bottom`     a full-width Forest panel (`PlanCtaPanelComponent`).
  *
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
- * dialog (`shared/claim-dialog/`): "Claim your listing" on the hero, the panel and the
- * Free card; "Start with Managed", with Managed preselected, on the Managed card, the
- * rail and the phone bar. Each page mounts exactly one `aec-claim-dialog-host`. Each
- * control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click
- * without JS or into a new tab still lands where a visitor can find the listing and
- * its claim form. "Talk to us about Managed" is now the text link "Questions about
- * pricing? Talk to us", which opens the plan inquiry dialog (AECI-1279,
- * `shared/plan-inquiry/`); each page also mounts one `aec-plan-inquiry-host`. Never
- * "Get Managed", "Buy" or "Start now": there is no checkout.
+ * dialog (`shared/claim-dialog/`), and every one reads "Claim your listing": the hero,
+ * both plan cards, the rail, the phone bar and the panel. E8.2 (2026-10-19) retired
+ * "Start with Managed": claim is the one action. Each page mounts exactly one
+ * `aec-claim-dialog-host`. Each control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the
+ * search page), so a click without JS or into a new tab still lands where a visitor
+ * can find the listing and its claim form. Claim is the only plan action. Never "Get
+ * Managed", "Buy" or "Start now": there is no checkout.
+ *
+ * **Questions? Contact us** (`PlanContactLinkComponent`, E8.1, 2026-10-19). A plain
+ * link to `/contact`, with no topic and no form. It replaced the plan inquiry dialog
+ * ("Talk to us"), which was removed with its route and emails. It sits beside the
+ * claim button in the closing panel, and the vendor program page also puts one under
+ * its FAQ. It is not on the hero.
  *
  * **Every component takes a `page`** (`docs_plans` | `vendor_program`), sent on
- * `plan_cta_clicked` and carried into both dialogs (`docs/ANALYTICS.md` §4).
+ * `plan_cta_clicked` and carried into the claim dialog (`docs/ANALYTICS.md` §4).
  *
  * **Signed-in hooks (spec §5, AECI-1286).** `portal` turns every dialog control into
  * "Go to your portal" (`/vendor`) and drops the panel's two claim steps. `hideManaged`
- * drops the rail card, the phone bar and the panel's pricing link, for a Managed company. Both default
- * to the signed-out page, so the SSR HTML stays visitor-neutral, and both are set only
- * after hydration.
- *
- * The reply line repeats the contact page's own promise ("most messages within a
- * couple of business days"), and so do the inquiry form's thanks line and the receipt
- * email (`PLAN_INQUIRY_REPLY_PROMISE`, `apps/api/src/lib/email.ts`). Change them
- * together, or none of them.
+ * drops the rail card, the phone bar and the panel's contact link, for a Managed
+ * company. Both default to the signed-out page, so the SSR HTML stays visitor-neutral,
+ * and both are set only after hydration.
  *
  * Static and visitor-neutral in the SSR HTML: the bar renders hidden and is shown only
  * by the browser, so the edge-cached HTML is the same for everyone. Every string is
@@ -64,14 +63,6 @@ import { Analytics, type PlanCtaPage, type PlanCtaPlacement } from '../../analyt
 import { formatPlanPrice, planLabel } from '../../vendor/vendor-plan';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
-import { PlanInquiryTrigger } from '../plan-inquiry/plan-inquiry-trigger';
-
-/**
- * The contact page, asked about Managed: the no-JS and new-tab destination of every
- * Managed button. It carries the same inquiry form the dialog does. A plain `href`,
- * not `routerLink`: `RouterLink` navigates even when the trigger prevented the click.
- */
-export const MANAGED_CONTACT_HREF = '/contact?topic=managed';
 
 /** Where "Go to your portal" points, for a signed-in vendor (spec §5). */
 export const PORTAL_PATH = '/vendor';
@@ -89,32 +80,43 @@ export function managedPriceLine(locale: string): string {
 }
 
 /**
- * `$25 USD a month or $250 USD a year per product, billed by invoice or purchase
- * order.`, the closing panel's terms (spec §4.1), from the two price constants.
- * USD stays on each amount: vendors outside the US read these pages.
+ * `$25 USD a month or $250 USD a year per product.`, the closing panel's terms (spec
+ * §4.1), from the two price constants. USD stays on each amount: vendors outside the
+ * US read these pages. No payment method (E8.2, 2026-10-19).
  */
 export function managedTermsLine(locale: string): string {
   const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
   const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return $localize`:@@planCta.terms:${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product, billed by invoice or purchase order.`;
+  return $localize`:@@planCta.terms:${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product.`;
 }
 
 /**
- * The term, beside the price on both pages (closing panel, spec §4.1, 2026-10-13): one year
- * per product however it is billed. Monthly billing is not month to month.
+ * The term, beside the price on both pages (closing panel, spec §4.1, E8.2 2026-10-19):
+ * monthly is month to month with no commitment, and the first charge carries a 14-day
+ * full refund.
  */
 export function managedTermLine(): string {
-  return $localize`:@@planCta.term:Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.`;
+  return $localize`:@@planCta.term:Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.`;
 }
 
 /**
- * Renewal, under the price on `/vendor-program` (spec §3 item 4, 2026-10-13). The
- * docs Plans page says it in Markdown; `vendor-program-copy.component.spec.ts` pins
- * the two together. Refund,
- * early-termination and nonpayment terms are not decided, so nothing here says them.
+ * Annual renewal, under the price on `/vendor-program` (spec §3 item 4, E8.2
+ * 2026-10-19). The docs Plans page says it in Markdown, and
+ * `vendor-program-copy.component.spec.ts` pins the two together sentence by sentence.
  */
 export function managedRenewalLine(): string {
-  return $localize`:@@planCta.renewal:The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.`;
+  return $localize`:@@planCta.renewal:An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.`;
+}
+
+/**
+ * The vendor program FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both
+ * prices from the two constants, monthly with no commitment, annual renewal and the
+ * 14-day refund. It names no payment method.
+ */
+export function managedCostAnswer(locale: string): string {
+  const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
+  const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
+  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.`;
 }
 
 /**
@@ -129,21 +131,27 @@ abstract class PlanCta {
   /** "Go to your portal" carries no click handler: a portal click is not a plan click. */
   protected readonly portalPath = PORTAL_PATH;
 
-  /** Which page this sits on, for `plan_cta_clicked` and both dialogs. */
+  /** Which page this sits on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();
   /** A signed-in vendor seat: every dialog control becomes "Go to your portal" (§5). */
   readonly portal = input(false);
 
-  /** `free` is a "Claim your listing" click, `managed` a "Start with Managed" click. */
+  /**
+   * `free` is a click on a Free-side control (hero, Free card, panel), `managed` one on a
+   * Managed-side control (Managed card, rail, phone bar). All read "Claim your listing".
+   */
   protected track(plan: 'free' | 'managed', placement: PlanCtaPlacement): void {
     this.analytics.planCtaClicked({ plan, placement, page: this.page() });
   }
 }
 
-/** "Questions about Managed or pricing? Talk to us": the plan inquiry dialog, in place (§15.1). */
+/**
+ * "Questions? Contact us": a plain link to the contact page, with no topic (E8.1).
+ * `inverse` on the Forest panel.
+ */
 @Component({
-  selector: 'aec-plan-pricing-link',
-  imports: [PlanInquiryTrigger],
+  selector: 'aec-plan-contact-link',
+  imports: [RouterLink],
   host: { class: 'block' },
   template: `
     <p
@@ -151,35 +159,30 @@ abstract class PlanCta {
         tone() === 'inverse' ? 'text-sm text-(--surface-base)' : 'text-sm text-(--text-secondary)'
       "
     >
-      <span i18n="@@planCta.pricing.lead">Questions about Managed or pricing?</span>
+      <span i18n="@@planCta.contact.lead">Questions?</span>
       {{ ' ' }}
       <a
-        [href]="contactHref"
-        [aecPlanInquiryTrigger]="placement()"
-        [aecPlanInquiryPage]="page()"
+        routerLink="/contact"
         [class]="
           tone() === 'inverse'
             ? 'font-semibold text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)'
             : 'font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
         "
-        i18n="@@planCta.pricing.link"
-        >Talk to us</a
+        i18n="@@planCta.contact.link"
+        >Contact us</a
       >
     </p>
   `,
 })
-export class PlanPricingLinkComponent {
-  protected readonly contactHref = MANAGED_CONTACT_HREF;
-  readonly page = input.required<PlanCtaPage>();
-  readonly placement = input.required<PlanCtaPlacement>();
+export class PlanContactLinkComponent {
   /** `inverse` on the Forest panel. */
   readonly tone = input<'default' | 'inverse'>('default');
 }
 
-/** The hero pair: under the docs intro, in the vendor program hero (`placement: top`). */
+/** The hero button: under the docs intro, in the vendor program hero (`placement: top`). */
 @Component({
   selector: 'aec-plan-cta-actions',
-  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
+  imports: [RouterLink, ClaimDialogTrigger],
   host: { class: 'block', 'data-plans-cta': 'top' },
   template: `
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
@@ -201,7 +204,6 @@ export class PlanPricingLinkComponent {
           >Claim your listing</a
         >
       }
-      <aec-plan-pricing-link [page]="page()" placement="top" />
     </div>
   `,
 })
@@ -214,7 +216,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
  */
 @Component({
   selector: 'aec-plan-cta-panel',
-  imports: [RouterLink, ClaimDialogTrigger, PlanPricingLinkComponent],
+  imports: [RouterLink, ClaimDialogTrigger, PlanContactLinkComponent],
   host: { class: 'block', 'data-plans-cta': 'bottom' },
   template: `
     <section
@@ -280,21 +282,19 @@ export class PlanCtaActionsComponent extends PlanCta {}
             >
           }
           @if (!hideManaged()) {
-            <aec-plan-pricing-link [page]="page()" placement="bottom" tone="inverse" />
+            <aec-plan-contact-link tone="inverse" />
           }
         </div>
         @if (!portal() && !hideManaged()) {
           <ol class="mt-5 space-y-1.5 text-sm">
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">1.</span>
-              <span i18n="@@planCta.step.find"
-                >Find your listing and tell us which plan you want.</span
-              >
+              <span i18n="@@planCta.step.find">Find your listing and send your claim.</span>
             </li>
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">2.</span>
               <span i18n="@@planCta.step.review"
-                >We review it, generally within 48 hours, and email you the result.</span
+                >A person reviews every claim and emails you the result.</span
               >
             </li>
           </ol>
@@ -311,7 +311,7 @@ export class PlanCtaPanelComponent extends PlanCta {
   /** `h3` under a page section (the docs page), `h2` as its own section. */
   readonly headingLevel = input<2 | 3>(3);
   /**
-   * A Managed company: drop the pricing link (spec §5). The two next steps describe the
+   * A Managed company: drop the contact link (spec §5). The two next steps describe the
    * claim dialog, so they show only while the button opens it, never beside "Go to your
    * portal" (ruled 2026-10-12, spec §4.1).
    */
@@ -347,8 +347,8 @@ export class PlanCtaPanelComponent extends PlanCta {
             [aecClaimDialogPage]="page()"
             (click)="track('managed', 'rail')"
             [class]="railButtonClass"
-            i18n="@@planCta.startManaged"
-            >Start with Managed</a
+            i18n="@@planCta.claim"
+            >Claim your listing</a
           >
         }
       </aside>
@@ -400,8 +400,8 @@ export class PlanCtaRailComponent extends PlanCta {
               [aecClaimDialogPage]="page()"
               (click)="track('managed', 'mobile_bar')"
               [class]="barButtonClass"
-              i18n="@@planCta.startManaged"
-              >Start with Managed</a
+              i18n="@@planCta.claim"
+              >Claim your listing</a
             >
           }
         </div>
