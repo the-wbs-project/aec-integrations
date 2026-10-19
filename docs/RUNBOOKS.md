@@ -2244,7 +2244,7 @@ Nothing to do. On the end date, the 11:00 UTC run ends every live license of the
 | Effect | Detail |
 |---|---|
 | License | `ended_at` is set. `end_reason` is `lapsed`, or `released` for a license the vendor flagged "release at renewal". The license keeps its product as history. |
-| Plan | Each product on an ended license moves to the Free plan. Seats, logins and everything the vendor entered stay. |
+| Plan | Each product on an ended license moves to the Free plan, unless the account holds a live unassigned license that does not end yet. Then the products assigned longest move onto those licenses and stay Managed (decision 12, AECI-1405). Seats, logins and everything the vendor entered stay. |
 | Portal | The plan-ended banner shows once no license is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
 | Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
 | Cache | The product and vendor pages are purged. |

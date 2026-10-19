@@ -415,8 +415,9 @@ export type JobRunDetail =
    *  reporting `vendor.skipped` is a real finding (no `SUPABASE_SERVICE_ROLE_KEY`,
    *  or no unbanned seat) while locally it is the expected state.
    *
-   *  The `lapse*` and `lapsed_*` fields are the term-end pre-step (AECI-1404,
+   *  The `lapse*`, `lapsed_*` and `carried` fields are the term-end pre-step (AECI-1404,
    *  `lib/license-lapse.ts`), which runs first: terms ended, licenses ended,
+   *  products carried onto a pool license (`carried`, AECI-1405),
    *  terms the cap left for tomorrow, term batches rolled back, and one
    *  `managed-ended` outcome per address. Optional, so rows written before it still
    *  parse. `lapse_error` is present only when the lapse scan itself crashed. */
@@ -432,6 +433,7 @@ export type JobRunDetail =
       admin: Record<EmailOutcome, number>;
       lapsed_terms?: number;
       lapsed_licenses?: number;
+      carried?: number;
       lapse_capped?: number;
       lapse_batch_failures?: number;
       lapse_email?: Record<EmailOutcome, number>;

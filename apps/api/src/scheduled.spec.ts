@@ -462,6 +462,7 @@ describe('scheduled (cron producer)', () => {
         return {
           lapsedTerms: 2,
           lapsedLicenses: 5,
+          carried: 1,
           droppedProducts: 3,
           capped: 0,
           batchFailures: 0,
@@ -482,6 +483,7 @@ describe('scheduled (cron producer)', () => {
         job: 'entitlement-expiry',
         lapsed_terms: 2,
         lapsed_licenses: 5,
+        carried: 1,
         lapse_capped: 0,
         lapse_batch_failures: 0,
         lapse_email: emails,

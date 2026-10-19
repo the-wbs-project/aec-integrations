@@ -142,8 +142,9 @@ function lapse(extra: Partial<LapseDeps> & { env?: Partial<Env>; db?: Db } = {},
 describe('the scan', () => {
   it('ends a term on its end day from 00:00Z, and leaves tomorrow and monthly alone', async () => {
     await seedLicense('l-today', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    await seedLicense('l-tomorrow', { endsAt: TOMORROW });
-    await seedLicense('l-monthly', { endsAt: null });
+    // Assigned, so neither is a pool license the product could carry onto.
+    await seedLicense('l-tomorrow', { endsAt: TOMORROW, assignedProductId: 'p-2' });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
 
     const result = await lapse();
 
@@ -293,6 +294,64 @@ describe('released versus lapsed, and the emails', () => {
     const result = await lapse({}, s);
     expect(result.lapsedLicenses).toBe(1);
     expect(s.sent).toHaveLength(0);
+  });
+});
+
+describe('fewer licenses than products: the carry-over (AECI-1405)', () => {
+  it('carries the 2 products assigned longest, and emails only the one left over', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: '2026-06-01T00:00:00.000Z' });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    await seedLicense('l-3', { assignedProductId: 'p-3', assignedAt: '2025-01-01T00:00:00.000Z' });
+    await seedLicense('pool-1', { endsAt: NEXT_YEAR, createdAt: '2026-01-01T00:00:00.000Z' });
+    await seedLicense('pool-2', { endsAt: null, createdAt: '2026-02-01T00:00:00.000Z' });
+    const s = sender();
+    const sent: Array<{ fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (c, o) => {
+      sent.push({ fewerLicenses: o.fewerLicenses });
+      return s.send(c, o);
+    }) as unknown as SendManagedEnded;
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+
+    const result = await lapse({
+      sendEnded: send,
+      env: { CACHE_PURGE_QUEUE: { sendBatch } as never },
+    });
+
+    expect(result).toMatchObject({ lapsedLicenses: 3, carried: 2, droppedProducts: 1 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBe('p-2');
+    expect((await licenseOf('pool-2')).assignedProductId).toBe('p-3');
+    expect(s.sent.every((m) => m.products.join() === 'acme-one')).toBe(true);
+    expect(sent.every((m) => m.fewerLicenses === true)).toBe(true);
+    // The dropped product is purged. (The vendor set carries every owned product's tag.)
+    const tags = sendBatch.mock.calls[0]![0][0].body.tags as string[];
+    expect(tags).toContain('product:acme-one');
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('does not carry a product the vendor no longer owns', async () => {
+    await t.db.delete(productVendors).where(eq(productVendors.productId, 'p-1'));
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    const result = await lapse();
+    expect(result).toMatchObject({ carried: 0, droppedProducts: 1 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+  });
+
+  it('a product released at renewal does not carry, and its email has no carry-over line', async () => {
+    await seedLicense('l-1', {
+      assignedProductId: 'p-1',
+      assignedAt: OLD_TS,
+      releaseAtRenewal: true,
+    });
+    await seedLicense('pool-1', { endsAt: null });
+    const sent: Array<{ cause: string; fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (_c, o) => {
+      sent.push({ cause: o.cause, fewerLicenses: o.fewerLicenses });
+      return 'sent' as const;
+    }) as unknown as SendManagedEnded;
+    const result = await lapse({ sendEnded: send });
+    expect(result.carried).toBe(0);
+    expect(sent.every((m) => m.cause === 'released' && m.fewerLicenses === false)).toBe(true);
   });
 });
 

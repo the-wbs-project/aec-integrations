@@ -33,6 +33,17 @@
  * write wins. A term is never half-ended. A rolled-back term counts as a batch
  * failure and is read again tomorrow.
  *
+ * ── FEWER LICENSES THAN PRODUCTS (AECI-1405, decision 12) ───────────────────────
+ * In the same batch, after the ends, a product on a lapsing license moves onto a live,
+ * unassigned license of the same billing account that does not end by now, the
+ * products assigned longest first (`carryOverStatements`). A product flagged
+ * release-at-renewal or cancel-at-term-end never moves. Nor does one that
+ * {@link loadNoCarry} finds held by another live license, or no longer owned by the
+ * vendor. A carried product stays Managed, so it gets no email and no purge. The
+ * products left over drop to Free, and their email says the vendor had fewer licenses
+ * than products. The assigns ride the same race sentinels: a pool license assigned
+ * by the vendor since the read rolls the term back.
+ *
  * ── AFTER COMMIT, ONCE PER RUN ──────────────────────────────────────────────────
  *  - ONE purge message on `CACHE_PURGE_QUEUE`, source `'moderation'` (the source every
  *    license path uses): `product:{slug}` for every product that dropped to Free,
@@ -59,14 +70,19 @@ import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients
 import type { EmailContext, EmailOutcome, sendManagedEndedEmail } from './email';
 import { EXPIRY_BATCH_CAP } from './entitlement-expiry';
 import { recipientHash } from './hash';
-import { lapseTermStatements, loadVendorLicenses, type LapseTermBatch } from './license';
+import {
+  lapseTermStatements,
+  loadVendorLicenses,
+  type LapseTermBatch,
+  type LicenseBefore,
+} from './license';
 import { changedOneRowSentinel, isReleaseRaceError } from './license-release-requests';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { vendorPurgeTags } from './vendor-cache-tags';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import type { Db } from '../db/client';
-import { billingAccounts, licenses, products, vendors } from '../db/schema';
+import { billingAccounts, licenses, productVendors, products, vendors } from '../db/schema';
 import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 
 /** `metadata.source` on every audit row, and the log source. */
@@ -106,6 +122,8 @@ export interface LapseResult {
   lapsedTerms: number;
   /** Licenses those terms ended, `lapsed` and `released` together. */
   lapsedLicenses: number;
+  /** Products moved onto a pool license at term end (decision 12, AECI-1405). */
+  carried: number;
   /** Products that left Managed. */
   droppedProducts: number;
   /** Terms the cap left for tomorrow (at least this many). */
@@ -130,6 +148,8 @@ interface PendingNotice {
   term: LapsingTerm;
   cause: 'lapsed' | 'released';
   productIds: string[];
+  /** Some products dropped because the pool ran short (decision 12). */
+  fewerLicenses: boolean;
 }
 
 /** The ledger key of one term-end `managed-ended` email to one address. */
@@ -193,6 +213,58 @@ async function loadProductNames(
 }
 
 /**
+ * The carry-over pre-check (AECI-1405): of the products on this term's licenses, the
+ * ones that must not move onto a pool license. A product another live license holds
+ * (any account, so a co-owned product its other vendor licenses), or one the vendor no
+ * longer owns. Reads nothing when the account has no live unassigned license, because
+ * then nothing can carry.
+ */
+async function loadNoCarry(
+  db: Db,
+  term: LapsingTerm,
+  vendorLicenses: readonly LicenseBefore[],
+): Promise<Set<string>> {
+  const onAccount = vendorLicenses.filter(
+    (l) => l.billingAccountId === term.billingAccountId && l.endedAt === null,
+  );
+  if (!onAccount.some((l) => l.assignedProductId === null)) return new Set();
+  const termLicenseIds = new Set(
+    onAccount.filter((l) => l.endsAt === term.endsAt).map((l) => l.id),
+  );
+  const productIds = [
+    ...new Set(
+      onAccount
+        .filter((l) => termLicenseIds.has(l.id))
+        .map((l) => l.assignedProductId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  const blocked = new Set<string>();
+  const owned = new Set<string>();
+  for (let i = 0; i < productIds.length; i += PRODUCT_READ_CHUNK) {
+    const ids = productIds.slice(i, i + PRODUCT_READ_CHUNK);
+    const [ownedRows, liveRows] = await Promise.all([
+      db
+        .select({ productId: productVendors.productId })
+        .from(productVendors)
+        .where(
+          and(eq(productVendors.vendorId, term.vendorId), inArray(productVendors.productId, ids)),
+        ),
+      db
+        .select({ id: licenses.id, productId: licenses.assignedProductId })
+        .from(licenses)
+        .where(and(isNull(licenses.endedAt), inArray(licenses.assignedProductId, ids))),
+    ]);
+    for (const r of ownedRows) owned.add(r.productId);
+    for (const r of liveRows) {
+      if (r.productId && !termLicenseIds.has(r.id)) blocked.add(r.productId);
+    }
+  }
+  for (const id of productIds) if (!owned.has(id)) blocked.add(id);
+  return blocked;
+}
+
+/**
  * The term batch with a `changedOneRowSentinel` after every license UPDATE. The builder
  * puts one license statement per audit entry first (`assemble` in `lib/license.ts`), so
  * the first `auditEntries.length` statements are the license writes.
@@ -228,6 +300,7 @@ export async function runLicenseLapse(
   const result: LapseResult = {
     lapsedTerms: 0,
     lapsedLicenses: 0,
+    carried: 0,
     droppedProducts: 0,
     capped: 0,
     batchFailures: 0,
@@ -257,29 +330,34 @@ export async function runLicenseLapse(
   // One term at a time, each from a fresh read: two terms of one vendor must each see
   // what the other committed (the plan snapshot, the mirror prediction).
   for (const term of terms) {
-    const [vendorLicenses, vendorRow] = await Promise.all([
-      loadVendorLicenses(db, term.vendorId),
-      db.query.vendors.findFirst({
-        columns: { verified: true },
-        where: eq(vendors.id, term.vendorId),
-      }),
-    ]);
-    const batch = lapseTermStatements(db, {
-      vendorId: term.vendorId,
-      now: nowIso,
-      actorId: null,
-      actorType: 'system',
-      vendorLicenses,
-      vendorWasVerified: vendorRow?.verified ?? false,
-      source: LAPSE_AUDIT_SOURCE,
-      extraMetadata: { ends_at: term.endsAt },
-      billingAccountId: term.billingAccountId,
-      endsAt: term.endsAt,
-    });
-    // Nothing live on the term any more: an admin write since the scan.
-    if (batch.ended.length === 0) continue;
-
+    let batch: LapseTermBatch;
+    let wasVerified: boolean;
+    // The reads sit inside the catch too: a D1 error on one term must not end the run
+    // before the terms already committed are forwarded, purged and emailed.
     try {
+      const [vendorLicenses, vendorRow] = await Promise.all([
+        loadVendorLicenses(db, term.vendorId),
+        db.query.vendors.findFirst({
+          columns: { verified: true },
+          where: eq(vendors.id, term.vendorId),
+        }),
+      ]);
+      wasVerified = vendorRow?.verified ?? false;
+      batch = lapseTermStatements(db, {
+        vendorId: term.vendorId,
+        now: nowIso,
+        actorId: null,
+        actorType: 'system',
+        vendorLicenses,
+        vendorWasVerified: wasVerified,
+        source: LAPSE_AUDIT_SOURCE,
+        extraMetadata: { ends_at: term.endsAt },
+        billingAccountId: term.billingAccountId,
+        endsAt: term.endsAt,
+        noCarryProductIds: await loadNoCarry(db, term, vendorLicenses),
+      });
+      // Nothing live on the term any more: an admin write since the scan.
+      if (batch.ended.length === 0) continue;
       await db.batch(withRaceSentinels(db, batch) as BatchTuple);
     } catch (error) {
       result.batchFailures++;
@@ -299,20 +377,30 @@ export async function runLicenseLapse(
 
     result.lapsedTerms++;
     result.lapsedLicenses += batch.ended.length;
+    result.carried += batch.carried.length;
     audits.push(...batch.auditEntries);
 
+    // A carried product stays on Managed: no email and no purge for it.
+    const carried = new Set(batch.carried.map((c) => c.productId));
     const byCause = { lapsed: [] as string[], released: [] as string[] };
-    for (const e of batch.ended) if (e.productId) byCause[e.cause].push(e.productId);
+    for (const e of batch.ended) {
+      if (e.productId && !carried.has(e.productId)) byCause[e.cause].push(e.productId);
+    }
     for (const cause of ['lapsed', 'released'] as const) {
       if (byCause[cause].length === 0) continue;
-      notices.push({ term, cause, productIds: byCause[cause] });
+      notices.push({
+        term,
+        cause,
+        productIds: byCause[cause],
+        fewerLicenses: cause === 'lapsed' && batch.fewerLicenses,
+      });
       droppedProductIds.push(...byCause[cause]);
     }
     if (byCause.lapsed.length + byCause.released.length > 0 || batch.verifiedFlipped) {
       purgeVendors.set(term.vendorId, {
         id: term.vendorId,
         slug: term.vendorSlug,
-        verified: vendorRow?.verified ?? false,
+        verified: wasVerified,
       });
     }
   }
@@ -416,6 +504,7 @@ async function sendNotices(
         products: productList,
         cause: notice.cause,
         reason: null,
+        fewerLicenses: notice.fewerLicenses,
         dedupeKey: await managedEndedTermDedupeKey(
           term.billingAccountId,
           term.endsAt,

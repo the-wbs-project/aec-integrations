@@ -925,6 +925,12 @@ export interface LapseTermParams extends LicenseWriteContext {
   /** The term's `ends_at`, exactly as scanned. Selects the licenses and guards every
    *  end UPDATE (`expectEndsAt`). */
   endsAt: string;
+  /**
+   * Products that must not carry over (AECI-1405), pre-checked by the caller: a
+   * product another live license already holds (any account, so a co-owned product
+   * licensed by its other vendor), or one the vendor no longer owns. Absent: none.
+   */
+  noCarryProductIds?: ReadonlySet<string>;
 }
 
 /** One license a term end ended. */
@@ -936,22 +942,105 @@ export interface EndedLicense {
   cause: 'lapsed' | 'released';
 }
 
-/** {@link lapseTermStatements}' result: the batch, plus what it ends. */
+/** One product moved onto a pool license at term end (decision 12). */
+export interface CarriedProduct {
+  productId: string;
+  /** The lapsing license it was on. */
+  fromLicenseId: string;
+  /** The pool license it is on now. */
+  toLicenseId: string;
+}
+
+/** {@link lapseTermStatements}' result: the batch, plus what it ends and carries. */
 export interface LapseTermBatch extends LicenseBatch {
   ended: EndedLicense[];
+  carried: CarriedProduct[];
+  /** Products that could carry outnumbered the pool, so some dropped to Free while
+   *  the ones assigned longest kept a license. Drives the email's extra line. */
+  fewerLicenses: boolean;
+}
+
+/** `assigned_at ASC, id ASC`; a missing `assigned_at` sorts last. Binary order: these
+ *  are ISO timestamps and ids, not display text. */
+function byAssignedAt(a: LicenseBefore, b: LicenseBefore): number {
+  const ka = a.assignedAt ?? '￿';
+  const kb = b.assignedAt ?? '￿';
+  if (ka !== kb) return ka < kb ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /**
- * End one term (`VENDOR_SIGNUP_PROCESS.md` §3 steps 9 and 10, decision 11): every live
- * license on `billingAccountId` whose `ends_at` is the scanned `endsAt`. An assigned
- * license flagged `release_at_renewal` ends `released`. Every other one ends `lapsed`.
- * The daily term-end job (`lib/license-lapse.ts`) is the caller.
+ * The carry-over at term end (AECI-1405; `VENDOR_SIGNUP_PROCESS.md` decision 12, ruled
+ * 2026-10-19): fewer licenses than products means the products assigned longest keep
+ * one. Pure: it returns the writes for {@link lapseTermStatements} to put after the
+ * end UPDATEs, so the old license is ended before its product is assigned again and
+ * the partial unique index `licenses_live_product_idx` holds.
+ *
+ *  - The products to carry are the term's assigned licenses, minus any flagged
+ *    `release_at_renewal` or `cancel_at_term_end` and any in `noCarry`, sorted by
+ *    `assigned_at ASC, id ASC`.
+ *  - The pool is `pool` in the order given. The caller passes the account's live,
+ *    unassigned licenses whose `ends_at` is NULL or later than now, in
+ *    `created_at ASC, id ASC` order ({@link loadVendorLicenses}' order).
+ *  - Each carried product gets an assign on the next pool license, guarded like
+ *    {@link assignLicenseStatements}, audited `license.assigned` with
+ *    `metadata.carried_from` = the lapsing license.
+ */
+export function carryOverStatements(
+  db: Db,
+  ctx: LicenseWriteContext,
+  now: string,
+  term: readonly LicenseBefore[],
+  pool: readonly LicenseBefore[],
+  noCarry: ReadonlySet<string>,
+): { writes: LicenseWrite[]; changed: LicenseBefore[]; carried: CarriedProduct[]; fewer: boolean } {
+  const candidates = term
+    .filter(
+      (l) =>
+        l.endedAt === null &&
+        l.assignedProductId !== null &&
+        !l.releaseAtRenewal &&
+        !l.cancelAtTermEnd &&
+        !noCarry.has(l.assignedProductId),
+    )
+    .sort(byAssignedAt);
+  const writes: LicenseWrite[] = [];
+  const changed: LicenseBefore[] = [];
+  const carried: CarriedProduct[] = [];
+  for (let i = 0; i < candidates.length && i < pool.length; i++) {
+    const from = candidates[i]!;
+    const to = pool[i]!;
+    const productId = from.assignedProductId!;
+    const after: LicenseBefore = { ...to, assignedProductId: productId, assignedAt: now };
+    changed.push(after);
+    carried.push({ productId, fromLicenseId: from.id, toLicenseId: to.id });
+    const stmt = db
+      .update(licenses)
+      .set({ assignedProductId: productId, assignedAt: now, updatedAt: now })
+      .where(
+        and(eq(licenses.id, to.id), isNull(licenses.assignedProductId), isNull(licenses.endedAt)),
+      );
+    const entry = licenseEntry(ctx, now, LICENSE_ACTION.assigned, to, after);
+    (entry.metadata as Record<string, unknown>).carried_from = from.id;
+    writes.push({ stmt, entry });
+  }
+  return { writes, changed, carried, fewer: carried.length > 0 && candidates.length > pool.length };
+}
+
+/**
+ * End one term (`VENDOR_SIGNUP_PROCESS.md` §3 steps 9 and 10, decisions 11 and 12): every
+ * live license on `billingAccountId` whose `ends_at` is the scanned `endsAt`. An
+ * assigned license flagged `release_at_renewal` ends `released`. Every other one ends
+ * `lapsed`. Then {@link carryOverStatements} moves the products it can onto the
+ * account's live pool licenses (AECI-1405). The daily term-end job
+ * (`lib/license-lapse.ts`) is the caller.
  *
  * ONE batch for the whole term, so a term is never half-ended: the end UPDATEs first,
- * then one audit row per license, then ONE mirror reconcile with ONE `verifiedFlipped`
- * prediction over the whole term, not one per end reason. Every UPDATE is guarded on
- * `ended_at IS NULL` and the scanned `ends_at`, so an admin extend or revoke that
- * commits first wins. Nothing matches: a no-op.
+ * then the carry-over assigns, then one audit row per license written, then ONE mirror
+ * reconcile with ONE `verifiedFlipped` prediction over the whole term, not one per
+ * composed step. Every end UPDATE is guarded on `ended_at IS NULL` and the scanned
+ * `ends_at`, so an admin extend or revoke that commits first wins. Nothing matches: a
+ * no-op.
  */
 export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch {
   const now = toIsoTimestamp(p.now);
@@ -964,13 +1053,33 @@ export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch 
   const released = endWrites(db, p, now, releasing, 'released', p.endsAt);
   const lapsed = endWrites(db, p, now, lapsing, 'lapsed', p.endsAt);
   const changed = [...released.changed, ...lapsed.changed];
-  const batch = assemble(db, p, now, [...released.writes, ...lapsed.writes], replaced(p, changed));
+  if (changed.length === 0) {
+    return { ...assemble(db, p, now, [], []), ended: [], carried: [], fewerLicenses: false };
+  }
+
+  // Live, unassigned, and not ending by now: `vendorLicenses` is in `created_at, id` order.
+  const pool = p.vendorLicenses.filter(
+    (l) =>
+      l.billingAccountId === p.billingAccountId &&
+      l.endedAt === null &&
+      l.assignedProductId === null &&
+      (l.endsAt === null || l.endsAt > now),
+  );
+  const carry = carryOverStatements(db, p, now, term, pool, p.noCarryProductIds ?? new Set());
+
+  const batch = assemble(
+    db,
+    p,
+    now,
+    [...released.writes, ...lapsed.writes, ...carry.writes],
+    replaced(p, [...changed, ...carry.changed]),
+  );
   const ended: EndedLicense[] = changed.map((l) => ({
     licenseId: l.id,
     productId: l.assignedProductId,
     cause: l.endReason === 'released' ? 'released' : 'lapsed',
   }));
-  return { ...batch, ended };
+  return { ...batch, ended, carried: carry.carried, fewerLicenses: carry.fewer };
 }
 
 // ─── The expiry-notice fence (E1.7) ─────────────────────────────────────────
