@@ -31,9 +31,10 @@
  * ── ONE BATCH PER TERM ──────────────────────────────────────────────────────────
  * `lapseTermStatements` in `lib/license.ts` (the one license writer): the end
  * UPDATEs, one audit row per license, one mirror reconcile. Each license UPDATE is
- * guarded on `ended_at IS NULL`, the scanned `ends_at` and the pre-read
- * `assigned_product_id` (NULL-safe), and followed here by a `changedOneRowSentinel`.
- * So an admin extend or revoke, or a vendor assign or unassign, that commits between
+ * guarded on `ended_at IS NULL`, the scanned `ends_at`, and the pre-read
+ * `assigned_product_id` (NULL-safe), `release_at_renewal` and `cancel_at_term_end`,
+ * and followed here by a `changedOneRowSentinel`. So an admin extend or revoke, or a
+ * vendor assign, unassign, release flag or cancel flag, that commits between
  * the read and the batch matches no row, the sentinel rolls the whole term back, and
  * the other write wins. A term is never half-ended. The rolled-back term is rebuilt
  * once from a fresh read (below), and a second roll-back counts as a batch failure,

@@ -305,6 +305,48 @@ describe('the race guard', () => {
     expect(s.sent.length).toBeGreaterThan(0);
     expect(s.sent.every((m) => m.products.join() === 'acme-one,acme-two')).toBe(true);
   });
+
+  it('a release flag set between the read and the batch rolls back, and the rebuild ends it released and does not carry it', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    // Unflagged when read. Without the `release_at_renewal` guard the first batch would
+    // end it lapsed and carry p-1 onto the pool license the vendor meant to free.
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ releaseAtRenewal: true }).where(eq(licenses.id, 'l-1'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, carried: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('released');
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+    expect(s.sent.every((m) => m.cause === 'released')).toBe(true);
+  });
+
+  it('a cancel flag set between the read and the batch rolls back, and the rebuild does not carry it', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('pool-1', { endsAt: null });
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ cancelAtTermEnd: true }).where(eq(licenses.id, 'l-1'));
+      }
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, carried: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect((await licenseOf('pool-1')).assignedProductId).toBeNull();
+  });
 });
 
 // ── the last live license re-routes contests (ruling B, §11b.13; ruled 2026-10-19) ──
@@ -605,6 +647,13 @@ describe('fewer licenses than products: the carry-over (AECI-1405)', () => {
     expect(result).toMatchObject({ lapsedLicenses: 3, carried: 2, droppedProducts: 1 });
     expect((await licenseOf('pool-1')).assignedProductId).toBe('p-2');
     expect((await licenseOf('pool-2')).assignedProductId).toBe('p-3');
+    // Ruling A (2026-10-19): a carried product keeps its seniority (decision 12).
+    expect((await licenseOf('pool-1')).assignedAt).toBe(OLD_TS);
+    expect((await licenseOf('pool-2')).assignedAt).toBe('2025-01-01T00:00:00.000Z');
+    const carriedAudit = (await audits()).find(
+      (a) => (a.metadata as Record<string, unknown>).license_id === 'pool-1',
+    );
+    expect((carriedAudit?.afterState as Record<string, unknown>).assigned_at).toBe(OLD_TS);
     expect(s.sent.every((m) => m.products.join() === 'acme-one')).toBe(true);
     expect(sent.every((m) => m.fewerLicenses === true)).toBe(true);
     // The dropped product is purged. (The vendor set carries every owned product's tag.)

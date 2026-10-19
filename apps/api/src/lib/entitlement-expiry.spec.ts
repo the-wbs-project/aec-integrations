@@ -673,14 +673,10 @@ describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
     expect(s.recorded.vendor[0]?.termsChange).toBe(false);
   });
 
-  it('renders the price, the count and the terms notice through the real sender', async () => {
-    await seedVendor();
-    await seedSeat();
-    await seedLicense({ termsVersion: '0.9' });
+  const sendRealNotice = async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
-
     try {
       await runEntitlementExpirySweep(
         ctx({
@@ -697,18 +693,38 @@ describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
           sendAdminEmail: async () => 'skipped',
         },
       );
-
       const vendorSend = fetchSpy.mock.calls
         .filter((call) => String(call[0]) === 'https://api.resend.com/emails')
         .map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
         .find((b) => JSON.stringify(b.to).includes('seat-2222@vendor.example'));
-      const text = String(vendorSend?.text);
-      expect(text).toContain('Managed is $25 a month or $250 a year per product.');
-      expect(text).toContain('It covers 1 Managed license. It is not on a product yet.');
-      expect(text).toContain('A new version of the Managed plan agreement applies from');
+      return String(vendorSend?.text);
     } finally {
       fetchSpy.mockRestore();
     }
+  };
+
+  it('renders the price, the count and the terms notice through the real sender', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: '0.9', source: 'complimentary' });
+
+    const text = await sendRealNotice();
+
+    expect(text).toContain('Managed is $25 a month or $250 a year per product.');
+    expect(text).toContain('It covers 1 Managed license. It is not on a product yet.');
+    expect(text).toContain('A new version of the Managed plan agreement applies from');
+  });
+
+  it('leaves the list price out when a license in the term is invoice-sourced (ruling B)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ source: 'complimentary' });
+    await seedLicense({ id: 'lic-invoice', source: 'invoice' });
+
+    const text = await sendRealNotice();
+
+    expect(text).toContain('It covers 2 Managed licenses.');
+    expect(text).not.toContain('Managed is $25');
   });
 });
 

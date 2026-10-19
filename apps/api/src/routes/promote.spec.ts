@@ -5018,6 +5018,34 @@ describe('createPromoteHandler — claimed-vendor block', () => {
       );
     });
 
+    it('skips a null URL so a vendor-entered one survives, and still clears usefulness on an explicit null (ruling C)', async () => {
+      // ADR 0030: the review app's serializer sends null for an unset URL, and an
+      // absence must not delete. `usefulness: null` stays an explicit clear.
+      const body = (await (
+        await promote({
+          product: {
+            ref: 'p1',
+            supabaseId: P_OWNED,
+            name: 'Revit',
+            toolIntegrationsUrl: null,
+            apiDocsUrl: null,
+            usefulness: null,
+          },
+        })
+      ).json()) as PromoteResponse;
+      expect(await readOwned()).toMatchObject({
+        toolIntegrationsUrl: 'https://vendor.example/integrations',
+        apiDocsUrl: 'https://vendor.example/api',
+        usefulness: null,
+        usefulnessSource: null,
+      });
+      // The receipt names only what the UPDATE wrote.
+      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
+      expect(receipt?.reason).toMatch(
+        /^product has no live license, so promote wrote only usefulness;/,
+      );
+    });
+
     it('writes nothing when the only hand-back field sent is an admin-fenced usefulness', async () => {
       await t.db
         .update(products)

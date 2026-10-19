@@ -905,8 +905,15 @@ describe('lapseTermStatements (AECI-1404)', () => {
       expect(batch.stmts.filter(touchesVendors)).toHaveLength(1);
       await run(batch);
 
-      expect(await licenseOf('pool-a')).toMatchObject({ assignedProductId: P2, assignedAt: NOW });
-      expect(await licenseOf('pool-b')).toMatchObject({ assignedProductId: P3, assignedAt: NOW });
+      // Ruling A (2026-10-19): the carried product keeps its original `assigned_at`.
+      expect(await licenseOf('pool-a')).toMatchObject({
+        assignedProductId: P2,
+        assignedAt: OLD_TS,
+      });
+      expect(await licenseOf('pool-b')).toMatchObject({
+        assignedProductId: P3,
+        assignedAt: '2024-01-01T00:00:00.000Z',
+      });
       for (const id of ['l-new', 'l-old', 'l-mid']) {
         expect(await licenseOf(id)).toMatchObject({ endedAt: NOW, endReason: 'lapsed' });
       }
@@ -916,6 +923,9 @@ describe('lapseTermStatements (AECI-1404)', () => {
           expect.objectContaining({ license_id: 'pool-a', carried_from: 'l-old' }),
           expect.objectContaining({ license_id: 'pool-b', carried_from: 'l-mid' }),
         ]),
+      );
+      expect(assigned.map((a) => (a.afterState as Record<string, unknown>).assigned_at)).toEqual(
+        expect.arrayContaining([OLD_TS, '2024-01-01T00:00:00.000Z']),
       );
       expect((await vendorOf()).verified).toBe(true);
     });

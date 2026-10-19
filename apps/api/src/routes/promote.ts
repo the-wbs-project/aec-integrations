@@ -2983,13 +2983,17 @@ export async function runPromoteIngest(
       const live = productHasLiveLicenseSql(p.supabaseId);
       const unlessLicensed = (col: SQLiteColumn, value: string | null) =>
         sql`CASE WHEN NOT ${live} THEN ${value} ELSE ${col} END`;
-      if (p.toolIntegrationsUrl !== undefined) {
+      // Ruling C (2026-10-19): the two URLs are written only when non-null. The review
+      // app's serializer sends `null` for an unset field, and under ADR 0030 an absence
+      // must not delete: a null must not blank a URL the vendor entered. `usefulness`
+      // below is different: an explicit `null` there is a curator's clear.
+      if (p.toolIntegrationsUrl != null) {
         handBackSet.toolIntegrationsUrl = unlessLicensed(
           products.toolIntegrationsUrl,
           p.toolIntegrationsUrl,
         );
       }
-      if (p.apiDocsUrl !== undefined) {
+      if (p.apiDocsUrl != null) {
         handBackSet.apiDocsUrl = unlessLicensed(products.apiDocsUrl, p.apiDocsUrl);
       }
       if (usefulnessData !== undefined && handBackProduct?.usefulnessSource === 'admin') {

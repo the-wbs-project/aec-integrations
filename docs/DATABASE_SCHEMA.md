@@ -2069,6 +2069,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **Hand-back keeps the assignment** (decision 14). The lapse stamps `ended_at` and leaves
   `assigned_product_id`, which the partial unique index allows. The product's edit right
   goes because the gate finds no live license.
+- **`assigned_at` is seniority.** Every assign stamps now, except the term-end carry-over
+  (AECI-1405). A product carried onto a pool license keeps the lapsing license's
+  `assigned_at` (ruling A, 2026-10-19), because decision 12 lets the oldest assignment keep
+  the license. Its `license.assigned` audit row records the kept value in
+  `after_state.assigned_at`.
 - **Product retraction frees the slot, explicitly and audited.** `PRODUCT_FK_HANDLING` in
   `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to
   `force-detach`. The `ON DELETE SET NULL` is only a backstop. The FK action alone would

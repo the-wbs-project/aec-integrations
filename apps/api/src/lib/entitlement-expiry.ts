@@ -151,7 +151,8 @@ export type ExpiryContext = EmailContext;
  *  seam — the §1.3 route-seam pattern — and injected by `scheduled.ts`, so this
  *  module never reaches the Resend transport and the specs never stub a fetch.
  *  Since AECI-1406 it carries what `VENDOR_SIGNUP_PROCESS.md` §3 step 8 lists: the
- *  license count, the products, the sources (which decide renew or end) and whether
+ *  license count, the products, the sources (which decide renew or end, and whether
+ *  the list price line shows) and whether
  *  a new Managed plan agreement version applies. */
 export type SendEntitlementExpiringEmail = (
   c: ExpiryContext,
@@ -164,7 +165,9 @@ export type SendEntitlementExpiringEmail = (
     licenseCount: number;
     /** The names of the products those licenses are on, in `compareText` order. */
     productNames: readonly string[];
-    /** The licenses' distinct `source` values (`stripe`, `invoice`, `complimentary`). */
+    /** The licenses' distinct `source` values (`stripe`, `invoice`, `complimentary`).
+     *  They decide renew or end, and any `invoice` drops the list price line (ruling B,
+     *  2026-10-19: an invoice deal may carry a different price). */
     sources: readonly string[];
     /** A license in the term accepted an older Managed plan agreement version. */
     termsChange: boolean;

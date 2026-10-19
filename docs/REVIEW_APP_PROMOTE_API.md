@@ -1180,8 +1180,8 @@ Then promote writes:
 
 | What | How |
 |---|---|
-| `toolIntegrationsUrl`, `apiDocsUrl` | Written when present. Absent leaves the stored value alone. |
-| `usefulness` | Written when present, `null` clears it, absent leaves it alone. Groups resolve **find-only** against the existing audience and phase terms, and a group that does not resolve lands in `skipped[] { kind: "usefulness" }`. The same write sets `usefulness_source` back to NULL, so the product page stops saying "Written by {vendor}". **Not written when `usefulness_source = "admin"`**: the hand-back covers vendor-written usefulness only, so an admin's block stays and `preserved[]` gains `{ ref, kind: "usefulness" }`. If `usefulness` was the only hand-back field you sent, nothing is written and you get `skipped[] { kind: "product" }`. |
+| `toolIntegrationsUrl`, `apiDocsUrl` | Written only when present and non-null. Absent or `null` leaves the stored value alone (ruling C, 2026-10-19). Your serializer sends `null` for an unset URL, and under ADR 0030 an absence never deletes, so a `null` must not blank a URL the vendor entered. The receipt's written list leaves a skipped `null` out. |
+| `usefulness` | Written when present, `null` clears it, absent leaves it alone. Groups resolve **find-only** against the existing audience and phase terms, and a group that does not resolve lands in `skipped[] { kind: "usefulness" }`. The same write sets `usefulness_source` back to NULL, so the product page stops saying "Written by {vendor}". **Not written when `usefulness_source = "admin"`**: the hand-back covers vendor-written usefulness only, so an admin's block stays and `preserved[]` gains `{ ref, kind: "usefulness" }`. If nothing is left to write, because `usefulness` was fenced and the URLs were absent or `null`, nothing is written and you get `skipped[] { kind: "product" }`. |
 | AECi claims on the product's **existing** integrations | See below. |
 
 Promote does **not** write `name`, `description`, `productRole`, `promotionStatus`,

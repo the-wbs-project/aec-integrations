@@ -1328,7 +1328,8 @@ export function sendAttestationOpsDigestEmail(
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). Since AECI-1406
 // (E6.3) the vendor copy is the 30-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8:
-// the end date, the license count and products, the list price, any new Managed plan
+// the end date, the license count and products, the list price (left out for an
+// invoice term, ruling B of 2026-10-19), any new Managed plan
 // agreement version (decision 9), and how to opt out or reduce. It goes to every seat
 // and the billing email (decision 16). It leads with the end date, never a day count
 // (the §7.3 ruling of 2026-10-14), then says a vendor that does not renew drops to the
@@ -1351,7 +1352,8 @@ export interface EntitlementExpirySubject {
   licenseCount: number;
   /** The products those licenses are on. Unassigned licenses add nothing. */
   productNames: readonly string[];
-  /** The licenses' distinct `source` values. `stripe` renews; the others end. */
+  /** The licenses' distinct `source` values. `stripe` renews; the others end. Any
+   *  `invoice` source drops the list price line (ruling B, 2026-10-19). */
   sources: readonly string[];
   /** A license accepted an older Managed plan agreement version (decision 9). */
   termsChange: boolean;
@@ -1393,9 +1395,12 @@ function licenseCoverage(count: number, productNames: readonly string[]): string
  * can resolve. The admin copy below always lands, so a term is never silently
  * un-warned.
  *
- * It states the list price, because §3 step 8 asks for "the price". The arrangement
- * stays admin-side (Paid Tiers §8): no agreed amount, no payer, no invoice or PO
- * reference.
+ * It states the list price, because §3 step 8 asks for "the price". Ruling B (Chris,
+ * 2026-10-19): the price line is left out when any license in the term is
+ * invoice-sourced, because an invoice deal may carry a different price. A mixed term
+ * follows the same simple rule: one invoice license drops the line for the whole
+ * notice. The arrangement stays admin-side (Paid Tiers §8): no agreed amount, no
+ * payer, no invoice or PO reference.
  */
 export function sendEntitlementExpiringEmail(
   c: EmailContext,
@@ -1420,6 +1425,9 @@ export function sendEntitlementExpiringEmail(
   const stripe = opts.sources.filter((s) => s === 'stripe').length;
   const renews = stripe > 0 && stripe === opts.sources.length;
   const mixed = stripe > 0 && !renews;
+  // Ruling B: an invoice deal may carry a different price, so any invoice license in
+  // the term drops the list price line.
+  const price = opts.sources.includes('invoice') ? '' : `${MANAGED_PRICE_LINE} `;
 
   // Lead with the date, never a day count: a one-month pilot is inside the window on
   // day one, and a count goes stale in the inbox. One name throughout: "plan".
@@ -1428,10 +1436,10 @@ export function sendEntitlementExpiringEmail(
     : `${yourPlan} on AEC Integrations runs until ${date}.`;
   const coverage = licenseCoverage(opts.licenseCount, opts.productNames);
   const ask = past
-    ? `${MANAGED_PRICE_LINE} To continue on Managed, or if the dates look wrong, reply to this email.`
+    ? `${price}To continue on Managed, or if the dates look wrong, reply to this email.`
     : renews
-      ? `${MANAGED_PRICE_LINE} If the dates look wrong, reply to this email.`
-      : `${MANAGED_PRICE_LINE} To continue past that date, or if the dates look wrong, reply to this email.`;
+      ? `${price}If the dates look wrong, reply to this email.`
+      : `${price}To continue past that date, or if the dates look wrong, reply to this email.`;
   const keep = "You keep your seats and everything you've entered.";
   const onEnd = past
     ? `Products without a renewed license move to the Free plan. ${keep}`

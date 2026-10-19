@@ -919,9 +919,10 @@ type LicenseWrite = { stmt: BatchStmt; entry: AuditLogEntry };
 /**
  * The end writes for `targets`, guarded as {@link endLicensesStatements} says.
  * `expectAssigned` (the lapse, AECI-1336) also guards each UPDATE on the pre-read
- * `assigned_product_id`, NULL-safe. A vendor assign or unassign that commits between
- * the read and the batch then matches no row, and the caller's `changedOneRowSentinel`
- * rolls the batch back so the retry reads the new product.
+ * `assigned_product_id` (NULL-safe), `release_at_renewal` and `cancel_at_term_end`.
+ * A vendor assign, unassign, release flag or cancel flag that commits between the read
+ * and the batch then matches no row, and the caller's `changedOneRowSentinel` rolls the
+ * batch back so the retry re-reads: the flags decide the end reason and the carry-over.
  */
 function endWrites(
   db: Db,
@@ -952,6 +953,8 @@ function endWrites(
                 before.assignedProductId === null
                   ? isNull(licenses.assignedProductId)
                   : eq(licenses.assignedProductId, before.assignedProductId),
+                eq(licenses.releaseAtRenewal, before.releaseAtRenewal),
+                eq(licenses.cancelAtTermEnd, before.cancelAtTermEnd),
               ]
             : []),
         ),
@@ -1065,6 +1068,9 @@ function byAssignedAt(a: LicenseBefore, b: LicenseBefore): number {
  *  - Each carried product gets an assign on the next pool license, guarded like
  *    {@link assignLicenseStatements}, audited `license.assigned` with
  *    `metadata.carried_from` = the lapsing license.
+ *  - The pool license takes the lapsing license's `assigned_at`, not now (ruling A,
+ *    2026-10-19): the oldest assignment keeps a license, so seniority survives the move.
+ *    The audit row's `after_state.assigned_at` records it.
  */
 export function carryOverStatements(
   db: Db,
@@ -1097,17 +1103,23 @@ export function carryOverStatements(
     const from = candidates[i]!;
     const to = pool[i]!;
     const productId = from.assignedProductId!;
-    const after: LicenseBefore = { ...to, assignedProductId: productId, assignedAt: now };
+    // Ruling A (2026-10-19): the product keeps its seniority. The spare takes the
+    // original `assigned_at`, so the next shortfall still ranks it by its first assign.
+    const assignedAt = from.assignedAt ?? now;
+    const after: LicenseBefore = { ...to, assignedProductId: productId, assignedAt };
     changed.push(after);
     carried.push({ productId, fromLicenseId: from.id, toLicenseId: to.id });
     const stmt = db
       .update(licenses)
-      .set({ assignedProductId: productId, assignedAt: now, updatedAt: now })
+      .set({ assignedProductId: productId, assignedAt, updatedAt: now })
       .where(
         and(eq(licenses.id, to.id), isNull(licenses.assignedProductId), isNull(licenses.endedAt)),
       );
     const entry = licenseEntry(ctx, now, LICENSE_ACTION.assigned, to, after);
     (entry.metadata as Record<string, unknown>).carried_from = from.id;
+    // The kept seniority is the one `assigned_at` this ledger records: a carry is the
+    // only assign that does not stamp `now`.
+    (entry.afterState as Record<string, unknown>).assigned_at = assignedAt;
     writes.push({ stmt, entry });
   }
   const short =
@@ -1129,8 +1141,9 @@ export function carryOverStatements(
  * then the carry-over assigns, then one audit row per license written, then ONE mirror
  * reconcile with ONE `verifiedFlipped` prediction over the whole term, not one per
  * composed step. Every end UPDATE is guarded on `ended_at IS NULL`, the scanned
- * `ends_at` and the pre-read `assigned_product_id`, so an admin extend or revoke, or a
- * vendor assign, that commits first wins. A `source = 'stripe'` license is left out:
+ * `ends_at`, and the pre-read `assigned_product_id`, `release_at_renewal` and
+ * `cancel_at_term_end`, so an admin extend or revoke, or a vendor assign or flag, that
+ * commits first wins. A `source = 'stripe'` license is left out:
  * the Stripe webhook ends it (decision 13). Nothing matches: a no-op.
  */
 export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch {

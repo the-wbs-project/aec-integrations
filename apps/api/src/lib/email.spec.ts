@@ -2153,11 +2153,27 @@ describe('entitlement expiry templates', () => {
   it('states the list price and the license count with the products (AECI-1406, step 8)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources: ['complimentary'] });
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('Managed is $25 a month or $250 a year per product.');
     expect(text).toContain('It covers 2 Managed licenses, on BIM 360 and Revit.');
+  });
+
+  it.each([
+    ['an invoice term', ['invoice']],
+    ['a mixed term with one invoice license', ['complimentary', 'invoice']],
+  ])('leaves the list price out of %s (ruling B, 2026-10-19)', async (_label, sources) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources });
+
+    const body = lastBody(fetchSpy);
+    const all = `${String(body.text)}${String(body.html)}`;
+    expect(all).not.toContain('Managed is $25');
+    expect(String(body.text)).toContain(
+      'To continue past that date, or if the dates look wrong, reply to this email.',
+    );
   });
 
   it.each([
