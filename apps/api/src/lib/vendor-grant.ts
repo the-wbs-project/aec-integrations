@@ -124,6 +124,13 @@ export interface GrantSeatParams {
    * `metadata.billing_account_created`, so the grant row says it on its own.
    */
   billingAccountCreated: boolean;
+  /**
+   * The caller's batch also stamps `vendors.owned_at` (AECI-1415,
+   * `stampOwnershipStatement`), because the vendor was not owned yet. Lands as
+   * `metadata.ownership_stamped: true`. The stamp itself is the caller's statement:
+   * this module never names `vendors`.
+   */
+  ownershipStamped?: boolean;
   reason: string | null;
   targetType: string;
   targetId: string;
@@ -287,6 +294,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     verified_flipped: false,
     billing_account_created: p.billingAccountCreated,
     display_name_filled: nameFilled,
+    ...(p.ownershipStamped ? { ownership_stamped: true } : {}),
   });
 
   const auditEntry: AuditLogEntry = {
@@ -801,6 +809,9 @@ export interface ProvisionSeatParams {
    * as a different decision. **Never a gate** (§5.2 step 1: the console warns).
    */
   isPureConnectorVendor: boolean;
+  /** As {@link GrantSeatParams.ownershipStamped}: the caller's batch stamps
+   *  `vendors.owned_at` (AECI-1415). */
+  ownershipStamped?: boolean;
   reason?: string | null;
 }
 
@@ -847,6 +858,7 @@ export function provisionSeatStatements(db: Db, p: ProvisionSeatParams): RevokeB
       entitlement_granted: false,
       is_pure_connector_vendor: p.isPureConnectorVendor,
       ...(p.profileBefore?.bannedAt ? { seat_banned: true } : {}),
+      ...(p.ownershipStamped ? { ownership_stamped: true } : {}),
       ...(p.reason ? { reason: p.reason } : {}),
     },
   };

@@ -4,8 +4,9 @@
  * row, so `DELETE /api/account` is a seat loss, and it must do what the admin
  * revoke does (`vendor-handback.spec.ts`):
  *
- *  - the last seat hands the record back in the erasure batch;
- *  - a seat erased while an unbanned seat remains hands nothing back;
+ *  - the last seat FREEZES the record (AECI-1415): ownership, markers and claims
+ *    stay, and the owner contests move to AECi, stamped, in the erasure batch;
+ *  - a seat erased while an unbanned seat remains changes nothing else;
  *  - a seat erased while only banned seats remain moves the owner contests to AECi;
  *  - a non-vendor account erases exactly as before;
  *  - the AECI-531 skip of the `auth.users` delete is untouched;
@@ -31,7 +32,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
-import { HANDBACK_REASON, SEAT_LAPSE_REASON } from '../lib/vendor-handback';
+import { SEAT_LAPSE_REASON } from '../lib/vendor-handback';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
@@ -81,6 +82,7 @@ beforeEach(async () => {
       promotionStatus: 'promoted',
       maintainedBy: 'vendor',
       lastReviewedAt: REVIEWED,
+      ownedAt: REVIEWED,
     },
     { id: OTHER, slug: 'autodesk', companyName: 'Autodesk', promotionStatus: 'promoted' },
     {
@@ -232,8 +234,8 @@ const profileExists = async (id: string) =>
   (await t.db.query.profiles.findFirst({ where: eq(profiles.id, id) })) !== undefined;
 
 describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
-  it('forwards the erasure and every hand-back row in ONE batched request (AECI-1112)', async () => {
-    // Seven more owner-routed contests, so the hand-back carries eight contest rows
+  it('forwards the erasure and every re-route row in ONE batched request (AECI-1112)', async () => {
+    // Seven more owner-routed contests, so the lapse carries eight contest rows
     // and eight transitions: past the Worker's ~6 open connections (AECI-666). One
     // open contest per (row, field, submitter), so each takes its own field.
     const fields = [
@@ -292,28 +294,29 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     expect(perRow).toEqual([]);
   });
 
-  it('erasing the last seat hands the record back in the erasure batch', async () => {
+  it('erasing the last seat freezes the record in the erasure batch (AECI-1415)', async () => {
+    const before = {
+      vendor: await vendorRow(),
+      products: await t.db.select().from(products),
+      integrations: await t.db.select().from(integrations),
+    };
     const batchSpy = vi.spyOn(t.db, 'batch');
     const { status, send } = await erase();
     expect(status).toBe(200);
 
-    // One batch carries the erasure AND the hand-back, audit rows included (§26.1).
+    // One batch carries the erasure AND the re-route, audit rows included (§26.1).
     const writes = batchSpy.mock.calls.filter(([stmts]) => stmts.length > 0);
     expect(writes).toHaveLength(1);
     batchSpy.mockRestore();
 
     expect(await profileExists(SEAT_A)).toBe(false);
-    expect((await vendorRow()).maintainedBy).toBe('aeci');
-    expect((await vendorRow()).lastReviewedAt).toBe(REVIEWED);
-    expect((await product(P_MINE)).maintainedBy).toBe('aeci');
-    // Co-owned with a seated vendor: the marker stays (§13.9 rule 5).
-    expect((await product(P_SHARED)).maintainedBy).toBe('vendor');
-    const owned = await integration(I_OWNED);
-    expect(owned.claimedAt).toBeNull();
-    expect(owned.maintainedBy).toBe('aeci');
-    expect(owned.builtByVendorId).toBe(VENDOR);
-    expect((await contest()).routedTo).toBe('aeci');
-    expect((await contest()).ownerSeatLapsedAt).toBeNull();
+    // Seat loss never moves ownership: the record stays the vendor's, frozen.
+    expect(await vendorRow()).toEqual(before.vendor);
+    expect(await t.db.select().from(products)).toEqual(before.products);
+    expect(await t.db.select().from(integrations)).toEqual(before.integrations);
+    const moved = await contest();
+    expect(moved.routedTo).toBe('aeci');
+    expect(moved.ownerSeatLapsedAt).not.toBeNull();
 
     // Every audit row has a null actor: the actor's profile is gone (§8 step 3).
     const rows = await audits();
@@ -321,21 +324,9 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     expect(rows.map((r) => r.action).sort()).toEqual([
       'account.deleted',
       'integration.contest.rerouted',
-      'integration.updated',
-      'integration.updated',
-      'product.updated',
-      'vendor.updated',
     ]);
-    const handback = rows.filter((r) => r.action !== 'account.deleted');
-    for (const row of handback) {
-      expect(row.metadata).toMatchObject({ source: 'account' });
-    }
-    const unclaim = handback.find(
-      (r) =>
-        r.action === 'integration.updated' &&
-        (r.metadata as Record<string, unknown>).reason === HANDBACK_REASON,
-    );
-    expect(unclaim?.entityId).toBe(I_OWNED);
+    const rerouted = rows.find((r) => r.action === 'integration.contest.rerouted')!;
+    expect(rerouted.metadata).toMatchObject({ source: 'account', reason: SEAT_LAPSE_REASON });
 
     // The contest's open → open transition, with a null actor.
     const [transition] = await t.db
@@ -344,19 +335,8 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
       .where(eq(workflowTransitions.workflowId, WORKFLOW));
     expect(transition).toMatchObject({ fromState: 'open', toState: 'open', actorId: null });
 
-    // The purge covers only the marker flips (CACHE_STRATEGY.md (b1a)).
-    expect(send).toHaveBeenCalledTimes(1);
-    const [message] = send.mock.calls[0]!;
-    expect(message.source).toBe('vendor');
-    expect([...message.tags].sort()).toEqual(
-      [
-        'index:products',
-        'pair:microstation__revit',
-        'product:microstation',
-        'product:revit',
-        'vendor:bentley',
-      ].sort(),
-    );
+    // No rendered page changed, so nothing is purged.
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('leaves the other vendor alone when the erased seat was the last on its own vendor', async () => {
@@ -367,7 +347,7 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     expect(await profileExists(SEAT_CO)).toBe(true);
   });
 
-  it('hands nothing back while an unbanned seat remains', async () => {
+  it('changes nothing else while an unbanned seat remains', async () => {
     await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
     const { status, send } = await erase();
     expect(status).toBe(200);
@@ -421,13 +401,13 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     expect(deleteAuthUser).toHaveBeenCalledTimes(1);
     expect(deleteAuthUser).toHaveBeenCalledWith(expect.anything(), SEAT_A);
     expect(order).toEqual(['auth-delete-after-batch']);
-    // The hand-back committed regardless of the skipped auth delete.
-    expect((await integration(I_OWNED)).claimedAt).toBeNull();
+    // The re-route committed regardless of the skipped auth delete.
+    expect((await contest()).routedTo).toBe('aeci');
   });
 });
 
 describe('an erasure that loses a seat race re-plans instead of failing', () => {
-  it('a seat provisioned mid-erasure: the retry plans "none" and hands nothing back', async () => {
+  it('a seat provisioned mid-erasure: the retry plans "none" and moves nothing', async () => {
     const original = t.db.batch.bind(t.db);
     const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
       await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });

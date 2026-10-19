@@ -61,6 +61,7 @@ import { seedLicense } from '../test/licenses';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import {
+  BLOCKED_NEW_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
   refreshHomeStatsAfterPromote,
@@ -4625,13 +4626,16 @@ describe('touchedTradeSlugs', () => {
   });
 });
 
-// ─── Claimed-vendor guard (AECI-520) ──────────────────────────────────────────
+// ─── Owned-vendor guard (AECI-520, stored ownership since AECI-1415) ──────────
 
 /**
- * Once AECi grants a vendor-portal seat, that vendor's row and every product it
- * owns become vendor-owned — the vendor edits them through `/api/vendor/*`, and
- * this endpoint writes the very same columns. So a promote must not overwrite
- * them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ * Once a vendor owns its record (`vendors.owned_at`, stamped at claim approval and
+ * never cleared by seat loss, ADR 0042), that vendor's row and every product it
+ * holds are vendor-owned — the vendor edits them through `/api/vendor/*`, and this
+ * endpoint writes the very same columns. So a promote must not overwrite them
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4). The wider AECI-1415 cases (Q2 far
+ * endpoints, Q3 co-owned products, the commit-time sentinel) are pinned in
+ * `promote-ownership-fence.spec.ts`.
  *
  * The failure modes are asymmetric, so both directions are pinned: under-blocking
  * silently reverts a vendor's edits (they'd report "AECi keeps undoing our
@@ -4644,9 +4648,15 @@ describe('createPromoteHandler — claimed-vendor block', () => {
   const P_FREE = uuid(61); // owned by nobody in particular
   const P_OTHER = uuid(62); // an unrelated integration endpoint
 
-  /** Grant a seat — the ONLY thing that marks a vendor as claimed. */
+  /** A seat. Since AECI-1415 it marks nothing: `owned_at` is what owns a record. */
   const seedSeat = (id: string, vendorId: string | null, role = 'vendor_admin') =>
     t.db.insert(profiles).values({ id, role, vendorId });
+  /** The ownership stamp the claim approval writes (AECI-1415). */
+  const seedOwned = (vendorId: string) =>
+    t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-01T00:00:00.000Z' })
+      .where(eq(vendors.id, vendorId));
   const seedOwnership = (productId: string, vendorId: string) =>
     t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
 
@@ -4659,7 +4669,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     await seedProduct(P_FREE, 'microstation', 'MicroStation');
     await seedProduct(P_OTHER, 'navisworks', 'Navisworks');
     await seedOwnership(P_OWNED, V_CLAIMED);
-    await seedSeat(uuid(70), V_CLAIMED);
+    await seedOwned(V_CLAIMED);
   });
 
   it('skips the claimed vendor while a sibling vendor still promotes', async () => {
@@ -4742,24 +4752,36 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.name).toBe('MicroStation');
   });
 
-  it('never blocks a CREATE, and the vendor slug suffix still resolves', async () => {
-    // Creation is always allowed: nothing vendor-owned exists yet. This also
-    // pins that the blocked-vendor branch still contributes `firstVendorSlug`,
-    // which `generateSlug` uses to disambiguate a colliding product slug.
+  it('blocks a CREATE that would join an owned vendor (AECI-1415)', async () => {
+    // Ruled 2026-10-19: until AECI-1416 makes it a proposal to the vendor, a new
+    // product under an owned vendor's name is skipped, not created.
     const res = await promote({
       vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
-      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+      product: { ref: 'p1', name: 'Revit' },
     });
     const body = (await res.json()) as PromoteResponse;
-    expect(body.product?.operation).toBe('created');
-    expect(body.product?.slug).toBe('revit-autodesk');
-
+    expect(body.product).toBeNull();
+    expect(body.skipped).toContainEqual({
+      ref: 'p1',
+      kind: 'product',
+      reason: BLOCKED_NEW_PRODUCT_REASON,
+    });
     const joins = await t.db
       .select()
       .from(productVendors)
       .where(eq(productVendors.vendorId, V_CLAIMED));
-    // The new product is still joined to the claimed vendor.
-    expect(joins.map((r) => r.productId)).toContain(body.product?.id);
+    expect(joins.map((r) => r.productId)).toEqual([P_OWNED]);
+  });
+
+  it('a CREATE under an unowned vendor still uses the vendor slug suffix', async () => {
+    // Pins that `firstVendorSlug` still disambiguates a colliding product slug.
+    const res = await promote({
+      vendors: [{ ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley' }],
+      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product?.operation).toBe('created');
+    expect(body.product?.slug).toBe('revit-bentley');
   });
 
   it('cascades to integrations referencing the blocked product by ref AND by id', async () => {
@@ -4788,7 +4810,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     const blocked = body.skipped.filter((s) => s.kind === 'integration');
     expect(blocked.map((s) => s.ref).sort()).toEqual(['i1', 'i2']);
     // The reason must name the real cause, not the misleading "not promoted yet".
-    for (const entry of blocked) expect(entry.reason).toMatch(/claimed vendor/i);
+    for (const entry of blocked) expect(entry.reason).toMatch(/owns its record/i);
 
     // The blocked product's own integration count is left alone.
     const [owned] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
@@ -4835,9 +4857,10 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.poweredByProductId).toBe(P_OWNED); // link intact
   });
 
-  it('treats only role=vendor_admin WITH a vendor_id as a claim', async () => {
-    // A reviewer pointed at the vendor, and a vendor_admin with no vendor_id:
-    // neither claims anything. Over-blocking would freeze curation.
+  it('a seat of any role owns nothing without the ownership stamp (AECI-1415)', async () => {
+    // A vendor_admin seat, a reviewer pointed at the vendor, and a vendor_admin with
+    // no vendor_id: none owns the record. Over-blocking would freeze curation.
+    await seedSeat(uuid(70), V_FREE, 'vendor_admin');
     await seedSeat(uuid(71), V_FREE, 'reviewer');
     await seedSeat(uuid(72), null, 'vendor_admin');
 
@@ -4891,7 +4914,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  // AECI-1414 (ruling on AECI-1341, 2026-10-19). A claimed vendor's product with NO
+  // AECI-1414 (ruling on AECI-1341, 2026-10-19). An owned vendor's product with NO
   // live license is still fenced whole: hand-back is the loss of the edit right only,
   // and the Managed fields freeze as the vendor left them. The AECI-1407 opening, which
   // let promote write them again, is removed.

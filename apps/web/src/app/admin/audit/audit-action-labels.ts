@@ -41,6 +41,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Catalog, written by the promote Workflow (actor: system) ──────────────
   'vendor.created': $localize`:@@admin.audit.action.vendorCreated:Vendor added to the catalog`,
   'vendor.updated': $localize`:@@admin.audit.action.vendorUpdated:Vendor record updated`,
+  // AECI-1415: the one action that moves ownership back to AECi.
+  'vendor.records_returned': $localize`:@@admin.audit.action.vendorRecordsReturned:Vendor records returned to AECi`,
   'product.created': $localize`:@@admin.audit.action.productCreated:Product added to the catalog`,
   'product.updated': $localize`:@@admin.audit.action.productUpdated:Product record updated`,
   'product.extension_created': $localize`:@@admin.audit.action.productExtensionCreated:Product extension created`,

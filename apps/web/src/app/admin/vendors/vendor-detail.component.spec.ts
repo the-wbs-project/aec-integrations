@@ -69,6 +69,7 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     promotion_status: 'promoted',
     maintained_by: 'aeci',
     last_reviewed_at: null,
+    owned_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-08-20T00:00:00.000Z',
     seats: [makeSeat()],
@@ -299,12 +300,14 @@ describe('VendorDetail', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('renders the Vendor tab: basics, field corrections and seats', async () => {
+  it('renders the Vendor tab: basics, field corrections, seats and record ownership', async () => {
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
     // AECI-1375: the Entitlement and Plan price sections are retired. Licenses
     // are the plan and live on the Billing tab (AECI-1372).
-    expect(headings).toEqual(['Basics', 'Field corrections', 'Seats']);
+    expect(headings).toEqual(['Basics', 'Field corrections', 'Seats', 'Record ownership']);
+    // AECI-1415: the return control sits under the roster.
+    expect(el.querySelector('aec-return-records-control')).not.toBeNull();
     expect(el.querySelector('aec-grant-licenses-control')).toBeNull();
     expect(el.querySelector('aec-entitlement-control')).toBeNull();
     expect(el.querySelector('aec-plan-pricing-control')).toBeNull();

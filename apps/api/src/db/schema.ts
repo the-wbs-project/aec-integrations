@@ -152,6 +152,17 @@ export const vendors = sqliteTable(
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
+    /**
+     * Record ownership (AECI-1415, ADR 0042). Non-null = the vendor owns this record,
+     * every product it holds and the integrations it owns, since this instant. Set
+     * once, at claim approval or an admin seat provision (`COALESCE`, in the grant's
+     * own batch). Seat loss and license lapse never clear it. Only the admin
+     * "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`)
+     * clears it. Promote refuses every row an owned vendor holds
+     * (`REVIEW_APP_PROMOTE_API.md` §4a). Not `maintained_by`: that is the §13.9
+     * "who last maintained it" marker, and it flips on the vendor's first edit.
+     */
+    ownedAt: text('owned_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),

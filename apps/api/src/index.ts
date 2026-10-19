@@ -56,6 +56,7 @@ import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
+  createReturnRecordsHandler,
   createAdminVendorAuditHandler,
   createAdminVendorProductsHandler,
   createAdminVendorDetailHandler,
@@ -685,6 +686,11 @@ app.route('/', authActivity);
 //     names `vendors`: revoking a seat is orthogonal to the licenses and never
 //     moves the mirror (§5.2). Requires a `{ reason }` body (AECI-1191), recorded
 //     in that row's `metadata.reason`. Ban/unban stays on `/api/admin/reviewers/:id`.
+//     The last seat freezes the record and hands nothing back (AECI-1415).
+//   - POST   /api/admin/vendors/:id/return-to-aeci (AECI-1415, ADR 0042) — "Return
+//     records to AECi", the one action that moves ownership back. Refused while any
+//     seat remains. Clears `vendors.owned_at` and runs `planVendorHandback` in one
+//     batch with a `vendor.records_returned` row. A write: `rateLimit('write')`.
 //   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
 //     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
 //     display name and (only when the term contains `@`) by exact email.
@@ -974,6 +980,12 @@ authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),
   createAdminRevokeSeatHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/return-to-aeci',
+  requireAdmin(),
+  rateLimit('write'),
+  createReturnRecordsHandler(),
 );
 // AECI-692: the admin user surface (§5.8). Two READS and nothing else — ban and
 // reinstate reuse `PATCH /api/admin/reviewers/:id` above completely unchanged, so

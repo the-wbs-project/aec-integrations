@@ -92,6 +92,10 @@ try {
       `ON CONFLICT("id") DO UPDATE SET "role" = 'vendor_admin', "vendor_id" = '${vendorId}', ` +
       `"seat_owner" = 1, "updated_at" = ${NOW};`,
   );
+  // AECI-1415: the seat makes the vendor owned (ADR 0042), as the claim grant does.
+  wrangler(
+    `UPDATE "vendors" SET "owned_at" = COALESCE("owned_at", ${NOW}) WHERE "id" = '${vendorId}';`,
+  );
   console.log(`${TAG} ${userId} → vendor_admin of '${slug}' in the local D1. Open /vendor.`);
 } catch (error) {
   console.error(`${TAG} ERROR — wrangler d1 execute failed: ${error.message}`);

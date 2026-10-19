@@ -236,6 +236,10 @@ create table vendors (
   maintained_by text not null default 'aeci'
     check (maintained_by in ('aeci', 'vendor')),
 
+  -- Record ownership (AECI-1415, migration 0083, ADR 0042). Non-null = the vendor owns
+  -- its record, its products and the integrations it owns. See the paragraph below.
+  owned_at text,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -279,6 +283,8 @@ moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`,
 flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps
 `verified: true` on its Algolia record indefinitely. And **`vendors_verified_idx` is now an index over a cache**; the
 authoritative predicate is on the entitlement row's `status`.
+
+**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, a ban, an account erasure and a license lapse never clear it. Only the admin "Return records to AECi" action does (`POST /api/admin/vendors/:id/return-to-aeci`), and it is refused while any seat exists. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban never moves ownership (ruled 2026-10-19). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
 ### 4.2 `products`
 
@@ -368,7 +374,7 @@ It buys nothing *today*, and that is expected: `products.created_at` already ans
 
 1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly four paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5), **any vendor-authorized catalog write** since AECI-981 (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9: the vendor profile PATCH, the vendor product PATCH, and the three product-version writes), and since AECI-1216 the three **"Looks right"** routes (`STAGE_2_PAID_TIERS_SPEC.md` §13.8). The company and product routes stamp their own row. The integration-list route stamps only `integrations` / `connector_evidenced_pairs` rows touching the product that the caller built and already maintains (§13.9 there). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked. The promote path additionally **refuses** a supplied value on a row where `maintained_by = 'vendor'`, reporting it as a `kind: 'review-signal'` entry in `skipped[]`: the marker renders this one column as `Reviewed <date>` in the AECi branch and `Updated <date>` in the vendor branch, so an AECi review date on a vendor-maintained row credits AECi's work to the vendor.
 2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
-3. **`maintained_by` is not accepted by promote.** Accepting it on the promote payload would let a routine promote push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520. It flips to `'vendor'` two ways: a live vendor attestation on an `integrations` row (`apps/api/src/routes/vendor-attestations.ts`), and — since AECI-981 — **any vendor-authorized catalog write**, on the row it writes (`apps/api/src/routes/vendor.ts`, `vendor-product-versions.ts`, and since AECI-1216 the company and product "Looks right" routes in `vendor-review.ts`). The integration-list "Looks right" never writes it. The transfer is per row and never transitive: a vendor editing its company profile does not flip its products, and a product edit does not flip the vendor. It flips **back** to `'aeci'` two ways. One is an attestation retract, only when no live vendor attestation survives anywhere on that integration. The other, since AECI-989, is the **last-seat hand-back**: revoking a vendor's last `vendor_admin` seat, or erasing that seat's account (AECI-1106), returns the vendor row, each product it owns alone, and each live integration it claimed (the same attestation test applies) to `'aeci'` in the revoke's or the erasure's batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `apps/api/src/lib/vendor-handback.ts`). A ban does not. Because the flip happens inside an UPDATE, the SQL fence in rule 1 is not enough for a **cross-table move**: a `powered_by` re-route re-INSERTs the edge under its existing id, so `promote.ts` carries both columns onto the destination row explicitly.
+3. **`maintained_by` is not accepted by promote.** Accepting it on the promote payload would let a routine promote push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520. It flips to `'vendor'` two ways: a live vendor attestation on an `integrations` row (`apps/api/src/routes/vendor-attestations.ts`), and — since AECI-981 — **any vendor-authorized catalog write**, on the row it writes (`apps/api/src/routes/vendor.ts`, `vendor-product-versions.ts`, and since AECI-1216 the company and product "Looks right" routes in `vendor-review.ts`). The integration-list "Looks right" never writes it. The transfer is per row and never transitive: a vendor editing its company profile does not flip its products, and a product edit does not flip the vendor. It flips **back** to `'aeci'` two ways. One is an attestation retract, only when no live vendor attestation survives anywhere on that integration. The other is the admin **return of records to AECi** (AECI-1415, superseding AECI-989's last-seat hand-back): it returns the vendor row, each product it holds that no other owned vendor holds, and each live integration it claimed (the same attestation test applies) to `'aeci'` in its own batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `apps/api/src/lib/vendor-handback.ts`). A ban, a revoke and an erasure do not. Because the flip happens inside an UPDATE, the SQL fence in rule 1 is not enough for a **cross-table move**: a `powered_by` re-route re-INSERTs the edge under its existing id, so `promote.ts` carries both columns onto the destination row explicitly.
 
 Neither column is indexed: both are read with the row and never filtered or sorted on.
 
@@ -499,7 +505,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.
-> - **Two paths un-claim a row.** An AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). Since AECI-989, revoking the owner's last `vendor_admin` seat clears it on every live row the owner claimed, in `integrations` and, since AECI-1089, in `connector_evidenced_pairs`. Since AECI-1106 so does erasing that seat's account (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Both re-route the old owner's open contests to AECi. Nothing else, promote included, clears it.
+> - **Two paths un-claim a row.** An AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). From AECI-989 until AECI-1415, revoking the owner's last `vendor_admin` seat (and, from AECI-1106, erasing that seat's account) also cleared it. That is superseded (2026-10-19): seat loss leaves `claimed_at` alone. The second path is now the admin "Return records to AECi" action, which clears it on every live row the vendor claimed, in `integrations` and, since AECI-1089, in `connector_evidenced_pairs` (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Both paths re-route the old owner's open contests to AECi. Nothing else, promote included, clears it.
 > - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune, the
 >   retraction consumer and `ops:retract-product` never treat a vendor-held row as an orphan
 >   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).
@@ -2617,8 +2623,7 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
 
 **`owner_seat_lapsed_at` (AECI-989, migration `0048_wild_black_queen.sql`, a generated plain
 `ADD COLUMN`, no CHECK).** Set while an open contest sits with AECi **only** because its owner
-vendor has no unbanned `vendor_admin` seat. A ban of the last active seat, or a revoke that
-leaves only banned seats, re-routes open owner contests to AECi and stamps them. A contest
+vendor has no unbanned `vendor_admin` seat. A ban, a revoke or an erasure of the last unbanned seat (revoke and erasure since AECI-1415) re-routes open owner contests to AECi and stamps them. A contest
 submitted in that window routes to AECi stamped. When the vendor has an unbanned seat again,
 by an unban or by a new seat grant, every stamped open contest routes back to the owner, if
 the row is live and claimed by that owner since before the stamp, and the stamp clears. NULL
@@ -4305,8 +4310,8 @@ retire an evidenced pair, and AECi gets an admin retire and restore on a vendor-
 and NULL for the other three. **What reads and writes them today:** the promote fence, the
 promote twin guard and the ops lanes below. **Since AECI-1089 the vendor claim route writes
 `claimed_at`** (with the §13.9 maintenance transfer) on a pair its entitled owner claims
-(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2), and the last-seat hand-back clears it on the owner's
-live claimed pairs (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`. **Since AECI-1091 the
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2), and the admin return of records to AECi clears it on the owner's
+live claimed pairs (AECI-1415, replacing AECI-989's last-seat hand-back, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`. **Since AECI-1091 the
 owner and admin retire and restore routes write `retired_at` and `retired_by`** (`'owner'` or
 `'aeci'`, set together, cleared together by restore) on a pair. It is a soft retire, never a
 delete, because this table is a cascade parent of `claims` and on into `attestations`. Every
@@ -5075,7 +5080,7 @@ After the initial load, the ongoing review app → D1 push is curator-triggered:
 - New rows inserted in D1
 - Algolia indexed automatically via the write-event pipeline
 
-Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state. **Three exceptions stop the mirror:** a claimed vendor and its products (AECI-520, `REVIEW_APP_PROMOTE_API.md` §4a), and a claimed integration (AECI-1005, §4b). Once a vendor has taken a row, D1 is its source of truth and promote writes nothing to it.
+Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state. **Three exceptions stop the mirror:** an owned vendor (`vendors.owned_at` set, AECI-1415) and its products (AECI-520, `REVIEW_APP_PROMOTE_API.md` §4a), and a claimed integration (AECI-1005, §4b). Since AECI-1415 an integration with an owned source or target product is refused too. Once a vendor has taken a row, D1 is its source of truth and promote writes nothing to it.
 
 ### 13.4 Curator-preserve fields
 

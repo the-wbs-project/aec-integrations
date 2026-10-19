@@ -279,6 +279,10 @@ export const AdminVendorDetailSchema = z.object({
   promotion_status: z.string(),
   maintained_by: z.string(),
   last_reviewed_at: z.string().nullable(),
+  /** Record ownership (AECI-1415, ADR 0042): when the vendor's records became its
+   *  own, or `null` while AECi owns them. Seat loss never clears it. The admin
+   *  "Return records to AECi" action is the only writer of `null`. */
+  owned_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 
@@ -557,6 +561,33 @@ export type ProvisionVendorSeat = z.infer<typeof ProvisionVendorSeatSchema>;
  */
 export const AdminRevokeSeatSchema = AdminOverrideReasonSchema.strict();
 export type AdminRevokeSeat = z.infer<typeof AdminRevokeSeatSchema>;
+
+/**
+ * `POST /api/admin/vendors/:id/return-to-aeci` body (AECI-1415, ADR 0042): "Return
+ * records to AECi". The one action that moves ownership back to AECi, for a mistaken
+ * claim approval. `reason` is required (1 to 1,000 characters) and lands in the
+ * `vendor.records_returned` audit row. `internalNote` is optional. No seat is left to
+ * read either, because the endpoint refuses while the vendor holds one.
+ */
+export const AdminReturnRecordsSchema = AdminOverrideReasonSchema.strict();
+export type AdminReturnRecords = z.infer<typeof AdminReturnRecordsSchema>;
+
+/**
+ * What the return handed back. The id lists are the records that are AECi's again,
+ * so promote writes them on the next push: every product joined to the vendor that
+ * no other owned vendor holds, and every live integration and evidenced pair it had
+ * claimed. A retired claimed row keeps its claim and is not listed. This is the
+ * payload the ownership message to the review app will carry (AECI-1418).
+ */
+export const AdminReturnRecordsResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  owned_at: z.null(),
+  product_ids: z.array(z.string()),
+  integration_ids: z.array(z.string()),
+  evidenced_pair_ids: z.array(z.string()),
+  contests_rerouted: z.number().int().nonnegative(),
+});
+export type AdminReturnRecordsResponse = z.infer<typeof AdminReturnRecordsResponseSchema>;
 
 /**
  * What a provision reports back.
