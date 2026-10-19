@@ -3203,8 +3203,10 @@ export async function runPromoteIngest(
       // finds, whose stored pair is the payload's pair: a new edge, a re-point, or a
       // dead id stays skipped, because each would need an integration write the
       // claimed vendor still owns. An edge touching the product only as its connector
-      // stays skipped too: its claims are about two other products.
-      if (handBackOnly && touchesAtEndpoint && !touchesAsConnector) {
+      // stays skipped too: its claims are about two other products. A Convention-A
+      // edge (the product is an endpoint AND its connector) is handed back like any
+      // other, because no integration column is written here.
+      if (handBackOnly && touchesAtEndpoint) {
         const located = await locateEdge(db, intg.supabaseId);
         const sourceId = await resolveProduct(intg.sourceProduct);
         const targetId = await resolveProduct(intg.targetProduct);

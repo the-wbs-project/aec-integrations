@@ -2225,7 +2225,7 @@ Not an alert. This is the operator procedure for a pilot vendor's free Managed t
 5. Confirm.
 6. Tell the vendor's owner to assign the licenses to products from its own Billing tab. A grant assigns nothing.
 
-The next 11:00 UTC run emails the vendor's seats and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
+The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
 ### 2. Extend the pilot
 

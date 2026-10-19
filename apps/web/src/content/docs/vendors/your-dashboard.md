@@ -66,7 +66,7 @@ Each item links to where you act on it. When several products need the same thin
 Each product opens on its **Product Overview**. It holds two things:
 
 - **Product checklist.** Up to four steps for this product. [Your checklists](/docs/vendors/checklists) explains how they count on each plan.
-- **This product's plan.** The panel says whether the product is on Free or Managed, what each plan includes, and how to ask about Managed. [Plans](/docs/vendors/plans) covers both plans.
+- **This product's plan.** The panel says whether the product is on Free or Managed, what each plan includes, and how to ask about Managed. After the product's Managed plan ends, account owners see a **Get licenses** button that opens **Billing**. Other colleagues see **Ask about Managed for this product**, which opens the contact page. [Plans](/docs/vendors/plans) covers both plans.
 
 The product's name at the top of each product page also carries its plan, "Free" or "Managed".
 

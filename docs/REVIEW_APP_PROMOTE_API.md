@@ -1191,7 +1191,9 @@ with the vendor until E6b (AECI-1341) turns promote changes on a claimed vendor 
 proposals the owner accepts.
 
 If the payload carries none of the three fields, nothing about the product is written,
-and you get `skipped[] { kind: "product" }` as before.
+and you get `skipped[] { kind: "product" }` as before. The product's edges are
+planned separately, so an AECi claim on an existing edge below can still be written
+in the same push.
 
 **Data flows on existing edges.** An integration in the same payload that has the
 hand-back product as an endpoint writes its `claims[]` and the `aeci` attestation slot,
@@ -1206,7 +1208,9 @@ and nothing else, when all of these hold:
 The integration's own columns, its endpoints, its connector and its table are not
 written. A new edge, a re-pointed edge, an unresolvable id, and an edge that touches
 the product only as its `poweredByProduct` stay skipped with the claimed-vendor
-reason. Claim directions you send against source → target are flipped when the
+reason. An edge whose `poweredByProduct` is also one of its endpoints (Convention A,
+`STAGE_1_5_SPEC.md` §13.2a) is handed back like any other edge. Claim directions you
+send against source → target are flipped when the
 stored row runs the other way. Vendor attestations are never touched. A written edge
 comes back in `integrations[]` as `updated`, with its stored id, and `preserved[]`
 gains `{ ref, kind: "license_hand_back" }` for it. An edge counts as written only when

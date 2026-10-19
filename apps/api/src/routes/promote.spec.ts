@@ -5236,6 +5236,54 @@ describe('createPromoteHandler — claimed-vendor block', () => {
         expect(await auditActions()).not.toContain('integration.updated');
       });
 
+      it('writes AECi claims on a Convention-A edge whose connector is the product', async () => {
+        const CONVENTION_A = uuid(93);
+        await t.db.insert(integrations).values({
+          id: CONVENTION_A,
+          sourceProductId: P_OTHER,
+          targetProductId: P_OWNED,
+          poweredByProductId: P_OWNED,
+        });
+        const body = (await (
+          await promote({
+            product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+            integrations: [
+              located({
+                ref: 'convA',
+                supabaseId: CONVENTION_A,
+                sourceProduct: { supabaseId: P_OTHER },
+                targetProduct: { ref: 'p1' },
+                poweredByProduct: { ref: 'p1' },
+              }),
+              // Touches the product only as its connector: still skipped.
+              {
+                ref: 'connectorOnly',
+                sourceProduct: { supabaseId: P_OTHER },
+                targetProduct: { supabaseId: P_FREE },
+                poweredByProduct: { ref: 'p1' },
+                claims: [rfiClaim()],
+              },
+            ],
+          })
+        ).json()) as PromoteResponse;
+
+        const claimRows = await t.db.select().from(claims);
+        expect(claimRows).toMatchObject([
+          { integrationId: CONVENTION_A, direction: 'a_to_b', origin: 'aeci' },
+        ]);
+        const [edge] = await t.db
+          .select()
+          .from(integrations)
+          .where(eq(integrations.id, CONVENTION_A));
+        expect(edge?.poweredByProductId).toBe(P_OWNED);
+        expect(body.integrations).toEqual([
+          expect.objectContaining({ ref: 'convA', id: CONVENTION_A, operation: 'updated' }),
+        ]);
+        expect(body.skipped).toContainEqual(
+          expect.objectContaining({ ref: 'connectorOnly', kind: 'integration' }),
+        );
+      });
+
       it('purges the product page and the pair page the claims render on', async () => {
         const sendBatch = vi.fn().mockResolvedValue(undefined);
         const env: Env = {
