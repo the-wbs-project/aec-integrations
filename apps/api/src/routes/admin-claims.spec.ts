@@ -56,7 +56,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { ensureProfileRow } from '../lib/profile-provisioning';
-import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
+import type { AuthAccountRef, fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
@@ -1598,7 +1598,7 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     await seedRequest();
 
     const fetchAuthAccounts = vi.fn(
-      async () => new Map([[CLAIMANT_EMAIL, true]]),
+      async () => new Map([[CLAIMANT_EMAIL, { userId: CLAIMANT_ID }]]),
     ) as unknown as typeof fetchAuthAccountsByEmail;
     const withSeam = await parseClaims(await getClaims({ fetchAuthAccounts }));
     expect(withSeam.data[0]!.has_auth_account).toBe(true);
@@ -1856,12 +1856,13 @@ const CORRECTION_ID = '99999999-9999-4999-8999-999999999999';
 /** The GoTrue signal seam, stubbed to "no account on record" — these tests are
  *  about the note and the duplicate explanation, not `has_auth_account`. */
 const noAuthAccounts = vi.fn(
-  async () => new Map<string, boolean>(),
+  async () => new Map<string, AuthAccountRef | null>(),
 ) as unknown as typeof fetchAuthAccountsByEmail;
 
 function claimDetailApp(
   dbFor: typeof t.factory = t.factory,
   fetchEmails: FetchSeatEmails = noSeatEmails,
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail = noAuthAccounts,
 ) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
@@ -1871,11 +1872,11 @@ function claimDetailApp(
   });
   app.get(
     '/api/admin/claims/:id',
-    createAdminClaimDetailHandler(dbFor, noAuthAccounts, fetchEmails),
+    createAdminClaimDetailHandler(dbFor, fetchAuthAccounts, fetchEmails),
   );
   app.patch(
     '/api/admin/claims/:id/notes',
-    createSaveClaimNotesHandler(dbFor, noAuthAccounts, fetchEmails),
+    createSaveClaimNotesHandler(dbFor, fetchAuthAccounts, fetchEmails),
   );
   return app;
 }
@@ -2035,6 +2036,170 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
     expect(body.existing_seats).toEqual([
       expect.objectContaining({ display_name: null, email: 'holder@acme.com' }),
     ]);
+  });
+});
+
+// ─── AECI-1420: the claimant_seat signal ─────────────────────────────────────
+
+/** The GoTrue seam, stubbed so the claimant's address resolves to `userId`, or
+ *  to "no account" when `userId` is null. */
+const authAccountsFor = (userId: string | null) =>
+  vi.fn(
+    async () =>
+      new Map<string, AuthAccountRef | null>([[CLAIMANT_EMAIL, userId ? { userId } : null]]),
+  ) as unknown as typeof fetchAuthAccountsByEmail;
+
+const seedOtherVendor = () =>
+  t.db.insert(vendors).values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'Other Co' });
+
+const seatClaimant = (vendorId: string | null, role = 'vendor_admin') =>
+  t.db.insert(profiles).values({ id: CLAIMANT_ID, role, vendorId });
+
+describe('GET /api/admin/claims — claimant_seat (AECI-1420)', () => {
+  it('names the other vendor when the claimant holds a seat there', async () => {
+    await seedVendor();
+    await seedOtherVendor();
+    await seatClaimant(OTHER_VENDOR_ID);
+    await seedRequest();
+
+    const row = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(CLAIMANT_ID) }))
+    ).data[0]!;
+    expect(row.claimant_seat).toEqual({
+      kind: 'other_vendor',
+      vendor: { id: OTHER_VENDOR_ID, slug: 'other', name: 'Other Co' },
+    });
+  });
+
+  it('reports admin for a site admin account', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    // ADMIN_ID is seeded as an admin profile in `beforeEach`.
+    const row = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(ADMIN_ID) }))
+    ).data[0]!;
+    expect(row.claimant_seat).toEqual({ kind: 'admin' });
+  });
+
+  it('reports none for a seat on the SAME vendor: a second seat is not a conflict', async () => {
+    await seedVendor();
+    await seatClaimant(VENDOR_ID);
+    await seedRequest();
+
+    const row = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(CLAIMANT_ID) }))
+    ).data[0]!;
+    expect(row.claimant_seat).toEqual({ kind: 'none' });
+  });
+
+  it('reports none for an account with no seat, and for one that never signed in', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    // No `profiles` row yet: the account has never signed in.
+    const neverSignedIn = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(CLAIMANT_ID) }))
+    ).data[0]!;
+    expect(neverSignedIn.claimant_seat).toEqual({ kind: 'none' });
+
+    await seatClaimant(null, 'reviewer');
+    const noSeat = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(CLAIMANT_ID) }))
+    ).data[0]!;
+    expect(noSeat.claimant_seat).toEqual({ kind: 'none' });
+  });
+
+  it('is null when there is no account, and when the lookup is skipped', async () => {
+    await seedVendor();
+    await seedOtherVendor();
+    await seatClaimant(OTHER_VENDOR_ID);
+    await seedRequest();
+
+    const noAccount = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(null) }))
+    ).data[0]!;
+    expect(noAccount.claimant_seat).toBeNull();
+
+    // Default seam + no Supabase creds in TEST_ENV: the lookup is skipped, so the
+    // seat is unknown even though a conflicting profile exists.
+    const skipped = (await parseClaims(await getClaims())).data[0]!;
+    expect(skipped.has_auth_account).toBeNull();
+    expect(skipped.claimant_seat).toBeNull();
+  });
+
+  it('is null when the profile read fails, and the row still returns', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const res = await getClaims({
+      fetchAuthAccounts: authAccountsFor(CLAIMANT_ID),
+      dbFor: factoryFailingProfilesSelect(),
+    });
+    expect(res.status).toBe(200);
+    const row = (await parseClaims(res)).data[0]!;
+    expect(row.has_auth_account).toBe(true);
+    expect(row.claimant_seat).toBeNull();
+  });
+
+  it('classifies a PRODUCT claim against the product vendor, not the product id', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+    await seatClaimant(VENDOR_ID);
+    await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
+
+    // Compared against the product id, the seat on VENDOR_ID would read as another
+    // vendor. Resolved to the primary vendor, it is the same vendor.
+    const row = (
+      await parseClaims(await getClaims({ fetchAuthAccounts: authAccountsFor(CLAIMANT_ID) }))
+    ).data[0]!;
+    expect(row.claimant_seat).toEqual({ kind: 'none' });
+  });
+});
+
+describe('GET /api/admin/claims/:id — claimant_seat (AECI-1420)', () => {
+  const getClaimWith = (fetchAuthAccounts: typeof fetchAuthAccountsByEmail) =>
+    claimDetailApp(t.factory, noSeatEmails, fetchAuthAccounts).request(
+      `/api/admin/claims/${REQUEST_ID}`,
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+  it('names the other vendor on the detail page too', async () => {
+    await seedVendor();
+    await seedOtherVendor();
+    await seatClaimant(OTHER_VENDOR_ID);
+    await seedRequest({ status: 'rejected', resolvedAt: OLD_TS });
+
+    const body = await parseDetail(await getClaimWith(authAccountsFor(CLAIMANT_ID)));
+    expect(body.claimant_seat).toEqual({
+      kind: 'other_vendor',
+      vendor: { id: OTHER_VENDOR_ID, slug: 'other', name: 'Other Co' },
+    });
+  });
+
+  it('reports admin, and none for a same-vendor seat', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const admin = await parseDetail(await getClaimWith(authAccountsFor(ADMIN_ID)));
+    expect(admin.claimant_seat).toEqual({ kind: 'admin' });
+
+    await seatClaimant(VENDOR_ID);
+    const same = await parseDetail(await getClaimWith(authAccountsFor(CLAIMANT_ID)));
+    expect(same.claimant_seat).toEqual({ kind: 'none' });
+  });
+
+  it('is null when the lookup is skipped', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.claimant_seat).toBeNull();
   });
 });
 

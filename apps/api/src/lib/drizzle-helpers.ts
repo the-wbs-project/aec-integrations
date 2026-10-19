@@ -38,6 +38,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import type {
   AccountReview,
   AdminClaim,
+  AdminClaimantSeat,
   AdminReview,
   AdminVendorRequest,
   AdminVendorSeat,
@@ -93,6 +94,7 @@ import {
 } from '../db/schema';
 
 import { isConnectorPoweredEdge } from './connector-powered';
+import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
@@ -2393,7 +2395,7 @@ export function toAdminVendorRequest(
    *  `fetchAuthAccountsByEmail`) so there is no normalization here. Defaulted to
    *  empty so the single-row PATCH confirmation — which does not fan out to
    *  GoTrue — reports `null` without needing to pass anything. */
-  authAccountByEmail: ReadonlyMap<string, boolean> = new Map(),
+  authAccountByEmail: ReadonlyMap<string, AuthAccountRef | null> = new Map(),
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -2414,7 +2416,7 @@ export function toAdminVendorRequest(
     // signal from a claim row that happens to share a submitter email on the same
     // page. Keep this gate in step with the fetch-side gate in `admin-requests.ts`.
     has_auth_account:
-      raw.kind === 'claim' ? (authAccountByEmail.get(raw.submitterEmail) ?? null) : null,
+      raw.kind === 'claim' ? hasAuthAccount(authAccountByEmail, raw.submitterEmail) : null,
     linear_issue_id: raw.linearIssueId,
     linear_issue_url: raw.linearIssueUrl,
     created_at: raw.createdAt,
@@ -2453,12 +2455,16 @@ export function toAdminVendorRequest(
  *  `contextProduct` (AECI-1364) is the hydrated `context_product_id`: the product
  *  page the claimant came from ("Came from" on the queue and the detail). `null` for
  *  a company-page claim, a claim stored before the column, or a product that has
- *  since gone. */
+ *  since gone.
+ *
+ *  `claimantSeat` (AECI-1420) is the claimant's existing seat, classified against
+ *  the claim's resolved vendor by the list and detail handlers. `null` = unknown:
+ *  no account, or the lookup was unavailable or failed. */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
   target: LinkRef | null,
-  authAccountByEmail: ReadonlyMap<string, boolean>,
+  authAccountByEmail: ReadonlyMap<string, AuthAccountRef | null>,
   existingSeats: AdminVendorSeat[] | null,
   seatEmailsAvailable: boolean,
   relatedRequests: RelatedRequestRef[] | null,
@@ -2467,6 +2473,7 @@ export function toAdminClaim(
   isPureConnectorVendor: boolean | null = null,
   ownedIntegrations: VendorOwnedIntegrations | null = null,
   contextProduct: LinkRef | null = null,
+  claimantSeat: AdminClaimantSeat | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
@@ -2480,6 +2487,7 @@ export function toAdminClaim(
     is_pure_connector_vendor: isPureConnectorVendor,
     owned_integrations: ownedIntegrations,
     context_product: contextProduct,
+    claimant_seat: claimantSeat,
     // AECI-1322: only the grant resolves a claim AND names the resolving admin. The
     // Linear webhook resolves with `resolved_by_id` null.
     granted: raw.status === 'resolved' && raw.resolvedById !== null,

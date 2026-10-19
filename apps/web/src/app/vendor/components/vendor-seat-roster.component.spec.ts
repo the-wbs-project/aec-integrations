@@ -565,5 +565,48 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
     expect(alert?.textContent).toContain('already decided');
+    // Re-read so the row shows the state that won.
+    expect(getSeats).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads the roster when an accept answers the decided 409 (AECI-1420 Accept guard)', async () => {
+    setup(true);
+    const fixture = await render();
+    expect(getSeats).toHaveBeenCalledTimes(1);
+    acceptSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'CLAIM_ALREADY_DECIDED', details: { status: 'rejected' } } },
+      }),
+    );
+    // The re-read no longer lists the claim the system rejected.
+    getSeats.mockResolvedValueOnce({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: [],
+      can_manage_seats: true,
+      pending_claims: [],
+    });
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
+    expect(alert?.textContent).toContain(
+      'That request was already decided. The list now shows where it stands.',
+    );
+    expect(getSeats).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.textContent).not.toContain('riley@summitbim.example.com');
+  });
+
+  it('does not re-read when an accept fails for another reason', async () => {
+    setup(true);
+    const fixture = await render();
+    acceptSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 429, error: { error: { code: 'RATE_LIMITED' } } }),
+    );
+    button(fixture, 'Accept')!.click();
+    await flush();
+    fixture.detectChanges();
+    expect(getSeats).toHaveBeenCalledTimes(1);
   });
 });

@@ -10,6 +10,7 @@ import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
+import { ClaimAccountConflict, claimantSeatConflict } from './claim-account-conflict';
 import { claimantAccountLabel } from './claimant-account-label';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -65,7 +66,7 @@ const AUDIT_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-claim-detail',
-  imports: [AuditTrail, DatePipe, NewTabIcon, RouterLink],
+  imports: [AuditTrail, ClaimAccountConflict, DatePipe, NewTabIcon, RouterLink],
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
@@ -289,6 +290,12 @@ export class ClaimDetail {
       default:
         return $localize`:@@admin.claims.detail.domain.pending:Domain check pending`;
     }
+  }
+
+  /** AECI-1420: the claimant's address is a site admin or holds a seat on another
+   *  vendor, so the red account-conflict box shows. */
+  protected hasConflict(claim: AdminClaimDetail): boolean {
+    return claimantSeatConflict(claim) !== null;
   }
 
   /** The "Claimant account" signal, worded for the claim's status (AECI-1278).

@@ -49,8 +49,9 @@ const RETIRED_APPROVE_FIELD = z
  * optional for both actions (recorded in the workflow transition + audit metadata,
  * not stored on the row — `vendor_requests` has no reason column, matching
  * `ModerateRequestSchema`). It is an INTERNAL decision note: admin-visible in the
- * audit log and NEVER emailed to the claimant (the claim-rejected email is neutral
- * by design, §9).
+ * audit log and NEVER emailed to the claimant (the claim-rejected email never
+ * carries the reviewer's reason, §9; since AECI-1420 it may carry the system's
+ * account-conflict reason, which is a fact about the recipient's own account).
  *
  * `approve` takes no plan (AECI-1367): a body with `plan` or `entitlement` is a 400
  * `VALIDATION_FAILED` on that field. `reject` carries neither and strips unknown keys,
@@ -166,6 +167,27 @@ export const RelatedRequestRefSchema = z.object({
 export type RelatedRequestRef = z.infer<typeof RelatedRequestRefSchema>;
 
 /**
+ * The claimant's existing seat, classified against the claim's resolved vendor
+ * (AECI-1420, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2). One account belongs to one
+ * vendor (`STAGE_2_SPEC.md` §8.3), so a claim from an address seated elsewhere
+ * would be refused at grant with `409 GRANT_CONFLICT`. This says so before the
+ * reviewer presses Grant.
+ *  - `none` — the account exists with no seat, or with a seat on THIS vendor. A
+ *    second seat on the same vendor is the expected case, not a conflict.
+ *  - `admin` — the account is a site admin and cannot hold a vendor seat.
+ *  - `other_vendor` — the account holds a seat on another vendor, named here.
+ */
+export const AdminClaimantSeatSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('none') }),
+  z.object({ kind: z.literal('admin') }),
+  z.object({
+    kind: z.literal('other_vendor'),
+    vendor: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+  }),
+]);
+export type AdminClaimantSeat = z.infer<typeof AdminClaimantSeatSchema>;
+
+/**
  * A claim row on the review queue: the full `AdminVendorRequest` (so the surface
  * reuses the requests-queue rendering for the shared fields) plus the three
  * claim-only signals. The two enrichment arrays are **nullable on purpose**:
@@ -279,6 +301,15 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   /** AECI-1368: when the `claim_owner_fallback` cron handed a routed claim back to
    *  AECi after 7 days with no owner decision, or `null`. */
   owner_fallback_at: z.string().nullable(),
+  /**
+   * AECI-1420: the claimant's existing seat, beside `has_auth_account`. Read from
+   * the claimant's `profiles` row (looked up by the auth user id the GoTrue
+   * lookup returned) and classified against `entitlement_vendor`'s id, the vendor
+   * a grant would seat. `null` = unknown: no account, the lookup was unavailable
+   * or failed, or the profile read degraded. The queue and the detail page show
+   * a red box for `admin` and `other_vendor`, and the queue disables Grant.
+   */
+  claimant_seat: AdminClaimantSeatSchema.nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 

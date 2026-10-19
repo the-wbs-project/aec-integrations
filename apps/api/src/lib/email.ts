@@ -994,12 +994,47 @@ export async function sendSeatInvite(
 }
 
 /**
- * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). Deliberately
- * NEUTRAL (the §9 AC): the reviewer's decision `reason` is an INTERNAL audit note —
- * recorded in the `audit_log` (admin-visible), never echoed to the claimant — so
- * nothing a reviewer types can leak. The claimant is told only that the claim
- * wasn't approved, and is invited to resubmit. Recipient is `submitter_email`;
- * absent → skip.
+ * Why the SYSTEM declined a claim (AECI-1420). Only these reasons are ever mailed:
+ * each is a fact about the recipient's own account, never something a reviewer typed.
+ *
+ *   - `other_vendor`: the address already holds a seat on another company. One account
+ *     belongs to one company (`STAGE_2_SPEC.md` §8.3), so it names that company and
+ *     says to claim from a different work address.
+ *   - `already_admin`: the address is an AEC Integrations staff account, which cannot
+ *     hold a vendor seat.
+ */
+export type ClaimRejectionReason =
+  | { kind: 'other_vendor'; otherVendorName: string }
+  | { kind: 'already_admin' };
+
+/**
+ * The per-address, per-day ledger key of the AUTOMATIC `claim-rejected` at submit
+ * (AECI-1420). The claim form is anonymous and the address is typed, so a stranger
+ * could otherwise make us mail a seat holder once per submit. The key holds the
+ * address's hash, never the address (AECI-1203). An AECi or owner decision carries no
+ * key: a person decides it, once per claim.
+ */
+export async function claimAutoRejectedDedupeKey(
+  email: string,
+  now: Date = new Date(),
+): Promise<string> {
+  return `claim-rejected-auto:${await recipientHash(email)}:${now.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The email NEVER
+ * carries the reviewer's reason: that `reason` is an INTERNAL audit note, recorded in
+ * the `audit_log` (admin-visible) and never echoed to the claimant, so nothing a
+ * reviewer types can leak. A hand decision (AECi's reject, an owner's decline) tells
+ * the claimant only that the claim wasn't approved, and invites them to resubmit.
+ * Recipient is `submitter_email`; absent → skip.
+ *
+ * **The reasoned variant (AECI-1420, ruled 2026-10-19).** When the system declines a
+ * claim because the address already holds a seat on another company, or is a staff
+ * account, the email says so: `reason` is a {@link ClaimRejectionReason}, a fact about
+ * the recipient's own account, never a reviewer's words. It goes to the address that
+ * holds the seat, so it tells nobody anything they do not already know. The subject is
+ * the same for every variant.
  *
  * **On the house layout since AECI-924.** It is the sibling of `claim-approved`, which
  * AECI-914 migrated, so leaving it behind meant the same claimant got a branded email
@@ -1017,35 +1052,65 @@ export async function sendSeatInvite(
  */
 export function sendClaimRejectedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; vendorName: string },
+  opts: {
+    to: string | undefined;
+    vendorName: string;
+    /** The system reason (AECI-1420). Absent for every hand decision. */
+    reason?: ClaimRejectionReason;
+  } & SendDedupe,
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const resubmit =
-    "If you represent this vendor, you're welcome to submit a new claim with more detail.";
-
-  const opening = `Thank you for your claim for ${name}. After review, we weren't able to approve it.`;
-  const openingHtml = `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`;
-
   const shared = {
     preheader: `We reviewed your claim for ${name}.`,
     heading: `Your claim for ${name} was not approved`,
   };
 
+  // AECI-1420: both reasoned variants go at submit to a typed, unverified address,
+  // so they carry the same ignore line the receipt does, worded for a rejection.
+  const notYou =
+    'If you did not send this, you can ignore this email. Nothing changed on any account.';
+  let blocks: string[];
+  let htmlBlocks: string[];
+  if (opts.reason?.kind === 'other_vendor') {
+    const other = opts.reason.otherVendorName.trim() || 'another company';
+    const opening = `Your address already manages ${other} on AEC Integrations. One account belongs to one company, so this request to manage ${name} was declined automatically.`;
+    const openingHtml = `Your address already manages <strong>${escapeHtml(other)}</strong> on AEC Integrations. One account belongs to one company, so this request to manage <strong>${escapeHtml(name)}</strong> was declined automatically.`;
+    const next = `To manage ${name} as well, send the request from a different work address.`;
+    blocks = [opening, next, notYou];
+    htmlBlocks = [openingHtml, escapeHtml(next), escapeHtml(notYou)];
+  } else if (opts.reason?.kind === 'already_admin') {
+    const opening = `Your address is an AEC Integrations staff account. A staff account cannot hold a vendor seat, so this request to manage ${name} was declined automatically.`;
+    const openingHtml = `Your address is an AEC Integrations staff account. A staff account cannot hold a vendor seat, so this request to manage <strong>${escapeHtml(name)}</strong> was declined automatically.`;
+    const next = `To manage ${name}, send the request from a different work address.`;
+    blocks = [opening, next, notYou];
+    htmlBlocks = [openingHtml, escapeHtml(next), escapeHtml(notYou)];
+  } else {
+    const resubmit =
+      "If you represent this vendor, you're welcome to submit a new claim with more detail.";
+    const opening = `Thank you for your claim for ${name}. After review, we weren't able to approve it.`;
+    const openingHtml = `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`;
+    blocks = [opening, resubmit];
+    htmlBlocks = [openingHtml, resubmit];
+  }
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-rejected',
     subject: `Your claim for ${name} was not approved`,
-    render: () => houseBody(shared, [opening, resubmit], [openingHtml, resubmit]),
+    render: () => houseBody(shared, blocks, htmlBlocks),
+    ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
+    ...(opts.entity ? { entity: opts.entity } : {}),
   });
 }
 
 /**
- * Adapter for the `PATCH /api/admin/claims/:id` decision-email seam
- * (`SendClaimDecisionEmail` in `routes/admin-claims.ts`, AECI-519/528). Routes a
- * committed decision to the right template and drops the `EmailOutcome` (the handler
- * fires this via `waitUntil` and never reads the result). Typed structurally so this
- * file doesn't import the route's seam type; the assignability to that type is
- * enforced where it's wired (`index.ts`).
+ * Adapter for the claim decision-email seams (`SendClaimDecisionEmail` in
+ * `routes/admin-claims.ts`, AECI-519/528; the owner decline and the Accept guard in
+ * `routes/vendor-seat-claims.ts`; the submit-time reject in `routes/requests.ts`,
+ * AECI-1420). Routes a committed decision to the right template and drops the
+ * `EmailOutcome` (the handler fires this via `waitUntil` and never reads the result).
+ * Typed structurally so this file doesn't import the route's seam type; the
+ * assignability to that type is enforced where it's wired (`index.ts`).
  */
 export async function sendClaimDecisionEmail(
   c: EmailContext,
@@ -1056,7 +1121,9 @@ export async function sendClaimDecisionEmail(
     /** The granted vendor's company name (AECI-1367). Set on approve. */
     vendorName?: string;
     identityOutcome?: 'linked' | 'invited';
-  },
+    /** A SYSTEM reject's reason (AECI-1420). Never the reviewer's typed reason. */
+    reason?: ClaimRejectionReason;
+  } & SendDedupe,
 ): Promise<void> {
   if (input.decision === 'approved') {
     await sendClaimApprovedEmail(c, {
@@ -1067,11 +1134,15 @@ export async function sendClaimDecisionEmail(
       invited: input.identityOutcome === 'invited',
     });
   } else {
-    // Neutral by design — the reviewer's `reason` is an internal audit note and is
-    // never passed to the claimant email (see `sendClaimRejectedEmail`).
+    // The email never carries the reviewer's reason: that is an internal audit note
+    // and is never passed here. Only a system reason is mailed (see
+    // `sendClaimRejectedEmail`).
     await sendClaimRejectedEmail(c, {
       to: input.to,
       vendorName: input.targetName,
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.dedupeKey ? { dedupeKey: input.dedupeKey } : {}),
+      ...(input.entity ? { entity: input.entity } : {}),
     });
   }
 }
@@ -2255,6 +2326,10 @@ export function sendClaimSubmittedNotification(
      *  company's owners first (AECI-1368). Adds the "Sent to the owners at <Company>" line
      *  with the date AECi steps in. Null or absent adds nothing. */
     routedToOwnersAt?: string | null;
+    /** AECI-1420: the submit-time check found the address already holds a seat on
+     *  another company, or is a staff account, so the claim was stored rejected. Adds
+     *  the "Rejected automatically" line. Null or absent adds nothing. */
+    autoRejected?: ClaimRejectionReason | null;
   } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
@@ -2277,12 +2352,15 @@ export function sendClaimSubmittedNotification(
   // `LINEAR_API_KEY` is set on production only. On any other tier without it, no
   // retry will ever link the request, so promising one would be false (AECI-1198).
   const linearUnconfigured = !isProductionTier(c.env) && !c.env.LINEAR_API_KEY;
+  // AECI-1420: a claim rejected at submit gets no issue by design, and no retry.
   rows.push([
     'Linear issue',
     opts.linearIssueUrl ??
-      (linearUnconfigured
-        ? 'not created, Linear is not configured on this tier'
-        : 'not created yet. The reconciliation sweep retries it, and the link appears on the request in the admin console. No second email is sent.'),
+      (opts.autoRejected
+        ? 'none. A claim rejected at submit needs no operator work, so no issue is created.'
+        : linearUnconfigured
+          ? 'not created, Linear is not configured on this tier'
+          : 'not created yet. The reconciliation sweep retries it, and the link appears on the request in the admin console. No second email is sent.'),
   ]);
   // The `LinkedIn` row is the claimant's own URL, off our origin, so it is not tagged.
   const linkRows = (link: LinkTagger): Array<[string, string]> => {
@@ -2312,6 +2390,13 @@ export function sendClaimSubmittedNotification(
     blocks.push(routed);
     htmlBlocks.push(escapeHtml(routed));
   }
+  // AECI-1420: the claim was stored rejected at submit. Never routed, so this and the
+  // routed line never appear together.
+  if (opts.autoRejected) {
+    const rejected = claimAutoRejectedAlertLine(opts.autoRejected);
+    blocks.push(rejected);
+    htmlBlocks.push(escapeHtml(rejected));
+  }
   const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New claim for ${opts.targetName}`,
@@ -2333,6 +2418,13 @@ export function sendClaimSubmittedNotification(
 export function claimRoutedAlertLine(companyName: string, routedToOwnersAt: string): string {
   const stepsIn = formatDeadline(claimOwnerReviewDeadline(routedToOwnersAt));
   return `Sent to the owners at ${companyName}; AECi steps in on ${stepsIn}.`;
+}
+
+/** The claim alert's auto-reject line (AECI-1420): why the system declined it at submit. */
+export function claimAutoRejectedAlertLine(reason: ClaimRejectionReason): string {
+  return reason.kind === 'other_vendor'
+    ? `Rejected automatically: the address already holds a seat on ${reason.otherVendorName.trim() || 'another company'}.`
+    : 'Rejected automatically: the address is an AECi staff account, which cannot hold a vendor seat.';
 }
 
 /** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */

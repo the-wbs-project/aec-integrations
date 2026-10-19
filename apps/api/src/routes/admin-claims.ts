@@ -70,6 +70,7 @@ import {
   ModerateClaimSchema,
   SaveClaimNotesSchema,
   type AdminClaimDetail,
+  type AdminClaimantSeat,
   type AdminVendorSeat,
   type ClaimDuplicateSibling,
   type ClaimGrantSummary,
@@ -113,7 +114,7 @@ import {
   type BillingAccountBefore,
 } from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
-import { resolveClaimantIdentity } from '../lib/claimant-identity';
+import { classifyClaimantConflict, resolveClaimantIdentity } from '../lib/claimant-identity';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import {
   adminVendorRequestConfig,
@@ -126,6 +127,7 @@ import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-u
 import {
   fetchAuthAccountsByEmail,
   fetchAuthUserEmailsResult,
+  type AuthAccountRef,
   type AuthEmailLookup,
 } from '../lib/supabase-admin';
 import {
@@ -838,6 +840,92 @@ async function resolveClaimVendorIds(
   return vendorByRow;
 }
 
+/** One claimant's `profiles` row, with the vendor its seat is on (AECI-1420). */
+interface ClaimantSeatProfile {
+  role: string;
+  vendorId: string | null;
+  vendorSlug: string | null;
+  vendorName: string | null;
+}
+
+/**
+ * The claimants' `profiles` rows, keyed by auth user id, for the `claimant_seat`
+ * signal (AECI-1420). ONE statement for the page: the ids the GoTrue lookup
+ * returned, left-joined to `vendors` for the seat's name and slug. An account
+ * with no row here has never signed in, so it holds no seat.
+ *
+ * `profiles` has no email column, so this read can only follow the GoTrue
+ * fan-out. The page caps at 100 claims, so the id list stays inside D1's bound
+ * parameter limit.
+ */
+async function loadClaimantSeatProfiles(
+  db: Db,
+  accounts: ReadonlyMap<string, AuthAccountRef | null>,
+): Promise<Map<string, ClaimantSeatProfile>> {
+  const ids = [
+    ...new Set([...accounts.values()].flatMap((account) => (account ? [account.userId] : []))),
+  ];
+  const byUser = new Map<string, ClaimantSeatProfile>();
+  if (ids.length === 0) return byUser;
+
+  const rows = await db
+    .select({
+      id: profiles.id,
+      role: profiles.role,
+      vendorId: profiles.vendorId,
+      vendorSlug: vendors.slug,
+      vendorName: vendors.companyName,
+    })
+    .from(profiles)
+    .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
+    .where(inArray(profiles.id, ids));
+
+  for (const row of rows) {
+    byUser.set(row.id, {
+      role: row.role,
+      vendorId: row.vendorId,
+      vendorSlug: row.vendorSlug,
+      vendorName: row.vendorName,
+    });
+  }
+  return byUser;
+}
+
+/**
+ * Classify one claim's `claimant_seat` (AECI-1420) with the same pure rule the
+ * grant runs, `classifyClaimantConflict`, against the claim's RESOLVED vendor (a
+ * product claim's primary vendor, as `resolveTargetVendor` does).
+ *
+ * `null` (unknown) when the address has no account or its lookup failed, when the
+ * profile read degraded, or when there is no resolved vendor to compare with. An
+ * account with no `profiles` row has never signed in, so it is `none`.
+ */
+function classifyClaimantSeat(
+  email: string,
+  vendorId: string | undefined,
+  accounts: ReadonlyMap<string, AuthAccountRef | null>,
+  profilesByUser: ReadonlyMap<string, ClaimantSeatProfile> | null,
+): AdminClaimantSeat | null {
+  const account = accounts.get(email);
+  if (!account || !profilesByUser || !vendorId) return null;
+  const profile = profilesByUser.get(account.userId) ?? null;
+  const conflict = classifyClaimantConflict(profile, vendorId);
+  if (conflict === 'already_admin') return { kind: 'admin' };
+  if (conflict === 'other_vendor' && profile?.vendorId) {
+    // `profiles.vendor_id` is a foreign key, so the join always finds the vendor.
+    // The id stands in for a missing name rather than dropping the flag.
+    return {
+      kind: 'other_vendor',
+      vendor: {
+        id: profile.vendorId,
+        slug: profile.vendorSlug ?? profile.vendorId,
+        name: profile.vendorName ?? profile.vendorId,
+      },
+    };
+  }
+  return { kind: 'none' };
+}
+
 /**
  * The claimed vendors' `LinkRef`s, keyed by VENDOR id: the `entitlement_vendor` the
  * queue's "Manage billing" and audit-trail links address. ONE scan over the page's
@@ -1128,12 +1216,14 @@ export function createAdminClaimsListHandler(
         ? loadOwnedIntegrations(db, [...new Set(vendorByRow.values())]).catch(() => null)
         : null,
     ]);
-    // After the `Promise.all`, so the two GoTrue fan-outs never run at once.
-    const { seatsByRow, available: seatEmailsAvailable } = await attachSeatEmails(
-      c.env,
-      seatsWithoutEmail,
-      fetchEmails,
-    );
+    // After the `Promise.all`, so the two GoTrue fan-outs never run at once. The
+    // claimant profile read (AECI-1420) needs the ids the first fan-out returned,
+    // so it runs here too. Fail-soft: a failed read makes every `claimant_seat`
+    // null.
+    const [{ seatsByRow, available: seatEmailsAvailable }, claimantProfiles] = await Promise.all([
+      attachSeatEmails(c.env, seatsWithoutEmail, fetchEmails),
+      loadClaimantSeatProfiles(db, authAccountByEmail).catch(() => null),
+    ]);
 
     /** The claim's resolved vendor, or `null` when there is no vendor to act on (a
      *  product with no `product_vendors` row) or the enrichment degraded, so the UI
@@ -1184,6 +1274,12 @@ export function createAdminClaimsListHandler(
           ...productRolesFor(row),
           ownedIntegrationsFor(row),
           contextProductFor(row, targets),
+          classifyClaimantSeat(
+            row.submitterEmail,
+            vendorByRow?.get(row.id),
+            authAccountByEmail,
+            claimantProfiles,
+          ),
         ),
       ),
       page: query.page,
@@ -1338,12 +1434,12 @@ async function buildClaimDetail(
     vendorByRow ? loadOwnedIntegrations(db, vendorIds).catch(() => null) : null,
     loadDuplicateSiblings(db, row),
   ]);
-  // After the `Promise.all`, as on the LIST: one GoTrue fan-out at a time.
-  const { seatsByRow, available: seatEmailsAvailable } = await attachSeatEmails(
-    c.env,
-    seatsWithoutEmail,
-    fetchEmails,
-  );
+  // After the `Promise.all`, as on the LIST: one GoTrue fan-out at a time. The
+  // claimant profile read (AECI-1420) follows the lookup it depends on.
+  const [{ seatsByRow, available: seatEmailsAvailable }, claimantProfiles] = await Promise.all([
+    attachSeatEmails(c.env, seatsWithoutEmail, fetchEmails),
+    loadClaimantSeatProfiles(db, authAccountByEmail).catch(() => null),
+  ]);
 
   const vendorId = vendorByRow?.get(row.id);
   const vendorLink = (vendorId ? linkByVendor?.get(vendorId) : undefined) ?? null;
@@ -1374,6 +1470,7 @@ async function buildClaimDetail(
       roles ? isPureConnectorVendor(roles) : null,
       owned,
       contextProductFor(row, targets),
+      classifyClaimantSeat(row.submitterEmail, vendorId, authAccountByEmail, claimantProfiles),
     ),
     duplicate_siblings: duplicateSiblings,
   };

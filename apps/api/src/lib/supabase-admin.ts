@@ -490,6 +490,15 @@ export async function createAuthUser(env: Env, email: string): Promise<CreateAut
 }
 
 /**
+ * One entry of {@link fetchAuthAccountsByEmail}: the auth user that owns the
+ * address. AECI-1420 keeps the id (it used to be a bare `true`) so the claim
+ * queue can read that account's `profiles` row for the `claimant_seat` signal.
+ */
+export interface AuthAccountRef {
+  userId: string;
+}
+
+/**
  * Batched "does an auth user already exist for this email?" for the admin claim
  * queue — the AECI-527 reviewer signal, rendered by AECI-521. Exact sibling of
  * {@link fetchAuthUserEmails}: parallel per-email lookups, and a BARE map
@@ -497,9 +506,14 @@ export async function createAuthUser(env: Env, email: string): Promise<CreateAut
  *
  * Keyed by the caller's input string VERBATIM so call sites never re-normalize,
  * while deduping case-insensitively so two spellings of one address cost one
- * request. An ABSENT key means "unknown" (`has_auth_account: null`) — never
- * `false`. That distinction is the whole point of the tri-state: a failed lookup
- * must not read to the reviewer as "this claimant has no account".
+ * request. Three states per address:
+ *  - `{ userId }` — an auth user owns it (`has_auth_account: true`).
+ *  - `null` — the lookup succeeded and no auth user owns it (`false`).
+ *  - ABSENT key — "unknown" (`has_auth_account: null`), never `false`. That
+ *    distinction is the whole point of the tri-state: a failed lookup must not
+ *    read to the reviewer as "this claimant has no account".
+ * Read the boolean through {@link hasAuthAccount} so the tri-state lives in one
+ * place.
  *
  * **Every address is still looked up** — `perPage` caps the page at 100
  * (`PageQuerySchema`) and none of those lookups is dropped, because a truncated
@@ -517,8 +531,8 @@ export async function createAuthUser(env: Env, email: string): Promise<CreateAut
 export async function fetchAuthAccountsByEmail(
   env: Env,
   emails: readonly string[],
-): Promise<Map<string, boolean>> {
-  const out = new Map<string, boolean>();
+): Promise<Map<string, AuthAccountRef | null>> {
+  const out = new Map<string, AuthAccountRef | null>();
   const cfg = adminConfig(env);
   if (!cfg) {
     warnSeam(
@@ -558,8 +572,23 @@ export async function fetchAuthAccountsByEmail(
         );
         return;
       }
-      for (const spelling of spellings) out.set(spelling, res.user !== null);
+      const account = res.user ? { userId: res.user.id } : null;
+      for (const spelling of spellings) out.set(spelling, account);
     },
   );
   return out;
+}
+
+/**
+ * The `has_auth_account` tri-state read off a {@link fetchAuthAccountsByEmail}
+ * map: `true` when an account owns the address, `false` when the lookup found
+ * none, `null` when the key is absent (unknown).
+ */
+export function hasAuthAccount(
+  accounts: ReadonlyMap<string, AuthAccountRef | null>,
+  email: string,
+): boolean | null {
+  const entry = accounts.get(email);
+  if (entry === undefined) return null;
+  return entry !== null;
 }

@@ -22,6 +22,14 @@
  * `context_product_id` ("Came from" for the reviewer). A correction is about a listing,
  * so it keeps its product target.
  *
+ * **A claim from an address that already manages another company is stored rejected**
+ * (AECI-1420, ruled 2026-10-19). Before the batch, a lookup-only account check
+ * (`checkClaimAccount`) asks whether the typed address holds a seat on another vendor
+ * or is a staff account. If so, the same batch writes the row `rejected` by the system,
+ * the claim is not routed to owners, and the claimant gets the reasoned
+ * `claim-rejected` instead of the receipt. The 201 and its message are unchanged: the
+ * person at the keyboard may not own the address they typed.
+ *
  * Each submit is one atomic `db.batch` (the §26.1 invariant, AECI-249): the
  * `vendor_requests` insert + the `workflow_instance` (`vendor_claim` |
  * `correction_request`, `current_state:'open'`) + its genesis `workflow_transitions`
@@ -69,8 +77,27 @@ import {
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { sendClaimReceivedEmail, sendClaimSubmittedNotification } from '../lib/email';
-import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
+import {
+  claimAutoRejectedDedupeKey,
+  sendClaimDecisionEmail,
+  sendClaimReceivedEmail,
+  sendClaimSubmittedNotification,
+} from '../lib/email';
+import {
+  ACCOUNT_CONFLICT_REASON,
+  SYSTEM_CLAIM_SOURCE,
+  accountConflictEmailReason,
+  accountConflictMetadata,
+  checkClaimAccount,
+  resolveClaimantIdentity,
+  type ClaimAccountCheck,
+} from '../lib/claimant-identity';
+import { CLAIM_TERMINAL_OUTCOME } from '../lib/vendor-grant';
+import {
+  createLinearIssueForRequest,
+  drizzleLinearStore,
+  type LinearIssueOutcome,
+} from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
 import { emailOwnersOfRoutedClaim } from '../lib/claim-owner-routing';
@@ -270,7 +297,14 @@ interface RequestInsert {
    *  vendor has an unbanned owner seat). The submit instant, else null. Always null
    *  for a correction. A column, so it rides `rowData` into the insert. */
   routedToOwnersAt: string | null;
+  /** AECI-1420: the submit-time account check found the address already holds a seat
+   *  on another company, or is a staff account. The row is then written already
+   *  `rejected`, by the system, in the same batch. Always null for a correction. Not
+   *  a column: it is stripped before the insert. */
+  rejectedAtSubmit: AccountConflict | null;
 }
+
+type AccountConflict = Extract<ClaimAccountCheck, { outcome: 'conflict' }>;
 
 /** Insert the row + open its workflow instance/genesis transition + write the
  *  audit entry, all in one atomic `db.batch`; return the 201 envelope. */
@@ -294,7 +328,14 @@ async function createRequest(
 
   // `slug`/`targetName` are metadata/title only; `websiteUrl` is a domain-match input.
   // None are columns, so they're stripped before the insert.
-  const { slug, targetName, websiteUrl: _websiteUrl, contextProduct, ...rowData } = insert;
+  const {
+    slug,
+    targetName,
+    websiteUrl: _websiteUrl,
+    contextProduct,
+    rejectedAtSubmit,
+    ...rowData
+  } = insert;
   const workflowType = kind === 'claim' ? 'vendor_claim' : 'correction_request';
   // Shared metadata for the audit row and the genesis workflow transition.
   const metadata = {
@@ -361,6 +402,22 @@ async function createRequest(
     metadata,
   };
 
+  // AECI-1420: a claim from an address that already holds a seat on another company
+  // (or a staff account) is written ALREADY rejected, in this same batch. Not by
+  // appending `rejectClaimStatements`: its sentinel and guarded UPDATE exist for a row
+  // that is already there. The trail still reads what happened: the genesis
+  // transition and the `vendor_request.created` row, then an `open → rejected`
+  // transition and a `vendor_claim.rejected` row, both by the system (null actor).
+  const rejectedAt = rejectedAtSubmit ? new Date().toISOString() : null;
+  const reject = rejectedAtSubmit
+    ? autoRejectEntries({
+        requestId,
+        workflowId,
+        vendorId: insert.targetId,
+        check: rejectedAtSubmit,
+      })
+    : null;
+
   const stmts: BatchStmt[] = [
     db.insert(vendorRequests).values({
       id: requestId,
@@ -369,15 +426,25 @@ async function createRequest(
       contextProductId: contextProduct?.id ?? null,
       domainMatch,
       duplicateOfRequestId: duplicate?.id ?? null,
+      ...(rejectedAt ? { status: 'rejected', resolvedAt: rejectedAt, resolvedById: null } : {}),
     }),
     db.insert(workflowInstances).values({
       id: workflowId,
       workflowType,
       entityId: requestId,
-      currentState: 'open',
+      ...(rejectedAt
+        ? {
+            currentState: 'rejected',
+            completedAt: rejectedAt,
+            finalOutcome: CLAIM_TERMINAL_OUTCOME.rejected,
+          }
+        : { currentState: 'open' }),
     }),
     workflowTransitionInsert(db, workflowEntry),
     auditInsert(db, auditEntry),
+    ...(reject
+      ? [workflowTransitionInsert(db, reject.workflowEntry), auditInsert(db, reject.auditEntry)]
+      : []),
     // AFTER the claim insert: the acceptance's `vendor_request_id` FK names it.
     ...(acceptance?.stmts ?? []),
   ];
@@ -386,8 +453,12 @@ async function createRequest(
   // Best-effort §26.5 forwards AFTER the atomic commit, in ONE request (AECI-1112).
   forwardAuditBatch(
     c,
-    acceptance ? [auditEntry, acceptance.auditEntry] : [auditEntry],
-    [workflowEntry],
+    [
+      auditEntry,
+      ...(reject ? [reject.auditEntry] : []),
+      ...(acceptance ? [acceptance.auditEntry] : []),
+    ],
+    reject ? [workflowEntry, reject.workflowEntry] : [workflowEntry],
     'request-form',
   );
 
@@ -401,27 +472,34 @@ async function createRequest(
   // while the issue was still being created and could never name it. Chaining costs
   // nothing — both already ran off-request — and buys the operator a working link.
   // One `waitUntil`, so the two together stay inside a single extension window.
-  const linearDone = createLinearIssueForRequest(c, drizzleLinearStore(db), {
-    notification: 'linear-request-issue',
-    requestId,
-    workflowId,
-    kind,
-    targetType: insert.targetType,
-    targetName,
-    slug,
-    submitterEmail: insert.submitterEmail,
-    submitterName: insert.submitterName,
-    submitterRole: insert.submitterRole,
-    submitterLinkedinUrl: insert.submitterLinkedinUrl,
-    contextProduct,
-    body: insert.body,
-    sourceUrl: insert.sourceUrl,
-    // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
-    // label; a duplicate adds an informational note on the issue (§7.1/§7.2).
-    domainMatch,
-    duplicateOfRequestId: duplicate?.id ?? null,
-    duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
-  });
+  //
+  // AECI-1420: a claim rejected at submit gets NO Linear issue. It needs no operator
+  // work, and the Linear webhook does not guard a terminal D1 status, so any touch on
+  // the issue would move the claim `rejected → open`. The §6.7 sweep reads only `open`
+  // rows, so it never creates one later either. The alert below still goes.
+  const linearDone: Promise<LinearIssueOutcome | null> = rejectedAtSubmit
+    ? Promise.resolve(null)
+    : createLinearIssueForRequest(c, drizzleLinearStore(db), {
+        notification: 'linear-request-issue',
+        requestId,
+        workflowId,
+        kind,
+        targetType: insert.targetType,
+        targetName,
+        slug,
+        submitterEmail: insert.submitterEmail,
+        submitterName: insert.submitterName,
+        submitterRole: insert.submitterRole,
+        submitterLinkedinUrl: insert.submitterLinkedinUrl,
+        contextProduct,
+        body: insert.body,
+        sourceUrl: insert.sourceUrl,
+        // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
+        // label; a duplicate adds an informational note on the issue (§7.1/§7.2).
+        domainMatch,
+        duplicateOfRequestId: duplicate?.id ?? null,
+        duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
+      });
 
   // Operator alert on claim INTAKE — the support inbox learns a claim landed and gets
   // the ticket link in the same message. CLAIMS ONLY: a correction is a low-stakes
@@ -463,20 +541,34 @@ async function createRequest(
         contextProduct,
         domainMatch,
         duplicateOfRequestId: duplicate?.id ?? null,
-        linearIssueUrl: outcome.status === 'created' ? outcome.issueUrl : null,
+        linearIssueUrl: outcome?.status === 'created' ? outcome.issueUrl : null,
         routedToOwnersAt: insert.routedToOwnersAt,
+        autoRejected: rejectedAtSubmit ? accountConflictEmailReason(rejectedAtSubmit) : null,
       })
-        .then(() =>
-          sendClaimReceivedEmail(c, {
-            to: insert.submitterEmail,
-            subject: {
-              kind: 'claim',
-              requestId,
-              companyName: targetName,
-              contextProductName: contextProduct?.name ?? null,
-              routedToOwnersAt: insert.routedToOwnersAt,
-            },
-          }),
+        .then(async () =>
+          // AECI-1420: an auto-rejected claim gets the reasoned `claim-rejected`
+          // INSTEAD of the receipt. It goes to the address that holds the seat, so it
+          // tells nobody anything they do not know. Bounded per address per UTC day,
+          // because the address is typed on an anonymous form.
+          rejectedAtSubmit
+            ? sendClaimDecisionEmail(c, {
+                decision: 'rejected',
+                to: insert.submitterEmail,
+                targetName,
+                reason: accountConflictEmailReason(rejectedAtSubmit),
+                dedupeKey: await claimAutoRejectedDedupeKey(insert.submitterEmail),
+                entity: { type: 'vendor_request', id: requestId },
+              })
+            : sendClaimReceivedEmail(c, {
+                to: insert.submitterEmail,
+                subject: {
+                  kind: 'claim',
+                  requestId,
+                  companyName: targetName,
+                  contextProductName: contextProduct?.name ?? null,
+                  routedToOwnersAt: insert.routedToOwnersAt,
+                },
+              }),
         )
         .then(() => undefined);
     }),
@@ -512,6 +604,49 @@ async function createRequest(
   return json(body, { status: 201 });
 }
 
+/**
+ * The system reject rows of a claim stored rejected at submit (AECI-1420). The same
+ * shape `rejectClaimStatements` gives a hand reject (`lib/vendor-grant.ts`), with a
+ * null actor, `actorType: 'system'` and `source: 'system'`, so an account-conflict
+ * reject reads the same whether the submit or the owner Accept caught it.
+ */
+function autoRejectEntries(p: {
+  requestId: string;
+  workflowId: string;
+  vendorId: string;
+  check: AccountConflict;
+}): { auditEntry: AuditLogEntry; workflowEntry: WorkflowTransitionEntry } {
+  const metadata = {
+    source: SYSTEM_CLAIM_SOURCE,
+    kind: 'claim',
+    target_type: 'vendor',
+    target_id: p.vendorId,
+    ...accountConflictMetadata(p.check),
+    reason: ACCOUNT_CONFLICT_REASON,
+  };
+  return {
+    auditEntry: {
+      actorId: null,
+      actorType: 'system',
+      vendorId: p.vendorId,
+      action: 'vendor_claim.rejected',
+      entityType: 'vendor_request',
+      entityId: p.requestId,
+      beforeState: { status: 'open' },
+      afterState: { status: 'rejected' },
+      metadata,
+    },
+    workflowEntry: {
+      workflowId: p.workflowId,
+      fromState: 'open',
+      toState: 'rejected',
+      actorId: null,
+      reason: ACCOUNT_CONFLICT_REASON,
+      metadata,
+    },
+  };
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function createCorrectionSubmitHandler(
@@ -536,12 +671,14 @@ export function createCorrectionSubmitHandler(
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
       routedToOwnersAt: null,
+      rejectedAtSubmit: null,
     });
   };
 }
 
 export function createClaimSubmitHandler(
   dbFor: DbFactory = getDb,
+  resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const payload = await parseJsonBody(c, ClaimRequestSchema);
@@ -549,10 +686,24 @@ export function createClaimSubmitHandler(
     // AECI-1364: a product target is normalised to its company here. The response
     // is unchanged, so the forms and the dialog need no new handling.
     const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
-    // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`.
-    const routedToOwnersAt = (await vendorHasOwnerSeat(db, target.id))
-      ? new Date().toISOString()
-      : null;
+    // AECI-1420: one account belongs to one company (`STAGE_2_SPEC.md` §8.3). A
+    // lookup-only check, for every claim: `target.id` is the VENDOR (a product claim
+    // was normalised above), so a seat elsewhere is a conflict and a seat here is not.
+    // `unavailable` (no Supabase creds, GoTrue down) proceeds exactly as before. The
+    // admin queue's banner catches what got through.
+    const account = await checkClaimAccount(
+      db,
+      c.env,
+      { email: payload.submitter_email, vendorId: target.id },
+      resolveIdentity,
+    );
+    const rejectedAtSubmit = account.outcome === 'conflict' ? account : null;
+    // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`. A
+    // claim rejected at submit is never routed: the owners have nothing to decide.
+    const routedToOwnersAt =
+      !rejectedAtSubmit && (await vendorHasOwnerSeat(db, target.id))
+        ? new Date().toISOString()
+        : null;
 
     return createRequest(c, db, 'claim', {
       targetType: 'vendor',
@@ -570,6 +721,7 @@ export function createClaimSubmitHandler(
       body: payload.body,
       sourceUrl: null,
       routedToOwnersAt,
+      rejectedAtSubmit,
     });
   };
 }

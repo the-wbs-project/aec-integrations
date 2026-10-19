@@ -56,6 +56,8 @@ Ruled 2026-10-14: existing grants with no end date back-fill as open-ended compl
 
 Ruled 2026-10-19 (Chris, planning E6, AECI-1336): the hand-back is checked when promote writes, so nothing is written at lapse, and revoke, release and lapse hand back the same way (ADR 0033, `STAGE_2_5_SPEC.md` §12). Data flows are re-allowed for AECi claims: on a product with no live license, promote writes its `aeci` claims and attestation on that product's existing edges again, the per-row §4b fence still applies, and vendor attestations are not touched. Fewer licenses than products means carry-over at lapse, oldest assignment first, and a product flagged release-at-renewal does not move (E9 reuses the step). "Get licenses" goes to the Billing tab for owners. On the product-ended banner a member sees no button. On the vendor-wide banner a member keeps "Talk to us about Managed", which opens the contact page. A lapse re-routes open contests to AECi exactly like a revoke when it ends the vendor's last live license. The hand-back covers vendor-written usefulness only: a block an admin wrote (`usefulness_source = 'admin'`) stays fenced whatever the license state. The vendor-wide "Your Managed plan has ended" banner sends owners to Billing too, and when it shows the per-product banner is hidden, so a vendor never sees two.
 
+Ruled 2026-10-19 (Chris, AECI-1420): one vendor per account stays (`STAGE_2_SPEC.md` §8.3). A group that controls several vendors uses one address per vendor. A claim from an address that already holds a seat on another vendor, or a staff account, is rejected at once, at submit, by the system. The claimant gets a `claim-rejected` email that names the vendor the address already manages and says to claim from a different work address. It goes to the address that holds the seat, so it hides nothing. This replaces the earlier idea of a neutral email after a delay. The on-screen receipt stays generic, because the person at the keyboard may not own the address. AECi sees a red flag on the claim, which matters when the check could not run at submit. An owner's Accept checks again and rejects the claim the same way. Multi-vendor accounts are parked. `STAGE_2_VENDOR_PORTAL_SPEC.md` §9 and §11a.10.
+
 Rulings still needed: none (checked 2026-10-15, AECI-1369). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above.
 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
@@ -69,8 +71,11 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 1. **Claim.** Vendor clicks "Claim <Company>" on a company or product page. Form: name, role,
    work email, LinkedIn (optional), note (optional), the terms box. On send: on-screen receipt,
    email receipt, alert to AECi. Record: claim request plus terms acceptance.
-2. **Check.** AECi checks domain, LinkedIn, existing seats, competing claims. Decline sends an
-   email and ends. Approve: if the company has no seats, create the account, the owner seat and
+2. **Check.** First the system checks the address (AECI-1420, 2026-10-19). An address that
+   already holds a seat on another company, or a staff account, is declined at submit with an
+   email that says why. When the check cannot run, AECi's queue flags the claim and an owner's
+   Accept checks again. Then AECi checks domain, LinkedIn, existing seats, competing claims.
+   Decline sends an email and ends. Approve: if the company has no seats, create the account, the owner seat and
    the billing account; every product is Free. If it has seats, the owners accept or decline the
    new seat. Approval email carries the sign-in link, what Free includes and how Managed works.
 3. **Portal.** Sign in by one-time link. Dashboard shows company details and the product list;

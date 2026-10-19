@@ -25,6 +25,7 @@ import {
   createAuthUser,
   deleteAuthUser,
   fetchAuthAccountsByEmail,
+  hasAuthAccount,
   fetchAuthUserEmails,
   fetchAuthUserEmailsResult,
   fetchAuthUserRecords,
@@ -316,7 +317,7 @@ describe('fetchAuthAccountsByEmail (the AECI-527 reviewer signal)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('maps a hit to true and a miss to false', async () => {
+  it('maps a hit to the user id and a miss to null (AECI-1420)', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       return url.includes('jane%40acme.com')
@@ -326,8 +327,11 @@ describe('fetchAuthAccountsByEmail (the AECI-527 reviewer signal)', () => {
 
     const map = await fetchAuthAccountsByEmail(ENV_WITH_CREDS, ['jane@acme.com', 'new@acme.com']);
 
-    expect(map.get('jane@acme.com')).toBe(true);
-    expect(map.get('new@acme.com')).toBe(false);
+    expect(map.get('jane@acme.com')).toEqual({ userId: USER_ID });
+    expect(map.get('new@acme.com')).toBeNull();
+    expect(hasAuthAccount(map, 'jane@acme.com')).toBe(true);
+    expect(hasAuthAccount(map, 'new@acme.com')).toBe(false);
+    expect(hasAuthAccount(map, 'unlooked@acme.com')).toBeNull();
   });
 
   it('dedupes case-insensitively: one request for two spellings, keyed under both', async () => {
@@ -336,8 +340,8 @@ describe('fetchAuthAccountsByEmail (the AECI-527 reviewer signal)', () => {
     const map = await fetchAuthAccountsByEmail(ENV_WITH_CREDS, ['Jane@Acme.com', 'jane@acme.com']);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(map.get('Jane@Acme.com')).toBe(true);
-    expect(map.get('jane@acme.com')).toBe(true);
+    expect(map.get('Jane@Acme.com')).toEqual({ userId: USER_ID });
+    expect(map.get('jane@acme.com')).toEqual({ userId: USER_ID });
   });
 
   it('omits an email whose lookup failed, so the caller reports null rather than false', async () => {
@@ -346,6 +350,7 @@ describe('fetchAuthAccountsByEmail (the AECI-527 reviewer signal)', () => {
     const map = await fetchAuthAccountsByEmail(ENV_WITH_CREDS, ['jane@acme.com']);
 
     expect(map.has('jane@acme.com')).toBe(false);
+    expect(hasAuthAccount(map, 'jane@acme.com')).toBeNull();
   });
 
   it('keeps the successful lookups when a sibling lookup fails', async () => {
@@ -360,7 +365,7 @@ describe('fetchAuthAccountsByEmail (the AECI-527 reviewer signal)', () => {
       'broken@acme.com',
     ]);
 
-    expect(map.get('jane@acme.com')).toBe(true);
+    expect(map.get('jane@acme.com')).toEqual({ userId: USER_ID });
     expect(map.has('broken@acme.com')).toBe(false);
   });
 

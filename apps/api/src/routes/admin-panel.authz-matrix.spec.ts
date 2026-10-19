@@ -39,6 +39,7 @@ import { connectorCatalogs, products, profiles, vendorRequests, vendors } from '
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
+import type { AuthAccountRef } from '../lib/supabase-admin';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
@@ -373,7 +374,7 @@ function makeApp() {
   // AECI-739. The claim detail's second argument is the GoTrue `has_auth_account`
   // seam, whose default would reach out; an empty map is the "seam up, no
   // account" branch, which is the cheapest one that still 200s.
-  const noAuthAccounts = async () => new Map<string, boolean>();
+  const noAuthAccounts = async () => new Map<string, AuthAccountRef | null>();
   app.get(
     '/api/admin/claims/:id',
     requireAdmin(guard),

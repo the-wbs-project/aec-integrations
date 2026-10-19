@@ -515,13 +515,23 @@
         </div>
         }
 
+        <!-- AECI-1420: the claimant's address is seated on another vendor or is a site
+             admin, so the server refuses Grant. The red box says so before anyone
+             presses it, and Grant below is disabled and points at it. -->
+        @if (hasConflict(r)) {
+        <aec-claim-account-conflict class="mt-5 block" [claim]="r" [boxId]="conflictBoxId(r.id)" />
+        }
+
         <!-- Actions (open / in-review only) -->
         @if (isActionable(r.status)) {
         <div class="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
             (click)="openApprove(r.id)"
-            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
+            [disabled]="pendingActionId() === r.id || formOpenId() === r.id || hasConflict(r)"
+            [attr.aria-disabled]="hasConflict(r) ? 'true' : null"
+            [attr.aria-describedby]="hasConflict(r) ? conflictBoxId(r.id) : null"
+            data-testid="claim-grant"
             class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.claims.approve"
           >
