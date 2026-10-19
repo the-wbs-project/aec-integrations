@@ -2664,6 +2664,18 @@ Decision 4 names the fields that stay Managed-only. On a Free product they stay 
 - It is calm and not dismissible. It gives the end date from `ended_at`.
 - It lists what still works and what went read-only. It says "nothing you entered was removed".
 
+#### Product-ended banner (AECI-1408, built 2026-10-19)
+
+`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 10: when one product's license ends, that product carries a banner with the end date and a "Get licenses" button.
+
+- **Rule.** The product's `plan` reads `ended` (`expired` or `revoked`) and its `ended_at` is within the last 90 days (`productEndedRecently` and `PRODUCT_ENDED_BANNER_DAYS` in `vendor-plan.ts`). The window keeps it from nagging forever. It is a product choice and can change.
+- **Where.** `components/vendor-product-ended-banner.ts`. The tabbed shell renders it under the product header, so it heads every tab of that product. The single-page concept renders it only for a vendor with one product.
+- **Which banner wins.** When the vendor-wide plan-ended banner shows, because the vendor's last license ended, the product banner is hidden. A vendor never sees two.
+- **Copy.** "Managed ended for this product", then "It ended on {date}. Its content stays live and nothing you entered was removed. AEC Integrations maintains its Managed fields again." i18n ids `@@vendor.productEnded.*`.
+- **Button.** "Get licenses" links to the Billing tab (§6.21), for an owner seat only (`me().seat_owner`, ruling 4 on AECI-1336). A member sees the banner with no button. The plan panel's `ended` and `overdue` states follow the same rule: an owner gets "Get licenses" to Billing in place of the `/contact` link, and a member keeps "Ask about Managed for this product".
+- **Tone.** Calm and not dismissible, like the vendor-wide banner: the Bone wash, no status colour, no alert role.
+- **The "ends today" fix.** The panel counts days by UTC calendar day (`signedDaysRemaining`). "Managed ends today" shows only on the end day itself. A live license whose end day has passed reads the new `overdue` state, "Managed ended on {date}. The change is on its way.", until the daily lapse job ends it. It used to read "ends today" every day after the end date. The `expiring` lede now states the date as well as the days left.
+
 #### Copy every plan panel carries
 
 Every plan panel carries decision 10's line, word for word:
@@ -2705,7 +2717,7 @@ Decisions taken at build that this section did not fix:
 - **"Not ours?" reads its state from the `contests` resource.** Open: "You told AEC Integrations this integration is not yours. It is reviewing that.", with Withdraw. Accepted: "AEC Integrations agreed" and says the listing changes at its next catalog update. Declined: a note and the trigger again. "Claim this integration" is hidden while a contest is open or accepted. `VendorPortalStore` adds `contests` to the scopes that refetch loaded checklists, so the "Claim or say not ours" step ticks without a reload (`STAGE_2_REALTIME_SPEC.md` §2.3).
 - **The Integrations tab's attestation gate reads `productCan(product, 'attestation.author')`.** It used to read the vendor block. Since the 2026-10-14 ruling every attestation surface reads the endpoint product's plan (`integrationCanAuthor`: the context product, or either endpoint when the caller owns both), because the server's attestation gate is per product. The detail page uses it directly. The Integrations tab opens a row through it when the tab's product is Free but the caller's other endpoint is licensed. The overview counts a waiting position only where it passes. The connector-powered gates (`vendorHasActiveEntitlement`) still read the vendor block, because their server gate is vendor-wide.
 - **Copy that §13 made false is gone.** The panel's lapsed, none and catalogue states, and the profile, product and facet read-only notices, said a seat with no plan, a lapsed plan or the catalogue seat could not edit its profile or products. The facet tabs now give a Managed-only reason tied to the term list, and the generic notices remain only for a plan block with no edit capability at all, which no known tier serves.
-- **Preview presets.** `/preview/vendor-dashboard?fixture=free` (never had a plan), `pilot-ended` (revoked, `ended_at` 14 days ago) and `mixed` (12 products, 5 Managed and 7 Free, which only per-product plans can produce). The preview fake serves both checklist reads, scored by `vendorChecklistFixture` / `productChecklistFixture`, and its "Looks right" ticks the step. `fixture=free` shows every strip and checklist button, because nothing is checked. The default `verified` preset shows none on company Profile or on the primary product, and shows them all on the second product. A preset switch on an open page keeps that page's decision until the page is left. `e2e/preview-vendor-free-plan.spec.ts` drives the three presets with axe.
+- **Preview presets.** `/preview/vendor-dashboard?fixture=free` (never had a plan), `pilot-ended` (revoked, `ended_at` 14 days ago) and `mixed` (12 products, 5 Managed and 7 Free, which only per-product plans can produce). The preview fake serves both checklist reads, scored by `vendorChecklistFixture` / `productChecklistFixture`, and its "Looks right" ticks the step. `fixture=free` shows every strip and checklist button, because nothing is checked. The default `verified` preset shows none on company Profile or on the primary product, and shows them all on the second product. A preset switch on an open page keeps that page's decision until the page is left. `e2e/preview-vendor-free-plan.spec.ts` drives the three presets with axe. `product-ended` (AECI-1408) keeps the vendor on Managed, lapses the second product 10 days ago (the product-ended banner and the `ended` panel) and puts the primary's end day yesterday (the `overdue` panel).
 
 
 ### 6.19 The Changes page (AECI-1160, built 2026-10-04, search follow-up 2026-10-05)
@@ -2769,6 +2781,8 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
 - **Agreements.** Document (Vendor terms, Managed plan agreement), Version, Accepted (date) and By (email). The version links to the readable copy: `/legal/<slug>` for the current version, `/legal/<slug>/v<version>` for an archived one, and no link for a version with no page.
 
 **Copy.** A license covers one product. Plans change what a listing can show, never where it ranks. No buy button, no price, no Stripe until E9.
+
+**Where "Get licenses" lands.** Since AECI-1408 the product-ended banner and the plan panel's `ended` and `overdue` states send an owner here with "Get licenses" (§6.18). Until E9 adds checkout, this tab is that destination: it shows the pool, so an owner can assign a free license to the product, or reply to AECi for more.
 
 **Preview.** `/preview/vendor-dashboard/billing?fixture=verified` serves `VENDOR_BILLING_FIXTURE`: a live complimentary license on the primary product flagged to release at renewal, a live invoice license in the pool, and an ended invoice license with its reference. `PreviewVendorApi.setBillingEmail` stores the lower-cased address. The license actions are live there too: `assignLicense`, `setReleaseAtRenewal` and `requestLicenseRelease` apply the handlers' checks and mutate the fake billing state, and an assign also turns the product's `plan` on `/me` to Managed.
 

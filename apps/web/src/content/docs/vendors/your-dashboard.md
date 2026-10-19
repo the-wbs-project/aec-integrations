@@ -1,9 +1,9 @@
 ---
 title: Your dashboard
-description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banner you see when a Managed plan ends.
+description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 16, 2026
+last_updated: October 19, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -78,6 +78,8 @@ If your Managed plan ends, a banner reads "Your Managed plan has ended" above th
 - **Now read-only.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Nothing is removed, and readers still see it.
 
 Turning Managed back on needs nothing re-entered. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
+
+If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live, and AEC Integrations maintains its Managed fields again. Account owners see a **Get licenses** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
 
 ## The portal stays current
 

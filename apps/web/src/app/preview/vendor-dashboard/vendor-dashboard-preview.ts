@@ -21,6 +21,7 @@ import {
   VENDOR_ME_FREE_FIXTURE,
   VENDOR_ME_PILOT_ENDED_FIXTURE,
   VENDOR_ME_MIXED_FIXTURE,
+  VENDOR_ME_PRODUCT_ENDED_FIXTURE,
   CHECKLIST_MANAGED_STATE,
   CHECKLIST_MIXED_STATE,
   CHECKLIST_PILOT_ENDED_STATE,
@@ -41,7 +42,8 @@ type FixtureKey =
   | 'large-catalog'
   | 'free'
   | 'pilot-ended'
-  | 'mixed';
+  | 'mixed'
+  | 'product-ended';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
   'verified',
@@ -54,6 +56,7 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'free',
   'pilot-ended',
   'mixed',
+  'product-ended',
 ];
 
 /** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
@@ -228,6 +231,9 @@ export class VendorDashboardPreview {
     { key: 'free', label: 'Free · never had a plan' },
     { key: 'pilot-ended', label: 'Free · pilot ended' },
     { key: 'mixed', label: 'Mixed · 12 products' },
+    // AECI-1408: the second product's license lapsed (the product-ended banner on
+    // its pages), and the primary's end day passed before the daily job ran.
+    { key: 'product-ended', label: 'Mixed · one product ended' },
   ];
 
   /**
@@ -274,6 +280,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_PILOT_ENDED_FIXTURE;
       case 'mixed':
         return VENDOR_ME_MIXED_FIXTURE;
+      case 'product-ended':
+        return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
     }
@@ -285,6 +293,7 @@ export class VendorDashboardPreview {
       case 'verified':
       case 'expiring':
       case 'large-catalog':
+      case 'product-ended':
         return CHECKLIST_MANAGED_STATE;
       case 'pilot-ended':
       case 'downgraded':

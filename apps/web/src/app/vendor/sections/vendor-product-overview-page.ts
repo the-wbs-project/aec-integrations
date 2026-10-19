@@ -1,5 +1,6 @@
 import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { productChecklistRows } from '../checklist-rows';
 import { VendorChecklist } from '../components/vendor-checklist';
@@ -72,6 +73,7 @@ import { vendorProductContext } from './vendor-product-context';
         <aec-vendor-plan-panel
           [plan]="p.plan"
           [productRole]="p.product_role"
+          [billingLink]="billingLink()"
           headingId="vendor-product-plan-h"
         />
       </div>
@@ -86,6 +88,17 @@ export class VendorProductOverviewPage {
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
 
   protected readonly product = this.ctx.product;
+
+  /**
+   * The Billing tab's URL for an owner seat, `null` for a member (AECI-1408,
+   * ruling 4). Built from the portal route above the product route, so it is
+   * `/vendor/:slug/billing` on the portal and the preview's own Billing path
+   * in the preview, with no "am I previewing" branch.
+   */
+  private readonly billingUrl = billingUrlFrom(inject(Router), inject(ActivatedRoute));
+  protected readonly billingLink = computed(() =>
+    this.store.me()?.seat_owner === true ? this.billingUrl : null,
+  );
 
   protected readonly checklist = computed(() => {
     const p = this.product();
@@ -139,4 +152,17 @@ export class VendorProductOverviewPage {
       }
     });
   }
+}
+
+/**
+ * The Billing tab under the portal route: the parent of the route that declares
+ * `:productSlug`. `null` when no such route is above this one (a spec host).
+ */
+function billingUrlFrom(router: Router, route: ActivatedRoute): string | null {
+  for (let r: ActivatedRoute | null = route; r; r = r.parent) {
+    if (r.routeConfig?.path?.includes(':productSlug') && r.parent) {
+      return router.serializeUrl(router.createUrlTree(['billing'], { relativeTo: r.parent }));
+    }
+  }
+  return null;
 }
