@@ -93,8 +93,15 @@ async function mockSubmits(
   return sent;
 }
 
+/** The Managed plan card's claim button. */
+const managedCardClaim = (page: Page) =>
+  page
+    .locator('aec-plan-cards section[aria-labelledby="plan-card-managed"]')
+    .getByRole('link', { name: 'Claim your listing' });
+
 async function openFromManagedCard(page: Page) {
-  const start = page.locator('aec-plan-cards').getByRole('link', { name: 'Start with Managed' });
+  // E8.2: the Managed card's button reads "Claim your listing", like the Free card's.
+  const start = managedCardClaim(page);
   // AECI-1364: the dialog's name changes to "Claim <Company>" once a listing is
   // chosen, so it is located by role and its name asserted separately.
   const dialog = page.getByRole('dialog');
@@ -295,9 +302,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(
-      page.locator('aec-plan-cards').getByRole('link', { name: 'Start with Managed' }),
-    ).toBeFocused();
+    await expect(managedCardClaim(page)).toBeFocused();
   });
 
   // E8.1 (2026-10-19): the plan inquiry dialog is gone. "Questions? Contact us" is a

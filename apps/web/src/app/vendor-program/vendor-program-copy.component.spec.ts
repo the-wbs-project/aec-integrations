@@ -22,8 +22,8 @@ import { VendorProgramPage } from './vendor-program';
  * - the sort rule, one i18n id on both Angular pages (`@@app.docs.plans.sortRule`),
  *   which must also read the same as the Plans page's Markdown;
  * - the Plans page fragments this page links to, which must exist;
- * - the Managed terms (2026-10-13). The price and the one-year term come from one
- *   shared closing panel on both pages, so only renewal and the early-cancel answer,
+ * - the Managed terms (2026-10-13, reworded by E8.2 on 2026-10-19). The price and the
+ *   term line come from one shared closing panel on both pages, so only renewal and the early-cancel answer,
  *   which the Plans page states in Markdown, are checked here.
  */
 function normalize(value: string): string {
@@ -54,7 +54,7 @@ function render(): HTMLElement {
       { provide: Analytics, useValue: { planCtaClicked: vi.fn() } },
       {
         provide: VendorPlanStatus,
-        useValue: { vendorSlug: signal(null), vendorName: signal(null), managed: signal(null) },
+        useValue: { vendorSlug: signal(null), managed: signal(null) },
       },
     ],
   });

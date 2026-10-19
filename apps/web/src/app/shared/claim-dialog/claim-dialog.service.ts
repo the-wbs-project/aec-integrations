@@ -40,7 +40,7 @@ export interface ClaimDialogOpening {
 
 /**
  * Root state for the one claim dialog on a page (AECI-1293): a root service that
- * holds the open state and the opener the dialog registers. Every "Claim your listing" and "Start with Managed" control opens it
+ * holds the open state and the opener the dialog registers. Every "Claim your listing" control opens it
  * through here; `ClaimDialogHost` mounts the dialog.
  *
  * **Why an opener callback, not an effect.** `BrnDialog.open()` throws NG0602 inside

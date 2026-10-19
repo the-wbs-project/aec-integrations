@@ -15,8 +15,8 @@
  *
  * Inputs, as on the other plan calls to action (`plan-cta.ts`): `page` and the
  * signed-in `portal` swap. Both buttons open the claim dialog (AECI-1293, spec
- * §15.1): "Claim your listing" and "Start with Managed". The Managed card's
- * inquiry link and reply line were removed on 2026-10-19 (E8.1): claim is the only
+ * §15.1), and both read "Claim your listing" (E8.2, 2026-10-19, retired "Start with
+ * Managed"). The Managed card's inquiry link and reply line were removed on 2026-10-19 (E8.1): claim is the only
  * plan action. A vendor seat sees "Go to your portal" on both.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
@@ -126,8 +126,8 @@ import { PORTAL_PATH } from './plan-cta';
             [aecClaimDialogPage]="page()"
             (click)="track('managed')"
             [class]="managedButtonClass"
-            i18n="@@planCta.startManaged"
-            >Start with Managed</a
+            i18n="@@planCta.claim"
+            >Claim your listing</a
           >
         }
         <p

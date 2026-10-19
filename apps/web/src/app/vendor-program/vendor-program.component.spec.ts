@@ -29,7 +29,6 @@ import { VendorProgramPage } from './vendor-program';
 /** A `VendorPlanStatus` stand-in: `null` is the signed-out (and SSR) default. */
 interface PlanStatusStub {
   vendorSlug: ReturnType<typeof signal<string | null>>;
-  vendorName: ReturnType<typeof signal<string | null>>;
   managed: ReturnType<typeof signal<boolean | null>>;
 }
 
@@ -37,7 +36,6 @@ function stub(state: 'signed-out' | 'free' | 'managed' = 'signed-out'): PlanStat
   const vendor = state !== 'signed-out';
   return {
     vendorSlug: signal(vendor ? 'acme' : null),
-    vendorName: signal(vendor ? 'Acme Software' : null),
     managed: signal(vendor ? state === 'managed' : null),
   };
 }
@@ -238,16 +236,16 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/plans#what-managed-adds',
       ]);
       // Copy pass 2026-10-12: the section's own lede, then the shared terms line.
-      // 2026-10-13: the one-year term beside the price, then renewal.
+      // E8.2 (2026-10-19): the monthly term and refund beside the price, then annual renewal.
       const intro = [...host.querySelectorAll('#vp-managed > div > p')];
       expect(text(intro[0])).toMatch(
         /^Managed is for products that need more than a corrected listing/,
       );
       expect(text(intro[1])).toBe(
-        '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order. Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.',
+        '$25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.',
       );
       expect(text(intro[2])).toBe(
-        'The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.',
+        'An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.',
       );
     });
 
@@ -325,31 +323,29 @@ describe('VendorProgramPage', () => {
       const faq = [...host.querySelectorAll('#vp-faq details')];
       expect(faq.map((d) => text(d.querySelector('summary')))).toEqual([
         'Who can claim a listing?',
-        'How long does approval take?',
+        'What happens after we send a claim?',
         'We make several products. Do we claim each one?',
-        'Can we pay by invoice or purchase order?',
+        'What does Managed cost?',
         'Can we cancel a Managed plan early?',
         'What happens when a Managed plan ends?',
         'Does paying affect our reviews or where we rank?',
       ]);
-      // Open decision 2, settled 2026-10-12: generally within 48 hours.
+      // E8.2 (2026-10-19): no claim timing, a per-product license, both prices, the
+      // monthly cancel answer, and the per-product end.
       // The visible answer, without the link's screen-reader-only new-tab note.
       const answer = (d: Element) => text(d.querySelector('p')).replace('(opens in a new tab)', '');
-      expect(answer(faq[1])).toMatch(/^Generally within 48 hours\. A person at AEC Integrations/);
-      expect(answer(faq[1])).toContain('reviews every claim and emails the result');
+      expect(answer(faq[1])).toBe('A person reviews every claim and emails you the result.');
       expect(answer(faq[2])).toBe(
-        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Plans are priced per product. Tell us which products you want on Managed, and we'll set it up with you.",
+        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Managed is licensed per product. An owner assigns a license to each product you want on Managed.",
       );
       expect(answer(faq[3])).toBe(
-        'Yes. We bill paid plans by invoice or purchase order. Free plans require neither.',
+        'Managed costs $25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.',
       );
-      // No refund, early-termination or nonpayment terms: those are not decided.
       expect(answer(faq[4])).toBe(
-        'The term runs to the end of the paid year. If you opt out of renewal, you keep Managed through the current year, and we issue no further invoices.',
+        'Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.',
       );
-      expect(answer(faq[4])).not.toMatch(/refund|early termination|nonpayment/i);
       expect(answer(faq[5])).toBe(
-        'Your company moves to the free plan. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. What Managed adds becomes read-only. See when a Managed plan ends.',
+        'Each product whose license ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. What Managed adds becomes read-only. See when a Managed plan ends.',
       );
     });
 
@@ -363,6 +359,11 @@ describe('VendorProgramPage', () => {
       expect(body).not.toMatch(/vendor-verified/i);
       expect(body).not.toMatch(/rank (higher|better)|boost|top of|featured|priority placement/i);
       expect(body).not.toMatch(/AECi\b/);
+      // E8.2 acceptance: no payment method, claim timing, one-year term, pilot, plan
+      // question or silence rule on the page.
+      expect(body).not.toMatch(
+        /invoice or purchase order|48 hours|two days|one-year term|pilot|which plan you want|silence/i,
+      );
     });
   });
 
@@ -387,22 +388,22 @@ describe('VendorProgramPage', () => {
       const { host, planCtaClicked } = await setup({ plan: stub() });
       expect(links(host, 'Claim your listing free')).toHaveLength(0);
       expect(links(host, 'Talk to us about Managed')).toHaveLength(0);
+      // E8.2: "Start with Managed" is retired, so the Managed card reads the same.
+      expect(links(host, 'Start with Managed')).toHaveLength(0);
       const claims = links(host, 'Claim your listing');
-      // Hero, Free card, closing panel.
-      expect(claims).toHaveLength(3);
+      // Hero, Free card, Managed card, closing panel.
+      expect(claims).toHaveLength(4);
       for (const a of claims) expect(a.getAttribute('href')).toBe('/search');
-      const managed = links(host, 'Start with Managed');
-      expect(managed).toHaveLength(1);
 
-      for (const a of [...claims, ...managed]) {
+      for (const a of claims) {
         a.addEventListener('click', (e) => e.preventDefault());
         a.click();
       }
       expect(planCtaClicked.mock.calls.map(([c]) => c)).toEqual([
         { plan: 'free', placement: 'top', page: 'vendor_program' },
         { plan: 'free', placement: 'card', page: 'vendor_program' },
-        { plan: 'free', placement: 'bottom', page: 'vendor_program' },
         { plan: 'managed', placement: 'card', page: 'vendor_program' },
+        { plan: 'free', placement: 'bottom', page: 'vendor_program' },
       ]);
     });
 
@@ -443,7 +444,7 @@ describe('VendorProgramPage', () => {
       const bodies = [...how.querySelectorAll('ol > li p:last-child')].map((p) => text(p));
       expect(bodies.slice(1)).toEqual([
         'Claiming is free. We set up your account when we approve your claim.',
-        'Generally within two days. We email you the result either way.',
+        'A person reviews every claim and emails you the result.',
       ]);
       expect(text(how)).not.toContain('needs no account');
       // Not a section heading: the page keeps one h1, then one h2 per section.
@@ -455,14 +456,13 @@ describe('VendorProgramPage', () => {
     it('signed out: claim controls stay, every contact link shows', async () => {
       const { host } = await setup({ plan: stub('signed-out') });
       expect(links(host, 'Go to your portal')).toHaveLength(0);
-      expect(links(host, 'Claim your listing')).toHaveLength(3);
-      expect(links(host, 'Start with Managed')).toHaveLength(1);
+      expect(links(host, 'Claim your listing')).toHaveLength(4);
+      expect(links(host, 'Start with Managed')).toHaveLength(0);
     });
 
     it('a Free vendor seat: every dialog control becomes "Go to your portal", contact links stay', async () => {
       const { host } = await setup({ plan: stub('free') });
       expect(links(host, 'Claim your listing')).toHaveLength(0);
-      expect(links(host, 'Start with Managed')).toHaveLength(0);
       const portal = links(host, 'Go to your portal');
       // Hero, Free card, Managed card, closing panel.
       expect(portal).toHaveLength(4);
@@ -495,7 +495,7 @@ describe('VendorProgramPage', () => {
       fixture.detectChanges();
       expect(getMe).toHaveBeenCalledTimes(1);
       expect(links(host, 'Go to your portal')).toHaveLength(0);
-      expect(links(host, 'Claim your listing')).toHaveLength(3);
+      expect(links(host, 'Claim your listing')).toHaveLength(4);
       expect(host.querySelector('[role="alert"]')).toBeNull();
     });
 
@@ -505,7 +505,7 @@ describe('VendorProgramPage', () => {
       const managed = await setup({ plan: stub('managed'), platform: 'server' });
       const managedHtml = managed.host.innerHTML;
       expect(links(managed.host, 'Go to your portal')).toHaveLength(0);
-      expect(links(managed.host, 'Claim your listing')).toHaveLength(3);
+      expect(links(managed.host, 'Claim your listing')).toHaveLength(4);
 
       TestBed.resetTestingModule();
       const signedOut = await setup({ plan: stub('signed-out'), platform: 'server' });

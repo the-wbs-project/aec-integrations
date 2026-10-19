@@ -128,9 +128,7 @@ describe('Plans calls to action', () => {
 
   // Spec §4.1: the monthly and the annual price, both from the constants.
   it('formats the terms line from the monthly and annual price constants', () => {
-    expect(managedTermsLine('en-US')).toBe(
-      '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order.',
-    );
+    expect(managedTermsLine('en-US')).toBe('$25 USD a month or $250 USD a year per product.');
   });
 
   it('bottom panel: headline, both prices, safety line, the claim button and next steps', () => {
@@ -140,7 +138,7 @@ describe('Plans calls to action', () => {
       'Tell the full story of your product',
     );
     expect(text).toContain(
-      '$25 USD a month or $250 USD a year per product, billed by invoice or purchase order. Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month. If a plan ends, nothing you entered is removed.',
+      '$25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge. If a plan ends, nothing you entered is removed.',
     );
     // Ruled 2026-10-12 (spec §4.1): the steps describe the claim dialog.
     expect(
@@ -148,8 +146,8 @@ describe('Plans calls to action', () => {
         step.textContent?.replace(/\s+/g, ' ').trim(),
       ),
     ).toEqual([
-      'Find your listing and tell us which plan you want.',
-      'We review it, generally within 48 hours, and email you the result.',
+      'Find your listing and send your claim.',
+      'A person reviews every claim and emails you the result.',
     ]);
     // E8.1: "Questions? Contact us" beside the claim button, a plain link to /contact.
     expect(linkTexts(host)).toEqual(['Claim your listing', 'Contact us']);
@@ -198,12 +196,13 @@ describe('Plans calls to action', () => {
     expect(host.querySelector('ol')).toBeNull();
   });
 
-  it('rail card: plan, price and "Start with Managed" with Managed preselected', () => {
+  // E8.2: the rail reads "Claim your listing" like every other control.
+  it('rail card: plan, price and "Claim your listing"', () => {
     const { host, planCtaClicked, claim } = render(PlanCtaRailComponent);
     expect(host.textContent).toContain('Managed');
     expect(host.textContent).toContain('$25 USD a month per product');
     const link = host.querySelector('a')!;
-    expect(link.textContent?.trim()).toBe('Start with Managed');
+    expect(link.textContent?.trim()).toBe('Claim your listing');
     expect(link.getAttribute('href')).toBe(CLAIM_HREF);
     expect(click(link)).toBe(true);
     expect(claim.opening()).toEqual({ page: 'docs_plans', entry: 'rail' });
