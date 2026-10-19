@@ -324,7 +324,10 @@ test.describe('/docs/vendors/plans claim dialog (AECI-1293)', () => {
   test('the docs Plans page opens the same dialog from its cards', async ({ page }) => {
     await page.goto('/docs/vendors/plans');
     await waitForHydrationSettle(page);
-    const claim = page.locator('aec-plan-cards').getByRole('link', { name: 'Claim your listing' });
+    // E8.2: both cards now read "Claim your listing", so scope to the Free card.
+    const claim = page
+      .locator('aec-plan-cards section[aria-labelledby="plan-card-free"]')
+      .getByRole('link', { name: 'Claim your listing' });
     await expect(claim).toHaveAttribute('href', '/search');
     const dialog = page.getByRole('dialog', { name: 'Claim your company' });
     await expect(async () => {
