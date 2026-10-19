@@ -15,9 +15,9 @@
  *  - `bottom`     a full-width Forest panel (`PlanCtaPanelComponent`).
  *
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
- * dialog (`shared/claim-dialog/`): "Claim your listing" on the hero, the panel and the
- * Free card; "Start with Managed" on the Managed card, the rail and the phone bar.
- * Each page mounts exactly one `aec-claim-dialog-host`. Each control is a link to
+ * dialog (`shared/claim-dialog/`), and every one reads "Claim your listing": the hero,
+ * both plan cards, the rail, the phone bar and the panel. E8.2 (2026-10-19) retired
+ * "Start with Managed": claim is the one action. Each page mounts exactly one `aec-claim-dialog-host`. Each control is a link to
  * `CLAIM_DIALOG_FALLBACK_HREF` (the search page), so a click without JS or into a new
  * tab still lands where a visitor can find the listing and its claim form. Claim is
  * the only plan action. Never "Get Managed", "Buy" or "Start now": there is no
@@ -80,32 +80,43 @@ export function managedPriceLine(locale: string): string {
 }
 
 /**
- * `$25 USD a month or $250 USD a year per product, billed by invoice or purchase
- * order.`, the closing panel's terms (spec §4.1), from the two price constants.
- * USD stays on each amount: vendors outside the US read these pages.
+ * `$25 USD a month or $250 USD a year per product.`, the closing panel's terms (spec
+ * §4.1), from the two price constants. USD stays on each amount: vendors outside the
+ * US read these pages. No payment method (E8.2, 2026-10-19).
  */
 export function managedTermsLine(locale: string): string {
   const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
   const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return $localize`:@@planCta.terms:${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product, billed by invoice or purchase order.`;
+  return $localize`:@@planCta.terms:${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product.`;
 }
 
 /**
- * The term, beside the price on both pages (closing panel, spec §4.1, 2026-10-13): one year
- * per product however it is billed. Monthly billing is not month to month.
+ * The term, beside the price on both pages (closing panel, spec §4.1, E8.2 2026-10-19):
+ * monthly is month to month with no commitment, and the first charge carries a 14-day
+ * full refund.
  */
 export function managedTermLine(): string {
-  return $localize`:@@planCta.term:Each product on Managed is on a one-year term, whether you pay monthly or for the year upfront. Paying monthly spreads the cost. It does not make the plan month to month.`;
+  return $localize`:@@planCta.term:Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.`;
 }
 
 /**
- * Renewal, under the price on `/vendor-program` (spec §3 item 4, 2026-10-13). The
- * docs Plans page says it in Markdown; `vendor-program-copy.component.spec.ts` pins
- * the two together. Refund,
- * early-termination and nonpayment terms are not decided, so nothing here says them.
+ * Annual renewal, under the price on `/vendor-program` (spec §3 item 4, E8.2
+ * 2026-10-19). The docs Plans page says it in Markdown, and
+ * `vendor-program-copy.component.spec.ts` pins the two together sentence by sentence.
  */
 export function managedRenewalLine(): string {
-  return $localize`:@@planCta.renewal:The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.`;
+  return $localize`:@@planCta.renewal:An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.`;
+}
+
+/**
+ * The vendor program FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both
+ * prices from the two constants, monthly with no commitment, annual renewal and the
+ * 14-day refund. It names no payment method.
+ */
+export function managedCostAnswer(locale: string): string {
+  const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
+  const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
+  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.`;
 }
 
 /**
@@ -125,7 +136,10 @@ abstract class PlanCta {
   /** A signed-in vendor seat: every dialog control becomes "Go to your portal" (§5). */
   readonly portal = input(false);
 
-  /** `free` is a "Claim your listing" click, `managed` a "Start with Managed" click. */
+  /**
+   * `free` is a click on a Free-side control (hero, Free card, panel), `managed` one on a
+   * Managed-side control (Managed card, rail, phone bar). All read "Claim your listing".
+   */
   protected track(plan: 'free' | 'managed', placement: PlanCtaPlacement): void {
     this.analytics.planCtaClicked({ plan, placement, page: this.page() });
   }
@@ -275,14 +289,12 @@ export class PlanCtaActionsComponent extends PlanCta {}
           <ol class="mt-5 space-y-1.5 text-sm">
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">1.</span>
-              <span i18n="@@planCta.step.find"
-                >Find your listing and tell us which plan you want.</span
-              >
+              <span i18n="@@planCta.step.find">Find your listing and send your claim.</span>
             </li>
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">2.</span>
               <span i18n="@@planCta.step.review"
-                >We review it, generally within 48 hours, and email you the result.</span
+                >A person reviews every claim and emails you the result.</span
               >
             </li>
           </ol>
@@ -335,8 +347,8 @@ export class PlanCtaPanelComponent extends PlanCta {
             [aecClaimDialogPage]="page()"
             (click)="track('managed', 'rail')"
             [class]="railButtonClass"
-            i18n="@@planCta.startManaged"
-            >Start with Managed</a
+            i18n="@@planCta.claim"
+            >Claim your listing</a
           >
         }
       </aside>
@@ -388,8 +400,8 @@ export class PlanCtaRailComponent extends PlanCta {
               [aecClaimDialogPage]="page()"
               (click)="track('managed', 'mobile_bar')"
               [class]="barButtonClass"
-              i18n="@@planCta.startManaged"
-              >Start with Managed</a
+              i18n="@@planCta.claim"
+              >Claim your listing</a
             >
           }
         </div>

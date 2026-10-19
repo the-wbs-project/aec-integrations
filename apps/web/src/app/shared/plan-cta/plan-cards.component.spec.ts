@@ -66,7 +66,8 @@ describe('PlanCardsComponent', () => {
     const managedLinks = [...cards[1].querySelectorAll('a')];
     expect(managedLinks).toHaveLength(1);
     const [start] = managedLinks;
-    expect(start.textContent?.trim()).toBe('Start with Managed');
+    // E8.2: "Start with Managed" is retired. Claim is the one action.
+    expect(start.textContent?.trim()).toBe('Claim your listing');
     expect(click(start)).toBe(true);
     expect(claimDialog.opening()).toEqual({ page: 'vendor_program', entry: 'card' });
     expect(cards[1].textContent).not.toContain('Talk to us');

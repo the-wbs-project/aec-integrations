@@ -64,8 +64,16 @@ describe('planComparisonGroups', () => {
     expect(rows.some((entry) => /connector/i.test(entry.label))).toBe(false);
   });
 
-  it('prints the list price', () => {
-    expect(row('Price')).toMatchObject({ free: '$0', managed: '$25 USD a month per product' });
+  // E8.2 (2026-10-19): both list prices, and billing names the term, not a payment method.
+  it('prints both list prices and the billing term', () => {
+    expect(row('Price')).toMatchObject({
+      free: '$0',
+      managed: '$25 USD a month or $250 USD a year per product',
+    });
+    expect(row('Billing')).toMatchObject({
+      free: 'Nothing to pay',
+      managed: 'Monthly with no commitment, or yearly',
+    });
   });
 });
 
@@ -81,13 +89,13 @@ describe('DocsPlansComparisonComponent', () => {
     expect(cards[0].textContent).toContain('$0');
     expect(cards[1].textContent).toContain('$25');
     // AECI-1293: both cards open the claim dialog; no-JS lands on the search page.
-    expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Start with Managed');
+    expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');
     expect(cards[1].querySelector('a')?.getAttribute('href')).toBe('/search');
     expect(cards[0].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');
     expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/search');
   });
 
-  // AECI-1293: "Start with Managed" opens the claim dialog with Managed preselected.
+  // AECI-1293: the Managed card opens the claim dialog. E8.2: it reads "Claim your listing".
   it('opens the claim dialog from the Managed card, tracked as the card', () => {
     const planCtaClicked = vi.fn();
     TestBed.resetTestingModule();

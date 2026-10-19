@@ -26,8 +26,9 @@
  * appears (decision 10, §3.2): the note under the cards states the sort rule
  * instead.
  *
- * The price is the default list price (`MANAGED_LIST_PRICE_CENTS`, §13.13),
- * formatted by the same helper as the portal's plan panel.
+ * The price row prints the monthly and the annual list price (`MANAGED_LIST_PRICE_CENTS`
+ * and `MANAGED_ANNUAL_PRICE_CENTS`, §13.13, E8.2), formatted by the same helper as the
+ * portal's plan panel.
  *
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Chrome only, so every string is
@@ -39,6 +40,7 @@ import { Component, LOCALE_ID, inject } from '@angular/core';
 
 import {
   type Capability,
+  MANAGED_ANNUAL_PRICE_CENTS,
   MANAGED_LIST_PRICE_CENTS,
   TIER_CAPABILITIES,
 } from '@aeci/shared/entitlements';
@@ -73,6 +75,7 @@ function capabilityRow(label: string, ...capabilities: Capability[]): PlanRow {
 /** The comparison table, grouped. Exported for the spec. */
 export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
   const price = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
+  const annualPrice = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
   return [
     {
       label: $localize`:@@app.docs.plans.group.listing:Your listing`,
@@ -144,12 +147,12 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
         {
           label: $localize`:@@app.docs.plans.row.price:Price`,
           free: formatPlanPrice(0, locale),
-          managed: $localize`:@@app.docs.plans.row.priceManaged:${price}:AMOUNT: USD a month per product`,
+          managed: $localize`:@@app.docs.plans.row.priceManaged:${price}:MONTHLY: USD a month or ${annualPrice}:ANNUAL: USD a year per product`,
         },
         {
           label: $localize`:@@app.docs.plans.row.billing:Billing`,
           free: $localize`:@@app.docs.plans.row.billingFree:Nothing to pay`,
-          managed: $localize`:@@app.docs.plans.row.billingManaged:Invoice or purchase order`,
+          managed: $localize`:@@app.docs.plans.row.billingManaged:Monthly with no commitment, or yearly`,
         },
       ],
     },
