@@ -3172,6 +3172,13 @@ export async function runPromoteIngest(
   // AECI-1407: the hand-back's claims are guarded by these, spliced in ahead of the
   // claim statements after the loop (see `handBackClaimSentinels` there).
   const handBackClaimSentinels: BatchStmt[] = [];
+  // AECI-1336: a hand-back edge is reported (`preserved[]`, `integrations[]`) only once
+  // the claim plan shows it writes that edge. Held here until the plan exists.
+  const handBackEdges: Array<{
+    anchorId: string;
+    ref: string;
+    endpoint: (typeof integrationEndpoints)[number];
+  }> = [];
 
   for (const intg of payload.integrations) {
     // `poweredByProduct` is checked alongside the two endpoints, not left to
@@ -3249,30 +3256,23 @@ export async function runPromoteIngest(
           isNewAnchor: false,
           frameReversed,
         });
-        preserved.push({
-          ref: intg.ref,
-          kind: 'license_hand_back',
-          reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-          count: 1,
-        });
         // In the results with the STORED endpoints and connector, so the pair page the
         // claims render on is purged and re-indexed. The counts do not move, because
-        // no edge is added, removed or re-pointed.
-        const handBackResult: PromoteIntegrationResult = {
+        // no edge is added, removed or re-pointed. Reported after the claim plan, and
+        // only if the plan writes this edge (see `handBackEdges`).
+        handBackEdges.push({
+          anchorId: located.id,
           ref: intg.ref,
-          id: located.id,
-          operation: 'updated',
-        };
-        integrationResults.push(handBackResult);
-        integrationEndpoints.push({
-          result: handBackResult,
-          sourceId: stored[0],
-          targetId: stored[1],
-          poweredById:
-            located.table === 'integrations'
-              ? located.row.poweredByProductId
-              : located.row.connectorProductId,
-          movedFromIds: null,
+          endpoint: {
+            result: { ref: intg.ref, id: located.id, operation: 'updated' },
+            sourceId: stored[0],
+            targetId: stored[1],
+            poweredById:
+              located.table === 'integrations'
+                ? located.row.poweredByProductId
+                : located.row.connectorProductId,
+            movedFromIds: null,
+          },
         });
         continue;
       }
@@ -3929,6 +3929,19 @@ export async function runPromoteIngest(
   stmts.push(...claimPlan.statements);
   for (const entry of claimPlan.audits) audit(entry);
   skipped.push(...claimPlan.skipped);
+  // A hand-back edge whose claims change nothing (none sent, none stored) is not
+  // written, so it gets no receipt and no `updated` result.
+  for (const edge of handBackEdges) {
+    if (!claimPlan.writtenAnchorIds.has(edge.anchorId)) continue;
+    preserved.push({
+      ref: edge.ref,
+      kind: 'license_hand_back',
+      reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
+      count: 1,
+    });
+    integrationResults.push(edge.endpoint.result);
+    integrationEndpoints.push(edge.endpoint);
+  }
   preserved.push(...claimPlan.preserved);
 
   // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──

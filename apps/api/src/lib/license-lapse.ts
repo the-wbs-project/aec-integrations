@@ -14,10 +14,14 @@
  * cannot select it again.
  *
  * ── THE SCAN ────────────────────────────────────────────────────────────────────
- * `ended_at IS NULL AND ends_at IS NOT NULL AND ends_at <= now`, exactly the
- * predicate of the partial index `licenses_ends_idx`, grouped by
- * `(billing_account_id, ends_at)`: one TERM. `ends_at <= now` is the same rule as
- * `termHasEnded` in `@aeci/shared/entitlements`. A date-only end is stored as
+ * `ended_at IS NULL AND ends_at IS NOT NULL AND ends_at <= now` (the predicate of the
+ * partial index `licenses_ends_idx`) `AND source <> 'stripe'`, grouped by
+ * `(billing_account_id, ends_at)`: one TERM. A Stripe license never lapses here
+ * (decision 13): the Stripe webhook (E9) ends it when the subscription is deleted or
+ * cancelled. `lapseTermStatements` leaves it off the term too, so carry-over never
+ * treats it as lapsing. It may still be a pool license that receives a carried
+ * product. `ends_at <= now` is the same rule as `termHasEnded` in
+ * `@aeci/shared/entitlements`. A date-only end is stored as
  * 00:00Z of that day (`toIsoTimestamp`), so the end day counts as ended from 00:00Z
  * and the 11:00 run on that day ends it. Monthly licenses (`ends_at` NULL) never
  * lapse. The cap counts terms, not licenses ({@link EXPIRY_BATCH_CAP} per run, the
@@ -27,12 +31,13 @@
  * ── ONE BATCH PER TERM ──────────────────────────────────────────────────────────
  * `lapseTermStatements` in `lib/license.ts` (the one license writer): the end
  * UPDATEs, one audit row per license, one mirror reconcile. Each license UPDATE is
- * guarded on `ended_at IS NULL` and the scanned `ends_at`, and followed here by a
- * `changedOneRowSentinel`. So an admin extend or revoke that commits between the read
- * and the batch matches no row, the sentinel rolls the whole term back, and the admin
- * write wins. A term is never half-ended. The rolled-back term is rebuilt once from a
- * fresh read (below), and a second roll-back counts as a batch failure, read again
- * tomorrow.
+ * guarded on `ended_at IS NULL`, the scanned `ends_at` and the pre-read
+ * `assigned_product_id` (NULL-safe), and followed here by a `changedOneRowSentinel`.
+ * So an admin extend or revoke, or a vendor assign or unassign, that commits between
+ * the read and the batch matches no row, the sentinel rolls the whole term back, and
+ * the other write wins. A term is never half-ended. The rolled-back term is rebuilt
+ * once from a fresh read (below), and a second roll-back counts as a batch failure,
+ * read again tomorrow.
  *
  * ── THE LAST LIVE LICENSE RE-ROUTES CONTESTS (ruled 2026-10-19) ────────────────
  * A term whose end leaves the vendor no live license also moves the vendor's open
@@ -59,8 +64,10 @@
  * {@link loadNoCarry} finds held by another live license, or no longer owned by the
  * vendor. A carried product stays Managed, so it gets no email and no purge. The
  * products left over drop to Free, and their email says the vendor had fewer licenses
- * than products. The assigns ride the same race sentinels: a pool license assigned
- * by the vendor since the read rolls the term back.
+ * than products. That line goes only in a `lapsed` email whose every product lost the
+ * carry-over: a product that was never a candidate in the same email drops it. The
+ * assigns ride the same race sentinels: a pool license assigned by the vendor since
+ * the read rolls the term back.
  *
  * ── AFTER COMMIT, ONCE PER RUN ──────────────────────────────────────────────────
  *  - ONE purge message on `CACHE_PURGE_QUEUE`, source `'moderation'` (the source every
@@ -81,7 +88,7 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { CACHE_PURGE_QUEUE_MAX_TAGS } from '@aeci/shared';
-import { and, asc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
@@ -206,6 +213,8 @@ async function loadLapsingTerms(db: Db, nowIso: string, limit: number): Promise<
         isNull(licenses.endedAt),
         isNotNull(licenses.endsAt),
         lte(licenses.endsAt, nowIso),
+        // Decision 13: the Stripe webhook (E9) ends a Stripe license, never the lapse.
+        ne(licenses.source, 'stripe'),
       ),
     )
     .groupBy(
@@ -253,8 +262,9 @@ async function loadNoCarry(
     (l) => l.billingAccountId === term.billingAccountId && l.endedAt === null,
   );
   if (!onAccount.some((l) => l.assignedProductId === null)) return new Set();
+  // `lapseTermStatements`' term: a Stripe license on the same date is not on it.
   const termLicenseIds = new Set(
-    onAccount.filter((l) => l.endsAt === term.endsAt).map((l) => l.id),
+    onAccount.filter((l) => l.endsAt === term.endsAt && l.source !== 'stripe').map((l) => l.id),
   );
   const productIds = [
     ...new Set(
@@ -449,13 +459,18 @@ export async function runLicenseLapse(
     for (const e of batch.ended) {
       if (e.productId && !carried.has(e.productId)) byCause[e.cause].push(e.productId);
     }
+    // The fewer-licenses line explains a lost carry-over. It goes only in a `lapsed`
+    // email whose every product lost one: a product that was never a candidate
+    // (cancel-at-term-end, held elsewhere, no longer owned) drops the line.
+    const short = new Set(batch.shortProductIds);
     for (const cause of ['lapsed', 'released'] as const) {
       if (byCause[cause].length === 0) continue;
       notices.push({
         term,
         cause,
         productIds: byCause[cause],
-        fewerLicenses: cause === 'lapsed' && batch.fewerLicenses,
+        fewerLicenses:
+          cause === 'lapsed' && short.size > 0 && byCause.lapsed.every((id) => short.has(id)),
       });
       droppedProductIds.push(...byCause[cause]);
     }

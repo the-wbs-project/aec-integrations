@@ -119,7 +119,8 @@ async function ctx(vendorId = VENDOR_ID) {
   };
 }
 
-const sqlOf = (stmt: BatchStmt) => (stmt as unknown as { toSQL(): { sql: string } }).toSQL();
+const sqlOf = (stmt: BatchStmt) =>
+  (stmt as unknown as { toSQL(): { sql: string; params: unknown[] } }).toSQL();
 const touchesVendors = (stmt: BatchStmt) => /^update "vendors"/i.test(sqlOf(stmt).sql);
 
 // ─── Dates ───────────────────────────────────────────────────────────────────
@@ -793,6 +794,52 @@ describe('lapseTermStatements (AECI-1404)', () => {
     expect((await licenseOf('l-later')).assignedProductId).toBe(P1);
   });
 
+  it('guards each end UPDATE on the pre-read assigned_product_id, NULL-safe', async () => {
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-pool', { endsAt: TERM });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    const ends = batch.stmts
+      .map((stmt) => sqlOf(stmt))
+      .filter((q) => /^update "licenses" set "ended_at"/i.test(q.sql));
+    expect(ends).toHaveLength(2);
+    for (const q of ends) expect(q.sql).toMatch(/"assigned_product_id"/);
+    expect(ends.some((q) => /"assigned_product_id" is null/i.test(q.sql))).toBe(true);
+    expect(
+      ends.some((q) => /"assigned_product_id" = \?/i.test(q.sql) && q.params.includes(P1)),
+    ).toBe(true);
+
+    // A vendor assign that lands after the read: the pool license's UPDATE matches no row.
+    await t.db
+      .update(licenses)
+      .set({ assignedProductId: P2, assignedAt: NOW })
+      .where(eq(licenses.id, 'l-pool'));
+    await run(batch);
+    expect(await licenseOf('l-pool')).toMatchObject({ endedAt: null, assignedProductId: P2 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+  });
+
+  it('leaves a Stripe license off the term: the webhook ends it (decision 13)', async () => {
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-stripe', {
+      endsAt: TERM,
+      source: 'stripe',
+      assignedProductId: P2,
+      assignedAt: OLD_TS,
+    });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.ended).toEqual([{ licenseId: 'l-1', productId: P1, cause: 'lapsed' }]);
+    await run(batch);
+    expect((await licenseOf('l-stripe')).endedAt).toBeNull();
+  });
+
   it('predicts the flip once, over the whole term', async () => {
     await setVerified(true);
     await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
@@ -851,6 +898,8 @@ describe('lapseTermStatements (AECI-1404)', () => {
         { productId: P3, fromLicenseId: 'l-mid', toLicenseId: 'pool-b' },
       ]);
       expect(batch.fewerLicenses).toBe(true);
+      // Only the product the pool ran out before lost the carry-over.
+      expect(batch.shortProductIds).toEqual([P1]);
       // The pool stays live, so the vendor stays verified.
       expect(batch.verifiedFlipped).toBe(false);
       expect(batch.stmts.filter(touchesVendors)).toHaveLength(1);
@@ -890,6 +939,7 @@ describe('lapseTermStatements (AECI-1404)', () => {
       const batch = await term();
       expect(batch.carried).toEqual([]);
       expect(batch.fewerLicenses).toBe(false);
+      expect(batch.shortProductIds).toEqual([]);
       await run(batch);
       expect((await licenseOf('pool-a')).assignedProductId).toBeNull();
       expect((await licenseOf('l-rel')).endReason).toBe('released');

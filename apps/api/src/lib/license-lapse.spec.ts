@@ -279,6 +279,32 @@ describe('the race guard', () => {
     expect(s.sent).toHaveLength(0);
     expect((await vendorOf()).verified).toBe(true);
   });
+
+  it('a vendor assign on a term license between the read and the batch rolls back, and the rebuild ends it with the product', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    // Unassigned when read. Without the `assigned_product_id` guard the first batch
+    // would end it as a pool license, and its new product would get no email or purge.
+    await seedLicense('l-2');
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db
+          .update(licenses)
+          .set({ assignedProductId: 'p-2', assignedAt: NOW.toISOString() })
+          .where(eq(licenses.id, 'l-2'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 2, droppedProducts: 2 });
+    expect(await licenseOf('l-2')).toMatchObject({ endReason: 'lapsed', assignedProductId: 'p-2' });
+    expect(s.sent.length).toBeGreaterThan(0);
+    expect(s.sent.every((m) => m.products.join() === 'acme-one,acme-two')).toBe(true);
+  });
 });
 
 // ── the last live license re-routes contests (ruling B, §11b.13; ruled 2026-10-19) ──
@@ -472,6 +498,35 @@ describe('the last live license re-routes open contests to AECi', () => {
   });
 });
 
+describe('Stripe licenses are the webhook’s to end (decision 13)', () => {
+  it('does not lapse a Stripe license past its end date', async () => {
+    await seedLicense('l-s', { source: 'stripe', assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const s = sender();
+
+    const result = await lapse({}, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 0, lapsedLicenses: 0, droppedProducts: 0 });
+    expect(await licenseOf('l-s')).toMatchObject({ endedAt: null, endReason: null });
+    expect(await audits()).toHaveLength(0);
+    expect(s.sent).toHaveLength(0);
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('leaves a Stripe license on the same term live, never carries it, and may carry onto a Stripe pool license', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: '2026-06-01T00:00:00.000Z' });
+    // Assigned longer ago than p-1: as a lapsing license it would win the one pool slot.
+    await seedLicense('l-s', { source: 'stripe', assignedProductId: 'p-2', assignedAt: OLD_TS });
+    await seedLicense('pool-s', { source: 'stripe', endsAt: NEXT_YEAR });
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 1, carried: 1 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await licenseOf('l-s')).toMatchObject({ endedAt: null, assignedProductId: 'p-2' });
+    expect((await licenseOf('pool-s')).assignedProductId).toBe('p-1');
+  });
+});
+
 describe('released versus lapsed, and the emails', () => {
   it('ends a release-at-renewal license as released, in its own email', async () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
@@ -582,6 +637,34 @@ describe('fewer licenses than products: the carry-over (AECI-1405)', () => {
     const result = await lapse({ sendEnded: send });
     expect(result.carried).toBe(0);
     expect(sent.every((m) => m.cause === 'released' && m.fewerLicenses === false)).toBe(true);
+  });
+
+  it('drops the carry-over line when the lapsed email mixes short products with ones that were never candidates', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: '2026-06-01T00:00:00.000Z' });
+    // Cancelled at term end: never a carry-over candidate, so the line is not its story.
+    await seedLicense('l-3', {
+      assignedProductId: 'p-3',
+      assignedAt: OLD_TS,
+      cancelAtTermEnd: true,
+    });
+    await seedLicense('pool-1', { endsAt: null });
+    const sent: Array<{ products: string[]; fewerLicenses?: boolean }> = [];
+    const send = vi.fn(async (_c, o) => {
+      sent.push({
+        products: o.products.map((p: { slug: string }) => p.slug),
+        fewerLicenses: o.fewerLicenses,
+      });
+      return 'sent' as const;
+    }) as unknown as SendManagedEnded;
+
+    const result = await lapse({ sendEnded: send });
+
+    expect(result).toMatchObject({ carried: 1, droppedProducts: 2 });
+    expect((await licenseOf('pool-1')).assignedProductId).toBe('p-1');
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => m.products.join() === 'acme-two,acme-three')).toBe(true);
+    expect(sent.every((m) => m.fewerLicenses === false)).toBe(true);
   });
 });
 

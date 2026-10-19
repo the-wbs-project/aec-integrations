@@ -1209,10 +1209,14 @@ the product only as its `poweredByProduct` stay skipped with the claimed-vendor
 reason. Claim directions you send against source → target are flipped when the
 stored row runs the other way. Vendor attestations are never touched. A written edge
 comes back in `integrations[]` as `updated`, with its stored id, and `preserved[]`
-gains `{ ref, kind: "license_hand_back" }` for it.
+gains `{ ref, kind: "license_hand_back" }` for it. An edge counts as written only when
+its claims change something. An edge with no claims sent and none stored writes
+nothing, so it gets neither entry.
 
 **Two races, both safe.** The product write tests the license inside the SQL UPDATE,
-so a license assigned mid-promote leaves the product as it was. The claims are
+so a license assigned mid-promote leaves the product as it was. The product's
+`updated` result and its `license_hand_back` receipt are then advisory: they come from
+the plan, and the job does not error over the product alone. The claims are
 guarded by a statement that aborts the whole batch if the product has taken a live
 license by then, and the job ends `errored` with `LICENSE_GRANTED_DURING_PROMOTE`
 (§6.2). Nothing was written. Re-push with a new `jobId`, and the product is then

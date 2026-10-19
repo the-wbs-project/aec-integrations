@@ -5233,6 +5233,33 @@ describe('createPromoteHandler — claimed-vendor block', () => {
         expect(tags.some((tag) => tag.includes('revit') && tag.includes('navisworks'))).toBe(true);
       });
 
+      it('reports a located edge only when its claim plan writes it', async () => {
+        const product = { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' };
+        // No claims sent and none stored: nothing to write, so no receipt and no result.
+        const quiet = (await (
+          await promote({ product, integrations: [located({ claims: [] })] })
+        ).json()) as PromoteResponse;
+        expect(quiet.integrations).toEqual([]);
+        expect(quiet.preserved.filter((e) => e.ref === 'located')).toEqual([]);
+
+        // A stored AECi claim the payload drops is a delete: written, so reported.
+        await promote({ product, integrations: [located()] });
+        expect(await t.db.select().from(claims)).toHaveLength(1);
+        const dropped = (await (
+          await promote({ product, integrations: [located({ claims: [] })] })
+        ).json()) as PromoteResponse;
+        expect(await t.db.select().from(claims)).toHaveLength(0);
+        expect(dropped.integrations).toEqual([
+          expect.objectContaining({ ref: 'located', id: EDGE, operation: 'updated' }),
+        ]);
+        expect(dropped.preserved).toContainEqual({
+          ref: 'located',
+          kind: 'license_hand_back',
+          reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
+          count: 1,
+        });
+      });
+
       it('skips a located edge the payload re-points to another pair', async () => {
         const body = (await (
           await promote({

@@ -916,7 +916,13 @@ export interface EndLicensesParams extends LicenseWriteContext {
 
 type LicenseWrite = { stmt: BatchStmt; entry: AuditLogEntry };
 
-/** The end writes for `targets`, guarded as {@link endLicensesStatements} says. */
+/**
+ * The end writes for `targets`, guarded as {@link endLicensesStatements} says.
+ * `expectAssigned` (the lapse, AECI-1336) also guards each UPDATE on the pre-read
+ * `assigned_product_id`, NULL-safe. A vendor assign or unassign that commits between
+ * the read and the batch then matches no row, and the caller's `changedOneRowSentinel`
+ * rolls the batch back so the retry reads the new product.
+ */
 function endWrites(
   db: Db,
   ctx: LicenseWriteContext,
@@ -924,6 +930,7 @@ function endWrites(
   targets: readonly LicenseBefore[],
   endReason: LicenseEndReason,
   expectEndsAt: string | undefined,
+  expectAssigned = false,
 ): { writes: LicenseWrite[]; changed: LicenseBefore[] } {
   const changed: LicenseBefore[] = [];
   const writes: LicenseWrite[] = [];
@@ -940,6 +947,13 @@ function endWrites(
           eq(licenses.id, before.id),
           isNull(licenses.endedAt),
           ...(expectEndsAt !== undefined ? [eq(licenses.endsAt, expectEndsAt)] : []),
+          ...(expectAssigned
+            ? [
+                before.assignedProductId === null
+                  ? isNull(licenses.assignedProductId)
+                  : eq(licenses.assignedProductId, before.assignedProductId),
+              ]
+            : []),
         ),
       );
     writes.push({ stmt, entry: licenseEntry(ctx, now, END_ACTION[endReason], before, after) });
@@ -1018,8 +1032,12 @@ export interface LapseTermBatch extends LicenseBatch {
   ended: EndedLicense[];
   carried: CarriedProduct[];
   /** Products that could carry outnumbered the pool, so some dropped to Free while
-   *  the ones assigned longest kept a license. Drives the email's extra line. */
+   *  the ones assigned longest kept a license. */
   fewerLicenses: boolean;
+  /** The products that lost the carry-over: candidates the pool ran out before. Empty
+   *  unless `fewerLicenses`. The caller adds the email's extra line only when every
+   *  product in the `lapsed` email is one of these. */
+  shortProductIds: string[];
 }
 
 /** `assigned_at ASC, id ASC`; a missing `assigned_at` sorts last. Binary order: these
@@ -1055,7 +1073,13 @@ export function carryOverStatements(
   term: readonly LicenseBefore[],
   pool: readonly LicenseBefore[],
   noCarry: ReadonlySet<string>,
-): { writes: LicenseWrite[]; changed: LicenseBefore[]; carried: CarriedProduct[]; fewer: boolean } {
+): {
+  writes: LicenseWrite[];
+  changed: LicenseBefore[];
+  carried: CarriedProduct[];
+  /** Candidates the pool ran out before, when at least one product carried. */
+  short: string[];
+} {
   const candidates = term
     .filter(
       (l) =>
@@ -1086,7 +1110,11 @@ export function carryOverStatements(
     (entry.metadata as Record<string, unknown>).carried_from = from.id;
     writes.push({ stmt, entry });
   }
-  return { writes, changed, carried, fewer: carried.length > 0 && candidates.length > pool.length };
+  const short =
+    carried.length > 0
+      ? candidates.slice(carried.length).map((l) => l.assignedProductId as string)
+      : [];
+  return { writes, changed, carried, short };
 }
 
 /**
@@ -1100,23 +1128,37 @@ export function carryOverStatements(
  * ONE batch for the whole term, so a term is never half-ended: the end UPDATEs first,
  * then the carry-over assigns, then one audit row per license written, then ONE mirror
  * reconcile with ONE `verifiedFlipped` prediction over the whole term, not one per
- * composed step. Every end UPDATE is guarded on `ended_at IS NULL` and the scanned
- * `ends_at`, so an admin extend or revoke that commits first wins. Nothing matches: a
- * no-op.
+ * composed step. Every end UPDATE is guarded on `ended_at IS NULL`, the scanned
+ * `ends_at` and the pre-read `assigned_product_id`, so an admin extend or revoke, or a
+ * vendor assign, that commits first wins. A `source = 'stripe'` license is left out:
+ * the Stripe webhook ends it (decision 13). Nothing matches: a no-op.
  */
 export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch {
   const now = toIsoTimestamp(p.now);
+  // A Stripe license is never on the term (decision 13): the Stripe webhook (E9) owns
+  // its end, so the lapse neither ends it nor carries its product. It may still be a
+  // pool license below and receive a carried product.
   const term = p.vendorLicenses.filter(
-    (l) => l.billingAccountId === p.billingAccountId && l.endedAt === null && l.endsAt === p.endsAt,
+    (l) =>
+      l.billingAccountId === p.billingAccountId &&
+      l.endedAt === null &&
+      l.endsAt === p.endsAt &&
+      l.source !== 'stripe',
   );
   const releasing = term.filter((l) => l.releaseAtRenewal && l.assignedProductId !== null);
   const lapsing = term.filter((l) => !releasing.includes(l));
 
-  const released = endWrites(db, p, now, releasing, 'released', p.endsAt);
-  const lapsed = endWrites(db, p, now, lapsing, 'lapsed', p.endsAt);
+  const released = endWrites(db, p, now, releasing, 'released', p.endsAt, true);
+  const lapsed = endWrites(db, p, now, lapsing, 'lapsed', p.endsAt, true);
   const changed = [...released.changed, ...lapsed.changed];
   if (changed.length === 0) {
-    return { ...assemble(db, p, now, [], []), ended: [], carried: [], fewerLicenses: false };
+    return {
+      ...assemble(db, p, now, [], []),
+      ended: [],
+      carried: [],
+      fewerLicenses: false,
+      shortProductIds: [],
+    };
   }
 
   // Live, unassigned, and not ending by now: `vendorLicenses` is in `created_at, id` order.
@@ -1141,7 +1183,13 @@ export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch 
     productId: l.assignedProductId,
     cause: l.endReason === 'released' ? 'released' : 'lapsed',
   }));
-  return { ...batch, ended, carried: carry.carried, fewerLicenses: carry.fewer };
+  return {
+    ...batch,
+    ended,
+    carried: carry.carried,
+    fewerLicenses: carry.short.length > 0,
+    shortProductIds: carry.short,
+  };
 }
 
 // ─── The expiry-notice fence (E1.7) ─────────────────────────────────────────

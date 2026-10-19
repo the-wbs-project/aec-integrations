@@ -2127,14 +2127,17 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   PRODUCT_ALREADY_LICENSED`, never a 500. Their audit rows (`license.assigned`,
   `license.release_at_renewal_set` / `_cleared`) are receipts on the vendor's Changes page.
 - **How a license ended.** There is no status column. `end_reason` records why, written
-  with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
-  `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
-  action. It is NULL while the license is live. Three writers set the pair: admin revoke
-  (`revoked`), the `ops:retract-product` lane, and since AECI-1404 the 11:00 lapse
-  (`lib/license-lapse.ts`), which writes `lapsed`, or `released` for a license flagged
-  release-at-renewal (carry-over, AECI-1405, runs in the same batch). All three go through
-  `endLicensesStatements`. `cancel_reason` is a different question:
-  why a live license was set not to renew. Ending a license never touches it.
+  with `ended_at` (`LICENSE_END_REASONS` in `@aeci/shared/entitlements`: `lapsed`,
+  `released`, `revoked`). It also picks the audit action. It is NULL while the license is
+  live. Two writers set the pair. The admin revoke writes `revoked` through
+  `endLicensesStatements`. Since AECI-1404 the 11:00 lapse (`lib/license-lapse.ts`) writes
+  `lapsed`, or `released` for a license flagged release-at-renewal, through
+  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Both builders share
+  one private end writer, `endWrites` in `lib/license.ts`. The lapse skips
+  `source = 'stripe'` licenses: the Stripe webhook ends those (E9, decision 13). The
+  `ops:retract-product` lane does not end a license: it NULLs `assigned_product_id`.
+  `cancel_reason` is a different question: why a live license was set not to renew.
+  Ending a license never touches it.
 - **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
   `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
