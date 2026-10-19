@@ -2235,7 +2235,7 @@ Do this **before** the end date. On the end date itself, do it before 11:00 UTC.
 2. On each live license row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
 3. Confirm.
 
-Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins: the run rolls that whole term back and leaves the licenses live.
+Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins. The run rolls that term back, reads it again once, and ends only the licenses still on the term. An extended license stays live.
 
 ### 3. The pilot ends
 
@@ -2248,11 +2248,11 @@ Nothing to do. On the end date, the 11:00 UTC run ends every live license of the
 | Portal | The plan-ended banner shows once no license is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
 | Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
 | Cache | The product and vendor pages are purged. |
-| Owner contests | Not moved. The last-license re-route (AECI-1092) runs on a revoke only. An open question on AECI-1404 asks whether a lapse should run it too. |
+| Owner contests | When the term ends the vendor's last live license, its open owner-decided contests on connector-powered rows move to AECi in the same batch, as a revoke does (ruled 2026-10-19). The audit rows read `integration.contest.rerouted`, actor `system`, source `license-lapse-cron`. Nothing is sent about the move. A carried product's pool license is live, so a carry-over keeps the contests with the vendor. |
 
 To end a pilot **early**, revoke the licenses on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live license.
 
-To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried` and `lapse_batch_failures`. A non-zero `lapse_batch_failures` is a term that an admin edit raced, or a D1 error. Either way the next run reads that term again.
+To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried`, `rerouted_contests` and `lapse_batch_failures`. A raced term is rebuilt once from a fresh read. A non-zero `lapse_batch_failures` is a term that raced twice, or a D1 error. Either way the next run reads that term again.
 
 ### 4. Undo a wrong lapse
 

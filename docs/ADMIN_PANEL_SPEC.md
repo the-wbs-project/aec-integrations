@@ -1308,9 +1308,10 @@ defaults:
   built by AECI-1092, add rows to this queue. A `mechanism_kind` contest on a
   connector-powered `integrations` row always routes here, even when the row is claimed. A new
   content contest on a claimed connector-powered row routes here when its owner holds no
-  active entitlement. And when an admin revoke ends a vendor's last live license, that vendor's
-  open owner-routed contests on connector-powered rows are re-routed here in the revoke's own
-  batch (an entitlement clear did this until AECI-1375 moved it on 2026-10-17), so they are
+  active entitlement. And when an admin revoke or the term-end lapse ends a vendor's last live
+  license, that vendor's open owner-routed contests on connector-powered rows are re-routed here
+  in that write's own batch (an entitlement clear did this until AECI-1375 moved it on
+  2026-10-17; the lapse joined on 2026-10-19, AECI-1404), so they are
   ordinary AECi-routed rows: counted in the badge, with Accept and Decline.
   `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13 is the contract. A reassignment of a
   claimed row to another owner clears `claimed_at`. The full table is

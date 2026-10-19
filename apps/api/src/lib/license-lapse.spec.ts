@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   billingAccounts,
+  integrationFieldChallenges,
+  integrations,
   licenses,
   productVendors,
   products,
@@ -212,23 +214,60 @@ describe('the scan', () => {
   });
 });
 
+/** A db whose `batch` runs `before(attempt)` first, the way a concurrent write lands
+ *  between the term's read and its batch. `attempt` counts batches from 1. */
+function racingDb(before: (attempt: number) => void | Promise<void>): Db {
+  let attempt = 0;
+  return new Proxy(t.db, {
+    get(target, prop, receiver) {
+      if (prop === 'batch') {
+        return async (stmts: Parameters<Db['batch']>[0]) => {
+          await before(++attempt);
+          return target.batch(stmts);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as Db;
+}
+
 describe('the race guard', () => {
-  it('an admin extend that commits between the read and the batch wins', async () => {
+  it('an admin extend that commits between the read and the batch wins, and the term is rebuilt once', async () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
     await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
     // Only l-2 is extended, so l-1's guarded UPDATE would still match on its own.
-    // The sentinel after l-2 rolls the whole term back: never half-ended.
-    const racing = new Proxy(t.db, {
-      get(target, prop, receiver) {
-        if (prop === 'batch') {
-          return async (stmts: Parameters<Db['batch']>[0]) => {
-            await target.update(licenses).set({ endsAt: NEXT_YEAR }).where(eq(licenses.id, 'l-2'));
-            return target.batch(stmts);
-          };
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+    // The sentinel after l-2 rolls the first batch back: never half-ended. The rebuild
+    // reads l-2 off the term, so the term is l-1 alone.
+    let batches = 0;
+    const racing = racingDb(async (attempt) => {
+      batches = attempt;
+      if (attempt === 1) {
+        await t.db.update(licenses).set({ endsAt: NEXT_YEAR }).where(eq(licenses.id, 'l-2'));
+      }
+    });
+    const s = sender();
+
+    const result = await lapse({ db: racing }, s);
+
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, lapsedLicenses: 1, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await licenseOf('l-2')).toMatchObject({ endedAt: null, endsAt: NEXT_YEAR });
+    expect((await audits()).map((a) => a.metadata)).toEqual([
+      expect.objectContaining({ license_id: 'l-1' }),
+    ]);
+    expect(s.sent.every((m) => m.products.join() === 'acme-one')).toBe(true);
+    expect((await vendorOf()).verified).toBe(true);
+  });
+
+  it('a term that rolls back twice is a batch failure, and nothing is written', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-2', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    // Each attempt sees a different license extended under it.
+    const racing = racingDb(async (attempt) => {
+      const id = attempt === 1 ? 'l-2' : 'l-1';
+      await t.db.update(licenses).set({ endsAt: NEXT_YEAR }).where(eq(licenses.id, id));
+    });
     const s = sender();
 
     const result = await lapse({ db: racing }, s);
@@ -239,6 +278,197 @@ describe('the race guard', () => {
     expect(await audits()).toHaveLength(0);
     expect(s.sent).toHaveLength(0);
     expect((await vendorOf()).verified).toBe(true);
+  });
+});
+
+// ── the last live license re-routes contests (ruling B, §11b.13; ruled 2026-10-19) ──
+
+describe('the last live license re-routes open contests to AECi', () => {
+  const I_POWERED = 'i-powered';
+  const I_NATIVE = 'i-native';
+  let nextContest = 0;
+
+  beforeEach(async () => {
+    nextContest = 0;
+    await t.db.insert(integrations).values([
+      // Connector-powered: deciding a contest on it needs a live license.
+      {
+        id: I_POWERED,
+        sourceProductId: 'p-1',
+        targetProductId: 'p-b',
+        mechanismKind: 'iPaaS',
+        builtByVendorId: VENDOR_ID,
+        claimedAt: OLD_TS,
+      },
+      // Not connector-powered: the seat stays its whole gate (decision 15).
+      {
+        id: I_NATIVE,
+        sourceProductId: 'p-2',
+        targetProductId: 'p-b',
+        mechanismKind: 'native',
+        builtByVendorId: VENDOR_ID,
+        claimedAt: OLD_TS,
+      },
+    ]);
+  });
+
+  /** An open contest on `integrationId`, routed to Acme as owner, submitted by Bolt. */
+  function ownerContest(integrationId = I_POWERED): string {
+    const n = nextContest++;
+    const id = `contest-${n}`;
+    const fields = ['name', 'description', 'website', 'listing_url', 'docs_url', 'maturity'];
+    const at = `2026-10-23T10:00:0${n}.000Z`;
+    t.raw
+      .prepare(
+        `INSERT INTO integration_field_challenges (id, integration_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 'x', 'r', ?, 'owner', ?, 'open', ?, ?)`,
+      )
+      .run(id, integrationId, fields[n], VENDOR_B_ID, VENDOR_ID, at, at);
+    return id;
+  }
+
+  const routeOf = async (id: string) =>
+    (
+      await t.db
+        .select({ routedTo: integrationFieldChallenges.routedTo })
+        .from(integrationFieldChallenges)
+        .where(eq(integrationFieldChallenges.id, id))
+    )[0]!.routedTo;
+  const rerouteRows = async () =>
+    (await audits()).filter((a) => a.action === 'integration.contest.rerouted');
+
+  it('re-routes the owner contests on connector rows in the term batch, as the system, audited', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const powered = ownerContest();
+    const native = ownerContest(I_NATIVE);
+    let batches = 0;
+    const counting = racingDb((attempt) => {
+      batches = attempt;
+    });
+    const intake = stubPosthogIntake();
+
+    const result = await lapse({ db: counting, env: { POSTHOG_PROJECT_KEY: 'phc_test' } });
+
+    expect(batches).toBe(1);
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
+    expect(await routeOf(powered)).toBe('aeci');
+    expect(await routeOf(native)).toBe('owner');
+    const rows = await rerouteRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: 'system',
+      actorId: null,
+      entityId: powered,
+      // The owner, and the plan it held before the lapse (AECI-1192).
+      vendorId: VENDOR_ID,
+      vendorTier: 'verified',
+    });
+    expect(rows[0]!.metadata).toMatchObject({
+      source: 'license-lapse-cron',
+      reason: 'entitlement-cleared',
+      ownerVendorId: VENDOR_ID,
+      billing_account_id: ACCOUNT,
+      ends_at: TODAY,
+    });
+    // The re-route rows join the run's ONE forward.
+    const forwards = intake.auditRequests();
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.messages).toHaveLength(2);
+  });
+
+  it('re-routes nothing while another live license remains', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
+    const contest = ownerContest();
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0 });
+    expect(await routeOf(contest)).toBe('owner');
+    expect(await rerouteRows()).toHaveLength(0);
+  });
+
+  it('re-routes on the vendor’s last term of the run, not on the first', async () => {
+    await seedLicense('l-old', {
+      endsAt: '2026-10-01T00:00:00.000Z',
+      assignedProductId: 'p-1',
+      assignedAt: OLD_TS,
+    });
+    await seedLicense('l-today', { assignedProductId: 'p-2', assignedAt: OLD_TS });
+    const contest = ownerContest();
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 2, reroutedContests: 1 });
+    expect(await routeOf(contest)).toBe('aeci');
+    const rows = await rerouteRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({ ends_at: TODAY });
+  });
+
+  it('re-plans once when a contest lands mid-lapse, and moves the late contest too', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    ownerContest();
+    const racing = racingDb((attempt) => {
+      if (attempt === 1) ownerContest();
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 2, batchFailures: 0 });
+    const open = await t.db.select().from(integrationFieldChallenges);
+    expect(open.map((r) => r.routedTo)).toEqual(['aeci', 'aeci']);
+    expect(await rerouteRows()).toHaveLength(2);
+  });
+
+  it('a contest landing on both attempts rolls the term back whole, for tomorrow', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const first = ownerContest();
+    const s = sender();
+
+    const result = await lapse({ db: racingDb(() => void ownerContest()) }, s);
+
+    expect(result).toMatchObject({ lapsedTerms: 0, reroutedContests: 0, batchFailures: 1 });
+    expect((await licenseOf('l-1')).endedAt).toBeNull();
+    expect(await routeOf(first)).toBe('owner');
+    expect(await audits()).toHaveLength(0);
+    expect(s.sent).toHaveLength(0);
+  });
+
+  it('a grant that lands mid-lapse drops the re-route, and the term still ends', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const contest = ownerContest();
+    const racing = racingDb(async (attempt) => {
+      if (attempt === 1) await seedLicense('l-granted', { endsAt: NEXT_YEAR });
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0, batchFailures: 0 });
+    expect((await licenseOf('l-1')).endReason).toBe('lapsed');
+    expect(await routeOf(contest)).toBe('owner');
+    expect(await rerouteRows()).toHaveLength(0);
+    // The rebuild read the grant: its pool license carried the product.
+    expect((await licenseOf('l-granted')).assignedProductId).toBe('p-1');
+  });
+
+  it('a revoke of the other license mid-lapse makes the rebuilt term re-route', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
+    const contest = ownerContest();
+    const racing = racingDb(async (attempt) => {
+      if (attempt === 1) {
+        await t.db
+          .update(licenses)
+          .set({ endedAt: '2026-11-01T10:00:00.000Z', endReason: 'revoked' })
+          .where(eq(licenses.id, 'l-monthly'));
+      }
+    });
+
+    const result = await lapse({ db: racing });
+
+    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
+    expect(await routeOf(contest)).toBe('aeci');
   });
 });
 

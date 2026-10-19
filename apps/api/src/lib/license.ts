@@ -347,9 +347,9 @@ function liveLicenseExists(vendorId: string) {
 
 /**
  * A batch statement that ABORTS the batch when the vendor still holds a live license
- * at that point in the batch. The last-license revoke puts it after its license UPDATE
- * (`routes/admin-licenses.ts`), so a grant that commits between the revoke's pre-read
- * and its batch cannot leave the vendor licensed with its contests re-routed away
+ * at that point in the batch. A last-license revoke or lapse puts it after its license
+ * UPDATEs (`planLastLicenseReroute` in `lib/integration-contests.ts`), so a grant that
+ * commits between the pre-read and the batch cannot leave the vendor licensed with its contests re-routed away
  * (AECI-1375). `json(...)` on a non-JSON string is malformed JSON, so the whole batch
  * rolls back. Reads only; it is not a `vendors` statement.
  */
@@ -363,8 +363,8 @@ export function noLiveLicenseSentinel(db: Db, vendorId: string): BatchStmt {
 
 /**
  * The inverse of {@link noLiveLicenseSentinel}: ABORTS the batch when the vendor holds
- * NO live license at that point in the batch. A revoke that read another live license,
- * and so planned no re-route, puts it after its license UPDATE: two revokes racing on a
+ * NO live license at that point in the batch. A revoke or lapse that read another live
+ * license, and so planned no re-route, puts it after its license UPDATEs: two ends racing on a
  * vendor's last two licenses would otherwise both commit and leave its owner-routed
  * contests with an owner who can no longer decide them (AECI-1375).
  */
