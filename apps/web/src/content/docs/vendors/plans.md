@@ -80,13 +80,13 @@ To start, claim your listing. The claim form does not ask about a plan. When we 
 
 The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.
 
-The portal shows your plan's status, and the end date where there is one. Before the end date, everyone with a seat and AEC Integrations get an email. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal for the whole plan, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal for the whole plan, [contact us](/contact).
 
 ## The Billing tab
 
 Owners see a **Billing** tab in the vendor portal. Members do not. It has four parts.
 
-- **Billing email.** License grant and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there.
+- **Billing email.** License grant, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there.
 - **At a glance.** A card that counts your live licenses: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many licenses come off at renewal, when either count is above zero.
 - **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**.
 - **Agreements.** The agreements your company accepted, with who accepted each one and when.

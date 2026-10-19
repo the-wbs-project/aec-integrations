@@ -91,6 +91,7 @@ import {
   type RequestKind,
   type RequestTargetType,
 } from '@aeci/shared';
+import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import { logToPosthog, submitCount } from '../posthog';
@@ -1325,30 +1326,38 @@ export function sendAttestationOpsDigestEmail(
 }
 
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
-// Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
-// copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
-// its own. Deactivation stays a deliberate admin act (§5). Since AECI-1325 the
-// vendor copy no longer promises that nothing changes: an admin may end the plan at
-// the term's end, as every pilot term does. It leads with the end date and the
-// renewal offer, then says a vendor that does not renew drops to the Free plan
-// with nothing removed, and links the plans page. Replies go to SUPPORT_EMAIL.
-// Account access is also framed exactly as everywhere else, never an endorsement
-// and never a ranking or placement signal.
+// Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). Since AECI-1406
+// (E6.3) the vendor copy is the 30-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8:
+// the end date, the license count and products, the list price, any new Managed plan
+// agreement version (decision 9), and how to opt out or reduce. It goes to every seat
+// and the billing email (decision 16). It leads with the end date, never a day count
+// (the §7.3 ruling of 2026-10-14), then says a vendor that does not renew drops to the
+// Free plan with nothing removed. Replies go to SUPPORT_EMAIL. Account access is framed
+// exactly as everywhere else, never an endorsement and never a ranking or placement
+// signal.
 
-/** What both expiry templates need to describe one term. `daysRemaining` is
- *  negative once the term is past its end — the sweep still warns exactly once for
- *  such a row, because "active, and the term ran out" is precisely the state an
- *  operator has to be told about. */
+/** What the vendor expiry template needs to describe one term. `daysRemaining` is
+ *  negative once the term is past its end. The lapse (AECI-1404) runs first, so the
+ *  sweep reaches such a term only when the lapse did not end it. */
 export interface EntitlementExpirySubject {
   to: string;
   vendorName: string;
   /** `YYYY-MM-DD`, the house day-label form (`lib/admin-analytics.ts`). */
   periodEndDay: string;
-  /** Whole days from the run's `now` to `period_end`; <= 0 = already past. */
+  /** Whole days from the run's `now` to `period_end`; <= 0 = already past. Decides
+   *  the tense only. The copy never prints it. */
   daysRemaining: number;
+  /** How many licenses end on this date. */
+  licenseCount: number;
+  /** The products those licenses are on. Unassigned licenses add nothing. */
+  productNames: readonly string[];
+  /** The licenses' distinct `source` values. `stripe` renews; the others end. */
+  sources: readonly string[];
+  /** A license accepted an older Managed plan agreement version (decision 9). */
+  termsChange: boolean;
 }
 
-/** "in 30 days" / "today" / "30 days ago" — the one phrase both bodies branch on. */
+/** "in 30 days" / "today" / "30 days ago" — the admin body's term phrase. */
 function expiryPhrase(daysRemaining: number): string {
   if (daysRemaining > 1) return `in ${daysRemaining} days`;
   if (daysRemaining === 1) return 'tomorrow';
@@ -1357,17 +1366,36 @@ function expiryPhrase(daysRemaining: number): string {
   return `${Math.abs(daysRemaining)} days ago`;
 }
 
+/** `2500` as `$25`, `2550` as `$25.50`. US dollars, display only. */
+function formatUsd(cents: number): string {
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/** The list price line, from the one place the prices live (decision 7). */
+const MANAGED_PRICE_LINE = `Managed is ${formatUsd(MANAGED_LIST_PRICE_CENTS)} a month or ${formatUsd(MANAGED_ANNUAL_PRICE_CENTS)} a year per product.`;
+
+/** "It covers 3 Managed licenses, on A, B and C." and its partial and empty forms. */
+function licenseCoverage(count: number, productNames: readonly string[]): string {
+  const licenses = count === 1 ? '1 Managed license' : `${count} Managed licenses`;
+  const named = productNames.length;
+  if (named === 0) {
+    return `It covers ${licenses}. ${count === 1 ? 'It is not' : 'None is'} on a product yet.`;
+  }
+  if (named >= count) return `It covers ${licenses}, on ${listNames(productNames)}.`;
+  return `It covers ${licenses}. ${named} ${named === 1 ? 'is' : 'are'} on products: ${listNames(productNames)}.`;
+}
+
 /**
- * §7.2 `entitlement-expiring` — the vendor's renewal prompt, to the vendor's
- * unbanned `vendor_admin` seats.
+ * §7.2 `entitlement-expiring` — the vendor's 30-day notice, to every unbanned
+ * `vendor_admin` seat and the billing email, each address once.
  *
- * Degrades to `'skipped'` without `SUPABASE_SERVICE_ROLE_KEY` (no resolvable seat
- * address), which is the expected local state; the admin copy below
- * always lands, so a term is never silently un-warned.
+ * Seat addresses need `SUPABASE_SERVICE_ROLE_KEY`, so locally only the billing email
+ * can resolve. The admin copy below always lands, so a term is never silently
+ * un-warned.
  *
- * The money is deliberately absent. Amount, payer, terms and PO reference are
- * admin-side only (§8) — this email says what the status is and when the term
- * ends, and asks the vendor to get in touch.
+ * It states the list price, because §3 step 8 asks for "the price". The arrangement
+ * stays admin-side (Paid Tiers §8): no agreed amount, no payer, no invoice or PO
+ * reference.
  */
 export function sendEntitlementExpiringEmail(
   c: EmailContext,
@@ -1376,44 +1404,70 @@ export function sendEntitlementExpiringEmail(
   const company = opts.vendorName.trim();
   // "Your Acme Software plan", or "Your plan" when the name is blank.
   const yourPlan = company ? `Your ${company} plan` : 'Your plan';
-  const mover = company || 'your company';
   const date = formatLongDay(opts.periodEndDay);
   const past = opts.daysRemaining < 0;
+  const one = opts.licenseCount === 1;
   const site = siteUrl(c.env);
   const plansPage = site ? `${site}/docs/vendors/plans` : null;
+  const agreementPage = site ? `${site}/legal/managed-plan-agreement` : null;
   const portal = portalUrl(c.env);
   // The ask says "reply to this email", so a reply has to reach a person. Without
   // this it lands in the EMAIL_FROM notifications mailbox.
   const support = c.env.SUPPORT_EMAIL?.trim();
 
-  // AECI-1325: the job never lapses a plan, but an admin may end it at the term's
-  // end (a pilot ends that way). Lead with the date and the renewal offer, then say
-  // what a vendor that does not renew keeps. Never promise the plan carries on, and
-  // never lead with a day count: a one-month pilot is inside the window on day one.
-  // One name throughout: "plan", the portal's word.
+  // Stripe renews on its own (step 9). Complimentary and invoice licenses end unless
+  // replaced. A term holding both says which does which.
+  const stripe = opts.sources.filter((s) => s === 'stripe').length;
+  const renews = stripe > 0 && stripe === opts.sources.length;
+  const mixed = stripe > 0 && !renews;
+
+  // Lead with the date, never a day count: a one-month pilot is inside the window on
+  // day one, and a count goes stale in the inbox. One name throughout: "plan".
   const lead = past
-    ? `${yourPlan} on AEC Integrations was due to end on ${date}, ${expiryPhrase(opts.daysRemaining)}.`
+    ? `${yourPlan} on AEC Integrations was due to end on ${date}.`
     : `${yourPlan} on AEC Integrations runs until ${date}.`;
+  const coverage = licenseCoverage(opts.licenseCount, opts.productNames);
   const ask = past
-    ? `It stays active for now. To continue, or if the dates look wrong, reply to this email. If we don't hear from you, we'll move ${mover} to the Free plan. You keep your seats and everything you've entered.`
-    : `If you'd like to continue past that date, or the dates look wrong, reply to this email.`;
+    ? `${MANAGED_PRICE_LINE} To continue on Managed, or if the dates look wrong, reply to this email.`
+    : renews
+      ? `${MANAGED_PRICE_LINE} If the dates look wrong, reply to this email.`
+      : `${MANAGED_PRICE_LINE} To continue past that date, or if the dates look wrong, reply to this email.`;
+  const keep = "You keep your seats and everything you've entered.";
   const onEnd = past
+    ? `Products without a renewed license move to the Free plan. ${keep}`
+    : renews
+      ? `On ${date} ${one ? 'the license renews' : 'the licenses renew'} for another year.`
+      : mixed
+        ? `On ${date} licenses paid by card renew for another year. The others end unless renewed, and their products move to the Free plan. ${keep}`
+        : `On ${date} ${one ? 'the license ends' : 'the licenses end'} unless renewed, and the products move to the Free plan. ${keep}`;
+  // Decision 11: an owner flags "release at renewal"; reducing early is a request.
+  const reduce = past
     ? null
-    : `If you don't renew, ${mover} moves to the Free plan. You keep your seats and everything you've entered.`;
+    : 'To drop a product at that date, an owner on your team can choose Release license on the Billing tab of the vendor portal. Or reply to this email to opt out or reduce your licenses.';
+  // Decision 9: a new agreement version binds at the next renewal, announced here.
+  const terms = opts.termsChange
+    ? `A new version of the Managed plan agreement applies from ${date}.`
+    : null;
   const stance =
     "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
-  // A date, never a day count: a count goes stale in the inbox.
   const subject = past ? `${yourPlan} was due to end ${date}` : `${yourPlan} runs until ${date}`;
 
-  // House layout: the portal is the one button, the plans page stays an inline link,
-  // and the stance moves to the small print.
+  // House layout: the portal is the one button, the plans page and the agreement stay
+  // inline links, and the stance moves to the small print.
   const render = (link: LinkTagger): EmailContent => {
-    const text = [lead, ask];
-    const html = [escapeHtml(lead), escapeHtml(ask)];
-    if (onEnd) {
-      text.push(onEnd);
-      html.push(escapeHtml(onEnd));
+    const paragraphs = [lead, coverage, ask, onEnd, ...(reduce ? [reduce] : [])];
+    const text = [...paragraphs];
+    const html = paragraphs.map(escapeHtml);
+    if (terms) {
+      if (agreementPage) {
+        const tagged = link(agreementPage);
+        text.push(`${terms} Read it: ${tagged}`);
+        html.push(`${escapeHtml(terms)} ${inlineLink(tagged, 'Read the agreement')}.`);
+      } else {
+        text.push(terms);
+        html.push(escapeHtml(terms));
+      }
     }
     // A link, not a feature list: the list would drift from the help center.
     if (plansPage) {
@@ -1486,10 +1540,12 @@ export function sendEntitlementExpiringAdminEmail(
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || opts.vendorSlug;
   const phrase = expiryPhrase(opts.daysRemaining);
+  // AECI-1406: the lapse (AECI-1404) ends a term on its end date, so "warns and never
+  // lapses" is gone. A past-term notice means the lapse did not end the term.
   const intro =
     opts.daysRemaining < 0
-      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed. The expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.'
-      : 'An active entitlement is approaching its term end date. Nothing will change on its own. The expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.';
+      ? "A live license term is past its end date and has not lapsed. The lapse runs just before this sweep, so check today's entitlement_expiry job run. To keep the licenses, extend the term from the vendor page under /admin/vendors."
+      : 'A license term is approaching its end date. On that date the licenses lapse and their products move to the Free plan unless the term is extended or renewed. To extend it, use the vendor page under /admin/vendors.';
   const base = siteUrl(c.env);
 
   const rows: EmailTableRow[] = [

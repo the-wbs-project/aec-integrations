@@ -814,10 +814,21 @@ Two new `EmailTemplate` ids (the id doubles as the `template:` tag on `aeci.emai
 
 | id | Recipient | Why both |
 |---|---|---|
-| `entitlement-expiring` | the vendor's seats | the renewal prompt |
+| `entitlement-expiring` | the vendor's seats and the billing email (since AECI-1406) | the renewal prompt: the 30-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8 |
 | `entitlement-expiring-admin` | `ADMIN_ALERT_EMAIL` (since AECI-1220: `SUPPORT_EMAIL`) | seat email addresses need `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present on staging/demo/prod since AECI-530, **absent locally**, so the vendor send degrades to `skipped`. The admin copy always lands. |
 
 Copy follows the house pattern (two parallel paragraph arrays, `escapeHtml` on every HTML interpolation, `toText()` / `toHtml()`, `sendTransactionalEmail` which never throws). Emails are deliberately not `$localize`d. Reuse the route-seam pattern (§1.3) so the job unit-tests without the email module.
+
+**The 30-day notice (AECI-1406, E6.3 — 2026-10-19).** The vendor copy carries what `VENDOR_SIGNUP_PROCESS.md` §3 step 8 lists. It goes to every unbanned seat and the billing account's billing email, each address once, compared trimmed and case-insensitively (decision 16, `lib/billing-recipients.ts`). The billing email needs no service-role key, so it still lands where the seat read degrades. The copy:
+
+1. Leads with the end date, never a day count (§7.3 ruling, point 5). The day count decides only the tense.
+2. States the license count and names the products the term's licenses are on. An unassigned license counts but names no product.
+3. States the list price: "Managed is $25 a month or $250 a year per product", built from `MANAGED_LIST_PRICE_CENTS` and `MANAGED_ANNUAL_PRICE_CENTS`. The arrangement stays admin-side (§8): no agreed amount, payer, invoice or PO reference.
+4. Says what happens on the date, by source. Complimentary and invoice licenses end unless renewed, and their products move to Free. Stripe licenses renew for another year (E9). A term holding both says which does which.
+5. Says how to opt out or reduce: an owner chooses Release license on the Billing tab, or the vendor replies. Replies go to `SUPPORT_EMAIL`. A past-term notice drops this line.
+6. Announces a terms change (decision 9). When any license in the term has a non-null `terms_version` that differs from `LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`, it adds "A new version of the Managed plan agreement applies from {date}" with a link to `/legal/managed-plan-agreement`. A null version (a complimentary or invoice grant) gets no notice, because nothing was accepted.
+
+The audit row's metadata gains `terms_change`. `license_count` was already there. The operator copy no longer says the sweep "warns and never lapses": the lapse (AECI-1404) ends a term on its date.
 
 **Idempotency fence:** `expiry_notice_sent_at`, on `licenses` since AECI-1356 (§7.5, which supersedes the predicate below). The original scan selected `status = 'active' AND period_end IS NOT NULL AND period_end <= now + N days AND (expiry_notice_sent_at IS NULL OR expiry_notice_sent_at < period_end - <window>)`, so a vendor gets one notice per term, not one per night.
 
@@ -850,14 +861,14 @@ Two supporting details: `EXPIRY_BATCH_CAP` (200/run) is a backstop against a fir
 
 ### 7.5 Re-pointed to licenses (AECI-1356, E1.7 — 2026-10-14)
 
-The sweep reads `licenses`, not `vendor_entitlements` (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 8, §5 E1). The cron, the two templates, the never-warned-first order, `EXPIRY_BATCH_CAP` and the metrics are unchanged. It still only warns; E6 adds the lapse and the price line.
+The sweep reads `licenses`, not `vendor_entitlements` (`docs/VENDOR_SIGNUP_PROCESS.md` §3 step 8, §5 E1). The cron, the two templates, the never-warned-first order, `EXPIRY_BATCH_CAP` and the metrics are unchanged. It still only warns; E6 adds the lapse and the price line. *(The price line shipped with AECI-1406, §7.2.)*
 
 1. **The scan.** Live licenses with an end date inside the horizon: `ended_at IS NULL AND ends_at IS NOT NULL AND ends_at <= now + 30d`, which is exactly the predicate of the partial index `licenses_ends_idx`. Monthly licenses (`ends_at` null) and ended licenses are invisible to it by construction.
 2. **One notice per account per term.** A term is one billing account's live licenses that share one `ends_at`. The scan groups by `(billing_account_id, ends_at)`, so three licenses ending on one day get one notice naming the count. Two end dates on one account are two terms and two notices: the email names one date. E1.4's dual-write moves an account's licenses together, so today that is one notice per account.
 3. **The fence.** `licenses.expiry_notice_sent_at`. A term is due when any of its licenses is unstamped, or its oldest stamp predates `ends_at − 30d`. A delivered notice stamps every license it covered. `setLicensesTermStatements` clears the stamp when `ends_at` moves, so a renewed term earns its own notice. A license added to an already-warned term arrives unstamped, so the term is warned again with the new count. That is deliberate: the count is part of the notice. The comparison stays in TS (§7.4 point 1).
 4. **What the batch may write.** Only `expiry_notice_sent_at` and `updated_at` on `licenses` (`expiryNoticeStampStatements` in `lib/license.ts`, one statement per 50 ids for D1's bound-parameter cap), and the audit row. The stamp is guarded on the scanned `ends_at`, so a renewal between the scan and the write keeps its cleared stamp. The invariant test asserts against the generated SQL that no statement names `ended_at`, `assigned_product_id` or `vendors`, not even as a guard.
 5. **The audit row.** One per notice: `license.expiry_warned`, `entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` filled, `metadata.license_ids` naming the licenses covered. The plan snapshot is `licensePlanSnapshot` over the vendor's whole license set. It is a vendor receipt, like the `vendor_entitlement.expiry_warned` rows it replaces, which stay readable.
-6. **The operator copy.** `entitlement-expiring-admin` carries the license count, the licenses' `source` and their `reference` (invoice number, PO or grant note) in place of tier, payer and invoice ref. The vendor copy is unchanged.
+6. **The operator copy.** `entitlement-expiring-admin` carries the license count, the licenses' `source` and their `reference` (invoice number, PO or grant note) in place of tier, payer and invoice ref. The vendor copy was unchanged here. *AECI-1406 (E6.3) rebuilt it as the 30-day notice with the price, the count, the products and any terms change, sent to the billing email too (§7.2).*
 7. **Counts are terms.** `due`, `suppressed`, `capped`, `warned` and the `aeci.entitlement.expiry_due` gauge count terms, not licenses.
 8. **The cutover.** `ops:backfill-licenses` copies a live entitlement's `expiry_notice_sent_at` onto the licenses it writes for a term with an end date. Without it, the first license-based run would warn again every term the old sweep already warned. *(Done on every tier. The script was deleted 2026-10-17, AECI-1358.)*
 

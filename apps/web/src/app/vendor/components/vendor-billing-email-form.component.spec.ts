@@ -78,7 +78,7 @@ describe('VendorBillingEmailForm', () => {
     const unset = el(render(null)).textContent;
     expect(unset).toContain('Not set');
     expect(unset).toContain(
-      'License grant and plan-end emails go to this address and to every seat.',
+      'License grant, renewal notice and plan-end emails go to this address and to every seat.',
     );
   });
 

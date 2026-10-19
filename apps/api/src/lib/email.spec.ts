@@ -2112,6 +2112,10 @@ describe('entitlement expiry templates', () => {
     vendorName: 'Autodesk',
     periodEndDay: '2026-09-18',
     daysRemaining: 30,
+    licenseCount: 2,
+    productNames: ['BIM 360', 'Revit'],
+    sources: ['invoice'],
+    termsChange: false,
   };
 
   it('sends the vendor renewal prompt under its own template id', async () => {
@@ -2133,7 +2137,7 @@ describe('entitlement expiry templates', () => {
     expect(html).toContain(EMAIL_LOGO_URL);
     expect(html).toContain('v:roundrect');
     expect(`${String(body.text)}${html}`).not.toContain('The AEC Integrations team');
-    expect(`${String(body.text)}${html}`).not.toContain('\u2014');
+    expect(`${String(body.text)}${html}`).not.toContain('—');
   });
 
   it('sends replies to SUPPORT_EMAIL, because the ask is "reply to this email" (AECI-1325)', async () => {
@@ -2149,6 +2153,38 @@ describe('entitlement expiry templates', () => {
     expect(String(body.text)).toContain('reply to this email');
   });
 
+  it('states the list price and the license count with the products (AECI-1406, step 8)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Managed is $25 a month or $250 a year per product.');
+    expect(text).toContain('It covers 2 Managed licenses, on BIM 360 and Revit.');
+  });
+
+  it.each([
+    [1, ['Revit'], 'It covers 1 Managed license, on Revit.'],
+    [3, ['Revit'], 'It covers 3 Managed licenses. 1 is on products: Revit.'],
+    [
+      3,
+      ['BIM 360', 'Revit'],
+      'It covers 3 Managed licenses. 2 are on products: BIM 360 and Revit.',
+    ],
+    [2, [], 'It covers 2 Managed licenses. None is on a product yet.'],
+    [1, [], 'It covers 1 Managed license. It is not on a product yet.'],
+  ])('names %s licenses on %j', async (licenseCount, productNames, line) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      licenseCount,
+      productNames,
+    });
+
+    expect(String(lastBody(fetchSpy).text)).toContain(line);
+  });
+
   it('offers renewal first, then says what a vendor that does not renew keeps (AECI-1325)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
@@ -2158,42 +2194,102 @@ describe('entitlement expiry templates', () => {
     );
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain("If you'd like to continue past that date");
-    expect(text).toContain("If you don't renew, Autodesk moves to the Free plan");
+    expect(text).toContain('To continue past that date');
+    expect(text).toContain(
+      'On September 18, 2026 the licenses end unless renewed, and the products move to the Free plan.',
+    );
     expect(text).toContain("You keep your seats and everything you've entered.");
     // A link to the plans page, not a feature list that would drift.
     expect(text).toContain(
       'See what the Free plan includes: https://www.aecintegrations.com/docs/vendors/plans',
     );
     // The renewal offer comes before what happens without one.
-    expect(text.indexOf('continue past that date')).toBeLessThan(
-      text.indexOf("If you don't renew"),
-    );
-    // A pilot term ends by an admin Clear, so the copy must not promise otherwise.
-    expect(text).not.toContain('Nothing changes automatically');
-    expect(text).not.toContain("don't switch access off");
+    expect(text.indexOf('To continue past that date')).toBeLessThan(text.indexOf('unless renewed'));
     // Nothing that reads as a threat or a countdown to removal.
     expect(text.toLowerCase()).not.toContain('will be removed');
     expect(text.toLowerCase()).not.toContain('will expire');
   });
 
-  it.each([30, 1, 0])(
-    'never leads with a day count before the end (%s days left)',
-    async (days) => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+  it('says how to opt out or reduce: Release license on Billing, or a reply (decision 11)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-      await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: days });
+    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
 
-      const body = lastBody(fetchSpy);
-      for (const field of [String(body.subject), String(body.text)]) {
-        expect(field).not.toMatch(/in \d+ days|tomorrow|today/);
-        // One name for one thing: "plan", never "vendor access term".
-        expect(field).not.toContain('access term');
-        // The date reads as US English, not a database value.
-        expect(field).not.toContain('2026-09-18');
-      }
-    },
-  );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain(
+      'an owner on your team can choose Release license on the Billing tab of the vendor portal',
+    );
+    expect(text).toContain('reply to this email to opt out or reduce your licenses');
+  });
+
+  it('says a Stripe term renews, not ends', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources: ['stripe'] });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('On September 18, 2026 the licenses renew for another year.');
+    expect(text).not.toContain('unless renewed');
+    expect(text).not.toContain('To continue past that date');
+  });
+
+  it('says which licenses renew and which end on a mixed term', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      sources: ['complimentary', 'stripe'],
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('licenses paid by card renew for another year');
+    expect(text).toContain('The others end unless renewed');
+  });
+
+  it('announces a new Managed plan agreement version with a link (decision 9)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      { ...SUBJECT, termsChange: true },
+    );
+
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    expect(text).toContain(
+      'A new version of the Managed plan agreement applies from September 18, 2026.',
+    );
+    expect(text).toContain('https://www.aecintegrations.com/legal/managed-plan-agreement');
+    expect(String(body.html)).toContain('Read the agreement');
+  });
+
+  it('carries no agreement notice when the terms did not change', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      SUBJECT,
+    );
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Managed plan agreement');
+    expect(text).not.toContain('/legal/');
+  });
+
+  it.each([30, 1, 0, -1, -5])('never prints a day count (%s days left)', async (days) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: days });
+
+    const body = lastBody(fetchSpy);
+    for (const field of [String(body.subject), String(body.text)]) {
+      expect(field).not.toMatch(/in \d+ days|\d+ days ago|tomorrow|today|yesterday/);
+      // One name for one thing: "plan", never "vendor access term".
+      expect(field).not.toContain('access term');
+      // The date reads as US English, not a database value.
+      expect(field).not.toContain('2026-09-18');
+    }
+  });
 
   it('reads as past tense once the term is behind us, and names the fallback', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
@@ -2203,19 +2299,13 @@ describe('entitlement expiry templates', () => {
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe('Your Autodesk plan was due to end September 18, 2026');
     const text = String(body.text);
-    expect(text).toContain('was due to end on September 18, 2026, 5 days ago.');
-    expect(text).toContain('It stays active for now.');
-    expect(text).toContain("If we don't hear from you, we'll move Autodesk to the Free plan.");
-    // The past copy carries its own consequence. It is not said twice.
-    expect(text).not.toContain("If you don't renew");
-  });
-
-  it('reads "yesterday" one day after the end', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: -1 });
-
-    expect(String(lastBody(fetchSpy).text)).toContain('September 18, 2026, yesterday.');
+    expect(text).toContain('was due to end on September 18, 2026.');
+    expect(text).toContain('Products without a renewed license move to the Free plan.');
+    expect(text).toContain('To continue on Managed, or if the dates look wrong, reply');
+    // The lapse ends it, so the copy promises no grace period.
+    expect(text).not.toContain('stays active');
+    // Releasing at the date is too late once the date has passed.
+    expect(text).not.toContain('Release license');
   });
 
   it('reads cleanly when the vendor name is blank', async () => {
@@ -2225,7 +2315,7 @@ describe('entitlement expiry templates', () => {
 
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe('Your plan runs until September 18, 2026');
-    expect(String(body.text)).toContain("If you don't renew, your company moves to the Free plan");
+    expect(String(body.text)).toContain('Your plan on AEC Integrations runs until');
   });
 
   it('never implies account access verifies quality or affects ranking', async () => {
@@ -2245,14 +2335,14 @@ describe('entitlement expiry templates', () => {
   it('omits the dashboard link entirely when PUBLIC_SITE_URL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, termsChange: true });
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).not.toContain('http');
     expect(text).not.toContain('undefined');
   });
 
-  it('keeps the money out of the vendor copy — arrangement details are admin-side', async () => {
+  it('states the list price but keeps the arrangement admin-side', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
     await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
@@ -2288,9 +2378,10 @@ describe('entitlement expiry templates', () => {
     expect(String(body.text)).toContain('Licenses: 3');
     expect(String(body.text)).toContain('Source: invoice');
     expect(String(body.text)).toContain('Reference: PO-4471');
-    // Says outright that nothing was changed — the operator must not read this as
-    // a notification of an automatic action.
-    expect(String(body.text)).toContain('warns and never lapses');
+    // AECI-1406: the lapse (AECI-1404) ends a term on its date, so the operator is
+    // told what happens then, and the old "never lapses" line is gone.
+    expect(String(body.text)).toContain('On that date the licenses lapse');
+    expect(String(body.text)).not.toContain('never lapses');
     // The entitlement control lives on the admin vendor page, not the claim queue
     // (STAGE_2_PAID_TIERS_SPEC.md §5.1, AECI-1108).
     expect(String(body.text)).toContain('/admin/vendors');

@@ -22,10 +22,11 @@
  * the transport and a stubbed seam would never reach it.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, profiles, vendors } from '../db/schema';
+import { auditLog, billingAccounts, licenses, products, profiles, vendors } from '../db/schema';
 import type { BatchStmt } from './audit';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -104,6 +105,8 @@ async function seedLicense(
     expiryNoticeSentAt?: string | null;
     source?: string;
     reference?: string | null;
+    assignedProductId?: string | null;
+    termsVersion?: string | null;
   } = {},
 ) {
   await t.db.insert(licenses).values({
@@ -116,6 +119,9 @@ async function seedLicense(
     endReason: overrides.endedAt ? 'revoked' : null,
     reference: overrides.reference === undefined ? 'PO-4471' : overrides.reference,
     expiryNoticeSentAt: overrides.expiryNoticeSentAt ?? null,
+    assignedProductId: overrides.assignedProductId ?? null,
+    assignedAt: overrides.assignedProductId ? OLD_TS : null,
+    termsVersion: overrides.termsVersion ?? null,
     createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
@@ -129,7 +135,15 @@ async function seedTerm() {
 }
 
 interface Recorded {
-  vendor: Array<{ to: string; daysRemaining: number; periodEndDay: string }>;
+  vendor: Array<{
+    to: string;
+    daysRemaining: number;
+    periodEndDay: string;
+    licenseCount: number;
+    productNames: readonly string[];
+    sources: readonly string[];
+    termsChange: boolean;
+  }>;
   admin: Array<{
     to: string;
     vendorSlug: string;
@@ -150,6 +164,10 @@ function seams(outcomes: { vendor?: EmailOutcome; admin?: EmailOutcome } = {}) {
       to: o.to,
       daysRemaining: o.daysRemaining,
       periodEndDay: o.periodEndDay,
+      licenseCount: o.licenseCount,
+      productNames: o.productNames,
+      sources: o.sources,
+      termsChange: o.termsChange,
     });
     return outcomes.vendor ?? 'sent';
   }) as unknown as SendEntitlementExpiringEmail;
@@ -255,6 +273,7 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
     vendorNotice: 'sent' as const,
     adminNotice: 'sent' as const,
     vendorRecipients: 1,
+    termsChange: false,
   };
 
   it('names no `ended_at`, `assigned_product_id` or `vendors` in any statement, not even as a guard', () => {
@@ -540,6 +559,156 @@ describe('the `expiry_notice_sent_at` fence — one notice per term, not one per
     expect(result.vendor).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
     expect(result.admin).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
     expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
+  });
+});
+
+describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
+  const P1 = 'p1111111-1111-4111-8111-111111111111';
+  const P2 = 'p2222222-2222-4222-8222-222222222222';
+  const L2 = '55555555-5555-4555-8555-555555555555';
+  const L3 = '66666666-6666-4666-8666-666666666666';
+
+  async function setBillingEmail(email: string | null) {
+    await t.db
+      .update(billingAccounts)
+      .set({ billingEmail: email })
+      .where(eq(billingAccounts.id, accountFor(VENDOR_ID)));
+  }
+
+  it('sends the vendor copy to every seat AND the billing email (decision 16)', async () => {
+    await seedTerm();
+    await setBillingEmail('ap@vendor.example');
+    const s = seams();
+
+    const result = await sweep(s);
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual([
+      'seat-2222@vendor.example',
+      'ap@vendor.example',
+    ]);
+    expect(result.vendor.sent).toBe(1);
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.vendor_recipients).toBe(2);
+  });
+
+  it('sends once when the billing email is a seat address in another case', async () => {
+    await seedTerm();
+    await setBillingEmail('  SEAT-2222@Vendor.Example ');
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual(['seat-2222@vendor.example']);
+  });
+
+  it('still reaches the billing email when no seat address resolves', async () => {
+    await seedTerm();
+    await setBillingEmail('ap@vendor.example');
+    const s = seams();
+
+    const result = await sweep(s, { fetchSeatEmails: noSeatEmails });
+
+    expect(s.recorded.vendor.map((v) => v.to)).toEqual(['ap@vendor.example']);
+    expect(result.vendor.sent).toBe(1);
+  });
+
+  it('passes the license count, the products, the sources and no terms change', async () => {
+    await seedVendor();
+    await seedSeat();
+    await t.db.insert(products).values([
+      { id: P1, slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: P2, slug: 'bim-360', name: 'BIM 360', promotionStatus: 'promoted' },
+    ]);
+    await seedLicense({ assignedProductId: P1 });
+    await seedLicense({ id: L2, assignedProductId: P2, source: 'complimentary' });
+    // Unassigned: counted, but names no product.
+    await seedLicense({ id: L3 });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor).toHaveLength(1);
+    expect(s.recorded.vendor[0]).toMatchObject({
+      licenseCount: 3,
+      productNames: ['BIM 360', 'Revit'],
+      sources: ['complimentary', 'invoice'],
+      termsChange: false,
+    });
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.license_count).toBe(3);
+    expect(metadata.terms_change).toBe(false);
+  });
+
+  it('flags a terms change when a license accepted an older agreement version (decision 9)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: '0.9', source: 'stripe' });
+    await seedLicense({ id: L2, termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(true);
+    const metadata = (await auditRows())[0]?.metadata as Record<string, unknown>;
+    expect(metadata.terms_change).toBe(true);
+  });
+
+  it('gives no terms notice for the current version', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan });
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(false);
+  });
+
+  it('gives no terms notice for a null version, because nothing was accepted', async () => {
+    await seedTerm();
+    const s = seams();
+
+    await sweep(s);
+
+    expect(s.recorded.vendor[0]?.termsChange).toBe(false);
+  });
+
+  it('renders the price, the count and the terms notice through the real sender', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ termsVersion: '0.9' });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
+
+    try {
+      await runEntitlementExpirySweep(
+        ctx({
+          ENV: 'production',
+          RESEND_API_KEY: 'rk_test',
+          EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+          POSTHOG_PROJECT_KEY: undefined,
+        }),
+        t.db,
+        {
+          now: NOW,
+          fetchSeatEmails: seatEmails,
+          sendVendorEmail: sendEntitlementExpiringEmail,
+          sendAdminEmail: async () => 'skipped',
+        },
+      );
+
+      const vendorSend = fetchSpy.mock.calls
+        .filter((call) => String(call[0]) === 'https://api.resend.com/emails')
+        .map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>)
+        .find((b) => JSON.stringify(b.to).includes('seat-2222@vendor.example'));
+      const text = String(vendorSend?.text);
+      expect(text).toContain('Managed is $25 a month or $250 a year per product.');
+      expect(text).toContain('It covers 1 Managed license. It is not on a product yet.');
+      expect(text).toContain('A new version of the Managed plan agreement applies from');
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 
