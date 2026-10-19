@@ -211,6 +211,17 @@ function fencedLastReviewedAt(
   };
 }
 
+/**
+ * AECI-1407 (ruled 2026-10-19). True when the stored `usefulness` block is a vendor's
+ * and the product holds no live license, so promote may hand it back to AECi. An
+ * admin-written block (`usefulness_source = 'admin'`) never matches: the hand-back
+ * covers vendor-written usefulness only. Evaluated inside the UPDATE so a license or
+ * an edit landing between the plan read and the batch still wins.
+ */
+function vendorUsefulnessHandBackSql(productId: string): SQL {
+  return sql`(${products.usefulnessSource} = 'vendor' AND NOT ${productHasLiveLicenseSql(productId)})`;
+}
+
 /** Whether {@link fencedLastReviewedAt} will refuse this write, i.e. whether the
  *  caller earns a `kind: 'review-signal'` entry in `skipped[]`. Kept beside the
  *  fence so the SQL and the receipt cannot drift.
@@ -1089,10 +1100,22 @@ const BLOCKED_INTEGRATION_REASON =
 const HAND_BACK_PRODUCT_FIELDS = ['toolIntegrationsUrl', 'apiDocsUrl', 'usefulness'] as const;
 /** Payload keys that address the product rather than describe it. Never "withheld". */
 const PRODUCT_ADDRESS_FIELDS = new Set(['ref', 'supabaseId']);
-/** `preserved[] { kind: 'license_hand_back' }` on the product's `ref`. The withheld
- *  field names follow after a colon. */
-export const PRESERVED_LICENSE_HAND_BACK_PRODUCT =
-  'product has no live license, so promote wrote only toolIntegrationsUrl, apiDocsUrl and usefulness; the claimed vendor keeps';
+/**
+ * `preserved[] { kind: 'license_hand_back' }` reason on the product's `ref`. Names the
+ * hand-back fields the UPDATE actually carries, so an admin-fenced `usefulness` (left
+ * out of the write) is not claimed as written. The withheld field names follow after
+ * a colon.
+ */
+export function licenseHandBackProductReason(
+  written: readonly string[],
+  withheld: readonly string[],
+): string {
+  const list =
+    written.length <= 1
+      ? written.join('')
+      : `${written.slice(0, -1).join(', ')} and ${written[written.length - 1]}`;
+  return `product has no live license, so promote wrote only ${list}; the claimed vendor keeps: ${withheld.join(', ')}`;
+}
 /** `preserved[] { kind: 'license_hand_back' }` on an integration's `ref`. */
 export const PRESERVED_LICENSE_HAND_BACK_INTEGRATION =
   'endpoint product has no live license, so promote wrote only the AECi claims on this existing edge; its columns stay as they are';
@@ -2255,7 +2278,8 @@ export async function runPromoteIngest(
   const blockedProductId = productBlocked ? (payload.product?.supabaseId ?? null) : null;
   const handBackProduct = blockedProductId
     ? await db.query.products.findFirst({
-        columns: { slug: true },
+        // `usefulnessSource` for the admin fence on the hand-back's usefulness write.
+        columns: { slug: true, usefulnessSource: true },
         where: eq(products.id, blockedProductId),
       })
     : undefined;
@@ -2732,18 +2756,21 @@ export async function runPromoteIngest(
       productId = p.supabaseId;
       productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
       // AECI-1407 (ruling 1, 2026-10-19). The vendor's copy is fenced only while the
-      // product holds a live license. Read only when it can matter: the payload sent
-      // `usefulness` and a vendor (or admin) authored the stored block.
+      // product holds a live license. An admin-written block (`usefulness_source =
+      // 'admin'`) stays fenced always: the hand-back covers vendor-written usefulness
+      // only (ruled 2026-10-19). Read only when it can matter: the payload sent
+      // `usefulness` and a vendor authored the stored block.
       const usefulnessHandedBack =
         usefulnessData !== undefined &&
-        existing.usefulnessSource !== null &&
+        existing.usefulnessSource === 'vendor' &&
         !(await loadLicensedProductIds(db, [p.supabaseId])).has(p.supabaseId);
       // AECI-963. Tell the review app its `usefulness` was fenced, rather than
       // letting a curator keep editing a field that no longer ships. Only when
       // they actually SENT one — a push that omits the field preserved nothing.
       // Advisory by construction: the authoritative guard is the CASE WHEN in the
       // UPDATE below, evaluated a moment later. See {@link PromotePreserved}.
-      // Since AECI-1407, only while the product holds a live license.
+      // Since AECI-1407, a vendor-written block is fenced only while the product
+      // holds a live license. An admin-written block is fenced regardless.
       if (
         usefulnessData !== undefined &&
         existing.usefulnessSource !== null &&
@@ -2781,21 +2808,22 @@ export async function runPromoteIngest(
               // inside a raw `sql` template the value is bound verbatim, so an
               // object would land as `[object Object]`.
               //
-              // AECI-1407 (ruling 1): the fence holds only while the product has a
-              // live license, so the guard is `usefulness_source IS NULL OR NOT
-              // EXISTS (live license)`. Revoke, release and lapse then all hand the
-              // block back the same way, at the next promote that sends it. The same
-              // test clears `usefulness_source` in the same statement, or the public
-              // "Written by {vendor}" line would credit AECi's copy to the vendor.
-              // SQLite evaluates every SET expression against the OLD row, so the two
-              // CASEs read the same `usefulness_source`.
+              // AECI-1407 (ruling 1): a vendor-written block is fenced only while the
+              // product has a live license, and an admin-written one always, so the
+              // guard is `usefulness_source IS NULL OR (usefulness_source = 'vendor'
+              // AND NOT EXISTS (live license))`. Revoke, release and lapse then all
+              // hand the vendor's block back the same way, at the next promote that
+              // sends it. The same test clears `usefulness_source` in the same
+              // statement, or the public "Written by {vendor}" line would credit
+              // AECi's copy to the vendor. SQLite evaluates every SET expression
+              // against the OLD row, so the two CASEs read the same `usefulness_source`.
               ...(usefulnessData === undefined
                 ? {}
                 : {
-                    usefulness: sql`CASE WHEN ${products.usefulnessSource} IS NULL OR NOT ${productHasLiveLicenseSql(p.supabaseId)} THEN ${
+                    usefulness: sql`CASE WHEN ${products.usefulnessSource} IS NULL OR ${vendorUsefulnessHandBackSql(p.supabaseId)} THEN ${
                       usefulnessData === null ? null : JSON.stringify(usefulnessData)
                     } ELSE ${products.usefulness} END`,
-                    usefulnessSource: sql`CASE WHEN NOT ${productHasLiveLicenseSql(p.supabaseId)} THEN NULL ELSE ${products.usefulnessSource} END`,
+                    usefulnessSource: sql`CASE WHEN ${vendorUsefulnessHandBackSql(p.supabaseId)} THEN NULL ELSE ${products.usefulnessSource} END`,
                   }),
               ...(p.logoUrl !== undefined
                 ? {
@@ -2964,14 +2992,26 @@ export async function runPromoteIngest(
       if (p.apiDocsUrl !== undefined) {
         handBackSet.apiDocsUrl = unlessLicensed(products.apiDocsUrl, p.apiDocsUrl);
       }
-      if (usefulnessData !== undefined) {
+      if (usefulnessData !== undefined && handBackProduct?.usefulnessSource === 'admin') {
+        // The hand-back covers vendor-written usefulness only (ruled 2026-10-19). An
+        // admin-written block stays fenced, so usefulness is left out of the write and
+        // the review app gets the same advisory receipt the ordinary branch sends.
+        preserved.push({
+          ref: p.ref,
+          kind: 'usefulness',
+          reason: 'usefulness is admin-authored and is no longer promote-writable',
+          count: 1,
+        });
+      } else if (usefulnessData !== undefined) {
         // `JSON.stringify` for the reason the ordinary branch gives: a raw `sql`
         // template binds the value verbatim, bypassing the json column's serializer.
-        handBackSet.usefulness = unlessLicensed(
-          products.usefulness,
-          usefulnessData === null ? null : JSON.stringify(usefulnessData),
-        );
-        handBackSet.usefulnessSource = unlessLicensed(products.usefulnessSource, null);
+        // The guard re-tests `usefulness_source` too, so an admin edit landing between
+        // the plan read and the batch still wins.
+        const handBack = sql`NOT ${live} AND (${products.usefulnessSource} IS NULL OR ${products.usefulnessSource} = 'vendor')`;
+        handBackSet.usefulness = sql`CASE WHEN ${handBack} THEN ${
+          usefulnessData === null ? null : JSON.stringify(usefulnessData)
+        } ELSE ${products.usefulness} END`;
+        handBackSet.usefulnessSource = sql`CASE WHEN ${handBack} THEN NULL ELSE ${products.usefulnessSource} END`;
       }
     }
     // The product id is registered on every hand-back, written or not, so the
@@ -3004,11 +3044,15 @@ export async function runPromoteIngest(
             !(Array.isArray(value) && value.length === 0),
         )
         .map(([key]) => key);
+      // Built from the UPDATE's own SET keys, in payload-field order, so the receipt
+      // can never claim a field the statement left out. `usefulnessSource` rides with
+      // `usefulness` and is not a payload field.
+      const written = HAND_BACK_PRODUCT_FIELDS.filter((field) => field in handBackSet);
       if (withheld.length > 0) {
         preserved.push({
           ref: p.ref,
           kind: 'license_hand_back',
-          reason: `${PRESERVED_LICENSE_HAND_BACK_PRODUCT}: ${withheld.join(', ')}`,
+          reason: licenseHandBackProductReason(written, withheld),
           count: withheld.length,
         });
       }

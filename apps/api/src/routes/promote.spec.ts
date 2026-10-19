@@ -65,7 +65,6 @@ import {
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
   PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-  PRESERVED_LICENSE_HAND_BACK_PRODUCT,
   REFUSED_CLAIMED_INTEGRATION,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
@@ -4985,7 +4984,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
       const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
       expect(receipt).toMatchObject({ ref: 'p1', count: 5 });
       expect(receipt?.reason).toBe(
-        `${PRESERVED_LICENSE_HAND_BACK_PRODUCT}: name, productRole, description, categories, lastReviewedAt`,
+        'product has no live license, so promote wrote only toolIntegrationsUrl, apiDocsUrl and usefulness; the claimed vendor keeps: name, productRole, description, categories, lastReviewedAt',
       );
 
       const [audit] = await t.db
@@ -4994,6 +4993,73 @@ describe('createPromoteHandler — claimed-vendor block', () => {
         .where(eq(auditLog.action, 'product.updated'));
       expect(audit?.metadata).toMatchObject({ license_hand_back: true });
       expect(await auditActions()).not.toContain('promote.blocked');
+    });
+
+    it('keeps an admin-written block fenced while handing back the other fields', async () => {
+      // The hand-back covers vendor-written usefulness only (ruled 2026-10-19).
+      await t.db
+        .update(products)
+        .set({ usefulnessSource: 'admin' })
+        .where(eq(products.id, P_OWNED));
+      const body = (await (await promote({ product: handBackPayload })).json()) as PromoteResponse;
+      expect(await readOwned()).toMatchObject({
+        toolIntegrationsUrl: 'https://aeci.example/integrations',
+        apiDocsUrl: 'https://aeci.example/api',
+        usefulness: audienceVendorBlock,
+        usefulnessSource: 'admin',
+      });
+      expect(body.preserved).toContainEqual(
+        expect.objectContaining({ ref: 'p1', kind: 'usefulness', count: 1 }),
+      );
+      // The receipt names only what the UPDATE wrote: usefulness was left out.
+      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
+      expect(receipt?.reason).toBe(
+        'product has no live license, so promote wrote only toolIntegrationsUrl and apiDocsUrl; the claimed vendor keeps: name, productRole, description, categories',
+      );
+    });
+
+    it('writes nothing when the only hand-back field sent is an admin-fenced usefulness', async () => {
+      await t.db
+        .update(products)
+        .set({ usefulnessSource: 'admin' })
+        .where(eq(products.id, P_OWNED));
+      const body = (await (
+        await promote({
+          product: {
+            ref: 'p1',
+            supabaseId: P_OWNED,
+            name: 'Revit 2027',
+            usefulness: handBackPayload.usefulness,
+          },
+        })
+      ).json()) as PromoteResponse;
+      expect(body.product).toBeNull();
+      expect(skippedKinds(body)).toContain('product');
+      expect(body.preserved).toContainEqual(
+        expect.objectContaining({ ref: 'p1', kind: 'usefulness' }),
+      );
+      expect(await readOwned()).toMatchObject({
+        usefulness: audienceVendorBlock,
+        usefulnessSource: 'admin',
+      });
+    });
+
+    it('keeps an admin block written between the plan and the commit', async () => {
+      // The plan read sees a vendor block, so only the in-SQL guard can save this.
+      const original = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
+        await t.db
+          .update(products)
+          .set({ usefulnessSource: 'admin' })
+          .where(eq(products.id, P_OWNED));
+        return original(queries);
+      });
+      expect((await promote({ product: handBackPayload })).status).toBe(200);
+      expect(await readOwned()).toMatchObject({
+        toolIntegrationsUrl: 'https://aeci.example/integrations',
+        usefulness: audienceVendorBlock,
+        usefulnessSource: 'admin',
+      });
     });
 
     it('treats an ended license as no license', async () => {
@@ -5590,6 +5656,45 @@ describe('AECI-963 promote usefulness ownership', () => {
       expect(await readProduct()).toMatchObject({
         usefulness: upstreamStored,
         usefulnessSource: null,
+      });
+    });
+
+    it('keeps an admin-written block fenced on an unlicensed product, and sends the receipt', async () => {
+      // The hand-back covers vendor-written usefulness only (ruled 2026-10-19).
+      await t.db
+        .update(products)
+        .set({ usefulness: vendorBlock, usefulnessSource: 'admin' })
+        .where(eq(products.id, productId));
+      await endLicense();
+      const body = (await (await push(upstreamPayload)).json()) as PromoteResponse;
+      expect(await readProduct()).toMatchObject({
+        usefulness: vendorBlock,
+        usefulnessSource: 'admin',
+      });
+      expect(body.preserved).toContainEqual(
+        expect.objectContaining({ ref: 'p', kind: 'usefulness', count: 1 }),
+      );
+      const [row] = await t.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, 'product.updated'));
+      expect(row?.metadata ?? {}).not.toMatchObject({ license_hand_back: true });
+    });
+
+    it('keeps an admin block written after planning, on an unlicensed product', async () => {
+      // The planner reads `usefulness_source: null`, so only the in-SQL guard can save this.
+      await endLicense();
+      const original = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
+        t.raw
+          .prepare("UPDATE products SET usefulness = ?, usefulness_source = 'admin' WHERE id = ?")
+          .run(JSON.stringify(vendorBlock), productId);
+        return original(queries);
+      });
+      expect((await push(upstreamPayload)).status).toBe(200);
+      expect(await readProduct()).toMatchObject({
+        usefulness: vendorBlock,
+        usefulnessSource: 'admin',
       });
     });
   });

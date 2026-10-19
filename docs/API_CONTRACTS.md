@@ -6054,15 +6054,18 @@ export interface PromoteResponse {
   // AECI-963 adds `kind: 'usefulness'`, whose `ref` is the PRODUCT's and which is
   // an entry about something the caller DID send: a vendor has authored the block,
   // so `products.usefulness_source` fences promote off the column while the product
-  // holds a live license (AECI-1407). It is advisory — the authoritative guard is a
+  // holds a live license (AECI-1407). An admin-written block (`usefulness_source =
+  // 'admin'`) is fenced whatever the license state, so its entry fires regardless. It is advisory — the authoritative guard is a
   // CASE WHEN inside the UPDATE, evaluated after the read this is derived from. It
   // can be missing for a value that WAS preserved, and, if a license ends between
   // the read and the commit, present for one that was not.
   //
   // AECI-1407 adds `kind: 'license_hand_back'`: a claimed vendor's product with no
-  // live license took only `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` and
-  // AECi claims on its existing edges. On the product's `ref`, `reason` lists the
-  // withheld fields after a colon and `count` is how many. On an integration's `ref`,
+  // live license took only `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` (not
+  // over an admin-written block) and AECi claims on its existing edges. On the
+  // product's `ref`, `reason` names the hand-back fields the UPDATE actually wrote,
+  // then the withheld fields after a colon, and `count` is how many were withheld.
+  // On an integration's `ref`,
   // only its claims were written (`REVIEW_APP_PROMOTE_API.md` §4a).
   preserved: {
     ref: string;
@@ -6120,7 +6123,8 @@ routine push would silently revert their work. Therefore:
   launch given the concierge model's low volume and human in the loop.
 - **One opening (AECI-1407):** when the blocked product exists and no live license
   is assigned to it, promote writes `tool_integrations_url`, `api_docs_url` and
-  `usefulness` (clearing `usefulness_source`), each guarded in SQL on the license,
+  `usefulness` (clearing `usefulness_source`; an `'admin'` block stays fenced),
+  each guarded in SQL on the license,
   and AECi claims on its existing, unclaimed edges. The product comes back
   `updated`, with `preserved[] { kind: 'license_hand_back' }`. A license assigned
   mid-promote aborts the claims with `LICENSE_GRANTED_DURING_PROMOTE`
