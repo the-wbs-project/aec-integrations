@@ -21,7 +21,8 @@
  * ── THE NON-NEGOTIABLE (§7.3) ───────────────────────────────────────────────────
  *
  * **This job never ends a license, never moves an assignment, and never writes
- * `vendors.verified`.** It warns; it never lapses (E6 adds the lapse). The only
+ * `vendors.verified`.** It warns. The lapse is a separate pre-step of the same job
+ * (`lib/license-lapse.ts`, AECI-1404) with its own batches, never this one. The only
  * columns this module mutates on `licenses` are `expiry_notice_sent_at` and the row's
  * own `updated_at` (`expiryNoticeStampStatements` in `lib/license.ts`); it emits no
  * statement against `vendors` at all. {@link expiryNoticeStatements} is exported as a

@@ -841,6 +841,48 @@ export interface EndLicensesParams extends LicenseWriteContext {
   /** Why they end (`LICENSE_END_REASONS`): E6 lapse, a reduction's release, E4.2 revoke.
    *  Stored in `end_reason` and picks the default audit action. */
   endReason: LicenseEndReason;
+  /**
+   * Also guard each UPDATE on this exact `ends_at`, the term the caller scanned
+   * (AECI-1404). An admin extend that moved the term between the read and the batch
+   * then matches no row, so the extend wins. Pair it with a `changedOneRowSentinel`
+   * after the UPDATE to roll the lost race back. Mirrors `expectUnchanged` on
+   * {@link setLicensesTermStatements}. A target whose pre-read `ends_at` differs is
+   * skipped. Absent: the `ended_at IS NULL` guard only (the admin revoke).
+   */
+  expectEndsAt?: string;
+}
+
+type LicenseWrite = { stmt: BatchStmt; entry: AuditLogEntry };
+
+/** The end writes for `targets`, guarded as {@link endLicensesStatements} says. */
+function endWrites(
+  db: Db,
+  ctx: LicenseWriteContext,
+  now: string,
+  targets: readonly LicenseBefore[],
+  endReason: LicenseEndReason,
+  expectEndsAt: string | undefined,
+): { writes: LicenseWrite[]; changed: LicenseBefore[] } {
+  const changed: LicenseBefore[] = [];
+  const writes: LicenseWrite[] = [];
+  for (const before of targets) {
+    if (before.endedAt !== null) continue;
+    if (expectEndsAt !== undefined && before.endsAt !== expectEndsAt) continue;
+    const after: LicenseBefore = { ...before, endedAt: now, endReason };
+    changed.push(after);
+    const stmt = db
+      .update(licenses)
+      .set({ endedAt: now, endReason, updatedAt: now })
+      .where(
+        and(
+          eq(licenses.id, before.id),
+          isNull(licenses.endedAt),
+          ...(expectEndsAt !== undefined ? [eq(licenses.endsAt, expectEndsAt)] : []),
+        ),
+      );
+    writes.push({ stmt, entry: licenseEntry(ctx, now, END_ACTION[endReason], before, after) });
+  }
+  return { writes, changed };
 }
 
 /**
@@ -848,8 +890,9 @@ export interface EndLicensesParams extends LicenseWriteContext {
  * `assigned_product_id`: an ended license keeps its product as history (decision 14),
  * and the product's edit right goes because the gate finds no live license. Nor
  * `cancel_reason`, which records why a live license was set not to renew. One guarded
- * `WHERE ended_at IS NULL` statement and one audit row per license, then the
- * reconcile, which drops `verified` when the last live license ends.
+ * `WHERE ended_at IS NULL` statement (plus `ends_at = :expectEndsAt` when given) and
+ * one audit row per license, then the reconcile, which drops `verified` when the last
+ * live license ends.
  *
  * No live target: a no-op. Re-ending an ended license is never possible: there is no
  * un-end, a new license is a new grant.
@@ -870,19 +913,64 @@ export function endLicensesStatements(db: Db, p: EndLicensesParams): LicenseBatc
           return (l: LicenseBefore) => l.stripeSubscriptionId === sub;
         })();
   const targets = p.vendorLicenses.filter((l) => l.endedAt === null && wanted(l));
-
-  const changed: LicenseBefore[] = [];
-  const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
-  for (const before of targets) {
-    const after: LicenseBefore = { ...before, endedAt: now, endReason: p.endReason };
-    changed.push(after);
-    const stmt = db
-      .update(licenses)
-      .set({ endedAt: now, endReason: p.endReason, updatedAt: now })
-      .where(and(eq(licenses.id, before.id), isNull(licenses.endedAt)));
-    writes.push({ stmt, entry: licenseEntry(p, now, END_ACTION[p.endReason], before, after) });
-  }
+  const { writes, changed } = endWrites(db, p, now, targets, p.endReason, p.expectEndsAt);
   return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+// ─── Term end (E6, AECI-1404) ───────────────────────────────────────────────
+
+export interface LapseTermParams extends LicenseWriteContext {
+  /** The billing account whose term ended. */
+  billingAccountId: string;
+  /** The term's `ends_at`, exactly as scanned. Selects the licenses and guards every
+   *  end UPDATE (`expectEndsAt`). */
+  endsAt: string;
+}
+
+/** One license a term end ended. */
+export interface EndedLicense {
+  licenseId: string;
+  /** The product it was on, or null for a pool license. */
+  productId: string | null;
+  /** `released` when it was flagged release-at-renewal, else `lapsed`. */
+  cause: 'lapsed' | 'released';
+}
+
+/** {@link lapseTermStatements}' result: the batch, plus what it ends. */
+export interface LapseTermBatch extends LicenseBatch {
+  ended: EndedLicense[];
+}
+
+/**
+ * End one term (`VENDOR_SIGNUP_PROCESS.md` §3 steps 9 and 10, decision 11): every live
+ * license on `billingAccountId` whose `ends_at` is the scanned `endsAt`. An assigned
+ * license flagged `release_at_renewal` ends `released`. Every other one ends `lapsed`.
+ * The daily term-end job (`lib/license-lapse.ts`) is the caller.
+ *
+ * ONE batch for the whole term, so a term is never half-ended: the end UPDATEs first,
+ * then one audit row per license, then ONE mirror reconcile with ONE `verifiedFlipped`
+ * prediction over the whole term, not one per end reason. Every UPDATE is guarded on
+ * `ended_at IS NULL` and the scanned `ends_at`, so an admin extend or revoke that
+ * commits first wins. Nothing matches: a no-op.
+ */
+export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch {
+  const now = toIsoTimestamp(p.now);
+  const term = p.vendorLicenses.filter(
+    (l) => l.billingAccountId === p.billingAccountId && l.endedAt === null && l.endsAt === p.endsAt,
+  );
+  const releasing = term.filter((l) => l.releaseAtRenewal && l.assignedProductId !== null);
+  const lapsing = term.filter((l) => !releasing.includes(l));
+
+  const released = endWrites(db, p, now, releasing, 'released', p.endsAt);
+  const lapsed = endWrites(db, p, now, lapsing, 'lapsed', p.endsAt);
+  const changed = [...released.changed, ...lapsed.changed];
+  const batch = assemble(db, p, now, [...released.writes, ...lapsed.writes], replaced(p, changed));
+  const ended: EndedLicense[] = changed.map((l) => ({
+    licenseId: l.id,
+    productId: l.assignedProductId,
+    cause: l.endReason === 'released' ? 'released' : 'lapsed',
+  }));
+  return { ...batch, ended };
 }
 
 // ─── The expiry-notice fence (E1.7) ─────────────────────────────────────────

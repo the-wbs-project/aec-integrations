@@ -2208,13 +2208,13 @@ provisioned. It is not a fault.
 
 ## Pilot vendor terms: set, extend, end
 
-Not an alert. This is the operator procedure for a pilot vendor's free Managed term. Ruled 2026-10-14 (AECI-1325, `STAGE_2_PAID_TIERS_SPEC.md` §7.3). No code ends a pilot. The operator does each step by hand.
+Not an alert. This is the operator procedure for a pilot vendor's free Managed term.
 
-*As revised 2026-10-17 (AECI-1375):* every step now runs on the Billing tab with licenses. The entitlement Set, Renew and Clear controls and the plan message override are retired. The pre-AECI-1375 procedure is in git history.
+*As revised 2026-10-19 (AECI-1404, E6.1):* a license now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 30-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with licenses (AECI-1375). The older procedures are in git history.
 
-**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends by an admin Revoke.
+**The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends on its end date with no operator step.
 
-**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary licenses granted with "Pilot" in the grant notes. The notes go to the audit trail only. Keep a calendar reminder per vendor on its end date. The expiry job sends one notice per term and nothing on the end date itself, so the calendar is the only reminder that lands on the day.
+**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary licenses granted with "Pilot" in the grant notes. The notes go to the audit trail only. A calendar reminder per vendor is optional now. It is only useful to decide on an extension before the end date.
 
 ### 1. Start the pilot
 
@@ -2222,36 +2222,47 @@ Not an alert. This is the operator procedure for a pilot vendor's free Managed t
 2. Choose **Grant licenses**. Number: one per product in the pilot. Source: Complimentary.
 3. Set the start date to the sign-on date and the end date to the sign-on date plus one month.
 4. Put "Pilot" and the sign-on date in **Notes**.
-5. Confirm. Then add the calendar reminder for the end date.
+5. Confirm.
 6. Tell the vendor's owner to assign the licenses to products from its own Billing tab. A grant assigns nothing.
 
-The next 11:00 UTC expiry run emails the vendor's seats and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
+The next 11:00 UTC run emails the vendor's seats and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
 ### 2. Extend the pilot
 
+Do this **before** the end date. On the end date itself, do it before 11:00 UTC.
+
 1. Open the vendor at `/admin/vendors/:id?tab=billing`.
 2. On each live license row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
-3. Confirm, then move the calendar reminder.
+3. Confirm.
 
-Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term.
+Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins: the run rolls that whole term back and leaves the licenses live.
 
-### 3. End the pilot
+### 3. The pilot ends
 
-1. Open the vendor at `/admin/vendors/:id?tab=billing` on or after the end date.
-2. On each live license row, choose **Revoke**. Or check the rows and choose **Revoke**.
-3. Enter "Pilot ended" as the reason. The vendor sees this reason. Put anything internal in the internal note.
-4. Confirm.
-
-What the revoke does:
+Nothing to do. On the end date, the 11:00 UTC run ends every live license of the term.
 
 | Effect | Detail |
 |---|---|
-| Plan | Each product on a revoked license moves to the Free plan. Seats, logins and everything the vendor entered stay. |
-| Portal | The vendor's seats read the reason in Messages. The plan-ended banner shows once no license is live (§13.11). |
-| Email | Each seat and the billing email get `managed-ended` once per product. |
-| Owner contests | When the last live license ends, open owner contests on connector-powered rows move to AECi (AECI-1092). |
+| License | `ended_at` is set. `end_reason` is `lapsed`, or `released` for a license the vendor flagged "release at renewal". The license keeps its product as history. |
+| Plan | Each product on an ended license moves to the Free plan. Seats, logins and everything the vendor entered stay. |
+| Portal | The plan-ended banner shows once no license is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
+| Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
 | Cache | The product and vendor pages are purged. |
+| Owner contests | Not moved. The last-license re-route (AECI-1092) runs on a revoke only. An open question on AECI-1404 asks whether a lapse should run it too. |
 
-### `revoked` versus `expired`
+To end a pilot **early**, revoke the licenses on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live license.
 
-A revoke ends the license with `end_reason = 'revoked'` and a `license.revoked` audit row. A pilot that ends on schedule therefore reads as a revocation in the audit log and in reports, even though nothing was wrong. Nothing ends a license as lapsed today, because the expiry job only warns. The vendor sees no difference: the banner reads "Your Managed plan has ended" for both. When reading reports, treat a `revoked` row whose reason is "Pilot ended" as a normal pilot end.
+To check a run, open `/admin/system`. The `entitlement-expiry` row's detail carries `lapsed_terms`, `lapsed_licenses` and `lapse_batch_failures`. A non-zero `lapse_batch_failures` is a term that an admin edit raced, or a D1 error. Either way the next run reads that term again.
+
+### 4. Undo a wrong lapse
+
+A lapse is terminal. An ended license never comes back, and Extend works on live licenses only. So a wrong lapse is undone with a new grant plus a re-assign.
+
+1. Open the vendor at `/admin/vendors/:id?tab=billing`. Choose **Grant licenses** with the same number, source and reference as the ended licenses, and the correct end date. This is the extend.
+2. Ask the vendor's owner to re-assign the new licenses to the same products from its own Billing tab. There is no admin assign. Until the owner assigns them, the products stay on Free.
+
+The grant emails `licenses-granted`. The `managed-ended` email has already gone, so tell the vendor that Managed is back. The Managed-field content was never removed, so nothing else needs restoring.
+
+### `lapsed` versus `revoked`
+
+A pilot that ends on schedule reads as `lapsed` in the audit log and in reports (`license.lapsed`). One flagged "release at renewal" reads as `released`. A revoke stays `revoked`. Rows written before 2026-10-19 show scheduled pilot ends as `revoked` with the reason "Pilot ended". Treat those as normal pilot ends. The vendor sees no difference: the banner reads "Your Managed plan has ended" for every cause.

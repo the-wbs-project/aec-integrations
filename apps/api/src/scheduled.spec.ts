@@ -85,6 +85,9 @@ vi.mock('./lib/attestation-notify', () => ({ runAttestationNotifySweep: vi.fn() 
 // §7.3 non-negotiable that it never writes `status` or `vendors.verified` — is
 // covered by `lib/entitlement-expiry.spec.ts`.
 vi.mock('./lib/entitlement-expiry', () => ({ runEntitlementExpirySweep: vi.fn() }));
+// The AECI-1404 term-end lapse runs first inside the same job. It ends licenses and
+// sends email, so it is mocked too: `lib/license-lapse.spec.ts` owns its behaviour.
+vi.mock('./lib/license-lapse', () => ({ runLicenseLapse: vi.fn() }));
 // The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
 // shared transport so the dispatch tests assert orchestration without a network call.
 vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi.fn() }));
@@ -121,6 +124,7 @@ import { sweepAlgoliaOrphans } from './lib/algolia-orphans';
 import { resetAlgoliaWriteGuardWarning } from './lib/algolia-write-guard';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { CHECKS } from './lib/data-quality';
 import { runHomeStats } from './lib/home-stats';
@@ -420,6 +424,89 @@ describe('scheduled (cron producer)', () => {
       1,
       ['trigger:cron', 'outcome:failed'],
     );
+  });
+
+  describe('the term-end lapse pre-step (AECI-1404)', () => {
+    const cleanSweep = {
+      due: 0,
+      suppressed: 0,
+      capped: 0,
+      malformed: 0,
+      warned: 0,
+      vendor: {
+        sent: 0,
+        failed: 0,
+        unknown: 0,
+        skipped: 0,
+        suppressed: 0,
+        duplicate: 0,
+        paused: 0,
+      },
+      admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0, paused: 0 },
+      batchFailures: 0,
+    };
+    const emails = {
+      sent: 2,
+      failed: 0,
+      unknown: 0,
+      skipped: 0,
+      suppressed: 0,
+      duplicate: 0,
+      paused: 0,
+    };
+
+    it('runs the lapse BEFORE the warning sweep, and records its counts on the job row', async () => {
+      const order: string[] = [];
+      vi.mocked(runLicenseLapse).mockImplementationOnce(async () => {
+        order.push('lapse');
+        return {
+          lapsedTerms: 2,
+          lapsedLicenses: 5,
+          droppedProducts: 3,
+          capped: 0,
+          batchFailures: 0,
+          emails,
+        };
+      });
+      vi.mocked(runEntitlementExpirySweep).mockImplementationOnce(async () => {
+        order.push('sweep');
+        return cleanSweep;
+      });
+
+      await scheduled(cronController(ENTITLEMENT_EXPIRY_CRON), makeEnv(), ctx);
+
+      expect(order).toEqual(['lapse', 'sweep']);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('ok');
+      expect(row?.detail).toMatchObject({
+        job: 'entitlement-expiry',
+        lapsed_terms: 2,
+        lapsed_licenses: 5,
+        lapse_capped: 0,
+        lapse_batch_failures: 0,
+        lapse_email: emails,
+      });
+    });
+
+    it('still sends the warnings when the lapse crashes, and records a failed run', async () => {
+      vi.mocked(runLicenseLapse).mockRejectedValueOnce(new Error('D1 down'));
+      vi.mocked(runEntitlementExpirySweep).mockResolvedValueOnce(cleanSweep);
+
+      await scheduled(cronController(ENTITLEMENT_EXPIRY_CRON), makeEnv(), ctx);
+
+      expect(runEntitlementExpirySweep).toHaveBeenCalledTimes(1);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('failed');
+      expect(row?.detail).toMatchObject({ lapse_error: 'D1 down' });
+      expect(submitCount).toHaveBeenCalledWith(
+        ctx,
+        expect.anything(),
+        expect.anything(),
+        'aeci.entitlement.expiry.job',
+        1,
+        ['trigger:cron', 'outcome:failed'],
+      );
+    });
   });
 
   it('runs the attestation sweep inline when no ATTESTATION_NOTIFY_QUEUE binding is present', async () => {

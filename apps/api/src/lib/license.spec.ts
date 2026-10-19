@@ -33,6 +33,7 @@ import {
   clearVendorBannedFlagsStatements,
   endLicensesStatements,
   grantLicensesStatements,
+  lapseTermStatements,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
   reconcileVerifiedMirror,
@@ -704,6 +705,113 @@ describe('endLicensesStatements', () => {
   });
 });
 
+describe('endLicensesStatements — expectEndsAt (AECI-1404)', () => {
+  const TERM = '2027-10-14T00:00:00.000Z';
+
+  it('guards the UPDATE on the scanned ends_at, so an extend that lands first wins', async () => {
+    await seedLicense('l-1', { endsAt: TERM });
+    const batch = endLicensesStatements(t.db, {
+      ...(await ctx()),
+      target: { licenseIds: ['l-1'] },
+      endReason: 'lapsed',
+      expectEndsAt: TERM,
+    });
+    expect(sqlOf(batch.stmts[0]!).sql).toMatch(/"ends_at" = \?/);
+    // An admin extend commits between the read and the batch.
+    await t.db.update(licenses).set({ endsAt: '2028-10-14T00:00:00.000Z' });
+    await run(batch);
+    expect((await licenseOf('l-1')).endedAt).toBeNull();
+  });
+
+  it('skips a target whose pre-read ends_at is not the expected term', async () => {
+    await seedLicense('l-1', { endsAt: '2028-10-14T00:00:00.000Z' });
+    const batch = endLicensesStatements(t.db, {
+      ...(await ctx()),
+      target: { licenseIds: ['l-1'] },
+      endReason: 'lapsed',
+      expectEndsAt: TERM,
+    });
+    expect(batch.stmts).toHaveLength(0);
+  });
+});
+
+describe('lapseTermStatements (AECI-1404)', () => {
+  const TERM = '2027-10-14T00:00:00.000Z';
+
+  it('ends the term: flagged licenses released, the rest lapsed, one reconcile', async () => {
+    await setVerified(true);
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-2', {
+      endsAt: TERM,
+      assignedProductId: P2,
+      assignedAt: OLD_TS,
+      releaseAtRenewal: true,
+    });
+    await seedLicense('l-pool', { endsAt: TERM });
+    // Another term on the same account, and a monthly license: neither is touched.
+    await seedLicense('l-later', { endsAt: '2028-10-14T00:00:00.000Z' });
+    await seedLicense('l-monthly', { endsAt: null });
+
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      actorId: null,
+      actorType: 'system',
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.stmts.filter(touchesVendors)).toHaveLength(1);
+    expect(batch.verifiedFlipped).toBe(false);
+    expect(batch.ended).toEqual(
+      expect.arrayContaining([
+        { licenseId: 'l-1', productId: P1, cause: 'lapsed' },
+        { licenseId: 'l-2', productId: P2, cause: 'released' },
+        { licenseId: 'l-pool', productId: null, cause: 'lapsed' },
+      ]),
+    );
+    expect(batch.ended).toHaveLength(3);
+    await run(batch);
+
+    expect(await licenseOf('l-1')).toMatchObject({
+      endedAt: NOW,
+      endReason: 'lapsed',
+      assignedProductId: P1,
+    });
+    expect(await licenseOf('l-2')).toMatchObject({ endedAt: NOW, endReason: 'released' });
+    expect((await licenseOf('l-later')).endedAt).toBeNull();
+    expect((await licenseOf('l-monthly')).endedAt).toBeNull();
+    const actions = (await audits()).map((a) => a.action).sort();
+    expect(actions).toEqual(['license.lapsed', 'license.lapsed', 'license.released']);
+  });
+
+  it('predicts the flip once, over the whole term', async () => {
+    await setVerified(true);
+    await seedLicense('l-1', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-2', { endsAt: TERM, releaseAtRenewal: true, assignedProductId: P2 });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.verifiedFlipped).toBe(true);
+    for (const entry of batch.auditEntries) {
+      expect(entry.metadata).toMatchObject({ verified_flipped: true });
+    }
+    await run(batch);
+    expect((await vendorOf()).verified).toBe(false);
+  });
+
+  it('is empty when nothing on the term is live', async () => {
+    await seedLicense('l-1', { endsAt: TERM, endedAt: OLD_TS, endReason: 'revoked' });
+    const batch = lapseTermStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      endsAt: TERM,
+    });
+    expect(batch.stmts).toHaveLength(0);
+    expect(batch.ended).toEqual([]);
+  });
+});
+
 // ─── The mirror reconcile ────────────────────────────────────────────────────
 
 describe('the mirror reconcile', () => {
@@ -731,6 +839,12 @@ describe('the mirror reconcile', () => {
       }),
       // AECI-1353.
       setLicensesTermStatements(t.db, { ...c, licenseIds: ['l-held'], endsAt: '2028-01-01' }),
+      // AECI-1404.
+      lapseTermStatements(t.db, {
+        ...c,
+        billingAccountId: ACCOUNT_ID,
+        endsAt: '2027-10-14T00:00:00.000Z',
+      }),
     ];
   }
 
