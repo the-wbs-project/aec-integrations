@@ -1560,7 +1560,7 @@ export const billingAccounts = sqliteTable(
  *
  * DATES. `ends_at` NULL is monthly (renews until cancelled); `ends_at` set is annual,
  * invoice or complimentary. LIVE means `ended_at IS NULL`, stored state only: `ends_at`
- * is the scheduled end that E6's daily job turns into `ended_at`. Never compute "live"
+ * is the scheduled end that the 11:00 lapse (`lib/license-lapse.ts`, AECI-1404) turns into `ended_at`. Never compute "live"
  * from `ends_at` at read time.
  *
  * ASSIGNMENT. `assigned_product_id` is the product the slot is on. `ON DELETE SET NULL`
@@ -1623,7 +1623,7 @@ export const licenses = sqliteTable(
      *  `agreement_acceptances` below (AECI-1362). */
     termsVersion: text('terms_version'),
     grantedBy: text('granted_by'),
-    /** The term-end notice job's idempotency fence (E6). */
+    /** The term-end notice job's idempotency fence (AECI-1356, kept by E6). */
     expiryNoticeSentAt: text('expiry_notice_sent_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1634,7 +1634,7 @@ export const licenses = sqliteTable(
     uniqueIndex('licenses_live_product_idx')
       .on(t.assignedProductId)
       .where(sql`"ended_at" IS NULL`),
-    // E6's daily term-end scan. Monthly and ended rows are invisible to it.
+    // The daily term-end scans (the lapse and the 30-day notice, E6). Monthly and ended rows are invisible to it.
     index('licenses_ends_idx')
       .on(t.endsAt)
       .where(sql`"ended_at" IS NULL AND "ends_at" IS NOT NULL`),

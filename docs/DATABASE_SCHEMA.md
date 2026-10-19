@@ -1673,7 +1673,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   *As built (AECI-1358, 2026-10-17): `vendorPlanSnapshot` and `loadEntitlement` are deleted.
   `licensePlanSnapshot` is the only snapshot builder.*
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
-  the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
+  the stored status. Nothing auto-lapsed a `vendor_entitlements` row: the expiry cron only
+  warned. (*As built 2026-10-19, AECI-1404: licenses now lapse on their end date, so the same
+  rule covers only the hours before the 11:00 job runs.*) So a row stored
   `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
   'expired'`. `vendorPlanSnapshot` takes the row's `period_end` and the write's `now` for this.
   The vendor path reads `period_end` from the session's `entitlement` block. The admin path reads
@@ -1685,7 +1687,8 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   `licensePlanSnapshot`: live licenses whose `ends_at` are all at or before the write time record
   `expired`, and a null `ends_at` (monthly) never lapses on the clock. The vendor path reads
   `ends_at` from the session's `licenses`, the admin path from `loadVendorLicenses`. Session
-  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants.
+  authorization trusts stored `ended_at` only, so a license past its `ends_at` still grants
+  until the 11:00 lapse job ends it (AECI-1404).
 - **The cause product's plan: `product_tier`, `product_entitlement_status` (AECI-1376, migration
   `0080`, 2026-10-16).** Since AECI-1355 search-engine resubmission is per product
   (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)). These two columns record, at write time, the plan of the
@@ -2034,7 +2037,7 @@ create table licenses (
   cancel_reason text,            -- why a LIVE license will not renew (decision 15); not why one ended
   terms_version text,            -- pointer only; the acceptance record is agreement_acceptances (§8.6d)
   granted_by text,               -- a profiles.id; NO FK
-  expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it
+  expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it, the lapse does not clear it
   created_at text not null,
   updated_at text not null
 );
@@ -2043,8 +2046,8 @@ create index licenses_account_idx on licenses(billing_account_id);
 -- One LIVE license per product. Ended licenses keep their assignment as history.
 create unique index licenses_live_product_idx on licenses(assigned_product_id)
   where ended_at is null;
--- The daily expiry sweep's scan (AECI-1356; E6 adds the lapse). Monthly and ended
--- rows are invisible to it.
+-- The daily scans: the 30-day expiry sweep (AECI-1356) and the lapse that ends passed
+-- terms (AECI-1404). Monthly and ended rows are invisible to both.
 create index licenses_ends_idx on licenses(ends_at)
   where ended_at is null and ends_at is not null;
 create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id)
@@ -2052,7 +2055,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 ```
 
 - **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
-  scheduled end; E6's daily job turns it into `ended_at`. Never derive "live" from `ends_at`
+  scheduled end; the 11:00 lapse job (`lib/license-lapse.ts`, AECI-1404) turns it into
+  `ended_at`. Never derive "live" from `ends_at`
   at read time.
 - **Monthly and annual share one column.** `ends_at` null on a `stripe` license is monthly
   (renews until cancelled). `ends_at` null on any other source has no end date yet: the E1.5
@@ -2125,7 +2129,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 - **How a license ended.** There is no status column. `end_reason` records why, written
   with `ended_at` by `endLicensesStatements` (`LICENSE_END_REASONS` in
   `@aeci/shared/entitlements`: `lapsed`, `released`, `revoked`). It also picks the audit
-  action. It is NULL while the license is live. `cancel_reason` is a different question:
+  action. It is NULL while the license is live. Three writers set the pair: admin revoke
+  (`revoked`), the `ops:retract-product` lane, and since AECI-1404 the 11:00 lapse
+  (`lib/license-lapse.ts`), which writes `lapsed`, or `released` for a license flagged
+  release-at-renewal (carry-over, AECI-1405, runs in the same batch). All three go through
+  `endLicensesStatements`. `cancel_reason` is a different question:
   why a live license was set not to renew. Ending a license never touches it.
 - **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in

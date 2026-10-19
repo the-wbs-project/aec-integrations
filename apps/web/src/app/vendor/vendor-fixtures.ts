@@ -512,7 +512,7 @@ function inDays(days: number): string {
 
 /**
  * State 2: verified, term inside the panel's warning window. Still fully
- * capable, because §7.3 is that the system WARNS and never auto-lapses.
+ * capable until the end date. The lapse (AECI-1404) ends the term that day, not before.
  */
 export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = withProductPlans({
   ...VENDOR_ME_FIXTURE,

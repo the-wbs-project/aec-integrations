@@ -5,8 +5,9 @@
  * A license carries a term (`ends_at`). As it approaches, this job **warns** the
  * vendor's seats and the operator, and stamps `licenses.expiry_notice_sent_at` so a
  * term earns one notice rather than one per night. Run by the daily 11:00 UTC cron
- * (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline. E6 extends it with the price line
- * and the lapse; until then it only warns.
+ * (`ENTITLEMENT_EXPIRY_CRON`), queue-less and inline. Since E6 (AECI-1404, AECI-1406) the
+ * lapse runs first as a pre-step and the notice carries the price, count, products and
+ * terms change; this sweep itself still only warns.
  *
  * ── ONE NOTICE PER ACCOUNT PER TERM ─────────────────────────────────────────────
  *
@@ -318,7 +319,8 @@ function productNamesOf(json: string): string[] {
  * `ends_at <= horizon` is a lexical string comparison, which is sound because
  * ISO-8601 is defined to sort lexically and every writer stamps `toISOString()`
  * (`toIsoTimestamp` in `lib/license.ts`). There is deliberately NO lower bound: a
- * live license already past its `ends_at` — the steady state until E6 adds the lapse —
+ * live license already past its `ends_at` — a term the lapse did not end (the lapse failed
+ * or hit its cap that day) —
  * is exactly what an operator most needs to see, and the fence still limits it to one
  * notice.
  *

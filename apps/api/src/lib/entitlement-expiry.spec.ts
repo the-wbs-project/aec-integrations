@@ -384,7 +384,7 @@ describe('the scan', () => {
     expect(result.warned).toBe(0);
   });
 
-  it('DOES select a live license already past its end date — the state nothing lapses yet', async () => {
+  it('DOES select a live license already past its end date, so the operator hears of a term the lapse did not end', async () => {
     await seedVendor();
     await seedSeat();
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();
@@ -886,8 +886,8 @@ describe('multiple vendors', () => {
 
 describe('the batch cap — never-warned terms are read before the already-warned backlog', () => {
   it('warns a due term even when the cap is filled by already-warned past-term licenses', async () => {
-    // The steady-state backlog: past-term live licenses already warned for their
-    // (only) term. Nothing lapses yet, so they never leave the scan, they stay
+    // The backlog: past-term live licenses already warned for their (only) term.
+    // They are terms the lapse did not end, so they stay in the scan, they stay
     // stamped-and-suppressed, and their past `ends_at` sorts them to the FRONT of an
     // `ends_at`-only ordering.
     const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();

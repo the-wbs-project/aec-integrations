@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: October 16, 2026
+last_updated: October 19, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -80,7 +80,7 @@ To start, claim your listing. The claim form does not ask about a plan. When we 
 
 The plan renews for another year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A price change needs your agreement. We never take silence as agreement.
 
-The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. A Managed plan does not lapse on its own. Its status changes only when we act on it. To opt out of renewal for the whole plan, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the end date, an annual plan that you have not renewed ends, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
 
 ## The Billing tab
 

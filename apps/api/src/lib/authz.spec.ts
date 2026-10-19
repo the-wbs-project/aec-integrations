@@ -593,7 +593,7 @@ describe('requireVendor — the plan from licenses', () => {
     expect(auth?.licensedProductIds).toEqual([PRODUCT_2]);
   });
 
-  it('trusts stored state: a live license past its ends_at still grants until E6 ends it', async () => {
+  it('trusts stored state: a live license past its ends_at still grants until the lapse ends it', async () => {
     await seedSeat();
     await seedLicense(t.db, VENDOR_ID, {
       productId: PRODUCT_1,
