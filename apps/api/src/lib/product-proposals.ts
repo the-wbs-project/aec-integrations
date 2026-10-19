@@ -6,7 +6,7 @@
  * the vendor's open ones (`routes/admin-vendors.ts`). Accept and decline are AECI-1417.
  */
 
-import { and, eq, isNotNull, isNull, notInArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productProposals, vendors } from '../db/schema';
@@ -53,18 +53,19 @@ export function proposalVendorOwnedSentinel(db: Db, vendorId: string): BatchStmt
  * The return's guard on its own delete. The return reads the open proposal ids, records
  * them in its audit row and deletes them. A proposal a promote stores between that read
  * and the batch would be deleted without being recorded, so this aborts the batch when
- * an open proposal outside `ids` exists. The caller re-reads and answers
- * `409 VENDOR_PROPOSALS_CHANGED`.
+ * the vendor's open count differs from `expected` at commit. A count, not an id list:
+ * D1 caps a statement at 100 bound parameters, and a vendor may hold more proposals than
+ * that. The caller re-reads and answers `409 VENDOR_PROPOSALS_CHANGED`.
  */
 export function openProposalsUnchangedSentinel(
   db: Db,
   vendorId: string,
-  ids: readonly string[],
+  expected: number,
 ): BatchStmt {
-  const where = ids.length
-    ? and(openProposalsFor(vendorId), notInArray(productProposals.id, [...ids]))
-    : openProposalsFor(vendorId);
-  return raise(db, sql`EXISTS (SELECT 1 FROM ${productProposals} WHERE ${where})`);
+  return raise(
+    db,
+    sql`(SELECT count(*) FROM ${productProposals} WHERE ${openProposalsFor(vendorId)}) <> ${expected}`,
+  );
 }
 
 /** The ids of a vendor's open proposals, oldest first. */

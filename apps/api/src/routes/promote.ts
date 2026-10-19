@@ -1102,14 +1102,14 @@ export const BLOCKED_PRODUCT_REASON =
 export const PROPOSED_PRODUCT_REASON =
   'new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline';
 export const ALREADY_PROPOSED_REASONS = {
-  open: 'product was already sent to the vendor that owns its record as a proposal, which is still open; a ref is sent once, so nothing was written',
+  open: 'product was already sent to the vendor that owns its record as a proposal, which is still open; a ref is sent once, so nothing was written to the catalog or proposals',
   accepted:
-    'product was already sent to the vendor that owns its record as a proposal, which the vendor accepted; a ref is sent once, so nothing was written',
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor accepted; a ref is sent once, so nothing was written to the catalog or proposals',
   declined:
-    'product was already sent to the vendor that owns its record as a proposal, which the vendor declined; a ref is sent once, so nothing was written',
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor declined; a ref is sent once, so nothing was written to the catalog or proposals',
 } as const;
 export const PROPOSAL_REF_REFUSED_REASON =
-  'new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written';
+  'new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written to the catalog or proposals';
 export const PROPOSED_PRODUCT_INTEGRATION_REASON =
   'an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored';
 export const BLOCKED_INTEGRATION_REASON =
@@ -2286,7 +2286,7 @@ export async function runPromoteIngest(
     ? updatedVendorIds.find((id) => claimedVendorIds.has(id))
     : undefined;
   // Ruled 2026-10-19: a proposal's ref must be the review app's `p:rec…` record ref,
-  // because Q5 keys on it forever. Anything else is refused and nothing is written.
+  // because Q5 keys on it forever. Anything else is refused and nothing is written to the catalog or proposals.
   const proposalRefUsable =
     newProductBlocked && payload.product ? PROPOSAL_REF_RE.test(payload.product.ref) : false;
   const priorProposal =

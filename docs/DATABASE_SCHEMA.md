@@ -2441,7 +2441,7 @@ create index product_proposals_vendor_open_idx
 ```
 
 - **One send per ref, ever (ruling Q5, 2026-10-19).** Promote refuses a `ref` that already has a
-  row, whatever its `decision`, and writes nothing for it. The unique index is the race guard: two
+  row, whatever its `decision`, and writes nothing to the catalog or proposals for it (only its `promote.blocked` audit row). The unique index is the race guard: two
   promotes of one `ref` cannot both commit, and the later batch errors with
   `PRODUCT_PROPOSED_DURING_PROMOTE`. The insert has no `ON CONFLICT`, because its audit row rides
   the same batch and would then record a proposal that was never stored.

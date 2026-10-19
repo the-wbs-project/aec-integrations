@@ -1105,7 +1105,7 @@ export function createReturnRecordsHandler(
         pendingInviteRaceSentinel(db, vendorId, now),
         ...handback.stmts,
         // AECI-1416: the open proposals go with the ownership. Decided ones stay.
-        openProposalsUnchangedSentinel(db, vendorId, openProposalIds),
+        openProposalsUnchangedSentinel(db, vendorId, openProposalIds.length),
         db.delete(productProposals).where(openProposalsFor(vendorId)),
         auditInsert(db, auditEntry),
       ] as BatchTuple);

@@ -6218,11 +6218,12 @@ writes the very same columns, so a routine push would silently revert their work
   the product and EVERY vendor the payload named, each with its resolved AECi `vendorId` (ruled
   2026-10-19, "accept means exactly what was sent"). The `ref` must be the review app's record ref,
   `p:rec…` (`PROPOSAL_REF_RE`). Any other ref is refused with `PROPOSAL_REF_REFUSED_REASON` and
-  nothing is written. A product for an unowned vendor is not checked. A commit-time sentinel aborts
+  nothing is written to the catalog or proposals. A product for an unowned vendor is not checked. A commit-time sentinel aborts
   the batch with `VENDOR_RETURNED_DURING_PROMOTE` when the addressed vendor stopped owning its record
   before commit. A `ref` is sent once, ever: a `ref` that already has a proposal (open, accepted or
   declined) is refused at plan time with `ALREADY_PROPOSED_REASONS[state]` and the existing
-  `proposalId`, and nothing is written for it. A racing second send of one `ref` trips the unique
+  `proposalId`, and nothing is written to the catalog or proposals for it (the refusal writes its
+  `promote.blocked` audit row, like every refusal). A racing second send of one `ref` trips the unique
   index on `product_proposals.ref` and the job errors with `PRODUCT_PROPOSED_DURING_PROMOTE`. The
   insert has no `ON CONFLICT`, so its audit row never records a proposal that was not stored. A
   proposal-only promote reports `wrote: false` and fires no catalog hooks. Before AECI-1416 the
