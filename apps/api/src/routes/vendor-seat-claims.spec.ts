@@ -26,6 +26,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { INVITE_DAILY_LIMIT } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -45,6 +46,20 @@ let t: TestDb;
 const sentInvite = vi.fn();
 const sentDeclined = vi.fn();
 
+type Resolver = typeof resolveClaimantIdentity;
+/** The Accept guard's lookup (AECI-1420). Each test sets it; the default finds no
+ *  account, which proceeds as before. */
+let resolver: Resolver;
+const resolveNotFound: Resolver = async () => ({ outcome: 'not_found' });
+const CLAIMANT = uuid(200);
+/** The REAL resolver over a fake GoTrue lookup that finds `CLAIMANT`, so the profile
+ *  read and the conflict rule run against the seeded rows. */
+const resolveFindingClaimant: Resolver = (db, env, input) =>
+  resolveClaimantIdentity(db, env, input, async () => ({
+    ok: true,
+    user: { id: CLAIMANT, email: 'casey@acme.com' },
+  }));
+
 const session = (over: Partial<AuthzVariables['auth']> = {}): AuthzVariables['auth'] => ({
   userId: OWNER,
   email: 'owner@acme.com',
@@ -61,6 +76,7 @@ beforeEach(async () => {
   t = await makeTestDb();
   sentInvite.mockReset().mockResolvedValue(undefined);
   sentDeclined.mockReset().mockResolvedValue(undefined);
+  resolver = resolveNotFound;
   await t.db.insert(vendors).values([
     { id: VENDOR, slug: 'acme', companyName: 'Acme', website: 'https://acme.com' },
     { id: OTHER_VENDOR, slug: 'globex', companyName: 'Globex' },
@@ -109,7 +125,9 @@ function app() {
   );
   a.post(
     '/api/vendor/seats/claims/:id/accept',
-    createAcceptSeatClaimHandler(t.factory, sentInvite),
+    createAcceptSeatClaimHandler(t.factory, sentInvite, sentDeclined, (...args) =>
+      resolver(...args),
+    ),
   );
   a.post(
     '/api/vendor/seats/claims/:id/decline',
@@ -376,5 +394,153 @@ describe('owner decisions lose a race with 409 and write nothing (AECI-1333)', (
     expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
     expect(sentInvite).not.toHaveBeenCalled();
     expect(sentDeclined).not.toHaveBeenCalled();
+  });
+});
+
+// ─── The account guard on Accept (AECI-1420) ─────────────────────────────────
+//
+// A claim that got through the submit-time check (the lookup was down) is checked
+// again when an owner accepts it. One account belongs to one company.
+
+describe('POST /api/vendor/seats/claims/:id/accept → the account guard (AECI-1420)', () => {
+  const seedClaimant = (over: Partial<typeof profiles.$inferInsert> = {}) =>
+    t.db.insert(profiles).values({
+      id: CLAIMANT,
+      role: 'vendor_admin',
+      vendorId: OTHER_VENDOR,
+      seatOwner: true,
+      ...over,
+    });
+
+  it('rejects a claim from an address seated on another company, by the system, and answers the decided 409', async () => {
+    await seedClaim();
+    await seedClaimant();
+    const spy = vi.fn<Resolver>(resolveFindingClaimant);
+    resolver = spy;
+
+    const { status, body } = await accept();
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(body.error.details).toEqual({ status: 'rejected' });
+    // The owner is told nothing about the other company.
+    expect(JSON.stringify(body)).not.toContain('Globex');
+    expect(spy).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      email: 'Casey@Acme.com',
+      vendorId: VENDOR,
+      provision: false,
+    });
+
+    const row = await claimRow();
+    expect(row).toMatchObject({ status: 'rejected', resolvedById: null });
+    expect(row?.resolvedAt).toEqual(expect.any(String));
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: 'vendor_claim.rejected',
+      actorType: 'system',
+      actorId: null,
+      vendorId: VENDOR,
+    });
+    expect(audits[0]!.metadata).toMatchObject({
+      source: 'system',
+      reason: 'account_conflict',
+      conflict: 'other_vendor',
+      other_vendor_id: OTHER_VENDOR,
+    });
+    const transitions = await t.db.select().from(workflowTransitions);
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({
+      fromState: 'open',
+      toState: 'rejected',
+      actorId: null,
+      reason: 'account_conflict',
+    });
+
+    // No invite, no owner_accepted row, no invite email. The reasoned reject goes.
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
+    expect(sentInvite).not.toHaveBeenCalled();
+    expect(sentDeclined).toHaveBeenCalledOnce();
+    expect(sentDeclined).toHaveBeenCalledWith(expect.anything(), {
+      to: 'Casey@Acme.com',
+      vendorName: 'Acme',
+      reason: { kind: 'other_vendor', otherVendorName: 'Globex' },
+    });
+  });
+
+  it('rejects a staff account with the staff reason', async () => {
+    await seedClaim();
+    await seedClaimant({ role: 'admin', vendorId: null, seatOwner: false });
+    resolver = resolveFindingClaimant;
+
+    const { status } = await accept();
+
+    expect(status).toBe(409);
+    expect((await claimRow())?.status).toBe('rejected');
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({ conflict: 'already_admin', other_vendor_id: null });
+    expect(sentDeclined.mock.calls[0]![1]).toMatchObject({ reason: { kind: 'already_admin' } });
+  });
+
+  it('accepts as before when the claimant already holds a seat on THIS company', async () => {
+    await seedClaim();
+    await seedClaimant({ vendorId: VENDOR, seatOwner: false });
+    resolver = resolveFindingClaimant;
+
+    const { status } = await accept();
+
+    expect(status).toBe(201);
+    expect((await claimRow())?.status).toBe('resolved');
+    expect(sentInvite).toHaveBeenCalledOnce();
+    expect(sentDeclined).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unavailable (no Supabase creds)', resolveClaimantIdentity],
+    [
+      'a GoTrue error',
+      (async () => ({ outcome: 'error', stage: 'lookup', status: 500 })) as Resolver,
+    ],
+    [
+      'a thrown check',
+      (async () => {
+        throw new Error('boom');
+      }) as Resolver,
+    ],
+  ])('503s and writes nothing on %s', async (_label, resolve) => {
+    await seedClaim();
+    resolver = resolve;
+
+    const { status, body } = await accept();
+
+    expect(status).toBe(503);
+    expect(body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
+    expect((await claimRow())?.status).toBe('open');
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
+    expect(sentInvite).not.toHaveBeenCalled();
+    expect(sentDeclined).not.toHaveBeenCalled();
+  });
+
+  it('loses the race to a hand decision: the hand decision stands, no system row, no reasoned email', async () => {
+    await seedClaim();
+    await seedClaimant();
+    resolver = resolveFindingClaimant;
+    beforeNextBatch(() => decline());
+
+    const { status, body } = await accept();
+
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.CLAIM_ALREADY_DECIDED);
+    expect(await claimRow()).toMatchObject({ status: 'rejected', resolvedById: OWNER });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actorId: OWNER, actorType: 'user' });
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    // Only the owner's plain decline was mailed.
+    expect(sentDeclined).toHaveBeenCalledOnce();
+    expect(sentDeclined.mock.calls[0]![1]).not.toHaveProperty('reason');
   });
 });

@@ -32,6 +32,7 @@ import {
   sendAttestationOpsDigestEmail,
   type AttestationDigestFinding,
   sendClaimApprovedEmail,
+  claimAutoRejectedAlertLine,
   sendClaimDecisionEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
@@ -671,8 +672,9 @@ describe('sendClaimApprovedEmail', () => {
 
 describe('sendClaimRejectedEmail', () => {
   it('sends a neutral rejection that never echoes an internal reviewer note', async () => {
-    // The email takes no `reason`: the reviewer's decision note is internal (audit
-    // only), so nothing they type can reach the claimant (§9).
+    // The email takes no reviewer reason: the reviewer's decision note is internal
+    // (audit only), so nothing they type can reach the claimant (§9). Its only
+    // `reason` is a system fact about the recipient's account (AECI-1420).
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendClaimRejectedEmail(fakeContext(), {
       to: 'owner@vendor.com',
@@ -728,8 +730,9 @@ describe('sendClaimRejectedEmail', () => {
     await sendClaimRejectedEmail(fakeContext(), { to: 'owner@vendor.com', vendorName: 'Globex' });
 
     const body = lastBody(fetchSpy);
-    // The §9 guarantee is structural: the send takes no `reason` argument at all, and
-    // the rendered body carries no row the migration could have given one to.
+    // The §9 guarantee is structural: the send takes no free-text reason at all (its
+    // `reason` is a closed union of system facts, AECI-1420), and the rendered body
+    // carries no row the migration could have given one to.
     expect(String(body.html)).not.toContain('border-top:1px solid #d4d4d8');
     expect(String(body.text).split('\n\n')).toEqual([
       'Your claim for Globex was not approved',
@@ -747,6 +750,108 @@ describe('sendClaimRejectedEmail', () => {
       }),
     ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendClaimRejectedEmail reasoned variant (AECI-1420)', () => {
+  it('names the company the address already manages and says to use another address', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), {
+      to: 'dana@globex.com',
+      vendorName: 'Acme',
+      reason: { kind: 'other_vendor', otherVendorName: 'Globex' },
+    });
+
+    const body = lastBody(fetchSpy);
+    // The subject is the same for every variant.
+    expect(body.subject).toBe('Your claim for Acme was not approved');
+    expect(String(body.text).split('\n\n')).toEqual([
+      'Your claim for Acme was not approved',
+      'Your address already manages Globex on AEC Integrations. One account belongs to one company, so this request to manage Acme was declined automatically.',
+      'To manage Acme as well, send the request from a different work address.',
+      // It goes at submit to a typed, unverified address, like the receipt.
+      'If you did not send this, you can ignore this email. Nothing changed on any account.',
+    ]);
+    expect(String(body.html)).toContain('<strong>Globex</strong>');
+    expect(String(body.text)).not.toContain('—');
+  });
+
+  it('escapes the other company name in the HTML part', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), {
+      to: 'dana@globex.com',
+      vendorName: 'Acme',
+      reason: { kind: 'other_vendor', otherVendorName: '<b>Globex</b>' },
+    });
+    expect(String(lastBody(fetchSpy).html)).toContain('&lt;b&gt;Globex&lt;/b&gt;');
+  });
+
+  it('falls back to "another company" when the name is blank', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), {
+      to: 'dana@globex.com',
+      vendorName: 'Acme',
+      reason: { kind: 'other_vendor', otherVendorName: ' ' },
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'Your address already manages another company on AEC Integrations.',
+    );
+  });
+
+  it('tells a staff account it cannot hold a vendor seat', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), {
+      to: 'ops@aecintegrations.com',
+      vendorName: 'Acme',
+      reason: { kind: 'already_admin' },
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your claim for Acme was not approved');
+    const text = String(body.text);
+    expect(text).toContain('Your address is an AEC Integrations staff account.');
+    expect(text).toContain('A staff account cannot hold a vendor seat');
+    expect(text).not.toContain('already manages');
+    expect(text).toContain(
+      'If you did not send this, you can ignore this email. Nothing changed on any account.',
+    );
+  });
+
+  it('the plain variant carries no ignore line: it answers a claim a person decided', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), { to: 'dana@globex.com', vendorName: 'Acme' });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('If you did not send this');
+  });
+
+  it('the decision seam passes the system reason through', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimDecisionEmail(fakeContext(), {
+      decision: 'rejected',
+      to: 'dana@globex.com',
+      targetName: 'Acme',
+      reason: { kind: 'other_vendor', otherVendorName: 'Globex' },
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('Your address already manages Globex');
+  });
+
+  it('the decision seam without a reason sends the plain variant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimDecisionEmail(fakeContext(), {
+      decision: 'rejected',
+      to: 'dana@globex.com',
+      targetName: 'Acme',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain("weren't able to approve it");
+  });
+});
+
+describe('claimAutoRejectedAlertLine (AECI-1420)', () => {
+  it('names the company for a seat elsewhere, and has the staff wording', () => {
+    expect(claimAutoRejectedAlertLine({ kind: 'other_vendor', otherVendorName: 'Globex' })).toBe(
+      'Rejected automatically: the address already holds a seat on Globex.',
+    );
+    expect(claimAutoRejectedAlertLine({ kind: 'already_admin' })).toBe(
+      'Rejected automatically: the address is an AECi staff account, which cannot hold a vendor seat.',
+    );
   });
 });
 

@@ -20,6 +20,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
+import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { LABEL_IDS } from '../lib/linear';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -1354,5 +1355,312 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     expect(receipt.text).toContain(
       'If nobody answers within 7 days, we review your claim and write to you.',
     );
+  });
+});
+
+// ─── AECI-1420: the submit-time account check ─────────────────────────────────
+describe('POST /api/requests/claim → an address that already manages another company (AECI-1420)', () => {
+  const CLAIMANT_ID = '66666666-6666-4666-8666-666666666666';
+  const OTHER_VENDOR_ID = '77777777-7777-4777-8777-777777777777';
+  const OWNER_ID = '55555555-5555-4555-8555-555555555555';
+  const body = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+  };
+  const PROD_ENV = {
+    ...TEST_ENV,
+    ENV: 'production' as const,
+    RESEND_API_KEY: 'rk_test',
+    EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+
+  type Resolver = typeof resolveClaimantIdentity;
+  /** The REAL resolver over a fake GoTrue lookup that finds `CLAIMANT_ID`, so the
+   *  profile read and the conflict rule run against the seeded D1 rows. */
+  const realResolverFinding = (userId: string | null) =>
+    vi.fn<Resolver>((db, env, input) =>
+      resolveClaimantIdentity(db, env, input, async () =>
+        userId
+          ? { ok: true, user: { id: userId, email: 'dana@acme.com' } }
+          : { ok: true, user: null },
+      ),
+    );
+
+  const appWith = (resolve: Resolver) =>
+    buildAppWithHandler({
+      method: 'post',
+      path: '/api/requests/claim',
+      handler: createClaimSubmitHandler(t.factory, resolve),
+    });
+  const submit = (
+    resolve: Resolver,
+    extra: Record<string, unknown> = {},
+    env = TEST_ENV,
+    execCtx = fakeExecutionContext(),
+  ) =>
+    appWith(resolve).request('/api/requests/claim', postInit({ ...body, ...extra }), env, execCtx);
+
+  async function seedSeat(over: Partial<typeof profiles.$inferInsert> = {}) {
+    await t.db.insert(profiles).values({
+      id: CLAIMANT_ID,
+      role: 'vendor_admin',
+      vendorId: OTHER_VENDOR_ID,
+      seatOwner: true,
+      ...over,
+    });
+  }
+
+  beforeEach(async () => {
+    await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+    await seedVendor({ slug: 'globex', id: OTHER_VENDOR_ID });
+    // An owner seat on the target, so an unrejected claim WOULD route.
+    await t.db
+      .insert(profiles)
+      .values({ id: OWNER_ID, role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function resendFetch() {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return () =>
+      fetchMock.mock.calls
+        .filter(([url]) => String(url).includes('resend'))
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init!.body)) as { to: string; subject: string; text: string },
+        );
+  }
+
+  it('stores the claim rejected by the system in the insert batch, unrouted, with both transitions and both audit rows', async () => {
+    await seedSeat();
+    const batch = vi.spyOn(t.db, 'batch');
+    const resolve = realResolverFinding(CLAIMANT_ID);
+    const res = await submit(resolve);
+
+    // The 201 and its message are unchanged: the keyboard may not own the address.
+    expect(res.status).toBe(201);
+    const { message } = (await res.clone().json()) as { message: string };
+    expect(message).toBe('Your claim has been received. We will review it and follow up by email.');
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      email: 'dana@acme.com',
+      vendorId: VENDOR_ID,
+      provision: false,
+    });
+    // One batch: claim, workflow, genesis, created audit, reject transition, reject
+    // audit, the acceptance and its audit.
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]![0]).toHaveLength(8);
+
+    const { request_id, row } = await createdRow(res);
+    expect(row).toMatchObject({
+      status: 'rejected',
+      resolvedById: null,
+      routedToOwnersAt: null,
+    });
+    expect(row?.resolvedAt).toEqual(expect.any(String));
+
+    const [wf] = await t.db.select().from(workflowInstances);
+    expect(wf).toMatchObject({
+      workflowType: 'vendor_claim',
+      currentState: 'rejected',
+      finalOutcome: 'rejected',
+    });
+    expect(wf!.completedAt).toEqual(expect.any(String));
+
+    const transitions = await t.db.select().from(workflowTransitions);
+    expect(transitions.map((tr) => [tr.fromState, tr.toState])).toEqual(
+      expect.arrayContaining([
+        [null, 'open'],
+        ['open', 'rejected'],
+      ]),
+    );
+    expect(transitions).toHaveLength(2);
+    const rejectTr = transitions.find((tr) => tr.toState === 'rejected')!;
+    expect(rejectTr).toMatchObject({ actorId: null, reason: 'account_conflict' });
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.action)).toEqual(
+      expect.arrayContaining(['vendor_request.created', 'vendor_claim.rejected']),
+    );
+    const rejected = audits.find((a) => a.action === 'vendor_claim.rejected')!;
+    expect(rejected).toMatchObject({
+      actorType: 'system',
+      actorId: null,
+      entityId: request_id,
+      vendorId: VENDOR_ID,
+    });
+    expect(rejected.metadata).toMatchObject({
+      source: 'system',
+      reason: 'account_conflict',
+      conflict: 'other_vendor',
+      other_vendor_id: OTHER_VENDOR_ID,
+      target_id: VENDOR_ID,
+    });
+    const created = audits.find((a) => a.action === 'vendor_request.created')!;
+    expect((created.metadata as Record<string, unknown>).routed_to_owners).toBe(false);
+  });
+
+  it('mails the claimant the reasoned claim-rejected instead of the receipt, and flags the alert', async () => {
+    await seedSeat();
+    const sent = resendFetch();
+    const execCtx = fakeExecutionContext();
+    const res = await submit(realResolverFinding(CLAIMANT_ID), {}, PROD_ENV, execCtx);
+    expect(res.status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const mails = sent();
+    // The alert and the reasoned reject. No receipt, no owner-review email.
+    expect(mails.map((m) => String(m.to))).toEqual([
+      'support@aecintegrations.com',
+      'dana@acme.com',
+    ]);
+    const [alert, rejection] = mails;
+    expect(alert!.text).toContain(
+      'Rejected automatically: the address already holds a seat on co-globex.',
+    );
+    expect(alert!.text).not.toContain('Sent to the owners at');
+    expect(rejection!.subject).toBe('Your claim for co-acme-co was not approved');
+    expect(rejection!.text).toContain(
+      'Your address already manages co-globex on AEC Integrations. One account belongs to one company, so this request to manage co-acme-co was declined automatically.',
+    );
+    expect(rejection!.text).toContain(
+      'To manage co-acme-co as well, send the request from a different work address.',
+    );
+    expect(mails.some((m) => m.subject.startsWith('We got your claim'))).toBe(false);
+    // No sweep retry is promised: a rejected claim never gets an issue.
+    expect(alert!.text).toContain(
+      'Linear issue: none. A claim rejected at submit needs no operator work, so no issue is created.',
+    );
+  });
+
+  it('creates no Linear issue for a claim rejected at submit, even with a key (AECI-1420)', async () => {
+    // The Linear webhook does not guard a terminal D1 status, so an issue here would
+    // let an operator touch reopen the claim. A rejected claim needs no operator work.
+    await seedSeat();
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const execCtx = fakeExecutionContext();
+    const res = await submit(
+      realResolverFinding(CLAIMANT_ID),
+      {},
+      { ...PROD_ENV, LINEAR_API_KEY: 'lin_test' },
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('linear.app'))).toBe(false);
+    // The alert still goes.
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('resend'))).toBe(true);
+    const { row } = await createdRow(res);
+    expect(row?.linearIssueId).toBeNull();
+    const [wf] = await t.db.select().from(workflowInstances);
+    expect(wf!.linearIssueId).toBeNull();
+  });
+
+  it('a staff account is rejected with the staff wording', async () => {
+    await seedSeat({ role: 'admin', vendorId: null, seatOwner: false });
+    const sent = resendFetch();
+    const execCtx = fakeExecutionContext();
+    await submit(realResolverFinding(CLAIMANT_ID), {}, PROD_ENV, execCtx);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const [row] = await t.db.select().from(vendorRequests);
+    expect(row?.status).toBe('rejected');
+    const rejected = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_claim.rejected',
+    )!;
+    expect(rejected.metadata).toMatchObject({ conflict: 'already_admin', other_vendor_id: null });
+
+    const [alert, rejection] = sent();
+    expect(alert!.text).toContain(
+      'Rejected automatically: the address is an AECi staff account, which cannot hold a vendor seat.',
+    );
+    expect(rejection!.text).toContain('Your address is an AEC Integrations staff account.');
+    expect(rejection!.text).not.toContain('already manages');
+  });
+
+  it('submits as today when the lookup is unavailable: open, routed, a receipt', async () => {
+    const sent = resendFetch();
+    const execCtx = fakeExecutionContext();
+    const resolve = vi.fn<Resolver>(async () => ({ outcome: 'unavailable' }));
+    const res = await submit(resolve, {}, PROD_ENV, execCtx);
+    expect(res.status).toBe(201);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+    expect((await t.db.select().from(auditLog)).map((a) => a.action)).not.toContain(
+      'vendor_claim.rejected',
+    );
+    expect(sent().some((m) => m.subject === 'We got your claim for co-acme-co')).toBe(true);
+  });
+
+  it('submits as today when the check throws', async () => {
+    const resolve = vi.fn<Resolver>(async () => {
+      throw new Error('boom');
+    });
+    const res = await submit(resolve);
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
+  });
+
+  it('submits as today when the GoTrue lookup errors', async () => {
+    const resolve = vi.fn<Resolver>(async () => ({
+      outcome: 'error',
+      stage: 'lookup',
+      status: 500,
+    }));
+    const { row } = await createdRow(await submit(resolve));
+    expect(row?.status).toBe('open');
+  });
+
+  it('submits as today when the address has no account', async () => {
+    const { row } = await createdRow(await submit(realResolverFinding(null)));
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+  });
+
+  it('a seat on the SAME company is not a conflict: open and routed', async () => {
+    await seedSeat({ vendorId: VENDOR_ID, seatOwner: false });
+    const { row } = await createdRow(await submit(realResolverFinding(CLAIMANT_ID)));
+    expect(row?.status).toBe('open');
+    expect(row?.routedToOwnersAt).toEqual(expect.any(String));
+  });
+
+  it("a product claim checks against the product's company, not the product id", async () => {
+    await seedProduct({ slug: 'acme-build' });
+    await t.db.insert(productVendors).values({
+      productId: PRODUCT_ID,
+      vendorId: VENDOR_ID,
+      isPrimary: true,
+    });
+    // A seat on the product's company is a second seat, not a conflict.
+    await seedSeat({ vendorId: VENDOR_ID, seatOwner: false });
+    const resolve = realResolverFinding(CLAIMANT_ID);
+    const res = await submit(resolve, { target_type: 'product', slug: 'acme-build' });
+
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ vendorId: VENDOR_ID }),
+    );
+    const { row } = await createdRow(res);
+    expect(row?.status).toBe('open');
   });
 });

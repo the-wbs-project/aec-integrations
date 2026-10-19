@@ -37,6 +37,8 @@ import {
   profiles,
   vendorRequests,
   vendors,
+  workflowInstances,
+  workflowTransitions,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { type BatchStmt, type BatchTuple } from './audit';
@@ -674,5 +676,59 @@ describe('the seat batch plus ensureBillingAccountStatements', () => {
       'billing_account.created',
       'vendor_seat.provisioned',
     ]);
+  });
+});
+
+// ─── AECI-1420: a SYSTEM reject has no actor ─────────────────────────────────
+
+describe('rejectClaimStatements with a null actor (AECI-1420)', () => {
+  it('writes a null resolved_by, a null transition actor and a system audit row', async () => {
+    await seed(false);
+    const { stmts, auditEntry, workflowEntry } = rejectClaimStatements(t.db, {
+      requestId: REQUEST_ID,
+      actorId: null,
+      actorType: 'system',
+      resolvedAt: NOW,
+      fromStatus: 'open',
+      workflowId: '55555555-5555-4555-8555-555555555555',
+      existingWf: false,
+      reason: 'account_conflict',
+      targetType: 'vendor',
+      targetId: VENDOR_ID,
+      source: 'system',
+      vendorId: VENDOR_ID,
+      extraMetadata: { conflict: 'other_vendor', other_vendor_id: CLAIMANT_ID },
+    });
+    await t.db.batch(stmts as BatchTuple);
+
+    const [request] = await t.db.select().from(vendorRequests);
+    expect(request).toMatchObject({ status: 'rejected', resolvedById: null, resolvedAt: NOW });
+    const [wf] = await t.db.select().from(workflowInstances);
+    expect(wf).toMatchObject({ currentState: 'rejected', finalOutcome: 'rejected' });
+    const [transition] = await t.db.select().from(workflowTransitions);
+    expect(transition).toMatchObject({
+      fromState: 'open',
+      toState: 'rejected',
+      actorId: null,
+      reason: 'account_conflict',
+    });
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit).toMatchObject({
+      action: 'vendor_claim.rejected',
+      actorId: null,
+      actorType: 'system',
+      vendorId: VENDOR_ID,
+    });
+    // The caller's keys ride the same metadata as source and reason, on both rows.
+    const expected = {
+      source: 'system',
+      reason: 'account_conflict',
+      conflict: 'other_vendor',
+      other_vendor_id: CLAIMANT_ID,
+      target_id: VENDOR_ID,
+    };
+    expect(audit!.metadata).toMatchObject(expected);
+    expect(auditEntry.metadata).toMatchObject(expected);
+    expect(workflowEntry.metadata).toMatchObject(expected);
   });
 });

@@ -269,7 +269,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: CATALOGUE,
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to the owners at <Company>; AECi steps in on <date>" (AECI-1366). Pausable: operator alert. The claim waits in /admin/claims either way.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to the owners at <Company>; AECi steps in on <date>" (AECI-1366). When the submit-time account check stored the claim rejected, the body adds "Rejected automatically: the address already holds a seat on <Company>", or the staff-account wording, and the Linear row says no issue is created (AECI-1420). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
   'claim-received': {
     channel: 'email',
@@ -460,15 +460,19 @@ export const NOTIFICATIONS = {
   'claim-rejected': {
     channel: 'email',
     audience: 'external',
-    trigger: { kind: 'route', ref: 'PATCH /api/admin/claims/:id (routes/admin-claims.ts)' },
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/claims/:id (routes/admin-claims.ts), POST /api/vendor/seats/claims/:id/decline and the POST /api/vendor/seats/claims/:id/accept auto-reject (routes/vendor-seat-claims.ts), and the POST /api/requests/claim auto-reject (routes/requests.ts)',
+    },
     envRule: 'production-external',
-    dedupe: 'Status guard: open or in-review claims only.',
+    dedupe:
+      'Status guard: open or in-review claims only. The submit-time auto-reject adds the key claim-rejected-auto:{recipientHash}:{YYYY-MM-DD}, at most one per address per UTC day, because the address is typed on an anonymous form.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was not approved, without the reviewer reason.',
-    note: 'Always on: a claim decision.',
+    note: "Reasoned variant (AECI-1420): when the system declines a claim because the address already holds a seat on another company, at submit or on an owner's Accept, the email names that company and says to send the request from a different work address. A staff account is told it cannot hold a vendor seat. The subject is the same. A hand decision by AECi or an owner gets the plain variant, which never carries the reviewer's reason. Sent instead of claim-received at submit. Always on: a claim decision.",
   },
   'vendor-seat-invite': {
     channel: 'email',
@@ -1128,7 +1132,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.1',
     summary: 'Files a Linear issue for a vendor claim or correction.',
-    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email.',
   },
   'linear-request-duplicate-comment': {
     channel: 'linear',

@@ -8,8 +8,10 @@ import type { AdminClaim } from '@aeci/shared';
  * `has_auth_account` is a LIVE GoTrue lookup at read time, not a snapshot from
  * approve time. Once a claim is approved the account exists whether approve
  * linked it or provisioned it, so the resolved wording must not claim either.
- * It also must not claim the seat: the lookup never reads `profiles`, and a
- * seat can be revoked after approve.
+ * It also must not claim the seat: `has_auth_account` never reads `profiles`,
+ * and a seat can be revoked after approve. The separate `claimant_seat` signal
+ * does read `profiles` (AECI-1420) and drives the red account-conflict box in
+ * `claim-account-conflict.ts`, not this label.
  * A rejected claim only says whether an account exists. `in_review` is still
  * pending an approve, so it keeps the open wording.
  *

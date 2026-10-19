@@ -91,6 +91,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     // AECI-1368: owner routing. Default: never routed.
     routed_to_owners_at: over.routed_to_owners_at ?? null,
     owner_fallback_at: over.owner_fallback_at ?? null,
+    // AECI-1420: the claimant's existing seat. Default: unknown.
+    claimant_seat: 'claimant_seat' in over ? over.claimant_seat! : null,
   };
 }
 
@@ -503,6 +505,77 @@ describe('ClaimQueue', () => {
   ])('shows no connector flag on %s', async (_label, claim) => {
     const { el } = await setup(makeApiMock([claim]));
     expect(el.querySelector('[data-testid="claim-connector-flag"]')).toBeNull();
+  });
+
+  // AECI-1420: an address seated on another vendor, or a site admin, cannot be granted.
+  describe('account conflict box', () => {
+    const OTHER = { id: 'v-other', slug: 'other-co', name: 'Other Co' };
+
+    it('names the other vendor, links it, and disables Grant with the aria wiring', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({ id: 'c1', claimant_seat: { kind: 'other_vendor', vendor: OTHER } }),
+        ]),
+      );
+      const card = cardFor(el, 'Procore');
+      const box = card.querySelector<HTMLElement>('[data-testid="claim-account-conflict"]');
+      expect(box).not.toBeNull();
+      expect(box!.textContent).toContain('This address already holds a seat on');
+      expect(box!.textContent).toContain('Other Co');
+      expect(box!.textContent).toContain('the grant will be refused.');
+      expect(box!.textContent).toContain('Reject it.');
+      expect(
+        box!.querySelector('[data-testid="claim-account-conflict-vendor"]')?.getAttribute('href'),
+      ).toBe('/admin/vendors/v-other');
+
+      const grant = buttonByText(card, 'Grant vendor account');
+      expect(grant.disabled).toBe(true);
+      expect(grant.getAttribute('aria-disabled')).toBe('true');
+      expect(grant.getAttribute('aria-describedby')).toBe(box!.id);
+      expect(box!.id).toBe('claim-account-conflict-c1');
+      // Reject stays available: it is the action the box asks for.
+      expect(buttonByText(card, 'Reject').disabled).toBe(false);
+    });
+
+    it('says a site admin account cannot hold a vendor seat', async () => {
+      const { el } = await setup(
+        makeApiMock([makeClaim({ id: 'c1', claimant_seat: { kind: 'admin' } })]),
+      );
+      const card = cardFor(el, 'Procore');
+      const box = card.querySelector('[data-testid="claim-account-conflict"]');
+      expect(box?.textContent).toContain('This address is a site admin account.');
+      expect(box?.textContent).toContain('It cannot hold a vendor seat.');
+      expect(box?.textContent).toContain('Reject it.');
+      expect(buttonByText(card, 'Grant vendor account').disabled).toBe(true);
+    });
+
+    it('says a rejected claim is rejected, without claiming who rejected it', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({
+            id: 'c1',
+            status: 'rejected',
+            claimant_seat: { kind: 'other_vendor', vendor: OTHER },
+          }),
+        ]),
+      );
+      const box = cardFor(el, 'Procore').querySelector('[data-testid="claim-account-conflict"]');
+      expect(box?.textContent).toContain('This claim is rejected.');
+      expect(box?.textContent).not.toContain('Reject it.');
+    });
+
+    it.each([
+      ['none', { kind: 'none' as const }],
+      ['unknown', null],
+    ])('shows no box and leaves Grant enabled for claimant_seat %s', async (_label, seat) => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', claimant_seat: seat })]));
+      const card = cardFor(el, 'Procore');
+      expect(card.querySelector('[data-testid="claim-account-conflict"]')).toBeNull();
+      const grant = buttonByText(card, 'Grant vendor account');
+      expect(grant.disabled).toBe(false);
+      expect(grant.hasAttribute('aria-disabled')).toBe(false);
+      expect(grant.hasAttribute('aria-describedby')).toBe(false);
+    });
   });
 
   it('renders prior requests + the duplicate-chain note', async () => {

@@ -513,6 +513,9 @@ export class VendorSeatRoster {
       await this.store.reload('seats');
     } catch (err) {
       this.actionError.set(claimErrorFor(err, 'accept'));
+      // A lost race (or the Accept guard's system reject, AECI-1420) is not a failure
+      // to retry: re-read so the row leaves "Wants to join", as the contests list does.
+      if (claimIsGone(err)) await this.store.reload('seats');
     } finally {
       this.busyClaim.set(null);
     }
@@ -534,6 +537,9 @@ export class VendorSeatRoster {
       await this.store.reload('seats');
     } catch (err) {
       this.actionError.set(claimErrorFor(err, 'decline'));
+      // A lost race (or the Accept guard's system reject, AECI-1420) is not a failure
+      // to retry: re-read so the row leaves "Wants to join", as the contests list does.
+      if (claimIsGone(err)) await this.store.reload('seats');
     } finally {
       this.busyClaim.set(null);
     }
@@ -578,21 +584,30 @@ export class VendorSeatRoster {
   }
 }
 
+function claimErrorCode(err: unknown): string | null {
+  return err instanceof HttpErrorResponse
+    ? ((err.error as { error?: { code?: string } } | null)?.error?.code ?? null)
+    : null;
+}
+
+/** The claim is no longer this owner's to decide: someone decided it, the 7-day
+ *  fallback took it back, or the Accept guard rejected it (AECI-1420). */
+function claimIsGone(err: unknown): boolean {
+  const code = claimErrorCode(err);
+  return code === 'NOT_FOUND' || code === 'CLAIM_ALREADY_DECIDED';
+}
+
 /** Map an accept or decline refusal onto copy that says what to do next
  *  (AECI-1368). An accept spends one of the day's invites, so it can hit the cap. */
 function claimErrorFor(err: unknown, action: 'accept' | 'decline'): string {
-  const code =
-    err instanceof HttpErrorResponse
-      ? ((err.error as { error?: { code?: string } } | null)?.error?.code ?? null)
-      : null;
-  switch (code) {
+  switch (claimErrorCode(err)) {
     case 'RATE_LIMITED':
       return $localize`:@@vendor.seats.claims.error.rate:You have sent the most invites allowed today. Try again tomorrow.`;
     case 'FORBIDDEN':
       return $localize`:@@vendor.seats.claims.error.forbidden:Only an account owner can decide who joins.`;
     case 'NOT_FOUND':
     case 'CLAIM_ALREADY_DECIDED':
-      return $localize`:@@vendor.seats.claims.error.gone:That request was already decided. Refresh the list.`;
+      return $localize`:@@vendor.seats.claims.error.gone:That request was already decided. The list now shows where it stands.`;
     default:
       return action === 'accept'
         ? $localize`:@@vendor.seats.claims.error.accept:Could not accept that request. Try again.`

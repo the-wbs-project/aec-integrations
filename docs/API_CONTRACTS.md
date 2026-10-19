@@ -272,7 +272,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
-| `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333) |
+| `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333). **Also the answer to an owner's accept that the account guard turned into a system reject (AECI-1420, 2026-10-19):** the claimant's address already holds a seat on another vendor, or is a staff account, so the claim was rejected by the system and the reasoned `claim-rejected` was sent. `details.status` is `'rejected'`. No invite is written and the 409 names no other vendor |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
 | `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/licenses/:id` `revoke` of the vendor's last live license (AECI-1092, moved there from the retired entitlement `clear` by AECI-1375), when the vendor's open owner-routed contests, or its live licenses, changed twice while it revoked; nothing was written, try again |
@@ -1347,6 +1347,8 @@ Unlike the other submitter fields, the KEY is omittable: it carries `.default(''
 
 **`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
 
+**The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The `201` and its message are unchanged. After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created: the claim needs no operator work, and the Linear webhook would move a terminal claim back to `open` on any touch. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
+
 **Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
 
 #### `GET /api/requests/claim-target/:type/:slug` (AECI-1368)
@@ -2237,6 +2239,16 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // An owner-accepted claim reads granted: true (the owner is resolved_by_id).
   routed_to_owners_at: z.string().nullable(),
   owner_fallback_at: z.string().nullable(),
+  // AECI-1420 (2026-10-19): the claimant's existing seat, classified against the
+  // resolved vendor (entitlement_vendor). REQUIRED-nullable (R10). See below.
+  claimant_seat: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('none') }),          // no seat, or a seat on THIS vendor
+    z.object({ kind: z.literal('admin') }),         // a site admin account
+    z.object({
+      kind: z.literal('other_vendor'),              // a seat on another vendor
+      vendor: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+    }),
+  ]).nullable(),                                    // null = unknown
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -2259,6 +2271,24 @@ real enrichment is deferred, §11).
 **Graceful degrade:** the two enrichment queries are fail-soft — a failure sets that field to
 `null` ("unavailable") while the row and the rest of the signals still return. No errors beyond
 the shared `requireAdmin()` 401/403.
+
+**`claimant_seat` (AECI-1420, 2026-10-19).** `fetchAuthAccountsByEmail` now returns the auth
+user id per address, not a boolean. `has_auth_account` is derived from it with the same
+tri-state. After the GoTrue fan-out the handler makes **one extra D1 read** for the page:
+`profiles` by those ids (`id, role, vendor_id`), left-joined to `vendors` for `slug` and
+`company_name`. Each claim is classified with `classifyClaimantConflict` against its resolved
+vendor, so a `product` claim compares against the product's primary vendor.
+
+| Value | Means |
+|---|---|
+| `{ kind: 'none' }` | An account with no seat, or a seat on this vendor. A second seat on the same vendor is not a conflict. An account with no `profiles` row has never signed in, so it is `none`. |
+| `{ kind: 'admin' }` | A site admin account. The grant would answer `409 GRANT_CONFLICT`. |
+| `{ kind: 'other_vendor', vendor }` | A seat on another vendor. The grant would answer `409 GRANT_CONFLICT`. |
+| `null` | Unknown: no account, the lookup was skipped or failed, no resolved vendor, or the profile read failed. The read is fail-soft. |
+
+`GET /api/admin/claims/:id` and the `PATCH …/notes` response carry the same field from the same
+helpers with one email. The queue disables Grant for `admin` and `other_vendor`. The server's
+409 stays.
 
 **The role signal answers §5.2 step 1 in the console (AECI-738).** `STAGE_2_SPEC.md`
 §8.8(1)'s payer test is *"does this vendor own any product with
@@ -2358,8 +2388,8 @@ fail-open like every send.
 // `plan` and `entitlement` are retired. Both are `z.never().optional()`, so a body
 // that names either fails validation on THAT field instead of being silently ignored.
 // Discriminated on `action`. `reason` is an internal transition + audit note only;
-// never emailed to the claimant (the claim-rejected email is deliberately neutral,
-// AECI-528).
+// never emailed to the claimant (the claim-rejected email never carries the
+// reviewer's reason, AECI-528; only a system reason is mailed, AECI-1420).
 export const ModerateClaimSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('approve'),
@@ -6647,11 +6677,13 @@ One `db.batch`: a `vendor_seat_invites` row to the claim's `submitter_email` (no
 
 Gates: `requireVendor()`, `rateLimit('write', { by: 'vendor' })`, `requireSeatOwner()` in the handler.
 
-Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `CLAIM_ALREADY_DECIDED` (409, the claim was decided by AECi or another owner, or the 7-day fallback took it back, after the handler read it; the batch opens with `claimUndecidedSentinel` guarding undecided AND routed, so nothing is written and no email is sent) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
+**The account guard (AECI-1420, 2026-10-19).** Before any write, accept runs a lookup-only account check on the claim's address (`checkClaimAccount`). A seat on this vendor, or no account, proceeds as above. A seat on another vendor, or a staff account, is a conflict: the system rejects the claim with `rejectClaimStatements` (`actorId: null`, `actorType: 'system'`, `metadata.source: 'system'`, `reason: 'account_conflict'`, `metadata.conflict` and `metadata.other_vendor_id`, routed guard on), sends the reasoned `claim-rejected`, and answers `409 CLAIM_ALREADY_DECIDED` with `details.status: 'rejected'`. No invite, no `owner_accepted` row, no invite email. When the check cannot run (no Supabase creds, GoTrue errored), accept answers `503 DEPENDENCY_FAILURE` and writes nothing.
+
+Errors: `FORBIDDEN` (403, not an owner) · `NOT_FOUND` (404, the claim is on another vendor, not routed, decided or unknown, all indistinguishable) · `CLAIM_ALREADY_DECIDED` (409, the claim was decided by AECi or another owner, or the 7-day fallback took it back, after the handler read it; the batch opens with `claimUndecidedSentinel` guarding undecided AND routed, so nothing is written and no email is sent. Also the account guard's system reject, above) · `DEPENDENCY_FAILURE` (503, the account check could not run; nothing written) · `RATE_LIMITED` (429, the per-vendor bucket with `Retry-After: 60`, or the 10-per-24-h invite cap with `Retry-After: 86400`; the claim stays open).
 
 #### `POST /api/vendor/seats/claims/:id/decline` (AECI-1368)
 
-An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the neutral `claim-rejected` email, which does not say who declined. Same gates and the same `403` / `404` / `409 CLAIM_ALREADY_DECIDED` / `429` as accept. The decline batch uses the same routed guard as accept (`rejectClaimStatements` with `requireRouted`).
+An owner declines a claim routed to their company. No body. **204**. `rejectClaimStatements` with the owner as actor and `metadata.source: 'vendor-portal'`, then the plain `claim-rejected` email, which never carries a reviewer's reason and does not say who declined. Same gates and the same `403` / `404` / `409 CLAIM_ALREADY_DECIDED` / `429` as accept. The decline batch uses the same routed guard as accept (`rejectClaimStatements` with `requireRouted`).
 
 #### `POST /api/vendor/seats/invites`
 

@@ -30,10 +30,22 @@
  * has a live invite, accept resolves the claim against that invite and sends no
  * second email.
  *
+ * ── THE ACCOUNT GUARD ON ACCEPT (AECI-1420) ─────────────────────────────────
+ * One account belongs to one company. The submit already rejects a claim from an
+ * address that holds a seat on another vendor, but a claim can get through when the
+ * lookup was unavailable at submit. So Accept checks again, lookup-only, before it
+ * writes anything. On a conflict the SYSTEM rejects the claim (null actor, `system`
+ * source, the same metadata as the submit-time reject), the claimant gets the reasoned
+ * `claim-rejected`, and the owner gets the existing `409 CLAIM_ALREADY_DECIDED` with
+ * `details.status: 'rejected'`. The roster re-reads the seats scope on that 409
+ * (`vendor-seat-roster.ts`). No invite is issued. When the check cannot run, Accept
+ * answers `503 DEPENDENCY_FAILURE` and writes nothing, so the owner can retry.
+ *
  * ── DECLINE IS THE NEUTRAL REJECT ───────────────────────────────────────────
  * Decline runs `rejectClaimStatements` with the owner as actor and the
- * `vendor-portal` source, then sends the same neutral `claim-rejected` email AECi's
- * reject sends. The claimant is not told who declined.
+ * `vendor-portal` source, then sends the same `claim-rejected` email AECi's reject
+ * sends, which never carries a reviewer's reason. The claimant is not told who
+ * declined.
  */
 
 import {
@@ -49,6 +61,15 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import type { BatchStmt, BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import {
+  ACCOUNT_CONFLICT_REASON,
+  SYSTEM_CLAIM_SOURCE,
+  accountConflictEmailReason,
+  accountConflictMetadata,
+  checkClaimAccount,
+  resolveClaimantIdentity,
+} from '../lib/claimant-identity';
+import type { ClaimRejectionReason } from '../lib/email';
 import { routedClaimsOf } from '../lib/claim-owner-routing';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
@@ -75,11 +96,13 @@ import {
   type VendorContext,
 } from './vendor-shared';
 
-/** The decline email seam: the neutral `claim-rejected`. A no-op default keeps the
- *  handler unit-testable; `index.ts` injects the real sender. */
+/** The `claim-rejected` seam, for the owner decline and the Accept guard. A no-op
+ *  default keeps the handlers unit-testable; `index.ts` injects the real sender.
+ *  `reason` is set only by the Accept guard's system reject (AECI-1420); a decline
+ *  sends none, so the claimant is not told who declined or why. */
 export type SendSeatClaimDeclinedEmail = (
   c: VendorContext,
-  opts: { to: string; vendorName: string },
+  opts: { to: string; vendorName: string; reason?: ClaimRejectionReason },
 ) => Promise<void>;
 
 const noopSendInvite: SendSeatInviteEmail = async () => {};
@@ -157,6 +180,8 @@ async function vendorName(db: ReturnType<DbFactory>['db'], vendorId: string): Pr
 export function createAcceptSeatClaimHandler(
   dbFor: DbFactory = getDb,
   sendInvite: SendSeatInviteEmail = noopSendInvite,
+  sendRejected: SendSeatClaimDeclinedEmail = noopSendDeclined,
+  resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -168,6 +193,60 @@ export function createAcceptSeatClaimHandler(
     const email = normalizeInviteEmail(claim.submitterEmail);
     const now = new Date().toISOString();
     const company = await vendorName(db, vendorId);
+
+    // AECI-1420: the account guard, before anything is written. See the header.
+    const account = await checkClaimAccount(
+      db,
+      c.env,
+      { email: claim.submitterEmail, vendorId },
+      resolveIdentity,
+    );
+    if (account.outcome === 'unavailable') {
+      throw new ApiError(
+        503,
+        ApiErrorCode.DEPENDENCY_FAILURE,
+        "We could not check the claimant's account, so nothing was saved. Try again in a few minutes.",
+      );
+    }
+    if (account.outcome === 'conflict') {
+      const { workflowId, existingWf } = await claimWorkflow(db, claim.id);
+      const batch = rejectClaimStatements(db, {
+        requestId: claim.id,
+        actorId: null,
+        actorType: 'system',
+        resolvedAt: now,
+        fromStatus: claim.status,
+        workflowId,
+        existingWf,
+        reason: ACCOUNT_CONFLICT_REASON,
+        targetType: 'vendor',
+        targetId: vendorId,
+        source: SYSTEM_CLAIM_SOURCE,
+        vendorId,
+        extraMetadata: accountConflictMetadata(account),
+        // A decision or the fallback landing first wins, as for a decline.
+        requireRouted: true,
+      });
+      // A lost race throws its own 409 here and sends nothing.
+      await runOwnerDecision(db, claim.id, batch.stmts);
+
+      // The system decided it, not the owner: no vendor-origin labelling.
+      forwardAuditBatch(c, [batch.auditEntry], [batch.workflowEntry], SYSTEM_CLAIM_SOURCE);
+      c.executionCtx.waitUntil(
+        sendRejected(c, {
+          to: claim.submitterEmail,
+          vendorName: company,
+          reason: accountConflictEmailReason(account),
+        }).catch(() => undefined),
+      );
+      // The owner sees the claim as decided, with no detail about the other company.
+      throw new ApiError(
+        409,
+        ApiErrorCode.CLAIM_ALREADY_DECIDED,
+        'This claim was declined automatically, so nothing else was saved. Reload to see where it stands.',
+        { details: { status: 'rejected' } },
+      );
+    }
 
     // One live invite per address (the create route's rule). An address that
     // already has one is not mailed again: the claim resolves against that invite.
@@ -309,7 +388,7 @@ export function createDeclineSeatClaimHandler(
 
     afterVendorWrite(c, [], batch.auditEntry);
     forwardAuditBatch(c, [], [batch.workflowEntry], SEAT_INVITE_AUDIT_SOURCE);
-    // The neutral `claim-rejected`: the claimant is not told who declined.
+    // The plain `claim-rejected`: no reason, and the claimant is not told who declined.
     c.executionCtx.waitUntil(
       sendDeclined(c, { to: claim.submitterEmail, vendorName: company }).catch(() => undefined),
     );

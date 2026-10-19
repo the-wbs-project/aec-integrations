@@ -145,7 +145,7 @@ Twenty-three routes under the existing `AdminShell` (`app/admin/admin-shell.ts`)
     /admin/reviews         existing (Phase 5.13)
     /admin/review-responses §5.13 (vendor replies to reviews — AECI-1177)
     /admin/requests        existing (Phase 6.10)
-    /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
+    /admin/claims          existing (Stage 2, AECI-521 — see the connector note and the account-conflict box below)
     /admin/claims/:id      §5.10 (detail — nav links the list only)
     /admin/contests        §5.12 (integration field contests — AECI-1008)
     /admin/reindex         §5.11 (the Google re-crawl worklist — AECI-946)
@@ -1077,6 +1077,19 @@ false reads "Resolved without a grant". The Linear webhook resolves a claim with
 (2026-10-15) the generic `PATCH /api/admin/requests/:id` refuses a claim with 422 for
 both resolve and reject. Grant and Reject here are the only site path that ends a claim,
 so `granted` is true only for a claim an operator granted.
+
+**The account-conflict box (AECI-1420, 2026-10-19).** `AdminClaim.claimant_seat` says whether
+the claimant's address already holds a seat that blocks the grant
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §2). One account belongs to one vendor. When the seat is on
+another vendor, or the address is a site admin, both `/admin/claims` and this page show a red
+box, `data-testid="claim-account-conflict"`. It names the other vendor and links to
+`/admin/vendors/:id`. On the queue it sits directly above the actions, and Grant is disabled
+with `aria-describedby` pointing at it. Reject stays enabled. The box says "Reject it." on an
+open or in-review claim and "This claim is rejected." on a rejected one. It does not say who
+rejected it: the status alone cannot tell a submit-time reject from a hand reject. This page
+has no actions, so it disables nothing. One shared component renders both,
+`apps/web/src/app/admin/claims/claim-account-conflict.ts`. The server's `409 GRANT_CONFLICT`
+stays as the backstop for a stale page.
 
 **What this screen deliberately cannot do:**
 

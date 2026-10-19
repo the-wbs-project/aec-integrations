@@ -210,6 +210,13 @@
   </div>
   }
 
+  <!-- AECI-1420: the claimant's address is seated on another vendor or is a site
+       admin. The same box the queue shows. Grant lives on the queue, so there is
+       nothing to disable here. -->
+  @if (hasConflict(c)) {
+  <aec-claim-account-conflict class="mt-6 block" [claim]="c" [boxId]="'claim-account-conflict'" />
+  }
+
   <!-- ── 2. Verification signals ──────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-claim-signals">
     <h3

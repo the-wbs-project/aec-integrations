@@ -329,7 +329,7 @@ describe('GET /api/admin/requests', () => {
 
   it('surfaces has_auth_account: true for a claim whose submitter has an auth account', async () => {
     await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
-    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', true]]));
+    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', { userId: 'u-jane' }]]));
 
     const parsed = ListVendorRequestsResponseSchema.parse(
       await (await getListWithSignal(fetchAuthAccounts)).json(),
@@ -341,7 +341,9 @@ describe('GET /api/admin/requests', () => {
 
   it('surfaces has_auth_account: false when the submitter has no auth account', async () => {
     await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
-    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', false]]));
+    const fetchAuthAccounts = vi.fn(
+      async () => new Map<string, { userId: string } | null>([['jane@acme.com', null]]),
+    );
 
     const parsed = ListVendorRequestsResponseSchema.parse(
       await (await getListWithSignal(fetchAuthAccounts)).json(),
@@ -360,7 +362,7 @@ describe('GET /api/admin/requests', () => {
         targetId: OTHER_TARGET,
       }),
     );
-    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', true]]));
+    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', { userId: 'u-jane' }]]));
 
     const parsed = ListVendorRequestsResponseSchema.parse(
       await (await getListWithSignal(fetchAuthAccounts)).json(),

@@ -14,6 +14,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
+import { ClaimAccountConflict, claimantSeatConflict } from './claim-account-conflict';
 import { claimantAccountLabel } from './claimant-account-label';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -93,7 +94,7 @@ type FormMode = 'approve' | 'reject';
  */
 @Component({
   selector: 'aec-claim-queue',
-  imports: [DatePipe, NewTabIcon, RouterLink],
+  imports: [ClaimAccountConflict, DatePipe, NewTabIcon, RouterLink],
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {
@@ -171,6 +172,18 @@ export class ClaimQueue {
     this.statusFilter.set(status);
     this.closeForm();
     void this.load();
+  }
+
+  /** AECI-1420: the claimant's address is a site admin or holds a seat on another
+   *  vendor. The red box shows and Grant is disabled; Reject stays enabled. The
+   *  server's `409 GRANT_CONFLICT` stays as the backstop for a stale page. */
+  protected hasConflict(claim: AdminClaim): boolean {
+    return claimantSeatConflict(claim) !== null;
+  }
+
+  /** The conflict box's id, which the disabled Grant names in `aria-describedby`. */
+  protected conflictBoxId(claimId: string): string {
+    return `claim-account-conflict-${claimId}`;
   }
 
   /** Only open / in-review rows can be moderated; terminal rows are read-only. */

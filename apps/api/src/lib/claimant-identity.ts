@@ -26,8 +26,9 @@
 import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { profiles } from '../db/schema';
+import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
+import type { ClaimRejectionReason } from './email';
 import { createAuthUser, findAuthUserByEmail } from './supabase-admin';
 
 /** The `profiles` columns exclusivity needs, plus what AECI-519's audit wants. */
@@ -117,10 +118,12 @@ export type ClaimantResolution =
  *    multi-seat is schema-native (no uniqueness on `profiles.vendor_id`).
  *
  * Pure, so the rule is testable without the D1 harness and reusable by a future
- * revoke path (§7) that already holds the row.
+ * revoke path (§7) that already holds the row. It reads only `role` and
+ * `vendorId`, so the admin claim queue's `claimant_seat` signal (AECI-1420)
+ * passes its narrower page-wide profile read straight in.
  */
 export function classifyClaimantConflict(
-  profile: ClaimantProfileSnapshot | null,
+  profile: Pick<ClaimantProfileSnapshot, 'role' | 'vendorId'> | null,
   vendorId: string,
 ): ClaimantConflict | null {
   if (!profile) return null;
@@ -206,4 +209,99 @@ export async function resolveClaimantIdentity(
   return invited
     ? { outcome: 'invited', userId: user.id, email: user.email, profile: null }
     : { outcome: 'linked', userId: user.id, email: user.email, profile };
+}
+
+/**
+ * The lookup-only account check a claim runs before it is routed or accepted
+ * (AECI-1420, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). It asks one question: does the
+ * typed address already hold a seat on another company, or is it a staff account?
+ *
+ *   - `conflict`: yes. `otherVendorName` is that company's name, read here so the
+ *     reasoned `claim-rejected` email can name it (`null` for a staff account with no
+ *     vendor, or a vendor row that is gone).
+ *   - `clear`: no. The account does not exist, has no seat, or has a seat on THIS
+ *     vendor, which is the expected second seat (§2).
+ *   - `unavailable`: we could not tell. Supabase admin creds are absent, GoTrue
+ *     errored, or the D1 read threw. The caller decides what that means: the submit
+ *     proceeds as before, the owner Accept refuses with a 503.
+ *
+ * Never throws, and never provisions an account (`provision: false`). One GoTrue call
+ * with the seam's own timeout, then at most two D1 reads.
+ */
+export type ClaimAccountCheck =
+  | { outcome: 'clear' }
+  | { outcome: 'unavailable' }
+  | {
+      outcome: 'conflict';
+      conflict: ClaimantConflict;
+      otherVendorId: string | null;
+      otherVendorName: string | null;
+    };
+
+export async function checkClaimAccount(
+  db: Db,
+  env: Env,
+  input: { email: string; vendorId: string },
+  resolve: typeof resolveClaimantIdentity = resolveClaimantIdentity,
+): Promise<ClaimAccountCheck> {
+  try {
+    const resolution = await resolve(db, env, {
+      email: input.email,
+      vendorId: input.vendorId,
+      provision: false,
+    });
+    switch (resolution.outcome) {
+      case 'conflict': {
+        const otherVendorId = resolution.profile.vendorId;
+        const other = otherVendorId
+          ? await db.query.vendors.findFirst({
+              columns: { companyName: true },
+              where: eq(vendors.id, otherVendorId),
+            })
+          : undefined;
+        return {
+          outcome: 'conflict',
+          conflict: resolution.reason,
+          otherVendorId,
+          otherVendorName: other?.companyName ?? null,
+        };
+      }
+      case 'unavailable':
+      case 'error':
+        return { outcome: 'unavailable' };
+      default:
+        return { outcome: 'clear' };
+    }
+  } catch (error) {
+    console.warn(
+      'claim account check failed',
+      error instanceof Error ? error.message : String(error),
+    );
+    return { outcome: 'unavailable' };
+  }
+}
+
+/** The transition and audit `reason` of an account-conflict reject (AECI-1420). */
+export const ACCOUNT_CONFLICT_REASON = 'account_conflict';
+/** The audit `source` of a reject no person made (AECI-1420). */
+export const SYSTEM_CLAIM_SOURCE = 'system';
+
+/**
+ * The audit metadata of a claim the system rejected for an account conflict
+ * (AECI-1420). The same keys on the submit-time reject and the Accept guard, so the
+ * trail reads the same whichever path caught it.
+ */
+export function accountConflictMetadata(
+  check: Extract<ClaimAccountCheck, { outcome: 'conflict' }>,
+): Record<string, unknown> {
+  return { conflict: check.conflict, other_vendor_id: check.otherVendorId };
+}
+
+/** The reason the reasoned `claim-rejected` email and the AECi alert state (AECI-1420). */
+export function accountConflictEmailReason(
+  check: Extract<ClaimAccountCheck, { outcome: 'conflict' }>,
+): ClaimRejectionReason {
+  return check.conflict === 'already_admin'
+    ? { kind: 'already_admin' }
+    : { kind: 'other_vendor', otherVendorName: check.otherVendorName ?? '' };
 }

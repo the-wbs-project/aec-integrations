@@ -249,6 +249,7 @@ import {
 import {
   createAcceptSeatClaimHandler,
   createDeclineSeatClaimHandler,
+  type SendSeatClaimDeclinedEmail,
 } from './routes/vendor-seat-claims';
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
@@ -1536,9 +1537,18 @@ authVendor.post(
   rateLimit('write', { by: 'vendor' }),
   createResendSeatInviteHandler(getDb, sendSeatInvite),
 );
+// The `claim-rejected` sender for the owner decline and the Accept guard. Only the
+// guard's system reject passes a `reason` (AECI-1420); a decline never does.
+const sendSeatClaimRejected: SendSeatClaimDeclinedEmail = (c, o) =>
+  sendClaimDecisionEmail(c, {
+    decision: 'rejected',
+    to: o.to,
+    targetName: o.vendorName,
+    ...(o.reason ? { reason: o.reason } : {}),
+  });
 // AECI-1368: the owner's decision on a claim routed to their company
 // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). Both mail (the seat invite, or the
-// neutral claim-rejected), so both take the per-vendor `write` bucket the invite routes
+// claim-rejected), so both take the per-vendor `write` bucket the invite routes
 // share, and the invite cap counts an accept's invite. `requireSeatOwner()` runs inside
 // each handler. A claim not on this vendor, not routed, or decided is a 404.
 // Registered before `/seats/:userId` like the invite routes, so the literal `claims`
@@ -1548,15 +1558,14 @@ authVendor.post(
   '/api/vendor/seats/claims/:id/accept',
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
-  createAcceptSeatClaimHandler(getDb, sendSeatInvite),
+  // AECI-1420: the Accept guard sends the reasoned `claim-rejected` on an account conflict.
+  createAcceptSeatClaimHandler(getDb, sendSeatInvite, sendSeatClaimRejected),
 );
 authVendor.post(
   '/api/vendor/seats/claims/:id/decline',
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
-  createDeclineSeatClaimHandler(getDb, (c, o) =>
-    sendClaimDecisionEmail(c, { decision: 'rejected', to: o.to, targetName: o.vendorName }),
-  ),
+  createDeclineSeatClaimHandler(getDb, sendSeatClaimRejected),
 );
 authVendor.delete(
   '/api/vendor/seats/invites/:id',

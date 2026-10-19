@@ -1335,6 +1335,16 @@ decision the `claim_owner_fallback` cron clears it into `owner_fallback_at`, wit
 `audit_log` row per claim in the same batch. Neither column changes `status`, so the
 status CHECK is untouched. Migration 0077 is two nullable `ADD COLUMN`s.
 
+**A claim can be stored rejected from its first write (AECI-1420, 2026-10-19).** When
+the submit-time account check finds the address already holds a seat on another vendor,
+or is a staff account, the insert batch writes the row with `status = 'rejected'`,
+`resolved_at` set and `resolved_by` null. Its `vendor_claim` workflow instance is
+`rejected` from the start. The same batch writes the genesis transition, an
+`open → rejected` transition with a null actor, and a `vendor_claim.rejected` audit row
+with `actor_type = 'system'`. The owner Accept guard rejects a routed claim the same way,
+also with `resolved_by` null. No migration: `resolved_by` and the transition's
+`actor_id` are already nullable, and the reason lives in the audit metadata.
+
 ```sql
 create table vendor_requests (
   id uuid primary key default gen_random_uuid(),

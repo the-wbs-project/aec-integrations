@@ -87,6 +87,8 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     granted: (over.status ?? 'open') === 'resolved',
     routed_to_owners_at: null,
     owner_fallback_at: null,
+    // AECI-1420: the claimant's existing seat. Default: unknown.
+    claimant_seat: null,
     duplicate_siblings: [],
     ...over,
   };
@@ -258,6 +260,54 @@ describe('ClaimDetail', () => {
         makeApiMock(makeDetail({ submitter_name: null, submitter_linkedin_url: null })),
       );
       expect(linkedInHrefs(el)[0]).toContain(encodeURIComponent('submitter@vendor.test'));
+    });
+  });
+
+  // AECI-1420: the same red box the queue shows, with no Grant to disable here.
+  describe('account conflict box', () => {
+    const OTHER = { id: 'v-other', slug: 'other-co', name: 'Other Co' };
+
+    it('names the other vendor and links it', async () => {
+      const { el } = await setup(
+        makeApiMock(makeDetail({ claimant_seat: { kind: 'other_vendor', vendor: OTHER } })),
+      );
+      const box = el.querySelector<HTMLElement>('[data-testid="claim-account-conflict"]');
+      expect(box?.textContent).toContain('This address already holds a seat on');
+      expect(box?.textContent).toContain('Other Co');
+      expect(box?.textContent).toContain('Reject it.');
+      expect(box?.id).toBe('claim-account-conflict');
+      expect(
+        box?.querySelector('[data-testid="claim-account-conflict-vendor"]')?.getAttribute('href'),
+      ).toBe('/admin/vendors/v-other');
+    });
+
+    it('says a site admin account cannot hold a vendor seat', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ claimant_seat: { kind: 'admin' } })));
+      const box = el.querySelector('[data-testid="claim-account-conflict"]');
+      expect(box?.textContent).toContain('This address is a site admin account.');
+      expect(box?.textContent).toContain('Reject it.');
+    });
+
+    it('says a rejected claim is rejected, without claiming who rejected it', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeDetail({
+            status: 'rejected',
+            claimant_seat: { kind: 'other_vendor', vendor: OTHER },
+          }),
+        ),
+      );
+      const box = el.querySelector('[data-testid="claim-account-conflict"]');
+      expect(box?.textContent).toContain('This claim is rejected.');
+      expect(box?.textContent).not.toContain('Reject it.');
+    });
+
+    it.each([
+      ['none', { kind: 'none' as const }],
+      ['unknown', null],
+    ])('shows no box for claimant_seat %s', async (_label, seat) => {
+      const { el } = await setup(makeApiMock(makeDetail({ claimant_seat: seat })));
+      expect(el.querySelector('[data-testid="claim-account-conflict"]')).toBeNull();
     });
   });
 

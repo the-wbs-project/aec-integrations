@@ -131,7 +131,13 @@ export interface GrantSeatParams {
 
 export interface RejectClaimParams {
   requestId: string;
-  actorId: string;
+  /**
+   * The person deciding, written to `resolved_by_id` and the transition's `actor_id`.
+   * `null` for a SYSTEM reject (AECI-1420: the owner Accept found the address already
+   * holds a seat on another company). Both columns are nullable FKs, and the 7-day
+   * fallback already writes a null actor.
+   */
+  actorId: string | null;
   actorType: AuditLogEntry['actorType'];
   resolvedAt: string;
   fromStatus: string;
@@ -155,6 +161,11 @@ export interface RejectClaimParams {
    * AECi between the handler's read and the batch (`claimUndecidedSentinel`).
    */
   requireRouted?: boolean;
+  /**
+   * Extra keys for the audit row and the transition metadata. The account-conflict
+   * reject (AECI-1420) records `conflict` and `other_vendor_id` here.
+   */
+  extraMetadata?: Record<string, unknown>;
 }
 
 /** An owner accepting a claim routed to their company (AECI-1368, §11a.10). */
@@ -498,7 +509,10 @@ export async function claimDecisionRaceError(
  * purge, no identity resolution — a rejected claim provisions nothing.
  */
 export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch {
-  const metadata = claimMetadata(p, p.source ? { source: p.source } : {});
+  const metadata = claimMetadata(p, {
+    ...(p.source ? { source: p.source } : {}),
+    ...p.extraMetadata,
+  });
 
   const auditEntry: AuditLogEntry = {
     actorId: p.actorId,
