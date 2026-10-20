@@ -42,7 +42,7 @@ Three shapes were considered:
 - **The caller-supplied job ID *is* the Workflow instance ID** — the idempotency key. `create({ id })` throws on a duplicate, so a replayed kick-off attaches to the existing instance and returns the same `jobId`. There is no code path that starts two instances for one job ID, and therefore none that commits twice. The review app stamps `promote_job_id` on the Airtable row *before* pushing (AECI-567), which is what makes the key durable on its side.
 - **The commit is one non-retried step.** `commit-promote` throws `NonRetryableError(message, code)` on any failure, so the engine never replays a half-planned create. The second argument becomes the error's `name` — the only field `instance.status().error` carries besides the message — which is how the structured `ApiErrorCode` (`SLUG_CONFLICT`, `INTERNAL_ERROR`) survives to the poll response.
 - **The ingest keeps its shape.** The 1,550-line plan-then-batch body is unchanged; only its dependency on Hono's `Context` was narrowed to a four-member `PromoteRunCtx` (`env` / `waitUntil` / `request` / `bookmark`). All five post-commit seams are untouched.
-- **Post-commit hooks stay fire-and-forget** (`ctx.waitUntil`: audit forwards, cache purge, Algolia, the IndexNow buffer, the Google re-crawl worklist, home-stats — this list read "IndexNow, Google Indexing" until AECI-945; both are D1 buffer writes now, and the Google transport was deleted by AECI-747), dispatched from `run()` *after* the step resolves rather than inside it — so a step replay cannot re-fire them, and the job reaches `complete` the moment the batch commits. The poller gets its IDs without waiting on Algolia or Cloudflare. **Fire-and-forget is not fire-and-ignore** — see the [2026-08-27 amendment](#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for the connection budget the dispatch must respect and the watchdog that keeps one wedged hook from killing the rest.
+- **Post-commit hooks stay fire-and-forget** (`ctx.waitUntil`: audit forwards, cache purge, Algolia, the IndexNow buffer, the Google re-crawl worklist, home-stats — this list read "IndexNow, Google Indexing" until AECI-945; both are D1 buffer writes now, and the Google transport was deleted by AECI-747), dispatched from `run()` *after* the step resolves rather than inside it — so a step replay cannot re-fire them (true for a step retry, not for an instance restart after commit; see the [2026-10-20 amendment](#amendment-2026-10-20--step-outputs-cross-the-boundary-as-json-strings-aeci-1422)), and the job reaches `complete` the moment the batch commits. The poller gets its IDs without waiting on Algolia or Cloudflare. **Fire-and-forget is not fire-and-ignore** — see the [2026-08-27 amendment](#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for the connection budget the dispatch must respect and the watchdog that keeps one wedged hook from killing the rest.
 - **Oversize bundles stage in KV.** Workflow event params cap at 1 MiB; above 512 KiB the validated payload goes to `promote:payload:{jobId}` (24h) and the params carry `payloadRef: 'kv'`. The committed ID map is also mirrored to `promote:result:{jobId}` (90 days) so the IDs outlive the 30-day instance retention. Both key spaces live in `apps/api/src/lib/promote-jobs.ts`.
 - **Job-level observability.** `aeci.api.promote.kickoff`, `aeci.api.promote.job`, `aeci.api.promote.job.duration_ms`, plus an explicit `aeci.api.promote.job_failed` error log from the Workflow. Necessary, not decorative: `aeci.api.query.duration_ms{endpoint:/api/promote}` now times only the kick-off, and a Workflow failure never passes through the router's `errorHandler`, so without the log `REVIEW_APP_PROMOTE_API.md` §6.3's "every rejected promote is logged" would quietly stop holding. *(That guarantee is vendor-independent and must survive the ADR 0024 Datadog → PostHog swap — it is item 7 of the migration's verification checklist.)*
 
@@ -307,3 +307,49 @@ spy, because the thing worth preventing is a future refactor wiring this arm int
 - Never make the `kind` field of `PromoteWorkflowParams` required. It is absent for the product arm so that pre-AECI-714 instances still replay as product promotes.
 
 **Amendment 2026-10-10 (AECI-1268):** The `aeci-promote-preview` Workflow is retired with the preview tier. Remote Workflows are `aeci-promote-{staging,demo,production}`. The top-level `apps/api/wrangler.jsonc` block keeps the old preview Workflow and KV names as local-only so `.wrangler/state` carries over.
+
+## Amendment 2026-10-20 — step outputs cross the boundary as JSON strings (AECI-1422)
+
+**Status:** Accepted · **Issue:** AECI-1422
+
+The decision above stands. This records how a step's result must leave `step.do`, and it
+corrects one sentence of the original decision.
+
+**What happened.** During the 2026-10-17 and 2026-10-19 promote batches, the runtime hang
+detector killed 39 of 303 `PromoteWorkflow` invocations ("your Worker's code had hung and
+would never generate a response"). Every killed run committed, every instance reported
+`complete`, and the post-commit tail had most likely finished first. Every killed run, and no
+healthy run, also logged "An RPC stub was not disposed properly". There were no
+stalled-response warnings, so this was not the AECI-666 connection budget.
+
+**Why.** A structured object returned from `step.do()` reaches `run()` as an RPC result with a
+system disposer. When it is not disposed, the runtime can hold the invocation open after
+`run()` returns, and the hang detector then kills it. This is a runtime bug, tracked upstream
+as [cloudflare/workerd#6925](https://github.com/cloudflare/workerd/issues/6925) (moved there
+from workers-sdk#14959). The maintainers name returning a primitive as the working
+workaround. A primitive carries no disposer.
+
+**What changed.** Every `step.do` in `apps/api/src/workflows/promote-workflow.ts` goes through
+`doJsonStep`. The callback returns `JSON.stringify(result)`, and `run()` parses it after the
+step. That covers `load-staged-payload` and both arms' `commit-promote`. The encoding is not
+new. The commit result is the shape the AECI-571 ledger already stores as JSON and replays.
+`decodeStepOutput` also accepts an object, for an instance that persisted its step output
+before this change and replays after the deploy.
+
+**The rule this establishes.** A Workflow step in this repo returns a string or nothing, never
+an object. That includes the fallback `step.do('post-commit-hooks')` named in Consequences
+above. Written as an object-returning step, it would hit the same kill. The rule can be
+retired when workerd#6925 is fixed.
+
+**Correction to the Decision.** The Decision says the hooks are dispatched after the step
+"so a step replay cannot re-fire them". That holds for a **step retry**, whose cached output
+is returned without re-running the callback. It does not hold for an **instance restart**
+after the commit. A restart re-runs `run()` from the top, gets the cached step output, and
+dispatches the hooks again, because they sit outside any step. Every hook tolerates a second
+run. The Algolia upsert, the purge and the home-stats refresh are idempotent. The IndexNow
+buffer and the audit forward may record a duplicate, which costs a little noise and loses
+nothing.
+
+**How to confirm.** Run the next promote batch on the new build. Zero "code had hung" kills
+and zero "RPC stub/result was not disposed" warnings on `PromoteWorkflow` confirm the fix. At
+the observed rate of about 1 in 8, a clean 58-run batch is very unlikely to be chance.

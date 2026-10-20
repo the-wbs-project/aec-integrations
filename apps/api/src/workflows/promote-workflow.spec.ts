@@ -87,6 +87,28 @@ function replayingStep(replayed = 'commit-promote') {
   return { step, calls };
 }
 
+/**
+ * `step.do` that records what each callback returned (AECI-1422). With
+ * `cachedObject: true` it instead hands the run the decoded OBJECT, as the engine does
+ * for an instance whose step output was persisted before the JSON-string change shipped
+ * and which replays after the deploy.
+ */
+function outputStep({ cachedObject = false } = {}) {
+  const calls: Array<{ name: string; config?: unknown }> = [];
+  const outputs: Array<{ name: string; output: unknown }> = [];
+  const step: PromoteStepRunner = {
+    do: (async (name: string, second: unknown, third?: unknown) => {
+      const hasConfig = typeof second !== 'function';
+      calls.push({ name, config: hasConfig ? second : undefined });
+      const callback = (hasConfig ? third : second) as () => Promise<unknown>;
+      const output = await callback();
+      outputs.push({ name, output });
+      return cachedObject && typeof output === 'string' ? JSON.parse(output) : output;
+    }) as PromoteStepRunner['do'],
+  };
+  return { step, calls, outputs };
+}
+
 function fakeKv() {
   const store = new Map<string, string>();
   return {
@@ -366,6 +388,48 @@ describe('runPromoteWorkflow', () => {
     // the transport was handed work (the tag payloads are asserted by the datadog spec).
     expect(ctx.waitUntil).toHaveBeenCalled();
   });
+
+  /**
+   * AECI-1422: an object returned across the step boundary is an RPC result the runtime
+   * waits to see disposed, and an undisposed one gets the invocation killed as hung
+   * (cloudflare/workerd#6925). Every step output must be a primitive string.
+   */
+  describe('step outputs cross the boundary as JSON strings (AECI-1422)', () => {
+    it('returns a string from every step, including the staged-payload read', async () => {
+      kv.store.set(promotePayloadKey(JOB_ID), JSON.stringify(BUNDLE));
+      const step = outputStep();
+      const response = await run({ payload: undefined, payloadRef: 'kv' }, {}, step).promise;
+
+      expect(step.outputs.map((o) => o.name)).toEqual(['load-staged-payload', 'commit-promote']);
+      for (const { output } of step.outputs) expect(typeof output).toBe('string');
+      // Decoding is lossless: the run still produces the full ID map.
+      expect(response.product).toMatchObject({ slug: 'revit', operation: 'created' });
+    });
+
+    it('hands the hooks the decoded commit result, not the string', async () => {
+      const dispatchHooks = vi.fn();
+      const response = await run({}, { dispatchHooks }, outputStep()).promise;
+
+      const [rc, result] = dispatchHooks.mock.calls[0]!;
+      expect(result.response).toEqual(response);
+      expect(result.wrote).toBe(true);
+      expect(result.auditEntries.length).toBeGreaterThan(0);
+      expect(rc.bookmark()).toBe(result.bookmark);
+    });
+
+    it('still completes when the engine replays an object cached before the change', async () => {
+      kv.store.set(promotePayloadKey(JOB_ID), JSON.stringify(BUNDLE));
+      const dispatchHooks = vi.fn();
+      const response = await run(
+        { payload: undefined, payloadRef: 'kv' },
+        { dispatchHooks },
+        outputStep({ cachedObject: true }),
+      ).promise;
+
+      expect(response.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(dispatchHooks.mock.calls[0]![1].response).toEqual(response);
+    });
+  });
 });
 
 /**
@@ -471,6 +535,20 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
     // Same step name and same non-retried config as the product arm: an operator
     // querying the job telemetry should not need to know which kind a job was.
     expect(step.calls.map((c) => c.name)).toContain('commit-promote');
+  });
+
+  it('returns the connector commit across the step boundary as a string (AECI-1422)', async () => {
+    const dispatchConnectorHooks = vi.fn();
+    const step = outputStep();
+    const result = await runConnector(
+      { connectorIngest: stubConnectorIngest(), dispatchConnectorHooks },
+      step,
+    ).promise;
+
+    const commit = step.outputs.find((o) => o.name === 'commit-promote');
+    expect(typeof commit?.output).toBe('string');
+    expect('kind' in result && result.kind).toBe('connector');
+    expect(dispatchConnectorHooks.mock.calls[0]![1].response).toEqual(result);
   });
 
   it('mirrors the connector result to KV so a lost response stays recoverable', async () => {
