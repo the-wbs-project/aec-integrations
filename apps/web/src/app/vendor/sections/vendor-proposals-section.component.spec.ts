@@ -185,6 +185,13 @@ describe('VendorProposalsSection', () => {
     const card = cards(fixture)[0]!;
     click(card, 'proposal-decline');
     await settle(fixture);
+    // Ruled 2026-10-20: the no-re-send line, then where the owner can add it (AECI-1424).
+    const body = card
+      .querySelector('[data-testid="proposal-confirm"]')!
+      .textContent?.replace(/\s+/g, ' ');
+    expect(body).toContain(
+      'The product is not added. AEC Integrations will not send it again. You can add the product yourself from your dashboard.',
+    );
     click(card, 'proposal-confirm-submit');
     await settle(fixture);
 

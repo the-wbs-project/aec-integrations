@@ -254,6 +254,15 @@ export function proposalDecisionIsStale(err: unknown): boolean {
               <span i18n="@@vendor.proposals.confirm.declineBody"
                 >The product is not added. AEC Integrations will not send it again.</span
               >
+              <!-- AECI-1424 (vendor product create: an owner adds a product to its company)
+                   decides this sentence. When it ships, keep it if the dashboard create exists
+                   as described, or remove it. Ruled 2026-10-20. -->
+              <span
+                i18n="@@vendor.proposals.confirm.declineAddYourself"
+                data-testid="proposal-decline-add-yourself"
+              >
+                You can add the product yourself from your dashboard.</span
+              >
             }
           </p>
           <div class="mt-3 flex flex-wrap gap-2">
