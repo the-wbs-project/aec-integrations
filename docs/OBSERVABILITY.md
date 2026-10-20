@@ -987,6 +987,14 @@ vendor instead of N. A promote hook that stays unsettled for 20s is additionally
 abandoned with `promote hook "<name>" did not settle within 20000ms`, which is the
 signal that was missing entirely while this ran undetected.
 
+**Not every "code had hung" kill is a connection problem.** If the kill arrives with
+`An RPC stub was not disposed properly` (or `An RPC result was not disposed properly`) and
+**no** stalled-response warnings, look for an object returned across an RPC or Workflow
+step boundary instead. That is the AECI-1422 signature, a runtime bug tracked as
+cloudflare/workerd#6925. It killed 39 of 303 `PromoteWorkflow` runs in October 2026, after
+each commit had landed. The fix is to return a string from every `step.do` and parse it
+after the step (ADR 0021, 2026-10-20 amendment).
+
 One PostHog-only trap worth naming separately: `captureEvent` / `captureException`
 go through `posthog-node`, which **batches**. Their failures surface as
 `<label>: flush failed`, not `intake rejected`, and a missing event may simply mean

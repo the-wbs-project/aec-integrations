@@ -137,6 +137,45 @@ export type PromoteStepRunner = {
 };
 
 /**
+ * Run a step whose output crosses the step boundary as a JSON **string**, never an object
+ * (AECI-1422).
+ *
+ * Why: a structured object returned from `step.do()` comes back to `run()` as an RPC
+ * result with a system disposer. When it is never disposed, the runtime can hold the
+ * invocation open after `run()` returns, and the hang detector then kills it with "your
+ * Worker's code had hung" plus "An RPC stub was not disposed properly". The step and the
+ * instance still complete. A primitive carries no disposer, so a string return avoids it.
+ * That is the upstream workaround for cloudflare/workerd#6925 (and workers-sdk#14959). In
+ * production it killed 39 of 303 promote runs in the 2026-10-17 and 10-19 batches, and
+ * every killed run, and no healthy one, logged the warning.
+ *
+ * Every value that crosses here is already JSON-safe. The commit result is the same shape
+ * the AECI-571 ledger stores as JSON and replays, and the staged payload was read out of KV
+ * as JSON.
+ *
+ * {@link decodeStepOutput} also accepts an object, because an instance that persisted a
+ * step output before this change and replays after the deploy gets the cached object back.
+ * Never drop that branch while such an instance can still be running.
+ */
+async function doJsonStep<T>(
+  step: PromoteStepRunner,
+  name: string,
+  config: unknown,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const encoded = async (): Promise<string> => JSON.stringify(await callback());
+  const output: unknown =
+    config === undefined ? await step.do(name, encoded) : await step.do(name, config, encoded);
+  return decodeStepOutput<T>(output);
+}
+
+/** See {@link doJsonStep}: a string is this code's own encoding, and an object is a step
+ *  output the engine cached before AECI-1422 shipped. */
+function decodeStepOutput<T>(output: unknown): T {
+  return (typeof output === 'string' ? JSON.parse(output) : output) as T;
+}
+
+/**
  * The whole run, as a plain function. `PromoteWorkflow.run` is a one-line delegate to
  * this so the spec can exercise every branch — including the failure mapping — in the
  * plain-Node test lane, which has no Workflows runtime.
@@ -171,7 +210,9 @@ export async function runPromoteWorkflow(
   try {
     payload =
       params.payloadRef === 'kv'
-        ? await step.do('load-staged-payload', () => loadStagedPayload(env, jobId, kind))
+        ? await doJsonStep(step, 'load-staged-payload', undefined, () =>
+            loadStagedPayload(env, jobId, kind),
+          )
         : params.payload;
   } catch (error) {
     emitJobOutcome(rc, jobId, 'errored', Date.now() - startedAt, error);
@@ -194,7 +235,7 @@ export async function runPromoteWorkflow(
   if (kind === 'connector') {
     let connectorResult: ConnectorIngestResult;
     try {
-      connectorResult = await step.do('commit-promote', COMMIT_STEP_CONFIG, () =>
+      connectorResult = await doJsonStep(step, 'commit-promote', COMMIT_STEP_CONFIG, () =>
         commitConnectorPage(rc, jobId, payload as PromoteConnectorPagePayload, deps),
       );
     } catch (error) {
@@ -211,7 +252,7 @@ export async function runPromoteWorkflow(
 
   let result: PromoteIngestResult;
   try {
-    result = await step.do('commit-promote', COMMIT_STEP_CONFIG, () =>
+    result = await doJsonStep(step, 'commit-promote', COMMIT_STEP_CONFIG, () =>
       commitPromote(rc, jobId, payload as PromotePayload, deps),
     );
   } catch (error) {
