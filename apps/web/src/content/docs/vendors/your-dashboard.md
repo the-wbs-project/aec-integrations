@@ -82,7 +82,7 @@ Account owners see a **Get licenses** button that opens **Billing**. Other colle
 
 Turning Managed back on needs nothing re-entered. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
 
-If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay as you left them, and you can no longer edit them. Get a license to edit them again. Account owners see a **Get licenses** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
+If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so. Account owners see a **Get licenses** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
 
 ## The portal stays current
 

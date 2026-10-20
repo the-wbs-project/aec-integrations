@@ -85,6 +85,6 @@ export class VendorProductEndedBanner {
     // UTC, so the SSR and hydration renders agree on the date. `show` already
     // requires a readable `ended_at`, so the empty fallback never renders.
     const date = ended === null ? '' : formatDate(ended, 'MMMM d, y', this.locale, 'UTC');
-    return $localize`:@@vendor.productEnded.lede:It ended on ${date}:DATE:. Its content stays live and nothing you entered was removed. Its Managed fields stay as you left them, and you can no longer edit them. Get a license to edit them again.`;
+    return $localize`:@@vendor.productEnded.lede:It ended on ${date}:DATE:. Its content stays live and nothing you entered was removed. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so.`;
   });
 }

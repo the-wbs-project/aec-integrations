@@ -3704,7 +3704,7 @@ describe('managed-ended (AECI-1371)', () => {
     expect(text).toContain('Everything your team entered stays live, and nothing is deleted.');
     // AECI-1419: the fields freeze as the vendor left them; AECi does not take them back.
     expect(text).toContain(
-      'The Managed fields stay as your team left them, and your team can no longer edit them. A license lets your team edit them again.',
+      'The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a license to do so.',
     );
     expect(text).not.toContain('may update them again');
     expect(text).toContain('MicroStation: https://www.aecintegrations.com/products/microstation');
