@@ -86,6 +86,7 @@ const seat = (userId: string, vendorId: string): AuthzVariables['auth'] => ({
 
 let t: TestDb;
 let queueSend: ReturnType<typeof vi.fn>;
+let ownershipSend: ReturnType<typeof vi.fn>;
 
 const ENV = {
   ENV: 'staging',
@@ -144,6 +145,7 @@ const FULL = {
 beforeEach(async () => {
   t = await makeTestDb();
   queueSend = vi.fn(async () => undefined);
+  ownershipSend = vi.fn(async () => undefined);
   vi.mocked(syncIndexTargets).mockClear();
   resetAlgoliaWriteGuardWarning();
   await t.db.insert(vendors).values([
@@ -207,7 +209,11 @@ async function call(
   const res = await app(opts.auth ?? seat(OWNER, OWNED), opts.factory).request(
     path,
     { method },
-    { ...ENV, CACHE_PURGE_QUEUE: { send: queueSend } } as unknown as Env,
+    {
+      ...ENV,
+      CACHE_PURGE_QUEUE: { send: queueSend },
+      OWNERSHIP_SYNC_QUEUE: { send: ownershipSend, sendBatch: vi.fn() },
+    } as unknown as Env,
     execCtx,
   );
   const body = res.status === 204 ? {} : ((await res.json()) as JsonBody);
@@ -509,6 +515,19 @@ describe('POST /api/vendor/proposals/:id/accept', () => {
     expect(body.error.code).toBe(ApiErrorCode.PROPOSAL_ALREADY_DECIDED);
     expect(await t.db.select().from(products)).toEqual(before);
     expect((await audits()).some((r) => r.action === PROPOSAL_ACCEPTED_ACTION)).toBe(false);
+    // AECI-1418: a failed batch tells the review app nothing.
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('a committed accept enqueues exactly one proposal_accepted message (AECI-1418)', async () => {
+    const id = await propose('p:recOpenRoads', { name: 'OpenRoads' });
+    expect((await accept(id)).status).toBe(200);
+    expect(ownershipSend).toHaveBeenCalledTimes(1);
+    expect(ownershipSend).toHaveBeenCalledWith({
+      vendorId: OWNED,
+      reason: 'proposal_accepted',
+      enqueuedAt: expect.any(String),
+    });
   });
 
   it('a return to AECi that lands between the read and the batch writes nothing', async () => {
@@ -544,6 +563,11 @@ describe('POST /api/vendor/proposals/:id/decline', () => {
     });
     expect(queueSend).not.toHaveBeenCalled();
     expect(vi.mocked(syncIndexTargets)).not.toHaveBeenCalled();
+    // AECI-1418: the review app learns the decline, once.
+    expect(ownershipSend).toHaveBeenCalledTimes(1);
+    expect(ownershipSend).toHaveBeenCalledWith(
+      expect.objectContaining({ vendorId: OWNED, reason: 'proposal_declined' }),
+    );
   });
 
   it('refuses a decided proposal, a member seat, and another vendor’s proposal', async () => {

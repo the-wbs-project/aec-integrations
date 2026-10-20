@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-19
 - Issue: AECI-1415 (E6b.3, epic AECI-1333). Ruled on AECI-1341.
-- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1418 (the ownership message to the review app on a return)
+- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1418 (the ownership message to the review app, landed 2026-10-20)
 - Amends: ADR 0035 (promote refusal and the last-seat hand-back), ADR 0039 (the vendor-held test)
 - Relates to: ADR 0021 (async promote), `docs/REVIEW_APP_PROMOTE_API.md` §4a to §4c, `docs/STAGE_2_ATTESTATIONS_SPEC.md` §13.9
 
@@ -34,7 +34,7 @@ Chris ruled on 2026-10-19 (AECI-1341) that every record has one owner, AECi or t
 
 - A vendor that loses every seat stays frozen. Nobody can edit its records until a seat is granted again, and promote does not write them. AECi corrects a wrong fact through a field override, or returns the records. This is the cost of the rule, and it is intended.
 - Migration `0083` added `vendors.owned_at` as a plain `ADD COLUMN`, so it has no cascade exposure. It backfilled every vendor with a `vendor_admin` seat, banned or not. A ban never moves ownership, so it does not decide the backfill either (ruled 2026-10-19). The stamp is the earliest grant audit row or the migration time.
-- The ownership message to the review app on a return is AECI-1418 and is not built. The response lists (`product_ids`, `integration_ids`, `evidenced_pair_ids`) are the hook. Until it ships, the review app learns of a return only when it next sees the records promote again.
+- The ownership message to the review app on a return is AECI-1418. *As built 2026-10-20: see the amendment below.* Before it, the review app learned of a return only when it next saw the records promote again.
 - Hand-back audit rows say `cause` and `reason` `records-returned-to-aeci`. Rows from before AECI-1415 say `owner-seat-revoked`.
 - Between this and AECI-1416, a curator could not add a product to an owned vendor through promote. The product was skipped with `BLOCKED_NEW_PRODUCT_REASON`. AECI-1416 replaced that skip with a proposal (amendment below).
 - The last-seat hand-back of AECI-989 and AECI-1106 is superseded. The 2026-09-23 note in ADR 0035 is kept as history.
@@ -86,8 +86,42 @@ Owner seats decide proposals on the portal's "Proposed products" tab
   promote's post-commit hooks and keyed per proposal per owner.
 
 The review app still learns of a decision only through a refused re-send. That message is
-AECI-1418.
+AECI-1418 (landed 2026-10-20, amendment below).
+
+## Amendment 2026-10-20: AECI-1418 landed (the ownership message to the review app)
+
+The review app now learns each ownership change from the live app. This is the **first call
+the live app makes into the review app**. Every call before it ran the other way (promote,
+ADR 0021). Contract: `REVIEW_APP_PROMOTE_API.md` §4d. The receiver is the review repo's
+AECI-1412, which must ship before the end-to-end test.
+
+- **When.** After the commit of a claim approval, an ownership-stamping seat provision, a
+  proposal accept or decline, and "Return records to AECi". `ops:backfill-ownership-sync`
+  sends one per already-owned vendor (ruling Q7).
+- **How.** Producer enqueues, consumer works. Each route sends one message
+  `{ vendorId, reason, enqueuedAt }` to `aeci-ownership-sync-{env}` in `waitUntil`. The API
+  Worker consumes it, builds the record from D1 and `PUT`s it. A send failure warns and does
+  not fail the user's write. Every attempt writes an `ownership_sync_deliveries` row
+  (log-class, ADR 0022 amendment 2026-10-20).
+- **Why a whole-record PUT, not a delta.** The message carries no ownership data, and the
+  record is the vendor's complete current state, read at delivery. So a replay, a retry or an
+  out-of-order delivery all converge: the receiver keeps the highest `version` and replaces
+  what it holds. A delta would need ordered, exactly-once delivery, which Queues does not give,
+  and a lost delta would leave the review app wrong with nothing to repair it. The backfill is
+  the repair for any lost message, because sending the whole state again is always safe.
+- **What the record says.** The vendor's `owner` and `ownedAt`, every joined product with its
+  own owner (Q3), every integration where a product is the source or target, from
+  `integrations` and `connector_evidenced_pairs` (Q2, the connector side excluded), and every
+  proposal with its decision and created product id. The decision on a proposal, which the
+  AECI-1417 amendment left to a refused re-send, now arrives here.
+- **What it does not say.** Attestation ids. The live app rebuilds attestations on every
+  promote, so their ids are not stable and the review app cannot map them. It derives an
+  attestation's owner from its integration.
+- **Unconfigured is loud.** A tier without `REVIEW_APP_OWNERSHIP_URL` and
+  `REVIEW_APP_OWNERSHIP_TOKEN` acks each message with an `unconfigured` ledger row, a count and
+  a warning (the AECI-851 lesson), and never retries.
 
 ## Revisit
 
-When AECI-1418 sends the return to the review app, or when AECI-1343 decides the connector catalogue.
+When AECI-1343 decides the connector catalogue, or when AECI-1413 mirrors vendor edits through
+the same receiver.

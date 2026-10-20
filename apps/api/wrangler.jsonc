@@ -137,7 +137,10 @@
   // attestation detector sweep, and `aeci-vendor-snapshot-{env}` for the AECI-1210
   // per-vendor snapshot — seven per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
-  // step in deploy.yml / promote-to-prod.yml before the Worker deploy. PREREQS:
+  // step in deploy.yml / promote-to-prod.yml before the Worker deploy.
+  // AECI-1418 adds `aeci-ownership-sync-{env}`, which is NOT a scheduled-job queue:
+  // routes produce onto it post-commit and this Worker consumes it (`queue()` routes
+  // it by name). It is the one queue the base (local-dev) block also declares. PREREQS:
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
   //
@@ -306,6 +309,23 @@
   // config (`wrangler dev` serves the Workflow locally under this LOCAL-ONLY name);
   // per-env blocks below give each environment its own Workflow so instance ids —
   // which ARE the caller-supplied job ids — never collide across tiers.
+  // AECI-1418: the ownership-sync queue, the one queue the local-dev block declares.
+  // Queue bindings are not inherited into a named env, and this message has no inline
+  // fallback, so local dev runs it through a local (Miniflare) queue: a local claim
+  // approval enqueues, the local consumer delivers to REVIEW_APP_OWNERSHIP_URL from
+  // .dev.vars, or writes an `unconfigured` ledger row when it is unset. The name is
+  // local-only; nothing deploys this block.
+  "queues": {
+    "producers": [{ "queue": "aeci-ownership-sync-local", "binding": "OWNERSHIP_SYNC_QUEUE" }],
+    "consumers": [
+      {
+        "queue": "aeci-ownership-sync-local",
+        "max_batch_size": 1,
+        "max_retries": 5,
+        "max_concurrency": 1,
+      },
+    ],
+  },
   "workflows": [
     {
       "name": "aeci-promote-preview",
@@ -546,6 +566,9 @@
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-staging` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE" },
+          // AECI-1418: the ownership message to the review app. Producer AND consumer
+          // (below): the routes enqueue post-commit, this Worker delivers.
+          { "queue": "aeci-ownership-sync-staging", "binding": "OWNERSHIP_SYNC_QUEUE" },
         ],
         "consumers": [
           {
@@ -594,6 +617,16 @@
             "queue": "aeci-gsc-inspect-staging",
             "max_batch_size": 1,
             "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1418: 5 retries (OWNERSHIP_SYNC_MAX_RETRIES in lib/ownership-sync.ts,
+          // pinned by wrangler-ownership-sync.spec.ts). The consumer backs off with
+          // `retry({ delaySeconds })`. No dead-letter queue, like every other queue
+          // here: an exhausted message writes its ledger row and the backfill re-sends.
+          {
+            "queue": "aeci-ownership-sync-staging",
+            "max_batch_size": 1,
+            "max_retries": 5,
             "max_concurrency": 1,
           },
         ],
@@ -754,6 +787,9 @@
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-demo` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE" },
+          // AECI-1418: the ownership message to the review app. Producer AND consumer
+          // (below): the routes enqueue post-commit, this Worker delivers.
+          { "queue": "aeci-ownership-sync-demo", "binding": "OWNERSHIP_SYNC_QUEUE" },
         ],
         "consumers": [
           {
@@ -802,6 +838,16 @@
             "queue": "aeci-gsc-inspect-demo",
             "max_batch_size": 1,
             "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1418: 5 retries (OWNERSHIP_SYNC_MAX_RETRIES in lib/ownership-sync.ts,
+          // pinned by wrangler-ownership-sync.spec.ts). The consumer backs off with
+          // `retry({ delaySeconds })`. No dead-letter queue, like every other queue
+          // here: an exhausted message writes its ledger row and the backfill re-sends.
+          {
+            "queue": "aeci-ownership-sync-demo",
+            "max_batch_size": 1,
+            "max_retries": 5,
             "max_concurrency": 1,
           },
         ],
@@ -1000,6 +1046,9 @@
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-production` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE" },
+          // AECI-1418: the ownership message to the review app. Producer AND consumer
+          // (below): the routes enqueue post-commit, this Worker delivers.
+          { "queue": "aeci-ownership-sync-production", "binding": "OWNERSHIP_SYNC_QUEUE" },
         ],
         "consumers": [
           {
@@ -1048,6 +1097,16 @@
             "queue": "aeci-gsc-inspect-production",
             "max_batch_size": 1,
             "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1418: 5 retries (OWNERSHIP_SYNC_MAX_RETRIES in lib/ownership-sync.ts,
+          // pinned by wrangler-ownership-sync.spec.ts). The consumer backs off with
+          // `retry({ delaySeconds })`. No dead-letter queue, like every other queue
+          // here: an exhausted message writes its ledger row and the backfill re-sends.
+          {
+            "queue": "aeci-ownership-sync-production",
+            "max_batch_size": 1,
+            "max_retries": 5,
             "max_concurrency": 1,
           },
         ],

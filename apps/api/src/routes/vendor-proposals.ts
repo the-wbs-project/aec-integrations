@@ -70,6 +70,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
+import { dispatchOwnershipSync } from '../lib/ownership-sync';
 import { openProposalsFor } from '../lib/product-proposals';
 import { chunked } from '../lib/promote-claims';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
@@ -455,6 +456,9 @@ export function createAcceptVendorProposalHandler(
       cacheTagsForPromote(purgeShape, { extensionHostSlugs: resolved.hosts.map((h) => h.slug) }),
       audits,
     );
+    // AECI-1418: the review app learns the decision and the created product's id, so
+    // it can bind its `p:rec…` record to it. One message, for the addressed owner.
+    dispatchOwnershipSync(c, vendorId, 'proposal_accepted');
     dispatchOwnerWriteSearch(
       c,
       'proposal-accept-algolia',
@@ -516,6 +520,8 @@ export function createDeclineVendorProposalHandler(
 
     // The audit forward only. A decline changes no public page.
     afterVendorWrite(c, [], audit);
+    // AECI-1418: the review app learns the decline (ADR 0042, AECI-1417 amendment).
+    dispatchOwnershipSync(c, vendorId, 'proposal_declined');
     return new Response(null, { status: 204 });
   };
 }

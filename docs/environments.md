@@ -100,6 +100,60 @@ opens, no clicks), copy its signing secret into the GH secret, then run the next
 promote. The push is warn-and-skip. Until it lands, the endpoint answers 401 to everything,
 which Resend shows as failed deliveries.
 
+### Ownership receiver per tier (AECI-1418)
+
+The API Worker sends each vendor's ownership record to the review app
+(`REVIEW_APP_PROMOTE_API.md` §4d) through the `aeci-ownership-sync-{env}` queue, which the
+same Worker produces and consumes. Each tier needs the queue and two Worker secrets. The
+queue is created by the idempotent `create_queue` step in each deploy workflow. The secrets
+are pushed from per-tier GH secrets, warn-and-skip.
+
+| Tier | Queue | GH secrets (pushed as `REVIEW_APP_OWNERSHIP_URL` / `_TOKEN`) | Receiver |
+| --- | --- | --- | --- |
+| **Local** | `aeci-ownership-sync-local` (Miniflare, inside `wrangler dev`) | none. Set both in `apps/api/.dev.vars` only to point at a local mock | none by default: every delivery is `unconfigured` |
+| **Staging** | `aeci-ownership-sync-staging` (`deploy.yml`) | `REVIEW_APP_OWNERSHIP_URL_STAGING`, `REVIEW_APP_OWNERSHIP_TOKEN_STAGING` | the review app's staging receiver, once AECI-1412 names it |
+| **Demo** | `aeci-ownership-sync-demo` (`promote-to-demo.yml`) | `REVIEW_APP_OWNERSHIP_URL_DEMO`, `REVIEW_APP_OWNERSHIP_TOKEN_DEMO` | decide with AECI-1412. Leaving it unset is safe |
+| **Production** | `aeci-ownership-sync-production` (`promote-to-prod.yml`) | `REVIEW_APP_OWNERSHIP_URL_PRODUCTION`, `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION` | the review app's production receiver |
+
+Without both secrets a tier acks every message as `unconfigured`, writes its
+`ownership_sync_deliveries` row and logs a warning. Nothing retries. The token is a new
+random value that the review app also stores. It is not `REVIEW_APP_TOKEN`.
+
+**Operator checklist, per tier, after AECI-1412 gives the receiver URL.** Nothing here runs
+before that. The CI deploy token already carries Queues edit for the other queues, so the
+queue needs no manual step. To pre-create it by hand anyway, run this from `apps/api` (an
+"already exists" answer is fine):
+
+```bash
+pnpm exec wrangler queues create aeci-ownership-sync-staging
+```
+
+Generate the token, give the same value to the review app for that tier, then set both GH
+secrets. `gh secret set` prompts for each value:
+
+```bash
+openssl rand -hex 32
+gh secret set REVIEW_APP_OWNERSHIP_URL_STAGING
+gh secret set REVIEW_APP_OWNERSHIP_TOKEN_STAGING
+```
+
+The next deploy pushes them. For demo and production, repeat with `_DEMO` and
+`_PRODUCTION` and the matching queue name. Then confirm the Worker holds both names from
+`apps/api`:
+
+```bash
+pnpm exec wrangler secret list --env staging
+```
+
+Last, send the backfill (ruling Q7). Read the queue id, dry-run, then apply. Production
+needs Chris's go-ahead on the day and adds `--allow-production`. `RUNBOOKS.md` has the
+production form.
+
+```bash
+pnpm exec wrangler queues info aeci-ownership-sync-staging
+pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env staging
+```
+
 ## Promotion model
 
 ```
@@ -945,6 +999,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 **Google inspection queue (AECI-1236).** `aeci-gsc-inspect-{staging,demo,production}` (binding `GSC_INSPECT_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `gsc-inspect` cron enqueues one chunk of 100 rows, and the consumer handles it and enqueues the next, because a run takes about an hour and one consumer invocation is capped at 15 minutes. It needs the same two prerequisites above. Without the binding (local, preview) the run loops inline.
 
 **Cross-Worker cache-purge queue (WC-5 / AECI-319 / ADR 0020 §3).** `aeci-cache-purge-{staging,demo,production}` is provisioned by the **same** idempotent `create_queue` step (in `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`, before the SSR deploy) and needs the same two prerequisites above. It differs from the ADR-0013 job queues in that its **producers** are the API Worker (`CACHE_PURGE_QUEUE`, enqueued on promote/moderation) **and** — since WC-7 (AECI-321) — the manual-deploy `apps/datatool` Worker (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, enqueued after a copy/seed/reindex with `{ purgeEverything: true, source: 'datatool' }`), while its **consumer** is the **SSR Worker** (`apps/web/wrangler.jsonc` `queues.consumers`, which issues `ctx.cache.purge()`) — so the queue must exist before the SSR deploy, not only the API deploy (and before a datatool deploy). No queue on preview/local (the producers no-op gracefully). Retire it, like the job queues, only after removing all bindings.
+
+**Ownership-sync queue (AECI-1418).** `aeci-ownership-sync-{staging,demo,production}` (binding `OWNERSHIP_SYNC_QUEUE`) is created by the same idempotent `create_queue` step and needs the same two prerequisites. The API Worker is both producer and consumer. Unlike every other queue it is also declared in the local-dev block, as `aeci-ownership-sync-local`, which `wrangler dev` emulates. Its secrets and checklist: "Ownership receiver per tier" above.
 
 ### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
 

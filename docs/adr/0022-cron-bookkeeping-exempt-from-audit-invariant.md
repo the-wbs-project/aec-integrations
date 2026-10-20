@@ -294,3 +294,29 @@ state. It audits like any other, in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+
+## Amendment 2026-10-20 — the ownership sync delivery ledger (AECI-1418)
+
+Nothing above is reversed, and no new class is added. `ownership_sync_deliveries`
+(`DATABASE_SCHEMA.md` §9.14) joins `notification_sends` and `notification_delivery_events` as a
+delivery log of an outbound call.
+
+**The table.** One row per delivery attempt of the ownership message to the review app
+(`REVIEW_APP_PROMOTE_API.md` §4d), written by the queue consumer in
+`apps/api/src/lib/ownership-sync.ts`: the vendor, the reason, the attempt, the outcome, the
+receiver's status and the record's version.
+
+**Why it is exempt.** The ownership change it reports (a claim approval, a seat provision, a
+proposal decision, a return to AECi) already wrote its own `audit_log` row in its own batch.
+This row records only whether an HTTP call to another system succeeded. It is invisible on every
+public surface, never read by search or ranking, and a re-send (`ops:backfill-ownership-sync`)
+reproduces the effect. An `audit_log` row per delivery would audit the transport, not a decision.
+
+**Retention.** 400 days, the ledger rule, pruned by the 03:00 job. That scheduled `DELETE` is not
+exempt and rides the job's one summary audit row, like the other pruned tables.
+
+**What would end the exemption.** If any code ever reads this table to decide ownership, or an
+operator action edits a row, that is domain state and audits in the same `db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.

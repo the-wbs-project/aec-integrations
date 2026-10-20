@@ -836,6 +836,24 @@ describe('normalizeJobMessage', () => {
 });
 
 describe('queue (consumer)', () => {
+  it('routes the ownership-sync queue by name, never into the job path (AECI-1418)', async () => {
+    const { batch, ack, retry } = makeBatchFromBody(
+      {
+        vendorId: '00000000-0000-4000-8000-000000000001',
+        reason: 'backfill',
+        enqueuedAt: '2026-10-20T00:00:00.000Z',
+      } as unknown as ScheduledJobMessageInput,
+      'aeci-ownership-sync-staging',
+    );
+
+    // No receiver configured: the ownership consumer acks it as `unconfigured`.
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runDailySync).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
   it('ack()s a message whose job runs successfully', async () => {
     const { batch, ack, retry } = makeBatch('sync', 'aeci-algolia-sync-staging');
 

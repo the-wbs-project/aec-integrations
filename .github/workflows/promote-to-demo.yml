@@ -230,6 +230,10 @@ jobs:
           # AECI-1222: per-tier Svix secret for the Resend delivery webhook. Mapped so the
           # VALUE check is real (same must-be-mapped rule as above).
           RESEND_WEBHOOK_SECRET_DEMO: ${{ secrets.RESEND_WEBHOOK_SECRET_DEMO }}
+          # AECI-1418: the ownership receiver (REVIEW_APP_PROMOTE_API.md §4d), per tier.
+          # Mapped so the VALUE check is real.
+          REVIEW_APP_OWNERSHIP_URL_DEMO: ${{ secrets.REVIEW_APP_OWNERSHIP_URL_DEMO }}
+          REVIEW_APP_OWNERSHIP_TOKEN_DEMO: ${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_DEMO }}
           # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
           # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
           # entry in wrangler.jsonc, and demo now points at the NON-prod PostHog
@@ -262,7 +266,7 @@ jobs:
           # seams on the API Worker — recommended, never REQUIRED, because every seam
           # degrades rather than failing closed. CF_PURGE_API_TOKEN is absent by
           # design (WC-10 / AECI-324 retired the zone HTTP purge transport).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY RESEND_WEBHOOK_SECRET_DEMO'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY RESEND_WEBHOOK_SECRET_DEMO REVIEW_APP_OWNERSHIP_URL_DEMO REVIEW_APP_OWNERSHIP_TOKEN_DEMO'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -543,6 +547,9 @@ jobs:
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-demo
+          # AECI-1418: the ownership message to the review app. Producer AND
+          # consumer = API Worker.
+          create_queue aeci-ownership-sync-demo
 
       # ADR 0016 / AECI-256: apply the app DB's D1 schema to the demo D1
       # (aeci-app-demo) and reconcile the taxonomy reference data BEFORE the API
@@ -650,6 +657,28 @@ jobs:
           fi
           printf '%s' "$RESEND_WEBHOOK_SECRET_VALUE" \
             | pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env demo
+
+      # AECI-1418: the ownership receiver's base URL and bearer token
+      # (REVIEW_APP_PROMOTE_API.md §4d). Recommended + warn-and-skip: absent, the
+      # consumer acks every delivery with an `unconfigured` ledger row, a count and a
+      # warn, so the gap is visible and nothing retries. Both or neither.
+      - name: Push REVIEW_APP_OWNERSHIP_URL + TOKEN to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OWNERSHIP_URL_VALUE: ${{ secrets.REVIEW_APP_OWNERSHIP_URL_DEMO }}
+          OWNERSHIP_TOKEN_VALUE: ${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_DEMO }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$OWNERSHIP_URL_VALUE" ] || [ -z "$OWNERSHIP_TOKEN_VALUE" ]; then
+            echo "::warning::REVIEW_APP_OWNERSHIP_URL_DEMO / REVIEW_APP_OWNERSHIP_TOKEN_DEMO not set — skipping. Ownership records are not sent to the review app from demo (ledger outcome 'unconfigured') until both are provisioned."
+            exit 0
+          fi
+          printf '%s' "$OWNERSHIP_URL_VALUE" \
+            | pnpm exec wrangler secret put REVIEW_APP_OWNERSHIP_URL --env demo
+          printf '%s' "$OWNERSHIP_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put REVIEW_APP_OWNERSHIP_TOKEN --env demo
 
       # Push RESEND_API_KEY (shared, fail-open) for transactional email.
       - name: Push RESEND_API_KEY to API Worker (demo)

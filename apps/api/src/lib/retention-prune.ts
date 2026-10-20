@@ -5,8 +5,8 @@
  * A scheduled job (`../scheduled.ts`, cron `0 3 * * *`) deletes `page_views`
  * older than 400 days, `job_runs` older than 90, `notification_sends` older
  * than 400 (AECI-1202), `notification_delivery_events` older than 400
- * (AECI-1222), and `user_activity_daily` days older than 400
- * (AECI-1208). It is the **first scheduled
+ * (AECI-1222), `user_activity_daily` days older than 400
+ * (AECI-1208), and `ownership_sync_deliveries` older than 400 (AECI-1418). It is the **first scheduled
  * `DELETE` in the system's history**, which is why so much of this file is about
  * refusing to delete rather than deleting.
  *
@@ -97,6 +97,7 @@ import {
   MIN_RETENTION_DAYS,
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
+  OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
   USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
@@ -111,6 +112,7 @@ import {
   metricsDaily,
   notificationDeliveryEvents,
   notificationSends,
+  ownershipSyncDeliveries,
   pageViews,
   userActivityDaily,
 } from '../db/schema';
@@ -158,6 +160,7 @@ export const PRUNABLE = [
   'notification_sends',
   'notification_delivery_events',
   'user_activity_daily',
+  'ownership_sync_deliveries',
 ] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
 
@@ -193,6 +196,12 @@ const SOURCES: Record<PrunableTable, PruneSource> = {
     age: notificationDeliveryEvents.createdAt,
   },
   user_activity_daily: { kind: 'day', table: userActivityDaily, age: userActivityDaily.day },
+  ownership_sync_deliveries: {
+    kind: 'id',
+    table: ownershipSyncDeliveries,
+    id: ownershipSyncDeliveries.id,
+    age: ownershipSyncDeliveries.createdAt,
+  },
 };
 
 /** The value a table's age column is compared against: the cutoff instant for a
@@ -238,6 +247,7 @@ export function resolveRetentionWindows(
     NOTIFICATION_SENDS_RETENTION_DAYS?: string;
     NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS?: string;
     USER_ACTIVITY_RETENTION_DAYS?: string;
+    OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS?: string;
   },
   onInvalid?: (table: PrunableTable, reason: string) => void,
 ): Record<PrunableTable, number> {
@@ -264,6 +274,11 @@ export function resolveRetentionWindows(
       env.USER_ACTIVITY_RETENTION_DAYS,
       USER_ACTIVITY_RETENTION_DAYS,
       (reason) => onInvalid?.('user_activity_daily', reason),
+    ),
+    ownership_sync_deliveries: resolveRetentionDays(
+      env.OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS,
+      OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS,
+      (reason) => onInvalid?.('ownership_sync_deliveries', reason),
     ),
   };
 }
@@ -496,6 +511,7 @@ export async function runRetentionPrune(
     notification_sends: cutoffFor(now, windows.notification_sends),
     notification_delivery_events: cutoffFor(now, windows.notification_delivery_events),
     user_activity_daily: cutoffFor(now, windows.user_activity_daily),
+    ownership_sync_deliveries: cutoffFor(now, windows.ownership_sync_deliveries),
   } as const;
 
   const oldestPageView = await oldestCreatedAt(db, 'page_views');

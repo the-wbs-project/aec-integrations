@@ -1192,8 +1192,9 @@ approval and is refused while the vendor holds any seat. It clears `owned_at`, r
 vendor and product markers to `'aeci'`, un-claims the vendor's live claimed integrations and
 evidenced pairs, and moves open owner contests to AECi. After it, promote writes those records
 again. A vendor-created row stays fenced (§4c). A product co-owned with another owned vendor
-stays owned. The response lists the affected ids. The ownership message to the review app on
-a return is AECI-1418 (not built). *Before AECI-1415, revoking the last seat (AECI-989) or
+stays owned. The response lists the affected ids. After the commit the live app sends the
+vendor's ownership record with `owner: "aeci"` (§4d, AECI-1418), and it sends one with
+`owner: "vendor"` after every claim approval and ownership-stamping seat provision. *Before AECI-1415, revoking the last seat (AECI-989) or
 erasing its account (AECI-1106) did this hand-back, and a ban made the vendor writable again.
 Both are superseded.*
 
@@ -1241,10 +1242,10 @@ keyed per proposal per owner, so a replay sends nothing twice. The rules:
   Accept is refused when the addressed vendor no longer owns its record, or when a linked
   vendor no longer exists; the owner then declines it. **Decline** records the decision and
   creates nothing. Either way the `ref` stays spent (Q5): a re-send is refused with
-  `ALREADY_PROPOSED_REASONS.accepted` or `.declined`. **The review app is not told of the
-  decision yet.** That message is AECI-1418 (not built). Until then the decision shows only as
-  the refusal reason on a re-send of the same `ref`, and an accepted product appears in the
-  directory under the vendor.
+  `ALREADY_PROPOSED_REASONS.accepted` or `.declined`. **The review app is told of the
+  decision by the ownership record (§4d, AECI-1418).** Its `proposals[]` lists each proposal's
+  `ref`, `state` and, on an accept, the created `productId`. Before AECI-1412 ships the
+  receiver, the decision shows only as the refusal reason on a re-send of the same `ref`.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1468,6 +1469,135 @@ both, which satisfies the order rule.**
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - The strong-match test that decides a `VENDOR_OWNED_TWIN` skip is implemented in `apps/api/src/lib/integration-twins.ts`.
+
+---
+
+## 4d. Ownership records (live app → review app)
+
+**Status:** live side built 2026-10-20 (AECI-1418, E6b.2). The receiver is the review
+repo's AECI-1412, which builds against this section. The URL path below is a placeholder
+until AECI-1412 confirms it. Decision: ADR 0042, amendment 2026-10-20.
+
+This is the one call that runs the other way. Everything above is the review app calling
+AECi. Here the AECi API Worker calls the review app, to say who owns one vendor's records
+(§4a). The review app makes vendor-owned records read-only and stops sending them.
+
+### When it is sent
+
+The live app sends one vendor's record after each of these commits:
+
+| Event | `reason` |
+|---|---|
+| Admin claim approval (`PATCH /api/admin/claims/:id`, approve). Every committed approval leaves the vendor owned. | `claim_approved` |
+| Admin seat provision (`POST /api/admin/vendors/:id/seats`), only when it stamped `owned_at` | `seat_provisioned` |
+| Owner accepts a product proposal (AECI-1417) | `proposal_accepted` |
+| Owner declines a product proposal | `proposal_declined` |
+| "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`) | `records_returned` |
+| `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
+
+`reason` is informational. Act on the record's state, never on the reason.
+
+### The request
+
+```
+PUT {REVIEW_APP_OWNERSHIP_URL}/vendors/{vendorId}
+Authorization: Bearer {REVIEW_APP_OWNERSHIP_TOKEN}
+Content-Type: application/json
+```
+
+- `REVIEW_APP_OWNERSHIP_URL` is a base URL per tier. The path suffix `/vendors/{vendorId}`
+  is a **placeholder** the review repo confirms in AECI-1412.
+- `REVIEW_APP_OWNERSHIP_TOKEN` is the reverse of `REVIEW_APP_TOKEN`: a separate bearer the
+  review app checks, constant-time. A separate value so either side rotates alone.
+- One request per vendor. 10 second timeout. The live app never reads the response body.
+  The status code is the whole answer.
+
+### The body: the WHOLE current record, not a delta
+
+The live app reads the vendor's state from its database at delivery time and sends all of
+it. A replay sends the same state. A late delivery still sends the latest state. So the
+receiver needs no event log: it replaces what it holds with what it receives, unless the
+received `version` is older.
+
+Zod schema: `OwnershipRecordSchema` in `packages/shared/src/api/review-app-ownership.ts`.
+The review app imports or mirrors it.
+
+```json
+{
+  "schemaVersion": 1,
+  "vendorId": "6f0c…-uuid",
+  "owner": "vendor",
+  "ownedAt": "2026-10-19T08:00:00.000Z",
+  "version": 1792483200000,
+  "asOf": "2026-10-20T08:00:00.000Z",
+  "reason": "claim_approved",
+  "products": [{ "id": "…", "owner": "vendor" }],
+  "integrations": [
+    { "id": "…", "table": "integrations", "owner": "vendor" },
+    { "id": "…", "table": "connector_evidenced_pairs", "owner": "vendor" }
+  ],
+  "proposals": [
+    { "id": "…", "ref": "p:recAbc123", "state": "accepted", "decidedAt": "…", "productId": "…" }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `vendorId` | The AECi vendor UUID: the `supabase_vendor_id` the review app stores (§3.1). |
+| `owner` | `vendor` while `vendors.owned_at` is set, else `aeci`. Applies to the vendor row. |
+| `ownedAt` | When the vendor took ownership. `null` exactly when `owner` is `aeci`. |
+| `version` | Epoch milliseconds of the database read the record was built from. Monotonic per vendor. |
+| `asOf` | `version` as an ISO instant, for people. |
+| `products[]` | Every product joined to the vendor. Each carries its own `owner`. A product joined to any owned vendor is `vendor`-owned (ruling Q3), so a co-owned product stays `vendor` after this vendor returns its records. |
+| `integrations[]` | Every integration where one of those products is the source or the target (ruling Q2). `table` says where the id lives: `integrations` (source or target) or `connector_evidenced_pairs` (`product_a` or `product_b`), because promote routes connector-delivered edges there (§3.4a). An edge where the vendor's product is only the `poweredByProduct` connector is **not** listed. Each is `vendor`-owned when either endpoint product is owned. |
+| `proposals[]` | Every product proposal addressed to the vendor (AECI-1416): its `ref` (your `p:rec…`), `state` (`open`, `accepted`, `declined`), `decidedAt`, and the `productId` an accept created. Bind your record to that id. A proposal "Return records to AECi" discarded is no longer listed. |
+
+**Ids.** Every id is an AECi UUID, the `supabaseId` you store per record (§3.1). An id you
+never stored is not an error. Ignore it. A vendor-created product or integration is one.
+
+**Attestations are not listed.** The live app's attestation rows are rebuilt on every
+promote and their ids are informational only (§3, "`claims` shape"). You cannot map them.
+Derive an attestation's owner from its integration.
+
+**The §4b and §4c fences still apply.** Promote refuses a claimed or vendor-created
+integration whatever `owner` says here. `owner` in this record is the ADR 0042 product rule
+only.
+
+### What the receiver answers
+
+| Status | Meaning | The live app does |
+|---|---|---|
+| `200` or `204` | Stored, or the same `version` again (a no-op) | Done |
+| `409` | You hold a newer `version` for this vendor. Drop this one | Done. Logged `stale`, not an error |
+| `408`, `429`, `5xx`, timeout, network error | Try later | Retries with backoff: 30 s, 60 s, 120 s, 240 s, 480 s. Five retries, six attempts. Then `exhausted` and an error log |
+| Any other `4xx` (`400`, `401`, `403`, `404`, `422`) | This record will never be accepted | Not retried. Logged `permanent` with a warning |
+
+Rules for the receiver:
+
+1. **Idempotent.** The same body twice changes nothing.
+2. **Keep the highest `version` per vendor.** Lower is `409`. Equal is `200`.
+3. **Replace, do not merge.** A product absent from `products[]` is no longer this
+   vendor's. Do not infer a delete of the product itself from its absence (ADR 0030 is the
+   same rule in the other direction).
+4. **A vendor id you have never stored** is `404`. The live app does not retry it.
+
+### How the live app sends it
+
+Producer enqueues, consumer works. Each route above sends one message
+`{ vendorId, reason, enqueuedAt }` to the `aeci-ownership-sync-{env}` queue after its batch
+commits. The message carries no ownership data. The same API Worker consumes the queue,
+builds the record from D1, and makes the `PUT`. A send failure never fails the user's
+request: it warns and counts, and `ops:backfill-ownership-sync` re-sends any vendor. Each
+delivery attempt writes one `ownership_sync_deliveries` row (`DATABASE_SCHEMA.md` §9.14).
+Code: `apps/api/src/lib/ownership-sync.ts`.
+
+A tier with no `REVIEW_APP_OWNERSHIP_URL` or `REVIEW_APP_OWNERSHIP_TOKEN` acks every message
+as `unconfigured`, writes its ledger row and logs a warning. Nothing retries, and the gap
+shows in `aeci.ownership_sync.delivery{outcome:unconfigured}` (`OBSERVABILITY.md`).
+
+**The end-to-end test waits on AECI-1412.** Until the receiver is live, every tier reports
+`unconfigured` or `permanent`.
 
 ---
 
@@ -2331,6 +2461,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **owned by its vendor and not writable from here** (a new product that would join an owned vendor is not created; it becomes a proposal, next item) — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Handle a `kind: "product"` skip that carries **`proposalId`** (§4a, AECI-1416): the new product was stored as a proposal for the vendor that owns its record, or a re-send was refused because that `ref` was already sent. Record that the product was sent, show the curator the reason (it names the proposal's state), and never send that `ref` again. Integrations touching it come back skipped with `PROPOSED_PRODUCT_INTEGRATION_REASON`; re-send them once the product exists. An `errored` job with `PRODUCT_PROPOSED_DURING_PROMOTE` or `VENDOR_RETURNED_DURING_PROMOTE` is re-pushed with a new `jobId`. A `PROPOSAL_REF_REFUSED_REASON` skip means the ref was not `p:rec…`: fix the ref, then re-send. Tolerate `proposalId` being absent on older results.
 - [ ] Handle `skipped[]` `kind: "integration"` with the claimed-integration reason (§4b): the integration's **owner has claimed it**, so it is vendor-owned and nothing about it is writable from here, including its claims. Show the curator that, and don't retry. An `errored` job with `INTEGRATION_CLAIMED_DURING_PROMOTE` or `VENDOR_OWNED_DURING_PROMOTE` is the one case to re-push, with a new `jobId`.
+- [ ] **Receive the ownership record (§4d, AECI-1412):** an idempotent `PUT` per vendor, bearer-checked, keep the highest `version` (answer `409` to a lower one), replace rather than merge, and make every `vendor`-owned vendor, product and integration read-only. Bind an accepted proposal's `ref` to its `productId`.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.

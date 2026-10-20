@@ -101,6 +101,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { stampOwnershipStatement, VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { dispatchOwnershipSync } from '../lib/ownership-sync';
 import { blankLast, textAsc } from '../lib/collation';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { ensureBillingAccountStatements, loadBillingAccount } from '../lib/billing-account';
@@ -997,8 +998,8 @@ export const RECORDS_RETURNED_ACTION = 'vendor.records_returned';
  *     discarded proposal ids.
  *
  * Post-commit: one batched audit forward and the purge of every page whose marker
- * flipped. The response lists what was handed back. That list is the hook for the
- * ownership message to the review app (AECI-1418), which this endpoint does not send.
+ * flipped, and the ownership message to the review app (AECI-1418, `owner: 'aeci'`).
+ * The response lists what was handed back.
  */
 export function createReturnRecordsHandler(
   dbFor: DbFactory = getDb,
@@ -1131,6 +1132,8 @@ export function createReturnRecordsHandler(
       [auditEntry, ...inviteRevokes.map((r) => r.auditEntry), ...handback.audits],
       handback.transitions,
     );
+    // AECI-1418: the review app learns the records are AECi's again.
+    dispatchOwnershipSync(c, vendorId, 'records_returned');
     if (handback.purgeTags.length) {
       c.executionCtx.waitUntil(purgeTags(c, handback.purgeTags, 'moderation'));
     }
@@ -1417,6 +1420,9 @@ export function createProvisionSeatHandler(
       throw error;
     }
     emitSeatProvision(c, 'ok');
+    // AECI-1418: only a provision that stamped ownership moves it, so only that one
+    // tells the review app. A seat on an already-owned vendor changes no record.
+    if (vendor.ownedAt === null) dispatchOwnershipSync(c, vendorId, 'seat_provisioned');
     // ONE batched forward: the return adds a row and a transition per contest.
     forwardAuditBatch(
       c,

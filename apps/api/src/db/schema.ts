@@ -3059,6 +3059,70 @@ export const notificationDeliveryEvents = sqliteTable(
 );
 
 // ===========================================================================
+// Ownership sync delivery ledger (AECI-1418, DATABASE_SCHEMA.md §9.14)
+//
+// LOG-CLASS, exempt from the §26.1 audit-in-batch rule (ADR 0022, 2026-10-20
+// amendment): it records an outbound HTTP call, not a change of domain state. The
+// ownership change it reports carried its own audit row in its own batch. Written
+// outside any batch, one plain INSERT per delivery attempt, swallowed on failure.
+// No foreign keys, so a row outlives a retracted vendor and sits on no ON DELETE
+// path. Pruned at 400 days by the §7.4 retention job.
+// ===========================================================================
+
+/**
+ * What one delivery attempt of an ownership record ended as. CHECK-free, like
+ * `notification_sends.outcome`: the union is the enforcement.
+ *
+ * - `delivered`: the receiver answered 2xx.
+ * - `stale`: the receiver answered 409, it already holds a newer version. Success.
+ * - `retry`: 408, 429, 5xx, a timeout or a network error. The message is retried.
+ * - `exhausted`: retryable, but this was the last attempt the queue allows.
+ * - `permanent`: any other 4xx. Acked, never retried.
+ * - `unconfigured`: the receiver URL or token is not set on this tier. Acked.
+ * - `vendor_missing`: the vendor no longer exists in D1. Acked, nothing sent.
+ */
+export type OwnershipSyncOutcome =
+  | 'delivered'
+  | 'stale'
+  | 'retry'
+  | 'exhausted'
+  | 'permanent'
+  | 'unconfigured'
+  | 'vendor_missing';
+
+export const ownershipSyncDeliveries = sqliteTable(
+  'ownership_sync_deliveries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The vendor the record is about. No FK, on purpose (see the block comment). */
+    vendorId: text('vendor_id').notNull(),
+    /** `OwnershipSyncReason`. CHECK-free. */
+    reason: text('reason').notNull(),
+    /** The Cloudflare Queues message id. Every attempt of one message shares it. */
+    messageId: text('message_id'),
+    /** `message.attempts`: 1 on the first delivery. */
+    attempt: integer('attempt').notNull(),
+    outcome: text('outcome').notNull().$type<OwnershipSyncOutcome>(),
+    /** The receiver's status. NULL when no response arrived or nothing was sent. */
+    httpStatus: integer('http_status'),
+    /** The record's `version`. NULL when no record was built. */
+    recordVersion: integer('record_version'),
+    /** The record's owner, `vendor` or `aeci`. NULL when no record was built. */
+    owner: text('owner'),
+    productCount: integer('product_count'),
+    integrationCount: integer('integration_count'),
+    /** A short cause on a non-success outcome. Never the token, never a body. */
+    error: text('error'),
+    durationMs: integer('duration_ms'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // "What did we last tell the review app about this vendor", newest first.
+    index('ownership_sync_deliveries_vendor_idx').on(t.vendorId, t.createdAt),
+  ],
+);
+
+// ===========================================================================
 // Per-seat notification preferences (AECI-1204, DATABASE_SCHEMA.md §9.10)
 //
 // DOMAIN state: a mute is a choice a person made, so every change to it writes

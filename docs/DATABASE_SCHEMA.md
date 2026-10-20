@@ -5038,6 +5038,54 @@ read. Not the per-seat mute in §9.10: that is a seat's own choice about one dig
 `lib/email.ts` (the per-send read) and `routes/admin-email-switches.ts`. Contract:
 `API_CONTRACTS.md` §6.10, "Sending switches".
 
+### 9.14 `ownership_sync_deliveries`
+
+The delivery ledger of the ownership message to the review app (AECI-1418, migration
+`0085_windy_luckman.sql`). One row per delivery attempt of one `aeci-ownership-sync-{env}`
+queue message: "what did we last tell the review app about this vendor, and did it take it".
+Contract: `REVIEW_APP_PROMOTE_API.md` §4d.
+
+```sql
+create table ownership_sync_deliveries (
+  id integer primary key autoincrement,
+  vendor_id text not null,          -- NO foreign key, on purpose
+  reason text not null,             -- OwnershipSyncReason; CHECK-free
+  message_id text,                  -- the Queues message id; every attempt of one message shares it
+  attempt integer not null,         -- message.attempts, 1 on the first delivery
+  outcome text not null,            -- delivered | stale | retry | exhausted | permanent | unconfigured | vendor_missing
+  http_status integer,              -- null when no response arrived or nothing was sent
+  record_version integer,           -- the record's `version`; null when no record was built
+  owner text,                       -- the record's owner, vendor | aeci
+  product_count integer,
+  integration_count integer,
+  error text,                       -- a short cause; never the token, never a body
+  duration_ms integer,
+  created_at text not null
+);
+create index ownership_sync_deliveries_vendor_idx on ownership_sync_deliveries (vendor_id, created_at);
+```
+
+**Log-class, not domain state** (ADR 0022, 2026-10-20 amendment). It records an outbound HTTP
+call. The ownership change it reports carried its own audit row in its own batch. So it is
+written outside any batch, one plain INSERT per attempt, and a failed insert warns without
+changing the delivery's ack or retry.
+
+**Why not `job_runs`.** `job_runs.job` is the `AdminCronJob` vocabulary that
+`CRON_SCHEDULES` keys on and `/admin/system` renders as one row per cron. A delivery is not a
+cron run, has a vendor, a status code and a retry, and outcomes `job_runs` does not have.
+
+**No CHECK and no FK.** A CHECK change on D1 is a table recreate (`docs/migrations.md` §0). No FK,
+so a row outlives a retracted vendor and sits on no `ON DELETE` path.
+
+**Retention: 400 days**, the ledger rule, pruned by the 03:00 job (`ADMIN_PANEL_SPEC.md` §7.4,
+`OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS`).
+
+**Migration `0085`** is a plain `CREATE TABLE` and one `CREATE INDEX`. It recreates nothing and
+cannot cascade.
+
+**Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). Nothing reads it yet
+except an operator's SQL.
+
 ---
 
 ## 10. Future-ready tables
