@@ -284,7 +284,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 
 Omit it entirely for a vendor-only / integration-only push (§3.5). When present:
 
-**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below.
+**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -2477,7 +2477,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 
 What changed is that the column can now be taken away from you. A vendor editing the "how teams use it" block in the vendor portal sets `products.usefulness_source` to `vendor`, and from that moment promote writes the column only while `usefulness_source IS NULL`. The test is inside the SQL UPDATE rather than read during planning, so a vendor save landing mid-promote still wins. Promote does not accept or write `usefulness_source`, and no upstream payload change is required.
 
-The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are.
+The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
 
 Why this field and not the rest of the catalogue: `usefulness` is narrative copy about a vendor's own product, and the vendor is better placed to write it than we are. The rest of the product record stays upstream-owned. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 

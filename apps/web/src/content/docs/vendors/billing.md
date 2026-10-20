@@ -55,7 +55,7 @@ Open the actions menu at the end of the license's row and choose **Release licen
 
 ## When a license ends
 
-When a license ends, its product moves to Free. Its Managed fields go back to AEC Integrations. The text you wrote stays live. You can no longer edit it.
+When a license ends, its product moves to Free. Its Managed fields stay as you left them, and you can no longer edit them. Get a license to edit them again.
 
 If your pool has spare licenses, the products assigned longest keep one and stay on Managed. A product you set to release at renewal does not move.
 

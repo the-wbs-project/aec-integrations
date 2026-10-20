@@ -2,8 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-19
-- Issue: AECI-1415 (E6b.3, epic AECI-1333). Ruled on AECI-1341.
-- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1418 (the ownership message to the review app, landed 2026-10-20)
+- Issue: AECI-1415 (E6b.3, epic AECI-1341). Ruled on AECI-1341.
+- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1417 (the owner accepts or declines it), AECI-1418 (the ownership message to the review app, landed 2026-10-20). Not built: AECI-1424 (vendor product create), AECI-1413 (the mirror of vendor edits to the review app), AECI-1412 (the review-app receiver, review repo)
 - Amends: ADR 0035 (promote refusal and the last-seat hand-back), ADR 0039 (the vendor-held test)
 - Relates to: ADR 0021 (async promote), `docs/REVIEW_APP_PROMOTE_API.md` §4a to §4c, `docs/STAGE_2_ATTESTATIONS_SPEC.md` §13.9
 
