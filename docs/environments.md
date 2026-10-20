@@ -112,7 +112,7 @@ are pushed from per-tier GH secrets, warn-and-skip.
 | --- | --- | --- | --- |
 | **Local** | `aeci-ownership-sync-local` (Miniflare, inside `wrangler dev`) | none. Set both in `apps/api/.dev.vars` only to point at a local mock | none by default: every delivery is `unconfigured` |
 | **Staging** | `aeci-ownership-sync-staging` (`deploy.yml`) | `REVIEW_APP_OWNERSHIP_URL_STAGING`, `REVIEW_APP_OWNERSHIP_TOKEN_STAGING` | the review app's staging receiver, once AECI-1412 names it |
-| **Demo** | `aeci-ownership-sync-demo` (`promote-to-demo.yml`) | `REVIEW_APP_OWNERSHIP_URL_DEMO`, `REVIEW_APP_OWNERSHIP_TOKEN_DEMO` | decide with AECI-1412. Leaving it unset is safe |
+| **Demo** | `aeci-ownership-sync-demo` (`promote-to-demo.yml`) | `REVIEW_APP_OWNERSHIP_URL_DEMO`, `REVIEW_APP_OWNERSHIP_TOKEN_DEMO`: **leave unset** | none, by ruling (2026-10-20). Demo stays `unconfigured`. The push step stays so a later ruling needs no workflow change |
 | **Production** | `aeci-ownership-sync-production` (`promote-to-prod.yml`) | `REVIEW_APP_OWNERSHIP_URL_PRODUCTION`, `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION` | the review app's production receiver |
 
 Without both secrets a tier acks every message as `unconfigured`, writes its
@@ -137,8 +137,9 @@ gh secret set REVIEW_APP_OWNERSHIP_URL_STAGING
 gh secret set REVIEW_APP_OWNERSHIP_TOKEN_STAGING
 ```
 
-The next deploy pushes them. For demo and production, repeat with `_DEMO` and
-`_PRODUCTION` and the matching queue name. Then confirm the Worker holds both names from
+The next deploy pushes them. **Staging and production only.** Repeat for production with
+`_PRODUCTION` and the matching queue name. Demo stays unconfigured by ruling (2026-10-20).
+Making the pair required on production is follow-up issue AECI-1427, blocked by AECI-1412. Then confirm the Worker holds both names from
 `apps/api`:
 
 ```bash

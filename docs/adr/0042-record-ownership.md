@@ -96,8 +96,10 @@ ADR 0021). Contract: `REVIEW_APP_PROMOTE_API.md` §4d. The receiver is the revie
 AECI-1412, which must ship before the end-to-end test.
 
 - **When.** After the commit of a claim approval, an ownership-stamping seat provision, a
-  proposal accept or decline, and "Return records to AECi". `ops:backfill-ownership-sync`
-  sends one per already-owned vendor (ruling Q7).
+  proposal accept or decline, and "Return records to AECi". An accept sends one per owned
+  vendor named on the created product (ruled 2026-10-20). `ops:backfill-ownership-sync`
+  sends one per already-owned vendor (ruling Q7). A `404` (unknown vendor) shows on the
+  daily data-quality gauge as `ownership_sync_unknown_vendor`.
 - **How.** Producer enqueues, consumer works. Each route sends one message
   `{ vendorId, reason, enqueuedAt }` to `aeci-ownership-sync-{env}` in `waitUntil`. The API
   Worker consumes it, builds the record from D1 and `PUT`s it. A send failure warns and does

@@ -1490,7 +1490,7 @@ The live app sends one vendor's record after each of these commits:
 |---|---|
 | Admin claim approval (`PATCH /api/admin/claims/:id`, approve). Every committed approval leaves the vendor owned. | `claim_approved` |
 | Admin seat provision (`POST /api/admin/vendors/:id/seats`), only when it stamped `owned_at` | `seat_provisioned` |
-| Owner accepts a product proposal (AECI-1417) | `proposal_accepted` |
+| Owner accepts a product proposal (AECI-1417). One record per **owned** vendor named on the created product, not only the addressed one (ruled 2026-10-20) | `proposal_accepted` |
 | Owner declines a product proposal | `proposal_declined` |
 | "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`) | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
@@ -1580,7 +1580,7 @@ Rules for the receiver:
 3. **Replace, do not merge.** A product absent from `products[]` is no longer this
    vendor's. Do not infer a delete of the product itself from its absence (ADR 0030 is the
    same rule in the other direction).
-4. **A vendor id you have never stored** is `404`. The live app does not retry it.
+4. **A vendor id you have never stored** is `404`. The live app does not retry it. It is visible without reading the ledger: the daily data-quality check `ownership_sync_unknown_vendor` (`warn`, on the `aeci.data_quality.check` gauge and in the digest) counts every vendor whose latest delivery was a `404`, until a later delivery succeeds (ruled 2026-10-20).
 
 ### How the live app sends it
 

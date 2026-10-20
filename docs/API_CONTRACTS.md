@@ -7106,9 +7106,11 @@ guarded decision `UPDATE` (`decision = 'declined'`, `decided_at`, `decided_by`),
 and a `product_proposal.declined` audit row. No catalog write, no purge.
 
 Both decisions show on the vendor's Changes page as the vendor's own edits
-(`@aeci/shared/audit-vendor-actions`). After the commit each decision sends one ownership
+(`@aeci/shared/audit-vendor-actions`). After the commit each decision sends an ownership
 record to the review app (`proposal_accepted` or `proposal_declined`, AECI-1418,
-`REVIEW_APP_PROMOTE_API.md` §4d). Its `proposals[]` carries the decision and the created
+`REVIEW_APP_PROMOTE_API.md` §4d). A decline sends one, for the addressed owner. An accept
+sends one per owned vendor named on the created product, as one `sendBatch` when there are
+several (ruled 2026-10-20). Its `proposals[]` carries the decision and the created
 product id.
 
 Source of truth: `packages/shared/src/api/vendor-proposals.ts`, handlers

@@ -70,7 +70,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
-import { dispatchOwnershipSync } from '../lib/ownership-sync';
+import { dispatchOwnershipSync, dispatchOwnershipSyncToOwned } from '../lib/ownership-sync';
 import { openProposalsFor } from '../lib/product-proposals';
 import { chunked } from '../lib/promote-claims';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
@@ -457,8 +457,9 @@ export function createAcceptVendorProposalHandler(
       audits,
     );
     // AECI-1418: the review app learns the decision and the created product's id, so
-    // it can bind its `p:rec…` record to it. One message, for the addressed owner.
-    dispatchOwnershipSync(c, vendorId, 'proposal_accepted');
+    // it can bind its `p:rec…` record to it. One message per OWNED vendor on the product
+    // (ruled 2026-10-20, D3), so every owner's record lists it.
+    dispatchOwnershipSyncToOwned(c, db, linkedVendorIds, vendorId, 'proposal_accepted');
     dispatchOwnerWriteSearch(
       c,
       'proposal-accept-algolia',

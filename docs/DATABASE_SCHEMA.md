@@ -5083,8 +5083,9 @@ so a row outlives a retracted vendor and sits on no `ON DELETE` path.
 **Migration `0085`** is a plain `CREATE TABLE` and one `CREATE INDEX`. It recreates nothing and
 cannot cascade.
 
-**Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). Nothing reads it yet
-except an operator's SQL.
+**Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). **Read by** the daily
+data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors
+whose latest row is a `permanent` 404 (ruled 2026-10-20), and by an operator's SQL.
 
 ---
 

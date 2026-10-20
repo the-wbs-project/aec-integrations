@@ -49,7 +49,7 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { logToPosthog, submitCount } from '../posthog';
-import { loadOwnedProductIds } from './claimed-vendors';
+import { loadOwnedProductIds, loadOwnedVendorIds } from './claimed-vendors';
 import type { DbFactory } from './handler-utils';
 
 // ---------------------------------------------------------------------------
@@ -173,6 +173,37 @@ export function dispatchOwnershipSync(
   const ids = typeof vendorIds === 'string' ? [vendorIds] : vendorIds;
   c.executionCtx.waitUntil(
     enqueueOwnershipSync({ env: c.env, ctx: c.executionCtx, request: c.req.raw }, ids, reason),
+  );
+}
+
+/**
+ * The proposal-accept hook (ruled 2026-10-20, D3): one message per OWNED vendor named
+ * on the created product, so every owner's record lists it. The owned set is read
+ * post-commit, inside `waitUntil`. `always` (the addressed owner, which the accept's
+ * sentinel proved owned) is enqueued even if that read fails. One vendor is a
+ * `send()`, several are one `sendBatch()` ({@link enqueueOwnershipSync}).
+ */
+export function dispatchOwnershipSyncToOwned(
+  c: OwnershipSyncProducerContext,
+  db: Db,
+  vendorIds: readonly string[],
+  always: string,
+  reason: OwnershipSyncReason,
+): void {
+  const target = { env: c.env, ctx: c.executionCtx, request: c.req.raw };
+  c.executionCtx.waitUntil(
+    loadOwnedVendorIds(db, vendorIds)
+      .then((owned) => [always, ...vendorIds.filter((id) => owned.has(id))])
+      .catch((error: unknown) => {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'warn',
+          message:
+            'aeci.ownership_sync: owned co-vendor read failed; enqueuing the addressed owner only',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [always];
+      })
+      .then((ids) => enqueueOwnershipSync(target, ids, reason)),
   );
 }
 

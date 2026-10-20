@@ -2285,7 +2285,7 @@ pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env produ
 |---|---|---|
 | `unconfigured` | The tier has no `REVIEW_APP_OWNERSHIP_URL` or `_TOKEN` | Provision both (`environments.md` "Ownership receiver per tier"), deploy, then re-send the vendor |
 | `permanent` with `401` or `403` | The token does not match the review app's | Rotate the pair on both sides, then re-send |
-| `permanent` with `404` | The review app has never stored this vendor id | Expected for a vendor the review app never promoted. Otherwise check the id mapping in the review app |
+| `permanent` with `404` | The review app has never stored this vendor id. The daily `ownership_sync_unknown_vendor` data-quality check (`warn`) lists it too | Expected for a vendor the review app never promoted. Otherwise check the id mapping in the review app, then re-send |
 | `exhausted` | Six attempts over about 15 minutes all failed with a retryable status | Check the review app is up, then re-send |
 | no row at all | The message was never enqueued (`aeci.ownership_sync.enqueue{outcome:failed}` or `unbound`) | Re-send |
 
