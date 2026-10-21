@@ -2,7 +2,7 @@
 
 **Version:** 0.1
 **Date:** 2026-10-13
-**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Nothing here is built. One decision is made (§1). Everything else is a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins.
+**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Two decisions are made: keep `page_views` (§1), and the gateway writes arrivals (§3, ruled 2026-10-21, built in AECI-1297). Everything else is unbuilt and a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins.
 **Related:** `docs/ANALYTICS.md` §5 (consent tiers), `docs/CACHE_STRATEGY.md` (gateway and `Renderer`), `docs/VENDOR_PLAN_DATA_READINESS.md` gap G0, AECI-1196 comment of 2026-10-02 (Cloudflare Basin names).
 
 Cloudflare renamed its data platform to Basin on 2026-10-01. Pipelines is now Basin Pipelines, R2 Data Catalog is Basin Catalog and R2 SQL is Basin SQL. This file says "Logpush" for the per-request edge log and "the rollup" for the daily job that reads it.
