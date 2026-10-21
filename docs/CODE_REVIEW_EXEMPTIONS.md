@@ -1,7 +1,7 @@
 # AEC Integrations — Code Review Exemptions
 
 **Audience:** LLMs and humans performing pre-merge code review, or the pre-implementation plan check.
-**Companions:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules for a diff) and `.agents/skills/spec-anchor/SKILL.md` step 4.5 (the same job for a plan, before code exists — see §"Plan-time matching" below).
+**Companions:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules for a diff) and `.agents/skills/spec-anchor/plan-check.md`, step 4.5 of `spec-anchor` (the same job for a plan, before code exists — see §"Plan-time matching" below).
 
 This file is the list of findings the team has consciously accepted, deferred, or scheduled for later — so the review process stops re-flagging them on every PR. The reviewer reads this file **before** producing a review, and any finding that matches an active entry here is dropped silently.
 
@@ -88,7 +88,7 @@ specific. Reference the spec section or the planned follow-up work.
 
 ## Plan-time matching (the `spec-anchor` plan check)
 
-The pre-implementation reviewer — step 4.5 of `.agents/skills/spec-anchor/SKILL.md` — loads this file too, reading the same entries through the adjustments below. No schema change: a finding the team has consciously accepted at merge time is one they also don't want raised at plan time, so one list serves both reviewers.
+The pre-implementation reviewer — step 4.5 of `spec-anchor`, in `.agents/skills/spec-anchor/plan-check.md` — loads this file too, reading the same entries through the adjustments below. No schema change: a finding the team has consciously accepted at merge time is one they also don't want raised at plan time, so one list serves both reviewers.
 
 - **`files:` / `paths:`** are evaluated against the paths the **plan names**. If the plan names no paths, a path-scoped exemption does **not** match — report the finding. Fail open toward reporting here: a plan is cheap to correct, so a false positive costs a sentence, while a wrongly suppressed finding costs a build.
 - **`categories:`** may name a category from either `CODE_REVIEW_CHECKLIST.md` or the plan check's own six. Match on intent where the names differ — `Caching` covers "missing contract element — cache tag/purge"; `Spec alignment` covers "spec contradiction" and "doc invalidation".
