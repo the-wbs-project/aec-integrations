@@ -70,7 +70,7 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 
 ## Getting Managed
 
-Managed is licensed per product. One license covers one product, and an owner assigns it on the Billing tab. When a license ends, its product moves to Free. Its Managed fields go back to AEC Integrations. The text you wrote stays live, and you can no longer edit it.
+Managed is licensed per product. One license covers one product, and an owner assigns it on the Billing tab. When a license ends, its product moves to Free. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so.
 
 <!-- docs:plans-cta -->
 

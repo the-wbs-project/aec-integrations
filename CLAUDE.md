@@ -54,12 +54,13 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Topic | Source of truth |
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
-| Phase 2 / 5 / 6 scope (supersede §16 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md`, `docs/STAGE_1_PHASE_5_SPEC.md`, `docs/STAGE_1_PHASE_6_SPEC.md` |
+| Phase 2 / 5 / 6 scope (supersede Stage 1 §16) | `docs/STAGE_1_PHASE_{2,5,6}_SPEC.md` |
 | Stage 1.5 integration redesign (product-PAIR page, claim/attestation model) | `docs/STAGE_1_5_SPEC.md` |
-| Connector lane (iPaaS reachability): Addendum B schema, Addendum C presentation contract, connector-catalog sync, evidenced pairs, reach line, vendor Connectors tab | `docs/STAGE_1_5_SPEC.md` §12 + §13; schema `docs/DATABASE_SCHEMA.md` §9a; sync `docs/REVIEW_APP_PROMOTE_API.md` §3a; commercial model `docs/STAGE_2_SPEC.md` §8.8–§8.10; catalogue truth in the review repo's `docs/connector-vendors.md` |
+| Connector lane (iPaaS reachability): Addenda B and C, catalog sync, evidenced pairs, reach line, Connectors tab | `docs/STAGE_1_5_SPEC.md` §12 + §13; schema `docs/DATABASE_SCHEMA.md` §9a; sync `docs/REVIEW_APP_PROMOTE_API.md` §3a; commercial model `docs/STAGE_2_SPEC.md` §8.8–§8.10; catalogue truth in the review repo's `docs/connector-vendors.md` |
 | Vendor and product logo editing (validated R2 uploads, promote ownership) | `docs/STAGE_2_5_SPEC.md` §11, ADR 0032 |
 | Vendor-authored "How teams use it" narrative (`product.usefulness.edit`, `usefulness_source` fence) | `docs/STAGE_2_5_SPEC.md` §12, ADR 0033 |
-| Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence and twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; promote side `docs/REVIEW_APP_PROMOTE_API.md` §4b–§4c |
+| Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence, twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; `REVIEW_APP_PROMOTE_API.md` §4b–§4c |
+| Record ownership (`owned_at`, promote sends nothing about owned records, product proposals, return to AECi, ownership message to the review app) | ADR 0042; `REVIEW_APP_PROMOTE_API.md` §4a, §4d |
 | Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
 | Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037 |
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
@@ -68,18 +69,18 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
-| Stage 2 Real-Time / Live Portal: scoped client revalidation, not sockets (ADR 0023); `GET /api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
+| Stage 2 Real-Time / Live Portal: client revalidation, not sockets (ADR 0023); `/api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
-| Public vendor landing page (`/vendor-program`) and the one claim dialog on it and `/docs/vendors/plans` (§15: find or type in, plan, comments; `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
+| Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | Raw page-view store (R2 backup via Pipelines) | ADR 0041; `docs/ANALYTICS.md` §11 |
-| Vendor claim, licenses and billing: the agreed process and its build status | `docs/VENDOR_SIGNUP_PROCESS.md` |
+| Vendor claim, licenses and billing: agreed process and build status | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
-| Stage 2.5 and Stage 3 (trust ladder, pSEO, rebrand survey §2.6): retired as stages; sections still govern where cited; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
+| Stage 2.5 and Stage 3 (trust ladder, pSEO, rebrand survey §2.6): retired stages; cited sections still govern; map in docs/ROADMAP.md | `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
 | `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
