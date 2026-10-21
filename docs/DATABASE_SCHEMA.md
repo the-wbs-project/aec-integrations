@@ -2958,7 +2958,7 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 - **Read through one helper.** `lib/product-attributed-views.ts` expands a row into one row per product it names. Home trending, the `/admin` product breakdown and the digest's top products all go through it, so a pair view counts once for each endpoint. The pair columns never feed `integration_count` (`count-lockstep.spec.ts`).
 - **Older rows.** `scripts/ops/2026-10-pair-page-view-backfill/` re-derives the columns from `concrete_path`. It has not run on production. Rows older than AECI-585 have no `concrete_path` and cannot be attributed.
 
-**`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
+**`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one, and the concrete path otherwise (the browser tracker, an arrival on any other page). Until AECI-1297 an SSR resolver supplied the pattern. Since then the gateway parses it from the URL (`parseLandingPath`), on a cache hit and a miss alike, and the API resolves the entity id from the concrete path. It has always been that mix. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
 create table page_views (
@@ -2987,8 +2987,8 @@ create table page_views (
   taxonomy_kind text,
   taxonomy_id text,
 
-  -- How the visitor got here (AECI-585): 'arrival' = full-document load (the SSR Worker's
-  -- firePageView), 'spa' = in-app navigation (the browser PageViewTracker). Null = unknown,
+  -- How the visitor got here (AECI-585): 'arrival' = full-document load (the SSR gateway's
+  -- firePageView, HIT or MISS), 'spa' = in-app navigation (the browser PageViewTracker). Null = unknown,
   -- which is every row written before this shipped. NEVER inferred — the same-origin
   -- Referer on an SPA hop classifies as Direct, which is exactly the conflation this
   -- column exists to undo, so a guess would recreate the bug in a new column.
@@ -3016,7 +3016,8 @@ create table page_views (
   cf_bot_score integer,
   -- ─── Ray ID + verified bot (AECI-1301, migration 0072) ─────────────────────────
   -- cf_ray is the cf-ray header of the request the SSR Worker handled: the page load
-  -- for an arrival row, the beacon POST for an in-app row. It is the join key to
+  -- for an arrival row (read by the gateway, so a cache HIT has one too), the beacon
+  -- POST for an in-app row. It is the join key to
   -- Cloudflare's own logs (Logpush, AECI-1196) and lets a stored row be looked up in
   -- Cloudflare analytics (AECI-1298). cf_verified_bot is request.cf.botManagement.verifiedBot
   -- (1 / 0) and cf_verified_bot_category is request.cf.verifiedBotCategory. All three
@@ -3130,8 +3131,8 @@ create table page_views (
                                 -- below, NOT on the body's `navigation` field -- see §13 D18.
 
   -- ─── Writer provenance (AECI-871, migration 0031) ─────────────────────────────
-  -- Which of our two writers produced this row: 'ssr-arrival' (the SSR Worker's
-  -- post-render capture) or 'browser-spa' (the browser tracker's POST, proxied through
+  -- Which of our two writers produced this row: 'ssr-arrival' (the SSR gateway's
+  -- arrival capture, on a cache HIT or MISS since AECI-1297) or 'browser-spa' (the browser tracker's POST, proxied through
   -- the SSR /api/* passthrough).
   --
   -- WRITTEN FROM A TRUSTED HEADER ONLY -- PAGE_VIEW_WRITER_HEADER (`x-aeci-writer`) in

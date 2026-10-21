@@ -79,6 +79,7 @@ import {
   isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
+  parseLandingPath,
   PAGE_VIEW_ARRIVAL_FORWARD_HEADERS,
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
@@ -658,10 +659,11 @@ type GatewayExports = { Renderer: Fetcher };
  * detected" rather than "telemetry missing". `docs/CACHE_STRATEGY.md` §4a.
  */
 export const cacheGateway = {
-  async fetch(request: Request, _env: Bindings, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
     // `ctx.exports` is typed `Cloudflare.Exports`; cast to the one entrypoint we
     // call so this compiles independently of the generated loopback typings.
     const { Renderer } = ctx.exports as unknown as GatewayExports;
+    let response: Response;
     if (request.method === 'GET' || request.method === 'HEAD') {
       // Structural `CfLike` rather than the global `IncomingRequestCfProperties`,
       // matching `applyCfContextHeaders` below — it names only the fields we read,
@@ -672,11 +674,46 @@ export const cacheGateway = {
         ...(request as { cf?: CfLike }).cf,
         cacheKey: cacheKeyFor(new URL(request.url)),
       };
-      return Renderer.fetch(request, { cf });
+      response = await Renderer.fetch(request, { cf });
+    } else {
+      response = await Renderer.fetch(request);
     }
-    return Renderer.fetch(request);
+    // AECI-1297 — the arrival write lives HERE, the one code path a native-cache
+    // HIT and a MISS share. `request` is the original eyeball request, so its
+    // `request.cf` is untouched.
+    recordGatewayArrival(request, response, env, ctx);
+    return response;
   },
 };
+
+/**
+ * Write the `page_views` arrival row for a full-document load (AECI-1297, ruling
+ * 2026-10-21: the gateway writes arrivals, not the browser). Runs on every
+ * request the gateway forwards, after `Renderer` answers, so it covers a
+ * native-cache HIT exactly as it covers a MISS. A no-JS visitor and an AI
+ * assistant's fetch are recorded, which a browser writer would drop.
+ *
+ * Fires only for a GET that came back `200` with an HTML body on a cacheable
+ * route. A 301, a 404 and a 5xx write nothing, and neither does a non-cacheable
+ * route: the review form, the claim pages and `/admin` are not a page view of
+ * anything (AECI-177/179). The response body is never read. Everything else
+ * (untracked routes, speculative loads, the trusted headers) is `firePageView`.
+ * The route pattern and the entity come from the path (`parseLandingPath`); the
+ * API resolves the entity id from that same path.
+ */
+function recordGatewayArrival(
+  request: Request,
+  response: Response,
+  env: Bindings,
+  ctx: WaitUntilContext,
+): void {
+  if (request.method !== 'GET' || response.status !== 200) return;
+  if (!(response.headers.get('content-type') ?? '').startsWith('text/html')) return;
+  const url = new URL(request.url);
+  if (!isCacheableRoute(url)) return;
+  const { route } = parseLandingPath(stripLocalePrefix(url.pathname).path);
+  firePageView(ctx, env, { route }, request);
+}
 
 // ─── SSR pipeline ──────────────────────────────────────────────────────────
 
@@ -685,8 +722,8 @@ export const cacheGateway = {
  * request and passes it as the second arg; the renderer (in `server.ts`)
  * forwards it to `AngularAppEngine.handle(req, ctx)` so resolvers can mutate
  * it via Angular's built-in `REQUEST_CONTEXT` token. The runtime reads it
- * back after rendering to merge embedded cache tags and fire the page-view
- * payload. See `server/request-context.ts` for the contract.
+ * back after rendering to merge embedded cache tags. See
+ * `server/request-context.ts` for the contract.
  */
 export type SsrRenderer = (request: Request, ctx: AeciRequestContext) => Promise<Response>;
 
@@ -983,12 +1020,11 @@ export function withForwardedLandingCf(request: Request): Request {
 
 /**
  * Schedule a fire-and-forget `POST /api/page-views` against the API Worker via
- * the service binding. This is the SSR Worker's supplementary write (§14.2): it
- * captures CF/bot context for full-document renders. It is NOT the canonical
- * per-view counter — it undercounts because true edge-cache hits bypass the SSR
- * Worker entirely; the browser `PageViewTracker` (AECI-151) is the canonical
- * counter and is de-duped against this by skipping the initial navigation (SSR
- * counts the landing arrival, the client counts subsequent in-app navigations).
+ * the service binding: the arrival write for one full-document load (§14.2).
+ * Its only caller is the gateway's `recordGatewayArrival` (AECI-1297), which
+ * runs on a native-cache HIT and a MISS alike. The browser `PageViewTracker`
+ * (AECI-151) skips the landing and counts in-app navigations only, so the two
+ * writers never count the same view.
  *
  * Errors are swallowed — the page render must not fail because analytics did.
  * The payload shape is pinned in `@aeci/shared` (`PageViewPayloadSchema`).
@@ -997,48 +1033,31 @@ export function withForwardedLandingCf(request: Request): Request {
  * (CF context, UA hash, bot classification, traffic source) the same way it
  * enriches the browser's proxied POST.
  *
- * Under native Workers Cache (WC-3 / AECI-317) an edge HIT never runs the SSR
- * Worker, so this fires only when the Worker actually renders — a native-cache
- * MISS on a cacheable route, or a non-cacheable render. Edge HITs are therefore
- * not counted server-side; the browser `PageViewTracker` (canonical, above)
- * covers them. On a MISS the resolver may attach a richer payload (entity_type /
- * entity_id — including the four taxonomy facets, which AECI-585 taught the API
- * to store) via `AeciRequestContext.pageView`; otherwise the runtime falls back
- * to the path-derived `{ route }`.
- *
- * (Pre-WC-3 this comment claimed cacheable routes fired on BOTH HIT and MISS —
- * true of the hand-rolled `caches.default` layer, where the Worker ran either
- * way. Native caching short-circuits ahead of the Worker, so it no longer is.)
+ * The payload is `{ route }` from the path. No Angular resolver runs on a HIT,
+ * so nothing here names an entity id. The API derives the entity from `path`
+ * (`parseLandingPath`), and the pair endpoints the same way (AECI-929).
  *
  * Operator-only routes are skipped (AECI-575 / ADMIN_PANEL_SPEC §9.6). Today that
  * guard is unreachable for `/admin` and `/account`: both are absent from
- * `ROUTE_CACHE_PATTERNS`, so they take the non-cacheable branch, which fires only
- * when a resolver attached `ctx.pageView` — and no admin/account resolver does.
- * It sits at this single choke point anyway so the invariant survives a future
- * resolver that starts attaching one, rather than depending on that omission.
+ * `ROUTE_CACHE_PATTERNS`, and the gateway writes cacheable routes only. It sits
+ * at this single choke point anyway so the invariant survives a future caller.
  *
- * AECI-585 stamps `path` (the concrete URL path) and `navigation: 'arrival'` HERE
- * rather than at the three call sites, for two reasons. Every write through this
- * function is by definition a full-document load, so `'arrival'` is a property of
- * the function, not of its caller. And the concrete path is derivable from
- * `sourceRequest` — which this already takes — so the resolver-attached payloads
- * (which carry a route *pattern* like `/products/:slug`) gain the concrete path
- * without a single resolver changing. Both overwrite whatever the caller passed:
- * the request URL is the authority on where the visitor actually is.
+ * AECI-585 stamps `path` (the concrete URL path) and `navigation: 'arrival'` HERE.
+ * Every write through this function is by definition a full-document load, so
+ * `'arrival'` is a property of the function, not of its caller. The request URL
+ * is the authority on where the visitor actually is, so both overwrite whatever
+ * the caller passed.
  */
 function firePageView(
   execCtx: WaitUntilContext,
   env: Bindings,
-  payload: NonNullable<AeciRequestContext['pageView']>,
+  payload: PageViewPayload,
   sourceRequest: Request,
 ): void {
   if (isUntrackedRoute(payload.route)) return;
-  // AECI-743 — a HEAD (or any non-GET) is not a page view. `handleSsr` sends every
-  // non-GET down the non-cacheable branch, which still runs the renderer and still
-  // lets a detail resolver attach `ctx.pageView`, so a HEAD-then-GET probe used to
-  // write two byte-identical `arrival` rows — identical down to the route PATTERN,
-  // because both carried the same resolver payload. Guarded HERE rather than at the
-  // one call site that can reach it, so the invariant survives a future branch.
+  // AECI-743 — a HEAD (or any non-GET) is not a page view. A HEAD-then-GET probe
+  // used to write two byte-identical `arrival` rows. Guarded HERE rather than only
+  // at the caller, so the invariant survives a future call site.
   if (sourceRequest.method !== 'GET') return;
   // AECI-743 — a browser prefetch/prerender is speculative: the visitor may never
   // see this page, and a prerender is otherwise indistinguishable from a real
@@ -1052,8 +1071,8 @@ function firePageView(
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   // AECI-871 — trusted writer provenance. Every write through this function is the
-  // SSR Worker's own post-render arrival capture, so the value is a property of the
-  // function exactly as `navigation: 'arrival'` below is. No strip step is needed
+  // SSR Worker's own arrival capture (the gateway's, since AECI-1297), so the
+  // value is a property of the function exactly as `navigation: 'arrival'` below is. No strip step is needed
   // here (unlike the proxy path): these headers are built from an empty `Headers`
   // rather than copied from the eyeball, and the client-signal copy loop below
   // enumerates a closed list this name is not in.
@@ -1099,9 +1118,8 @@ function firePageView(
   // hops agree.
   //
   // Cache-neutral by construction: this header is set on the fire-and-forget
-  // analytics subrequest only. It never reaches `renderer()` (the cacheable branch
-  // renders from the cookie-stripped `sanitized` request) and can never reach a
-  // response written to the shared edge cache.
+  // analytics subrequest only, after the response already exists. It can never
+  // reach a response written to the shared edge cache.
   const cookie = sourceRequest.headers.get('cookie');
   if (cookie) headers.set('cookie', cookie);
   // Pathname only — never the query or hash. `page_views` stores a referrer HOST
@@ -1199,9 +1217,6 @@ async function handleSsr(
       transformed.status === 404
         ? withCacheHeaders(transformed, NOT_FOUND_TTL, null)
         : ensureNoStore(transformed);
-    if (reqCtx.pageView && finalResponse.status >= 200 && finalResponse.status < 300) {
-      firePageView(execCtx, env, reqCtx.pageView, request);
-    }
     emitRenderCount('non_cacheable', finalResponse.status);
     return finalResponse;
   }
@@ -1257,14 +1272,6 @@ async function handleSsr(
   const response = withCacheHeaders(transformed, ttl, tagInputs);
   emitRenderMetric(response.status);
   emitRenderCount('miss', response.status);
-
-  // Phase 2 §3.1 + AC: SSR fires `POST /api/page-views` after the response is
-  // built. Only on 2xx — 404 / 5xx renders don't pollute view counts. Prefer
-  // the resolver-attached payload (carries entity_type/entity_id when
-  // available); otherwise fall back to the path-derived `{ route }`.
-  if (response.status >= 200 && response.status < 300) {
-    firePageView(execCtx, env, reqCtx.pageView ?? { route: localePath }, request);
-  }
 
   return response;
 }

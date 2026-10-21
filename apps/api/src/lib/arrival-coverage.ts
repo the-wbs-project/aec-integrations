@@ -4,8 +4,9 @@
  * ─── What this measures, and why it is worth a check of its own ─────────────
  *
  * A `page_views` row with `navigation = 'arrival'` is a full-document load, and
- * it is written by exactly one writer: the SSR Worker's `firePageView`
- * (`apps/web/src/server-runtime.ts`). That writer derives the trusted
+ * it is written by exactly one writer: the SSR Worker gateway's `firePageView`
+ * (`apps/web/src/server-runtime.ts`), on an edge-cache HIT and a MISS alike
+ * (AECI-1297). That writer derives the trusted
  * `x-aeci-cf-*` headers from `request.cf`, and the API's `POST /api/page-views`
  * stores them as `cf_asn` / `cf_country` / `cf_colo` / `cf_as_organization` /
  * `tls_version` / `http_protocol`. The browser tracker's `spa` rows come down a

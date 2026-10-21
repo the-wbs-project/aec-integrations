@@ -35,8 +35,6 @@ import {
 } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PageViewPayload } from '@aeci/shared';
-
 import { ServerApiError, type ServerApiClient } from '../../../server-api-client';
 import type { CacheTagEntity } from '../../../server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from '../../../server/request-context';
@@ -140,7 +138,6 @@ export interface DetailResolverScenario<T> {
   /** JSON-LD setter the resolver calls on success, or `null` (integration). */
   jsonLdMethod: 'setProductJsonLd' | 'setVendorJsonLd' | null;
   expectedEmbedded: CacheTagEntity[];
-  expectedPageView: PageViewPayload;
   /** Expected argument to `setNotFoundMeta` on the 404 path. */
   notFound: { kind: EntityKind; slug: string; canonical: string };
   /**
@@ -203,13 +200,12 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       // entity it fetched". Arity-specific assertions live in the entity spec.
       if (jsonLd) expect(jsonLd.mock.calls[0]?.[0]).toEqual(fixture);
       expect(ctx.embedded).toEqual(scenario.expectedEmbedded);
-      expect(ctx.pageView).toEqual(scenario.expectedPageView);
 
       const stateKeys = JSON.parse(transferState.toJson());
       expect(stateKeys[scenario.stateKey]).toEqual(fixture);
     });
 
-    it('returns null on NOT_FOUND, sets RESPONSE_INIT.status=404, sets noindex meta, no pageView', async () => {
+    it('returns null on NOT_FOUND, sets RESPONSE_INIT.status=404, sets noindex meta, no embedded tags', async () => {
       const setNotFoundMeta = vi.fn();
       const setEntityMeta = vi.fn();
       const meta: Partial<MetaService> = { setNotFoundMeta, setEntityMeta };
@@ -237,8 +233,7 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       // Detail meta + JSON-LD must NOT run on the 404 path.
       expect(setEntityMeta).not.toHaveBeenCalled();
       if (jsonLd) expect(jsonLd).not.toHaveBeenCalled();
-      // Page-view must NOT fire for 404s; embedded tags stay empty.
-      expect(ctx.pageView).toBeNull();
+      // Embedded tags stay empty on the 404 path.
       expect(ctx.embedded).toEqual([]);
     });
 

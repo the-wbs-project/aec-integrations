@@ -89,9 +89,7 @@ export const routes: Routes = [
   // dedicated `reviewProductResolver` for `product.id` (the POST body) +
   // `name`/`slug` (copy + back link); a null product renders the shared 404
   // shell. It is the detail-resolver scaffold WITHOUT the product-detail side
-  // effects (no canonical/JSON-LD, no `Cache-Tag`, and `trackPageView: false`)
-  // — reusing `productDetailResolver` would fire a product page-view on every
-  // SSR landing here and miscount review visits as product views. The route is
+  // effects (no canonical/JSON-LD, no `Cache-Tag`). The route is
   // non-cacheable (no `ROUTE_CACHE_PATTERNS` match → fail-closed
   // `private, no-store`), and the SSR Worker gates it: an unauthenticated
   // visitor is 303-redirected to `/auth/login?return=<path>` before SSR (see

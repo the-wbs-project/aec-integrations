@@ -10,7 +10,7 @@
 >
 > **Deployment status.** Native caching is **live on the `staging` SSR env only** (the `preview` tier was retired 2026-10-10, AECI-1268; local SSR runs from the top-level wrangler block, which has no `exports` block, so it is uncached). `demo` + `production` ship the *same* two-entrypoint code but currently run **uncached** — no `exports` block in `apps/web/wrangler.jsonc`, so the `Renderer` cache is off and the gateway simply forwards every request. The prod-enable gate (WC-4/5/6/8, all merged) is met; flipping `demo`/`production` on is a **deliberate, separate step** (not part of WC-1…WC-11). Until then those tiers behave as they did before the migration — the SSR Worker runs on every request — and every purge path is a graceful no-op there (`outcome:no_cache` / `skipped:cache_disabled`).
 >
-> **Page-view gap on a cache hit (staging today).** The server-side arrival row (`firePageView`) is written inside `Renderer`, so a hit writes none. The browser `PageViewTracker` skips the first navigation, so nobody counts a landing page served from cache. Close this before enabling caching on demo or production. The fix options are in [`design/edge-log-and-page-views.md`](design/edge-log-and-page-views.md) §3. Tracked as AECI-1297.
+> **Page views on a cache hit.** The gateway writes the `page_views` arrival after `Renderer` answers, so a hit is counted like a miss (AECI-1297, [`design/edge-log-and-page-views.md`](design/edge-log-and-page-views.md) §3).
 
 ---
 

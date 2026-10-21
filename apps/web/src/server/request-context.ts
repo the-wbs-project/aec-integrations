@@ -6,7 +6,7 @@
  * whenever `RenderMode.Server` is in effect (verified at
  * `@angular/ssr@21.2.10` `fesm2022/ssr.mjs:1270`).
  *
- * Three things are modelled here because Angular's own SSR plumbing doesn't
+ * Two things are modelled here because Angular's own SSR plumbing doesn't
  * expose a clean place for them:
  *
  *   1. `api` — a typed `ServerApiClient` over the Cloudflare service binding.
@@ -26,29 +26,23 @@
  *      can't know these; the runtime merges this array in before writing
  *      the header.
  *
- *   3. `pageView` — fire-and-forget payload for `POST /api/page-views`
- *      (Phase 2 no-op; Phase 4 wires the write). The runtime turns it into
- *      `executionCtx.waitUntil(env.API.fetch(...))` after the response is
- *      built. Only fires on 2xx so 404/5xx renders don't pollute view counts.
+ * There is no page-view field. A resolver runs only on a cache MISS, so since
+ * AECI-1297 the gateway writes the arrival from the path, on a HIT and a MISS
+ * alike, and the API resolves the entity id from that path.
  *
  * HTTP response status is NOT here. Angular ships a `RESPONSE_INIT` token
  * (`{ status, headers }`) that's already mutable from a resolver, and the
  * SSR runtime's `withCacheHeaders` already routes a 404 status to
  * `NOT_FOUND_TTL`. No duplication needed.
  */
-import type { PageViewPayload } from '@aeci/shared';
-
 import type { ServerApiClient } from '../server-api-client';
 import type { CacheTagEntity } from './cache-tags';
-
-export type { PageViewPayload };
 
 export interface AeciRequestContext {
   readonly api: ServerApiClient;
   embedded: CacheTagEntity[];
-  pageView: PageViewPayload | null;
 }
 
 export function createRequestContext(api: ServerApiClient): AeciRequestContext {
-  return { api, embedded: [], pageView: null };
+  return { api, embedded: [] };
 }

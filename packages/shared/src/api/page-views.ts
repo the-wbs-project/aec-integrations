@@ -21,12 +21,12 @@ import { z } from 'zod';
  * ─── AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) added two fields ──────────────────
  *
  * `path` is the CONCRETE URL path, stored alongside `route`. The two differ only
- * for a writer that knows a route *pattern*: an SSR resolver attaches
- * `route: '/products/:slug'`, which is what "top pages" wants to group on but
- * cannot name a taxonomy term with. `path` is therefore **optional**, and the API
- * falls back to `route` when it is absent — correct for every writer whose `route`
- * is already concrete (the browser tracker, an SSR cache HIT). Only a writer
- * sending a pattern owes an explicit `path`. Locale prefix stripped, no query or
+ * for a writer that knows a route *pattern*: the gateway's arrival on a detail
+ * page sends `route: '/products/:slug'` (AECI-1297), which is what "top pages"
+ * wants to group on but cannot name a taxonomy term with. `path` is therefore
+ * **optional**, and the API falls back to `route` when it is absent — correct for
+ * every writer whose `route` is already concrete (the browser tracker, an arrival
+ * on any other page). Only a writer sending a pattern owes an explicit `path`. Locale prefix stripped, no query or
  * hash: the privacy rule that keeps the full URL out of this table (§9.7) applies
  * to this column exactly as it does to `referrer`.
  *
@@ -60,8 +60,8 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
  * `request.cf` (country / colo / asn / AS organization / bot score) is populated on
  * the inbound eyeball request but does NOT survive the `env.API` service binding,
  * so the SSR Worker copies the needed fields onto these headers before proxying the
- * browser's `POST /api/page-views` (and on its own supplementary `firePageView`
- * call). The SSR Worker is the SOLE writer: on the proxy path it strips any
+ * browser's `POST /api/page-views` (and on the gateway's own `firePageView`
+ * arrival write). The SSR Worker is the SOLE writer: on the proxy path it strips any
  * client-supplied copies first (anti-spoof), then sets them from `request.cf`.
  * The API Worker treats them as trusted because it has no public ingress
  * (service-binding only). See docs/API_CONTRACTS.md §6.9.
@@ -164,8 +164,9 @@ export const PAGE_VIEW_WRITER_HEADER = 'x-aeci-writer';
 /**
  * The two page-view writers, as the closed vocabulary the header carries.
  *
- * - `ssr-arrival` — the SSR Worker's own post-render `firePageView`, i.e. a
- *   full-document load. Judged by the document-arrival rules.
+ * - `ssr-arrival` — the SSR Worker gateway's `firePageView`, i.e. a full-document
+ *   load, on an edge-cache HIT or MISS (AECI-1297). Judged by the
+ *   document-arrival rules.
  * - `browser-spa` — the browser tracker's `POST`, proxied through the SSR Worker's
  *   `/api/*` passthrough. Judged as a same-origin `fetch`.
  *

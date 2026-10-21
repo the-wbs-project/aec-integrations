@@ -14,7 +14,8 @@
  *   - no `applyMeta`: the form owns its `<title>` and `robots: noindex`;
  *   - no `pushEmbedded`: the claim pages are `private, no-store` (no
  *     `ROUTE_CACHE_PATTERNS` match), so there is no `Cache-Tag` to contribute;
- *   - `trackPageView: false`: a claim page is not the entity's canonical page.
+ *   - no page view: the gateway writes arrivals for cacheable routes only
+ *     (AECI-1297), and a claim page is not one.
  *
  * A missing entity resolves `null` (and a real 404 on SSR). The form still renders,
  * titled "Claim your company", as it did before this resolver existed.
@@ -58,7 +59,6 @@ export const claimProductResolver = nullOnFailure(
     pathSegment: 'products',
     entityKind: 'product',
     fetch: fetchProductBySlug,
-    trackPageView: false,
   }),
 );
 
@@ -69,7 +69,6 @@ export const claimVendorResolver = nullOnFailure(
     pathSegment: 'vendors',
     entityKind: 'vendor',
     fetch: fetchVendorBySlug,
-    trackPageView: false,
   }),
 );
 

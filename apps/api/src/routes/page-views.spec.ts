@@ -1113,3 +1113,83 @@ describe('duplicate suppression (AECI-743)', () => {
     expect(await t.db.select().from(pageViews)).toHaveLength(2);
   });
 });
+
+describe('arrival entity from the path (AECI-1297)', () => {
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: u(1), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: u(2), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(vendors).values({ id: u(3), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db
+      .insert(taxonomyTrades)
+      .values({ id: u(4), slug: 'electrical', name: 'Electrical', description: 'Wiring' });
+  });
+
+  async function arrive(body: Record<string, unknown>) {
+    const { res, settle } = post(body);
+    expect((await res).status).toBe(204);
+    await settle();
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  }
+
+  it('resolves the product id from the path of an arrival', async () => {
+    const row = await arrive({
+      route: '/products/:slug',
+      path: '/products/revit',
+      navigation: 'arrival',
+    });
+    expect(row.productId).toBe(u(1));
+    expect(row.vendorId).toBeNull();
+    expect(row.path).toBe('/products/:slug');
+  });
+
+  it('resolves the vendor id from the path of an arrival', async () => {
+    const row = await arrive({
+      route: '/vendors/:slug',
+      path: '/vendors/autodesk',
+      navigation: 'arrival',
+    });
+    expect(row.vendorId).toBe(u(3));
+    expect(row.productId).toBeNull();
+  });
+
+  it('resolves a taxonomy term from the path of an arrival', async () => {
+    const row = await arrive({
+      route: '/trades/:slug',
+      path: '/trades/electrical',
+      navigation: 'arrival',
+    });
+    expect(row.taxonomyKind).toBe('trade');
+    expect(row.taxonomyId).toBe(u(4));
+  });
+
+  it('keeps the row with null ids when the slug is unknown', async () => {
+    const row = await arrive({
+      route: '/products/:slug',
+      path: '/products/ghost',
+      navigation: 'arrival',
+    });
+    expect(row.productId).toBeNull();
+    expect(row.concretePath).toBe('/products/ghost');
+  });
+
+  it('lets an explicit entity_type win over the path', async () => {
+    const row = await arrive({
+      route: '/products/:slug',
+      path: '/products/revit',
+      navigation: 'arrival',
+      entity_type: 'product',
+      entity_id: u(2),
+    });
+    expect(row.productId).toBe(u(2));
+  });
+
+  it('leaves an SPA row unattributed, as before', async () => {
+    const row = await arrive({ route: '/products/revit', navigation: 'spa' });
+    expect(row.productId).toBeNull();
+    expect(row.navigation).toBe('spa');
+  });
+});

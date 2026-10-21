@@ -17,9 +17,9 @@
  *      so the SSR runtime emits a real HTTP 404 + `NOT_FOUND_TTL`; set noindex
  *      meta; return `null` so the route component renders its NotFound state.
  *   3. On success → run `applyMeta` (head tags + JSON-LD) and `pushEmbedded`
- *      (Cache-Tag entities), queue the fire-and-forget `POST /api/page-views`
- *      payload, and store the result in `TransferState` so hydration skips the
- *      fetch.
+ *      (Cache-Tag entities), and store the result in `TransferState` so
+ *      hydration skips the fetch. No page view is recorded here: the gateway
+ *      writes the arrival from the path, on a HIT and a MISS (AECI-1297).
  *
  * Client flow (AECI-151):
  *   - Initial hydration (or a back-nav to the SSR-rendered page) → the SSR
@@ -32,9 +32,9 @@
  *     data path) and apply meta client-side. Without this the resolver returned
  *     `null` and every in-app link rendered the not-found shell.
  *
- * What stays server-only: `RESPONSE_INIT.status` (a SPA nav has no HTTP status),
- * `ctx.embedded` cache tags (edge concern), and the page-view payload (client
- * navigations are counted by `PageViewTracker`, not here).
+ * What stays server-only: `RESPONSE_INIT.status` (a SPA nav has no HTTP status)
+ * and `ctx.embedded` cache tags (edge concern). Client navigations are counted
+ * by `PageViewTracker`, not here.
  *
  * ── AECI-978: A MISS MAY BE A RETIRED SLUG ──────────────────────────────────
  * A route that opts in with `followSlugRedirect` asks `slug_redirects` before it
@@ -101,10 +101,10 @@ export interface DetailResolverConfig<T extends { id: string }> {
   statePrefix: string;
   /** Route param this resolver reads, e.g. `slug` or `id`. */
   paramName: string;
-  /** URL/API path segment for canonical + the `/api/{segment}/:param` fetch +
-   *  page-view route, e.g. `products`. */
+  /** URL/API path segment for canonical + the `/api/{segment}/:param` fetch,
+   *  e.g. `products`. */
   pathSegment: string;
-  /** Entity kind for the meta title, NOT_FOUND meta, and page-view payload. */
+  /** Entity kind for the meta title and the NOT_FOUND meta. */
   entityKind: EntityKind;
   /** Fetches the entity by its raw (un-encoded) param; resolves `null` on NOT_FOUND. */
   fetch: (api: ServerApiClient, param: string) => Promise<T | null>;
@@ -128,12 +128,6 @@ export interface DetailResolverConfig<T extends { id: string }> {
    * accident. Omitted → the resolver 404s exactly as before.
    */
   followSlugRedirect?: RedirectableEntity;
-  /** Whether a successful server-side resolve records a `POST /api/page-views`
-   *  for this entity. Defaults to `true`. Set `false` on a route that reuses an
-   *  entity fetch but is NOT that entity's canonical page (e.g. the review form
-   *  under `/products/:slug/review`), so its landings don't inflate the
-   *  entity's view count / trending signal (AECI-177/179). */
-  trackPageView?: boolean;
 }
 
 /**
@@ -270,18 +264,6 @@ export function createDetailResolver<T extends { id: string }>(
 
     config.applyMeta?.(meta, entity, canonical);
     config.pushEmbedded?.(ctx, entity);
-
-    // Record the page-view UNLESS the route opts out. A route that reuses an
-    // entity fetch but is not that entity's canonical page (e.g. the review
-    // form) sets `trackPageView: false` so its landings aren't miscounted as
-    // views of the entity.
-    if (config.trackPageView !== false) {
-      ctx.pageView = {
-        route: `/${config.pathSegment}/:${config.paramName}`,
-        entity_type: config.entityKind,
-        entity_id: entity.id,
-      };
-    }
 
     return entity;
   };
