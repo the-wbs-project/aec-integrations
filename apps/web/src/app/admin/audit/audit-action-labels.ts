@@ -56,6 +56,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'promote.blocked': $localize`:@@admin.audit.action.promoteBlocked:Promote blocked by a guard`,
   // AECI-1416: a new product for an owned vendor, stored for the owner to decide.
   'product_proposal.created': $localize`:@@admin.audit.action.productProposalCreated:Product proposed to the vendor`,
+  // AECI-1417: the owner's decision.
+  'product_proposal.accepted': $localize`:@@admin.audit.action.productProposalAccepted:Proposed product accepted by the vendor`,
+  'product_proposal.declined': $localize`:@@admin.audit.action.productProposalDeclined:Proposed product declined by the vendor`,
 
   // ── Claims and vendor positions ───────────────────────────────────────────
   //

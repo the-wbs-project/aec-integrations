@@ -53,6 +53,8 @@ const EMITTED_ACTIONS = [
   'phase.created',
   'promote.blocked',
   'product_proposal.created',
+  'product_proposal.accepted',
+  'product_proposal.declined',
   'claim.created',
   'claim.deleted',
   'claim.converted',

@@ -65,6 +65,9 @@ import type {
   VendorBillingResponse,
   VendorLicenseResponse,
   CreateLicenseReleaseRequestResponse,
+  AcceptVendorProposalResponse,
+  ListVendorProposalsResponse,
+  VendorProposal,
 } from '@aeci/shared';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
@@ -98,6 +101,7 @@ import {
   VENDOR_HISTORY_FOLLOW_UP_FIXTURE,
   historyKindKeeps,
 } from '../../vendor/vendor-history-fixtures';
+import { VENDOR_PROPOSALS_FIXTURE } from '../../vendor/vendor-proposal-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
@@ -419,6 +423,54 @@ export class PreviewVendorApi extends VendorApi {
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
     this.billing = clone(VENDOR_BILLING_FIXTURE);
+    this.proposals = clone([...VENDOR_PROPOSALS_FIXTURE]);
+  }
+
+  // ── Proposed products (AECI-1417, E6b.5) ──────────────────────────────────
+  private proposals: VendorProposal[] = clone([...VENDOR_PROPOSALS_FIXTURE]);
+
+  override async listProposals(): Promise<ListVendorProposalsResponse> {
+    return { proposals: clone(this.proposals), truncated: false };
+  }
+
+  /** Fixture-side: the handler's checks, then the product joins `/me` so the outcome
+   *  link opens it, and the proposal leaves the list. */
+  override async acceptProposal(proposalId: string): Promise<AcceptVendorProposalResponse> {
+    const proposal = this.takeProposal(proposalId);
+    if (proposal.vendors.some((v) => !v.exists)) {
+      this.proposals.push(proposal);
+      throw apiError(409, 'PROPOSAL_VENDOR_MISSING', 'A linked vendor no longer exists');
+    }
+    const slug = proposal.product.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    const id = `preview-proposed-${proposal.id.slice(-4)}`;
+    const template = this.me?.products[0];
+    if (this.me && template) {
+      this.me.products = [
+        ...this.me.products,
+        { ...clone(template), id, slug, name: proposal.product.name, is_primary: true },
+      ];
+    }
+    return {
+      proposal_id: proposal.id,
+      product: { id, slug, name: proposal.product.name },
+      dropped: proposal.terms
+        .filter((t) => !t.exists)
+        .map(({ facet, value }) => ({ facet, value })),
+    };
+  }
+
+  override async declineProposal(proposalId: string): Promise<void> {
+    this.takeProposal(proposalId);
+  }
+
+  private takeProposal(proposalId: string): VendorProposal {
+    const index = this.proposals.findIndex((p) => p.id === proposalId);
+    if (index < 0) throw apiError(404, 'NOT_FOUND', 'product_proposal not found');
+    const [proposal] = this.proposals.splice(index, 1);
+    return proposal!;
   }
 
   // ── Billing (AECI-1390, E5.4) ─────────────────────────────────────────────

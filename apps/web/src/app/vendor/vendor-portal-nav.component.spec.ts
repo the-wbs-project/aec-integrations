@@ -30,6 +30,8 @@ const NAV_LABELS = [
   'Changes',
   'Seats',
   'Billing',
+  // AECI-1417: owner seats only, like Billing.
+  'Proposed products',
 ];
 
 /** Set before each mount; the host is created by the router, so there is no
@@ -123,6 +125,7 @@ describe('VendorPortalNav', () => {
         '/portal/history',
         '/portal/seats',
         '/portal/billing',
+        '/portal/proposals',
       ],
     );
   });

@@ -313,7 +313,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
-| `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Nothing was written |
+| `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Also `POST /api/vendor/proposals/:id/accept` (AECI-1417) when the vendor the proposal is addressed to no longer owns its record, checked before the batch and again inside it. Nothing was written |
+| `PROPOSAL_ALREADY_DECIDED` | 409 | `POST /api/vendor/proposals/:id/accept` and `/decline` (AECI-1417). The proposal was already accepted or declined, by another owner or another tab. Checked before the batch and again inside it. Nothing was written. Re-read the list |
+| `PROPOSAL_VENDOR_MISSING` | 409 | `POST /api/vendor/proposals/:id/accept` (AECI-1417). A vendor the proposal links no longer exists, so the product would be half-linked. `details.vendor_ids` names them. Nothing was written. Decline it and contact AECi. AECi never sends the same product again (ruling Q5), and no route lets the vendor create it |
 | `VENDOR_HAS_SEATS` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) while the vendor holds any `vendor_admin` seat, banned or not. Revoke every seat first. Nothing was written |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or update, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }`, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
@@ -7015,6 +7017,102 @@ them. Source of truth: `packages/shared/src/api/agreements.ts`, handler
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
 is not an owner).
+
+#### Proposed products: `GET /api/vendor/proposals`, `POST /api/vendor/proposals/:id/accept`, `POST /api/vendor/proposals/:id/decline` (AECI-1417)
+
+The owner's half of product proposals (E6b.5; ADR 0042, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+§6.22). Promote stores a new product for a vendor that owns its record as a proposal
+(AECI-1416, `REVIEW_APP_PROMOTE_API.md` §4a). An owner seat lists them and accepts or
+declines each. Table: `DATABASE_SCHEMA.md` §8.6f.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/proposals` | seat, then `requireSeatOwner()` in the handler. A read: never limited | `200 ListVendorProposalsResponse` |
+| `POST` | `/api/vendor/proposals/:id/accept` | seat, `rateLimit('write')`, then `requireSeatOwner()` | `200 AcceptVendorProposalResponse` |
+| `POST` | `/api/vendor/proposals/:id/decline` | the same | `204` |
+
+**Owner seats only** (ruled 2026-10-19). A member seat gets `403 FORBIDDEN`. No capability
+gate: a Free owner decides too. Neither POST takes a body. A proposal addressed to another
+vendor answers the same `404 NOT_FOUND` as no such proposal.
+
+```typescript
+// packages/shared/src/api/vendor-proposals.ts
+export const ListVendorProposalsResponseSchema = z.object({
+  proposals: z.array(VendorProposalSchema),     // open only, oldest first, capped at 100
+  truncated: z.boolean(),
+});
+export const VendorProposalSchema = z.object({
+  id: z.string(),
+  proposed_at: z.string(),
+  product: z.object({
+    name: z.string(),
+    description_excerpt: z.string().nullable(),  // first 400 characters
+    website: z.string().nullable(),
+    product_role: z.string(),
+  }),
+  vendors: z.array(z.object({                   // every vendor the payload names, in order
+    id: z.string(), name: z.string(), is_primary: z.boolean(),
+    owned: z.boolean(),                          // owned its record when proposed
+    exists: z.boolean(),                         // false: an accept is refused
+  })),
+  terms: z.array(z.object({
+    facet: z.enum(['category', 'audience', 'phase', 'trade', 'usefulness', 'extension']),
+    value: z.string(),                           // as sent
+    name: z.string().nullable(),                 // the stored term it resolves to
+    exists: z.boolean(),                         // false: an accept drops it
+  })),
+});
+export const AcceptVendorProposalResponseSchema = z.object({
+  proposal_id: z.string(),
+  product: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+  dropped: z.array(z.object({ facet: /* as above */, value: z.string() })),
+});
+```
+
+**Terms are resolved find-only (ruling Q6).** Categories, audiences and phases match a stored
+term by slug, then by `slugify(name)`, as promote matches them. Trades add the alias pass. A
+"How teams use it" group matches any stored audience or phase, and an `extensionOf` host must
+be a live product. A value that matches nothing is listed with `exists: false` and dropped on
+accept. An accept never mints a term.
+
+**Accept, in order.** Member `403`. Unknown or another vendor's proposal `404`. Decided
+`409 PROPOSAL_ALREADY_DECIDED`. The addressed vendor no longer owns its record
+(`vendors.owned_at` NULL) `409 VENDOR_NOT_OWNED`. A linked vendor is gone
+`409 PROPOSAL_VENDOR_MISSING`. Then **one batch**: the guarded decision `UPDATE`
+(`decision IS NULL`) and a sentinel that aborts the batch when it matched no row, a sentinel
+that aborts it when the addressed vendor stopped owning its record, the product `INSERT`
+(promote's `productEditableData` projection and `generateSlug` rule, `promotion_status =
+'promoted'`, `promoted_at`, `maintained_by = 'vendor'`, `last_reviewed_at` = now), every
+`product_vendors` row the payload names with its stored `isPrimary`, the existing terms'
+join rows, the extension rows, and two audit rows: `product.created`
+(`metadata.reason = 'proposal-accepted'`, `metadata.proposalId`) and
+`product_proposal.accepted` (`metadata.createdProductId`, `metadata.dropped`). A race lost
+between the read and the batch writes nothing and answers the matching `409`. A vendor
+deleted in that window fails the `product_vendors` foreign key and answers
+`409 PROPOSAL_VENDOR_MISSING`. A racing slug answers `409 SLUG_CONFLICT`.
+
+**After an accept commits.** The promote purge set for a created product
+(`cacheTagsForPromote`): `product:{slug}`, `index:products`, `sitemap`, `vendor:{slug}` per
+linked vendor, one tag per linked term, `trade:{slug}` + `index:trades` + `taxonomy` when it
+has a trade, and `product:{host}` per extension host. A by-id Algolia sync of the product and
+every linked vendor behind promote's 20 s watchdog. The audit forward. No re-crawl buffer and
+no home-stats refresh (`CACHE_STRATEGY.md`). No new `GET /api/vendor/updates` scope: the new
+product moves the `products` cursor.
+
+**Decline.** The same `403`, `404` and `409 PROPOSAL_ALREADY_DECIDED`, then one batch: the
+guarded decision `UPDATE` (`decision = 'declined'`, `decided_at`, `decided_by`), its sentinel,
+and a `product_proposal.declined` audit row. No catalog write, no purge.
+
+Both decisions show on the vendor's Changes page as the vendor's own edits
+(`@aeci/shared/audit-vendor-actions`). The review app learns of a decision through AECI-1418,
+not built.
+
+Source of truth: `packages/shared/src/api/vendor-proposals.ts`, handlers
+`apps/api/src/routes/vendor-proposals.ts`, builder `apps/api/src/routes/vendor-proposal-accept.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `NOT_FOUND` (404) ·
+`PROPOSAL_ALREADY_DECIDED` (409) · `VENDOR_NOT_OWNED`, `PROPOSAL_VENDOR_MISSING`,
+`SLUG_CONFLICT` (409, accept) · `RATE_LIMITED` (429, the two POSTs).
 
 #### `GET /api/seat-invites/:token`
 

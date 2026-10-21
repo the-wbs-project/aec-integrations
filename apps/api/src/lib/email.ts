@@ -2928,6 +2928,65 @@ export function sendClaimOwnerReviewEmail(
   });
 }
 
+/** The portal's "Proposed products" tab for a vendor, or `null`. */
+function vendorProposalsUrl(env: Env, vendorSlug: string | null): string | null {
+  const base = siteUrl(env);
+  return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/proposals` : null;
+}
+
+/** What `product-proposal-owner-review` names. */
+export interface ProductProposalOwnerReviewFacts {
+  proposalId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/proposals` button. `null` drops the button. */
+  vendorSlug: string | null;
+  productName: string;
+}
+
+/**
+ * `product-proposal-owner-review`: AEC Integrations proposed a new product for a company
+ * that owns its record, so each owner seat is asked to accept or decline it (AECI-1417,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22, ADR 0042). Sent from the promote Workflow's
+ * post-commit hooks once the proposal commits, one per owner seat, keyed
+ * `product-proposal-owner-review:{proposalId}:{profileId}`, so a replayed hook sends
+ * nothing twice.
+ *
+ * The product name is the review app's curated text, still `PLAIN`: it goes to a third
+ * party and is never a link.
+ */
+export function sendProductProposalOwnerReviewEmail(
+  c: EmailContext,
+  opts: ProductProposalOwnerReviewFacts & { to: string; dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim() || 'your company';
+  const product = opts.productName.trim() || 'a new product';
+  const proposals = vendorProposalsUrl(c.env, opts.vendorSlug);
+  const lead = `AEC Integrations found ${product} and would like to list it under ${company}. ${company} owns its listing, so the product is not added unless an owner accepts it.`;
+  const leadHtml = `AEC Integrations found <strong>${escapeHtml(product)}</strong> and would like to list it under ${escapeHtml(company)}. ${escapeHtml(company)} owns its listing, so the product is not added unless an owner accepts it.`;
+  const choice =
+    'Accept adds the product exactly as shown, and you can edit it afterwards. Decline means it is not added. Nothing changes until an owner decides.';
+  const table: EmailTableRow[] = [
+    ['Product', product, PLAIN],
+    ['Company', company, PLAIN],
+  ];
+  const shared = (link: LinkTagger) => ({
+    preheader: `An owner decides whether ${subjectSafe(product)} is listed.`,
+    heading: `New product proposed for ${company}`,
+    table,
+    ...(proposals ? { cta: { label: 'Review proposed products', url: link(proposals) } } : {}),
+    note: `You get this email because you hold an owner seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'product-proposal-owner-review',
+    // Both are curated or typed text, so each is collapsed to one line before a header.
+    subject: `New product proposed for ${subjectSafe(company)}: ${subjectSafe(product)}`,
+    render: (link) => houseBody(shared(link), [lead, choice], [leadHtml, escapeHtml(choice)]),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'product_proposal', id: opts.proposalId },
+  });
+}
+
 /** One claim the owner fallback handed to AECi, for the operator digest. */
 export interface ClaimOwnerFallbackSummary {
   requestId: string;

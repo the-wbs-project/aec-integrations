@@ -66,6 +66,28 @@ Chris ruled on the three open points of the AECI-1416 build.
 - **B. Accept means exactly what was sent.** The proposal stores the whole product and every vendor the payload named, owned and unowned, each with the AECi id it resolved to (`ProductProposalPayload`). An accept creates that product with every one of those vendor links. `vendor_id` stays the owned vendor the proposal is addressed to, the first in payload order.
 - **C. A return discards open proposals, and promote re-checks at commit.** "Return records to AECi" deletes the vendor's open proposals in its own batch and lists their ids in its audit row. Decided ones stay. A proposal that arrives between the return's read and its batch aborts the return with `VENDOR_PROPOSALS_CHANGED`. A promote that planned a proposal and commits after a return aborts with `VENDOR_RETURNED_DURING_PROMOTE`, the inverse of the rule 6 sentinel, and a re-push creates the product. The return's confirmation shows "N open product proposals will be discarded." from `open_proposal_count` on the vendor read.
 
+## Amendment 2026-10-19 (later still): AECI-1417 landed (accept and decline)
+
+Owner seats decide proposals on the portal's "Proposed products" tab
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22, `API_CONTRACTS.md` §6.14). Members do not act.
+
+- **Accept** re-checks that the proposal is open and that the addressed vendor still owns its
+  record, before the batch and again inside it by sentinel. It creates the product exactly as
+  proposed (ruling B), with every vendor link in the payload. A linked vendor that no longer
+  exists refuses the accept (`PROPOSAL_VENDOR_MISSING`) rather than create a half-linked
+  product. Taxonomy is find-only (ruling Q6): missing terms are dropped and listed, never
+  minted. The product, the decision and two audit rows are one batch. It reuses promote's slug
+  rule, column projection and purge deriver (`routes/vendor-proposal-accept.ts`).
+- **The created product is vendor-maintained from birth**: `maintained_by = 'vendor'` and
+  `last_reviewed_at` = the accept time, the markers a vendor-created integration carries. It is
+  owned through its join to the owned vendor, so promote refuses it from then on.
+- **Decline** records the decision and its audit row, nothing else.
+- **One email per owner seat per proposal**, `product-proposal-owner-review`, sent from
+  promote's post-commit hooks and keyed per proposal per owner.
+
+The review app still learns of a decision only through a refused re-send. That message is
+AECI-1418.
+
 ## Revisit
 
-When AECI-1417 builds accept and decline, when AECI-1418 sends the return to the review app, or when AECI-1343 decides the connector catalogue.
+When AECI-1418 sends the return to the review app, or when AECI-1343 decides the connector catalogue.

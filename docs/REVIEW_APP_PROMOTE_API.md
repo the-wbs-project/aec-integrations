@@ -1141,7 +1141,7 @@ What that looks like in a response:
 |---|---|
 | You update an **owned vendor** | The vendor is **absent** from `vendors[]`; `skipped[]` gains `{ ref, kind: "vendor", reason: BLOCKED_VENDOR_REASON }`, "vendor owns its record; review-app writes to a vendor-owned record are refused". Its columns are unchanged. |
 | You update an **existing product an owned vendor owns** (any joined vendor owned counts, so a co-owned product is owned) | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: BLOCKED_PRODUCT_REASON }`, "product belongs to a vendor that owns its record; review-app writes to it are refused". Nothing about the product changes, including its vendor/taxonomy/extension links. |
-| You **create** a new product that would join an owned vendor (a `supabaseId` that names no row counts as a create) | **Not created; stored as a proposal** (AECI-1416). `product` is `null` and `skipped[]` gains `{ ref, kind: "product", reason: PROPOSED_PRODUCT_REASON, proposalId }`, "new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline". The proposal holds the whole product as you sent it after validation, **with every vendor the payload named**, owned and unowned, each resolved to its AECi id. It never changes after that, and an accept creates exactly that product linked to exactly those vendors (ruled 2026-10-19). Its taxonomy is not resolved and no term is created. A product that would join several owned vendors is proposed once, addressed to the **first** owned vendor in `vendors[]` order. A new or unowned vendor in the same payload is still created or updated as usual, so its id exists for the accept. The owner accepts or declines it in the portal (AECI-1417). Before AECI-1416 the product was skipped with `BLOCKED_NEW_PRODUCT_REASON`, and before AECI-1415 promote created it. |
+| You **create** a new product that would join an owned vendor (a `supabaseId` that names no row counts as a create) | **Not created; stored as a proposal** (AECI-1416). `product` is `null` and `skipped[]` gains `{ ref, kind: "product", reason: PROPOSED_PRODUCT_REASON, proposalId }`, "new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline". The proposal holds the whole product as you sent it after validation, **with every vendor the payload named**, owned and unowned, each resolved to its AECi id. It never changes after that, and an accept creates exactly that product linked to exactly those vendors (ruled 2026-10-19). Its taxonomy is not resolved and no term is created. A product that would join several owned vendors is proposed once, addressed to the **first** owned vendor in `vendors[]` order. A new or unowned vendor in the same payload is still created or updated as usual, so its id exists for the accept. The owner accepts or declines it in the portal (AECI-1417, below). Before AECI-1416 the product was skipped with `BLOCKED_NEW_PRODUCT_REASON`, and before AECI-1415 promote created it. |
 | You create a new product for an owned vendor with a `ref` that is **not** `p:rec…` | **Refused; nothing written to the catalog or proposals.** The refusal still writes its `promote.blocked` audit row, as every refusal does (§6.4). `skipped[]` gains `{ ref, kind: "product", reason: PROPOSAL_REF_REFUSED_REASON }`, "new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written to the catalog or proposals". Integrations touching it are skipped as below. Re-send with the record ref. |
 | You send a new product for an owned vendor **again**, with a `ref` that already has a proposal | **Refused; nothing written to the catalog or proposals.** The refusal still writes its `promote.blocked` audit row, as every refusal does (§6.4). A `ref` is sent once, ever (ruling Q5). `skipped[]` gains `{ ref, kind: "product", reason, proposalId }` naming the existing proposal, and `reason` says its state: `ALREADY_PROPOSED_REASONS.open`, `.accepted` or `.declined`. That holds while the proposal is open, after the owner declines it and after the owner accepts it. Do not retry: the owner has it, or has decided. |
 | An integration in that same payload touches a product sent as a proposal (new or refused re-send) | Skipped with `kind: "integration"` and `PROPOSED_PRODUCT_INTEGRATION_REASON`, "an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored". A proposal carries the product only (ruling Q4). Re-send the edge once the product exists. |
@@ -1207,7 +1207,9 @@ and the fence skips those rows.
 promote sends nothing about the vendor or any product it holds. The one thing it may still
 send is a **new** product, and it lands in `product_proposals` (`DATABASE_SCHEMA.md` §8.6f) with
 a `product_proposal.created` audit row in the same batch. A proposal-only promote changes no
-catalog state, so it fires no cache purge, search sync or home-stats refresh. The rules:
+catalog state, so it fires no cache purge, search sync or home-stats refresh. Its one post-commit
+hook is the owner email (AECI-1417): `product-proposal-owner-review` to each unbanned owner seat,
+keyed per proposal per owner, so a replay sends nothing twice. The rules:
 
 - **The `ref` is the proposal's identity.** §3.1 calls `ref` a client-local label. For a
   product that may become a proposal, it is also the key a re-send is refused on, so it must be
@@ -1228,6 +1230,21 @@ catalog state, so it fires no cache purge, search sync or home-stats refresh. Th
   normally. A promote that planned a proposal before the return and commits after it aborts
   with `VENDOR_RETURNED_DURING_PROMOTE` (409, §6.2). Re-push with a new `jobId` and the product is
   created.
+- **What happens next (AECI-1417).** An owner seat sees the proposal on the portal's
+  "Proposed products" tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22) and accepts or declines it.
+  **Accept** creates exactly the product you sent, linked to every vendor the payload named,
+  with no editing (ruling B). Its taxonomy is matched find-only against the terms that exist
+  at accept time: a category, audience, phase, trade, usefulness group or extension host that
+  names nothing is dropped and listed to the owner, and no term is ever created (ruling Q6).
+  So send terms that exist if you want them kept. The product is then vendor-owned and
+  vendor-maintained: promote refuses it like any other owned product (the table above).
+  Accept is refused when the addressed vendor no longer owns its record, or when a linked
+  vendor no longer exists; the owner then declines it. **Decline** records the decision and
+  creates nothing. Either way the `ref` stays spent (Q5): a re-send is refused with
+  `ALREADY_PROPOSED_REASONS.accepted` or `.declined`. **The review app is not told of the
+  decision yet.** That message is AECI-1418 (not built). Until then the decision shows only as
+  the refusal reason on a re-send of the same `ref`, and an accepted product appears in the
+  directory under the vendor.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:

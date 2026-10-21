@@ -154,6 +154,13 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-billing-section').then((m) => m.VendorBillingSection),
   },
+  // AECI-1417 (E6b.5): products AEC Integrations proposed for the company. Owner
+  // seats only; the page renders a short note for a member and calls nothing.
+  {
+    path: 'proposals',
+    loadComponent: () =>
+      import('./sections/vendor-proposals-section').then((m) => m.VendorProposalsSection),
+  },
 ];
 
 /**

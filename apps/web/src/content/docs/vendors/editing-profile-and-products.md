@@ -52,6 +52,19 @@ Open **Products**, then a product. Product names are not edited in the portal, b
 
 Products are added by AEC Integrations. The portal has no way to add one. To have a product listed, [contact us](/contact).
 
+### Products we propose
+
+Once your company owns its listing, AEC Integrations no longer adds products to it on its own. When we find a new product of yours, we propose it instead. Every account owner gets an email, and the product waits on the **Proposed products** tab. Only owners see that tab.
+
+Each proposal shows the product's name, description and website, the companies it would be listed under, and its categories, audiences, phases, trades and "How teams use it" groups. A value that names no existing term on AEC Integrations is marked **Not added**. Accepting leaves it out, and nothing new is created.
+
+- **Accept** adds the product exactly as shown. It is then yours to edit like any other product.
+- **Decline** means it is not added, and we do not send it again. If you want it listed after all, [contact us](/contact).
+
+If a company the product would be listed under no longer exists, the proposal cannot be accepted. Decline it and [contact us](/contact).
+
+Each choice asks you to confirm first. After an accept, the tab lists the values that were left out and links to the new product. Both choices show on the **Changes** tab.
+
 ### The Profile tab
 
 | Field | Free | Managed |

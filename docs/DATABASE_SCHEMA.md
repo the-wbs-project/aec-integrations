@@ -2415,7 +2415,7 @@ create index license_release_requests_vendor_created_idx
 New products the review app sent for a vendor that owns its record (ADR 0042,
 `REVIEW_APP_PROMOTE_API.md` §4a). Once a company is owned, promote writes nothing about the vendor
 or any product it holds. A new product for it is stored here instead of being created, and the owner
-accepts or declines it (AECI-1417, not built).
+accepts or declines it (AECI-1417, `routes/vendor-proposals.ts`).
 
 ```sql
 create table product_proposals (
@@ -2483,11 +2483,25 @@ create index product_proposals_vendor_open_idx
   (`entity_type = 'product_proposal'`, `entity_id` = the proposal, `vendor_id` set, `metadata.ref`,
   `metadata.vendorId`, `metadata.ownedVendorIds`, `metadata.promoteJobId`). A refused re-send writes
   `promote.blocked` with `metadata.cause = 'product-already-proposed'` and the proposal's `state`.
-  The accept and decline writers are AECI-1417.
+- **The decision write (AECI-1417).** An owner seat of `vendor_id` decides an open row through
+  `POST /api/vendor/proposals/:id/accept` or `/decline` (`API_CONTRACTS.md` §6.14). One batch:
+  a guarded `UPDATE … SET decision, decided_at, decided_by[, created_product_id] WHERE id = ? AND
+  decision IS NULL`, then a sentinel that aborts the batch when it matched no row (another owner
+  decided first), then the rest. An accept adds a sentinel that aborts when `vendors.owned_at` of
+  `vendor_id` is NULL, then the `products` row (`maintained_by = 'vendor'`, `last_reviewed_at` =
+  the decision time), every `product_vendors` row the payload names, the join rows of the terms
+  that exist (find-only, none minted), `product_extensions`, and two audit rows:
+  `product.created` (`metadata.reason = 'proposal-accepted'`, `metadata.proposalId`) and
+  `product_proposal.accepted` (`entity_type = 'product_proposal'`, `metadata.createdProductId`,
+  `metadata.dropped`). A decline writes `decision = 'declined'` and a
+  `product_proposal.declined` row. Both audit rows carry `vendor_id` and are receipts on the
+  vendor's Changes page. A decided row is never reopened, and `created_product_id` is never
+  cleared, even if that product is later retracted (no FK).
 - **Writers and readers.** Promote inserts (`routes/promote.ts`) and reads the row by `ref` at plan
   time. The admin return deletes open rows. `GET /api/admin/vendors/:id` counts them
-  (`open_proposal_count`). The owner's list and decision are AECI-1417. No `relations()`
-  entry.
+  (`open_proposal_count`). `GET /api/vendor/proposals` lists a vendor's open rows on
+  `product_proposals_vendor_open_idx`, and the two decision routes update one row each
+  (AECI-1417). The post-commit owner email reads one row by id. No `relations()` entry.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 

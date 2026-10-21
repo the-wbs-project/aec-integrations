@@ -521,6 +521,24 @@ export const NOTIFICATIONS = {
       "Asks each unbanned owner seat of a company to accept or decline someone who claimed it, with the claimant's details and the 7-day deadline.",
     note: 'Sent only when the claimed company has an unbanned owner seat, after the claim insert commits. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). The claim route is anonymous, so the daily per-vendor bound caps what a stranger can make us send to a company. Always on: the owners have 7 days to decide, and pausing it would hand every claim to the fallback.',
   },
+  'product-proposal-owner-review': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/promote, post-commit hook (routes/promote.ts dispatchPromoteHooks, lib/product-proposal-notify.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per owner seat per proposal: key product-proposal-owner-review:{proposalId}:{profileId}. A replayed promote hook finds the key and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §6.22',
+    summary:
+      'Tells each unbanned owner seat of a company that owns its record that AEC Integrations proposed a new product for it, to accept or decline.',
+    note: 'Sent once the promote batch that stored the proposal commits, never on the request. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). Pausable: no deadline rides on it, and the proposal waits on the Proposed products tab whether or not the mail goes.',
+  },
   'stuck-request-alert': {
     channel: 'email',
     audience: 'operator',

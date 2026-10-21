@@ -3,7 +3,9 @@
  *
  * The shared predicates and batch sentinels for `product_proposals`. Promote writes a
  * proposal (`routes/promote.ts`), and the admin "Return records to AECi" action deletes
- * the vendor's open ones (`routes/admin-vendors.ts`). Accept and decline are AECI-1417.
+ * the vendor's open ones (`routes/admin-vendors.ts`). An owner seat accepts or declines one
+ * (`routes/vendor-proposals.ts`, AECI-1417), and the accept batch reuses
+ * {@link proposalVendorOwnedSentinel}.
  */
 
 import { and, eq, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
