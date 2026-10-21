@@ -758,8 +758,8 @@ evaluator does not know fails loudly. The 2026-09-28 run read
 
 ### Where the probe paths are, and are not
 
-The probed paths are **not** in `page_views`. That table records 2xx renders only (the SSR
-`firePageView` fires on 2xx, `server/request-context.ts`), so a 404 probe never writes a row.
+The probed paths are **not** in `page_views`. That table records `200` HTML arrivals only (the
+SSR gateway's `recordGatewayArrival` in `server-runtime.ts`, AECI-1297), so a 404 probe never writes a row.
 Querying it for the scanner's hash returns only its real page views: `/`, `/products`,
 `/categories/*`, `/audiences/*`, `/trades`, pair and detail pages.
 

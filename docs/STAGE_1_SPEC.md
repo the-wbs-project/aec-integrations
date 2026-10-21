@@ -880,7 +880,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 
 **Phase 4 reconciliation (2026-06-10):**
 - `category_counts` / `audience_counts` / `phase_counts` are **optional/deferred** — the live taxonomy endpoints (`GET /api/taxonomy`, `/api/categories`, …) already return `product_count`, so the home "browse by" grids read those directly rather than this cache.
-- `home.trending_products` is computed from the `page_views` table **only** in Stage 1 (PostHog is not wired until Phase 7). The **client** `POST /api/page-views` capture is the canonical per-view signal; the SSR server-side write undercounts because edge-cache hits bypass the SSR Worker (§9.1, §14.2).
+- `home.trending_products` is computed from the `page_views` table **only** in Stage 1 (PostHog is not wired until Phase 7). Since AECI-1297 the SSR Worker's gateway writes every arrival, on an edge-cache hit and a miss alike, and the client beacon counts in-app navigations only (§14.2).
 - **Trending min-views floor (AECI-280 / Phase 8.2):** a product must clear `TRENDING_MIN_VIEWS` (currently **3**; `apps/api/src/lib/home-stats.ts`) page-views in the 7-day window to be called "trending" — otherwise it is dropped, and when nothing clears the floor the home UI falls back to recently-added products. This is the **only** quality guard on trending, because the Cloudflare **Pro** plan provides no bot score (`request.cf.botManagement` is Enterprise-only, so the ingest-time `PAGE_VIEWS_MIN_BOT_SCORE` filter is inert in prod — `cf_bot_score` is null on every row). The floor is a documented launch tunable (`POST_LAUNCH_MONITORING.md` §3). The 7-day window + top-5 were validated against the 2026-07-12 prod traffic pull (646 product-page views across 124 products; top-5 at 17/17/17/12/12) and left unchanged; a ~30-day re-evaluation and the PostHog join are deferred to the AECI-280 follow-up.
 
 Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggregation on page load.
@@ -1020,7 +1020,7 @@ Client-side initialization in Angular app:
 
 ### 14.2 Server-side page_views (D1)
 
-A lean server-side log captured by the SSR Worker on every cacheable page request. Stores dimensions PostHog cannot see directly. Schema is defined in Section 5.1 — includes `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score`, hashed user agent, locale, theme, and denormalized profile role.
+A lean server-side log captured by the SSR Worker's gateway on every cacheable page request, edge-cache hit or miss. Stores dimensions PostHog cannot see directly. Schema is defined in Section 5.1 — includes `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score`, hashed user agent, locale, theme, and denormalized profile role.
 
 **Use cases:**
 - Ad-hoc SQL queries combining client behavior with server context (e.g. "page views per country", "reviewer activity by Cloudflare colocation")
@@ -1035,10 +1035,10 @@ A lean server-side log captured by the SSR Worker on every cacheable page reques
 - No personal info (email, name) in page_views directly — only the foreign key to `profiles`, which can be joined when needed and anonymized on user deletion
 
 **Write path:**
-- SSR Worker writes page_views row asynchronously via `ctx.waitUntil()` — never blocks the response
+- The SSR Worker's gateway entrypoint writes the page_views row asynchronously via `ctx.waitUntil()` — never blocks the response
 - Failures don't affect the user (recorded on the observability plane, §14.3 — never surfaced)
 - Bot Score < 30 (likely automated) entries can be sampled rather than fully captured to control table growth — decision deferred until launch traffic patterns are visible
-- **Two capture paths, one table (Phase 4 reconciliation, 2026-06-10).** The **client** `POST /api/page-views` (fired post-hydration on every view — including edge-cache hits and client-side navigations) is the **canonical per-view signal**, and the source for `home.trending_products`. The SSR Worker's server-side `waitUntil()` write only runs on cache **misses** (edge-cache hits bypass the Worker, §9.1), so it **undercounts** and is treated as supplementary CF/bot-context enrichment, not the counter.
+- **Two capture paths, one table, no overlap (ruling 2026-10-21, AECI-1297).** The SSR Worker's gateway (the `default` export, whose own cache is off) writes the **arrival**: one row per full-document load of a cacheable page that returned `200` HTML, on an edge-cache **hit and a miss** alike. It runs before the cached `Renderer`, so a hit no longer skips it. The **client** beacon skips the landing and writes one row per **in-app navigation** only. A no-JS visitor and an AI assistant's fetch are counted, because no browser code has to run. The API resolves an arrival's product, vendor or taxonomy term from its path. Both kinds feed `home.trending_products`.
 
 ### 14.3 The observability layer (performance, errors, logs, audit)
 

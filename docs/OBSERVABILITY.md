@@ -269,7 +269,7 @@ than a Worker metric.
 | `aeci.metrics_snapshot.recheck.refused` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric`, `reason` (`increase` / `raw_rows_absent`). Both reasons mean the guard held rather than the data converged: an increase cannot come from the retro-join, and absent raw rows mean the day's source is gone. **Worth an alert** — a non-zero series here is evidence about the data, not about the cron |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
 | `aeci.pageviews.raw` | count | `apps/api/src/lib/page-view-raw.ts` (`writeRawEnvelope`), and a catch in `capturePageView` that tags only `outcome:failed` (AECI-1384, ADR 0041) | `outcome` (ok / failed / skipped), `ip_hash` (present / no_secret / no_ip; absent on the `capturePageView` catch). One per capture that reaches `capturePageView`, whatever the D1 outcome. `failed` is a `send()` that threw or an envelope that could not be built. `skipped` means the `PAGE_VIEW_RAW` binding is absent: expected locally and on demo, a missing `pipelines` entry in production. `aeci.pageviews.write` is unchanged. **Alert:** `pageviews-raw-unsent`, fires when `failed` plus `skipped` sums to more than 0 in 1 h, hourly, production only. Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture" |
-| `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
+| `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`, called by the gateway's `recordGatewayArrival` since AECI-1297) | none — a browser prefetch/prerender the gateway refused to count as an arrival (AECI-743). Counted on a cache HIT and a MISS alike |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured / **profile_unavailable**). Since AECI-770 `success` fires only after the profile-ensure succeeds, and an ensure that fails every retry is `failed` with `reason:profile_unavailable` |
 | `aeci.auth.profile_ensure` | count | `apps/web/src/server/routes/auth-callback.ts` (**`service:aeci-web`**) and `apps/api/src/lib/profile-provisioning.ts` (`healMissingProfile`, the `GET /api/account` self-heal) | `source` (auth-callback / self-heal). On `auth-callback`: `outcome` (ok / failed) and `attempts` (1–3). On `self-heal`: `outcome` (created / existing / erased / failed). AECI-770. **Any `outcome:failed` is a user who met the no-profile state**: at sign-in they were signed out, on self-heal they saw a 503. `AUTH_AND_RLS.md` §3.1a. **Alert (AECI-1099):** `profile-ensure-failed`, fires when `outcome:failed` sums to more than 0 in 1 h across both sources, hourly, production only. Runbook: `RUNBOOKS.md` "Account record could not be created at sign-in" |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found / **rate_limited**) — `rate_limited` added by AECI-773 for the §15.1 hourly per-user cap (3 per rolling hour, a D1 count). It is distinct from the burst bucket's own rejection, which lands on `aeci.api.ratelimit` instead, so the two windows stay separable |
@@ -1188,11 +1188,11 @@ design. Where each signal lives now:
   `cache_status:MISS`/`miss`/`non_cacheable`, never `hit`. A fall in MISS volume as HIT-rate climbs
   is **expected** and is **not** "SSR render dropped" / "traffic dropped"; read absolute request
   volume from Cloudflare, not these Worker-side counts.
-- **Page views** → the browser `PageViewTracker` (AECI-151,
-  `apps/web/src/app/core/page-view-tracker.ts`) is the **canonical** counter. The SSR-side
-  `firePageView` (`POST /api/page-views`) fires only on a MISS / non-cacheable render and always
-  undercounted; a HIT never reaches `Renderer` (only the gateway runs), so it is deliberately **not** reconstructed from
-  HITs. Do not add HIT-counting to the Worker.
+- **Page views** → the **gateway** writes the arrival (`recordGatewayArrival` →
+  `firePageView`, `POST /api/page-views`). It runs on every request, so it counts a HIT and a
+  MISS alike (ruling 2026-10-21, AECI-1297). It writes for a `200` HTML `GET` of a cacheable
+  route only. The browser `PageViewTracker` (AECI-151) skips the landing and counts in-app
+  navigations. Do not move the arrival write back into `Renderer`: a HIT never runs it.
 - **`noindex` on HIT** → the crawler-indexing header is baked into the cached payload on the MISS
   render (`docs/CACHE_STRATEGY.md` §7.1), so every HIT serves it without `Renderer` running.
 

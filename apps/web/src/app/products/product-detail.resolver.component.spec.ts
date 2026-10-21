@@ -182,11 +182,6 @@ registerDetailResolverSuite<ProductDetail>({
     { type: 'product', slug: 'd' }, // source of integrations_as_connector[0]
     { type: 'product', slug: 'e' }, // target of integrations_as_connector[0]
   ],
-  expectedPageView: {
-    route: '/products/:slug',
-    entity_type: 'product',
-    entity_id: '00000000-0000-4000-8000-000000020001',
-  },
   notFound: {
     kind: 'product',
     slug: 'procore',

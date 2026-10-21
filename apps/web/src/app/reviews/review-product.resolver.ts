@@ -11,12 +11,9 @@
  *     product's canonical link or Product JSON-LD;
  *   - no `pushEmbedded` — the route is non-cacheable (no `ROUTE_CACHE_PATTERNS`
  *     match), so there is no `Cache-Tag` to contribute;
- *   - `trackPageView: false` — THE load-bearing opt-out. `/products/:slug/review`
- *     is not the product's canonical page, so an SSR landing here (a direct hit
- *     or the post-login `?return=` bounce-back) must not fire a
- *     `POST /api/page-views` for the product. Reusing the full
- *     `productDetailResolver` would miscount review-form visits as product
- *     detail views and skew the trending signal (AECI-177/179).
+ *   - no page view: the gateway writes arrivals for cacheable routes only
+ *     (AECI-1297), and this route is not one. A review-form landing is never
+ *     counted as a product detail view (AECI-177/179).
  */
 import type { ProductDetail } from '@aeci/shared';
 
@@ -29,5 +26,4 @@ export const reviewProductResolver = createDetailResolver<ProductDetail>({
   pathSegment: 'products',
   entityKind: 'product',
   fetch: fetchProductBySlug,
-  trackPageView: false,
 });

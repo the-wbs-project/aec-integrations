@@ -21,8 +21,8 @@
  *      page renders the inline NotFound panel.
  *   3. On success → set browse meta; push `product:{slug}` for every product
  *      shown onto `ctx.embedded` so `Cache-Tag` covers data-derived
- *      dependencies; queue the fire-and-forget `POST /api/page-views` payload.
- *      Store in `TransferState`.
+ *      dependencies. Store in `TransferState`. The gateway writes the
+ *      arrival from the path (AECI-1297), so nothing here records a view.
  *
  * Client flow (AECI-151): on hydration / back-nav read the term out of
  * `TransferState`; on a genuine client navigation (no key) fetch it from the
@@ -164,12 +164,6 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
     for (const product of term.products) {
       ctx.embedded.push({ type: 'product', slug: product.slug });
     }
-
-    ctx.pageView = {
-      route: `/${segment}/:slug`,
-      entity_type: kind,
-      entity_id: term.id,
-    };
 
     // AECI-746 — prefetch the grid's first page here, INSIDE this resolver rather
     // than as a sibling on the route, because the request is scoped to `term.id`

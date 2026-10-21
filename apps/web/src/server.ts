@@ -104,8 +104,9 @@ const app = createApp({
  * `Cache-Control`/`Cache-Tag` emission are unchanged. The gateway (`cacheGateway`,
  * the default export) reaches it through the `ctx.exports` loopback with a
  * normalized `cf.cacheKey`. Forwarding `this.env`/`this.ctx` keeps Hono's
- * `waitUntil` (Datadog forwards, page-views) working within this entrypoint's
- * lifetime.
+ * `waitUntil` (Datadog forwards, metrics) working within this entrypoint's
+ * lifetime. The `page_views` arrival write is not here: the gateway makes it, so
+ * a HIT is counted too (AECI-1297).
  */
 export class Renderer extends WorkerEntrypoint<Bindings> {
   override fetch(request: Request): Response | Promise<Response> {

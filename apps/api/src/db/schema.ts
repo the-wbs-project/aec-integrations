@@ -2482,8 +2482,9 @@ export const pageViews = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
 
     // `path` is the route the WRITER named: the pattern (`/products/:slug`) when it
-    // knows one (an SSR resolver attached `ctx.pageView`), the concrete path
-    // otherwise (the browser tracker, an SSR cache HIT). `concrete_path` is always
+    // knows one (the gateway's arrival on a detail, pair or browse page, parsed from
+    // the URL since AECI-1297), the concrete path otherwise (the browser tracker,
+    // any other page). `concrete_path` is always
     // the real URL path — locale-stripped, no query or hash — so a taxonomy row can
     // say WHICH term was viewed even when nothing joins (AECI-585 / §7.3). The two
     // are stored side by side rather than one replacing the other: grouping "top
@@ -2539,7 +2540,7 @@ export const pageViews = sqliteTable(
     taxonomyId: text('taxonomy_id'),
 
     // How the visitor got here (AECI-585 / §7.3): `'arrival'` = full-document load
-    // (the SSR Worker's `firePageView`), `'spa'` = in-app navigation (the browser
+    // (the SSR gateway's `firePageView`), `'spa'` = in-app navigation (the browser
     // `PageViewTracker`). Null = unknown — every row written before this shipped, and
     // any POST that omits it. NEVER inferred: the same-origin `Referer` on an SPA hop
     // classifies as `Direct`, which is precisely the conflation this column exists to
