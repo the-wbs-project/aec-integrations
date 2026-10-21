@@ -257,9 +257,14 @@ async function patchClaim(
   id = REQUEST_ID,
 ) {
   const send = vi.fn().mockResolvedValue(undefined);
+  const ownershipSend = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    OWNERSHIP_SYNC_QUEUE: {
+      send: ownershipSend,
+      sendBatch: vi.fn(),
+    } as unknown as Env['OWNERSHIP_SYNC_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
   const res = await app.request(
@@ -275,7 +280,7 @@ async function patchClaim(
   // Drain the post-commit `waitUntil` work so purge/email assertions are stable.
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { status: res.status, body: (await res.json()) as any, send };
+  return { status: res.status, body: (await res.json()) as any, send, ownershipSend };
 }
 
 const profileOf = async (id: string) =>
@@ -1123,6 +1128,52 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
 // The handler passes its status read, then a competing decision commits right
 // before its batch. The batch opens with `claimUndecidedSentinel`, so the loser
 // answers 409 CLAIM_ALREADY_DECIDED, writes nothing and sends no email.
+
+describe('PATCH /api/admin/claims/:id — the ownership message (AECI-1418)', () => {
+  it('a committed approval enqueues exactly one claim_approved message for the vendor', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const { status, ownershipSend } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+    });
+    expect(status).toBe(200);
+    expect((await vendorOf(VENDOR_ID))!.ownedAt).not.toBeNull();
+    expect(ownershipSend).toHaveBeenCalledTimes(1);
+    expect(ownershipSend).toHaveBeenCalledWith({
+      vendorId: VENDOR_ID,
+      reason: 'claim_approved',
+      enqueuedAt: expect.any(String),
+    });
+  });
+
+  it('a reject enqueues nothing', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const { status, ownershipSend } = await patchClaim(moderateApp(resolveThrows()), {
+      action: 'reject',
+    });
+    expect(status).toBe(200);
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('an approval whose batch aborts enqueues nothing', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await patchClaim(moderateApp(resolveThrows()), { action: 'reject' });
+      return batch(stmts);
+    }) as unknown as typeof batch);
+    const { status, ownershipSend } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+    });
+    expect(status).toBe(409);
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+});
 
 describe('PATCH /api/admin/claims/:id — decision race (AECI-1333)', () => {
   /** Run `first` right before the next `db.batch`, then let that batch run. */

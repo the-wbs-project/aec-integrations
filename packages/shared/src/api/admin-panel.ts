@@ -1058,11 +1058,17 @@ export const USER_ACTIVITY_RETENTION_DAYS = 400;
  * `notification_sends`, so they keep the same 400 days.
  */
 export const NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS = 400;
+/**
+ * The ownership sync delivery ledger (AECI-1418, `ownership_sync_deliveries`). The
+ * ledger rule: 400 days, so "what did we last tell the review app about this vendor"
+ * reaches back a year. Tens of rows a month.
+ */
+export const OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS = 400;
 
 /**
  * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` /
  * `NOTIFICATION_SENDS_RETENTION_DAYS` / `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` /
- * `USER_ACTIVITY_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * `USER_ACTIVITY_RETENTION_DAYS` / `OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
  * a window shorter than that would delete rows past the point of any recovery
  * the moment it took effect. An override below this floor is ignored, not
  * clamped — a typo'd `4` should fall back to the reviewed default, not quietly

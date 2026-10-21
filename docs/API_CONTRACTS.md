@@ -3257,8 +3257,10 @@ normally, because the vendor is AECi's again. The hand-back audit rows say `caus
 `records-returned-to-aeci`. Rows written before AECI-1415 say `owner-seat-revoked`.
 
 Post-commit: one batched audit forward, then a purge of every page whose marker flipped through
-`CACHE_PURGE_QUEUE` with `source: 'moderation'`. The ownership message to the review app on a
-return is AECI-1418 and is not built. The response lists are its hook.
+`CACHE_PURGE_QUEUE` with `source: 'moderation'`, then one `records_returned` message on
+`OWNERSHIP_SYNC_QUEUE`: the ownership record to the review app (AECI-1418,
+`REVIEW_APP_PROMOTE_API.md` §4d). The claim approval and an ownership-stamping seat provision
+send the same message with `claim_approved` and `seat_provisioned`.
 
 Errors:
 
@@ -7104,8 +7106,12 @@ guarded decision `UPDATE` (`decision = 'declined'`, `decided_at`, `decided_by`),
 and a `product_proposal.declined` audit row. No catalog write, no purge.
 
 Both decisions show on the vendor's Changes page as the vendor's own edits
-(`@aeci/shared/audit-vendor-actions`). The review app learns of a decision through AECI-1418,
-not built.
+(`@aeci/shared/audit-vendor-actions`). After the commit each decision sends an ownership
+record to the review app (`proposal_accepted` or `proposal_declined`, AECI-1418,
+`REVIEW_APP_PROMOTE_API.md` §4d). A decline sends one, for the addressed owner. An accept
+sends one per owned vendor named on the created product, as one `sendBatch` when there are
+several (ruled 2026-10-20). Its `proposals[]` carries the decision and the created
+product id.
 
 Source of truth: `packages/shared/src/api/vendor-proposals.ts`, handlers
 `apps/api/src/routes/vendor-proposals.ts`, builder `apps/api/src/routes/vendor-proposal-accept.ts`.

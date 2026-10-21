@@ -161,6 +161,18 @@ would prove nothing. To check what an envelope contains, run the API specs (`pag
 read the `RawPageViewEnvelope` builder tests. `PAGE_VIEW_IP_HASH_SECRET` is optional in `.dev.vars`: without
 it `ip_hash` is null and the tag reads `ip_hash:no_secret`. Never an unkeyed hash. ADR 0041.
 
+### 4.2 The ownership-sync queue IS bound locally (AECI-1418)
+
+Unlike the scheduled-job queues, `OWNERSHIP_SYNC_QUEUE` is declared in the local-dev block as
+`aeci-ownership-sync-local`, and `wrangler dev` runs both its producer and its consumer. A local
+claim approval, seat provision, proposal decision or return enqueues a message, and the local
+consumer delivers it a moment later. With `REVIEW_APP_OWNERSHIP_URL` and `_TOKEN` empty in
+`apps/api/.dev.vars`, which is the default, each delivery writes an `unconfigured` row to the local
+`ownership_sync_deliveries` table and nothing leaves the machine. To exercise the HTTP path, point the
+URL at a mock receiver on localhost. Never point it at the real review app from a workspace.
+`ops:backfill-ownership-sync -- --local` dry-runs against the local D1. `--apply` is refused locally,
+because the local queue cannot be published to from outside `wrangler dev`.
+
 ## 5. Version reporting (AECI-74)
 
 `GET /api/version` reports the API Worker's `{ sha, deployedAt, environment }`, proxied through
