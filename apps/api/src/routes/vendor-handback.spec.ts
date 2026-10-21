@@ -241,12 +241,18 @@ async function call(
   status: number;
   code: string | null;
   send: ReturnType<typeof vi.fn>;
+  ownershipSend: ReturnType<typeof vi.fn>;
   body: Record<string, unknown> | null;
 }> {
   const send = vi.fn().mockResolvedValue(undefined);
+  const ownershipSend = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    OWNERSHIP_SYNC_QUEUE: {
+      send: ownershipSend,
+      sendBatch: vi.fn(),
+    } as unknown as Env['OWNERSHIP_SYNC_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
   const init: RequestInit =
@@ -258,7 +264,7 @@ async function call(
   const body = (await res.json().catch(() => null)) as
     | ({ error?: { code?: string } } & Record<string, unknown>)
     | null;
-  return { status: res.status, code: body?.error?.code ?? null, send, body };
+  return { status: res.status, code: body?.error?.code ?? null, send, ownershipSend, body };
 }
 
 const revoke = (userId: string) =>
@@ -1353,5 +1359,54 @@ describe('the return of a connector-powered integrations row', () => {
     }
     const ordinary = rows.find((r) => r.entityId === I_OWNED)!;
     expect(ordinary.metadata).not.toHaveProperty('connectorPowered');
+  });
+});
+
+// ─── The ownership message to the review app (AECI-1418) ─────────────────────
+
+describe('ownership writes enqueue one message to the review app, after commit (AECI-1418)', () => {
+  const provision = () =>
+    call(`/api/admin/vendors/${VENDOR}/seats`, 'POST', { email: 'new-seat@bentley.example' });
+  const message = (reason: string) =>
+    expect.objectContaining({ vendorId: VENDOR, reason, enqueuedAt: expect.any(String) });
+
+  it('the return enqueues exactly one records_returned message', async () => {
+    expect((await revoke(SEAT_A)).ownershipSend).not.toHaveBeenCalled();
+    const res = await returnRecords();
+    expect(res.status).toBe(200);
+    expect(res.ownershipSend).toHaveBeenCalledTimes(1);
+    expect(res.ownershipSend).toHaveBeenCalledWith(message('records_returned'));
+  });
+
+  it('a refused return enqueues nothing', async () => {
+    const res = await returnRecords();
+    expect(res.status).toBe(409);
+    expect(res.ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('a return whose batch aborts enqueues nothing', async () => {
+    await revoke(SEAT_A);
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+      return original(stmts);
+    }) as never);
+    const res = await returnRecords();
+    expect(res.status).toBe(409);
+    expect(res.ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('a seat provision that stamps ownership enqueues one seat_provisioned message', async () => {
+    await t.db.update(vendors).set({ ownedAt: null }).where(eq(vendors.id, VENDOR));
+    const res = await provision();
+    expect(res.status).toBe(201);
+    expect(res.ownershipSend).toHaveBeenCalledTimes(1);
+    expect(res.ownershipSend).toHaveBeenCalledWith(message('seat_provisioned'));
+  });
+
+  it('a seat provision on an already-owned vendor moves nothing and enqueues nothing', async () => {
+    const res = await provision();
+    expect(res.status).toBe(201);
+    expect(res.ownershipSend).not.toHaveBeenCalled();
   });
 });

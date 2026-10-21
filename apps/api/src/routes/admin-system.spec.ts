@@ -303,6 +303,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'retired_integration_unclaimed',
       'vendor_integration_unclaimed',
       'landing_cf_coverage',
+      // AECI-1418 — the review app does not know a vendor we sent.
+      'ownership_sync_unknown_vendor',
     ]);
     expect(codes(body)).not.toContain('requires_recompute');
   });

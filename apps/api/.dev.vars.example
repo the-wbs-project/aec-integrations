@@ -115,6 +115,16 @@ LOCAL_VENDOR_SLUG=
 # /api/promote request is rejected 401 (fail-closed).
 REVIEW_APP_TOKEN=
 
+# ─── Ownership message to the review app (AECI-1418) ───────────────────────
+# The reverse of REVIEW_APP_TOKEN: the API Worker PUTs each vendor's ownership
+# record to {REVIEW_APP_OWNERSHIP_URL}/vendors/{vendorId} with this bearer token
+# (REVIEW_APP_PROMOTE_API.md §4d). Locally the queue runs inside `wrangler dev`.
+# Leave both empty and every delivery is acked as `unconfigured` in
+# ownership_sync_deliveries. Point the URL at a local mock receiver to test the
+# path; NEVER at the real review app from a workspace.
+REVIEW_APP_OWNERSHIP_URL=
+REVIEW_APP_OWNERSHIP_TOKEN=
+
 # ─── Linear API key (AECI-211 / Phase 6.4) ─────────────────────────────────
 # Linear personal API key for the form→Linear pipeline: a submitted claim/
 # correction becomes an issue in the "Vendor Requests" project. Presented RAW in

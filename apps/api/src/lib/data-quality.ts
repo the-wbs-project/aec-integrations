@@ -65,6 +65,7 @@ import {
   connectorEvidencedPairs,
   integrations,
   mailingList,
+  ownershipSyncDeliveries,
   products,
   productVendors,
   reviews,
@@ -710,6 +711,43 @@ export async function checkLandingCfCoverage(db: Db, now: Date): Promise<CheckFi
   };
 }
 
+/**
+ * Vendors the review app does not know (AECI-1418, ruled 2026-10-20). Counts vendors
+ * whose LATEST ownership delivery (`ownership_sync_deliveries`, highest id) ended
+ * `permanent` with HTTP 404: the receiver answered "unknown vendor"
+ * (`REVIEW_APP_PROMOTE_API.md` §4d), so the review app is not treating that vendor's
+ * records as owned. A later `delivered` or `stale` row clears it. `warn`: it is a
+ * mapping gap between the two systems, not a broken page. Its fix is in the review app
+ * (its stored `supabase_vendor_id`) or a re-send once that is fixed
+ * (`ops:backfill-ownership-sync --vendor`).
+ */
+export async function checkOwnershipSyncUnknownVendor(db: Db): Promise<CheckFinding> {
+  const latest = db
+    .select({ id: sql<number>`max(${ownershipSyncDeliveries.id})`.as('latest_id') })
+    .from(ownershipSyncDeliveries)
+    .groupBy(ownershipSyncDeliveries.vendorId)
+    .as('latest');
+  const rows = await db
+    .select({
+      vendorId: ownershipSyncDeliveries.vendorId,
+      createdAt: ownershipSyncDeliveries.createdAt,
+    })
+    .from(ownershipSyncDeliveries)
+    .innerJoin(latest, eq(latest.id, ownershipSyncDeliveries.id))
+    .where(
+      and(
+        eq(ownershipSyncDeliveries.outcome, 'permanent'),
+        eq(ownershipSyncDeliveries.httpStatus, 404),
+      ),
+    )
+    .orderBy(asc(ownershipSyncDeliveries.vendorId));
+  return {
+    lines: rows.map(
+      (r) => `vendor ${r.vendorId}: the review app answered 404 (unknown vendor) at ${r.createdAt}`,
+    ),
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -816,6 +854,13 @@ export const CHECKS: CheckSpec[] = [
     label: 'Mailing-list signups missing their network metadata (`asn`)',
     severity: 'warn',
     run: ({ db, now }) => checkLandingCfCoverage(db, now),
+  },
+  {
+    id: 'ownership_sync_unknown_vendor',
+    label:
+      'Vendors the review app answered 404 (unknown vendor) for, on their latest ownership delivery',
+    severity: 'warn',
+    run: ({ db }) => checkOwnershipSyncUnknownVendor(db),
   },
 ];
 

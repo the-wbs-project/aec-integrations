@@ -16,6 +16,7 @@ import {
   billingAccounts,
   licenses,
   mailingList,
+  ownershipSyncDeliveries,
   pageViews,
   products,
   productVendors,
@@ -40,6 +41,7 @@ import {
   checkLandingCfCoverage,
   checkLicenseMirrorDrift,
   checkLogo404Sample,
+  checkOwnershipSyncUnknownVendor,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
   checkPromotionStatusInvariant,
@@ -520,6 +522,39 @@ describe('checkLicenseMirrorDrift', () => {
     const ids = CHECKS.map((c) => c.id);
     expect(ids).not.toContain('entitlement_mirror_drift');
     expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
+  });
+});
+
+// ── ownership sync: unknown vendor (AECI-1418) ────────────────────────────────
+
+describe('checkOwnershipSyncUnknownVendor', () => {
+  const row = (vendorId: string, outcome: string, httpStatus: number | null, at: string) => ({
+    vendorId,
+    reason: 'claim_approved',
+    attempt: 1,
+    outcome: outcome as 'permanent',
+    httpStatus,
+    createdAt: at,
+  });
+
+  it('flags a vendor whose LATEST delivery was a 404, and clears one a later delivery fixed', async () => {
+    await t.db
+      .insert(ownershipSyncDeliveries)
+      .values([
+        row('v-unknown', 'permanent', 404, '2026-06-23T01:00:00.000Z'),
+        row('v-fixed', 'permanent', 404, '2026-06-23T01:00:00.000Z'),
+        row('v-fixed', 'delivered', 200, '2026-06-23T02:00:00.000Z'),
+        row('v-auth', 'permanent', 401, '2026-06-23T01:00:00.000Z'),
+      ]);
+    const { lines } = await checkOwnershipSyncUnknownVendor(t.db);
+    expect(lines).toEqual([
+      'vendor v-unknown: the review app answered 404 (unknown vendor) at 2026-06-23T01:00:00.000Z',
+    ]);
+  });
+
+  it('is clean on an empty ledger, and registered at warn', async () => {
+    expect((await checkOwnershipSyncUnknownVendor(t.db)).lines).toEqual([]);
+    expect(CHECKS.find((c) => c.id === 'ownership_sync_unknown_vendor')?.severity).toBe('warn');
   });
 });
 

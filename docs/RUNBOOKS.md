@@ -2266,3 +2266,41 @@ The grant emails `licenses-granted`. The `managed-ended` email has already gone,
 ### `lapsed` versus `revoked`
 
 A pilot that ends on schedule reads as `lapsed` in the audit log and in reports (`license.lapsed`). One flagged "release at renewal" reads as `released`. A revoke stays `revoked`. Rows written before 2026-10-19 show scheduled pilot ends as `revoked` with the reason "Pilot ended". Treat those as normal pilot ends. The vendor sees no difference: the banner reads "Your Managed plan has ended" for every cause.
+
+## Ownership records not reaching the review app
+
+Not a paging alert yet. Use this when the review app shows a vendor's records as editable
+after a claim approval, or when `aeci.ownership_sync.delivery` shows anything but
+`delivered` and `stale` (AECI-1418, `REVIEW_APP_PROMOTE_API.md` §4d).
+
+**Read the ledger first.** Every delivery attempt is one `ownership_sync_deliveries` row
+(`DATABASE_SCHEMA.md` §9.14). The `--filter` runs it in `apps/api`, so `--env production`
+resolves the binding from `wrangler.jsonc`. Put the vendor's id in place of `VENDOR_UUID`.
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, reason, attempt, outcome, http_status, error FROM ownership_sync_deliveries WHERE vendor_id = 'VENDOR_UUID' ORDER BY created_at DESC LIMIT 10"
+```
+
+| Latest outcome | Meaning | Do |
+|---|---|---|
+| `unconfigured` | The tier has no `REVIEW_APP_OWNERSHIP_URL` or `_TOKEN` | Provision both (`environments.md` "Ownership receiver per tier"), deploy, then re-send the vendor |
+| `permanent` with `401` or `403` | The token does not match the review app's | Rotate the pair on both sides, then re-send |
+| `permanent` with `404` | The review app has never stored this vendor id. The daily `ownership_sync_unknown_vendor` data-quality check (`warn`) lists it too | Expected for a vendor the review app never promoted. Otherwise check the id mapping in the review app, then re-send |
+| `exhausted` | Six attempts over about 15 minutes all failed with a retryable status | Check the review app is up, then re-send |
+| no row at all | The message was never enqueued (`aeci.ownership_sync.enqueue{outcome:failed}` or `unbound`) | Re-send |
+
+**Re-send one vendor.** The record is the whole current state, so a re-send is always safe.
+Read the queue id, dry-run, then apply with that id in place of `QUEUE_ID`. Production needs Chris's go-ahead and AECI-1412 live.
+
+```bash
+pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production
+pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --vendor VENDOR_UUID
+pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --vendor VENDOR_UUID --apply --allow-production --queue-id QUEUE_ID
+```
+
+**The first backfill (ruling Q7).** The same script without `--vendor` sends one message per
+vendor with `owned_at` set. Run it once per tier after that tier's receiver is live. The
+dry run prints the vendors. The script writes nothing to D1. It needs
+`CLOUDFLARE_API_TOKEN` with Queues Edit and D1 Read, and `CLOUDFLARE_ACCOUNT_ID`.
+`--local --apply` is refused: the local queue lives inside `wrangler dev`, so approve a claim
+locally instead.

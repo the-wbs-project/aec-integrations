@@ -116,6 +116,7 @@ import {
 import { blankLast, textAsc } from '../lib/collation';
 import { classifyClaimantConflict, resolveClaimantIdentity } from '../lib/claimant-identity';
 import { stampOwnershipStatement, VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { dispatchOwnershipSync } from '../lib/ownership-sync';
 import {
   adminVendorRequestConfig,
   resolveRequestTargets,
@@ -616,6 +617,10 @@ async function approveClaim(
     throw error;
   }
   emitClaimModeration(c, 'approve', 'ok');
+  // AECI-1418: tell the review app the vendor owns its records. Post-commit, in
+  // `waitUntil`. Every committed approval leaves the vendor owned (stamped here or
+  // already), and the record is the whole state, so a re-send is harmless.
+  dispatchOwnershipSync(c, vendor.id, 'claim_approved');
 
   // Resolve the claimed target's display name up front — reused by the email
   // (AECI-528) and the response body.

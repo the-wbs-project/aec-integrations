@@ -86,6 +86,8 @@ const seat = (userId: string, vendorId: string): AuthzVariables['auth'] => ({
 
 let t: TestDb;
 let queueSend: ReturnType<typeof vi.fn>;
+let ownershipSend: ReturnType<typeof vi.fn>;
+let ownershipSendBatch: ReturnType<typeof vi.fn>;
 
 const ENV = {
   ENV: 'staging',
@@ -144,6 +146,8 @@ const FULL = {
 beforeEach(async () => {
   t = await makeTestDb();
   queueSend = vi.fn(async () => undefined);
+  ownershipSend = vi.fn(async () => undefined);
+  ownershipSendBatch = vi.fn(async () => undefined);
   vi.mocked(syncIndexTargets).mockClear();
   resetAlgoliaWriteGuardWarning();
   await t.db.insert(vendors).values([
@@ -207,7 +211,11 @@ async function call(
   const res = await app(opts.auth ?? seat(OWNER, OWNED), opts.factory).request(
     path,
     { method },
-    { ...ENV, CACHE_PURGE_QUEUE: { send: queueSend } } as unknown as Env,
+    {
+      ...ENV,
+      CACHE_PURGE_QUEUE: { send: queueSend },
+      OWNERSHIP_SYNC_QUEUE: { send: ownershipSend, sendBatch: ownershipSendBatch },
+    } as unknown as Env,
     execCtx,
   );
   const body = res.status === 204 ? {} : ((await res.json()) as JsonBody);
@@ -509,6 +517,39 @@ describe('POST /api/vendor/proposals/:id/accept', () => {
     expect(body.error.code).toBe(ApiErrorCode.PROPOSAL_ALREADY_DECIDED);
     expect(await t.db.select().from(products)).toEqual(before);
     expect((await audits()).some((r) => r.action === PROPOSAL_ACCEPTED_ACTION)).toBe(false);
+    // AECI-1418: a failed batch tells the review app nothing.
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('a committed accept enqueues one proposal_accepted message per owned vendor: one owner, one send (AECI-1418)', async () => {
+    const id = await propose('p:recOpenRoads', { name: 'OpenRoads' });
+    expect((await accept(id)).status).toBe(200);
+    // PARTNER is named on the product but unowned, so it gets nothing.
+    expect(ownershipSendBatch).not.toHaveBeenCalled();
+    expect(ownershipSend).toHaveBeenCalledTimes(1);
+    expect(ownershipSend).toHaveBeenCalledWith({
+      vendorId: OWNED,
+      reason: 'proposal_accepted',
+      enqueuedAt: expect.any(String),
+    });
+  });
+
+  it('an accept naming two owned vendors enqueues one message each, as one sendBatch (ruled 2026-10-20, D3)', async () => {
+    const id = await propose('p:recOpenRoads', { name: 'OpenRoads' }, [
+      { ref: 'v1', supabaseId: OWNED, companyName: 'Bentley' },
+      { ref: 'v2', supabaseId: PARTNER, companyName: 'Topcon' },
+      { ref: 'v3', supabaseId: OTHER, companyName: 'Hexagon' },
+    ]);
+    expect((await accept(id)).status).toBe(200);
+    expect(ownershipSend).not.toHaveBeenCalled();
+    expect(ownershipSendBatch).toHaveBeenCalledTimes(1);
+    const bodies = (ownershipSendBatch.mock.calls[0]![0] as { body: { vendorId: string } }[]).map(
+      (m) => m.body,
+    );
+    expect(bodies.map((b) => b.vendorId).sort()).toEqual([OWNED, OTHER].sort());
+    expect(
+      bodies.every((b) => (b as unknown as { reason: string }).reason === 'proposal_accepted'),
+    ).toBe(true);
   });
 
   it('a return to AECi that lands between the read and the batch writes nothing', async () => {
@@ -544,6 +585,11 @@ describe('POST /api/vendor/proposals/:id/decline', () => {
     });
     expect(queueSend).not.toHaveBeenCalled();
     expect(vi.mocked(syncIndexTargets)).not.toHaveBeenCalled();
+    // AECI-1418: the review app learns the decline, once.
+    expect(ownershipSend).toHaveBeenCalledTimes(1);
+    expect(ownershipSend).toHaveBeenCalledWith(
+      expect.objectContaining({ vendorId: OWNED, reason: 'proposal_declined' }),
+    );
   });
 
   it('refuses a decided proposal, a member seat, and another vendor’s proposal', async () => {

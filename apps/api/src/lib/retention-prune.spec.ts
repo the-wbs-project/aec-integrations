@@ -23,6 +23,7 @@ import {
   JOB_RUNS_RETENTION_DAYS,
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
+  OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
   USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
@@ -35,6 +36,7 @@ import {
   metricsDaily,
   notificationDeliveryEvents,
   notificationSends,
+  ownershipSyncDeliveries,
   pageViews,
   recrawlSubmissionCauses,
   recrawlSubmissions,
@@ -68,6 +70,7 @@ const WINDOWS = {
   notification_sends: NOTIFICATION_SENDS_RETENTION_DAYS,
   notification_delivery_events: NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   user_activity_daily: USER_ACTIVITY_RETENTION_DAYS,
+  ownership_sync_deliveries: OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS,
 };
 
 /** Last day the `page_views` prune removes, and the first it keeps. */
@@ -161,7 +164,8 @@ async function tally(
     | typeof jobRuns
     | typeof notificationSends
     | typeof notificationDeliveryEvents
-    | typeof userActivityDaily,
+    | typeof userActivityDaily
+    | typeof ownershipSyncDeliveries,
 ): Promise<number> {
   const [row] = await t.db.select({ value: count() }).from(table);
   return row?.value ?? 0;
@@ -349,6 +353,28 @@ describe('runRetentionPrune', () => {
       truncated: false,
     });
     expect(await tally(notificationDeliveryEvents)).toBe(2);
+  });
+
+  it('prunes ownership_sync_deliveries on the ledger window (AECI-1418)', async () => {
+    const cutoffDay = shiftDay(TODAY, -OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS);
+    await t.db.insert(ownershipSyncDeliveries).values(
+      [shiftDay(cutoffDay, -1), cutoffDay, TODAY].map((day) => ({
+        vendorId: 'v',
+        reason: 'backfill',
+        attempt: 1,
+        outcome: 'delivered' as const,
+        createdAt: at(day),
+      })),
+    );
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.tables.find((x) => x.table === 'ownership_sync_deliveries')).toMatchObject({
+      cutoff: `${cutoffDay}T00:00:00.000Z`,
+      rowsDeleted: 1,
+      truncated: false,
+    });
+    expect(await tally(ownershipSyncDeliveries)).toBe(2);
   });
 
   it('chunks a notification_sends prune that spans several chunks', async () => {
@@ -707,6 +733,7 @@ describe('runRetentionPrune', () => {
       notification_sends: 30,
       notification_delivery_events: 30,
       user_activity_daily: 30,
+      ownership_sync_deliveries: 30,
     });
 
     expect(result.rowsDeleted).toBe(1);

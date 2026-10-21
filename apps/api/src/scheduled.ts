@@ -10,7 +10,8 @@
  * the queue gives native retries, and the same queue can be fed by a future
  * manual/REST producer to force a run on demand. Both queues are bound per-env in
  * `wrangler.jsonc` (deployed tiers only — NOT the base block, so local dev
- * carries no queues). On an env without the binding
+ * carries no job queues; the AECI-1418 ownership-sync queue is the one local queue,
+ * and `queue()` routes it by name before the job path). On an env without the binding
  * (local `wrangler dev`), `enqueueOrRun` runs the job inline so a
  * `--test-scheduled` tick is never silently dropped.
  *
@@ -113,6 +114,7 @@ import {
   type PosthogMetricPoint,
 } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import type { OwnershipSyncMessage } from '@aeci/shared';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
@@ -248,6 +250,7 @@ import {
   type RetentionMetricSink,
 } from './lib/retention-prune';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
+import { deliverOwnershipSync, isOwnershipSyncQueue } from './lib/ownership-sync';
 import {
   runVendorSnapshot,
   snapshotDayFor,
@@ -2794,12 +2797,21 @@ export function normalizeJobMessage(
  * a missing D1 binding) — `retry()` it per the consumer's `max_retries`;
  * everything else `ack()`s.
  */
-export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessageInput> = async (
-  batch,
-  env,
-  ctx,
-) => {
-  for (const message of batch.messages) {
+export const queue: ExportedHandlerQueueHandler<
+  Env,
+  ScheduledJobMessageInput | OwnershipSyncMessage
+> = async (batch, env, ctx) => {
+  // AECI-1418: the ownership queue is not a scheduled-job queue. Routed by queue NAME
+  // before the job path, so its messages never reach `normalizeJobMessage` and a job
+  // message never reaches the ownership consumer. `deliverOwnershipSync` acks or
+  // retries each message itself and does not throw.
+  if (isOwnershipSyncQueue(batch.queue)) {
+    for (const message of batch.messages) {
+      await deliverOwnershipSync(env, ctx, message);
+    }
+    return;
+  }
+  for (const message of batch.messages as readonly Message<ScheduledJobMessageInput>[]) {
     const normalized = normalizeJobMessage(message.body, message.timestamp.toISOString());
     const { job, trigger } = normalized;
     try {

@@ -1,4 +1,4 @@
-import type { CachePurgeMessage } from '@aeci/shared';
+import type { CachePurgeMessage, OwnershipSyncMessage } from '@aeci/shared';
 import type { Pipeline } from 'cloudflare:pipelines';
 
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
@@ -236,6 +236,23 @@ export type Env = {
    * rejected 401 (fail-closed). Compared constant-time in `lib/review-auth.ts`.
    */
   REVIEW_APP_TOKEN?: string;
+  /**
+   * Base URL of the review app's ownership receiver (AECI-1418,
+   * `REVIEW_APP_PROMOTE_API.md` §4d). The consumer `PUT`s
+   * `{REVIEW_APP_OWNERSHIP_URL}/vendors/{vendorId}`. A Wrangler secret per tier, pushed
+   * by CI from `REVIEW_APP_OWNERSHIP_URL_{STAGING,DEMO,PRODUCTION}`. Recommended, not
+   * required: absent → every delivery is acked with an `unconfigured` ledger row, an
+   * `aeci.ownership_sync.delivery{outcome:unconfigured}` count and a warn, so the gap
+   * is visible (the AECI-851 lesson) and the queue does not churn retries.
+   */
+  REVIEW_APP_OWNERSHIP_URL?: string;
+  /**
+   * Bearer token the consumer presents to the review app's ownership receiver. The
+   * reverse of `REVIEW_APP_TOKEN`: that one lets the review app call us, this one lets
+   * us call the review app. A separate value so either can rotate alone. Same CI push
+   * and absent behaviour as `REVIEW_APP_OWNERSHIP_URL`.
+   */
+  REVIEW_APP_OWNERSHIP_TOKEN?: string;
   /**
    * HMAC signing secret for the inbound Linear webhook (`POST /api/webhooks/
    * linear`, AECI-212). Set as a Wrangler secret per environment; absent → every
@@ -504,6 +521,16 @@ export type Env = {
    */
   CACHE_PURGE_QUEUE?: Queue<CachePurgeMessage>;
   /**
+   * Producer binding for the ownership message to the review app (AECI-1418,
+   * `REVIEW_APP_PROMOTE_API.md` §4d). The claim approval, the admin seat provision, a
+   * proposal accept or decline and "Return records to AECi" each `send()` one
+   * {@link OwnershipSyncMessage} here post-commit; the same Worker consumes
+   * `aeci-ownership-sync-{env}` (`lib/ownership-sync.ts`). Declared in all four
+   * `wrangler.jsonc` blocks, local dev included. Absent (unit tests) → the producer
+   * emits `aeci.ownership_sync.enqueue{outcome:unbound}` and warns.
+   */
+  OWNERSHIP_SYNC_QUEUE?: Queue<OwnershipSyncMessage>;
+  /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
    * env. Used ONLY to derive the JWKS endpoint
@@ -552,6 +579,8 @@ export type Env = {
   USER_ACTIVITY_RETENTION_DAYS?: string;
   /** Override for the `notification_delivery_events` window (AECI-1222). Same rules. */
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS?: string;
+  /** Override for the `ownership_sync_deliveries` window (AECI-1418). Same rules. */
+  OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
    * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92
