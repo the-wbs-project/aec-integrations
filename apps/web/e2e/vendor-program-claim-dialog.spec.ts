@@ -7,7 +7,8 @@
  * `POST /api/requests/listing`. Three steps since AECI-1365 removed the plan step, and
  * neither body carries a plan answer. AECI-1366: the vendor terms box is required on the
  * You step and both bodies carry `accepted_terms: true`. The claim-target lookup is
- * mocked too, and a company with an owner seat shows the routed notice and receipt.
+ * mocked too, and a company with an owner seat shows the routed notice and receipt. An
+ * anonymous claim (`confirmation_required: true`, AECI-1435) shows "Check your inbox".
  * Then the dialog's own behaviour (Escape, focus,
  * the full-screen sheet below `sm`) and axe with the dialog open at 375 and 1280.
  *
@@ -65,6 +66,8 @@ async function mockSearch(page: Page): Promise<void> {
 async function mockSubmits(
   page: Page,
   hasSeats = false,
+  /** AECI-1435: the API parks the submit until the emailed link is clicked. */
+  confirmationRequired = false,
 ): Promise<{ claim: unknown[]; listing: unknown[] }> {
   const sent = { claim: [] as unknown[], listing: [] as unknown[] };
   await page.route('**/api/requests/claim-target/**', async (route) => {
@@ -86,6 +89,7 @@ async function mockSubmits(
         body: JSON.stringify({
           request_id: '11111111-2222-4333-8444-555555555555',
           message: 'ok',
+          confirmation_required: confirmationRequired,
         }),
       });
     });
@@ -255,6 +259,35 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       },
     ]);
     expect(sent.claim).toEqual([]);
+  });
+
+  test('an anonymous claim: the receipt says "Check your inbox" (AECI-1435)', async ({ page }) => {
+    await mockSearch(page);
+    const sent = await mockSubmits(page, false, true);
+    await page.goto('/vendor-program');
+    await waitForHydrationSettle(page);
+
+    const dialog = await openFromManagedCard(page);
+    await dialog.getByLabel('Your product or company').fill('Proc');
+    await page.getByRole('option', { name: /Procore/ }).click();
+    await fillYou(page);
+    await dialog.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByRole('button', { name: 'Send claim' }).click();
+
+    await expect(dialog.getByRole('heading', { name: 'Check your inbox' })).toBeFocused();
+    await expect(dialog.getByTestId('claim-dialog-check-inbox')).toContainText(
+      "We've sent a link to dana@procore.example. Your claim is not sent until you click it.",
+    );
+    await expect(dialog.getByTestId('claim-dialog-check-inbox')).toContainText(
+      'The link works for 7 days.',
+    );
+    await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toHaveCount(0);
+    expect((await axe(page)).violations).toEqual([]);
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: width === 375 ? 740 : 900 });
+      await shot(page, '4-check-inbox');
+    }
+    expect(sent.claim).toHaveLength(1);
   });
 
   test('a company with an owner seat: the routed notice, then the routed receipt (AECI-1366)', async ({

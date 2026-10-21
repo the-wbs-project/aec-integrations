@@ -23,7 +23,12 @@ import {
   validateStandardSchema,
 } from '@angular/forms/signals';
 
-import { CLAIM_OWNER_REVIEW_DAYS, ClaimFormSchema, ListingRequestFormSchema } from '@aeci/shared';
+import {
+  CLAIM_OWNER_REVIEW_DAYS,
+  ClaimFormSchema,
+  ListingRequestFormSchema,
+  REQUEST_CONFIRMATION_DAYS,
+} from '@aeci/shared';
 
 import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
@@ -85,8 +90,13 @@ interface ClaimDialogModel {
  *
  * **Analytics** (§15.7). `claim_dialog_step` once per step shown, with the page, the
  * control that opened it and the path. `claim_requested` or `listing_requested` on a
- * `201`. Never the search text, a typed name, a website or an
- * email.
+ * `201`, with `confirmation_required`. Never the search text, a typed name, a website
+ * or an email.
+ *
+ * **The emailed link** (AECI-1435, ADR 0043). Unless the visitor is signed in with the
+ * typed address, the API parks the submit and answers `confirmation_required: true`.
+ * The receipt then reads "Check your inbox": the claim is not sent until the link in
+ * the email is clicked. Otherwise it is today's "sent" receipt.
  *
  * **Vendor terms** (AECI-1366). The You step carries the required terms box on both
  * paths, so Continue stops on it. A found listing also looks up whether the company
@@ -156,19 +166,77 @@ interface ClaimDialogModel {
             aria-hidden="true"
             class="inline-flex size-9 items-center justify-center rounded-full bg-(--accent-primary-soft) text-(--accent-primary)"
           >
-            <svg
-              class="size-[18px]"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
+            @if (confirmationRequired()) {
+              <svg
+                class="size-[18px]"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m3 7 9 6 9-6" />
+              </svg>
+            } @else {
+              <svg
+                class="size-[18px]"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            }
           </span>
-          @if (path() === 'typed') {
+          @if (confirmationRequired()) {
+            <!-- AECI-1435: nothing is sent until the emailed link is clicked. Focus
+                 moves to the heading, as on every step, so it is announced. -->
+            <div data-testid="claim-dialog-check-inbox">
+              <h3
+                #stepHeading
+                tabindex="-1"
+                [class]="headingClass + ' mt-3'"
+                i18n="@@claimDialog.done.confirm.heading"
+              >
+                Check your inbox
+              </h3>
+              @if (path() === 'typed') {
+                <p
+                  class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                  i18n="@@claimDialog.done.confirm.typed.body"
+                >
+                  We've sent a link to
+                  <strong class="font-semibold break-all text-(--text-primary)">{{
+                    sentTo()
+                  }}</strong
+                  >. Your request is not sent until you click it.
+                </p>
+              } @else {
+                <p
+                  class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                  i18n="@@claimDialog.done.confirm.body"
+                >
+                  We've sent a link to
+                  <strong class="font-semibold break-all text-(--text-primary)">{{
+                    sentTo()
+                  }}</strong
+                  >. Your claim is not sent until you click it.
+                </p>
+              }
+              <p
+                class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@claimDialog.done.confirm.expiry"
+              >
+                The link works for {{ confirmDays }} days. If it does not arrive, check your spam
+                folder, or start again with the same email.
+              </p>
+            </div>
+          } @else if (path() === 'typed') {
             <h3
               #stepHeading
               tabindex="-1"
@@ -558,6 +626,10 @@ export class ClaimDialogFlow implements OnInit {
   /** AECI-1366: the server refused the submit on `accepted_terms` (a stale bundle). */
   protected readonly termsRejected = signal(false);
   protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
+  /** AECI-1435: the API parked the submit until the emailed link is clicked, so the
+   *  receipt says "Check your inbox" instead of "sent". */
+  protected readonly confirmationRequired = signal(false);
+  protected readonly confirmDays = REQUEST_CONFIRMATION_DAYS;
   /** The company named by the routed notice and receipt. */
   protected readonly routedCompany = computed(() => {
     const l = this.listing();
@@ -772,18 +844,24 @@ export class ClaimDialogFlow implements OnInit {
             { targetType: listing.targetType, slug: listing.slug },
             identity,
           );
+          this.confirmationRequired.set(res.confirmation_required);
           this.analytics.claimRequested({
             target_type: listing.targetType,
             slug: listing.slug,
             request_id: res.request_id,
+            confirmation_required: res.confirmation_required,
           });
         } else {
-          await this.api.submitListing({
+          const res = await this.api.submitListing({
             ...identity,
             listing_name: v.listing_name,
             website: v.website,
           });
-          this.analytics.listingRequested({ page: opening.page });
+          this.confirmationRequired.set(res.confirmation_required);
+          this.analytics.listingRequested({
+            page: opening.page,
+            confirmation_required: res.confirmation_required,
+          });
         }
         this.sentTo.set(v.submitter_email.trim());
         this.sentName.set(v.listing_name.trim());

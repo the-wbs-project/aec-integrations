@@ -85,6 +85,7 @@
 
 import {
   CLAIM_OWNER_REVIEW_DAYS,
+  REQUEST_CONFIRMATION_DAYS,
   claimOwnerReviewDeadline,
   orderedPairSlugs,
   type AttestationDetector,
@@ -126,6 +127,7 @@ import { createLinkTagger, type LinkTagger } from './notifications/link-tag';
 import { resendTags } from './notifications/resend-tags';
 import { readSendSwitches, SUPPORT_COPY_KEY, type SendSwitches } from './notifications/switches';
 import {
+  countHeldSends,
   finalizeSend,
   ledgerDb,
   readProviderMessageId,
@@ -249,6 +251,12 @@ type SendInput = SendBody & {
    * operator `COPY:` of an unsubscribable send.
    */
   replyTo?: string;
+  /**
+   * Send no operator copy (AECI-1435). For a mail whose body holds a single-use
+   * credential, such as the `claim-confirm` link: a blind copy in the support inbox
+   * would be a second working copy of it. Absent or false keeps the usual copy.
+   */
+  withholdOperatorCopy?: boolean;
 };
 
 /**
@@ -295,7 +303,7 @@ export async function sendTransactionalEmail(
     await recordSend(db, { ...row, outcome: 'paused' });
     return 'paused';
   }
-  const supportCopy = !switches.isPaused(SUPPORT_COPY_KEY);
+  const supportCopy = !input.withholdOperatorCopy && !switches.isPaused(SUPPORT_COPY_KEY);
 
   // The tier delivery policy (AECI-1198): outside production, an outside recipient
   // gets nothing. No fetch, so no operator copy either.
@@ -3290,6 +3298,124 @@ export async function sendClaimReceivedEmail(
       id: about.requestId,
     },
     ...(support ? { replyTo: support } : {}),
+  });
+}
+
+/** The most `claim-confirm` mails one address gets per UTC day, across claims and
+ *  listing requests (AECI-1435). */
+export const CLAIM_CONFIRM_DAILY_LIMIT = 3;
+
+/** What a `claim-confirm` email asks the visitor to confirm (AECI-1435). */
+export type ClaimConfirmSubject =
+  | {
+      kind: 'claim';
+      /** The company claimed (a claim is on the company, AECI-1364). */
+      companyName: string;
+      /** The product page the claim came from, or null. */
+      contextProductName: string | null;
+    }
+  | {
+      kind: 'listing';
+      /** What the visitor typed. Echoed as plain text, never in the subject. */
+      listingName: string;
+    };
+
+/**
+ * The confirm link for a pending claim or listing request (AECI-1435, ADR 0043,
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3). Sent to the TYPED address right after an
+ * anonymous submit. Nothing is sent to AECi and nothing is claimed until the link is
+ * clicked and the page's button is pressed.
+ *
+ * The only link is `/claims/confirm?token=…`. The token is single-use and works for 7
+ * days. The mail is never blind-copied to the operator list: the copy would be a second
+ * working link ({@link SendInput.withholdOperatorCopy}).
+ *
+ * Two bounds, because the address is typed on an anonymous form. The key
+ * `claim-confirm:{pendingId}` makes it one mail per submit. And at most
+ * {@link CLAIM_CONFIRM_DAILY_LIMIT} per address per UTC day, counted from the send
+ * ledger by the address's hash, so a caller rotating IPs cannot fill an inbox. Over the
+ * bound the send is recorded as a `duplicate` and nothing goes. Two submits racing the
+ * count can each send, so the bound is "about three", not a hard cap.
+ */
+export async function sendClaimConfirmEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    pendingId: string;
+    token: string;
+    subject: ClaimConfirmSubject;
+    now?: Date;
+  },
+): Promise<EmailOutcome> {
+  const { subject: about } = opts;
+  const now = opts.now ?? new Date();
+  const db = ledgerDb(c.env);
+  const hash = await hashRecipient(opts.to);
+  const dayStart = `${now.toISOString().slice(0, 10)}T00:00:00.000Z`;
+  const entity = { type: 'request_confirmation', id: opts.pendingId };
+  const held = await countHeldSends(db, {
+    notificationId: 'claim-confirm',
+    recipientHash: hash,
+    since: dayStart,
+  });
+  if (held >= CLAIM_CONFIRM_DAILY_LIMIT) {
+    emit(c, 'duplicate', 'claim-confirm');
+    await recordSend(db, {
+      notificationId: 'claim-confirm',
+      recipientHash: hash,
+      tier: tierLabel(c.env),
+      entity,
+      outcome: 'duplicate',
+    });
+    return 'duplicate';
+  }
+
+  const base = siteUrl(c.env);
+  const confirmUrl = base ? `${base}/claims/confirm?token=${encodeURIComponent(opts.token)}` : null;
+
+  let heading: string;
+  let opening: string;
+  let openingHtml: string;
+  let cta: string;
+  const table: EmailTableRow[] = [];
+  if (about.kind === 'claim') {
+    heading = `Confirm your claim for ${subjectSafe(about.companyName)}`;
+    opening = about.contextProductName
+      ? `Someone asked to claim ${about.companyName} on AEC Integrations with this email address, from the ${about.contextProductName} page. A claim covers the whole company. Confirm it was you, and we send the claim for review.`
+      : `Someone asked to claim ${about.companyName} on AEC Integrations with this email address. Confirm it was you, and we send the claim for review.`;
+    openingHtml = about.contextProductName
+      ? `Someone asked to claim <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations with this email address, from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company. Confirm it was you, and we send the claim for review.`
+      : `Someone asked to claim <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations with this email address. Confirm it was you, and we send the claim for review.`;
+    cta = 'Confirm your claim';
+    table.push(['Company', about.companyName]);
+    if (about.contextProductName) table.push(['Came from', about.contextProductName]);
+  } else {
+    heading = 'Confirm your listing request';
+    opening =
+      'Someone asked us to add a listing to AEC Integrations with this email address. Confirm it was you, and we send the request to our team.';
+    openingHtml = escapeHtml(opening);
+    cta = 'Confirm your request';
+    table.push(['Listing', about.listingName, { plain: true }]);
+  }
+  const expiry = `This link works for ${REQUEST_CONFIRMATION_DAYS} days.`;
+  const notYou = 'If you did not send this, ignore this email. Nothing happens unless you click.';
+  const blocks = [opening, expiry, notYou];
+  const htmlBlocks = [openingHtml, escapeHtml(expiry), escapeHtml(notYou)];
+  const shared = (link: LinkTagger) => ({
+    preheader: `${cta}. ${expiry}`,
+    heading,
+    table,
+    ...(confirmUrl ? { cta: { label: cta, url: link(confirmUrl) } } : {}),
+  });
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-confirm',
+    subject: heading,
+    render: (link) => houseBody(shared(link), blocks, htmlBlocks),
+    dedupeKey: `claim-confirm:${opts.pendingId}`,
+    entity,
+    withholdOperatorCopy: true,
   });
 }
 

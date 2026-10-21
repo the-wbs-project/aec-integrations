@@ -58,6 +58,8 @@ Ruled 2026-10-19 (Chris, planning E6, AECI-1336): nothing is written at lapse, a
 
 Ruled 2026-10-19 (Chris, AECI-1420): one vendor per account stays (`STAGE_2_SPEC.md` §8.3). A group that controls several vendors uses one address per vendor. A claim from an address that already holds a seat on another vendor, or a staff account, is rejected at once, at submit, by the system. The claimant gets a `claim-rejected` email that names the vendor the address already manages and says to claim from a different work address. It goes to the address that holds the seat, so it hides nothing. This replaces the earlier idea of a neutral email after a delay. The on-screen receipt stays generic, because the person at the keyboard may not own the address. AECi sees a red flag on the claim, which matters when the check could not run at submit. An owner's Accept checks again and rejects the claim the same way. Multi-vendor accounts are parked. `STAGE_2_VENDOR_PORTAL_SPEC.md` §9 and §11a.10.
 
+*As built 2026-10-21 (AECI-1435, ADR 0043):* "at submit" now means when the claim is sent, which for an anonymous visitor is the click on the emailed link, not the form submit. Ruled 2026-10-21 (Chris): the check runs at confirm. A claim waits in `request_confirmations` until the typed address clicks a 7-day, single-use link, and nothing above runs before that. A signed-in visitor whose verified email is the typed address sends the claim at submit, as before. The terms acceptance is written at confirm, with the submit's version, IP and user agent and the confirm time.
+
 Rulings still needed: none (checked 2026-10-15, AECI-1369). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above. The E6b rulings (Q1 to Q7, A to C, D1 to D6) are comments on AECI-1341, AECI-1416 and AECI-1418, and ADR 0042 records them.
 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
@@ -71,9 +73,14 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 1. **Claim.** Vendor clicks "Claim <Company>" on a company or product page. Form: name, role,
    work email, LinkedIn (optional), note (optional), the terms box. On send: on-screen receipt,
    email receipt, alert to AECi. Record: claim request plus terms acceptance.
+   *As built 2026-10-21 (AECI-1435):* unless the vendor is signed in with the typed address, the
+   send only emails a confirm link and the screen says "Check your inbox". The vendor clicks the
+   link and presses "Confirm and send" on `/claims/confirm`. Only then do the record, the alert and
+   the email receipt happen. The link works for 7 days.
 2. **Check.** First the system checks the address (AECI-1420, 2026-10-19). An address that
-   already holds a seat on another company, or a staff account, is declined at submit with an
-   email that says why. When the check cannot run, AECi's queue flags the claim and an owner's
+   already holds a seat on another company, or a staff account, is declined when the claim is
+   sent (at confirm since AECI-1435) with an email that says why. The confirm page says why too
+   (ruled 2026-10-21): the click proved the mailbox. The signed-in screen stays generic. When the check cannot run, AECi's queue flags the claim and an owner's
    Accept checks again. Then AECi checks domain, LinkedIn, existing seats, competing claims.
    Decline sends an email and ends. Approve: if the company has no seats, create the account, the owner seat and
    the billing account; every product is Free. If it has seats, the owners accept or decline the
@@ -112,7 +119,11 @@ or side paths. If the chart and §3 disagree, §3 wins and the chart is redrawn.
 
 ```mermaid
 flowchart TD
-    claim["Claim the company<br/>and accept vendor terms"] --> hasSeats{"Company has<br/>an owner seat?"}
+    claim["Claim the company<br/>and accept vendor terms"] --> signedIn{"Signed in with<br/>the typed address?"}
+    signedIn -->|Yes| hasSeats{"Company has<br/>an owner seat?"}
+    signedIn -->|No| confirmLink["Email a 7-day confirm link<br/>(AECI-1435)"]
+    confirmLink -->|"Clicked and confirmed"| hasSeats
+    confirmLink -.->|"Not clicked in 7 days"| expired["Link expires,<br/>nothing was sent"]
     hasSeats -->|No| check{"AECi check"}
     hasSeats -->|Yes| owners{"Owners accept<br/>or decline"}
     owners -->|Accept| seat["New seat, by invite"]
@@ -177,6 +188,11 @@ listing request, whose acceptance names the `listing_requests` row (`listing_req
 0078) because there is no claim. The server stamps the version, IP and user agent. The email receipt
 in step 1 is `claim-received`, at most one per address per day, with no link that grants anything
 (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).
+
+*As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the
+emailed link is confirmed, not at submit. It carries the version shown, the IP and the user agent of
+the submit, kept on the pending `request_confirmations` row, and the confirm time. A terms bump in
+the 7 days between makes the link fail, and the visitor starts again.
 
 ## 5. Epics
 

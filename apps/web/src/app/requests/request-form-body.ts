@@ -26,6 +26,7 @@ import { RouterLink } from '@angular/router';
 
 import {
   CLAIM_OWNER_REVIEW_DAYS,
+  REQUEST_CONFIRMATION_DAYS,
   ClaimFormSchema,
   CorrectionFormSchema,
   type RequestSubmitResponse,
@@ -153,6 +154,10 @@ export class RequestFormBody implements OnInit {
    *  owners first (AECI-1368). The drawer drops its "with our decision" line on it. */
   readonly sentRouted = output<boolean>();
 
+  /** AECI-1435: emitted just before `sent`, true when the claim waits on the emailed
+   *  link. The drawer swaps its header to "Check your inbox" on it. */
+  readonly sentConfirm = output<boolean>();
+
   /** The submitted email, for the routed page's confirmation line. */
   protected readonly sentTo = signal('');
 
@@ -162,6 +167,12 @@ export class RequestFormBody implements OnInit {
 
   /** Set to the API response on a successful submit; flips to the confirmation. */
   protected readonly submitted = signal<RequestSubmitResponse | null>(null);
+
+  /** AECI-1435: the claim waits on the emailed link, so the receipt says so. */
+  protected readonly confirmationRequired = computed(
+    () => this.submitted()?.confirmation_required === true,
+  );
+  protected readonly confirmDays = REQUEST_CONFIRMATION_DAYS;
 
   /** True when the last submit attempt failed. Surfaced as a non-blocking notice
    *  (not a form error) so the submit button stays enabled and the user can retry. */
@@ -291,6 +302,7 @@ export class RequestFormBody implements OnInit {
         this.sentTo.set(v.submitter_email.trim());
         this.submitted.set(res);
         this.sentRouted.emit(this.kind() === 'claim' && this.routed());
+        this.sentConfirm.emit(res.confirmation_required);
         this.sent.emit(this.sentTo());
         afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
           injector: this.injector,
@@ -302,8 +314,14 @@ export class RequestFormBody implements OnInit {
           slug: target.slug,
           request_id: res.request_id,
         };
-        if (this.kind() === 'claim') this.analytics.claimRequested(payload);
-        else this.analytics.correctionRequested(payload);
+        if (this.kind() === 'claim') {
+          this.analytics.claimRequested({
+            ...payload,
+            confirmation_required: res.confirmation_required,
+          });
+        } else {
+          this.analytics.correctionRequested(payload);
+        }
       } catch (err) {
         // Surface the failure as a notice, not a form error — returning a
         // `ValidationError` here would mark the form invalid and disable the

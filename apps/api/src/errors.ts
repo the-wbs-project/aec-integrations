@@ -69,6 +69,9 @@ type ResourceKind =
   // A product proposal to an owner seat (AECI-1417). On the vendor route another
   // vendor's proposal and no such proposal answer the same.
   | 'product_proposal'
+  // A pending claim or listing confirmation (AECI-1435): the emailed token matched
+  // no row. The 404 never echoes the token.
+  | 'request_confirmation'
   | 'category'
   | 'audience'
   | 'phase'

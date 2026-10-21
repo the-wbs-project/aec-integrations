@@ -17,6 +17,7 @@ import { firstValueFrom } from 'rxjs';
 import type {
   ClaimFormInput,
   ClaimTargetResponse,
+  ConfirmRequestResponse,
   CorrectionForm,
   ListingRequestInput,
   RequestSubmitResponse,
@@ -62,6 +63,18 @@ export class RequestsApi {
   submitListing(formValue: ListingRequestInput): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/listing', formValue),
+    );
+  }
+
+  /**
+   * `POST /api/requests/confirm` (AECI-1435): send the claim or listing request the
+   * emailed link names. Called only from the confirm button on `/claims/confirm`, never
+   * during render, because mail scanners fetch the links they are sent. An unknown
+   * token, an expired link or a vanished listing rejects with the API's error envelope.
+   */
+  confirmRequest(token: string): Promise<ConfirmRequestResponse> {
+    return firstValueFrom(
+      this.http.post<ConfirmRequestResponse>('/api/requests/confirm', { token }),
     );
   }
 

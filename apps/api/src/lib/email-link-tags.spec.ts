@@ -32,6 +32,7 @@ import {
   sendAttestationDigestEmail,
   sendAttestationOpsDigestEmail,
   sendClaimApprovedEmail,
+  sendClaimConfirmEmail,
   sendClaimReceivedEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
@@ -254,6 +255,16 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
       }),
   },
   // AECI-1293: the queue CTA is ours and tagged. Every visitor-typed value is plain.
+  'claim-confirm': {
+    links: true,
+    send: (c) =>
+      sendClaimConfirmEmail(c, {
+        to: 'pat@acme.example.com',
+        pendingId: 'pending-1',
+        token: 'tok-abc',
+        subject: { kind: 'claim', companyName: 'Acme', contextProductName: null },
+      }),
+  },
   'claim-received': {
     links: true,
     send: (c) =>

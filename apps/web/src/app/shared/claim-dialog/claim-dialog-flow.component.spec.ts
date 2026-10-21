@@ -31,7 +31,7 @@ const PRODUCT: AutocompleteSuggestion = {
 
 function setup(
   opening: ClaimDialogOpening,
-  opts: { email?: string | null; hasSeats?: boolean | 'error' } = {},
+  opts: { email?: string | null; hasSeats?: boolean | 'error'; confirm?: boolean } = {},
 ) {
   const analytics = {
     claimDialogStep: vi.fn(),
@@ -39,8 +39,17 @@ function setup(
     listingRequested: vi.fn(),
   };
   const api = {
-    submitClaim: vi.fn().mockResolvedValue({ request_id: 'req-1', message: 'ok' }),
-    submitListing: vi.fn().mockResolvedValue({ request_id: 'lr-1', message: 'ok' }),
+    // AECI-1435: `confirm` makes the API park the submit until the emailed link.
+    submitClaim: vi.fn().mockResolvedValue({
+      request_id: 'req-1',
+      message: 'ok',
+      confirmation_required: opts.confirm ?? false,
+    }),
+    submitListing: vi.fn().mockResolvedValue({
+      request_id: 'lr-1',
+      message: 'ok',
+      confirmation_required: opts.confirm ?? false,
+    }),
     getClaimTarget:
       opts.hasSeats === 'error'
         ? vi.fn().mockRejectedValue(new HttpErrorResponse({ status: 500 }))
@@ -207,6 +216,7 @@ describe('ClaimDialogFlow', () => {
       target_type: 'product',
       slug: 'acme-takeoff',
       request_id: 'req-1',
+      confirmation_required: false,
     });
     expect(t.analytics.claimDialogStep.mock.calls.map(([c]) => [c.step, c.path])).toEqual([
       ['find', undefined],
@@ -333,7 +343,10 @@ describe('ClaimDialogFlow', () => {
     expect(text(t.host)).toContain(
       "We've emailed a receipt to dana@acme.example. We'll add Site Diary Pro to the directory, then write to you there so you can finish your claim.",
     );
-    expect(t.analytics.listingRequested).toHaveBeenCalledWith({ page: 'vendor_program' });
+    expect(t.analytics.listingRequested).toHaveBeenCalledWith({
+      page: 'vendor_program',
+      confirmation_required: false,
+    });
     // Never a typed value in any event.
     const payloads = JSON.stringify([
       ...t.analytics.claimDialogStep.mock.calls,
@@ -342,6 +355,50 @@ describe('ClaimDialogFlow', () => {
     for (const typed of ['Site Diary Pro', 'sitediary', 'dana@', 'Dana Reyes']) {
       expect(payloads).not.toContain(typed);
     }
+  });
+
+  it('an anonymous claim shows "Check your inbox": nothing is sent until the link (AECI-1435)', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'card' }, { confirm: true });
+    t.choose(PRODUCT);
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+
+    expect(t.heading()).toBe('Check your inbox');
+    expect(document.activeElement).toBe(t.$('h3'));
+    const receipt = text(t.$('[data-testid="claim-dialog-check-inbox"]'));
+    expect(receipt).toContain(
+      "We've sent a link to dana@acme.example. Your claim is not sent until you click it.",
+    );
+    expect(receipt).toContain('The link works for 7 days.');
+    expect(text(t.host)).not.toContain('Claim sent');
+    expect(text(t.host)).not.toContain('What happens next');
+    expect(t.analytics.claimRequested).toHaveBeenCalledWith({
+      target_type: 'product',
+      slug: 'acme-takeoff',
+      request_id: 'req-1',
+      confirmation_required: true,
+    });
+  });
+
+  it('an anonymous typed-in listing says the request is not sent until the link (AECI-1435)', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' }, { confirm: true });
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+    t.fixture.detectChanges();
+    t.fillYou();
+    t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+    t.fill('claim-dialog-website', 'https://sitediary.example.com');
+    await t.primary();
+    await t.primary();
+
+    expect(t.heading()).toBe('Check your inbox');
+    expect(text(t.$('[data-testid="claim-dialog-check-inbox"]'))).toContain(
+      'Your request is not sent until you click it.',
+    );
+    expect(t.analytics.listingRequested).toHaveBeenCalledWith({
+      page: 'vendor_program',
+      confirmation_required: true,
+    });
   });
 
   it('a listing gone since the search offers the typed-in path with its name', async () => {

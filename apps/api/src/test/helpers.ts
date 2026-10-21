@@ -44,3 +44,23 @@ export function buildAppWithHandler(args: {
   }
   return app;
 }
+
+/**
+ * A session-email seam (AECI-1435) that reads as "signed in with the typed address".
+ * Specs of the claim and listing routes that test what happens once a request is IN
+ * pass it, so the submit takes the path a verified claimant takes. The confirm path
+ * has its own specs. Hono caches the parsed body, so reading it here is safe.
+ */
+export async function signedInAsTyped(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<string | null> {
+  const body = (await c.req.json()) as { submitter_email?: unknown } | null;
+  return typeof body?.submitter_email === 'string'
+    ? body.submitter_email.trim().toLowerCase()
+    : null;
+}
+
+/** The anonymous visitor: no session at all. */
+export async function noSession(): Promise<string | null> {
+  return null;
+}

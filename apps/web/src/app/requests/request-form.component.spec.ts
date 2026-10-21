@@ -36,7 +36,11 @@ interface ApiMock {
 }
 
 function makeApiMock(): ApiMock {
-  const ok: RequestSubmitResponse = { request_id: 'req-1', message: 'ok' };
+  const ok: RequestSubmitResponse = {
+    request_id: 'req-1',
+    message: 'ok',
+    confirmation_required: false,
+  };
   return {
     submitCorrection: vi.fn(async () => ok),
     submitClaim: vi.fn(async () => ok),
@@ -773,6 +777,27 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     expect(el.textContent).not.toContain('Nothing is granted automatically');
     expect(el.textContent).not.toContain('with our decision');
     expect(el.textContent).not.toContain('link to your vendor portal');
+  });
+
+  it('an anonymous claim says "Check your inbox" and puts the emailed link first (AECI-1435)', async () => {
+    const { fixture, el } = setup('vendor', 'claim', 'acme-co', null, undefined, {
+      submitClaim: vi.fn(async () => ({
+        request_id: 'req-1',
+        message: 'ok',
+        confirmation_required: true,
+      })),
+    });
+    await fillClaim(fixture);
+    await send(fixture, el);
+    expect(squash(el.querySelector('h1')?.textContent)).toBe('Check your inbox');
+    expect(squash(el.textContent)).toContain(
+      "We've sent a link to dana@acme.example. Your claim is not sent until you click it.",
+    );
+    expect(squash(el.querySelector('[data-testid="request-sent-confirm"]')?.textContent)).toBe(
+      'Open the email and click the link. It works for 7 days.',
+    );
+    expect(el.textContent).not.toContain('Claim sent');
+    expect(el.textContent).not.toContain("We've emailed a receipt");
   });
 
   it('a failed lookup shows no disclosure and never blocks the submit', async () => {

@@ -87,6 +87,7 @@ import {
   profileAudiences,
   profileDetails,
   profiles,
+  requestConfirmations,
   reviewResponses,
   reviews,
   taxonomyAudiences,
@@ -543,6 +544,17 @@ export function createDeleteAccountHandler(
               .where(
                 sql`lower(${billingAccounts.billingEmail}) = ${recipientEmail.trim().toLowerCase()}`,
               ),
+          ]
+        : []),
+      // AECI-1435: the person's pending claim and listing confirmations. A pending row
+      // holds the typed address and the whole request body, and nothing about it is
+      // anyone else's record, so it is deleted, not nulled. Matched on the stored
+      // lowercased address. No session email, nothing to match.
+      ...(recipientEmail
+        ? [
+            db
+              .delete(requestConfirmations)
+              .where(eq(requestConfirmations.submitterEmail, recipientEmail.trim().toLowerCase())),
           ]
         : []),
       // AECI-1373: the two actor columns of an early-unassign request, no FK either.

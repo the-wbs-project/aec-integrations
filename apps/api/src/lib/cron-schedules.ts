@@ -1,5 +1,5 @@
 /**
- * The seventeen cron expressions the API Worker is triggered on, in one place.
+ * The twenty cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * seventeen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -296,6 +296,22 @@ export const GSC_INSPECT_CRON = '0 13 * * *';
 export const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 
 /**
+ * Daily pending-confirmation expiry (AECI-1435 / ADR 0043). **14:30 UTC**, half an
+ * hour after the 14:00 claim owner fallback. The `*` `/15` reconcile sweep also fires at
+ * 14:30, under its own expression, so the two never share a `switch` case.
+ *
+ * It deletes every `request_confirmations` row past its 7-day `expires_at`, confirmed
+ * or not, up to 500 a run, with one summary audit row in the same batch (the
+ * scheduled-delete rule, ADR 0022). An unconfirmed row is a link nobody clicked, so
+ * nothing was ever claimed. A confirmed row is spent and already holds no payload.
+ *
+ * Queue-less and inline, following the `claim_owner_fallback` precedent: one indexed
+ * read and one batch. It sends nothing. A missed day keeps expired rows one more day,
+ * and the confirm refuses an expired link whether the row is there or not.
+ */
+export const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -320,6 +336,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'vendor-snapshot': VENDOR_SNAPSHOT_CRON,
   'gsc-inspect': GSC_INSPECT_CRON,
   'claim-owner-fallback': CLAIM_OWNER_FALLBACK_CRON,
+  'request-confirmation-expiry': REQUEST_CONFIRMATION_EXPIRY_CRON,
 };
 
 /**
@@ -352,6 +369,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   vendor_snapshot: 'vendor-snapshot',
   gsc_inspect: 'gsc-inspect',
   claim_owner_fallback: 'claim-owner-fallback',
+  request_confirmation_expiry: 'request-confirmation-expiry',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -378,6 +396,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'protest-reply-reminder',
   'gsc-inspect',
   'claim-owner-fallback',
+  'request-confirmation-expiry',
   'request-reconcile',
   'waf-poll',
   'indexnow-drain',

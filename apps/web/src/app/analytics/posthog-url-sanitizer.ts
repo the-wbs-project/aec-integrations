@@ -1,9 +1,9 @@
 /**
  * Strips bearer tokens out of the URLs `posthog-js` attaches to every event.
  *
- * Two pages take a per-recipient secret in the query string: `/unsubscribe?token=`
- * (mailing list, AECI-537) and `/notifications/mute?token=` (digest mute,
- * AECI-1204). The SDK copies the address bar into `$current_url` on every event,
+ * Three pages take a per-recipient secret in the query string: `/unsubscribe?token=`
+ * (mailing list, AECI-537), `/notifications/mute?token=` (digest mute, AECI-1204)
+ * and `/claims/confirm?token=` (the single-use claim confirm link, AECI-1435). The SDK copies the address bar into `$current_url` on every event,
  * into `$referrer` on the next page, and into `$session_entry_url` on every
  * later event of the session. Without this, the token would sit in
  * PostHog where anyone with project read access could replay it.

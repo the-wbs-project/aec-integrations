@@ -14,7 +14,12 @@ import {
   workflowInstances,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import {
+  buildAppWithHandler,
+  fakeExecutionContext,
+  signedInAsTyped,
+  TEST_ENV,
+} from '../test/helpers';
 import { createListingRequestHandler, LISTING_REQUEST_RECEIVED } from './listing-requests';
 
 let t: TestDb;
@@ -32,7 +37,7 @@ const app = () =>
   buildAppWithHandler({
     method: 'post',
     path: PATH,
-    handler: createListingRequestHandler(t.factory),
+    handler: createListingRequestHandler(t.factory, signedInAsTyped),
   });
 
 const validBody = {
@@ -99,9 +104,11 @@ describe('POST /api/requests/listing', () => {
       actorType: 'user',
     });
     // Never the typed name, website or email in the audit metadata.
+    // AECI-1435: `confirmation` says how the address was shown to be theirs.
     expect(created.metadata).toEqual({
       source: 'claim-dialog',
       has_linkedin: false,
+      confirmation: 'session',
     });
 
     // Its own table: nothing in vendor_requests, and no workflow rows.

@@ -1463,6 +1463,65 @@ export const listingRequests = sqliteTable(
 );
 
 /**
+ * Pending claim and listing submissions (AECI-1435, ADR 0043). An anonymous claim or
+ * typed-in listing waits here until the typed address clicks the emailed link. It
+ * never enters `vendor_requests` or `listing_requests` before that, so no reader of
+ * those tables (the admin queues, owner routing, the fallback cron, the vendor
+ * dashboard, the counts) can see an unconfirmed submission.
+ *
+ * **The id becomes the request id.** The confirm inserts the claim or listing row
+ * with this row's `id` as its primary key, so a second confirm trips that PK and
+ * writes nothing. The token is single-use for the same reason.
+ *
+ * **The token is stored hashed.** `token_hash` is the SHA-256 hex of the emailed
+ * token, so a read of this table cannot be replayed as a link. `payload` is the
+ * validated request body as JSON, nulled on confirm. `terms_version`, `ip` and
+ * `user_agent` are the vendor terms evidence captured at submit, written into
+ * `agreement_acceptances` at confirm.
+ *
+ * **No FK and no CHECK** (the `listing_requests` precedent). `kind` is `claim` or
+ * `listing`, enforced by the handler. A new table, so its migration is a plain
+ * CREATE and recreates nothing (`docs/migrations.md` §0).
+ *
+ * Domain state (a request in waiting): the insert and the confirm write their
+ * `audit_log` rows in the same `db.batch`. The daily expiry sweep deletes rows past
+ * `expires_at` with one summary audit row (ADR 0022). The account erasure deletes
+ * rows by `submitter_email`, which is stored lowercased.
+ */
+export const requestConfirmations = sqliteTable(
+  'request_confirmations',
+  {
+    id: uuidPk(),
+    /** `claim` | `listing`. Zod and the handler enforce it; no CHECK. */
+    kind: text('kind').notNull(),
+    /** SHA-256 hex of the emailed token. Never the token. */
+    tokenHash: text('token_hash').notNull(),
+    /** The typed address, trimmed and lowercased. */
+    submitterEmail: text('submitter_email').notNull(),
+    /** The validated request body as JSON. NULL once confirmed. */
+    payload: text('payload'),
+    /** The vendor terms version shown at submit. */
+    termsVersion: text('terms_version').notNull(),
+    /** `CF-Connecting-IP` at submit, for the acceptance row. */
+    ip: text('ip'),
+    /** The submit's user agent, cut to 512 characters, for the acceptance row. */
+    userAgent: text('user_agent'),
+    createdAt: createdAt(),
+    /** ISO-8601, `created_at` plus 7 days. Checked in TS, not by a CHECK. */
+    expiresAt: text('expires_at').notNull(),
+    /** Set once, by the confirm that wrote the request. */
+    confirmedAt: text('confirmed_at'),
+  },
+  (t) => [
+    uniqueIndex('request_confirmations_token_hash_key').on(t.tokenHash),
+    /** The erasure delete and the per-address daily count. */
+    index('request_confirmations_email_idx').on(t.submitterEmail, t.createdAt),
+    /** The expiry sweep. */
+    index('request_confirmations_expires_idx').on(t.expiresAt),
+  ],
+);
+
+/**
  * Product requests (AECI-1377, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6): a seated
  * vendor asks AECi to add the OTHER product of an integration it wants to list,
  * because the catalog does not have it. Written by `POST /api/vendor/product-requests`
@@ -4994,6 +5053,7 @@ export const schema = {
   reviewResponses,
   vendorRequests,
   listingRequests,
+  requestConfirmations,
   billingAccounts,
   licenses,
   agreementAcceptances,

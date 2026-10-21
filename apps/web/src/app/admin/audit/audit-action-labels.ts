@@ -96,6 +96,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
 
   // ── Requests (the form to Linear pipeline) ────────────────────────────────
   'vendor_request.created': $localize`:@@admin.audit.action.requestCreated:Request filed`,
+  // AECI-1435: an anonymous claim or listing request waiting on its emailed link.
+  'request_confirmation.created': $localize`:@@admin.audit.action.requestConfirmationCreated:Confirm link emailed`,
+  'request_confirmation.confirmed': $localize`:@@admin.audit.action.requestConfirmationConfirmed:Request confirmed by email`,
+  'request_confirmation.expired': $localize`:@@admin.audit.action.requestConfirmationExpired:Expired confirm links removed`,
   'vendor_request.resolved': $localize`:@@admin.audit.action.requestResolved:Request approved`,
   'vendor_request.rejected': $localize`:@@admin.audit.action.requestRejected:Request rejected`,
   'vendor_request.status_changed': $localize`:@@admin.audit.action.requestStatusChanged:Request status changed in Linear`,

@@ -146,7 +146,12 @@
       "AECI-1368 added claim-owner-fallback, the nineteenth cron, daily at 14:00 UTC: it hands",
       "routed claims the owners left undecided for 7 days back to AECi. Its heartbeat",
       "aeci.claim.owner_fallback.job fires on EVERY run. It carries activeFrom until its first",
-      "production heartbeat."
+      "production heartbeat.",
+      "",
+      "AECI-1435 added request-confirmation-expiry, the twentieth cron, daily at 14:30 UTC: it",
+      "deletes pending claim confirmations past their 7-day link. Its heartbeat",
+      "aeci.request_confirmation.expiry.job fires on EVERY run. It carries activeFrom until its",
+      "first production heartbeat."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -314,6 +319,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1368. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that move no claim: aeci.claim.owner_fallback.moved could not serve alone, because zero is its normal value. activeFrom is a placeholder past the expected production promote of epic AECI-1333; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "request-confirmation-expiry",
+        "cron": "30 14 * * *",
+        "metric": "aeci.request_confirmation.expiry.job",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-01T15:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1435. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that delete nothing, because aeci.request_confirmation.expiry.deleted is zero on a quiet day. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       }
     ]
   }

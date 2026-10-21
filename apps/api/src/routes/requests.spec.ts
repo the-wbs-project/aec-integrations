@@ -23,7 +23,12 @@ import {
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { LABEL_IDS } from '../lib/linear';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import {
+  buildAppWithHandler,
+  fakeExecutionContext,
+  signedInAsTyped,
+  TEST_ENV,
+} from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import {
   createClaimSubmitHandler,
@@ -97,7 +102,7 @@ const claimApp = () =>
   buildAppWithHandler({
     method: 'post',
     path: '/api/requests/claim',
-    handler: createClaimSubmitHandler(t.factory),
+    handler: createClaimSubmitHandler(t.factory, undefined, signedInAsTyped),
   });
 
 function postInit(body: unknown): RequestInit {
@@ -470,7 +475,9 @@ describe('POST /api/requests/claim → product target normalised to the company 
     const res = await submit();
     expect(res.status).toBe(201);
     const json = (await res.clone().json()) as Record<string, unknown>;
-    expect(Object.keys(json).sort()).toEqual(['message', 'request_id']);
+    // AECI-1435 added `confirmation_required`; a signed-in claimant's is false.
+    expect(Object.keys(json).sort()).toEqual(['confirmation_required', 'message', 'request_id']);
+    expect(json.confirmation_required).toBe(false);
     expect(json.message).toBe(
       'Your claim has been received. We will review it and follow up by email.',
     );
@@ -1396,7 +1403,7 @@ describe('POST /api/requests/claim → an address that already manages another c
     buildAppWithHandler({
       method: 'post',
       path: '/api/requests/claim',
-      handler: createClaimSubmitHandler(t.factory, resolve),
+      handler: createClaimSubmitHandler(t.factory, resolve, signedInAsTyped),
     });
   const submit = (
     resolve: Resolver,

@@ -541,6 +541,9 @@
           // AECI-1368 claim owner fallback: routed claims the owners left undecided
           // for 7 days go to AECi. The next free daily slot after 13:00.
           "0 14 * * *",
+          // AECI-1435 pending-confirmation expiry: claim and listing links past 7
+          // days are deleted. The */15 sweep is a different expression.
+          "30 14 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -768,6 +771,9 @@
           // AECI-1368 claim owner fallback: routed claims the owners left undecided
           // for 7 days go to AECi. The next free daily slot after 13:00.
           "0 14 * * *",
+          // AECI-1435 pending-confirmation expiry: claim and listing links past 7
+          // days are deleted. The */15 sweep is a different expression.
+          "30 14 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1027,6 +1033,9 @@
           // AECI-1368 claim owner fallback: routed claims the owners left undecided
           // for 7 days go to AECi. The next free daily slot after 13:00.
           "0 14 * * *",
+          // AECI-1435 pending-confirmation expiry: claim and listing links past 7
+          // days are deleted. The */15 sweep is a different expression.
+          "30 14 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

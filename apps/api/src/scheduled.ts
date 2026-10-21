@@ -168,6 +168,7 @@ import {
   PROTEST_REMINDER_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
+  REQUEST_CONFIRMATION_EXPIRY_CRON,
   RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
@@ -175,6 +176,11 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimOwnerFallback } from './lib/claim-owner-fallback';
+import { forwardAuditBatch } from './lib/moderation-forward';
+import {
+  REQUEST_CONFIRMATION_EXPIRY_SOURCE,
+  runRequestConfirmationExpiry,
+} from './lib/request-confirmations';
 import { runClaimStaleCheck } from './lib/claim-stale-check';
 import { runProtestReplyReminderSweep } from './lib/contest-protest-emails';
 import {
@@ -373,6 +379,14 @@ const PROTEST_REMINDER_DUE_METRIC = 'aeci.contest.protest_reminder.due';
 const CLAIM_OWNER_FALLBACK_JOB_METRIC = 'aeci.claim.owner_fallback.job';
 const CLAIM_OWNER_FALLBACK_DURATION_METRIC = 'aeci.claim.owner_fallback.job.duration_ms';
 const CLAIM_OWNER_FALLBACK_MOVED_METRIC = 'aeci.claim.owner_fallback.moved';
+
+/** AECI-1435 pending-confirmation expiry. `…job` is the run heartbeat, emitted on
+ *  every run (`outcome:ok|failed`). `…deleted` is the rows deleted this run, emitted
+ *  on every ok run including zero. */
+const REQUEST_CONFIRMATION_EXPIRY_JOB_METRIC = 'aeci.request_confirmation.expiry.job';
+const REQUEST_CONFIRMATION_EXPIRY_DURATION_METRIC =
+  'aeci.request_confirmation.expiry.job.duration_ms';
+const REQUEST_CONFIRMATION_EXPIRY_DELETED_METRIC = 'aeci.request_confirmation.expiry.deleted';
 
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
@@ -1768,6 +1782,78 @@ async function runProtestReplyReminderJob(env: Env, ctx: ExecutionContext): Prom
 }
 
 /**
+ * Daily pending-confirmation expiry (AECI-1435 / ADR 0043). Everything load-bearing is
+ * in `./lib/request-confirmations`; this shell supplies the DB and the PostHog sink.
+ * Same shape as `runClaimOwnerFallbackJob`. A crash is a `failed` run.
+ */
+async function runRequestConfirmationExpiryJob(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/request-confirmation-expiry');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runRequestConfirmationExpiry(db);
+    // The summary audit row, forwarded post-commit like every audit row (§26.5).
+    if (result.auditEntry) {
+      forwardAuditBatch(
+        { env, executionCtx: ctx, req: { raw: req } },
+        [result.auditEntry],
+        [],
+        REQUEST_CONFIRMATION_EXPIRY_SOURCE,
+      );
+    }
+    submitCount(ctx, env, req, REQUEST_CONFIRMATION_EXPIRY_JOB_METRIC, 1, [
+      'trigger:cron',
+      'outcome:ok',
+    ]);
+    submitGauge(ctx, env, req, REQUEST_CONFIRMATION_EXPIRY_DELETED_METRIC, result.deleted, []);
+    submitDistribution(
+      ctx,
+      env,
+      req,
+      REQUEST_CONFIRMATION_EXPIRY_DURATION_METRIC,
+      Date.now() - started,
+      ['trigger:cron'],
+    );
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.request_confirmation.expiry deleted=${result.deleted} unconfirmed=${result.unconfirmed} capped=${result.capped}`,
+      source: REQUEST_CONFIRMATION_EXPIRY_SOURCE,
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'request-confirmation-expiry',
+        deleted: result.deleted,
+        unconfirmed: result.unconfirmed,
+        capped: result.capped,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, REQUEST_CONFIRMATION_EXPIRY_JOB_METRIC, 1, [
+      'trigger:cron',
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.request_confirmation.expiry.crashed',
+      source: REQUEST_CONFIRMATION_EXPIRY_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'request-confirmation-expiry',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
  * Daily claim owner fallback (AECI-1368 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).
  * Everything load-bearing is in `./lib/claim-owner-fallback`; this shell supplies the
  * DB and the PostHog sink. Same shape as `runProtestReplyReminderJob`: a crash is a
@@ -2303,6 +2389,11 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // batch and one fail-open digest. The guarded UPDATE is the fence, so a missed
       // day is moved by the next run. No `CLAIM_OWNER_FALLBACK_QUEUE` binding exists.
       return undefined;
+    case 'request_confirmation_expiry':
+      // Queue-less like `claim_owner_fallback` (AECI-1435): one indexed read and one
+      // delete batch. A missed day is deleted by the next run, and automatic retries
+      // are the last thing a destructive job should have. No queue binding exists.
+      return undefined;
     case 'gsc_inspect':
       // Queue-backed AND self-chaining (AECI-1236): a run is about an hour of
       // Google calls and a consumer invocation is capped at 15 minutes, so each
@@ -2435,6 +2526,14 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'protest-reply-reminder-cron',
     };
   }
+  if (job === 'request_confirmation_expiry') {
+    // Unreachable for the same reason as `claim_owner_fallback` below: queue-less.
+    return {
+      path: '/cron/request-confirmation-expiry',
+      message: 'aeci.request_confirmation.expiry.enqueue_failed',
+      source: REQUEST_CONFIRMATION_EXPIRY_SOURCE,
+    };
+  }
   if (job === 'claim_owner_fallback') {
     // Unreachable for the same reason as `protest_reply_reminder` above: queue-less,
     // so `queue.send` is never called. Kept so the mapping stays total.
@@ -2533,6 +2632,8 @@ async function dispatchScheduledJob(
       return runProtestReplyReminderJob(env, ctx);
     case 'claim_owner_fallback':
       return runClaimOwnerFallbackJob(env, ctx);
+    case 'request_confirmation_expiry':
+      return runRequestConfirmationExpiryJob(env, ctx);
     case 'vendor_snapshot':
       return runVendorSnapshotJob(env, ctx);
     case 'gsc_inspect':
@@ -2633,6 +2734,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case CLAIM_OWNER_FALLBACK_CRON:
       await enqueueOrRun(env, ctx, 'claim_owner_fallback');
+      return;
+    case REQUEST_CONFIRMATION_EXPIRY_CRON:
+      await enqueueOrRun(env, ctx, 'request_confirmation_expiry');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare
