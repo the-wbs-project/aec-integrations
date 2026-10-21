@@ -41,6 +41,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Catalog, written by the promote Workflow (actor: system) ──────────────
   'vendor.created': $localize`:@@admin.audit.action.vendorCreated:Vendor added to the catalog`,
   'vendor.updated': $localize`:@@admin.audit.action.vendorUpdated:Vendor record updated`,
+  // AECI-1415: the one action that moves ownership back to AECi.
+  'vendor.records_returned': $localize`:@@admin.audit.action.vendorRecordsReturned:Vendor records returned to AECi`,
   'product.created': $localize`:@@admin.audit.action.productCreated:Product added to the catalog`,
   'product.updated': $localize`:@@admin.audit.action.productUpdated:Product record updated`,
   'product.extension_created': $localize`:@@admin.audit.action.productExtensionCreated:Product extension created`,
@@ -52,6 +54,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'audience.created': $localize`:@@admin.audit.action.audienceCreated:Audience term created`,
   'phase.created': $localize`:@@admin.audit.action.phaseCreated:Phase term created`,
   'promote.blocked': $localize`:@@admin.audit.action.promoteBlocked:Promote blocked by a guard`,
+  // AECI-1416: a new product for an owned vendor, stored for the owner to decide.
+  'product_proposal.created': $localize`:@@admin.audit.action.productProposalCreated:Product proposed to the vendor`,
+  // AECI-1417: the owner's decision.
+  'product_proposal.accepted': $localize`:@@admin.audit.action.productProposalAccepted:Proposed product accepted by the vendor`,
+  'product_proposal.declined': $localize`:@@admin.audit.action.productProposalDeclined:Proposed product declined by the vendor`,
 
   // ── Claims and vendor positions ───────────────────────────────────────────
   //

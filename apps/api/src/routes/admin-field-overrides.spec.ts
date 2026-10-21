@@ -59,7 +59,8 @@ import { createListVendorNotificationsHandler } from './vendor-notifications';
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 // A owns REVIT; B owns MICROSTATION, holds I_MAIN (claimed) and PAIR (claimed).
-// C owns ORPHAN and has no seat, so nothing of C's is vendor-held.
+// A and B own their records (`owned_at`, AECI-1415). C owns ORPHAN but is not owned,
+// so nothing of C's is vendor-held.
 const VENDOR_A = uuid(1);
 const VENDOR_B = uuid(2);
 const VENDOR_C = uuid(3);
@@ -103,8 +104,14 @@ beforeEach(async () => {
   t = await makeTestDb();
   factory = t.factory;
   await t.db.insert(vendors).values([
-    { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk', phoneNumber: '+1 555 0000' },
-    { id: VENDOR_B, slug: 'bentley', companyName: 'Bentley' },
+    {
+      id: VENDOR_A,
+      slug: 'autodesk',
+      companyName: 'Autodesk',
+      phoneNumber: '+1 555 0000',
+      ownedAt: CLAIMED_AT,
+    },
+    { id: VENDOR_B, slug: 'bentley', companyName: 'Bentley', ownedAt: CLAIMED_AT },
     { id: VENDOR_C, slug: 'nobody', companyName: 'Nobody', phoneNumber: '+1 555 0001' },
   ]);
   await t.db.insert(products).values([

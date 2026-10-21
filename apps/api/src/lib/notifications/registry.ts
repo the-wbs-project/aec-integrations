@@ -287,7 +287,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
     summary:
       'Asks the typed address to confirm a claim or listing request before it is sent, with a 7-day single-use link to /claims/confirm.',
-    note: 'AECI-1435, ADR 0042. Nothing reaches AECi until the link is clicked and the page button pressed. Never blind-copied to the operator list, because the copy would be a second working link. Always on: without it no anonymous claim can be sent at all. A signed-in claimant whose verified email is the typed address skips it.',
+    note: 'AECI-1435, ADR 0043. Nothing reaches AECi until the link is clicked and the page button pressed. Never blind-copied to the operator list, because the copy would be a second working link. Always on: without it no anonymous claim can be sent at all. A signed-in claimant whose verified email is the typed address skips it.',
   },
   'claim-received': {
     channel: 'email',
@@ -476,7 +476,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, top left on a phone, or at /vendor), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
@@ -544,6 +544,24 @@ export const NOTIFICATIONS = {
     summary:
       "Asks each unbanned owner seat of a company to accept or decline someone who claimed it, with the claimant's details and the 7-day deadline.",
     note: 'Sent only when the claimed company has an unbanned owner seat, after the claim insert commits. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). The claim route is anonymous, so the daily per-vendor bound caps what a stranger can make us send to a company. Always on: the owners have 7 days to decide, and pausing it would hand every claim to the fallback.',
+  },
+  'product-proposal-owner-review': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/promote, post-commit hook (routes/promote.ts dispatchPromoteHooks, lib/product-proposal-notify.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per owner seat per proposal: key product-proposal-owner-review:{proposalId}:{profileId}. A replayed promote hook finds the key and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §6.22',
+    summary:
+      'Tells each unbanned owner seat of a company that owns its record that AEC Integrations proposed a new product for it, to accept or decline.',
+    note: 'Sent once the promote batch that stored the proposal commits, never on the request. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). Pausable: no deadline rides on it, and the proposal waits on the Proposed products tab whether or not the mail goes.',
   },
   'stuck-request-alert': {
     channel: 'email',

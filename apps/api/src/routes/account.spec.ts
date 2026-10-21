@@ -15,6 +15,7 @@ import {
   integrations,
   licenseReleaseRequests,
   licenses,
+  productProposals,
   products,
   profileAudiences,
   profileDetails,
@@ -602,6 +603,38 @@ describe('DELETE /api/account', () => {
     expect(rows.map((r) => [r.id, r.requestedBy, r.decidedBy, r.updatedAt])).toEqual([
       [u(40), null, ADMIN_USER, STAMP],
       [u(41), ADMIN_USER, null, STAMP],
+    ]);
+  });
+
+  it('nulls product_proposals.decided_by, keeping the proposal and its payload (AECI-1416)', async () => {
+    const STAMP = '2026-01-01T00:00:00.000Z';
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    const base = {
+      vendorId: u(2),
+      payload: { ref: 'p:rec1', name: 'OpenRoads' },
+      proposedAt: STAMP,
+      decidedAt: STAMP,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    };
+    await t.db.insert(productProposals).values([
+      { ...base, id: u(50), ref: 'p:rec1', decision: 'declined', decidedBy: USER },
+      { ...base, id: u(51), ref: 'p:rec2', decision: 'accepted', decidedBy: ADMIN_USER },
+    ]);
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    const rows = await t.db.select().from(productProposals).orderBy(productProposals.id);
+    expect(rows.map((r) => [r.id, r.decision, r.decidedBy, r.updatedAt, r.payload])).toEqual([
+      [u(50), 'declined', null, STAMP, base.payload],
+      [u(51), 'accepted', ADMIN_USER, STAMP, base.payload],
     ]);
   });
 

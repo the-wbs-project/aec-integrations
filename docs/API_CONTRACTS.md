@@ -293,7 +293,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
 | ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, `lib/vendor-entitlement.ts`. History follows. **No route raises it since 2026-10-17 (AECI-1375).** The Managed claim grant stopped activating an entitlement on 2026-10-15 (AECI-1367), and the entitlement `set` was retired by AECI-1375. The code stays registered until E1.9 removes `apps/api/src/lib/vendor-entitlement.ts`. It meant: an activate of a vendor's entitlement lost a race with another between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
@@ -304,12 +304,19 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `FIELD_LOCKED_BY_AECI` | 409 | A vendor write that would change a field AEC Integrations corrected and locked (AECI-1237, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5): `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, `PATCH /api/vendor/integrations/:id` (either anchor table), a contest submit on the field, and an owner or AECi contest accept that would write it. `details.fields` names the locked fields. A company or product body that resends the stored value of a locked field drops it rather than refusing. A lock set between the handler's read and its batch aborts the batch with the same answer. Nothing is written |
 | `FIELD_OVERRIDE_ACTIVE` | 409 | `POST /api/admin/field-overrides` on a field that already carries an unlifted lock, including one set by a racing correction (the partial unique index `field_overrides_active_key`). Lift it first (AECI-1237) |
 | `FIELD_OVERRIDE_LIFTED` | 409 | `POST /api/admin/field-overrides/:id/lift` on a lock already lifted, including a lost lift race (AECI-1237) |
-| `FIELD_OVERRIDE_NOT_VENDOR_HELD` | 409 | `POST /api/admin/field-overrides` on a record no vendor holds: a company with no active seat, a product none of whose owners has one, or an integration or pair that is neither claimed nor vendor-created. Promote and the review app write it, so the correction belongs upstream (AECI-1237) |
+| `FIELD_OVERRIDE_NOT_VENDOR_HELD` | 409 | `POST /api/admin/field-overrides` on a record no vendor holds: a company that is not owned (`vendors.owned_at` NULL, AECI-1415), a product none of whose vendors is owned, or an integration or pair that is neither claimed nor vendor-created. Promote and the review app write it, so the correction belongs upstream (AECI-1237) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
-| `LICENSE_GRANTED_DURING_PROMOTE` | 409 | Promote job error only. The promote planned the license hand-back on a claimed vendor's product with no live license, including AECi claims on its edges, and a license was assigned to the product before the batch committed. Nothing was written; re-push with a new `jobId`, and the product is then blocked whole (AECI-1407, `REVIEW_APP_PROMOTE_API.md` §4a) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
+| `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
+| `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
+| `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
+| `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
+| `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Also `POST /api/vendor/proposals/:id/accept` (AECI-1417) when the vendor the proposal is addressed to no longer owns its record, checked before the batch and again inside it. Nothing was written |
+| `PROPOSAL_ALREADY_DECIDED` | 409 | `POST /api/vendor/proposals/:id/accept` and `/decline` (AECI-1417). The proposal was already accepted or declined, by another owner or another tab. Checked before the batch and again inside it. Nothing was written. Re-read the list |
+| `PROPOSAL_VENDOR_MISSING` | 409 | `POST /api/vendor/proposals/:id/accept` (AECI-1417). A vendor the proposal links no longer exists, so the product would be half-linked. `details.vendor_ids` names them. Nothing was written. Decline it and contact AECi. AECi never sends the same product again (ruling Q5), and no route lets the vendor create it |
+| `VENDOR_HAS_SEATS` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) while the vendor holds any `vendor_admin` seat, banned or not. Revoke every seat first. Nothing was written |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or update, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }`, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
 | `NOTIFICATION_NOT_PAUSABLE` | 400 | `PUT /api/admin/email/switches/:key` asked to pause an entry the notification registry marks always on (AECI-1224): a seat invite, a claim or review decision, the account-deleted confirmation, a deadline email, or anything not sent through `lib/email.ts`. Resuming one is allowed. `field: 'key'` |
@@ -1326,7 +1333,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 //                     accepted_terms (literal true, required; AECI-1366) }
 ```
 
-**As built, AECI-1435 (2026-10-21): an anonymous claim waits on an emailed link (ADR 0042).** The handler resolves the target first, so a dead listing still answers `404`. Then it checks who is asking. A visitor whose strictly verified session email (`verifiedSessionEmail` in `lib/session-email.ts`, the bearer or `sb-*` cookie through `verifySupabaseJwt`, never the grace verifier) equals `submitter_email`, trimmed and lowercased, takes the path the rest of this section describes, at submit. Anyone else takes the confirm path:
+**As built, AECI-1435 (2026-10-21): an anonymous claim waits on an emailed link (ADR 0043).** The handler resolves the target first, so a dead listing still answers `404`. Then it checks who is asking. A visitor whose strictly verified session email (`verifiedSessionEmail` in `lib/session-email.ts`, the bearer or `sb-*` cookie through `verifySupabaseJwt`, never the grace verifier) equals `submitter_email`, trimmed and lowercased, takes the path the rest of this section describes, at submit. Anyone else takes the confirm path:
 
 - One `db.batch`: a `request_confirmations` row (the validated body as JSON, a SHA-256 hash of a 43-character single-use token, the address lowercased, the current `vendor_terms` version, `CF-Connecting-IP`, the user agent, `expires_at` 7 days out) and its `request_confirmation.created` audit row. The metadata holds `{ kind, target_type, target_id }`, never the email.
 - No `vendor_requests` row, no acceptance row, no account check, no routing, no Linear issue, no alert and no receipt. All of that runs at confirm (`POST /api/requests/confirm` below).
@@ -1410,7 +1417,7 @@ Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (40
 
 #### `POST /api/requests/confirm` (AECI-1435)
 
-The click behind the `claim-confirm` email (ADR 0042). The `/claims/confirm?token=…` page renders one button and POSTs only on the click, because mail scanners fetch links. Public, no session: the token is the proof the typed address got the mail.
+The click behind the `claim-confirm` email (ADR 0043). The `/claims/confirm?token=…` page renders one button and POSTs only on the click, because mail scanners fetch links. Public, no session: the token is the proof the typed address got the mail.
 
 ```typescript
 export const ConfirmRequestSchema = z.object({
@@ -1623,8 +1630,9 @@ service-role key is absent). Audited `account.deleted` (no PII).
 
 **A vendor seat's erasure is a seat loss (AECI-1106).** When the profile is a
 `vendor_admin` seat, the batch also carries what the admin revoke of that seat would:
-the AECI-989 hand-back when it is the vendor's last seat, or the owner-contest re-route
-when only banned seats remain (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A lost seat race
+the owner-contest re-route (the seat lapse) when it is the vendor's last unbanned seat
+(`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Since AECI-1415 an erasure hands no record back: the
+records stay vendor-owned and frozen. Before it, the last seat's erasure ran the AECI-989 hand-back. A lost seat race
 re-plans and retries, up to three attempts. The wire shape is unchanged. A Resend confirmation
 email is sent fire-and-forget after erasure (AECI-240 / Phase 7.5, fail-open — the
 deletion never depends on it); recipient is captured from the session before the
@@ -2504,6 +2512,10 @@ atomic `db.batch`:
    (`loadClaimAcceptanceIds`) finds rows (`DATABASE_SCHEMA.md` §8.6d).
 4. The AECI-989 seat return, with `entitledAfterBatch: false`. It also clears the vendor's
    `vendor-banned` license flags (ruled 2026-10-15, `clearVendorBannedFlagsStatements`).
+5. The ownership stamp (AECI-1415, ADR 0042): a guarded `UPDATE vendors SET owned_at = now WHERE
+   owned_at IS NULL`, `updated_at` kept. It runs right after the seat statements. The `vendor_claim.granted` audit row carries
+   `metadata.ownership_stamped: true` when it stamped. From then on promote refuses the vendor, its
+   products and the integrations it owns (§6.12).
 
 No entitlement row is written, `vendors.verified` is not touched, and **nothing is purged**.
 Post-commit (best-effort): fire the claim-approved email. A `target_type='product'` claim
@@ -2799,6 +2811,7 @@ export const AdminVendorDetailSchema = z.object({
   verified: z.boolean(),
   promotion_status: z.string(), maintained_by: z.string(),
   last_reviewed_at: z.string().nullable(),
+  owned_at: z.string().nullable(),    // record ownership (AECI-1415): null = AECi owns the records
   created_at: z.string(), updated_at: z.string(),
 
   // `entitlement` and `plan_pricing` dropped 2026-10-17 (AECI-1375).
@@ -2821,6 +2834,9 @@ export const AdminVendorDetailSchema = z.object({
     resolved: z.number().int().min(0),
     rejected: z.number().int().min(0),
   }),
+  // AECI-1416: open product_proposals addressed to the vendor. "Return records to AECi"
+  // discards them, and its confirmation shows this number.
+  open_proposal_count: z.number().int().min(0),
 });
 ```
 
@@ -3092,7 +3108,7 @@ written. The reason lands in the `vendor_claim.seat_revoked` row's `metadata.rea
 batch, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given. When the
 revoke leaves the vendor at least one seat, a portal-only `notification.sent` row
 (`kind: 'aeci_override'`, `event: 'seat_revoked'`) goes to each remaining seat in that batch. A
-revoke that leaves no seat sends nothing (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). The hand-back and lapse audit rows below do not repeat it. The portal's owner-only
+revoke that leaves no seat sends nothing (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). The lapse audit rows below do not repeat it. The portal's owner-only
 `DELETE /api/vendor/seats/:userId` is unchanged and takes no body.
 
 Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
@@ -3103,27 +3119,19 @@ builder names `vendors`** — enforced by an ESLint rule and a generated-SQL ass
 **A seat revoke is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2):
 the badge, the entitlement row and `vendors.verified` are all untouched.
 
-**The last seat hands the record back (AECI-989).** What the vendor is left with decides
-what else rides the same batch:
+**A revoke moves no record (AECI-1415, ruled 2026-10-19).** Since AECI-989 the last seat's revoke
+handed the vendor's record back to AECi. That is superseded. A revoke ends the edit right only.
+`owned_at`, `maintained_by` and `claimed_at` stay, so the records stay vendor-owned and frozen.
+What the vendor is left with decides what else rides the same batch:
 
 | Seats left after the revoke | Also in the batch |
 |---|---|
 | at least one unbanned | nothing |
-| only banned ones | open owner contests re-route to AECi, stamped so an unban or a new seat grant routes them back |
-| none | the hand-back: `vendors.maintained_by` and each solely-owned product's `maintained_by` → `'aeci'`; `claimed_at` cleared on each live integration the vendor owns and claimed, so promote writes it again; that integration's `maintained_by` → `'aeci'` when no live vendor attestation survives; open owner contests → AECi for good |
+| none unbanned (only banned ones, or none at all) | the seat lapse: open owner contests re-route to AECi, stamped with `owner_seat_lapsed_at` so a later seat grant or an unban routes them back |
 
-Each write carries its own audit row (`vendor.updated`, `product.updated`,
-`integration.updated`, `integration.contest.rerouted`). Since AECI-1089 the un-claim and the
-marker flip also cover the vendor's live claimed `connector_evidenced_pairs` rows, audited on
-entity type `connector_evidenced_pair` with `metadata.anchor = 'evidenced_pair'`. A write that would change nothing
-is omitted with its row. `last_reviewed_at`, `built_by_vendor_id`, `origin`, retired rows,
-claims and attestations are never touched, and nothing is deleted. **Purge:** only the pages
-whose maintenance marker changed, through `CACHE_PURGE_QUEUE` with `source: 'moderation'`.
-That means `vendor:{slug}`, each flipped `product:{slug}` plus `index:products`, and the pair
-tag plus both product tags for each integration whose marker flipped (and its `powered_by`
-product's tag when set). An evidenced pair whose
-marker flipped also purges its connector's `product:` tag (AECI-1089). A revoke that leaves
-a seat purges nothing. The response is `204` in every case, and the wire shape is unchanged.
+Each contest move carries an `integration.contest.rerouted` audit row (`metadata.reason =
+'owner-seat-lapsed'`). Nothing is purged and the response is `204` in every case. Ownership
+returns to AECi only through `POST /api/admin/vendors/:id/return-to-aeci` below.
 Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 
 **Three deliberate differences from the portal endpoint:** `vendorId` comes from the
@@ -3141,7 +3149,7 @@ Errors:
 | Status | Code | When |
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id, or `:userId` is not a `vendor_admin` seat **on that vendor** — a cross-vendor id is indistinguishable from a nonexistent one |
-| 409 | `VENDOR_SEATS_CHANGED` | The batch lost a race with another seat write on this vendor, so the planned hand-back no longer matches the seats left. Nothing was written (AECI-989) |
+| 409 | `VENDOR_SEATS_CHANGED` | The batch lost a race with another seat write on this vendor, so the planned seat lapse no longer matches the seats left. Nothing was written (AECI-989) |
 | 400 | `VALIDATION_FAILED` | Missing path parameter |
 
 #### `POST /api/admin/vendors/:id/seats` (Stage 2 — AECI-740)
@@ -3153,6 +3161,8 @@ Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_adm
 model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
+
+**A new seat stamps ownership (AECI-1415, ADR 0042).** The same batch sets `vendors.owned_at` with a guarded `owned_at IS NULL` update, `updated_at` kept, and the provision's audit row carries `metadata.ownership_stamped: true`. A vendor that already owns its records is left alone. Before this a seat alone made the vendor "claimed".
 
 **A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
@@ -3264,6 +3274,61 @@ fallback. New rows spell that metadata key `vendorId` (`DATABASE_SCHEMA.md` §8.
 
 When the vendor has no billing account the same batch also inserts one, with its own
 `billing_account.created` row (AECI-1351, `DATABASE_SCHEMA.md` §8.6b). The wire shape is unchanged.
+
+#### `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415, ADR 0042)
+
+"Return records to AECi". The one action that moves ownership back to AECi. It exists for a
+mistaken claim approval and nothing else. Seat loss, a ban, an account erasure and a license
+lapse never call it. Behind `requireAdmin()`, then `rateLimit('write')`. Source of truth:
+`packages/shared/src/api/admin-vendors.ts`, `apps/api/src/routes/admin-vendors.ts`
+(`createReturnRecordsHandler`). Admin UI: `ADMIN_PANEL_SPEC.md` §5.7.
+
+```typescript
+// Body: AdminReturnRecordsSchema (strict)
+{ reason: string,          // required, trimmed, 1 to 1000 characters
+  internalNote?: string }  // optional, trimmed, at most 1000, never shown to a vendor
+
+// 200 OK: AdminReturnRecordsResponseSchema
+{ vendor_id: string,
+  owned_at: null,
+  product_ids: string[],          // products joined to the vendor that no other OWNED vendor holds
+  integration_ids: string[],      // live integrations it had claimed
+  evidenced_pair_ids: string[],   // live connector_evidenced_pairs it had claimed
+  contests_rerouted: number,
+  discarded_proposal_ids: string[] } // AECI-1416: the open product proposals it deleted
+```
+
+**Refused while any seat remains.** The vendor must hold no `vendor_admin` seat, banned or not.
+An unban would otherwise hand an editing seat back on a record AECi owns. Revoke every seat first.
+
+One `db.batch`, in this order: clear `owned_at` (guarded on `owned_at IS NOT NULL`), the seat race
+sentinels, a revoke of every live seat invite (one `vendor_seat.invite_revoked` row each) with its
+own race sentinel, `planVendorHandback` (markers back to `'aeci'`, live claimed integrations and
+evidenced pairs un-claimed, open owner-routed contests to AECi unstamped, and a product co-owned with
+another owned vendor keeps its marker), and one `vendor.records_returned` audit row (entity type
+`vendor`, `beforeState`/`afterState` carry `owned_at`, `metadata` carries `reason`,
+`reasonVisibility`, `internalNote`, `product_count`, `integration_count`, `evidenced_pair_count`,
+`contests_rerouted`, `invites_revoked`, and since AECI-1416 `proposals_discarded` and
+`discarded_proposal_ids`). Before the audit row, the batch deletes the vendor's OPEN
+`product_proposals` (ruled 2026-10-19), behind a sentinel that aborts when a proposal arrived after
+the read. Decided proposals stay. With the open row gone, a re-send of that ref creates the product
+normally, because the vendor is AECi's again. The hand-back audit rows say `cause`/`reason`
+`records-returned-to-aeci`. Rows written before AECI-1415 say `owner-seat-revoked`.
+
+Post-commit: one batched audit forward, then a purge of every page whose marker flipped through
+`CACHE_PURGE_QUEUE` with `source: 'moderation'`. The ownership message to the review app on a
+return is AECI-1418 and is not built. The response lists are its hook.
+
+Errors:
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_FAILED` / `MALFORMED_REQUEST` | Missing, blank or over-long `reason`, an unknown key, or a non-JSON body. Nothing written |
+| 404 | `NOT_FOUND` | Unknown vendor id |
+| 409 | `VENDOR_NOT_OWNED` | `owned_at` is already NULL |
+| 409 | `VENDOR_HAS_SEATS` | The vendor holds any `vendor_admin` seat, banned or not |
+| 409 | `VENDOR_SEATS_CHANGED` | A seat landed, or a double-click already returned the records, between the read and the batch. Nothing written |
+| 409 | `VENDOR_PROPOSALS_CHANGED` | A promote stored a new open product proposal for the vendor between the read and the batch (AECI-1416). Nothing written; reload and try again |
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532): retired
 
@@ -6133,6 +6198,11 @@ export interface PromoteResponse {
     ref: string;
     kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
     reason: string;
+    existingId?: string; // AECI-1011: the vendor-held twin, on `VENDOR_OWNED_TWIN` only
+    // AECI-1416: on `kind: 'product'` only. The `product_proposals` row a new product for an
+    // owned vendor was stored as, or the existing one a re-send was refused on. Optional and
+    // additive: a result stored before AECI-1416 never carries it.
+    proposalId?: string;
   }[];
   // AECI-604: the inverse of `skipped` — existing vendor-owned claims/attestations
   // this promote deliberately left alive. `ref` is the enclosing integration's;
@@ -6140,24 +6210,14 @@ export interface PromoteResponse {
   // ordinary promote of an unclaimed product. Never an error condition.
   //
   // AECI-963 adds `kind: 'usefulness'`, whose `ref` is the PRODUCT's and which is
-  // an entry about something the caller DID send: a vendor has authored the block,
-  // so `products.usefulness_source` fences promote off the column while the product
-  // holds a live license (AECI-1407). An admin-written block (`usefulness_source =
-  // 'admin'`) is fenced whatever the license state, so its entry fires regardless. It is advisory — the authoritative guard is a
-  // CASE WHEN inside the UPDATE, evaluated after the read this is derived from. It
-  // can be missing for a value that WAS preserved, and, if a license ends between
-  // the read and the commit, present for one that was not.
-  //
-  // AECI-1407 adds `kind: 'license_hand_back'`: a claimed vendor's product with no
-  // live license took only `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` (not
-  // over an admin-written block) and AECi claims on its existing edges. On the
-  // product's `ref`, `reason` names the hand-back fields the UPDATE actually wrote,
-  // then the withheld fields after a colon, and `count` is how many were withheld.
-  // On an integration's `ref`,
-  // only its claims were written (`REVIEW_APP_PROMOTE_API.md` §4a).
+  // the only entry about something the caller DID send: a vendor has authored the
+  // block, so `products.usefulness_source` fences promote off the column. It is
+  // advisory — the authoritative guard is a CASE WHEN inside the UPDATE, evaluated
+  // after the read this is derived from — and the error is one-sided: it can be
+  // missing for a value that WAS preserved, never present for one that was not.
   preserved: {
     ref: string;
-    kind: 'claim' | 'attestation' | 'usefulness' | 'license_hand_back';
+    kind: 'claim' | 'attestation' | 'usefulness';
     reason: string;
     count: number;
   }[];
@@ -6194,37 +6254,54 @@ Reported post-commit as `aeci.api.promote.unresolved_link{field}` at `info`, not
 non-zero by design. Zapier and Workato were the largest source until AECI-1064
 promoted both on 2026-09-23.
 
-**Claimed-vendor block (Stage 2, AECI-520).** A vendor is **claimed** once AECi
-has granted it a vendor-portal seat — at least one `profiles` row with
-`role = 'vendor_admin'` AND `vendor_id = <vendor>`. From that point its row and
-every product it owns are vendor-owned: the vendor edits them through
-`/api/vendor/*` (§6.14), and this endpoint writes the very same columns, so a
-routine push would silently revert their work. Therefore:
+**Ownership block (Stage 2, AECI-520, reworked by AECI-1415, ADR 0042).** A vendor **owns its
+record** while `vendors.owned_at` is set. The stamp lands at claim approval and at the admin seat
+provision, and only the admin return (`POST /api/admin/vendors/:id/return-to-aeci`) clears it. A
+seat without `owned_at` owns nothing, and seat loss never clears it. An unowned company is
+untouched by the block. From the stamp on, its row, every product joined to it and the integrations
+it owns are vendor-owned: the vendor edits them through `/api/vendor/*` (§6.14), and this endpoint
+writes the very same columns, so a routine push would silently revert their work. Therefore:
 
-- A claimed vendor's row is **not updated** — reported as `skipped[] { kind: 'vendor' }`.
-- An existing product that a claimed vendor owns today, **or** that this payload
-  would join to one, is blocked **wholesale** (all columns, plus its
-  `product_vendors` / taxonomy / extension join rewrites and its `usefulness`) —
-  reported as `skipped[] { kind: 'product' }`. Wholesale means AECi's own
-  curation columns on that row (`name`, `promotion_status`, `research_*`,
-  `priority_*`, `admin_notes`) also stop updating through promote — accepted at
-  launch given the concierge model's low volume and human in the loop.
-- **One opening (AECI-1407):** when the blocked product exists and no live license
-  is assigned to it, promote writes `tool_integrations_url`, `api_docs_url` and
-  `usefulness` (clearing `usefulness_source`; an `'admin'` block stays fenced),
-  each guarded in SQL on the license,
-  and AECi claims on its existing, unclaimed edges. The product comes back
-  `updated`, with `preserved[] { kind: 'license_hand_back' }`. A license assigned
-  mid-promote aborts the claims with `LICENSE_GRANTED_DURING_PROMOTE`
-  (`REVIEW_APP_PROMOTE_API.md` §4a).
+- An owned vendor's row is **not updated**. Reported as `skipped[] { kind: 'vendor' }` with
+  `BLOCKED_VENDOR_REASON`.
+- An existing product that an owned vendor owns today, **or** that this payload would join to one, is
+  blocked **wholesale** (all columns, plus its `product_vendors` / taxonomy / extension join rewrites
+  and its `usefulness`). A co-owned product is owned if any joined vendor is owned. Reported as
+  `skipped[] { kind: 'product' }` with `BLOCKED_PRODUCT_REASON`. Wholesale means AECi's own curation
+  columns on that row (`name`, `promotion_status`, `research_*`, `priority_*`, `admin_notes`) also stop
+  updating through promote.
+- **A new product that would join an owned vendor is not created. It is stored as a proposal**
+  (AECI-1416, rulings Q4 and Q5 of 2026-10-19). One `product_proposals` row (`DATABASE_SCHEMA.md`
+  §8.6f) holds the validated `product` object, frozen, on the first owned vendor in `vendors[]` order,
+  with a `product_proposal.created` audit row in the same batch. No taxonomy is resolved or minted.
+  `product` is `null`, and the skip is `skipped[] { kind: 'product', reason: PROPOSED_PRODUCT_REASON,
+  proposalId }`. The stored payload is `ProductProposalPayload` (`packages/shared/src/api/promote.ts`):
+  the product and EVERY vendor the payload named, each with its resolved AECi `vendorId` (ruled
+  2026-10-19, "accept means exactly what was sent"). The `ref` must be the review app's record ref,
+  `p:rec…` (`PROPOSAL_REF_RE`). Any other ref is refused with `PROPOSAL_REF_REFUSED_REASON` and
+  nothing is written to the catalog or proposals. A product for an unowned vendor is not checked. A commit-time sentinel aborts
+  the batch with `VENDOR_RETURNED_DURING_PROMOTE` when the addressed vendor stopped owning its record
+  before commit. A `ref` is sent once, ever: a `ref` that already has a proposal (open, accepted or
+  declined) is refused at plan time with `ALREADY_PROPOSED_REASONS[state]` and the existing
+  `proposalId`, and nothing is written to the catalog or proposals for it (the refusal writes its
+  `promote.blocked` audit row, like every refusal). A racing second send of one `ref` trips the unique
+  index on `product_proposals.ref` and the job errors with `PRODUCT_PROPOSED_DURING_PROMOTE`. The
+  insert has no `ON CONFLICT`, so its audit row never records a proposal that was not stored. A
+  proposal-only promote reports `wrote: false` and fires no catalog hooks. Before AECI-1416 the
+  product was skipped with `BLOCKED_NEW_PRODUCT_REASON`, and before AECI-1415 promote created it.
+- Integrations in the same payload that touch a product sent as a proposal are skipped with
+  `PROPOSED_PRODUCT_INTEGRATION_REASON` and never stored (Q4: a proposal carries the product only).
 - Integrations in the same payload with an endpoint on **that** blocked product
   cascade-skip (matched by both `ref` and `supabaseId` — the payload's
-  `superRefine` only constrains the `ref` form). The cascade is scoped to this
-  payload's product: an integration whose *far* endpoint is some other claimed
-  vendor's product still writes, because owning a PRODUCT does not make a vendor
-  the owner of every integration touching it. Integrations are vendor-owned and
-  AECi seeds them (ADR 0035); ownership is fenced per ROW by the claimed-integration
-  block below, keyed on `integrations.claimed_at`.
+  `superRefine` only constrains the `ref` form), with `BLOCKED_INTEGRATION_REASON`. That includes an
+  edge touching the skipped product only as its `poweredByProduct`.
+- **An integration whose source or target product is owned is refused, whichever product the payload
+  is about** (AECI-1415, ruling Q2), including the stored endpoints of an edge an update would move
+  away from an owned product. Reported as `skipped[] { kind: 'integration' }` with
+  `BLOCKED_OWNED_ENDPOINT_REASON`. An edge where the owned product is only the `poweredByProduct`
+  connector still writes. The old scope note, that an integration whose far endpoint is a claimed
+  vendor's product still writes, is dropped. The per-row claim fence below still applies on top
+  (ADR 0035, keyed on `integrations.claimed_at`).
 - **A claimed integration is not written at all (AECI-1005).** Once its owner has
   claimed it, promote skips the edge wholesale: no content column, no
   `built_by_vendor_id`, no endpoint re-point, no cross-table move, and no write to
@@ -6236,7 +6313,11 @@ routine push would silently revert their work. Therefore:
   `INTEGRATION_CLAIMED_DURING_PROMOTE`. The fence keys on `claimed_at IS NOT NULL OR
   origin = 'vendor'` (the `origin` half since AECI-1011), never on `maintained_by`. Promote never writes `claimed_at`, `origin` or `retired_at`.
   Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4b.
-- **Creating a new vendor or product is never blocked** — nothing vendor-owned exists yet.
+- **Creating a new vendor is never blocked.** A new product under an unowned vendor is not blocked either.
+- **Each skip writes a `promote.blocked` audit row.** A commit-time sentinel covers an ownership stamp
+  that lands between plan and commit: the batch rolls back and the job errors with
+  `VENDOR_OWNED_DURING_PROMOTE` (nothing written, re-push under a new `jobId`). The sentinel statements
+  sit after the `promote_jobs` ledger row, which stays first.
 - **An integration write is refused when it would twin a vendor-held integration
   (AECI-1011).** Three writes are guarded: an INSERT of an `integrations` row (no
   `supabaseId`, or the AECI-568 fallback), a de-route out of `connector_evidenced_pairs`,
@@ -6256,11 +6337,11 @@ routine push would silently revert their work. Therefore:
   Nothing is deleted. Review-app contract: `REVIEW_APP_PROMOTE_API.md` §4c. Every
   other create is unaffected.
 - Unrelated vendors and integrations in the same payload still promote.
-- "Claimed" requires an **active** seat. Banning a vendor's only admin un-claims
-  it, so promote can write again — moderation returns control to AECi instead of
-  freezing a record nobody can then correct (the banned seat also fails every
-  `/api/vendor/*` call). Ban is per-seat, so a vendor with another active seat
-  stays claimed.
+- Ownership is **stored, not derived from seats** (AECI-1415). Banning, revoking or erasing a vendor's
+  last seat does not return the record to promote. The record stays vendor-owned and frozen, and AECi
+  corrects it through a field override (ADR 0039, which now reads `owned_at`). Before AECI-1415 "claimed"
+  required an active seat and a ban un-claimed the vendor. That is superseded. Records return to AECi
+  only through the admin return endpoint (§6.10).
 
 Blocked entities are **omitted** from `vendors[]` / `product` rather than marked
 with a new `operation`, which is what keeps them out of the cache purge, the IndexNow
@@ -6271,11 +6352,11 @@ which a person drains.)* **The omission is the only thing keeping a blocked enti
 off that worklist**, and it is worth saying out loud because there is no second
 guard. `gscRecrawlEntriesForPromote` iterates `response.vendors` unconditionally, so
 a future change that reported a blocked vendor with some new `operation` instead of
-omitting it would queue a claimed vendor's page for manual re-indexing with nothing
+omitting it would queue an owned vendor's page for manual re-indexing with nothing
 downstream to catch it. So
 `product: null` now means either "no product was sent" or "the product was
 blocked"; the two are told apart by a `skipped[]` entry whose `ref` matches the
-product's, which only ever appears when a product *was* sent. Seat existence is
+product's, which only ever appears when a product *was* sent. `owned_at` is
 the signal (rather than `vendors.verified`) precisely because it cannot be set
 from the review app.
 
@@ -6589,7 +6670,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 **Two invariants govern this whole surface.**
 
 1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; every client-supplied id — the product on `PATCH /api/vendor/products/:id` and its versions, the integration or claim on the attestation routes — has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the resource exists.
-2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `source_url`, and every denormalized count/average stay AECi-owned. **`usefulness` was on that list until AECI-963 and is now vendor-writable** — it is narrative copy about the vendor's own product, gated on its own `product.usefulness.edit` capability, and a vendor write fences promote off the column via `products.usefulness_source` while the product holds a live license (ADR 0033 as amended 2026-10-19, `STAGE_2_5_SPEC.md` §12). It is the first entry in `PRODUCT_COLUMN_MAP` whose capability is not `product.edit`, which makes it the only field where the entitlement axis is separately observable. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. *As built (AECI-1358, 2026-10-17): it mirrors a live license, and its only writer is `lib/license.ts`. An admin moves it through a license grant or revoke on the Billing tab.* On top of the parse allow-list, each vendor-editable field now maps to a **capability**, and the route rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** Since AECI-1214 the capabilities live in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` (`@aeci/shared/entitlements`), and the API's column maps are built from them. `verified` holds every capability. `unclaimed` (Free) holds company details and the four `listing_tier` product fields, so no plan is needed to raise a listing's rank (`STAGE_2_PAID_TIERS_SPEC.md` §13.4).
+2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `source_url`, and every denormalized count/average stay AECi-owned. **`usefulness` was on that list until AECI-963 and is now vendor-writable** — it is narrative copy about the vendor's own product, gated on its own `product.usefulness.edit` capability, and a vendor write fences promote off the column permanently via `products.usefulness_source` (ADR 0033, `STAGE_2_5_SPEC.md` §12). It is the first entry in `PRODUCT_COLUMN_MAP` whose capability is not `product.edit`, which makes it the only field where the entitlement axis is separately observable. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. *As built (AECI-1358, 2026-10-17): it mirrors a live license, and its only writer is `lib/license.ts`. An admin moves it through a license grant or revoke on the Billing tab.* On top of the parse allow-list, each vendor-editable field now maps to a **capability**, and the route rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** Since AECI-1214 the capabilities live in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` (`@aeci/shared/entitlements`), and the API's column maps are built from them. `verified` holds every capability. `unclaimed` (Free) holds company details and the four `listing_tier` product fields, so no plan is needed to raise a listing's rank (`STAGE_2_PAID_TIERS_SPEC.md` §13.4).
 
 3. **Writes are entitlement-gated; reads never are.** Every write handler calls `requireCapability(c, …)` and answers **403 `ENTITLEMENT_REQUIRED`** without it (`details: { capability, tier, fields? }`). The gate is a DB-free assertion over `c.get('auth').entitlementTier`, which the guard loaded in the same round-trip as the profile. **Per product since AECI-1355:** a write on one product gates on that product's own live license, through `requireProductCapability(c, productId, cap)` (versions, review replies) or the product PATCH's field gate with the product's tier. The 403 is identical: same status, copy and `details` shape, with `details.tier` the product's tier. A vendor with two products and one license writes Managed fields on one and gets `403 ENTITLEMENT_REQUIRED` on the other. Since the 2026-10-14 ruling the three attestation writes are per product too: they gate on the caller's own endpoint product of the integration, and an owns-both caller passes when either endpoint product is Managed. `requireCapability` (vendor-level, "any live license") stays for `/profile` only. **Only the payer gets Managed rights:** a product counts as licensed for a vendor only through a live license on that vendor's own billing account, so a co-owned product licensed by the other owner is Free for this one. Two ordering rules: on `/profile` it runs immediately after the session's vendor is known, but on any **product**-scoped write it runs **after ownership settles**, because a 403 raised first would confirm a foreign product exists and 404-never-403 is the harder invariant. And the field-level rejection **throws rather than silently dropping** — the dirty-diff forms re-seed their baseline from the echo and would settle *clean* on a value that never landed.
 
@@ -6995,6 +7076,102 @@ them. Source of truth: `packages/shared/src/api/agreements.ts`, handler
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that
 is not an owner).
+
+#### Proposed products: `GET /api/vendor/proposals`, `POST /api/vendor/proposals/:id/accept`, `POST /api/vendor/proposals/:id/decline` (AECI-1417)
+
+The owner's half of product proposals (E6b.5; ADR 0042, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+§6.22). Promote stores a new product for a vendor that owns its record as a proposal
+(AECI-1416, `REVIEW_APP_PROMOTE_API.md` §4a). An owner seat lists them and accepts or
+declines each. Table: `DATABASE_SCHEMA.md` §8.6f.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/proposals` | seat, then `requireSeatOwner()` in the handler. A read: never limited | `200 ListVendorProposalsResponse` |
+| `POST` | `/api/vendor/proposals/:id/accept` | seat, `rateLimit('write')`, then `requireSeatOwner()` | `200 AcceptVendorProposalResponse` |
+| `POST` | `/api/vendor/proposals/:id/decline` | the same | `204` |
+
+**Owner seats only** (ruled 2026-10-19). A member seat gets `403 FORBIDDEN`. No capability
+gate: a Free owner decides too. Neither POST takes a body. A proposal addressed to another
+vendor answers the same `404 NOT_FOUND` as no such proposal.
+
+```typescript
+// packages/shared/src/api/vendor-proposals.ts
+export const ListVendorProposalsResponseSchema = z.object({
+  proposals: z.array(VendorProposalSchema),     // open only, oldest first, capped at 100
+  truncated: z.boolean(),
+});
+export const VendorProposalSchema = z.object({
+  id: z.string(),
+  proposed_at: z.string(),
+  product: z.object({
+    name: z.string(),
+    description_excerpt: z.string().nullable(),  // first 400 characters
+    website: z.string().nullable(),
+    product_role: z.string(),
+  }),
+  vendors: z.array(z.object({                   // every vendor the payload names, in order
+    id: z.string(), name: z.string(), is_primary: z.boolean(),
+    owned: z.boolean(),                          // owned its record when proposed
+    exists: z.boolean(),                         // false: an accept is refused
+  })),
+  terms: z.array(z.object({
+    facet: z.enum(['category', 'audience', 'phase', 'trade', 'usefulness', 'extension']),
+    value: z.string(),                           // as sent
+    name: z.string().nullable(),                 // the stored term it resolves to
+    exists: z.boolean(),                         // false: an accept drops it
+  })),
+});
+export const AcceptVendorProposalResponseSchema = z.object({
+  proposal_id: z.string(),
+  product: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+  dropped: z.array(z.object({ facet: /* as above */, value: z.string() })),
+});
+```
+
+**Terms are resolved find-only (ruling Q6).** Categories, audiences and phases match a stored
+term by slug, then by `slugify(name)`, as promote matches them. Trades add the alias pass. A
+"How teams use it" group matches any stored audience or phase, and an `extensionOf` host must
+be a live product. A value that matches nothing is listed with `exists: false` and dropped on
+accept. An accept never mints a term.
+
+**Accept, in order.** Member `403`. Unknown or another vendor's proposal `404`. Decided
+`409 PROPOSAL_ALREADY_DECIDED`. The addressed vendor no longer owns its record
+(`vendors.owned_at` NULL) `409 VENDOR_NOT_OWNED`. A linked vendor is gone
+`409 PROPOSAL_VENDOR_MISSING`. Then **one batch**: the guarded decision `UPDATE`
+(`decision IS NULL`) and a sentinel that aborts the batch when it matched no row, a sentinel
+that aborts it when the addressed vendor stopped owning its record, the product `INSERT`
+(promote's `productEditableData` projection and `generateSlug` rule, `promotion_status =
+'promoted'`, `promoted_at`, `maintained_by = 'vendor'`, `last_reviewed_at` = now), every
+`product_vendors` row the payload names with its stored `isPrimary`, the existing terms'
+join rows, the extension rows, and two audit rows: `product.created`
+(`metadata.reason = 'proposal-accepted'`, `metadata.proposalId`) and
+`product_proposal.accepted` (`metadata.createdProductId`, `metadata.dropped`). A race lost
+between the read and the batch writes nothing and answers the matching `409`. A vendor
+deleted in that window fails the `product_vendors` foreign key and answers
+`409 PROPOSAL_VENDOR_MISSING`. A racing slug answers `409 SLUG_CONFLICT`.
+
+**After an accept commits.** The promote purge set for a created product
+(`cacheTagsForPromote`): `product:{slug}`, `index:products`, `sitemap`, `vendor:{slug}` per
+linked vendor, one tag per linked term, `trade:{slug}` + `index:trades` + `taxonomy` when it
+has a trade, and `product:{host}` per extension host. A by-id Algolia sync of the product and
+every linked vendor behind promote's 20 s watchdog. The audit forward. No re-crawl buffer and
+no home-stats refresh (`CACHE_STRATEGY.md`). No new `GET /api/vendor/updates` scope: the new
+product moves the `products` cursor.
+
+**Decline.** The same `403`, `404` and `409 PROPOSAL_ALREADY_DECIDED`, then one batch: the
+guarded decision `UPDATE` (`decision = 'declined'`, `decided_at`, `decided_by`), its sentinel,
+and a `product_proposal.declined` audit row. No catalog write, no purge.
+
+Both decisions show on the vendor's Changes page as the vendor's own edits
+(`@aeci/shared/audit-vendor-actions`). The review app learns of a decision through AECI-1418,
+not built.
+
+Source of truth: `packages/shared/src/api/vendor-proposals.ts`, handlers
+`apps/api/src/routes/vendor-proposals.ts`, builder `apps/api/src/routes/vendor-proposal-accept.ts`.
+
+Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `NOT_FOUND` (404) ·
+`PROPOSAL_ALREADY_DECIDED` (409) · `VENDOR_NOT_OWNED`, `PROPOSAL_VENDOR_MISSING`,
+`SLUG_CONFLICT` (409, accept) · `RATE_LIMITED` (429, the two POSTs).
 
 #### `GET /api/seat-invites/:token`
 
@@ -7489,7 +7666,7 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 - **Full replacement, and `null` clears the section.** A group has no stable id, so there is no way to patch one without resending the facet. Absent leaves the column untouched. `{ audiences: [], phases: [] }` is normalised to `null` server-side, so "cleared" has exactly one encoding.
 - **The caller sends `slug` + `points` and never `name`.** The stored `UsefulnessGroup` carries a `name` which the public page interpolates verbatim, so a reader parses it as an AECi taxonomy label. The server resolves it from the taxonomy row on every write; Zod strips a supplied one.
 - **Find-only resolution, and an unknown slug is a `400`, not a silent drop.** This is stricter than promote, which drops unresolvable groups into `skipped[]` — a bulk machine push must not fail whole over one stale term, whereas a vendor picked the term from a list we rendered. Two groups resolving to the same term MERGE, matching promote, so both writers agree on the stored shape.
-- **Writing it fences promote while the license lasts.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal in `preserved[]`. Since AECI-1407 that holds only while a live license is assigned to the product. Once none is, the next promote that sends `usefulness` writes it and clears `usefulness_source`. See ADR 0033 and `STAGE_2_5_SPEC.md` §12.2.
+- **Writing it is one-way.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal in `preserved[]`. Nothing clears it back. See ADR 0033 and `STAGE_2_5_SPEC.md` §12.
 
 It is gated on its own **`product.usefulness.edit`** capability rather than `product.edit`. It is Managed-only: a seat with no plan sending `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.usefulness.edit` and `details.fields: ["usefulness"]`.
 

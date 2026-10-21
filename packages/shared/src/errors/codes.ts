@@ -139,10 +139,37 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
-  // AECI-1407 (E6.4): a promote planned AECi claims on a hand-back product (a claimed
-  // vendor's product with no live license), and a license was assigned to it before
-  // the batch committed. The batch rolls back; re-push and the product is fenced whole.
-  LICENSE_GRANTED_DURING_PROMOTE: 'LICENSE_GRANTED_DURING_PROMOTE',
+  // AECI-1415 (ADR 0042): a vendor this promote planned as unowned became owned (a
+  // claim approval or seat provision stamped `vendors.owned_at`) after the plan read
+  // and before the batch. The batch rolls back; re-push and the ownership fence skips
+  // that vendor's rows.
+  VENDOR_OWNED_DURING_PROMOTE: 'VENDOR_OWNED_DURING_PROMOTE',
+  // AECI-1416: another promote stored a proposal for the same product ref (the
+  // `product_proposals_ref_key` unique index) after this one's plan read and before its
+  // batch. The batch rolls back; re-push and the plan refuses the ref as already sent.
+  PRODUCT_PROPOSED_DURING_PROMOTE: 'PRODUCT_PROPOSED_DURING_PROMOTE',
+  // AECI-1416: the vendor a planned proposal was addressed to stopped owning its records
+  // (the admin "Return records to AECi") after the plan read and before the batch. The
+  // batch rolls back; re-push and the product is created normally.
+  VENDOR_RETURNED_DURING_PROMOTE: 'VENDOR_RETURNED_DURING_PROMOTE',
+  // AECI-1416: `POST /api/admin/vendors/:id/return-to-aeci` (409). A promote stored a new
+  // open product proposal for the vendor between the return's read and its batch, so the
+  // return would have deleted a proposal its audit row does not list. Nothing was written.
+  VENDOR_PROPOSALS_CHANGED: 'VENDOR_PROPOSALS_CHANGED',
+  // AECI-1417: `POST /api/vendor/proposals/:id/accept` and `/decline`, both 409.
+  // `PROPOSAL_ALREADY_DECIDED`: the proposal is accepted or declined already, by another
+  // owner or another tab. `PROPOSAL_VENDOR_MISSING` (accept only): a vendor the proposal
+  // links no longer exists, so the product would be half-linked. Nothing was written.
+  PROPOSAL_ALREADY_DECIDED: 'PROPOSAL_ALREADY_DECIDED',
+  PROPOSAL_VENDOR_MISSING: 'PROPOSAL_VENDOR_MISSING',
+  // AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci`, all 409.
+  // `VENDOR_NOT_OWNED`: the vendor's records are AECi's already (`owned_at` is NULL).
+  // AECI-1417 reuses it on `POST /api/vendor/proposals/:id/accept`: the addressed vendor
+  // no longer owns its record, so an owner click may not create a product under it.
+  // `VENDOR_HAS_SEATS`: the vendor still holds a `vendor_admin` seat, banned or not.
+  // Revoke every seat first. Nothing was written.
+  VENDOR_NOT_OWNED: 'VENDOR_NOT_OWNED',
+  VENDOR_HAS_SEATS: 'VENDOR_HAS_SEATS',
   // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
   // reach a request URL, which both Workers log; the search is a POST body (400).
   ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',

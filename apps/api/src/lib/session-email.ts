@@ -1,5 +1,5 @@
 /**
- * The verified email of the caller's session, if any (AECI-1435, ADR 0042).
+ * The verified email of the caller's session, if any (AECI-1435, ADR 0043).
  *
  * A claim or listing request skips the emailed confirmation only when the visitor is
  * signed in AND the session's verified email is the address they typed. This helper

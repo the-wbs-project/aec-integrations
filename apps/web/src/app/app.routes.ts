@@ -545,7 +545,7 @@ export const routes: Routes = [
     loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
   },
   // AECI-1435 — the confirm page behind the claim-confirm email
-  // (`/claims/confirm?token=…`, ADR 0042). Same rules as `/unsubscribe`: NOT
+  // (`/claims/confirm?token=…`, ADR 0043). Same rules as `/unsubscribe`: NOT
   // cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed `private, no-store`),
   // noindex, no resolver, and it POSTs to `/api/requests/confirm` only on the confirm
   // click, because mail scanners prefetch links. Not linked from nav.

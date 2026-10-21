@@ -408,10 +408,9 @@ export type UpdateVendorProfileResponse = z.infer<typeof UpdateVendorProfileResp
  * ADR 0033). It is the one field here whose ownership MOVES on first write: until
  * a vendor saves it the review app owns it and every promote overwrites it, and
  * from the first save onward `products.usefulness_source` fences promote off the
- * column while the product holds a live license. That is the `logo_source`
- * mechanism (AECI-955 / ADR 0032) applied to narrative copy — see
- * `STAGE_2_5_SPEC.md` §12. Since AECI-1407 the fence lifts when the license ends:
- * the next promote that sends `usefulness` writes it and clears the source.
+ * column permanently. That is the `logo_source` mechanism (AECI-955 / ADR 0032)
+ * applied to narrative copy — see `STAGE_2_5_SPEC.md` §12. A license ending does not
+ * lift the fence (AECI-1414, ruling on AECI-1341).
  */
 export const UpdateVendorProductSchema = z
   .object({

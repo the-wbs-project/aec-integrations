@@ -1357,7 +1357,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  *
  * `request-confirmation-expiry` is the twentieth (AECI-1435): daily at 14:30 UTC it
  * deletes the pending claim and listing confirmations past their 7-day link, with one
- * summary audit row (ADR 0042). It sends nothing.
+ * summary audit row (ADR 0043). It sends nothing.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *

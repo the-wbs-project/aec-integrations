@@ -1,5 +1,5 @@
 /**
- * `POST /api/requests/confirm` (AECI-1435, ADR 0042, `API_CONTRACTS.md` §6.7): the
+ * `POST /api/requests/confirm` (AECI-1435, ADR 0043, `API_CONTRACTS.md` §6.7): the
  * click behind the `claim-confirm` email. The `/claims/confirm?token=…` page renders a
  * button, and only the button POSTs here, because mail scanners fetch the links they
  * are sent.

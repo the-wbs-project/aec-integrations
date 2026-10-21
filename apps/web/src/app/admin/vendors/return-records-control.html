@@ -1,0 +1,141 @@
+<div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
+  @if (owned()) {
+  <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.returnRecords.owned">
+    This vendor has owned its records since {{ ownedAt() | date: 'mediumDate' }}. Promote does not
+    write them. Losing every seat does not change that: the records stay the vendor's, frozen.
+  </p>
+
+  @if (blockedBySeats()) {
+  <p
+    class="mt-2 text-sm text-(--text-secondary)"
+    [attr.id]="idPrefix() + '-return-blocked'"
+    i18n="@@admin.vendors.returnRecords.blocked"
+  >
+    To return the records, revoke every seat first, banned ones included.
+  </p>
+  } @if (!confirming()) {
+  <button
+    type="button"
+    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    [disabled]="blockedBySeats()"
+    [attr.aria-describedby]="blockedBySeats() ? idPrefix() + '-return-blocked' : null"
+    (click)="open()"
+    i18n="@@admin.vendors.returnRecords.action.open"
+  >
+    Return records to AECi
+  </button>
+  } @else {
+  <form
+    novalidate
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    (submit)="$event.preventDefault(); confirm()"
+  >
+    <p
+      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+      role="note"
+      i18n="@@admin.vendors.returnRecords.warning"
+    >
+      Use this only when the claim was approved by mistake. AECi takes back the vendor, its products
+      and the integrations it claimed, and promote writes them again. Claims, attestations and
+      licenses are kept. A new claim approval is the only way the vendor owns them again.
+    </p>
+    @if (openProposalCount() > 0) {
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      [attr.id]="idPrefix() + '-return-proposals'"
+      i18n="@@admin.vendors.returnRecords.proposals"
+    >
+      {openProposalCount(), plural, =1 {1 open product proposal will be discarded.} other {{{
+      openProposalCount() }} open product proposals will be discarded.}}
+    </p>
+    }
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-return-reason'"
+        i18n="@@admin.vendors.returnRecords.field.reason"
+      >
+        Reason (required)
+      </label>
+      <p
+        class="mt-1 text-xs text-(--text-secondary)"
+        [attr.id]="idPrefix() + '-return-reason-hint'"
+        i18n="@@admin.vendors.returnRecords.field.reasonHint"
+      >
+        Recorded in the audit trail. Up to {{ reasonMaxLength }} characters.
+      </p>
+      <textarea
+        #reasonInput
+        rows="2"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-return-reason'"
+        [attr.maxlength]="reasonMaxLength"
+        [attr.aria-describedby]="idPrefix() + '-return-reason-hint' + (reasonError() ? ' ' + idPrefix() + '-return-reason-error' : '')"
+        [attr.aria-invalid]="reasonError() ? 'true' : null"
+        aria-required="true"
+        [value]="reason()"
+        (input)="onReasonInput($event)"
+      ></textarea>
+      @if (reasonError()) {
+      <p
+        class="mt-1 text-sm font-medium text-(--text-primary)"
+        [attr.id]="idPrefix() + '-return-reason-error'"
+        i18n="@@admin.vendors.returnRecords.field.reasonError"
+      >
+        Write a reason before returning the records.
+      </p>
+      }
+    </div>
+
+    <div>
+      <label
+        class="block text-sm font-medium text-(--text-primary)"
+        [attr.for]="idPrefix() + '-return-note'"
+        i18n="@@admin.vendors.returnRecords.field.note"
+      >
+        Internal note (optional)
+      </label>
+      <textarea
+        rows="2"
+        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [attr.id]="idPrefix() + '-return-note'"
+        [attr.maxlength]="reasonMaxLength"
+        [value]="internalNote()"
+        (input)="onNoteInput($event)"
+      ></textarea>
+    </div>
+
+    @if (failedMessage()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+    }
+
+    <div class="flex gap-2">
+      <button
+        type="submit"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending()"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.returnRecords.action.pending">Returning…</span>
+        } @else {
+        <span i18n="@@admin.vendors.returnRecords.action.confirm">Return the records</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending()"
+        (click)="cancel()"
+        i18n="@@admin.vendors.returnRecords.action.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } } @else {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.returnRecords.aeci">
+    AECi owns this vendor's records. Promote writes them. A claim approval makes them the vendor's.
+  </p>
+  }
+</div>

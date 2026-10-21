@@ -7,7 +7,7 @@
 
 ## Context
 
-ADR 0035 made a claimed record the vendor's. Promote writes nothing to it, and the owner's edits go live with no review. The same holds for a company or product with an active seat (the AECI-520 claimed-vendor block in `routes/promote.ts`).
+ADR 0035 made a claimed record the vendor's. Promote writes nothing to it, and the owner's edits go live with no review. The same holds for a company or product whose vendor owns its record (the AECI-520 block in `routes/promote.ts`, which keyed on an active seat until AECI-1415 and has read `vendors.owned_at` since, ADR 0042).
 
 That left AECi with no way to fix a wrong fact on a vendor-held record when the vendor disagrees or does not answer. AECi could ask the owner. An AECi contest accept writes the column (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6), but the owner's next save could write the old value straight back, with nothing to stop it and nobody told.
 
@@ -29,6 +29,10 @@ The table has no FK into the entity tables and no CHECK. A lock row is history: 
 ## Consequences
 
 - The owner's freedom to edit (ADR 0035 decision 8) now has one named exception, set and lifted only by an AECi admin, always with a reason the owner reads and an audit row.
-- **Known limit.** When a record stops being vendor-held, for example when the last-seat hand-back clears `claimed_at`, promote writes the column again and the lock row stays. It still blocks a re-claimed vendor's edit of that field until an admin lifts it. Clearing locks on hand-back was not built, because a lock is AECi's statement about a fact, not about who holds the record.
+- **Known limit.** When a record stops being vendor-held, for example when the admin return of records to AECi clears `claimed_at` (the last-seat hand-back did until AECI-1415), promote writes the column again and the lock row stays. It still blocks a re-claimed vendor's edit of that field until an admin lifts it. Clearing locks on hand-back was not built, because a lock is AECi's statement about a fact, not about who holds the record.
 - **The legal text changes with it (Chris, 2026-10-05).** The Listing Accuracy Policy now says AECi asks the vendor first and holds the right to correct a factual detail itself when the vendor does not respond or disagrees. Disputes go to support@aecintegrations.com. The policy stays a draft pending counsel review (AECI-308).
 - The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5. The table is `DATABASE_SCHEMA.md` §8.9. The routes and the error rows are `API_CONTRACTS.md` §4, §6.10 and §6.14.
+
+## Amendment 2026-10-19 (AECI-1415): vendor-held reads ownership
+
+The "vendor-held" test for a company or product now reads `vendors.owned_at` (`loadOwnedVendorIds`), not seat presence. A frozen owned record whose vendor has no seat left is still vendor-held, because seat loss no longer returns it to promote (ADR 0042). Promote does not write it, so this override is AECi's only way to correct it. A product is vendor-held if any joined vendor is owned. Integrations and pairs are unchanged (`claimed_at` or `origin = 'vendor'`).

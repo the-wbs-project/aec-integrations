@@ -93,7 +93,7 @@ interface ClaimDialogModel {
  * `201`, with `confirmation_required`. Never the search text, a typed name, a website
  * or an email.
  *
- * **The emailed link** (AECI-1435, ADR 0042). Unless the visitor is signed in with the
+ * **The emailed link** (AECI-1435, ADR 0043). Unless the visitor is signed in with the
  * typed address, the API parks the submit and answers `confirmation_required: true`.
  * The receipt then reads "Check your inbox": the claim is not sent until the link in
  * the email is clicked. Otherwise it is today's "sent" receipt.

@@ -41,6 +41,7 @@ import {
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
   sendClaimOwnerReviewEmail,
+  sendProductProposalOwnerReviewEmail,
   sendContestSubmittedNotification,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -475,6 +476,18 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         comments: 'I run the integrations team.',
         contextProductName: 'MicroStation',
         decideBy: '2026-10-22T14:30:00.000Z',
+      }),
+  },
+  'product-proposal-owner-review': {
+    links: true,
+    send: (c) =>
+      sendProductProposalOwnerReviewEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'product-proposal-owner-review:prop-1:p-1',
+        proposalId: 'prop-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        productName: 'OpenRoads',
       }),
   },
   'claim-owner-fallback-alert': {

@@ -811,7 +811,9 @@ export function sendVendorReviewPublishedEmail(
  *  1. **Sign in.** The CTA is the sign-in page (`/auth/login?return=/vendor`), never a
  *     one-time link: the email may be read days later. An `invited` claimant's account
  *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
- *     copy tells them it exists and which address to use.
+ *     copy tells them it exists and which address to use. Since AECI-1437 a second
+ *     line says where the portal lives for later visits: the header's account menu
+ *     (top left on a phone), or `/vendor` as an inline link. Sign in stays the one button.
  *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
  *  3. **How Managed works:** licenses on the company's billing account, one per
  *     product, bought later from Billing. No price until E8 rules on the copy.
@@ -842,6 +844,13 @@ export function sendClaimApprovedEmail(
     ? `We created an account for this email address. Sign in from ${where} with this address to open your vendor portal.`
     : `Sign in with your existing account from ${where} to open your vendor portal.`;
 
+  // AECI-1437: the button carries them to /vendor once, but the copy has to say where
+  // the portal lives for every visit after that. The door is the header's account menu
+  // (`layout/user-menu.ts`). Without a host the line names the menu only.
+  const portal = portalUrl(c.env);
+  const findAgain =
+    'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.';
+
   // Block 2: what Free includes (§13.3). Every seat holds these on every plan.
   const free =
     "The Free plan includes your company details and each product's description, website, logo and categories. You can also check each product's integration list and confirm it looks right.";
@@ -865,8 +874,20 @@ export function sendClaimApprovedEmail(
   // sign-in remains the email's one button. Omitted with no host.
   const program = vendorProgramUrl(c.env);
   const render = (link: LinkTagger): EmailContent => {
-    const text = [opening, signIn, free, managed];
-    const html = [openingHtml, signIn, free, managed];
+    const text = [opening, signIn];
+    const html = [openingHtml, signIn];
+    if (portal) {
+      const tagged = link(portal);
+      text.push(`${findAgain} You can also go to ${tagged}`);
+      html.push(
+        `${findAgain} You can also go to <a href="${escapeHtml(tagged)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(portal.replace(/^https?:\/\//, ''))}</a>.`,
+      );
+    } else {
+      text.push(findAgain);
+      html.push(findAgain);
+    }
+    text.push(free, managed);
+    html.push(free, managed);
     if (program) {
       const tagged = link(program);
       text.push(`See what each plan includes on our page for software vendors: ${tagged}`);
@@ -2915,6 +2936,65 @@ export function sendClaimOwnerReviewEmail(
   });
 }
 
+/** The portal's "Proposed products" tab for a vendor, or `null`. */
+function vendorProposalsUrl(env: Env, vendorSlug: string | null): string | null {
+  const base = siteUrl(env);
+  return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/proposals` : null;
+}
+
+/** What `product-proposal-owner-review` names. */
+export interface ProductProposalOwnerReviewFacts {
+  proposalId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/proposals` button. `null` drops the button. */
+  vendorSlug: string | null;
+  productName: string;
+}
+
+/**
+ * `product-proposal-owner-review`: AEC Integrations proposed a new product for a company
+ * that owns its record, so each owner seat is asked to accept or decline it (AECI-1417,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22, ADR 0042). Sent from the promote Workflow's
+ * post-commit hooks once the proposal commits, one per owner seat, keyed
+ * `product-proposal-owner-review:{proposalId}:{profileId}`, so a replayed hook sends
+ * nothing twice.
+ *
+ * The product name is the review app's curated text, still `PLAIN`: it goes to a third
+ * party and is never a link.
+ */
+export function sendProductProposalOwnerReviewEmail(
+  c: EmailContext,
+  opts: ProductProposalOwnerReviewFacts & { to: string; dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim() || 'your company';
+  const product = opts.productName.trim() || 'a new product';
+  const proposals = vendorProposalsUrl(c.env, opts.vendorSlug);
+  const lead = `AEC Integrations found ${product} and would like to list it under ${company}. ${company} owns its listing, so the product is not added unless an owner accepts it.`;
+  const leadHtml = `AEC Integrations found <strong>${escapeHtml(product)}</strong> and would like to list it under ${escapeHtml(company)}. ${escapeHtml(company)} owns its listing, so the product is not added unless an owner accepts it.`;
+  const choice =
+    'Accept adds the product exactly as shown, and you can edit it afterwards. Decline means it is not added. Nothing changes until an owner decides.';
+  const table: EmailTableRow[] = [
+    ['Product', product, PLAIN],
+    ['Company', company, PLAIN],
+  ];
+  const shared = (link: LinkTagger) => ({
+    preheader: `An owner decides whether ${subjectSafe(product)} is listed.`,
+    heading: `New product proposed for ${company}`,
+    table,
+    ...(proposals ? { cta: { label: 'Review proposed products', url: link(proposals) } } : {}),
+    note: `You get this email because you hold an owner seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'product-proposal-owner-review',
+    // Both are curated or typed text, so each is collapsed to one line before a header.
+    subject: `New product proposed for ${subjectSafe(company)}: ${subjectSafe(product)}`,
+    render: (link) => houseBody(shared(link), [lead, choice], [leadHtml, escapeHtml(choice)]),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'product_proposal', id: opts.proposalId },
+  });
+}
+
 /** One claim the owner fallback handed to AECi, for the operator digest. */
 export interface ClaimOwnerFallbackSummary {
   requestId: string;
@@ -3241,7 +3321,7 @@ export type ClaimConfirmSubject =
     };
 
 /**
- * The confirm link for a pending claim or listing request (AECI-1435, ADR 0042,
+ * The confirm link for a pending claim or listing request (AECI-1435, ADR 0043,
  * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3). Sent to the TYPED address right after an
  * anonymous submit. Nothing is sent to AECi and nothing is claimed until the link is
  * clicked and the page's button is pressed.

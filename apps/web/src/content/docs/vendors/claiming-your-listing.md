@@ -51,7 +51,7 @@ A person reviews every claim and emails you the result.
 
 ## What happens next
 
-**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner assigns it a license on the **Billing** tab. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
+**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. After that, open the portal from the account menu at the top right of any page, or go to [/vendor](/vendor). On a phone, the menu is at the top left. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner assigns it a license on the **Billing** tab. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
 
 **If we cannot approve it,** you get an email saying so. You are welcome to send a new claim with more detail about your role.
 

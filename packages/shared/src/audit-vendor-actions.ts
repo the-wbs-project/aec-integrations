@@ -42,6 +42,11 @@ export const AUDIT_VENDOR_ACTIONS = {
   'product_version.created': { kind: 'vendor-edit', receipt: true },
   'product_version.updated': { kind: 'vendor-edit', receipt: true },
   'product_version.deleted': { kind: 'vendor-edit', receipt: true },
+  // AECI-1417: an owner decides a product proposal (`routes/vendor-proposals.ts`). Both
+  // are the vendor's own acts, so both are receipts. The accept's `product.created`
+  // row is not listed: promote writes that action too, with no vendor on it.
+  'product_proposal.accepted': { kind: 'vendor-edit', receipt: true },
+  'product_proposal.declined': { kind: 'vendor-edit', receipt: true },
 
   // ── Integrations the vendor owns or attests ───────────────────────────────
   'claim.created': { kind: 'vendor-edit', receipt: true },

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e411f9f6-cf99-43c3-9ebd-1aba3da47d28",
+  "id": "6a82678a-1942-466e-8327-667855dc9016",
   "prevId": "c05d384b-858f-4618-8c4b-f4723f6221c6",
   "tables": {
     "agreement_acceptances": {
@@ -6513,116 +6513,6 @@
         }
       }
     },
-    "request_confirmations": {
-      "name": "request_confirmations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "submitter_email": {
-          "name": "submitter_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "terms_version": {
-          "name": "terms_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ip": {
-          "name": "ip",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "confirmed_at": {
-          "name": "confirmed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "request_confirmations_token_hash_key": {
-          "name": "request_confirmations_token_hash_key",
-          "columns": [
-            "token_hash"
-          ],
-          "isUnique": true
-        },
-        "request_confirmations_email_idx": {
-          "name": "request_confirmations_email_idx",
-          "columns": [
-            "submitter_email",
-            "created_at"
-          ],
-          "isUnique": false
-        },
-        "request_confirmations_expires_idx": {
-          "name": "request_confirmations_expires_idx",
-          "columns": [
-            "expires_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "review_responses": {
       "name": "review_responses",
       "columns": {
@@ -8456,6 +8346,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'aeci'"
+        },
+        "owned_at": {
+          "name": "owned_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",

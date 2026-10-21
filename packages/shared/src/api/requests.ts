@@ -220,7 +220,7 @@ export type ListingRequestInput = z.input<typeof ListingRequestSchema>;
 /**
  * Returned by `POST /api/requests/{claim,correction,listing}`.
  *
- * `confirmation_required` (AECI-1435, ADR 0042) is `true` when the claim or listing
+ * `confirmation_required` (AECI-1435, ADR 0043) is `true` when the claim or listing
  * request is waiting on the typed address: nothing reached the queue yet, and the
  * visitor must click the link we emailed. `request_id` is then the pending id, which
  * becomes the request's id on confirm, so analytics joins still hold. It is `false`

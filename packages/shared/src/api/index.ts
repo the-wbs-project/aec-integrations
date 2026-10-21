@@ -53,6 +53,7 @@ export * from './vendor-checklist';
 export * from './vendor-connector-catalog';
 export * from './vendor-connectors';
 export * from './vendor-notifications';
+export * from './vendor-proposals';
 export * from './vendor-history';
 export * from './vendor-recrawl-submissions';
 export * from './vendor-updates';

@@ -1779,7 +1779,7 @@ async function runProtestReplyReminderJob(env: Env, ctx: ExecutionContext): Prom
 }
 
 /**
- * Daily pending-confirmation expiry (AECI-1435 / ADR 0042). Everything load-bearing is
+ * Daily pending-confirmation expiry (AECI-1435 / ADR 0043). Everything load-bearing is
  * in `./lib/request-confirmations`; this shell supplies the DB and the PostHog sink.
  * Same shape as `runClaimOwnerFallbackJob`. A crash is a `failed` run.
  */

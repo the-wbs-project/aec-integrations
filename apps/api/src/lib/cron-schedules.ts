@@ -296,7 +296,7 @@ export const GSC_INSPECT_CRON = '0 13 * * *';
 export const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 
 /**
- * Daily pending-confirmation expiry (AECI-1435 / ADR 0042). **14:30 UTC**, half an
+ * Daily pending-confirmation expiry (AECI-1435 / ADR 0043). **14:30 UTC**, half an
  * hour after the 14:00 claim owner fallback. The `*` `/15` reconcile sweep also fires at
  * 14:30, under its own expression, so the two never share a `switch` case.
  *

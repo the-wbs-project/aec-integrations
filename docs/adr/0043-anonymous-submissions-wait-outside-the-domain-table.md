@@ -1,4 +1,4 @@
-# ADR 0042: Anonymous submissions wait outside the domain table until the address is confirmed
+# ADR 0043: Anonymous submissions wait outside the domain table until the address is confirmed
 
 - Status: Accepted
 - Date: 2026-10-21

@@ -331,17 +331,23 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const seat = await profileOf(CLAIMANT_ID);
     expect(seat).toMatchObject({ role: 'vendor_admin', vendorId: VENDOR_ID, seatOwner: true });
 
-    // No license, and the vendor row is exactly as seeded.
+    // No license. The one vendor write is the AECI-1415 ownership stamp: approval
+    // makes the vendor own its record (ADR 0042). `verified` is untouched.
     expect(await t.db.select().from(licenses)).toHaveLength(0);
     const vendor = await vendorOf(VENDOR_ID);
     expect(vendor!.verified).toBe(false);
+    expect(vendor!.ownedAt).not.toBeNull();
     expect(vendor!.updatedAt).toBe(OLD_TS);
+    const grantRow = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_claim.granted',
+    )!;
+    expect(grantRow.metadata).toMatchObject({ ownership_stamped: true });
 
     // ONE batch: `grantSeatStatements`' six statements (the AECI-1333 sentinel first),
-    // the billing account's two and the AECI-1374 flag sentinel last.
-    // The claim has no acceptances, so the link adds nothing.
+    // the ownership stamp, the billing account's two and the AECI-1374 flag sentinel
+    // last. The claim has no acceptances, so the link adds nothing.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(9);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
     batchSpy.mockRestore();
 
     const req = await requestOf(REQUEST_ID);
@@ -450,10 +456,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
 
     expect(status).toBe(200);
-    // 6 seat (with the AECI-1333 sentinel) + 2 billing account + 2 acceptance link
-    // + the AECI-1374 flag sentinel.
+    // 6 seat (with the AECI-1333 sentinel) + the ownership stamp + 2 billing account
+    // + 2 acceptance link + the AECI-1374 flag sentinel.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(11);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(12);
     batchSpy.mockRestore();
 
     const account = (await t.db.select().from(billingAccounts))[0]!;
@@ -610,7 +616,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   });
 
   it('a second seat on a seated vendor is a non-owner; verified, license and account untouched', async () => {
-    await seedVendor({ verified: true, updatedAt: OLD_TS });
+    // Seated, so owned (the 0083 backfill): the stamp matches no row (AECI-1415).
+    await seedVendor({ verified: true, updatedAt: OLD_TS, ownedAt: OLD_TS });
     // A Managed vendor from before AECI-1367: a live license and an account. The plan
     // snapshot (AECI-1355) and the response's `tier` (AECI-1358) both read it.
     await seedBillingAccount();
@@ -748,7 +755,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   it('a seated vendor with no billing account yet gets one with the next seat (pre-back-fill)', async () => {
     // A vendor seated before AECI-1351 has no account until the back-fill runs. The
     // next approval creates it: the builder keys on the account, not on the seat count.
-    await seedVendor({ verified: true, updatedAt: OLD_TS });
+    await seedVendor({ verified: true, updatedAt: OLD_TS, ownedAt: OLD_TS });
     await t.db
       .insert(profiles)
       .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });

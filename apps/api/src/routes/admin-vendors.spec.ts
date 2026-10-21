@@ -32,6 +32,7 @@ import {
   connectorEvidencedPairs,
   integrations,
   licenses,
+  productProposals,
   productVendors,
   products,
   profiles,
@@ -605,6 +606,33 @@ describe('GET /api/admin/vendors/:id', () => {
     );
     const b = await body(res);
     expect(b.claim_counts).toEqual({ open: 1, in_review: 1, resolved: 0, rejected: 1 });
+  });
+
+  it('counts the open product proposals only (AECI-1416)', async () => {
+    const row = (id: string, ref: string, decision: 'declined' | null) => ({
+      id,
+      vendorId: VENDOR,
+      ref,
+      payload: {},
+      proposedAt: '2026-10-19T00:00:00.000Z',
+      decision,
+    });
+    await t.db
+      .insert(productProposals)
+      .values([
+        row(u(70), 'p:recOne000001', null),
+        row(u(71), 'p:recTwo000001', null),
+        row(u(72), 'p:recThree0001', 'declined'),
+      ]);
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    expect((await body(res)).open_proposal_count).toBe(2);
   });
 
   // ── The §5.2 payer test (AECI-738) ────────────────────────────────────────
@@ -1626,10 +1654,26 @@ describe('POST /api/admin/vendors/:id/seats', () => {
 
     expect(await t.db.select().from(licenses)).toEqual([]);
     const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
-    // Byte-identical, including `updated_at` — nothing must reach the nightly
-    // Algolia push as a changed vendor record (§5.2 step 2's approve-then-clear
-    // objection applies just as much to a spurious touch).
-    expect(after).toEqual(before);
+    // Byte-identical but for the AECI-1415 ownership stamp, `updated_at` included —
+    // nothing must reach the nightly Algolia push as a changed vendor record (§5.2
+    // step 2's approve-then-clear objection applies just as much to a spurious touch).
+    expect(after!.ownedAt).not.toBeNull();
+    expect({ ...after, ownedAt: null }).toEqual(before);
+  });
+
+  it('stamps ownership once, and records it on the provision row (AECI-1415)', async () => {
+    await provision(VENDOR, linked());
+    const [first] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    const rows = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_seat.provisioned'));
+    expect(rows[0]!.metadata).toMatchObject({ ownership_stamped: true });
+    // A later grant on the owned vendor leaves the stamp as it was.
+    await t.db.update(profiles).set({ seatOwner: false });
+    await provision(VENDOR, linked());
+    const [second] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(second!.ownedAt).toBe(first!.ownedAt);
   });
 
   it('leaves license_mirror_drift clean (§8.9(4))', async () => {
@@ -1786,9 +1830,9 @@ describe('POST /api/admin/vendors/:id/seats', () => {
       vendorId: VENDOR,
       actorId: ADMIN,
     });
-    // No `vendors` write: the row is byte-identical, `updated_at` included.
+    // No `vendors` write but the AECI-1415 ownership stamp, `updated_at` kept.
     const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
-    expect(after).toEqual(before);
+    expect({ ...after, ownedAt: null }).toEqual(before);
   });
 
   it('writes no billing account when the vendor already has one (AECI-1351)', async () => {

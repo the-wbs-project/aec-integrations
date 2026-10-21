@@ -14,7 +14,7 @@
  * plus SQL-level checks on the statements.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -34,11 +34,8 @@ import {
   endLicensesStatements,
   grantLicensesStatements,
   lapseTermStatements,
-  loadLicensedProductIds,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
-  noLiveProductLicenseSentinel,
-  productHasLiveLicenseSql,
   reconcileVerifiedMirror,
   setCancelAtTermEndStatements,
   setLicensesTermStatements,
@@ -1264,54 +1261,6 @@ describe('loadOwnedProductLicenseState', () => {
       { productId: P1, licensed: true },
       { productId: P2, licensed: false },
     ]);
-  });
-});
-
-describe('the per-product license reads (AECI-1407, the promote hand-back)', () => {
-  beforeEach(async () => {
-    // P1: another account's live license (a co-owned product counts). P2: ended only.
-    await seedLicense('l-live', {
-      billingAccountId: OTHER_ACCOUNT_ID,
-      assignedProductId: P1,
-      assignedAt: OLD_TS,
-    });
-    await seedLicense('l-ended', { assignedProductId: P2, assignedAt: OLD_TS, endedAt: OLD_TS });
-    // An unassigned live license holds no product.
-    await seedLicense('l-free');
-  });
-
-  it('loadLicensedProductIds returns only the products a live license holds', async () => {
-    expect(await loadLicensedProductIds(t.db, [P1, P2, P1, 'p-missing'])).toEqual(new Set([P1]));
-    expect(await loadLicensedProductIds(t.db, [])).toEqual(new Set());
-  });
-
-  it('productHasLiveLicenseSql agrees with the read, for a value and for an outer column', async () => {
-    const byValue = async (id: string) =>
-      (await t.db.select({ v: productHasLiveLicenseSql(id) }).from(sql`(SELECT 1)`))[0]!.v;
-    expect(Boolean(await byValue(P1))).toBe(true);
-    expect(Boolean(await byValue(P2))).toBe(false);
-
-    // Inside an UPDATE, where an unqualified column would bind to the inner row.
-    await t.db
-      .update(products)
-      .set({
-        description: sql`CASE WHEN ${productHasLiveLicenseSql(sql`"products"."id"`)} THEN 'licensed' ELSE 'free' END`,
-      })
-      .where(sql`1 = 1`);
-    const rows = await t.db.select({ id: products.id, d: products.description }).from(products);
-    expect(Object.fromEntries(rows.map((r) => [r.id, r.d]))).toEqual({
-      [P1]: 'licensed',
-      [P2]: 'free',
-    });
-  });
-
-  it('noLiveProductLicenseSentinel aborts the batch only on a licensed product', async () => {
-    await expect(
-      t.db.batch([noLiveProductLicenseSentinel(t.db, P1)] as unknown as BatchTuple),
-    ).rejects.toThrow(/malformed JSON/i);
-    await expect(
-      t.db.batch([noLiveProductLicenseSentinel(t.db, P2)] as unknown as BatchTuple),
-    ).resolves.toBeDefined();
   });
 });
 

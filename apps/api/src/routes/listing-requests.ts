@@ -6,7 +6,7 @@
  *
  * Public, no session, like the claim route beside it. Contract: `ListingRequestSchema`.
  *
- * **It waits on the emailed link** (AECI-1435, ADR 0042). Unless the visitor is signed
+ * **It waits on the emailed link** (AECI-1435, ADR 0043). Unless the visitor is signed
  * in with the typed address, the submit parks the request in `request_confirmations`
  * and emails a confirm link. The row, its audit row and the acceptance below are
  * written at confirm (`routes/request-confirmations.ts`), by `submitListingNow`.

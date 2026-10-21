@@ -56,6 +56,7 @@ import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
+  createReturnRecordsHandler,
   createAdminVendorAuditHandler,
   createAdminVendorProductsHandler,
   createAdminVendorDetailHandler,
@@ -256,6 +257,11 @@ import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
 import {
+  createAcceptVendorProposalHandler,
+  createDeclineVendorProposalHandler,
+  createListVendorProposalsHandler,
+} from './routes/vendor-proposals';
+import {
   createAcceptSeatInviteHandler,
   createSeatInvitePreviewHandler,
 } from './routes/seat-invites';
@@ -396,7 +402,7 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // per IP like the claim route, and like it, it carries no in-Worker bucket
 // (`docs/waf-rate-limits.md` §6.2).
 phase28.post('/api/requests/listing', createListingRequestHandler());
-// AECI-1435 (ADR 0042): an anonymous claim or listing request waits in
+// AECI-1435 (ADR 0043): an anonymous claim or listing request waits in
 // `request_confirmations` until the typed address clicks the emailed link. The
 // `/claims/confirm` page POSTs the token here on its button, never on load. Under
 // `/api/requests/`, so zone Rule A caps it per IP, and the `token` bucket keyed by IP
@@ -696,6 +702,11 @@ app.route('/', authActivity);
 //     names `vendors`: revoking a seat is orthogonal to the licenses and never
 //     moves the mirror (§5.2). Requires a `{ reason }` body (AECI-1191), recorded
 //     in that row's `metadata.reason`. Ban/unban stays on `/api/admin/reviewers/:id`.
+//     The last seat freezes the record and hands nothing back (AECI-1415).
+//   - POST   /api/admin/vendors/:id/return-to-aeci (AECI-1415, ADR 0042) — "Return
+//     records to AECi", the one action that moves ownership back. Refused while any
+//     seat remains. Clears `vendors.owned_at` and runs `planVendorHandback` in one
+//     batch with a `vendor.records_returned` row. A write: `rateLimit('write')`.
 //   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
 //     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
 //     display name and (only when the term contains `@`) by exact email.
@@ -985,6 +996,12 @@ authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),
   createAdminRevokeSeatHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/return-to-aeci',
+  requireAdmin(),
+  rateLimit('write'),
+  createReturnRecordsHandler(),
 );
 // AECI-692: the admin user surface (§5.8). Two READS and nothing else — ban and
 // reinstate reuse `PATCH /api/admin/reviewers/:id` above completely unchanged, so
@@ -1639,6 +1656,23 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorLicenseHandler(),
+);
+// AECI-1417 (E6b.5, ADR 0042): the owner's "Proposed products". The Billing gate order:
+// `requireVendor()`, the limiter on the two writes, then `requireSeatOwner()` inside each
+// handler. The read is never limited. An accept creates the product exactly as proposed
+// and purges what a promote create purges; a decline records the decision only.
+authVendor.get('/api/vendor/proposals', requireVendor(), createListVendorProposalsHandler());
+authVendor.post(
+  '/api/vendor/proposals/:id/accept',
+  requireVendor(),
+  rateLimit('write'),
+  createAcceptVendorProposalHandler(),
+);
+authVendor.post(
+  '/api/vendor/proposals/:id/decline',
+  requireVendor(),
+  rateLimit('write'),
+  createDeclineVendorProposalHandler(),
 );
 app.route('/', authVendor);
 

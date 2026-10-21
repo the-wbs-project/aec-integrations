@@ -121,7 +121,7 @@ What the build brings to `connector_evidenced_pairs`: four columns, `claimed_at`
 
 ## Consequences
 
-- The review app is no longer the source of truth for a claimed integration. Its copy of that row is dead until one of two paths hands the row back. An AECi admin accept of an `owner` contest that reassigns the row to another vendor (or to "neither") clears `claimed_at`, so promote writes it again. Since AECI-989, revoking the owner's last seat does the same on every live row it claimed (see the 2026-09-23 note below). Both re-route the old owner's open contests to AECi in the same batch.
+- The review app is no longer the source of truth for a claimed integration. Its copy of that row is dead until one of two paths hands the row back. An AECi admin accept of an `owner` contest that reassigns the row to another vendor (or to "neither") clears `claimed_at`, so promote writes it again. The second path was the last-seat revoke (AECI-989, 2026-09-23 note below). Since AECI-1415 (2026-10-19) it is the admin "Return records to AECi" action instead, and seat loss hands nothing back. Both re-route the old owner's open contests to AECi in the same batch.
 - Every owner write refuses a connector-powered row, the claim included (decision 9, v1). AECI-1040 lifts that for claim, edit and retire together. The lift is ruled (2026-09-23). The claim (AECI-1089), the edit (AECI-1090) and retire and restore (AECI-1091) are built.
 - The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves (the AECI-992 row read); a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
 - `built_by_vendor_id` on a claimed row can change only through AECi's own admin path (an `owner` contest accept), never through promote. Reassigning it clears `claimed_at`.
@@ -144,6 +144,8 @@ Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4. This does not open any AECi *
 
 ## 2026-09-23 note: the last seat hands claimed rows back (AECI-989)
 
+> **Superseded by AECI-1415 (2026-10-19), see the amendment below and ADR 0042.** A revoke or an erasure of the last seat no longer clears `claimed_at` or returns any marker. Only the admin return does. The note is kept as the record of what shipped on 2026-09-23.
+
 The Revisit section named this trigger: a claimed row going back to AECi other than by the owner-reassignment accept. A seat is the gate on every integration action (decision 15). So once a vendor has no seat left, nobody can edit, retire or answer contests on its claimed rows, and the fence stops promote writing them. The rows were frozen.
 
 - **Revoking a vendor's last `vendor_admin` seat clears `claimed_at` on every live row it owns and claimed**, in the revoke's batch, with an `integration.updated` row (`metadata.reason = 'owner-seat-revoked'`). Promote writes those rows again. `built_by_vendor_id` stays. Its open owner contests re-route to AECi.
@@ -152,7 +154,7 @@ The Revisit section named this trigger: a claimed row going back to AECi other t
 - **A ban un-claims nothing** (ruled 2026-09-23). A ban is reversible. While a vendor has no unbanned seat, its open owner contests route to AECi, and an unban or a new seat grant routes them back.
 - **No delete, and claims, attestations, links and contests survive.** Decisions 1 to 15 are unchanged.
 
-Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9, builder `apps/api/src/lib/vendor-handback.ts`. Account erasure of the last seat is the one remaining path, AECI-1106.
+Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9, builder `apps/api/src/lib/vendor-handback.ts`. Account erasure of the last seat was the one remaining path, AECI-1106, also superseded.
 
 ## 2026-10-04 note: override reasons are vendor-visible (AECI-1159, scope 1159a)
 
@@ -180,6 +182,15 @@ The 2026-10-09 note says the mirror drives the claim button copy on public pages
 
 Decisions 1 to 15 are unchanged.
 
+## Amendment 2026-10-19 (AECI-1415): promote refuses every integration an owned product touches
+
+Ruled 2026-10-19 on AECI-1341 (E6b.3). ADR 0042 is the reference. Ownership is now stored on the vendor (`vendors.owned_at`) and covers the vendor, every product joined to it and the integrations it owns. Two things in this ADR change.
+
+- **Promote refuses every integration whose source or target product is owned**, whichever product the payload is about. That includes the stored endpoints of an edge an update would move away from an owned product. Before, promote refused only an edge touching the payload's own blocked product, and an edge whose far endpoint was an owned vendor's product still wrote. That far-endpoint rule is dropped. An edge where the owned product is only the `poweredByProduct` connector still writes.
+- **Seat loss no longer hands claimed rows back.** The 2026-09-23 note's trigger (the last-seat revoke, then the erasure) is gone. The records stay vendor-owned and frozen. Only the admin "Return records to AECi" action clears `claimed_at` on the vendor's live claimed rows, and it is refused while any seat remains.
+
+**Unchanged:** the per-row claim fence (`claimed_at IS NOT NULL OR origin = 'vendor'`, `REVIEW_APP_PROMOTE_API.md` §4b) still applies on top of the product rule. Edit rights, contest routing and notifications stay seat-based. Decisions 1 to 15 stand.
+
 ## Revisit
 
-When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the last-seat hand-back (the 2026-09-23 note).
+When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the admin return of records (the 2026-10-19 amendment).

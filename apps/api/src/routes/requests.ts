@@ -22,7 +22,7 @@
  * `context_product_id` ("Came from" for the reviewer). A correction is about a listing,
  * so it keeps its product target.
  *
- * **An anonymous claim waits on its emailed link** (AECI-1435, ADR 0042). Unless the
+ * **An anonymous claim waits on its emailed link** (AECI-1435, ADR 0043). Unless the
  * visitor is signed in with the typed address, the submit only parks the claim in
  * `request_confirmations` and emails a confirm link (`lib/request-confirmations.ts`).
  * Everything below then runs at confirm (`routes/request-confirmations.ts`), through
@@ -329,7 +329,7 @@ type AccountConflict = Extract<ClaimAccountCheck, { outcome: 'conflict' }>;
 
 /**
  * What the confirm path of an anonymous claim changes in the shared core (AECI-1435,
- * ADR 0042). Absent on a signed-in claim and on every correction, which take today's
+ * ADR 0043). Absent on a signed-in claim and on every correction, which take today's
  * path unchanged.
  */
 export interface CreateRequestOptions {
@@ -819,7 +819,7 @@ export async function submitClaimNow(
 /**
  * `POST /api/requests/claim`.
  *
- * **Who skips the emailed link** (AECI-1435, ADR 0042). A signed-in visitor whose
+ * **Who skips the emailed link** (AECI-1435, ADR 0043). A signed-in visitor whose
  * VERIFIED session email (`verifiedSessionEmail`, the strict verifier) is the typed
  * address is the claimant already, so the claim goes straight in, exactly as before.
  * Anyone else, including a failed verify, gets the confirm path: the claim is parked in

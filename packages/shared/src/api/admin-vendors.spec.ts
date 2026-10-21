@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AdminRevokeSeatSchema,
+  AdminReturnRecordsResponseSchema,
+  AdminReturnRecordsSchema,
   AdminAuditRowSchema,
   AdminVendorAuditQuerySchema,
   AdminVendorDetailSchema,
@@ -108,6 +110,7 @@ describe('AdminVendorDetailSchema', () => {
     promotion_status: 'promoted',
     maintained_by: 'aeci',
     last_reviewed_at: null,
+    owned_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-08-20T00:00:00.000Z',
     seats: [],
@@ -119,6 +122,7 @@ describe('AdminVendorDetailSchema', () => {
     owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
+    open_proposal_count: 0,
   };
 
   it('accepts a vendor with no seats', () => {
@@ -307,6 +311,7 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     promotion_status: 'promoted',
     maintained_by: 'aeci',
     last_reviewed_at: null,
+    owned_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     seats: [],
@@ -318,6 +323,7 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     owned_integrations: { integrations: 0, connector_evidenced: 0, total: 0 },
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
+    open_proposal_count: 0,
   };
 
   it('parses with the breakdown present', () => {
@@ -408,4 +414,35 @@ describe('AdminRevokeSeatSchema (AECI-1191)', () => {
       expect(AdminRevokeSeatSchema.safeParse(body).success).toBe(false);
     },
   );
+});
+
+describe('AdminReturnRecordsSchema (AECI-1415)', () => {
+  it('takes a trimmed reason and an optional internal note', () => {
+    expect(
+      AdminReturnRecordsSchema.parse({ reason: ' Approved by mistake ', internalNote: 'n' }),
+    ).toEqual({ reason: 'Approved by mistake', internalNote: 'n' });
+  });
+
+  it.each([{}, { reason: '' }, { reason: '  ' }, { reason: 'ok', extra: 1 }])(
+    'refuses %j',
+    (body) => {
+      expect(AdminReturnRecordsSchema.safeParse(body).success).toBe(false);
+    },
+  );
+
+  it('the response states owned_at as null', () => {
+    const body = {
+      vendor_id: '11111111-1111-4111-8111-111111111111',
+      owned_at: null,
+      product_ids: ['p'],
+      integration_ids: [],
+      evidenced_pair_ids: [],
+      contests_rerouted: 0,
+      discarded_proposal_ids: ['pp1'],
+    };
+    expect(AdminReturnRecordsResponseSchema.parse(body)).toEqual(body);
+    expect(
+      AdminReturnRecordsResponseSchema.safeParse({ ...body, owned_at: '2026-10-01' }).success,
+    ).toBe(false);
+  });
 });

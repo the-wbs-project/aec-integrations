@@ -1,5 +1,5 @@
 /**
- * Pending claim and listing confirmations (AECI-1435, ADR 0042).
+ * Pending claim and listing confirmations (AECI-1435, ADR 0043).
  *
  * An anonymous claim or typed-in listing request is not a request yet. The submit
  * validates it, resolves its target, and parks it in `request_confirmations` with a

@@ -73,6 +73,7 @@ import {
   type PromoteOperation,
   type PromotePreserved,
   type PromoteResponse,
+  type ProductProposalPayload,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
   type PromoteUnresolvedLink,
@@ -85,7 +86,7 @@ import {
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { and, eq, inArray, isNull, ne, sql, type SQL, type Table } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -98,6 +99,7 @@ import {
   productCategories,
   productExtensions,
   productPhases,
+  productProposals,
   products,
   productTrades,
   productVendors,
@@ -123,18 +125,19 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import {
+  loadOwnedProductIds,
+  loadOwnedVendorIds,
+  promoteOwnershipSentinels,
+} from '../lib/claimed-vendors';
+import { PROPOSAL_REF_RE, proposalVendorOwnedSentinel } from '../lib/product-proposals';
+import { emailOwnersOfProposal } from '../lib/product-proposal-notify';
 import {
   isPromoteClaimFenceError,
   promoteClaimFenceSentinel,
   promoteEvidencedClaimFenceSentinel,
 } from '../lib/integration-claims';
 import { type ContestAnchor } from '../lib/integration-contests';
-import {
-  loadLicensedProductIds,
-  noLiveProductLicenseSentinel,
-  productHasLiveLicenseSql,
-} from '../lib/license';
 import {
   anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
@@ -209,17 +212,6 @@ function fencedLastReviewedAt(
   return {
     lastReviewedAt: sql`CASE WHEN ${table.maintainedBy} = 'aeci' THEN ${value} ELSE ${table.lastReviewedAt} END`,
   };
-}
-
-/**
- * AECI-1407 (ruled 2026-10-19). True when the stored `usefulness` block is a vendor's
- * and the product holds no live license, so promote may hand it back to AECi. An
- * admin-written block (`usefulness_source = 'admin'`) never matches: the hand-back
- * covers vendor-written usefulness only. Evaluated inside the UPDATE so a license or
- * an edit landing between the plan read and the batch still wins.
- */
-function vendorUsefulnessHandBackSql(productId: string): SQL {
-  return sql`(${products.usefulnessSource} = 'vendor' AND NOT ${productHasLiveLicenseSql(productId)})`;
 }
 
 /** Whether {@link fencedLastReviewedAt} will refuse this write, i.e. whether the
@@ -306,8 +298,10 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** Generate a slug or throw a typed 400 for the two expected failure modes. */
-function generateSlug(name: string, existing: Set<string>, vendorSlug?: string): string {
+/** Generate a slug or throw a typed 400 for the two expected failure modes. Shared with
+ *  the owner's proposal accept (AECI-1417, `routes/vendor-proposal-accept.ts`), so a
+ *  product created there is slugged exactly as promote slugs it. */
+export function generateSlug(name: string, existing: Set<string>, vendorSlug?: string): string {
   let base: string;
   try {
     base = slugify(name);
@@ -339,7 +333,7 @@ function generateSlug(name: string, existing: Set<string>, vendorSlug?: string):
  * failed: products.slug`; a non-slug UNIQUE violation returns false and falls
  * through to the generic 500 so unrelated violations are never mislabeled.
  */
-function isSlugUniqueViolation(err: unknown): boolean {
+export function isSlugUniqueViolation(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { message?: unknown; code?: unknown };
   const msg =
@@ -368,6 +362,21 @@ export function isPromoteJobDuplicate(err: unknown): boolean {
   const msg =
     `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
   return msg.includes('constraint') && msg.includes('promote_jobs');
+}
+
+/**
+ * True when `err` is the `product_proposals_ref_key` violation (AECI-1416): another
+ * promote stored a proposal for the same product ref between this one's plan read and
+ * its batch. SQLite names the column, `UNIQUE constraint failed: product_proposals.ref`,
+ * and D1 wraps the same text. Disjoint from {@link isPromoteJobDuplicate} (no
+ * `promote_jobs`) and from {@link isSlugUniqueViolation} (no `slug`).
+ */
+export function isProductProposalRefConflict(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { message?: unknown; code?: unknown };
+  const msg =
+    `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
+  return msg.includes('unique') && msg.includes('product_proposals.ref');
 }
 
 /** Columns named in a `UNIQUE constraint failed: <table>.<col>, …` message →
@@ -417,7 +426,9 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
   });
 }
 
-function productEditableData(p: PromoteProduct): Record<string, unknown> {
+/** The product columns a promote writes from its payload. Shared with the owner's proposal
+ *  accept (AECI-1417), which creates the proposed product from the same projection. */
+export function productEditableData(p: PromoteProduct): Record<string, unknown> {
   return compact({
     description: p.description,
     website: p.website,
@@ -1079,46 +1090,37 @@ export function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unkn
 
 export const AUDIT_META = { source: 'review-app-promote' } as const;
 
-// ─── Claimed-vendor block reasons (AECI-520) ─────────────────────────────────
+// ─── Ownership fence reasons (AECI-520, reworked by AECI-1415 / ADR 0042) ─────
 // Constants, not interpolated strings: the review app surfaces `skipped[].reason`
 // verbatim, and the causal vendor ids belong in the `promote.blocked` audit row,
-// not in a message specs and operators have to pattern-match.
-const BLOCKED_VENDOR_REASON =
-  'vendor is claimed by a vendor admin; review-app writes to claimed vendors are blocked';
-const BLOCKED_PRODUCT_REASON =
-  'product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
-const BLOCKED_INTEGRATION_REASON =
-  'an endpoint product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
-
-// ─── License hand-back (AECI-1407, E6.4) ─────────────────────────────────────
-// The one opening in the claimed-vendor block above (`REVIEW_APP_PROMOTE_API.md` §4a,
-// `VENDOR_SIGNUP_PROCESS.md` decision 14). A claimed vendor's EXISTING product with no
-// live license takes these payload fields and nothing else. They are the Managed-only
-// product fields promote writes (ruled 2026-10-14). The fourth Managed-only right, the
-// data-flow confirmations, is the AECi claims on the product's existing edges, planned
-// in the integration loop. Taxonomy and every other field stay fenced (E6b, AECI-1341).
-const HAND_BACK_PRODUCT_FIELDS = ['toolIntegrationsUrl', 'apiDocsUrl', 'usefulness'] as const;
-/** Payload keys that address the product rather than describe it. Never "withheld". */
-const PRODUCT_ADDRESS_FIELDS = new Set(['ref', 'supabaseId']);
-/**
- * `preserved[] { kind: 'license_hand_back' }` reason on the product's `ref`. Names the
- * hand-back fields the UPDATE actually carries, so an admin-fenced `usefulness` (left
- * out of the write) is not claimed as written. The withheld field names follow after
- * a colon.
- */
-export function licenseHandBackProductReason(
-  written: readonly string[],
-  withheld: readonly string[],
-): string {
-  const list =
-    written.length <= 1
-      ? written.join('')
-      : `${written.slice(0, -1).join(', ')} and ${written[written.length - 1]}`;
-  return `product has no live license, so promote wrote only ${list}; the claimed vendor keeps: ${withheld.join(', ')}`;
-}
-/** `preserved[] { kind: 'license_hand_back' }` on an integration's `ref`. */
-export const PRESERVED_LICENSE_HAND_BACK_INTEGRATION =
-  'endpoint product has no live license, so promote wrote only the AECi claims on this existing edge; its columns stay as they are';
+// not in a message specs and operators have to pattern-match. One string per cause,
+// so a curator can tell them apart (`REVIEW_APP_PROMOTE_API.md` §4a).
+export const BLOCKED_VENDOR_REASON =
+  'vendor owns its record; review-app writes to a vendor-owned record are refused';
+export const BLOCKED_PRODUCT_REASON =
+  'product belongs to a vendor that owns its record; review-app writes to it are refused';
+// ─── Product proposals (AECI-1416, rulings Q4 and Q5 of 2026-10-19) ───────────
+// A NEW product that would join an owned vendor is not created. It is stored in
+// `product_proposals` for the owner to accept or decline (AECI-1417), and the skip
+// carries `proposalId`. One send per ref, ever: a re-send is refused whatever state
+// the first proposal is in, with that state in the reason.
+export const PROPOSED_PRODUCT_REASON =
+  'new product for a vendor that owns its record; it was not created, and a proposal was recorded for the vendor to accept or decline';
+export const ALREADY_PROPOSED_REASONS = {
+  open: 'product was already sent to the vendor that owns its record as a proposal, which is still open; a ref is sent once, so nothing was written to the catalog or proposals',
+  accepted:
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor accepted; a ref is sent once, so nothing was written to the catalog or proposals',
+  declined:
+    'product was already sent to the vendor that owns its record as a proposal, which the vendor declined; a ref is sent once, so nothing was written to the catalog or proposals',
+} as const;
+export const PROPOSAL_REF_REFUSED_REASON =
+  'new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written to the catalog or proposals';
+export const PROPOSED_PRODUCT_INTEGRATION_REASON =
+  'an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored';
+export const BLOCKED_INTEGRATION_REASON =
+  'an endpoint is a product this promote refuses because its vendor owns its record';
+export const BLOCKED_OWNED_ENDPOINT_REASON =
+  'the source or target product belongs to a vendor that owns its record; review-app writes to the integration are refused';
 
 // ─── Maintenance-fence reasons (AECI-981) ────────────────────────────────────
 // Same constant discipline as the block reasons above, and the entity type lives
@@ -1862,6 +1864,24 @@ export type PromoteIngestDeps = {
   syncAlgolia?: PromoteAlgoliaSync;
   notifyIndexNow?: PromoteIndexNowNotify;
   refreshHomeStats?: PromoteHomeStatsRefresh;
+  /** AECI-1417: email the owner seats of a proposal this promote stored. */
+  notifyProposalOwners?: PromoteProposalNotify;
+};
+
+/**
+ * Post-commit seam for the owner email of a stored proposal (AECI-1417). Default sends
+ * `product-proposal-owner-review` through `lib/product-proposal-notify.ts`, which reads
+ * the proposal on the write's bookmark and keys each send per proposal per owner. Never
+ * throws. Injected for tests.
+ */
+export type PromoteProposalNotify = (rc: PromoteRunCtx, proposalId: string) => Promise<void>;
+
+const defaultProposalNotify: PromoteProposalNotify = async (rc, proposalId) => {
+  await emailOwnersOfProposal(
+    { env: rc.env, executionCtx: { waitUntil: (p) => rc.waitUntil(p) }, req: { raw: rc.request } },
+    getDb(rc.env, { bookmark: rc.bookmark() }).db,
+    proposalId,
+  );
 };
 
 /** What the committed ingest hands back: the caller's ID map plus the inputs the
@@ -2229,16 +2249,16 @@ export async function runPromoteIngest(
     }
   }
 
-  // ── Claimed-vendor block (AECI-520) ──────────────────────────────────────
-  // Once a vendor admin claims a vendor, the review app stops being the writer
-  // for that vendor's row and its products. The rule is deliberately coarse: the
-  // vendor's row/products are skipped entirely. That means AECi's own curation
+  // ── Ownership fence (AECI-520, stored ownership since AECI-1415 / ADR 0042) ──
+  // Once a vendor owns its record (`vendors.owned_at`, stamped at claim approval and
+  // never cleared by seat loss), the review app stops being the writer for that
+  // vendor's row and its products. The rule is deliberately coarse: the vendor's
+  // row/products are skipped entirely. That means AECi's own curation
   // columns on those rows (`name`, `promotion_status`, `research_*`,
   // `priority_*`, `admin_notes`) also stop updating through promote — accepted
   // at launch because vendor volume is low and the concierge model has a human
   // in the loop, but it is the cost of the simple rule. An admin-side edit
   // surface for claimed rows is the follow-up if that bites.
-  // Since AECI-1407 there is one narrow opening, the license hand-back below.
   //
   // Both reads run BEFORE the first `stmts.push`, because the decision has to be
   // available to the taxonomy resolution below — that step mints terms and would
@@ -2252,41 +2272,56 @@ export async function runPromoteIngest(
       ).map((r) => r.vendorId)
     : [];
 
-  // A vendor with no `supabaseId` is being created, so it cannot be claimed — a
+  // A vendor with no `supabaseId` is being created, so it cannot be owned — a
   // payload that only creates pays no extra read at all.
-  const claimedVendorIds = await loadClaimedVendorIds(db, [
+  const claimedVendorIds = await loadOwnedVendorIds(db, [
     ...updatedVendorIds,
     ...existingProductVendorIds,
   ]);
+  // Does the payload's product id name a live row? A dead pointer falls back to a
+  // create (AECI-568), and a create is fenced by its own rule below.
+  const productRowExists = payload.product?.supabaseId
+    ? (await db.query.products.findFirst({
+        columns: { id: true },
+        where: eq(products.id, payload.product.supabaseId),
+      })) !== undefined
+    : false;
+  const joinsOwnedVendor = updatedVendorIds.some((id) => claimedVendorIds.has(id));
 
-  // An EXISTING product is blocked when a claimed vendor owns it today, or when
-  // this payload would hand it to one. Creation is never blocked: nothing
-  // vendor-owned exists yet, and blocking it would stall catalog growth for
-  // every vendor that has signed up.
+  // An EXISTING product is blocked when an owned vendor holds it today (Q3: any one
+  // joined vendor is enough), or when this payload would join it to one.
   const productBlocked =
-    Boolean(payload.product?.supabaseId) &&
-    [...existingProductVendorIds, ...updatedVendorIds].some((id) => claimedVendorIds.has(id));
+    productRowExists &&
+    (existingProductVendorIds.some((id) => claimedVendorIds.has(id)) || joinsOwnedVendor);
+  // A NEW product that would join an owned vendor is not created either (ruled
+  // 2026-10-19). Creating it would put a record under the vendor's name that the
+  // vendor did not make. It becomes a proposal to the owner instead (AECI-1416).
+  const newProductBlocked = Boolean(payload.product) && !productRowExists && joinsOwnedVendor;
+  const productSkipped = productBlocked || newProductBlocked;
 
-  // ── License hand-back (AECI-1407, E6.4) ──────────────────────────────────
-  // The one opening in the block above. A blocked product that EXISTS and holds no
-  // live license is handed back to AECi for the Managed-only fields
-  // (`VENDOR_SIGNUP_PROCESS.md` decision 14): the three `HAND_BACK_PRODUCT_FIELDS`, and
-  // AECi's claims on its existing edges. Checked here, when promote writes, so a
-  // revoke, a release and a lapse all hand back the same way and nothing is written at
-  // lapse (ruled 2026-10-19). Both reads run only on a blocked product, so an ordinary
-  // promote pays nothing. Every write this opens re-tests the license in SQL.
-  const blockedProductId = productBlocked ? (payload.product?.supabaseId ?? null) : null;
-  const handBackProduct = blockedProductId
-    ? await db.query.products.findFirst({
-        // `usefulnessSource` for the admin fence on the hand-back's usefulness write.
-        columns: { slug: true, usefulnessSource: true },
-        where: eq(products.id, blockedProductId),
-      })
+  // ── Product proposal plan (AECI-1416) ─────────────────────────────────────
+  // The proposal goes to the FIRST owned vendor in payload order: the payload names
+  // its vendors in the order the review app ranks them, so the first owned one is the
+  // owner the curator meant. `ref` is the identity a re-send is refused on (Q5): any
+  // existing proposal for it, whatever its decision, refuses this one at plan time.
+  // The commit-time half is the unique index on `product_proposals.ref`.
+  const proposalVendorId = newProductBlocked
+    ? updatedVendorIds.find((id) => claimedVendorIds.has(id))
     : undefined;
-  const handBackOnly =
-    blockedProductId !== null &&
-    handBackProduct !== undefined &&
-    !(await loadLicensedProductIds(db, [blockedProductId])).has(blockedProductId);
+  // Ruled 2026-10-19: a proposal's ref must be the review app's `p:rec…` record ref,
+  // because Q5 keys on it forever. Anything else is refused and nothing is written to the catalog or proposals.
+  const proposalRefUsable =
+    newProductBlocked && payload.product ? PROPOSAL_REF_RE.test(payload.product.ref) : false;
+  const priorProposal =
+    proposalRefUsable && payload.product
+      ? await db.query.productProposals.findFirst({
+          columns: { id: true, decision: true },
+          where: eq(productProposals.ref, payload.product.ref),
+        })
+      : undefined;
+  // The insert is held out of `stmts` until after `catalogWrites` is read: a proposal
+  // changes no catalog state, so it must not schedule the post-commit refreshes.
+  const proposalStmts: BatchStmt[] = [];
 
   // ── Vendors ──────────────────────────────────────────────────────────────
   const vendorIdByRef = new Map<string, string>();
@@ -2392,22 +2427,6 @@ export async function runPromoteIngest(
   // facets find-only is option B, which waits on the review app surfacing
   // `skipped[]` for them — but every mint is now reported post-commit as
   // `aeci.api.promote.taxonomy_created` (`logPromoteTaxonomyCreates`).
-  //
-  // `loadTermIndex` is the find half on its own: the stored rows keyed by slug, then by
-  // `slugify(name)`. The license hand-back (AECI-1407) resolves usefulness against it
-  // without the mint, because a hand-back writes no taxonomy.
-  const loadTermIndex = async (model: TaxonomyTable) => {
-    const existing = (await db
-      .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
-      .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
-    const byKey = new Map<string, { id: string; slug: string; name: string }>();
-    for (const r of existing) byKey.set(r.slug, r);
-    for (const r of existing) {
-      const key = safeSlugify(r.name);
-      if (key && !byKey.has(key)) byKey.set(key, r);
-    }
-    return { existing, byKey };
-  };
   const resolveTaxonomy = async (
     names: string[],
     model: TaxonomyTable,
@@ -2417,7 +2436,15 @@ export async function runPromoteIngest(
     results: PromoteTaxonomyResult[];
     termByKey: Map<string, { slug: string; name: string }>;
   }> => {
-    const { existing, byKey } = await loadTermIndex(model);
+    const existing = (await db
+      .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
+      .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
+    const byKey = new Map<string, { id: string; slug: string; name: string }>();
+    for (const r of existing) byKey.set(r.slug, r);
+    for (const r of existing) {
+      const key = safeSlugify(r.name);
+      if (key && !byKey.has(key)) byKey.set(key, r);
+    }
     const termByKey = new Map(
       [...byKey].map(([key, r]) => [key, { slug: r.slug, name: r.name }] as const),
     );
@@ -2464,7 +2491,7 @@ export async function runPromoteIngest(
   // below: `resolveTaxonomy` MINTS missing terms, so a blocked promote would
   // otherwise create orphan terms in the nav and purge every browse page it merely
   // mentioned.
-  const writesProduct = Boolean(p) && !productBlocked;
+  const writesProduct = Boolean(p) && !productSkipped;
   const emptyTax = {
     ids: [] as string[],
     results: [] as PromoteTaxonomyResult[],
@@ -2645,43 +2672,6 @@ export async function runPromoteIngest(
         phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termByKey, p.ref),
       };
     }
-  } else if (handBackOnly && p) {
-    // AECI-1407. The hand-back resolves usefulness FIND-ONLY: against the stored
-    // audience and phase rows, never minting, because it writes no taxonomy. A group
-    // naming a term that does not exist lands in `skipped[] { kind: 'usefulness' }`,
-    // the same receipt the ordinary path gives for a term it cannot resolve.
-    if (p.usefulness === null) {
-      usefulnessData = null;
-    } else if (p.usefulness) {
-      const termsOf = async (model: TaxonomyTable) =>
-        new Map(
-          [...(await loadTermIndex(model)).byKey].map(
-            ([key, r]) => [key, { slug: r.slug, name: r.name }] as const,
-          ),
-        );
-      usefulnessData = {
-        audiences: resolveUsefulnessFacet(
-          p.usefulness.audiences,
-          await termsOf({
-            table: taxonomyAudiences,
-            idCol: taxonomyAudiences.id,
-            slugCol: taxonomyAudiences.slug,
-            nameCol: taxonomyAudiences.name,
-          }),
-          p.ref,
-        ),
-        phases: resolveUsefulnessFacet(
-          p.usefulness.phases,
-          await termsOf({
-            table: taxonomyPhases,
-            idCol: taxonomyPhases.id,
-            slugCol: taxonomyPhases.slug,
-            nameCol: taxonomyPhases.name,
-          }),
-          p.ref,
-        ),
-      };
-    }
   }
 
   // ── Resolvers (used by extensions + integrations) ─────────────────────────
@@ -2755,27 +2745,12 @@ export async function runPromoteIngest(
       const slug = existing.slug;
       productId = p.supabaseId;
       productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
-      // AECI-1407 (ruling 1, 2026-10-19). The vendor's copy is fenced only while the
-      // product holds a live license. An admin-written block (`usefulness_source =
-      // 'admin'`) stays fenced always: the hand-back covers vendor-written usefulness
-      // only (ruled 2026-10-19). Read only when it can matter: the payload sent
-      // `usefulness` and a vendor authored the stored block.
-      const usefulnessHandedBack =
-        usefulnessData !== undefined &&
-        existing.usefulnessSource === 'vendor' &&
-        !(await loadLicensedProductIds(db, [p.supabaseId])).has(p.supabaseId);
       // AECI-963. Tell the review app its `usefulness` was fenced, rather than
       // letting a curator keep editing a field that no longer ships. Only when
       // they actually SENT one — a push that omits the field preserved nothing.
       // Advisory by construction: the authoritative guard is the CASE WHEN in the
       // UPDATE below, evaluated a moment later. See {@link PromotePreserved}.
-      // Since AECI-1407, a vendor-written block is fenced only while the product
-      // holds a live license. An admin-written block is fenced regardless.
-      if (
-        usefulnessData !== undefined &&
-        existing.usefulnessSource !== null &&
-        !usefulnessHandedBack
-      ) {
+      if (usefulnessData !== undefined && existing.usefulnessSource !== null) {
         preserved.push({
           ref: p.ref,
           kind: 'usefulness',
@@ -2807,23 +2782,12 @@ export async function runPromoteIngest(
               // but Drizzle's serializer runs on the ordinary `.set()` path only;
               // inside a raw `sql` template the value is bound verbatim, so an
               // object would land as `[object Object]`.
-              //
-              // AECI-1407 (ruling 1): a vendor-written block is fenced only while the
-              // product has a live license, and an admin-written one always, so the
-              // guard is `usefulness_source IS NULL OR (usefulness_source = 'vendor'
-              // AND NOT EXISTS (live license))`. Revoke, release and lapse then all
-              // hand the vendor's block back the same way, at the next promote that
-              // sends it. The same test clears `usefulness_source` in the same
-              // statement, or the public "Written by {vendor}" line would credit
-              // AECi's copy to the vendor. SQLite evaluates every SET expression
-              // against the OLD row, so the two CASEs read the same `usefulness_source`.
               ...(usefulnessData === undefined
                 ? {}
                 : {
-                    usefulness: sql`CASE WHEN ${products.usefulnessSource} IS NULL OR ${vendorUsefulnessHandBackSql(p.supabaseId)} THEN ${
+                    usefulness: sql`CASE WHEN ${products.usefulnessSource} IS NULL THEN ${
                       usefulnessData === null ? null : JSON.stringify(usefulnessData)
                     } ELSE ${products.usefulness} END`,
-                    usefulnessSource: sql`CASE WHEN ${vendorUsefulnessHandBackSql(p.supabaseId)} THEN NULL ELSE ${products.usefulnessSource} END`,
                   }),
               ...(p.logoUrl !== undefined
                 ? {
@@ -2852,10 +2816,6 @@ export async function runPromoteIngest(
         action: 'product.updated',
         entityType: 'product',
         entityId: p.supabaseId,
-        // AECI-1407: the plan read saw a vendor-authored block with no live license
-        // behind it, so this write hands the block back to AECi. Named apart from
-        // "hand-back", which already means the seat hand-back (`lib/vendor-handback.ts`).
-        ...(usefulnessHandedBack ? { metadata: { license_hand_back: true } } : {}),
       });
     } else {
       const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
@@ -2970,117 +2930,89 @@ export async function runPromoteIngest(
       });
     }
   } else if (p && productBlocked) {
-    // ── License hand-back (AECI-1407, E6.4) ───────────────────────────────
-    // One UPDATE naming only the hand-back fields the payload carries. Every value is
-    // wrapped in `CASE WHEN NOT EXISTS (live license) THEN ? ELSE col END`, so a
-    // license assigned between the plan read and the batch leaves the row as it was.
-    // Nothing else about the product is written: not `name`, `description`,
-    // `promotion_status`, `promoted_at`, `last_reviewed_at` or `maintained_by`, and no
-    // taxonomy, vendor or extension join. The usefulness CASE also clears
-    // `usefulness_source` (ruling 1), so the public page stops crediting the vendor.
-    const handBackSet: Record<string, SQL> = {};
-    if (handBackOnly && p.supabaseId) {
-      const live = productHasLiveLicenseSql(p.supabaseId);
-      const unlessLicensed = (col: SQLiteColumn, value: string | null) =>
-        sql`CASE WHEN NOT ${live} THEN ${value} ELSE ${col} END`;
-      // Ruling C (2026-10-19): the two URLs are written only when non-null. The review
-      // app's serializer sends `null` for an unset field, and under ADR 0030 an absence
-      // must not delete: a null must not blank a URL the vendor entered. `usefulness`
-      // below is different: an explicit `null` there is a curator's clear.
-      if (p.toolIntegrationsUrl != null) {
-        handBackSet.toolIntegrationsUrl = unlessLicensed(
-          products.toolIntegrationsUrl,
-          p.toolIntegrationsUrl,
-        );
-      }
-      if (p.apiDocsUrl != null) {
-        handBackSet.apiDocsUrl = unlessLicensed(products.apiDocsUrl, p.apiDocsUrl);
-      }
-      if (usefulnessData !== undefined && handBackProduct?.usefulnessSource === 'admin') {
-        // The hand-back covers vendor-written usefulness only (ruled 2026-10-19). An
-        // admin-written block stays fenced, so usefulness is left out of the write and
-        // the review app gets the same advisory receipt the ordinary branch sends.
-        preserved.push({
-          ref: p.ref,
-          kind: 'usefulness',
-          reason: 'usefulness is admin-authored and is no longer promote-writable',
-          count: 1,
-        });
-      } else if (usefulnessData !== undefined) {
-        // `JSON.stringify` for the reason the ordinary branch gives: a raw `sql`
-        // template binds the value verbatim, bypassing the json column's serializer.
-        // The guard re-tests `usefulness_source` too, so an admin edit landing between
-        // the plan read and the batch still wins.
-        const handBack = sql`NOT ${live} AND (${products.usefulnessSource} IS NULL OR ${products.usefulnessSource} = 'vendor')`;
-        handBackSet.usefulness = sql`CASE WHEN ${handBack} THEN ${
-          usefulnessData === null ? null : JSON.stringify(usefulnessData)
-        } ELSE ${products.usefulness} END`;
-        handBackSet.usefulnessSource = sql`CASE WHEN ${handBack} THEN NULL ELSE ${products.usefulnessSource} END`;
-      }
-    }
-    // The product id is registered on every hand-back, written or not, so the
-    // integration loop below can resolve a `ref` endpoint to it for the AECi claims.
-    if (handBackOnly) productId = p.supabaseId as string;
-    if (handBackOnly && handBackProduct && Object.keys(handBackSet).length > 0) {
-      stmts.push(
-        db
-          .update(products)
-          .set(handBackSet as Partial<typeof products.$inferInsert>)
-          .where(eq(products.id, p.supabaseId as string)),
-      );
-      // `updated`, so the purge, the Algolia sync and IndexNow see the product.
-      productResult = {
+    // `productId`/`productResult` stay unset, so the product is OMITTED from the
+    // response — which is what keeps it out of the cache purge, IndexNow, Google
+    // Indexing, and the Algolia sync without touching any of them.
+    skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_PRODUCT_REASON });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product',
+      entityId: p.supabaseId as string,
+    });
+  } else if (p && newProductBlocked && !proposalRefUsable) {
+    skipped.push({ ref: p.ref, kind: 'product', reason: PROPOSAL_REF_REFUSED_REASON });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product',
+      entityId: null,
+      vendorId: proposalVendorId ?? null,
+      metadata: { ref: p.ref, cause: 'proposal-ref-unusable' },
+    });
+  } else if (p && newProductBlocked && priorProposal) {
+    // Q5: one send per ref, ever. Nothing about the product is written; the audit row
+    // names the proposal that already holds the ref.
+    const state = priorProposal.decision ?? 'open';
+    skipped.push({
+      ref: p.ref,
+      kind: 'product',
+      reason: ALREADY_PROPOSED_REASONS[state],
+      proposalId: priorProposal.id,
+    });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product_proposal',
+      entityId: priorProposal.id,
+      vendorId: proposalVendorId ?? null,
+      metadata: { ref: p.ref, cause: 'product-already-proposed', state },
+    });
+  } else if (p && newProductBlocked && proposalVendorId) {
+    // The product is stored as sent, frozen: no taxonomy resolved or minted, no slug,
+    // no joins. The owner accepts or declines it (AECI-1417), and an accept creates
+    // exactly this, linked to every vendor below (ruled 2026-10-19). Every vendor ref
+    // is resolved to its AECi id here, after the vendor loop registered each one: the
+    // stored row, or the row this same batch creates for a new vendor.
+    const proposalId = crypto.randomUUID();
+    const proposalPayload: ProductProposalPayload = {
+      version: 1,
+      product: p,
+      vendors: payload.vendors.map((v, i) => ({
+        vendorId: vendorIdByRef.get(v.ref) as string,
+        isPrimary: v.isPrimary ?? i === 0,
+        owned:
+          v.supabaseId !== undefined && v.supabaseId !== null && claimedVendorIds.has(v.supabaseId),
+        sent: v,
+      })),
+    };
+    // Commit-time half: abort if the addressed vendor stopped owning its record before
+    // the batch (the admin return). The re-push then creates the product normally.
+    proposalStmts.push(proposalVendorOwnedSentinel(db, proposalVendorId));
+    proposalStmts.push(
+      db.insert(productProposals).values({
+        id: proposalId,
+        vendorId: proposalVendorId,
         ref: p.ref,
-        id: p.supabaseId as string,
-        slug: handBackProduct.slug,
-        operation: 'updated',
-      };
-      // What the claimed vendor kept: every product field the payload carried that the
-      // hand-back does not write. An empty array is left out, because the schema
-      // defaults the join sets to `[]` and a field the caller never sent is no news.
-      const handBackFields = new Set<string>(HAND_BACK_PRODUCT_FIELDS);
-      const withheld = Object.entries(p)
-        .filter(
-          ([key, value]) =>
-            value !== undefined &&
-            !PRODUCT_ADDRESS_FIELDS.has(key) &&
-            !handBackFields.has(key) &&
-            !(Array.isArray(value) && value.length === 0),
-        )
-        .map(([key]) => key);
-      // Built from the UPDATE's own SET keys, in payload-field order, so the receipt
-      // can never claim a field the statement left out. `usefulnessSource` rides with
-      // `usefulness` and is not a payload field.
-      const written = HAND_BACK_PRODUCT_FIELDS.filter((field) => field in handBackSet);
-      if (withheld.length > 0) {
-        preserved.push({
-          ref: p.ref,
-          kind: 'license_hand_back',
-          reason: licenseHandBackProductReason(written, withheld),
-          count: withheld.length,
-        });
-      }
-      audit({
-        actorType: 'system',
-        action: 'product.updated',
-        entityType: 'product',
-        entityId: p.supabaseId as string,
-        metadata: { license_hand_back: true },
-      });
-    } else {
-      // Blocked, or a hand-back whose payload carries none of the hand-back fields, so
-      // nothing about the product is written. `productResult` stays unset, so the
-      // product is OMITTED from the response — which is what keeps it out of the cache
-      // purge, IndexNow, Google Indexing, and the Algolia sync without touching any of
-      // them.
-      skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_PRODUCT_REASON });
-      audit({
-        actorType: 'system',
-        action: 'promote.blocked',
-        entityType: 'product',
-        entityId: p.supabaseId as string,
-      });
-    }
+        payload: proposalPayload,
+        proposedAt: promotedAtIso,
+        promoteJobId: opts.jobId ?? null,
+      }),
+    );
+    skipped.push({ ref: p.ref, kind: 'product', reason: PROPOSED_PRODUCT_REASON, proposalId });
+    audit({
+      actorType: 'system',
+      action: 'product_proposal.created',
+      entityType: 'product_proposal',
+      entityId: proposalId,
+      vendorId: proposalVendorId,
+      metadata: {
+        ref: p.ref,
+        vendorId: proposalVendorId,
+        ownedVendorIds: updatedVendorIds.filter((id) => claimedVendorIds.has(id)),
+        promoteJobId: opts.jobId ?? null,
+      },
+    });
   }
 
   // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
@@ -3152,37 +3084,52 @@ export async function runPromoteIngest(
     return plan.stmts;
   };
 
-  // An integration touching THIS payload's blocked product is skipped too
-  // (AECI-520).
-  //
-  // SCOPE, precisely: this cascades off THIS payload's blocked product only. A
-  // payload promoting some other product may still write an integration whose far
-  // endpoint is a claimed vendor's product, and that is intentional: owning a
-  // PRODUCT does not make a vendor the owner of every integration touching it.
-  //
-  // Integrations are vendor-owned, and AECi seeds them (ADR 0035). The owner of an
-  // integration is its `built_by_vendor_id`, and ownership is enforced per ROW by
-  // the AECI-1005 fence below, keyed on `claimed_at`: once the owner has claimed an
-  // edge, promote writes nothing to it, whichever product the payload is about.
-  // Until then the edge is still AECi's seed and promote keeps curating it. So
-  // checking ownership of every endpoint here would block legitimate seeding for
-  // no ownership reason, and it would still miss a third-party owner, which owns
-  // neither endpoint.
+  // An integration touching THIS payload's skipped product is skipped too
+  // (AECI-520), including one where that product is only the `poweredByProduct`:
+  // the link would otherwise degrade to null and clear a stored connector.
   const touchesBlockedProduct = (ref: EntityRef): boolean =>
-    productBlocked &&
+    productSkipped &&
     ((ref.ref !== undefined && ref.ref === p?.ref) ||
       (ref.supabaseId != null && ref.supabaseId === p?.supabaseId));
 
-  // AECI-1407: the hand-back's claims are guarded by these, spliced in ahead of the
-  // claim statements after the loop (see `handBackClaimSentinels` there).
-  const handBackClaimSentinels: BatchStmt[] = [];
-  // AECI-1336: a hand-back edge is reported (`preserved[]`, `integrations[]`) only once
-  // the claim plan shows it writes that edge. Held here until the plan exists.
-  const handBackEdges: Array<{
-    anchorId: string;
-    ref: string;
-    endpoint: (typeof integrationEndpoints)[number];
-  }> = [];
+  // ── The owned-endpoint fence (AECI-1415, ruling Q2 2026-10-19) ─────────────
+  // Promote refuses EVERY integration where an owned product is the source or the
+  // target, whichever product the payload is about. Before AECI-1415 only THIS
+  // payload's product cascaded, and an edge whose far endpoint was a claimed vendor's
+  // product still wrote (the §4a scope note, dropped; ADR 0035 2026-10-19 amendment).
+  // "Endpoint" covers the stored row too: an update that moves an edge AWAY from an
+  // owned product is a write to that vendor's integration. An edge where the owned
+  // product is only the `poweredByProduct` connector still writes: the connector
+  // vendor does not own the pair it delivers. The AECI-1005 claim fence below still
+  // applies to every edge this one lets through.
+  const ownedEndpointIds = await loadOwnedProductIds(
+    db,
+    payload.integrations.flatMap((intg) =>
+      [intg.sourceProduct.supabaseId, intg.targetProduct.supabaseId].filter(
+        (id): id is string => typeof id === 'string' && id !== p?.supabaseId,
+      ),
+    ),
+  );
+  const checkedEndpointIds = new Set<string>([
+    ...payload.integrations.flatMap((intg) =>
+      [intg.sourceProduct.supabaseId, intg.targetProduct.supabaseId].filter(
+        (id): id is string => typeof id === 'string',
+      ),
+    ),
+  ]);
+  // The stored endpoints of an edge this payload updates are read lazily: most are
+  // the payload's own endpoints, already in the set above.
+  const isOwnedEndpoint = async (id: string): Promise<boolean> => {
+    // The payload's own product is decided by the product fence above, not by its
+    // pre-batch joins, because this batch rewrites those joins.
+    if (p && id === productId) return false;
+    if (p?.supabaseId && id === p.supabaseId) return productBlocked;
+    if (!checkedEndpointIds.has(id)) {
+      checkedEndpointIds.add(id);
+      if ((await loadOwnedProductIds(db, [id])).has(id)) ownedEndpointIds.add(id);
+    }
+    return ownedEndpointIds.has(id);
+  };
 
   for (const intg of payload.integrations) {
     // `poweredByProduct` is checked alongside the two endpoints, not left to
@@ -3191,98 +3138,25 @@ export async function runPromoteIngest(
     // that was never planned, and `linkData` then writes
     // `powered_by_product_id = null` — wiping an existing link on a promote whose
     // entire purpose was to leave that product alone, with nothing in `skipped[]`
-    // to show for it.
-    const touchesAtEndpoint =
-      touchesBlockedProduct(intg.sourceProduct) || touchesBlockedProduct(intg.targetProduct);
-    const touchesAsConnector =
-      intg.poweredByProduct != null && touchesBlockedProduct(intg.poweredByProduct);
-    if (touchesAtEndpoint || touchesAsConnector) {
-      // ── License hand-back: AECi claims on an existing edge (AECI-1407, ruling 2) ──
-      // On a hand-back product, promote writes the edge's `aeci` claims and attestation
-      // again, and nothing else about it. Only on an EXISTING edge that `locateEdge`
-      // finds, whose stored pair is the payload's pair: a new edge, a re-point, or a
-      // dead id stays skipped, because each would need an integration write the
-      // claimed vendor still owns. An edge touching the product only as its connector
-      // stays skipped too: its claims are about two other products. A Convention-A
-      // edge (the product is an endpoint AND its connector) is handed back like any
-      // other, because no integration column is written here.
-      if (handBackOnly && touchesAtEndpoint) {
-        const located = await locateEdge(db, intg.supabaseId);
-        const sourceId = await resolveProduct(intg.sourceProduct);
-        const targetId = await resolveProduct(intg.targetProduct);
-        const stored = locatedEndpointPair(located);
-        if (
-          !located ||
-          !stored ||
-          !sourceId ||
-          !targetId ||
-          !samePair(stored, [sourceId, targetId])
-        ) {
-          skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
-          continue;
-        }
-        // The per-row ownership fence still applies (§4b): a claimed or vendor-created
-        // edge is the vendor's, claims included. Same receipt and audit row as below.
-        if (claimFenceRefuses(located)) {
-          skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
-          const fencedIntegrationRow =
-            located.table === 'integrations' &&
-            (located.row.claimedAt !== null || located.row.origin === 'vendor');
-          audit({
-            actorType: 'system',
-            action: 'promote.blocked',
-            entityType: fencedIntegrationRow ? 'integration' : 'connector_evidenced_pair',
-            entityId: located.id,
-          });
-          continue;
-        }
-        // No row write, no endpoint change, no cross-table move, so the
-        // VENDOR_OWNED_TWIN guards are not reached: like an ordinary UPDATE that keeps
-        // its key, a claims-only write cannot create a new twin (§4c).
-        //
-        // The commit-time halves. The row's claim fence, as on every written edge, and
-        // the product's license: a license assigned before the batch runs makes the
-        // product Managed again, and its data flows the vendor's.
-        if (located.table === 'integrations') {
-          handBackClaimSentinels.push(promoteClaimFenceSentinel(db, located.id));
-        }
-        handBackClaimSentinels.push(promoteEvidencedClaimFenceSentinel(db, located.id));
-        // The payload's claims speak source → target. The stored row may run the other
-        // way (an `integrations` row stored target → source, or a pair whose A is the
-        // lower id), and the row is not rewritten here, so flip into its frame.
-        const frameReversed =
-          located.table === 'integrations'
-            ? located.row.sourceProductId !== sourceId
-            : sourceId > targetId;
-        claimIngestItems.push({
-          anchorId: located.id,
-          anchorKind: located.table === 'integrations' ? 'integration' : 'evidenced_pair',
-          ref: intg.ref,
-          claims: intg.claims,
-          isNewAnchor: false,
-          frameReversed,
-        });
-        // In the results with the STORED endpoints and connector, so the pair page the
-        // claims render on is purged and re-indexed. The counts do not move, because
-        // no edge is added, removed or re-pointed. Reported after the claim plan, and
-        // only if the plan writes this edge (see `handBackEdges`).
-        handBackEdges.push({
-          anchorId: located.id,
-          ref: intg.ref,
-          endpoint: {
-            result: { ref: intg.ref, id: located.id, operation: 'updated' },
-            sourceId: stored[0],
-            targetId: stored[1],
-            poweredById:
-              located.table === 'integrations'
-                ? located.row.poweredByProductId
-                : located.row.connectorProductId,
-            movedFromIds: null,
-          },
-        });
-        continue;
-      }
-      skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
+    // to show for it. Only the `ref` form, since AECI-1415: a `supabaseId` names the
+    // stored row and resolves whether or not the product is written, and an edge
+    // whose owned product is only the connector still writes (ruling Q2).
+    if (
+      touchesBlockedProduct(intg.sourceProduct) ||
+      touchesBlockedProduct(intg.targetProduct) ||
+      (intg.poweredByProduct?.ref !== undefined &&
+        touchesBlockedProduct({ ref: intg.poweredByProduct.ref }))
+    ) {
+      // Q4: an edge touching a proposed (or already-proposed) product is never stored.
+      // It has its own reason, so the curator knows it is not an ownership refusal of
+      // the edge itself and can re-send it once the product exists.
+      skipped.push({
+        ref: intg.ref,
+        kind: 'integration',
+        reason: newProductBlocked
+          ? PROPOSED_PRODUCT_INTEGRATION_REASON
+          : BLOCKED_INTEGRATION_REASON,
+      });
       continue;
     }
     const sourceId = await resolveProduct(intg.sourceProduct);
@@ -3347,6 +3221,31 @@ export async function runPromoteIngest(
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
+    // ── AECI-1415: the owned-endpoint fence (see `isOwnedEndpoint` above). ─────
+    const storedEndpoints =
+      located === null
+        ? []
+        : located.table === 'integrations'
+          ? [located.row.sourceProductId, located.row.targetProductId]
+          : [located.row.productAId, located.row.productBId];
+    let ownedEndpoint = false;
+    for (const id of [sourceId, targetId, ...storedEndpoints]) {
+      if (await isOwnedEndpoint(id)) {
+        ownedEndpoint = true;
+        break;
+      }
+    }
+    if (ownedEndpoint) {
+      skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_OWNED_ENDPOINT_REASON });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: located?.table === 'evidenced' ? 'connector_evidenced_pair' : 'integration',
+        entityId: located?.id ?? intg.supabaseId ?? null,
+        metadata: { ref: intg.ref, cause: 'owned-endpoint' },
+      });
+      continue;
+    }
     // ── AECI-1005: the ownership fence. A claimed row is the vendor's. ────────
     // Checked before EVERY write branch below, including both cross-table moves,
     // and before the claim ingest is queued, so nothing about this edge is planned:
@@ -3922,32 +3821,9 @@ export async function runPromoteIngest(
   // the rule; this call site only splices the plan in. Runs after the integration
   // loop, so every claim statement still follows its integration's INSERT/UPDATE.
   const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
-  // AECI-1407: a hand-back edge's guards, ahead of every claim statement. Only when the
-  // plan writes something: a sentinel guards a write, and on its own it would count as
-  // a catalog write (`wrote`). The license sentinel aborts the batch if the product
-  // took a live license after the plan read, and the job errors with
-  // `LICENSE_GRANTED_DURING_PROMOTE` (see the catch below).
-  const handBackClaimsGuarded =
-    handBackClaimSentinels.length > 0 && claimPlan.statements.length > 0;
-  if (handBackClaimsGuarded && p?.supabaseId) {
-    stmts.push(noLiveProductLicenseSentinel(db, p.supabaseId), ...handBackClaimSentinels);
-  }
   stmts.push(...claimPlan.statements);
   for (const entry of claimPlan.audits) audit(entry);
   skipped.push(...claimPlan.skipped);
-  // A hand-back edge whose claims change nothing (none sent, none stored) is not
-  // written, so it gets no receipt and no `updated` result.
-  for (const edge of handBackEdges) {
-    if (!claimPlan.writtenAnchorIds.has(edge.anchorId)) continue;
-    preserved.push({
-      ref: edge.ref,
-      kind: 'license_hand_back',
-      reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-      count: 1,
-    });
-    integrationResults.push(edge.endpoint.result);
-    integrationEndpoints.push(edge.endpoint);
-  }
   preserved.push(...claimPlan.preserved);
 
   // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
@@ -4041,8 +3917,31 @@ export async function runPromoteIngest(
   // occur without an accompanying write, so the two points were equivalent.
   const catalogWrites = stmts.length;
 
+  // ── AECI-1416: the proposal insert, after the snapshot (see `proposalStmts`) ──
+  stmts.push(...proposalStmts);
+
   // ── Audit rows (appended last; same atomic batch as the writes above) ─────
   for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
+
+  // ── AECI-1415: the commit-time half of the ownership fence ─────────────────
+  // Every vendor and endpoint product the plan treated as unowned and writes. A claim
+  // approval that commits between the plan reads and this batch aborts it whole, and
+  // the job errors with `VENDOR_OWNED_DURING_PROMOTE`. Only when the batch writes
+  // catalog state: a fully refused promote has nothing to guard. Unshifted AHEAD of
+  // the writes and after `catalogWrites`, so `wrote` does not count it. The ledger
+  // row is unshifted below, so it stays the first statement.
+  const ownershipGuardVendorIds = [
+    ...vendorResults.filter((r) => r.operation === 'updated').map((r) => r.id),
+    ...(productResult?.operation === 'updated' ? existingProductVendorIds : []),
+  ];
+  const ownershipGuardProductIds = integrationEndpoints.flatMap((e) =>
+    [e.sourceId, e.targetId, ...(e.movedFromIds ?? [])].filter((id) => id !== productId),
+  );
+  if (catalogWrites > 0) {
+    stmts.unshift(
+      ...promoteOwnershipSentinels(db, ownershipGuardVendorIds, ownershipGuardProductIds),
+    );
+  }
 
   const response: PromoteResponse = {
     vendors: vendorResults,
@@ -4111,22 +4010,46 @@ export async function runPromoteIngest(
         if (!prior) throw err;
         return replayPromoteJob(rc, dbCtx, opts.jobId, prior.result, 'batch-conflict');
       }
+      // AECI-1416: a racing promote stored a proposal for this product ref first. No
+      // ON CONFLICT on the insert: the `product_proposal.created` audit row rides the
+      // same batch and would then record a proposal that was never stored. The batch
+      // rolled back, ledger row included, so a re-push plans against the stored
+      // proposal and refuses the ref as already sent (Q5).
+      if (isProductProposalRefConflict(err)) {
+        throw new ApiError(
+          409,
+          'PRODUCT_PROPOSED_DURING_PROMOTE',
+          'Another promote sent this product as a proposal to its owner while this one was running. Nothing was written; re-push the bundle.',
+        );
+      }
       // AECI-1005: an edge planned as unclaimed was claimed before the batch ran. The
       // whole batch rolled back, so nothing was written, including the ledger row, and
       // a re-push plans against the claimed row and skips it.
       if (isPromoteClaimFenceError(err)) {
-        // AECI-1407: the hand-back license sentinel raises the same malformed-JSON
-        // error. A live license on the product now is what says it fired: the batch
-        // rolled back, so the re-push fences the product whole.
+        // AECI-1416: the proposal sentinel raises the same SQLite error. A re-read that
+        // finds the addressed vendor no longer owned is the one that fired.
         if (
-          handBackClaimsGuarded &&
-          p?.supabaseId &&
-          (await loadLicensedProductIds(db, [p.supabaseId])).has(p.supabaseId)
+          proposalVendorId !== undefined &&
+          proposalStmts.length > 0 &&
+          !(await loadOwnedVendorIds(db, [proposalVendorId])).has(proposalVendorId)
         ) {
           throw new ApiError(
             409,
-            'LICENSE_GRANTED_DURING_PROMOTE',
-            'A product in this bundle took a license while the promote was running. Nothing was written; re-push the bundle.',
+            'VENDOR_RETURNED_DURING_PROMOTE',
+            'The vendor this new product was being proposed to stopped owning its records while the promote was running. Nothing was written; re-push the bundle and the product is created.',
+          );
+        }
+        // AECI-1415: the ownership sentinel raises the same SQLite error. The batch
+        // rolled back, so a re-read that finds a guarded vendor or endpoint owned now
+        // is the one that fired.
+        if (
+          (await loadOwnedVendorIds(db, ownershipGuardVendorIds)).size > 0 ||
+          (await loadOwnedProductIds(db, ownershipGuardProductIds)).size > 0
+        ) {
+          throw new ApiError(
+            409,
+            'VENDOR_OWNED_DURING_PROMOTE',
+            'A vendor in this bundle took ownership of its record while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         // AECI-1011: the twin sentinel raises the same SQLite error, so re-read to
@@ -4210,6 +4133,7 @@ export function dispatchPromoteHooks(
   const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
   const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
+  const notifyProposalOwners = deps.notifyProposalOwners ?? defaultProposalNotify;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
   // Best-effort §26.5 audit forwards AFTER the commit, as ONE request per vendor
@@ -4279,6 +4203,16 @@ export function dispatchPromoteHooks(
   // accumulates rows the drain would submit the moment a key appeared.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls, jobId));
+  }
+
+  // AECI-1417: one owner email per proposal this promote STORED. Only the
+  // `PROPOSED_PRODUCT_REASON` entry is a new proposal: a refused re-send (Q5) carries
+  // the first proposal's id too, and its owners were asked when it was stored. Each
+  // send is keyed per proposal per owner, so a replayed hook sends nothing twice.
+  for (const entry of response.skipped) {
+    if (entry.reason === PROPOSED_PRODUCT_REASON && entry.proposalId) {
+      dispatchHook(rc, 'proposal-owner-email', notifyProposalOwners(rc, entry.proposalId));
+    }
   }
 
   // Surface any `skipped[]` entries (§4) in the observability plane: a completed job

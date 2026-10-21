@@ -44,11 +44,12 @@
  * The `account.deleted` audit row MUST have `actorId: null` — the profile is
  * deleted in the same batch and `audit_log.actor_id` is NO ACTION.
  *
- * ── A vendor's last seat hands the record back (AECI-1106) ─────────────────────
+ * ── A vendor's last seat freezes the record (AECI-1106, AECI-1415) ────────────
  * A `vendor_admin` seat IS a `profiles` row, so erasing it is a seat loss, the same
- * as the admin revoke. When the erased seat is the vendor's last `vendor_admin`,
- * AECI-989's `planVendorHandback` joins the erasure batch. When only banned seats
- * remain, `planOwnerSeatLapse` does. The rows, audit set and purge tags are the
+ * as the admin revoke. When the erased seat leaves the vendor with no unbanned seat,
+ * `planOwnerSeatLapse` joins the erasure batch and moves the owner contests to AECi,
+ * stamped. Ownership, `maintained_by` and `claimed_at` stay: seat loss never hands
+ * records back (ruled 2026-10-19, ADR 0042). The rows and audit set are the
  * revoke's (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Their audit and transition
  * actor is `null`, for the reason above. The race guards sit straight after the
  * profile delete. A lost race re-plans and retries a bounded number of times
@@ -82,6 +83,7 @@ import {
   integrationFieldChallenges,
   licenseReleaseRequests,
   licenses,
+  productProposals,
   profileAudiences,
   profileDetails,
   profiles,
@@ -109,14 +111,12 @@ import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
   planOwnerSeatLapse,
-  planVendorHandback,
   seatLossOutcome,
   seatRaceSentinels,
   seatsChangedError,
   type HandbackBatch,
   type SeatLossOutcome,
 } from '../lib/vendor-handback';
-import { purgeTags } from './vendor-shared';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -421,17 +421,18 @@ export const ERASURE_SEAT_ATTEMPTS = 3;
 interface ErasureSeatPlan {
   vendorId: string;
   outcome: SeatLossOutcome;
-  /** The hand-back or the lapse. `null` while an unbanned seat remains. */
+  /** The seat lapse. `null` while an unbanned seat remains. */
   follow: HandbackBatch | null;
 }
 
 /**
  * `null` unless the profile being erased is a `vendor_admin` seat on a vendor.
  * Otherwise the same decision the admin revoke makes (`routes/admin-vendors.ts`):
- * no seat left hands the record back, only banned seats left moves the owner's
- * contests to AECi, an unbanned seat left changes nothing. The erased user cannot
- * be banned, because `requireAuth()` rejects a banned session. Read fresh on every
- * attempt, so a retry plans against the seats a lost race left behind.
+ * no unbanned seat left moves the owner's contests to AECi, stamped, and an
+ * unbanned seat left changes nothing. Nothing is handed back (AECI-1415). The
+ * erased user cannot be banned, because `requireAuth()` rejects a banned session.
+ * Read fresh on every attempt, so a retry plans against the seats a lost race left
+ * behind.
  */
 async function planErasureSeatLoss(
   db: DbContext['db'],
@@ -452,12 +453,7 @@ async function planErasureSeatLoss(
     now: new Date().toISOString(),
     source: 'account',
   };
-  const follow =
-    outcome === 'handback'
-      ? await planVendorHandback(db, params)
-      : outcome === 'lapse'
-        ? await planOwnerSeatLapse(db, params)
-        : null;
+  const follow = outcome === 'none' ? null : await planOwnerSeatLapse(db, params);
   return { vendorId, outcome, follow };
 }
 
@@ -572,6 +568,13 @@ export function createDeleteAccountHandler(
         .update(licenseReleaseRequests)
         .set({ decidedBy: null, updatedAt: sql`${licenseReleaseRequests.updatedAt}` })
         .where(eq(licenseReleaseRequests.decidedBy, userId)),
+      // AECI-1416: the deciding owner seat of a product proposal, no FK either. The
+      // PROPOSAL survives (the vendor's record of what AECi sent it); only who decided
+      // it is severed. `updated_at` pinned, as above.
+      db
+        .update(productProposals)
+        .set({ decidedBy: null, updatedAt: sql`${productProposals.updatedAt}` })
+        .where(eq(productProposals.decidedBy, userId)),
       // AECI-664: another of the sixteen (`AUTH_AND_RLS.md` §8), same treatment and same
       // reason. The INVITE survives its sender's erasure — a pending invite is the
       // invitee's to redeem, and deleting it would silently break a colleague's link
@@ -667,7 +670,7 @@ export function createDeleteAccountHandler(
     // §26.5 forward + the §11.1 deletion confirmation, fire-and-forget after the
     // erasure. The email fails open (absent key/email → silent skip) and never
     // affects the response — the data is already gone.
-    // The seat hand-back adds an audit row and a transition per contest, so the
+    // The seat lapse adds an audit row and a transition per contest, so the
     // forwards go in ONE request. One `fetch` per row ran past the Worker's
     // connection limit on a vendor with many contests (AECI-666, AECI-1112).
     const follow = seat?.follow ?? null;
@@ -678,11 +681,7 @@ export function createDeleteAccountHandler(
       'account',
     );
     c.executionCtx.waitUntil(sendAccountDeletionEmail(c, { to: recipientEmail }));
-    // Only the hand-back returns tags: the pages whose maintenance marker flipped
-    // (`CACHE_STRATEGY.md` (b1a)). A lapse re-routes contests and purges nothing.
-    if (follow?.purgeTags.length) {
-      c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'vendor'));
-    }
+    // No purge: the lapse re-routes contests, and no rendered page changes (AECI-1415).
 
     const body: DeleteAccountResponse = {
       message: 'Your account and personal data have been deleted.',

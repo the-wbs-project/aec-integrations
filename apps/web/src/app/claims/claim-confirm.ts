@@ -1,5 +1,5 @@
 /**
- * Claim confirm page (`/claims/confirm`, AECI-1435, ADR 0042). The destination of the
+ * Claim confirm page (`/claims/confirm`, AECI-1435, ADR 0043). The destination of the
  * link in the `claim-confirm` email (`/claims/confirm?token=…`). An anonymous claim or
  * typed-in listing request waits on this page: confirming POSTs the token to
  * `/api/requests/confirm`, which sends the request to AEC Integrations.

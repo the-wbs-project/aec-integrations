@@ -1,5 +1,5 @@
 /**
- * AECI-1435 (ADR 0042): an anonymous claim or listing request waits in
+ * AECI-1435 (ADR 0043): an anonymous claim or listing request waits in
  * `request_confirmations` until the typed address clicks the emailed link.
  *
  * Runs the real submit and confirm handlers against the in-memory D1 harness, with the

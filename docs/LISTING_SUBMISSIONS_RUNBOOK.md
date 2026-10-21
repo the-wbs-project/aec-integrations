@@ -36,7 +36,7 @@ submissions.
 
 **As built, AECI-1435 (2026-10-21): a request in the queue is from a confirmed address.** An
 anonymous typed-in listing, and an anonymous claim, wait until the typed address clicks the emailed
-confirm link (ADR 0042). Nothing reaches `/admin/requests`, `/admin/claims` or the support inbox
+confirm link (ADR 0043). Nothing reaches `/admin/requests`, `/admin/claims` or the support inbox
 before that. So the email on a listing request or a claim in the queue has received our mail.
 It still says nothing about whether the person works at the company: the domain and LinkedIn checks
 are unchanged. A request that was never confirmed is not in any queue, and its pending row is

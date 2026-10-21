@@ -319,6 +319,31 @@ export const PromoteProductSchema = z.object({
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
 
 /**
+ * What `product_proposals.payload` holds (AECI-1416; ruled 2026-10-19, "accept means
+ * exactly what was sent"). The whole product as the review app sent it, frozen, with
+ * every vendor the payload named, owned and unowned. Accept (AECI-1417) creates the
+ * product from this and links every vendor here, nothing else.
+ *
+ * Payload `ref`s are throwaway labels, so every vendor carries the AECi `vendorId` it
+ * resolved to in the proposing promote: the stored row for a vendor with a live
+ * `supabaseId`, or the row that same batch created for a new one. `isPrimary` is the
+ * resolved flag (the payload's, or `true` for the first vendor). `sent` is the vendor
+ * object exactly as validated. Integrations are not stored (ruling Q4).
+ */
+export interface ProductProposalVendor {
+  vendorId: string;
+  isPrimary: boolean;
+  /** Whether the vendor owned its record when the proposal was stored. */
+  owned: boolean;
+  sent: PromoteVendor;
+}
+export interface ProductProposalPayload {
+  version: 1;
+  product: PromoteProduct;
+  vendors: ProductProposalVendor[];
+}
+
+/**
  * One attestation on a claim: who asserts it and whether they affirm it
  * (`STAGE_1_5_SPEC.md` §3.3). In Stage 1.5 AECi writes exactly one attestation
  * per claim (`source: 'aeci', asserted: true`). `introducedAt` / `deprecatedAt`
@@ -647,6 +672,15 @@ export interface PromoteSkipped {
    * (AECI-1088). `REVIEW_APP_PROMOTE_API.md` §4c. Absent otherwise.
    */
   existingId?: string;
+  /**
+   * The `product_proposals` row this skip is about (AECI-1416), on `kind: 'product'`
+   * only. Set when a NEW product for a vendor that owns its record was stored as a
+   * proposal to the owner instead of being created, and when a re-send of a ref that
+   * already has a proposal (open, accepted or declined) was refused.
+   * `REVIEW_APP_PROMOTE_API.md` §4a. **Optional and additive**: a result written by an
+   * API Worker that predates AECI-1416 has no such key, so read it as possibly absent.
+   */
+  proposalId?: string;
 }
 
 /**
@@ -676,24 +710,14 @@ export interface PromoteSkipped {
  * a vendor edit landing mid-promote still wins), while this receipt comes from
  * the planning read a moment earlier. In the narrow window between the two, the
  * receipt can be absent for a value that was in fact preserved. The SQL is
- * authoritative; this is the notification. Since AECI-1407 the fence holds only
- * while the product has a live license, and the receipt fires only when the plan
- * read saw one. A license that ends between the read and the commit lets the
- * write through under a receipt that says it was kept. That window is a license
- * ending mid-promote, which a lapse job or an admin revoke makes rare.
- *
- * **`kind: 'license_hand_back'` (AECI-1407, E6.4)** is the receipt for the one
- * opening in the claimed-vendor block (`REVIEW_APP_PROMOTE_API.md` §4a). A product
- * a claimed vendor owns, with no live license, takes only the hand-back fields
- * (`toolIntegrationsUrl`, `apiDocsUrl`, `usefulness`) and, on its existing edges,
- * only AECi's claims. The entry lists what the claimed vendor kept: on the
- * PRODUCT's `ref`, the product fields that were withheld; on an integration's
- * `ref`, that its columns were withheld and only its claims were written. Not
- * `skipped[]`, because part of the entity WAS written.
+ * authoritative; this is the notification. It can never report the opposite
+ * error — a preserved receipt with no fence — because nothing clears
+ * `usefulness_source`. (AECI-1407 briefly lifted the fence when a license ended;
+ * removed 2026-10-19, AECI-1414, ruling on AECI-1341.)
  */
 export interface PromotePreserved {
   ref: string;
-  kind: 'claim' | 'attestation' | 'usefulness' | 'license_hand_back';
+  kind: 'claim' | 'attestation' | 'usefulness';
   reason: string;
   count: number;
 }

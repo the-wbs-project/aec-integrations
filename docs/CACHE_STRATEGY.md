@@ -299,20 +299,19 @@ all, so nothing rendered can have changed. The flip still stamps `vendors.update
 **both** directions (see the `verified`-flip paragraph below). Since AECI-1266 that stamp no
 longer serves search freshness, because the Algolia vendor record carries no `verified`.
 
-**(b1a) the last-seat hand-back (AECI-989)** — `DELETE
-/api/admin/vendors/:id/seats/:userId` purges only when the revoke removes the vendor's
-last seat, because only then does a rendered value change: the maintenance marker
-(`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The builder, `planVendorHandback` in
+**(b1a) the admin return of records to AECi (AECI-1415, was the last-seat hand-back of AECI-989)** — `POST
+/api/admin/vendors/:id/return-to-aeci` purges every page whose maintenance marker flipped, because
+that is a rendered value (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Since AECI-1415 the seat revoke and the
+erasure of the last seat purge nothing, because they move no marker. The builder, `planVendorHandback` in
 `apps/api/src/lib/vendor-handback.ts`, returns exactly the tags whose marker flipped, and
-the route sends them with `source: 'moderation'`. That means `vendor:{slug}` for the vendor
+the return route sends them with `source: 'moderation'`. That means `vendor:{slug}` for the vendor
 row, `product:{slug}` plus `index:products` for each solely-owned product, and
 `pair:{min}__{max}` plus both `product:` tags for each integration whose marker flipped.
 Clearing `claimed_at` alone purges nothing, because no public read renders it. It is **not**
 `vendorPurgeTags`: a revoke leaves `vendors.verified` alone, so purging every
-owned product would evict pages whose HTML did not change. Any other revoke, and a ban or
-unban, purges nothing. **Account erasure of a vendor's last seat** (`DELETE /api/account`,
-AECI-1106) runs the same builder in its own batch and sends the same tags, with
-`source: 'vendor'`.
+owned product would evict pages whose HTML did not change. Every revoke, an account erasure of
+a seat (`DELETE /api/account`), and a ban or unban purge nothing. The return sends the tags once
+after commit with `source: 'moderation'`.
 
 **(b1b) the early-unassign approve (AECI-1373)** — `PATCH
 /api/admin/license-release-requests/:id` with `action: 'approve'` takes a license off its
@@ -327,6 +326,19 @@ changes. After commit `afterVendorWrite` enqueues `product:{slug}`, `index:produ
 `vendor:{slug}` with `source: 'vendor'`: the (b1b) tag set, from the vendor side. The
 release-at-renewal flag (`PATCH /api/vendor/licenses/:id`) purges nothing, because no public
 read renders it.
+
+**(b1e) the owner's proposal accept (AECI-1417)** — `POST /api/vendor/proposals/:id/accept`
+creates a product an owned vendor accepted (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22). It purges
+what a promote create purges, from the same deriver: `cacheTagsForPromote`
+(`routes/promote-cache-tags.ts`) over a promote-shaped result, so `product:{slug}`,
+`index:products`, `sitemap`, `vendor:{slug}` for every linked vendor, one
+`category|audience|phase:{slug}` per linked term, `trade:{slug}` + `index:trades` +
+`taxonomy` + `sitemap` when it has a trade, and `product:{host}` per extension host. Never
+`taxonomy` for the three minted facets, because an accept mints nothing. `afterVendorWrite`
+enqueues them with `source: 'vendor'`. Two promote hooks are left out on purpose: no
+home-stats refresh (`index:home` waits for the daily cron, as for every vendor write) and no
+re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
+decline purges nothing.
 
 **(b1d) the term-end lapse (AECI-1404)** — the 11:00 `entitlement-expiry` job ends every
 passed term first (`lib/license-lapse.ts`, `STAGE_2_PAID_TIERS_SPEC.md` §7.6). After every

@@ -30,7 +30,6 @@ import {
   indexnowQueue,
   integrations,
   integrationEndpointMoves,
-  licenses,
   productCategories,
   products,
   productTrades,
@@ -62,10 +61,9 @@ import { seedLicense } from '../test/licenses';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import {
+  PROPOSED_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
-  PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-  REFUSED_CLAIMED_INTEGRATION,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
   type PromoteAlgoliaSync,
@@ -4628,13 +4626,16 @@ describe('touchedTradeSlugs', () => {
   });
 });
 
-// ─── Claimed-vendor guard (AECI-520) ──────────────────────────────────────────
+// ─── Owned-vendor guard (AECI-520, stored ownership since AECI-1415) ──────────
 
 /**
- * Once AECi grants a vendor-portal seat, that vendor's row and every product it
- * owns become vendor-owned — the vendor edits them through `/api/vendor/*`, and
- * this endpoint writes the very same columns. So a promote must not overwrite
- * them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ * Once a vendor owns its record (`vendors.owned_at`, stamped at claim approval and
+ * never cleared by seat loss, ADR 0042), that vendor's row and every product it
+ * holds are vendor-owned — the vendor edits them through `/api/vendor/*`, and this
+ * endpoint writes the very same columns. So a promote must not overwrite them
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4). The wider AECI-1415 cases (Q2 far
+ * endpoints, Q3 co-owned products, the commit-time sentinel) are pinned in
+ * `promote-ownership-fence.spec.ts`.
  *
  * The failure modes are asymmetric, so both directions are pinned: under-blocking
  * silently reverts a vendor's edits (they'd report "AECi keeps undoing our
@@ -4647,9 +4648,15 @@ describe('createPromoteHandler — claimed-vendor block', () => {
   const P_FREE = uuid(61); // owned by nobody in particular
   const P_OTHER = uuid(62); // an unrelated integration endpoint
 
-  /** Grant a seat — the ONLY thing that marks a vendor as claimed. */
+  /** A seat. Since AECI-1415 it marks nothing: `owned_at` is what owns a record. */
   const seedSeat = (id: string, vendorId: string | null, role = 'vendor_admin') =>
     t.db.insert(profiles).values({ id, role, vendorId });
+  /** The ownership stamp the claim approval writes (AECI-1415). */
+  const seedOwned = (vendorId: string) =>
+    t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-01T00:00:00.000Z' })
+      .where(eq(vendors.id, vendorId));
   const seedOwnership = (productId: string, vendorId: string) =>
     t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
 
@@ -4662,7 +4669,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     await seedProduct(P_FREE, 'microstation', 'MicroStation');
     await seedProduct(P_OTHER, 'navisworks', 'Navisworks');
     await seedOwnership(P_OWNED, V_CLAIMED);
-    await seedSeat(uuid(70), V_CLAIMED);
+    await seedOwned(V_CLAIMED);
   });
 
   it('skips the claimed vendor while a sibling vendor still promotes', async () => {
@@ -4745,24 +4752,37 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.name).toBe('MicroStation');
   });
 
-  it('never blocks a CREATE, and the vendor slug suffix still resolves', async () => {
-    // Creation is always allowed: nothing vendor-owned exists yet. This also
-    // pins that the blocked-vendor branch still contributes `firstVendorSlug`,
-    // which `generateSlug` uses to disambiguate a colliding product slug.
+  it('turns a CREATE that would join an owned vendor into a proposal (AECI-1416)', async () => {
+    // Ruled 2026-10-19: a new product under an owned vendor's name is not created. It
+    // is stored as a proposal to the owner (`promote-proposals.spec.ts`).
     const res = await promote({
       vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
-      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+      product: { ref: 'p:recRevit0001', name: 'Revit' },
     });
     const body = (await res.json()) as PromoteResponse;
-    expect(body.product?.operation).toBe('created');
-    expect(body.product?.slug).toBe('revit-autodesk');
-
+    expect(body.product).toBeNull();
+    expect(body.skipped).toContainEqual({
+      ref: 'p:recRevit0001',
+      kind: 'product',
+      reason: PROPOSED_PRODUCT_REASON,
+      proposalId: expect.any(String),
+    });
     const joins = await t.db
       .select()
       .from(productVendors)
       .where(eq(productVendors.vendorId, V_CLAIMED));
-    // The new product is still joined to the claimed vendor.
-    expect(joins.map((r) => r.productId)).toContain(body.product?.id);
+    expect(joins.map((r) => r.productId)).toEqual([P_OWNED]);
+  });
+
+  it('a CREATE under an unowned vendor still uses the vendor slug suffix', async () => {
+    // Pins that `firstVendorSlug` still disambiguates a colliding product slug.
+    const res = await promote({
+      vendors: [{ ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley' }],
+      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product?.operation).toBe('created');
+    expect(body.product?.slug).toBe('revit-bentley');
   });
 
   it('cascades to integrations referencing the blocked product by ref AND by id', async () => {
@@ -4791,7 +4811,7 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     const blocked = body.skipped.filter((s) => s.kind === 'integration');
     expect(blocked.map((s) => s.ref).sort()).toEqual(['i1', 'i2']);
     // The reason must name the real cause, not the misleading "not promoted yet".
-    for (const entry of blocked) expect(entry.reason).toMatch(/claimed vendor/i);
+    for (const entry of blocked) expect(entry.reason).toMatch(/owns its record/i);
 
     // The blocked product's own integration count is left alone.
     const [owned] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
@@ -4838,9 +4858,10 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.poweredByProductId).toBe(P_OWNED); // link intact
   });
 
-  it('treats only role=vendor_admin WITH a vendor_id as a claim', async () => {
-    // A reviewer pointed at the vendor, and a vendor_admin with no vendor_id:
-    // neither claims anything. Over-blocking would freeze curation.
+  it('a seat of any role owns nothing without the ownership stamp (AECI-1415)', async () => {
+    // A vendor_admin seat, a reviewer pointed at the vendor, and a vendor_admin with
+    // no vendor_id: none owns the record. Over-blocking would freeze curation.
+    await seedSeat(uuid(70), V_FREE, 'vendor_admin');
     await seedSeat(uuid(71), V_FREE, 'reviewer');
     await seedSeat(uuid(72), null, 'vendor_admin');
 
@@ -4894,507 +4915,81 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  // ── License hand-back (AECI-1407, E6.4) ─────────────────────────────────────
-  // The seat seeded above makes V_CLAIMED claimed. With no live license on P_OWNED the
-  // product is handed back for the Managed-only fields; with one, it stays fenced whole.
-  describe('license hand-back (AECI-1407)', () => {
-    const audienceVendorBlock = {
-      audiences: [{ slug: 'architecture', name: 'Architecture', points: ['Vendor words.'] }],
+  // AECI-1414 (ruling on AECI-1341, 2026-10-19). An owned vendor's product with NO
+  // live license is still fenced whole: hand-back is the loss of the edit right only,
+  // and the Managed fields freeze as the vendor left them. The AECI-1407 opening, which
+  // let promote write them again, is removed.
+  it('writes nothing to a claimed product whose license has ended, nor to its edges', async () => {
+    const vendorBlock = {
+      audiences: [{ slug: 'architecture', name: 'Architecture', points: ['Vendor copy.'] }],
       phases: [],
     };
-    const handBackPayload = {
-      ref: 'p1',
-      supabaseId: P_OWNED,
-      name: 'Revit 2027',
-      description: 'review-app copy',
-      toolIntegrationsUrl: 'https://aeci.example/integrations',
-      apiDocsUrl: 'https://aeci.example/api',
-      categories: ['Brand New Category'],
-      usefulness: {
-        audiences: [
-          { slug: 'architecture', points: ['AECi words.'] },
-          { slug: 'nope', points: ['x'] },
-        ],
-        phases: [],
-      },
-    };
-
-    beforeEach(async () => {
-      await t.db
-        .insert(taxonomyAudiences)
-        .values({ id: uuid(80), slug: 'architecture', name: 'Architecture' });
-      await t.db
-        .update(products)
-        .set({
-          toolIntegrationsUrl: 'https://vendor.example/integrations',
-          apiDocsUrl: 'https://vendor.example/api',
-          usefulness: audienceVendorBlock,
-          usefulnessSource: 'vendor',
-          promotionStatus: 'pending',
-          lastReviewedAt: '2026-01-01T00:00:00.000Z',
-        })
-        .where(eq(products.id, P_OWNED));
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: uuid(80), slug: 'architecture', name: 'Architecture' });
+    await seedDataObject(uuid(81), 'rfis', 'RFIs');
+    await t.db
+      .update(products)
+      .set({
+        toolIntegrationsUrl: 'https://vendor.example/integrations',
+        apiDocsUrl: 'https://vendor.example/api',
+        usefulness: vendorBlock,
+        usefulnessSource: 'vendor',
+      })
+      .where(eq(products.id, P_OWNED));
+    await seedLicense(t.db, V_CLAIMED, {
+      productId: P_OWNED,
+      endedAt: '2026-10-01T00:00:00.000Z',
+      endReason: 'lapsed',
     });
+    await t.db
+      .insert(integrations)
+      .values({ id: uuid(91), sourceProductId: P_OWNED, targetProductId: P_OTHER });
+    const [before] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
 
-    const readOwned = async () =>
-      (await t.db.select().from(products).where(eq(products.id, P_OWNED)))[0]!;
-
-    it('writes only the three hand-back fields and clears the usefulness credit', async () => {
-      const res = await promote({
-        product: { ...handBackPayload, lastReviewedAt: '2026-10-19T00:00:00.000Z' },
-      });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as PromoteResponse;
-
-      expect(await readOwned()).toMatchObject({
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        supabaseId: P_OWNED,
+        name: 'Revit',
         toolIntegrationsUrl: 'https://aeci.example/integrations',
         apiDocsUrl: 'https://aeci.example/api',
         usefulness: {
-          audiences: [{ slug: 'architecture', name: 'Architecture', points: ['AECi words.'] }],
+          audiences: [{ slug: 'architecture', points: ['Upstream copy.'] }],
           phases: [],
         },
-        usefulnessSource: null,
-        // Everything else is the claimed vendor's, untouched.
-        name: 'Revit',
-        description: 'Vendor-owned copy',
-        promotionStatus: 'pending',
-        promotedAt: null,
-        lastReviewedAt: '2026-01-01T00:00:00.000Z',
-        maintainedBy: 'aeci',
-      });
-      // No taxonomy work: nothing minted, nothing joined.
-      expect(await t.db.select().from(taxonomyCategories)).toHaveLength(0);
-      expect(body.taxonomy.categories).toEqual([]);
-      const joins = await t.db
-        .select()
-        .from(productVendors)
-        .where(eq(productVendors.productId, P_OWNED));
-      expect(joins.map((r) => r.vendorId)).toEqual([V_CLAIMED]);
-
-      // `updated`, so the purge, Algolia and IndexNow see it.
-      expect(body.product).toMatchObject({ ref: 'p1', id: P_OWNED, operation: 'updated' });
-      expect(skippedKinds(body)).not.toContain('product');
-      // The unresolved group is reported, as on the ordinary path. No term is minted.
-      expect(body.skipped).toContainEqual(
-        expect.objectContaining({ ref: 'p1', kind: 'usefulness' }),
-      );
-      expect(await t.db.select().from(taxonomyAudiences)).toHaveLength(1);
-      // What the vendor kept rides `preserved[]`, not `skipped[]`. `productRole` is listed
-      // though the payload omits it: the schema defaults it, and promote writes it.
-      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
-      expect(receipt).toMatchObject({ ref: 'p1', count: 5 });
-      expect(receipt?.reason).toBe(
-        'product has no live license, so promote wrote only toolIntegrationsUrl, apiDocsUrl and usefulness; the claimed vendor keeps: name, productRole, description, categories, lastReviewedAt',
-      );
-
-      const [audit] = await t.db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.action, 'product.updated'));
-      expect(audit?.metadata).toMatchObject({ license_hand_back: true });
-      expect(await auditActions()).not.toContain('promote.blocked');
+      },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: uuid(91),
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: P_OTHER },
+          claims: [{ dataObject: 'rfis', direction: 'a_to_b', attestations: [] }],
+        },
+      ],
     });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
 
-    it('keeps an admin-written block fenced while handing back the other fields', async () => {
-      // The hand-back covers vendor-written usefulness only (ruled 2026-10-19).
-      await t.db
-        .update(products)
-        .set({ usefulnessSource: 'admin' })
-        .where(eq(products.id, P_OWNED));
-      const body = (await (await promote({ product: handBackPayload })).json()) as PromoteResponse;
-      expect(await readOwned()).toMatchObject({
-        toolIntegrationsUrl: 'https://aeci.example/integrations',
-        apiDocsUrl: 'https://aeci.example/api',
-        usefulness: audienceVendorBlock,
-        usefulnessSource: 'admin',
-      });
-      expect(body.preserved).toContainEqual(
-        expect.objectContaining({ ref: 'p1', kind: 'usefulness', count: 1 }),
-      );
-      // The receipt names only what the UPDATE wrote: usefulness was left out.
-      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
-      expect(receipt?.reason).toBe(
-        'product has no live license, so promote wrote only toolIntegrationsUrl and apiDocsUrl; the claimed vendor keeps: name, productRole, description, categories',
-      );
+    expect(body.product).toBeNull();
+    expect(body.integrations).toEqual([]);
+    expect(body.skipped).toContainEqual(expect.objectContaining({ ref: 'p1', kind: 'product' }));
+    expect(body.skipped).toContainEqual(
+      expect.objectContaining({ ref: 'i1', kind: 'integration' }),
+    );
+    expect(body.preserved).toEqual([]);
+
+    const [after] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({
+      toolIntegrationsUrl: 'https://vendor.example/integrations',
+      apiDocsUrl: 'https://vendor.example/api',
+      usefulness: vendorBlock,
+      usefulnessSource: 'vendor',
     });
-
-    it('skips a null URL so a vendor-entered one survives, and still clears usefulness on an explicit null (ruling C)', async () => {
-      // ADR 0030: the review app's serializer sends null for an unset URL, and an
-      // absence must not delete. `usefulness: null` stays an explicit clear.
-      const body = (await (
-        await promote({
-          product: {
-            ref: 'p1',
-            supabaseId: P_OWNED,
-            name: 'Revit',
-            toolIntegrationsUrl: null,
-            apiDocsUrl: null,
-            usefulness: null,
-          },
-        })
-      ).json()) as PromoteResponse;
-      expect(await readOwned()).toMatchObject({
-        toolIntegrationsUrl: 'https://vendor.example/integrations',
-        apiDocsUrl: 'https://vendor.example/api',
-        usefulness: null,
-        usefulnessSource: null,
-      });
-      // The receipt names only what the UPDATE wrote.
-      const receipt = body.preserved.find((e) => e.kind === 'license_hand_back');
-      expect(receipt?.reason).toMatch(
-        /^product has no live license, so promote wrote only usefulness;/,
-      );
-    });
-
-    it('writes nothing when the only hand-back field sent is an admin-fenced usefulness', async () => {
-      await t.db
-        .update(products)
-        .set({ usefulnessSource: 'admin' })
-        .where(eq(products.id, P_OWNED));
-      const body = (await (
-        await promote({
-          product: {
-            ref: 'p1',
-            supabaseId: P_OWNED,
-            name: 'Revit 2027',
-            usefulness: handBackPayload.usefulness,
-          },
-        })
-      ).json()) as PromoteResponse;
-      expect(body.product).toBeNull();
-      expect(skippedKinds(body)).toContain('product');
-      expect(body.preserved).toContainEqual(
-        expect.objectContaining({ ref: 'p1', kind: 'usefulness' }),
-      );
-      expect(await readOwned()).toMatchObject({
-        usefulness: audienceVendorBlock,
-        usefulnessSource: 'admin',
-      });
-    });
-
-    it('keeps an admin block written between the plan and the commit', async () => {
-      // The plan read sees a vendor block, so only the in-SQL guard can save this.
-      const original = t.db.batch.bind(t.db);
-      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
-        await t.db
-          .update(products)
-          .set({ usefulnessSource: 'admin' })
-          .where(eq(products.id, P_OWNED));
-        return original(queries);
-      });
-      expect((await promote({ product: handBackPayload })).status).toBe(200);
-      expect(await readOwned()).toMatchObject({
-        toolIntegrationsUrl: 'https://aeci.example/integrations',
-        usefulness: audienceVendorBlock,
-        usefulnessSource: 'admin',
-      });
-    });
-
-    it('treats an ended license as no license', async () => {
-      await seedLicense(t.db, V_CLAIMED, {
-        productId: P_OWNED,
-        endedAt: '2026-10-01T00:00:00.000Z',
-        endReason: 'revoked',
-      });
-      await promote({ product: handBackPayload });
-      expect((await readOwned()).apiDocsUrl).toBe('https://aeci.example/api');
-    });
-
-    it('blocks the product wholesale while it holds a live license', async () => {
-      await seedLicense(t.db, V_CLAIMED, { productId: P_OWNED });
-      const body = (await (await promote({ product: handBackPayload })).json()) as PromoteResponse;
-
-      expect(body.product).toBeNull();
-      expect(body.skipped).toContainEqual(expect.objectContaining({ ref: 'p1', kind: 'product' }));
-      expect(body.preserved).toEqual([]);
-      expect(await readOwned()).toMatchObject({
-        toolIntegrationsUrl: 'https://vendor.example/integrations',
-        apiDocsUrl: 'https://vendor.example/api',
-        usefulness: audienceVendorBlock,
-        usefulnessSource: 'vendor',
-      });
-      expect(await auditActions()).toEqual(['promote.blocked']);
-    });
-
-    it('still blocks wholesale when the payload carries none of the hand-back fields', async () => {
-      const body = (await (
-        await promote({ product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit 2027' } })
-      ).json()) as PromoteResponse;
-      expect(body.product).toBeNull();
-      expect(skippedKinds(body)).toEqual(['product']);
-      expect(body.preserved).toEqual([]);
-    });
-
-    it('leaves the row alone when a license is assigned between the plan and the commit', async () => {
-      // The plan read sees no license, so only the CASE inside the UPDATE can save this.
-      const original = t.db.batch.bind(t.db);
-      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
-        await seedLicense(t.db, V_CLAIMED, { productId: P_OWNED });
-        return original(queries);
-      });
-      expect((await promote({ product: handBackPayload })).status).toBe(200);
-      expect(await readOwned()).toMatchObject({
-        toolIntegrationsUrl: 'https://vendor.example/integrations',
-        apiDocsUrl: 'https://vendor.example/api',
-        usefulness: audienceVendorBlock,
-        usefulnessSource: 'vendor',
-      });
-    });
-
-    describe('AECi claims on existing edges (ruling 2)', () => {
-      const EDGE = uuid(91);
-      const VENDOR_EDGE = uuid(92);
-      const rfiClaim = (direction: 'a_to_b' | 'b_to_a' = 'a_to_b') => ({
-        dataObject: 'rfis',
-        direction,
-        attestations: [{ source: 'aeci' as const, asserted: true }],
-      });
-      const located = (over: Record<string, unknown> = {}) => ({
-        ref: 'located',
-        supabaseId: EDGE,
-        sourceProduct: { ref: 'p1' },
-        targetProduct: { supabaseId: P_OTHER },
-        claims: [rfiClaim()],
-        ...over,
-      });
-
-      beforeEach(async () => {
-        await seedDataObject(uuid(81), 'rfis', 'RFIs');
-        await t.db.insert(integrations).values([
-          { id: EDGE, sourceProductId: P_OWNED, targetProductId: P_OTHER, name: 'Stored name' },
-          {
-            id: VENDOR_EDGE,
-            sourceProductId: P_OWNED,
-            targetProductId: P_FREE,
-            origin: 'vendor',
-            claimedAt: '2026-09-01T00:00:00.000Z',
-            builtByVendorId: V_CLAIMED,
-          },
-        ]);
-      });
-
-      it('writes AECi claims on a located edge, skips a new edge, and keeps the vendor row fenced', async () => {
-        const res = await promote({
-          product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
-          integrations: [
-            located({ name: 'Payload name' }),
-            {
-              ref: 'new',
-              sourceProduct: { ref: 'p1' },
-              targetProduct: { supabaseId: P_FREE },
-              claims: [rfiClaim()],
-            },
-            {
-              ref: 'vendor',
-              supabaseId: VENDOR_EDGE,
-              sourceProduct: { supabaseId: P_OWNED },
-              targetProduct: { supabaseId: P_FREE },
-              claims: [rfiClaim()],
-            },
-          ],
-        });
-        expect(res.status).toBe(200);
-        const body = (await res.json()) as PromoteResponse;
-
-        // The located edge's claim and its `aeci` attestation landed on the stored row.
-        const claimRows = await t.db.select().from(claims);
-        expect(claimRows).toHaveLength(1);
-        expect(claimRows[0]).toMatchObject({
-          integrationId: EDGE,
-          direction: 'a_to_b',
-          origin: 'aeci',
-        });
-        const attRows = await t.db.select().from(attestations);
-        expect(attRows).toMatchObject([{ claimId: claimRows[0]!.id, source: 'aeci' }]);
-        // Its columns are still the vendor's.
-        const [edge] = await t.db.select().from(integrations).where(eq(integrations.id, EDGE));
-        expect(edge?.name).toBe('Stored name');
-
-        expect(body.integrations).toEqual([
-          expect.objectContaining({
-            ref: 'located',
-            id: EDGE,
-            operation: 'updated',
-            sourceSlug: 'revit',
-            targetSlug: 'navisworks',
-          }),
-        ]);
-        expect(body.preserved).toContainEqual({
-          ref: 'located',
-          kind: 'license_hand_back',
-          reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-          count: 1,
-        });
-        expect(body.skipped).toContainEqual(
-          expect.objectContaining({ ref: 'new', kind: 'integration' }),
-        );
-        expect(body.skipped).toContainEqual({
-          ref: 'vendor',
-          kind: 'integration',
-          reason: REFUSED_CLAIMED_INTEGRATION,
-        });
-        expect(await auditActions()).not.toContain('integration.updated');
-      });
-
-      it('writes AECi claims on a Convention-A edge whose connector is the product', async () => {
-        const CONVENTION_A = uuid(93);
-        await t.db.insert(integrations).values({
-          id: CONVENTION_A,
-          sourceProductId: P_OTHER,
-          targetProductId: P_OWNED,
-          poweredByProductId: P_OWNED,
-        });
-        const body = (await (
-          await promote({
-            product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
-            integrations: [
-              located({
-                ref: 'convA',
-                supabaseId: CONVENTION_A,
-                sourceProduct: { supabaseId: P_OTHER },
-                targetProduct: { ref: 'p1' },
-                poweredByProduct: { ref: 'p1' },
-              }),
-              // Touches the product only as its connector: still skipped.
-              {
-                ref: 'connectorOnly',
-                sourceProduct: { supabaseId: P_OTHER },
-                targetProduct: { supabaseId: P_FREE },
-                poweredByProduct: { ref: 'p1' },
-                claims: [rfiClaim()],
-              },
-            ],
-          })
-        ).json()) as PromoteResponse;
-
-        const claimRows = await t.db.select().from(claims);
-        expect(claimRows).toMatchObject([
-          { integrationId: CONVENTION_A, direction: 'a_to_b', origin: 'aeci' },
-        ]);
-        const [edge] = await t.db
-          .select()
-          .from(integrations)
-          .where(eq(integrations.id, CONVENTION_A));
-        expect(edge?.poweredByProductId).toBe(P_OWNED);
-        expect(body.integrations).toEqual([
-          expect.objectContaining({ ref: 'convA', id: CONVENTION_A, operation: 'updated' }),
-        ]);
-        expect(body.skipped).toContainEqual(
-          expect.objectContaining({ ref: 'connectorOnly', kind: 'integration' }),
-        );
-      });
-
-      it('purges the product page and the pair page the claims render on', async () => {
-        const sendBatch = vi.fn().mockResolvedValue(undefined);
-        const env: Env = {
-          ...baseEnv,
-          CACHE_PURGE_QUEUE: {
-            send: vi.fn().mockResolvedValue(undefined),
-            sendBatch,
-          } as unknown as Env['CACHE_PURGE_QUEUE'],
-        };
-        const execCtx = fakeExecutionContext();
-        await buildApp().request(
-          '/api/promote',
-          post({ product: handBackPayload, integrations: [located()] }),
-          env,
-          execCtx,
-        );
-        await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-        expect(sendBatch).toHaveBeenCalledTimes(1);
-        const tags: string[] = (
-          sendBatch.mock.calls[0]![0] as { body: CachePurgeMessage }[]
-        ).flatMap((m) => m.body.tags ?? []);
-        expect(tags).toContain('product:revit');
-        expect(tags.some((tag) => tag.includes('revit') && tag.includes('navisworks'))).toBe(true);
-      });
-
-      it('reports a located edge only when its claim plan writes it', async () => {
-        const product = { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' };
-        // No claims sent and none stored: nothing to write, so no receipt and no result.
-        const quiet = (await (
-          await promote({ product, integrations: [located({ claims: [] })] })
-        ).json()) as PromoteResponse;
-        expect(quiet.integrations).toEqual([]);
-        expect(quiet.preserved.filter((e) => e.ref === 'located')).toEqual([]);
-
-        // A stored AECi claim the payload drops is a delete: written, so reported.
-        await promote({ product, integrations: [located()] });
-        expect(await t.db.select().from(claims)).toHaveLength(1);
-        const dropped = (await (
-          await promote({ product, integrations: [located({ claims: [] })] })
-        ).json()) as PromoteResponse;
-        expect(await t.db.select().from(claims)).toHaveLength(0);
-        expect(dropped.integrations).toEqual([
-          expect.objectContaining({ ref: 'located', id: EDGE, operation: 'updated' }),
-        ]);
-        expect(dropped.preserved).toContainEqual({
-          ref: 'located',
-          kind: 'license_hand_back',
-          reason: PRESERVED_LICENSE_HAND_BACK_INTEGRATION,
-          count: 1,
-        });
-      });
-
-      it('skips a located edge the payload re-points to another pair', async () => {
-        const body = (await (
-          await promote({
-            product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
-            integrations: [located({ ref: 'moved', targetProduct: { supabaseId: P_FREE } })],
-          })
-        ).json()) as PromoteResponse;
-        expect(body.integrations).toEqual([]);
-        expect(body.skipped).toContainEqual(
-          expect.objectContaining({ ref: 'moved', kind: 'integration' }),
-        );
-        expect(await t.db.select().from(claims)).toHaveLength(0);
-      });
-
-      it('flips a claim into the stored frame when the payload names the endpoints the other way', async () => {
-        await promote({
-          product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
-          integrations: [
-            located({
-              sourceProduct: { supabaseId: P_OTHER },
-              targetProduct: { ref: 'p1' },
-            }),
-          ],
-        });
-        const [claim] = await t.db.select().from(claims);
-        // Navisworks → Revit, stored on a Revit → Navisworks row.
-        expect(claim?.direction).toBe('b_to_a');
-        const [edge] = await t.db.select().from(integrations).where(eq(integrations.id, EDGE));
-        expect(edge?.sourceProductId).toBe(P_OWNED);
-      });
-
-      it('leaves the claims to the vendor while the product holds a live license', async () => {
-        await seedLicense(t.db, V_CLAIMED, { productId: P_OWNED });
-        const body = (await (
-          await promote({
-            product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
-            integrations: [located()],
-          })
-        ).json()) as PromoteResponse;
-        expect(body.integrations).toEqual([]);
-        expect(await t.db.select().from(claims)).toHaveLength(0);
-      });
-
-      it('aborts the whole promote when a license is assigned before the claims commit', async () => {
-        const original = t.db.batch.bind(t.db);
-        vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
-          await seedLicense(t.db, V_CLAIMED, { productId: P_OWNED });
-          return original(queries);
-        });
-        const res = await promote({ product: handBackPayload, integrations: [located()] });
-        expect(res.status).toBe(409);
-        expect(await res.json()).toMatchObject({
-          error: { code: 'LICENSE_GRANTED_DURING_PROMOTE' },
-        });
-        // The batch rolled back whole: no claim, and the product fields untouched.
-        expect(await t.db.select().from(claims)).toHaveLength(0);
-        expect((await readOwned()).apiDocsUrl).toBe('https://vendor.example/api');
-      });
-    });
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    expect(await auditActions()).not.toContain('product.updated');
   });
 });
 
@@ -5575,25 +5170,14 @@ describe('AECI-963 promote usefulness ownership', () => {
     phases: [],
   };
 
-  /** The vendor whose live license keeps the fence up. AECI-1407 (ruling 1): the
-   *  vendor's copy is fenced only while the product holds a live license. */
-  const licenseVendorId = uuid(903);
-
   beforeEach(async () => {
     await t.db
       .insert(taxonomyAudiences)
       .values({ id: uuid(900), slug: 'architecture', name: 'Architecture' });
     await seedProduct(productId, 'fenced-product', 'Fenced product');
-    await seedVendor(licenseVendorId, 'fence-vendor', 'Fence Vendor');
-    await seedLicense(t.db, licenseVendorId, { id: uuid(904), productId });
   });
 
   const readProduct = () => t.db.query.products.findFirst({ where: eq(products.id, productId) });
-  const endLicense = () =>
-    t.db
-      .update(licenses)
-      .set({ endedAt: '2026-10-01T00:00:00.000Z', endReason: 'lapsed' })
-      .where(eq(licenses.id, uuid(904)));
 
   const ownedByVendor = () =>
     t.db
@@ -5694,111 +5278,5 @@ describe('AECI-963 promote usefulness ownership', () => {
 
     expect((await push(upstreamPayload)).status).toBe(200);
     expect((await readProduct())?.usefulnessSource).toBeNull();
-  });
-
-  // ── AECI-1407 (E6.4, ruling 1): the fence holds only while a license does ──
-  describe('license hand-back (AECI-1407)', () => {
-    it('writes the upstream block over a vendor block once the license has ended, and clears the credit', async () => {
-      await ownedByVendor();
-      await endLicense();
-      const body = (await (await push(upstreamPayload)).json()) as PromoteResponse;
-      // `usefulness_source` back to NULL, or the page would say "Written by {vendor}"
-      // over AECi's copy.
-      expect(await readProduct()).toMatchObject({
-        usefulness: upstreamStored,
-        usefulnessSource: null,
-      });
-      // No receipt: nothing was preserved.
-      expect(body.preserved.filter((entry) => entry.kind === 'usefulness')).toEqual([]);
-      const [row] = await t.db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.action, 'product.updated'));
-      expect(row?.metadata).toMatchObject({ license_hand_back: true });
-    });
-
-    it('hands back a vendor clear too: a null push stays null and drops the credit', async () => {
-      await ownedByVendor();
-      await endLicense();
-      expect((await push(null)).status).toBe(200);
-      expect(await readProduct()).toMatchObject({ usefulness: null, usefulnessSource: null });
-    });
-
-    it('keeps the vendor block when the push omits usefulness, license or not', async () => {
-      await ownedByVendor();
-      await endLicense();
-      await promote({ product: { ref: 'p', supabaseId: productId, name: 'Fenced product' } });
-      expect(await readProduct()).toMatchObject({
-        usefulness: vendorBlock,
-        usefulnessSource: 'vendor',
-      });
-    });
-
-    it('keeps the vendor block when a license is assigned between the plan and the commit', async () => {
-      // The planner reads no live license, so only the in-SQL guard can save this.
-      await ownedByVendor();
-      await endLicense();
-      const original = t.db.batch.bind(t.db);
-      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
-        await seedLicense(t.db, licenseVendorId, { productId });
-        return original(queries);
-      });
-      expect((await push(upstreamPayload)).status).toBe(200);
-      expect(await readProduct()).toMatchObject({
-        usefulness: vendorBlock,
-        usefulnessSource: 'vendor',
-      });
-    });
-
-    it('counts only a license on THIS product: a live one elsewhere does not keep the fence', async () => {
-      await ownedByVendor();
-      await endLicense();
-      await seedProduct(uuid(905), 'other-product', 'Other product');
-      await seedLicense(t.db, licenseVendorId, { productId: uuid(905) });
-      expect((await push(upstreamPayload)).status).toBe(200);
-      expect(await readProduct()).toMatchObject({
-        usefulness: upstreamStored,
-        usefulnessSource: null,
-      });
-    });
-
-    it('keeps an admin-written block fenced on an unlicensed product, and sends the receipt', async () => {
-      // The hand-back covers vendor-written usefulness only (ruled 2026-10-19).
-      await t.db
-        .update(products)
-        .set({ usefulness: vendorBlock, usefulnessSource: 'admin' })
-        .where(eq(products.id, productId));
-      await endLicense();
-      const body = (await (await push(upstreamPayload)).json()) as PromoteResponse;
-      expect(await readProduct()).toMatchObject({
-        usefulness: vendorBlock,
-        usefulnessSource: 'admin',
-      });
-      expect(body.preserved).toContainEqual(
-        expect.objectContaining({ ref: 'p', kind: 'usefulness', count: 1 }),
-      );
-      const [row] = await t.db
-        .select()
-        .from(auditLog)
-        .where(eq(auditLog.action, 'product.updated'));
-      expect(row?.metadata ?? {}).not.toMatchObject({ license_hand_back: true });
-    });
-
-    it('keeps an admin block written after planning, on an unlicensed product', async () => {
-      // The planner reads `usefulness_source: null`, so only the in-SQL guard can save this.
-      await endLicense();
-      const original = t.db.batch.bind(t.db);
-      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
-        t.raw
-          .prepare("UPDATE products SET usefulness = ?, usefulness_source = 'admin' WHERE id = ?")
-          .run(JSON.stringify(vendorBlock), productId);
-        return original(queries);
-      });
-      expect((await push(upstreamPayload)).status).toBe(200);
-      expect(await readProduct()).toMatchObject({
-        usefulness: vendorBlock,
-        usefulnessSource: 'admin',
-      });
-    });
   });
 });
