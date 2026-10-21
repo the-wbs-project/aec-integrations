@@ -222,7 +222,7 @@ numbers), and again at launch.
 > row from the operator's own ISP and the daily digest counted it as a visitor — on the 2026-08-10
 > digest day **67 of the 92 "human" page views came from AS23700 (Jakarta), the operator's own ISP**
 > (`ADMIN_PANEL_SPEC.md` §14.2). The prefix list is `UNTRACKED_ROUTE_PREFIXES` in `@aeci/shared`,
-> enforced at both writers (`PageViewTracker.fire()` and the SSR Worker's `firePageView()`) and in
+> enforced at both writers (`PageViewTracker.fire()` and the SSR gateway's `firePageView()`) and in
 > the daily digest's reads (`apps/api/src/lib/analytics-digest.ts`).
 >
 > Two consequences when reading numbers across this date. **(1)** Digest human counts for days
@@ -733,8 +733,8 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > reverse-proxy question.** AECI-590's acceptance criterion was to measure the blocker-lost delta
 > before building anything. This is that measurement. It did **not** produce a loss ratio, and the
 > reason is worth recording: **D1 holds no JS-gated first-party counter to divide by.** `page_views`
-> `arrival` rows are written server-side by `firePageView`, so a headless fetcher that never runs a
-> line of JavaScript produces one. `app_started` requires the bundle to boot. The two populations are
+> `arrival` rows are written server-side by `firePageView` (by the gateway, on a cache hit too, since
+> AECI-1297), so a headless fetcher that never runs a line of JavaScript produces one. `app_started` requires the bundle to boot. The two populations are
 > not comparable, so their quotient is not a blocker rate.
 >
 > What the data does settle is **absolute volume**, and that turned out to be the decisive number.

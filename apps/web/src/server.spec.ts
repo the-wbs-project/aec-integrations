@@ -15,11 +15,13 @@ import {
   applyCfContextHeaders,
   buildCacheControl,
   cacheControlForRoute,
+  cacheGateway,
   createApp,
   hasSessionCookie,
   isAdminPath,
   isVendorPath,
   isCacheableRoute,
+  isNeverCacheablePath,
   isPreviewPath,
   isReviewPath,
   stripLocalePrefix,
@@ -79,6 +81,30 @@ function cookieEchoRenderer(): SsrRenderer {
 
 function fixedRenderer(response: Response): SsrRenderer {
   return async () => response.clone();
+}
+
+/** A rendered HTML page, the only response shape the gateway records (AECI-1297). */
+function htmlResponse(body: string, status = 200): Response {
+  return new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
+/**
+ * Run a request through the gateway entrypoint, which writes the `page_views`
+ * arrival (AECI-1297), with its `ctx.exports.Renderer` loopback stubbed to `app`.
+ * The gateway hands `Renderer` the original request, so `request.cf` set on it in
+ * a test reaches both the render and the arrival write, as in production.
+ */
+function viaGateway(
+  app: ReturnType<typeof createApp>,
+  request: Request,
+  env: Bindings,
+  ctx: ExecutionContext = fakeExecutionContext(),
+): Promise<Response> {
+  const gatewayCtx = {
+    ...ctx,
+    exports: { Renderer: { fetch: async (req: Request) => app.fetch(req, env, ctx) } },
+  } as unknown as ExecutionContext;
+  return cacheGateway.fetch(request, env, gatewayCtx);
 }
 
 // ─── Pure helper unit tests ────────────────────────────────────────────────
@@ -565,52 +591,6 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(allowedBody).toContain('Allow: /');
     expect(allowedBody).toContain('Sitemap: https://www.aecintegrations.com/sitemap.xml');
     expect(allowed.headers.get('X-Robots-Tag')).toBeNull();
-  });
-});
-
-describe('createApp apex → www 301 (canonical host = www; ADR 0011 amendment)', () => {
-  const htmlRenderer = (): SsrRenderer =>
-    fixedRenderer(
-      new Response('<!doctype html><title>x</title>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }),
-    );
-
-  it('301-redirects the bare apex to www, preserving path + query', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
-
-    const req = new Request('https://aecintegrations.com/products/acme?ref=waitlist&token=xyz');
-    const res = await app.fetch(
-      req,
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(301);
-    expect(res.headers.get('Location')).toBe(
-      'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
-    );
-    // Browser-cacheable but edge-excluded (`private`, no s-maxage): the Location
-    // embeds the query, but the WC-4 gateway normalizes the shared-edge key
-    // (AECI-318), so an edge entry would collapse distinct-query apex hits.
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
-  });
-
-  it('does NOT redirect www (falls through to SSR — the canonical served host)', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
-
-    const req = new Request('https://www.aecintegrations.com/');
-    const res = await app.fetch(
-      req,
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Location')).toBeNull();
   });
 });
 
@@ -1324,6 +1304,67 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     expect(res.status).toBe(404);
     // AECI-62 — browser revalidates every navigation; edge caches for 60s.
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('cache-tag')).toBe('route:404');
+  });
+
+  // AECI-1442 — a 404 on a never-cacheable path can be a per-visitor "no access"
+  // answer, so it must stay `private, no-store` with no `route:404` tag. The
+  // `/admin` and `/vendor` cases carry a session cookie to clear the anon gate.
+  it.each([
+    ['/vendor/acme/products', true],
+    ['/admin/missing', true],
+    ['/account/missing', false],
+    ['/auth/missing', false],
+    ['/search', false],
+  ])('keeps a 404 on %s private and untagged (AECI-1442)', async (path, needsSession) => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
+    });
+
+    const res = await app.fetch(
+      new Request(`https://www.aecintegrations.com${path}`, {
+        headers: needsSession ? { cookie: 'sb-proj-auth-token=session' } : {},
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('cache-tag')).toBeNull();
+  });
+});
+
+describe('isNeverCacheablePath (AECI-1442)', () => {
+  it.each([
+    '/auth',
+    '/auth/login',
+    '/account',
+    '/account/x',
+    '/welcome',
+    '/admin',
+    '/admin/reviews',
+    '/vendor',
+    '/vendor/acme',
+    '/search',
+    '/search/x',
+  ])('is true for %s', (path) => {
+    expect(isNeverCacheablePath(path)).toBe(true);
+  });
+
+  it.each([
+    '/',
+    '/vendors',
+    '/vendors/acme',
+    '/vendor-program',
+    '/products/missing',
+    '/authors',
+    '/accounts',
+    '/searching',
+    '/this-route-does-not-exist',
+  ])('is false for %s', (path) => {
+    expect(isNeverCacheablePath(path)).toBe(false);
   });
 });
 
@@ -1730,22 +1771,36 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
 // entity_id) and the 404 status gate.
 
 describe('createApp page-view capture (AECI-58)', () => {
-  // WC-3 (AECI-317): edge HITs skip the Worker under native Workers Cache, so
-  // there is no `caches.default` stub / cache-HIT case here — the SSR-side
-  // page-view fires only when the Worker renders (a native-cache MISS or a
-  // non-cacheable route). The browser `PageViewTracker` remains the canonical
-  // per-view counter (see the `firePageView` doc comment in server-runtime.ts).
+  // AECI-1297: the gateway writes the arrival, after `Renderer` answers, so a
+  // native-cache HIT is counted exactly like a MISS. These cases drive the
+  // gateway with the `Renderer` loopback stubbed to `createApp` (`viaGateway`).
+  // The browser `PageViewTracker` counts in-app navigations only.
   function pageViewCalls(calls: Request[]): Request[] {
     return calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
   }
 
-  it('fires POST /api/page-views with the locale-stripped route on a cacheable SSR miss', async () => {
+  it('writes no page view from the Renderer alone (AECI-1297)', async () => {
+    // A HIT never runs `Renderer`, so a write there would count MISSes only.
     const { binding, calls } = recordingApiBinding();
-    const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
-    });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>detail</html>')) });
 
     await app.fetch(
+      new Request('https://www.aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
+  it('fires POST /api/page-views with the locale-stripped route on a cacheable page', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
+    });
+
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products?page=2'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -1765,24 +1820,17 @@ describe('createApp page-view capture (AECI-58)', () => {
     });
   });
 
-  // main carried two cache-HIT cases here (page views still fire on a HIT; the
-  // Cookie rides the analytics subrequest but never reaches the cached response).
-  // Both are dropped on this line rather than repaired: WC-3 (AECI-317) moved the
-  // SSR Worker to the NATIVE Workers Cache, which short-circuits AHEAD of the
-  // Worker, so a HIT never reaches this code and there is no `cacheStub` to drive.
-  // See the AECI-585 note further down for the same reasoning. The surviving
-  // cookie-forwarding invariant is covered by the MISS cases above and below.
-
   it('forwards the eyeball Cookie so the API can flag an operator arrival (§13 D13)', async () => {
     // The API decides `is_operator` by verifying the session itself; without this
     // header an SSR arrival is anonymous to it, which is exactly why §13 D7 judged
     // a per-view role signal "right half the time".
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products', {
         headers: { cookie: 'sb-abc-auth-token=base64-xyz; theme=light' },
       }),
@@ -1798,10 +1846,11 @@ describe('createApp page-view capture (AECI-58)', () => {
   it('sends no cookie header on an anonymous arrival', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -1821,10 +1870,11 @@ describe('createApp page-view capture (AECI-58)', () => {
   ])('does NOT fire page-views for a speculative load (%s: %s)', async (name, value) => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products/revit', {
         headers: { [name]: value },
       }),
@@ -1838,10 +1888,11 @@ describe('createApp page-view capture (AECI-58)', () => {
   it('still fires page-views when Sec-Purpose carries a non-speculative value', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products/revit', {
         headers: { 'sec-purpose': 'something-else' },
       }),
@@ -1853,18 +1904,12 @@ describe('createApp page-view capture (AECI-58)', () => {
   });
 
   it('does NOT fire page-views for a HEAD request (AECI-743)', async () => {
-    // A HEAD takes the non-cacheable branch, which still renders and still lets a
-    // resolver attach `ctx.pageView` — so a HEAD-then-GET probe used to write two
-    // byte-identical `arrival` rows.
+    // A HEAD-then-GET probe used to write two byte-identical `arrival` rows.
     const { binding, calls } = recordingApiBinding();
-    const app = createApp({
-      ssrRenderer: (_req, ctx) => {
-        ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'x' };
-        return new Response('<html>detail</html>', { status: 200 });
-      },
-    });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>detail</html>')) });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products/revit', { method: 'HEAD' }),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -1876,10 +1921,11 @@ describe('createApp page-view capture (AECI-58)', () => {
   it('does NOT fire page-views on non-cacheable routes', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>account</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>account</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/account/settings'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -1892,7 +1938,8 @@ describe('createApp page-view capture (AECI-58)', () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/api/health'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -1916,11 +1963,12 @@ describe('createApp page-view capture (AECI-58)', () => {
     const binding = { API: rejectingFetcher, ASSETS: {} as Fetcher };
 
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>ok</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>ok</html>')),
     });
 
     const ctx = fakeExecutionContext();
-    const res = await app.fetch(
+    const res = await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products'),
       binding as unknown as Bindings,
       ctx,
@@ -1932,57 +1980,40 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(calls.some((c) => new URL(c.url).pathname === '/api/page-views')).toBe(true);
   });
 
-  it('uses the resolver-supplied payload (entity_type / entity_id) when present', async () => {
+  it('sends the route pattern from the path on a detail page, with no entity id', async () => {
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = {
-        route: '/products/:slug',
-        entity_type: 'product',
-        entity_id: 'prod-uuid',
-      };
-      return new Response('<html>x</html>', { status: 200 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>x</html>')) });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
-      fakeExecutionContext(),
     );
 
     const pv = pageViewCalls(calls);
     expect(pv).toHaveLength(1);
+    // The API resolves the entity id from `path` (AECI-1297). A HIT has no
+    // resolver, so the gateway never sends one.
     expect(await pv[0]!.clone().json()).toEqual({
       route: '/products/:slug',
-      // AECI-585: the resolver knows the pattern, `firePageView` knows the URL —
-      // so a resolver-supplied payload gains the concrete path without the
-      // resolver changing.
       path: '/products/procore',
       navigation: 'arrival',
-      entity_type: 'product',
-      entity_id: 'prod-uuid',
     });
   });
 
-  it('does NOT fire page-views for an operator-only route, even with a resolver payload (AECI-575)', async () => {
-    // `/admin/*` is non-cacheable, so the only way to reach `firePageView` is a
-    // resolver attaching `ctx.pageView`. No admin resolver does that today —
-    // this pins the guard so a future one can't start polluting the table the
-    // console reads (ADMIN_PANEL_SPEC §9.6).
+  it('does NOT fire page-views for an operator-only route (AECI-575)', async () => {
+    // `/admin/*` is non-cacheable, so the gateway never writes it. This pins that
+    // so the table the console reads stays clean (ADMIN_PANEL_SPEC §9.6).
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = { route: '/admin/reviews' };
-      return new Response('<html>admin</html>', { status: 200 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>admin</html>')) });
 
-    const res = await app.fetch(
+    const res = await viaGateway(
+      app,
       // A session cookie is required to clear the anon admin gate (303 → login).
       new Request('https://www.aecintegrations.com/admin/reviews', {
         headers: { cookie: 'sb-proj-auth-token=session' },
       }),
       binding as unknown as Bindings,
-      fakeExecutionContext(),
     );
 
     expect(res.status).toBe(200);
@@ -1990,18 +2021,13 @@ describe('createApp page-view capture (AECI-58)', () => {
   });
 
   it('does NOT fire POST /api/page-views when the renderer returns 404', async () => {
-    // A resolver that 404s sets RESPONSE_INIT.status=404; the runtime must
-    // gate page-view firing on response status so missing entities don't
-    // pollute view counts. Even if the resolver did push a payload, the
-    // status gate suppresses it.
+    // A resolver that 404s sets RESPONSE_INIT.status=404; the gateway writes on a
+    // 200 only, so missing entities don't pollute view counts.
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'x' };
-      return new Response('Not found', { status: 404 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('Not found', 404)) });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -2016,10 +2042,11 @@ describe('createApp page-view capture (AECI-58)', () => {
     // must never appear in the JSON the SSR Worker sends.
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products', {
         headers: { 'user-agent': 'Mozilla/5.0 (AECI test)' },
       }),
@@ -2040,10 +2067,11 @@ describe('createApp page-view capture (AECI-58)', () => {
   it('forwards the Referer header so the API can classify the traffic source (AECI-526)', async () => {
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products', {
         headers: { referer: 'https://www.linkedin.com/feed/' },
       }),
@@ -2058,50 +2086,33 @@ describe('createApp page-view capture (AECI-58)', () => {
 
   // ─── AECI-585: concrete path + navigation flag ───────────────────────────
 
-  // The predecessor of this case asserted that a cache HIT fired a page view with
-  // a synthesized `{ route }` payload. That was true of the hand-rolled
-  // `caches.default` layer, where the Worker ran on HIT and MISS alike. WC-3
-  // (AECI-317) moved to native Workers Cache, which short-circuits AHEAD of the
-  // Worker — a HIT never reaches this code, so there is no HIT branch left to
-  // test and no `cacheStub` to drive it. The equivalent invariant now is that a
-  // cacheable MISS with no resolver payload still stamps the concrete path.
-  it('falls back to the path-derived route on a cacheable miss with no resolver payload', async () => {
+  it('uses the path itself as the route on a page with no route pattern', async () => {
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const app = createApp({
-      ssrRenderer: async () => new Response('<html>ok</html>', { status: 200 }),
-    });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>ok</html>')) });
 
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/categories/bim-coordination'),
+    await viaGateway(
+      app,
+      new Request('https://www.aecintegrations.com/methodology'),
       binding as unknown as Bindings,
-      fakeExecutionContext(),
     );
 
     const pv = pageViewCalls(calls);
     expect(pv).toHaveLength(1);
     expect(await pv[0]!.clone().json()).toEqual({
-      route: '/categories/bim-coordination',
-      path: '/categories/bim-coordination',
+      route: '/methodology',
+      path: '/methodology',
       navigation: 'arrival',
     });
   });
 
-  it('carries the taxonomy entity plus the concrete path on a browse-page miss', async () => {
+  it('sends the taxonomy route pattern plus the concrete path on a browse page', async () => {
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = {
-        route: '/trades/:slug',
-        entity_type: 'trade',
-        entity_id: 'trade-uuid',
-      };
-      return new Response('<html>trade</html>', { status: 200 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<html>trade</html>')) });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/trades/electrical'),
       binding as unknown as Bindings,
-      fakeExecutionContext(),
     );
 
     const pv = pageViewCalls(calls);
@@ -2109,8 +2120,6 @@ describe('createApp page-view capture (AECI-58)', () => {
       route: '/trades/:slug',
       path: '/trades/electrical',
       navigation: 'arrival',
-      entity_type: 'trade',
-      entity_id: 'trade-uuid',
     });
   });
 
@@ -2119,10 +2128,11 @@ describe('createApp page-view capture (AECI-58)', () => {
     // concrete path carrying `?token=…` would put the full URL back in the table.
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products?ref=waitlist&token=secret'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -2131,39 +2141,12 @@ describe('createApp page-view capture (AECI-58)', () => {
     const body = (await pageViewCalls(calls)[0]!.clone().json()) as { path: string };
     expect(body.path).toBe('/products');
   });
-
-  it('overrides a caller-supplied path and navigation with the request URL', async () => {
-    // The request URL is the authority on where the visitor actually is, and this
-    // function only ever runs on a full-document load.
-    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = {
-        route: '/products/:slug',
-        path: '/products/stale',
-        navigation: 'spa',
-      };
-      return new Response('<html>x</html>', { status: 200 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
-
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/products/procore'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(await pageViewCalls(calls)[0]!.clone().json()).toEqual({
-      route: '/products/:slug',
-      path: '/products/procore',
-      navigation: 'arrival',
-    });
-  });
 });
 
 // ─── AECI-177: CF request-context forwarding across the SSR→API binding ──────
 // `request.cf` does not survive the service binding, so the SSR Worker copies
 // the needed fields onto trusted `x-aeci-cf-*` headers — for the browser's
-// proxied POST and for its own `firePageView` write — after stripping any
+// proxied POST and for the gateway's `firePageView` arrival write — after stripping any
 // client-supplied copies (anti-spoof). See docs/API_CONTRACTS.md §6.9.
 
 describe('CF context forwarding for page-views (AECI-177)', () => {
@@ -2192,14 +2175,14 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
   it('forwards the AS organization on the SSR write when request.cf carries it', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
     const request = new Request('https://www.aecintegrations.com/products');
     Object.defineProperty(request, 'cf', {
       value: { country: 'ID', asn: 23700, asOrganization: 'Biznet Networks' },
     });
-    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+    await viaGateway(app, request, binding as unknown as Bindings, fakeExecutionContext());
 
     const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
     expect(pv).toHaveLength(1);
@@ -2376,7 +2359,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
 // delete loop (tested above). Both are asserted because they are two mechanisms.
 
 describe('SSR arrival page-view CF context (AECI-868)', () => {
-  /** A document GET the SSR Worker will render and fire one arrival write for. */
+  /** A document GET the gateway forwards and writes one arrival row for. */
   function documentGet(
     url: string,
     opts: { cf?: Record<string, unknown>; headers?: Record<string, string> } = {},
@@ -2389,9 +2372,9 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
   async function arrivalWrite(request: Request): Promise<Request> {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
-    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+    await viaGateway(app, request, binding as unknown as Bindings, fakeExecutionContext());
     const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
     expect(pv).toHaveLength(1);
     return pv[0]!;
@@ -2589,13 +2572,14 @@ describe('writer provenance for page-views (AECI-871)', () => {
     });
   });
 
-  it('stamps ssr-arrival on the SSR Worker own arrival capture', async () => {
+  it('stamps ssr-arrival on the gateway arrival capture', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
@@ -2613,10 +2597,11 @@ describe('writer provenance for page-views (AECI-871)', () => {
     // guarantee of the header name.
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
-    await app.fetch(
+    await viaGateway(
+      app,
       new Request('https://www.aecintegrations.com/products', {
         headers: { 'x-aeci-writer': 'browser-spa', 'sec-fetch-dest': 'document' },
       }),
@@ -3059,7 +3044,7 @@ describe('raw page-view store headers (AECI-1384)', () => {
   it('sets the whole request.cf, the full URL and the client IP on the SSR arrival write', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+      ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
     });
 
     const request = new Request('https://www.aecintegrations.com/products?utm_source=li', {
@@ -3072,7 +3057,7 @@ describe('raw page-view store headers (AECI-1384)', () => {
     });
     const cf = { country: 'BR', city: 'São Paulo', asn: 28573 };
     Object.defineProperty(request, 'cf', { value: cf });
-    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+    await viaGateway(app, request, binding as unknown as Bindings, fakeExecutionContext());
 
     const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
     expect(pv).toHaveLength(1);

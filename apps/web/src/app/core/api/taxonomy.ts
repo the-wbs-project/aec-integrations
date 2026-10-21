@@ -28,8 +28,9 @@ export type TaxonomyTermDetail = CategoryDetail;
 
 /**
  * Maps a taxonomy kind to its URL/API path segment (`category` → `categories`).
- * Shared by the fetch helper, the browse resolver (canonical URL + page-view
- * route), and the route table so the pluralization lives in one place.
+ * Shared by the fetch helper, the browse resolver (canonical URL), and the route
+ * table so the pluralization lives in one place. `@aeci/shared` `landing-path.ts`
+ * keeps its own copy of this map for the gateway's page-view route (AECI-1297).
  */
 export const KIND_PATH_SEGMENT: Record<TaxonomyKind, string> = {
   category: 'categories',

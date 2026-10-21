@@ -110,11 +110,6 @@ registerDetailResolverSuite<VendorDetail>({
     { type: 'product', slug: 'procore-platform' },
     { type: 'product', slug: 'procore-revizto' },
   ],
-  expectedPageView: {
-    route: '/vendors/:slug',
-    entity_type: 'vendor',
-    entity_id: '00000000-0000-4000-8000-000000010001',
-  },
   notFound: {
     kind: 'vendor',
     slug: 'procore',

@@ -6,7 +6,9 @@ import {
   buildRawEnvelope,
   canonicalPairIds,
   emptyRawPageViewDerived,
+  parseLandingPath,
   parsePairPagePath,
+  type LandingEntity,
   type PageViewPayload,
   type PairPageSlugs,
   type RawPageViewDerived,
@@ -211,7 +213,10 @@ const NO_ENTITY: ResolvedEntity = {
 };
 
 /**
- * Map `(entity_type, entity_id)` onto the row's entity columns, confirming the
+ * The row's entity columns. An explicit `entity_type` in the body wins; an arrival
+ * without one is resolved from its concrete path (AECI-1297, `resolveEntityBySlug`).
+ *
+ * `resolveEntityById` maps `(entity_type, entity_id)` onto the row's entity columns, confirming the
  * referenced row exists (cheap PK lookup) so a stale/spoofed id is stored as null.
  *
  * Products and vendors land in their FK columns. The four taxonomy facets land in
@@ -223,6 +228,18 @@ const NO_ENTITY: ResolvedEntity = {
  * product and vendor branches.
  */
 async function resolveEntity(db: Db, payload: PageViewPayload): Promise<ResolvedEntity> {
+  if (payload.entity_type) return resolveEntityById(db, payload);
+  // AECI-1297 — the gateway writes every arrival, on an edge-cache HIT too, where
+  // no resolver ran to name the entity. It sends `{ route, path }` only, so the
+  // entity comes from the concrete path. Arrivals only: a `browser-spa` row has
+  // always been attributed by `route` alone, and this keeps it that way.
+  if (payload.navigation === 'arrival' && payload.path) {
+    return resolveEntityBySlug(db, parseLandingPath(payload.path).entity);
+  }
+  return NO_ENTITY;
+}
+
+async function resolveEntityById(db: Db, payload: PageViewPayload): Promise<ResolvedEntity> {
   const { entity_type: entityType, entity_id: entityId } = payload;
   if (!entityType || !entityId || !UUID_RE.test(entityId)) {
     return NO_ENTITY;
@@ -250,6 +267,35 @@ async function resolveEntity(db: Db, payload: PageViewPayload): Promise<Resolved
     return row ? { ...NO_ENTITY, taxonomyKind: entityType, taxonomyId: row.id } : NO_ENTITY;
   }
   return NO_ENTITY;
+}
+
+/**
+ * The entity a landing path names, by one slug lookup (AECI-1297). Same storage rule
+ * as `resolveEntityById`: an unknown slug stores null ids and the row is still
+ * written. No `slug_redirects` lookup, for the reason `resolvePairProducts` gives:
+ * a retired slug 301s before the page renders, and the gateway never writes a 301.
+ * A pair page resolves through `resolvePairProducts`, not here.
+ */
+async function resolveEntityBySlug(db: Db, entity: LandingEntity | null): Promise<ResolvedEntity> {
+  if (!entity || entity.type === 'pair') return NO_ENTITY;
+  const { type, slug } = entity;
+  if (type === 'product') {
+    const row = await db.query.products.findFirst({
+      columns: { id: true },
+      where: eq(products.slug, slug),
+    });
+    return { ...NO_ENTITY, productId: row ? row.id : null };
+  }
+  if (type === 'vendor') {
+    const row = await db.query.vendors.findFirst({
+      columns: { id: true },
+      where: eq(vendors.slug, slug),
+    });
+    return { ...NO_ENTITY, vendorId: row ? row.id : null };
+  }
+  const table = TAXONOMY_TABLES[type];
+  const [row] = await db.select({ id: table.id }).from(table).where(eq(table.slug, slug)).limit(1);
+  return row ? { ...NO_ENTITY, taxonomyKind: type, taxonomyId: row.id } : NO_ENTITY;
 }
 
 const NO_PAIR: [string | null, string | null] = [null, null];
@@ -384,8 +430,9 @@ async function recordPageView(
   derived.user_agent_hash = userAgentHash;
   derived.is_bot = isBot;
   derived.bot_name = botName;
-  // Traffic source from the forwarded eyeball `Referer` (SSR `firePageView`). Store
-  // the host only (privacy) + a coarse source label the digest groups on. AECI-526.
+  // Traffic source from the forwarded eyeball `Referer` (the SSR gateway's
+  // `firePageView`). Store the host only (privacy) + a coarse source label the
+  // digest groups on. AECI-526.
   const { source: referrerSource, host: referrerHost } = classifyReferrer(
     req.headers.get('referer'),
     selfHosts(c.env),
@@ -473,8 +520,8 @@ async function recordPageView(
       path: payload.route,
       // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
       // writer that sends a route PATTERN owes an explicit `path`; for the browser
-      // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
-      // path, so the fallback is the right answer rather than a degraded one.
+      // tracker and a gateway arrival on a non-detail page, `route` already IS the
+      // concrete path, so the fallback is the right answer rather than a degraded one.
       concretePath,
       productId,
       vendorId,

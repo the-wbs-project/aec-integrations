@@ -448,13 +448,5 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     }
   }
 
-  // Route-only payload — a pair has no single entity id, so no `entity_*` field is
-  // sent. The row is still attributed to BOTH products: the API derives the two
-  // endpoint ids from the concrete path the SSR runtime stamps on every arrival
-  // (AECI-929, `ADMIN_PANEL_SPEC.md` §13 D25). Deriving them there rather than
-  // here is what also covers the browser tracker's SPA hop and crawler fetches.
-  // Fires on 2xx only (empty pairs still count, and still carry both ids).
-  ctx.pageView = { route: '/products/:contextSlug/integrations/:otherSlug' };
-
   return pair;
 };

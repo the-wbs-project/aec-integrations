@@ -2,7 +2,7 @@
 
 **Version:** 0.1
 **Date:** 2026-10-13
-**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Nothing here is built. One decision is made (§1). Everything else is a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins.
+**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Two decisions are made: keep `page_views` (§1), and the gateway writes arrivals (§3, ruled 2026-10-21, built in AECI-1297). Everything else is unbuilt and a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins.
 **Related:** `docs/ANALYTICS.md` §5 (consent tiers), `docs/CACHE_STRATEGY.md` (gateway and `Renderer`), `docs/VENDOR_PLAN_DATA_READINESS.md` gap G0, AECI-1196 comment of 2026-10-02 (Cloudflare Basin names).
 
 Cloudflare renamed its data platform to Basin on 2026-10-01. Pipelines is now Basin Pipelines, R2 Data Catalog is Basin Catalog and R2 SQL is Basin SQL. This file says "Logpush" for the per-request edge log and "the rollup" for the daily job that reads it.
@@ -44,24 +44,30 @@ Logpush records only from the day it starts. `page_views` goes back to launch. K
 
 ### What Logpush adds
 
-Cache hits. Visitors and AI assistants that never run JavaScript. Error responses. Full user agent, Cloudflare bot score, verified-bot category, TLS fingerprint.
+Error responses, redirects and non-cacheable routes. Full user agent, Cloudflare bot score, verified-bot category, TLS fingerprint. Since AECI-1297 (§3) `page_views` itself counts cache hits and visitors and AI assistants that never run JavaScript, so Logpush no longer has to add those.
 
-## 3. The caching gap that exists today
+## 3. The caching gap, and the ruling that closed it
 
-Native Workers Cache sits on the `Renderer` entrypoint. The gateway (the `default` export in `apps/web/src/server.ts`) is uncached and runs on every request. The server-side arrival row is written by `firePageView` inside `Renderer`, so it fires only on a cache miss.
+Native Workers Cache sits on the `Renderer` entrypoint. The gateway (the `default` export in `apps/web/src/server.ts`) is uncached and runs on every request. Until AECI-1297 the server-side arrival row was written by `firePageView` inside `Renderer`, so it fired only on a cache miss.
 
-The browser `PageViewTracker` skips the first navigation, on the assumption that the server already counted it. On a cache hit nobody counts the landing page. This is live on staging, the only cached tier. Demo and production run uncached, so they are not affected yet. The tracker's own header comment still says the Worker covers cache hits. That stopped being true at WC-3.
+The browser `PageViewTracker` skips the first navigation, on the assumption that the server already counted it. On a cache hit nobody counted the landing page. This was live on staging, the only cached tier.
 
-Two fixes, either of which unblocks caching:
+Two fixes were on the table:
 
 1. **The browser counts arrivals.** The tracker posts the first navigation too, and `Renderer` stops writing arrivals. The browser POST already goes through the SSR Worker, which adds the trusted `x-aeci-cf-*` context, so the enriched columns survive. Visitors that do not run JavaScript stop being counted in `page_views`. Logpush counts them instead.
 2. **The gateway counts arrivals.** It runs on hits, so it can keep writing the server-side row. It knows the path but not the entity id, which only the resolver in `Renderer` knows.
 
-Proposed: option 1, because it also carries the Ray ID (§4). The gap is tracked as [AECI-1297](https://linear.app/aec-integrations/issue/AECI-1297).
+**Ruled 2026-10-21 (Chris): option 2, the gateway writes arrivals.** There is no Logpush on the zone to count what the browser would drop, so option 1 would lose no-JS visitors and AI-assistant fetches from `page_views` and from the raw store (ADR 0041). Built in [AECI-1297](https://linear.app/aec-integrations/issue/AECI-1297):
+
+- The gateway calls `firePageView` after `Renderer` answers, for a `200` HTML `GET` of a cacheable route. Provenance stays `ssr-arrival`. `Renderer` writes nothing.
+- The entity-id gap in option 2 is closed at the API. The gateway sends the route pattern and the concrete path (`parseLandingPath` in `@aeci/shared`). The API looks the slug up in `products`, `vendors` or the matching taxonomy table. An unknown slug keeps the row with null ids.
+- The arrival row's `cf_ray` is the page load's own Ray ID, read by the gateway from the trusted inbound `cf-ray`. The `Server-Timing` channel in §4 is no longer needed to join an arrival to its Logpush line. It would still be needed to join an in-app navigation to the document load that preceded it.
 
 ## 4. Joining the two on the Ray ID
 
 A Ray ID is the id Cloudflare gives every request. It is in the `cf-ray` header and in every Logpush line. It belongs to one request, not to a visitor or a network. Fifty people behind one office IP get fifty different Ray IDs, and one person reloading gets a new one each time.
+
+> **Note 2026-10-21 (AECI-1297).** This section was written for option 1 in §3, where the browser writes arrivals. The ruling chose option 2. An arrival row now carries the page load's Ray ID itself, from the trusted gateway write, and crawlers, AI fetches and no-JS visitors have rows. Read "beacon" below as "arrival row" for full-document loads. The rollup rules still apply to the remaining edge-only lines: errors, redirects, non-cacheable routes and background revalidations.
 
 ### Getting the page load's Ray ID to the browser
 
@@ -199,7 +205,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 
 ## 7. Open questions for the ADR
 
-1. Option 1 or option 2 in §3: browser or gateway writes arrivals?
+1. ~~Option 1 or option 2 in §3: browser or gateway writes arrivals?~~ *Closed 2026-10-21: the gateway (option 2). Built in AECI-1297.*
 2. Which consent tier model in §6, and which option for the non-consented tier?
 3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
@@ -224,7 +230,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 
 1. Logpush records Cloudflare's own bot score per request. It is the ground truth for our stored score (AECI-1298) and for judging the shadow run.
 2. Both need the Ray ID on `page_views` rows.
-3. Moving the arrival writer to the browser (AECI-1297) changes the classifier's inputs. It must land before the shadow run starts, or the comparison mixes two regimes.
+3. Moving the arrival writer to the gateway (AECI-1297) changes which requests reach the classifier: cache hits now write rows. It must land before the shadow run starts, or the comparison mixes two regimes.
 4. Both change the human page-view number. They ship under one published method-change date, not two.
 5. Retiring our bot detectors needs a trusted score. Retiring the GraphQL history pulls needs Logpush running.
 6. The ingest classifier and the Logpush rollup call the same shared code.
@@ -254,7 +260,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 |---|---|---|
 | D1 | Logpush production capture, lifecycle rule, backfill load | AECI-1196 |
 | D2 | Bot classifier and path-to-entity parser move to `@aeci/shared` | AECI-1299 |
-| D3 | Arrival writer move and page-load Ray ID (AECI-1297) | AECI-1196 |
+| D3 | Arrival writer move to the gateway (AECI-1297, built). The arrival row carries the page-load Ray ID itself | AECI-1196 |
 | D4 | Shadow classifier for 2 to 4 weeks on AECI-872's machinery, cross-checked against Logpush | AECI-1299 |
 | D5 | Daily rollup: enrichment, edge-only table, beacon coverage, AI-assistant fetches. Retire the GraphQL pulls and the WAF poll. | AECI-1196 |
 | D6 | Cutover with one published method-change date | both |

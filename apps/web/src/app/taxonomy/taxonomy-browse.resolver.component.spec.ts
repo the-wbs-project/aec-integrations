@@ -128,7 +128,7 @@ function setup(opts: {
 describe('categoryBrowseResolver — server path', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('fetches the term, sets browse meta, embeds product tags, queues pageView, stores in TransferState', async () => {
+  it('fetches the term, sets browse meta, embeds product tags, stores in TransferState', async () => {
     const term = buildTerm({
       products: [
         buildProduct('procore-platform', '00000000-0000-4000-8000-000000020001'),
@@ -165,11 +165,6 @@ describe('categoryBrowseResolver — server path', () => {
       { type: 'product', slug: 'procore-platform' },
       { type: 'product', slug: 'autodesk-build' },
     ]);
-    expect(ctx.pageView).toEqual({
-      route: '/categories/:slug',
-      entity_type: 'category',
-      entity_id: '00000000-0000-4000-8000-000000030001',
-    });
 
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.taxonomy-browse:category:project-management']).toEqual(term);
@@ -226,7 +221,7 @@ describe('categoryBrowseResolver — server path', () => {
     );
   });
 
-  it('returns null on NOT_FOUND, sets status 404 + noindex meta, no pageView/embedded', async () => {
+  it('returns null on NOT_FOUND, sets status 404 + noindex meta, no embedded', async () => {
     const setNotFoundMeta = vi.fn();
     const setEntityMeta = vi.fn();
     const ctx = createRequestContext(
@@ -255,7 +250,6 @@ describe('categoryBrowseResolver — server path', () => {
       canonical: 'https://aecintegrations.com/categories/missing',
     });
     expect(setEntityMeta).not.toHaveBeenCalled();
-    expect(ctx.pageView).toBeNull();
     expect(ctx.embedded).toEqual([]);
   });
 
@@ -298,7 +292,7 @@ describe('categoryBrowseResolver — server path', () => {
 describe('audienceBrowseResolver — kind wiring', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('hits the audiences endpoint and tags the pageView/meta with the audience kind', async () => {
+  it('hits the audiences endpoint and tags the meta with the audience kind', async () => {
     const term = buildTerm({ slug: 'structural', name: 'Structural' });
     const setEntityMeta = vi.fn();
     const ctx = createRequestContext(buildClient(async () => term));
@@ -319,11 +313,6 @@ describe('audienceBrowseResolver — kind wiring', () => {
     expect(setEntityMeta).toHaveBeenCalledWith(
       expect.objectContaining({ entity: 'audience', name: 'Structural' }),
     );
-    expect(ctx.pageView).toEqual({
-      route: '/audiences/:slug',
-      entity_type: 'audience',
-      entity_id: term.id,
-    });
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.taxonomy-browse:audience:structural']).toEqual(term);
   });
@@ -332,7 +321,7 @@ describe('audienceBrowseResolver — kind wiring', () => {
 describe('tradeBrowseResolver — kind wiring (AECI-544)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('hits the trades endpoint and tags the pageView/meta with the trade kind', async () => {
+  it('hits the trades endpoint and tags the meta with the trade kind', async () => {
     const term = buildTerm({ slug: 'electrical', name: 'Electrical' });
     const setEntityMeta = vi.fn();
     const ctx = createRequestContext(buildClient(async () => term));
@@ -353,11 +342,6 @@ describe('tradeBrowseResolver — kind wiring (AECI-544)', () => {
     expect(setEntityMeta).toHaveBeenCalledWith(
       expect.objectContaining({ entity: 'trade', name: 'Electrical' }),
     );
-    expect(ctx.pageView).toEqual({
-      route: '/trades/:slug',
-      entity_type: 'trade',
-      entity_id: term.id,
-    });
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.taxonomy-browse:trade:electrical']).toEqual(term);
   });

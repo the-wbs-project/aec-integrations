@@ -758,8 +758,8 @@ evaluator does not know fails loudly. The 2026-09-28 run read
 
 ### Where the probe paths are, and are not
 
-The probed paths are **not** in `page_views`. That table records 2xx renders only (the SSR
-`firePageView` fires on 2xx, `server/request-context.ts`), so a 404 probe never writes a row.
+The probed paths are **not** in `page_views`. That table records `200` HTML arrivals only (the
+SSR gateway's `recordGatewayArrival` in `server-runtime.ts`, AECI-1297), so a 404 probe never writes a row.
 Querying it for the scanner's hash returns only its real page views: `/`, `/products`,
 `/categories/*`, `/audiences/*`, `/trades`, pair and detail pages.
 
@@ -1003,8 +1003,11 @@ place only.
 `curl -I` sends **HEAD**, and `handleSsr` gates its cache branch on
 `request.method === 'GET'`. A HEAD therefore takes the non-cacheable branch and returns
 `private, no-store` with no `Cache-Tag` and no CSP — **on every route that renders a
-`200`, always**. The one exception is a HEAD that 404s: the non-cacheable branch still
-sends a 404 through `withCacheHeaders`, so it carries `Cache-Tag: route:404` and the CSP.
+`200`, always**. The one exception is a HEAD that 404s on a public path: the
+non-cacheable branch still sends that 404 through `withCacheHeaders`, so it carries
+`Cache-Tag: route:404` and the CSP. A 404 on a never-cacheable path (`/admin`, `/vendor`,
+`/account` and the rest of `isNeverCacheablePath`, AECI-1442) stays `private, no-store`
+with no `Cache-Tag` and no CSP.
 Either way it is a measurement artifact, not a defect, and it cost real time during
 AECI-800. Use `-D - -o /dev/null` to inspect headers on a genuine GET.
 

@@ -2,32 +2,25 @@
  * Fires a client-side `POST /api/page-views` on every in-app navigation after
  * the initial document load (AECI-151).
  *
- * The SSR Worker fires a page-view for the landing URL on every cacheable
- * request (`server-runtime.ts` `firePageView`), so the metric is meant to
- * reflect "visitor arrivals" — but the Worker only sees full-document loads.
+ * The SSR Worker's gateway writes the arrival for the landing URL on every
+ * cacheable page, on an edge-cache HIT and a MISS alike (`server-runtime.ts`
+ * `recordGatewayArrival`, AECI-1297). It only sees full-document loads.
  * In-app `routerLink` navigations never reach the Worker, so before this they
  * went uncounted (a visitor who landed on `/` and clicked through five products
  * registered one page-view, not six).
  *
  * This tracker closes that gap. It skips the FIRST `NavigationEnd` — the
- * hydration of the Worker-rendered landing page, already counted server-side —
- * and posts a minimal `{ route }` payload (path only) for each subsequent
- * navigation. The richer `{ entity_type, entity_id }` enrichment stays SSR-only
- * (only the server resolver branch knows the entity id), which is acceptable
- * for a view counter.
- *
- * Known gap under native Workers Cache (WC-3): the server-side arrival is
- * written inside the cached `Renderer`, so a cache HIT writes none, and the
- * skip below means this tracker does not count it either. A landing page served
- * from cache is therefore uncounted. Live on staging only (demo and production
- * run uncached). Fix options: `docs/design/edge-log-and-page-views.md` §3 (AECI-1297).
+ * hydration of the landing page, already counted by the gateway — and posts a
+ * minimal `{ route }` payload (path only) for each subsequent navigation. The
+ * API resolves an arrival's entity from its path; an SPA row is attributed by
+ * route alone, which is acceptable for a view counter.
  *
  * Operator-only surfaces are excluded (AECI-575 / ADMIN_PANEL_SPEC §9.6): an
  * admin SPA navigation would otherwise write a `page_views` row into the very
  * table the admin console reads and the daily digest reports on — the panel
  * measuring itself. The exclusion lives HERE, at the tracker, so nothing is sent
  * at all; the prefix list is `UNTRACKED_ROUTE_PREFIXES` in `@aeci/shared`, shared
- * with the SSR Worker's `firePageView` and with the digest's read-side filter so
+ * with the gateway's `firePageView` and with the digest's read-side filter so
  * the three can't drift.
  *
  * AECI-743 added a last-fired-route memo: with the query string stripped, a

@@ -51,8 +51,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  *
  * Cache discipline: tags are written by the SSR runtime (the path matcher
  * emits `route:detail` + `vendor:{slug}`; the resolver pushes
- * `product:{slug}` for each shown product onto `ctx.embedded`). The
- * page-view payload was queued by the resolver. Nothing here triggers HTTP
+ * `product:{slug}` for each shown product onto `ctx.embedded`). Nothing here
+ * triggers HTTP
  * — hydration reads the resolved data out of `route.data`.
  *
  * No account or plan label in the hero (AECI-1264, marketing review B1). The

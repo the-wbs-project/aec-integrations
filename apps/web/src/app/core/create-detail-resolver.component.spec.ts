@@ -6,7 +6,7 @@
  *
  * These tests cover the SHARED scaffold (hydration read, client-fetch on a
  * TransferState miss, null-ctx bail, NOT_FOUND→404, success → applyMeta +
- * pushEmbedded + pageView, origin fallback, param wiring, non-404 rethrow) with
+ * pushEmbedded, origin fallback, param wiring, non-404 rethrow) with
  * a synthetic entity + stub config. The entity-specific behavior of each real
  * resolver is covered by `product-detail.resolver.component.spec.ts` and
  * `vendor-detail.resolver.component.spec.ts`, which drive the composed resolvers
@@ -104,7 +104,7 @@ function setup(opts: {
 describe('createDetailResolver — server path', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('fetches the entity, runs applyMeta + pushEmbedded, sets pageView, and stores in TransferState on success', async () => {
+  it('fetches the entity, runs applyMeta + pushEmbedded, and stores in TransferState on success', async () => {
     const meta = {} as Partial<MetaService>;
     const config = buildConfig();
     const ctx = createRequestContext(buildClient());
@@ -133,24 +133,18 @@ describe('createDetailResolver — server path', () => {
       'https://example.test/tests/widget',
     );
     expect(config.pushEmbedded).toHaveBeenCalledWith(ctx, ENTITY);
-    expect(ctx.pageView).toEqual({
-      route: '/tests/:slug',
-      entity_type: 'product',
-      entity_id: 'entity-1',
-    });
     // TransferState carries the entity so hydration skips the fetch.
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.test-detail:widget']).toEqual(ENTITY);
   });
 
-  it('skips meta, embedded tags, and the page-view when the hooks are omitted and trackPageView is false', async () => {
+  it('skips meta and embedded tags when the hooks are omitted', async () => {
     const setEntityMeta = vi.fn();
     // A resolver that reuses the fetch scaffold but is NOT the entity's canonical
-    // page (e.g. the review form): no applyMeta/pushEmbedded, page-view opted out.
+    // page (e.g. the review form): no applyMeta/pushEmbedded.
     const config = buildConfig({
       applyMeta: undefined,
       pushEmbedded: undefined,
-      trackPageView: false,
     });
     const ctx = createRequestContext(buildClient());
     const responseInit = { status: 200 };
@@ -171,8 +165,6 @@ describe('createDetailResolver — server path', () => {
     expect(responseInit.status).toBe(200);
     expect(setEntityMeta).not.toHaveBeenCalled();
     expect(ctx.embedded).toEqual([]);
-    // The load-bearing assertion: no page-view for a non-canonical route.
-    expect(ctx.pageView).toBeNull();
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.test-detail:widget']).toEqual(ENTITY);
   });
@@ -201,7 +193,7 @@ describe('createDetailResolver — server path', () => {
     );
   });
 
-  it('reads the configured param name and composes the state key / route from it', async () => {
+  it('reads the configured param name and composes the state key from it', async () => {
     const config = buildConfig({ paramName: 'id' });
     const ctx = createRequestContext(buildClient());
 
@@ -218,16 +210,11 @@ describe('createDetailResolver — server path', () => {
     await run();
 
     expect(config.fetch).toHaveBeenCalledWith(ctx.api, 'abc-123');
-    expect(ctx.pageView).toEqual({
-      route: '/tests/:id',
-      entity_type: 'product',
-      entity_id: 'entity-1',
-    });
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.test-detail:abc-123']).toEqual(ENTITY);
   });
 
-  it('returns null on NOT_FOUND, sets status 404 + noindex meta, skips applyMeta/pushEmbedded and pageView', async () => {
+  it('returns null on NOT_FOUND, sets status 404 + noindex meta, skips applyMeta/pushEmbedded', async () => {
     const setNotFoundMeta = vi.fn();
     const config = buildConfig({ fetch: vi.fn(async () => null) });
     const ctx = createRequestContext(buildClient());
@@ -253,7 +240,6 @@ describe('createDetailResolver — server path', () => {
     });
     expect(config.applyMeta).not.toHaveBeenCalled();
     expect(config.pushEmbedded).not.toHaveBeenCalled();
-    expect(ctx.pageView).toBeNull();
     expect(ctx.embedded).toEqual([]);
     // TransferState carries null so hydration is consistent.
     const stateKeys = JSON.parse(transferState.toJson());

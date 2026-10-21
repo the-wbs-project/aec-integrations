@@ -33,14 +33,13 @@ describe('claimProductResolver (AECI-1364)', () => {
   const request = () => new Request('https://aecintegrations.com/products/procore/claim');
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('resolves the product with no page-view', async () => {
+  it('resolves the product', async () => {
     const ctx = createRequestContext(buildClient(async () => PRODUCT));
     const responseInit = { status: 200 };
     const { run } = setup({ platform: 'server', ctx, responseInit, request: request() });
 
     expect(await run()).toEqual(PRODUCT);
     expect(responseInit.status).toBe(200);
-    expect(ctx.pageView).toBeNull();
   });
 
   it('keeps the real 404 when the product is missing', async () => {

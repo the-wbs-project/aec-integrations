@@ -85,6 +85,10 @@
       "types": "./src/live-integration.ts",
       "default": "./src/live-integration.ts"
     },
+    "./landing-path": {
+      "types": "./src/landing-path.ts",
+      "default": "./src/landing-path.ts"
+    },
     "./pair-page-path": {
       "types": "./src/pair-page-path.ts",
       "default": "./src/pair-page-path.ts"

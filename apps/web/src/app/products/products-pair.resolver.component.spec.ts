@@ -220,7 +220,6 @@ describe('productsPairResolver — server path', () => {
         { type: 'product', slug: 'connector' },
       ]),
     );
-    expect(ctx.pageView).toEqual({ route: '/products/:contextSlug/integrations/:otherSlug' });
   });
 
   it('returns null, sets 404, and applies not-found meta on NOT_FOUND', async () => {
@@ -577,8 +576,6 @@ describe('productsPairResolver — moved-pair redirect (AECI-953)', () => {
     // would put `noindex` on a response whose whole job is to pass equity along.
     expect(meta.setNotFoundMeta).not.toHaveBeenCalled();
     expect(meta.setEntityMeta).not.toHaveBeenCalled();
-    // A 301 is not a page view. It has no body and nobody read anything.
-    expect(ctx.pageView).toBeFalsy();
   });
 
   it('carries its own Cache-Control and the OLD pair Cache-Tag', async () => {

@@ -520,3 +520,139 @@ describe('cacheGateway — preserves the original request.cf alongside the cache
     expect(rendererFetch.mock.calls[0]).toEqual([request]);
   });
 });
+
+// ─── AECI-1441: the apex → www 301 is a gateway step, ahead of the cache ──────
+//
+// The native Workers Cache key carries no host. While the redirect lived inside
+// the cached `Renderer`, a `www.` page already in the cache answered an apex
+// request with a 200 and the redirect never ran. The gateway's own cache is
+// disabled, so the redirect now runs here on every request and the `Renderer`
+// loopback is never reached for the bare apex.
+describe('cacheGateway — apex → www 301 ahead of the cache (ADR 0011 amendment, AECI-1441)', () => {
+  const stubCtx = (rendererFetch: ReturnType<typeof vi.fn>) =>
+    ({ exports: { Renderer: { fetch: rendererFetch } } }) as unknown as ExecutionContext;
+  const env = {} as unknown as Bindings;
+
+  it.each(['GET', 'HEAD', 'POST'])(
+    '301-redirects a bare-apex %s to www without calling the Renderer',
+    async (method) => {
+      const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+      const request = new Request(
+        'https://aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+        { method },
+      );
+
+      const res = await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+      expect(rendererFetch).not.toHaveBeenCalled();
+      expect(res.status).toBe(301);
+      expect(res.headers.get('Location')).toBe(
+        'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+      );
+      // Browser-cacheable but edge-excluded (`private`, no s-maxage): the Location
+      // embeds the query, but the shared-edge key is normalized and host-less, so an
+      // edge entry would collapse distinct-query apex hits.
+      expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
+      expect(res.headers.get('Cache-Tag')).toBeNull();
+      expect(await res.text()).toBe('');
+    },
+  );
+
+  it('forwards www to the Renderer (the canonical served host never redirects)', async () => {
+    const response = new Response('rendered', { status: 200 });
+    const rendererFetch = vi.fn().mockResolvedValue(response);
+
+    const result = await cacheGateway.fetch(
+      new Request('https://www.aecintegrations.com/'),
+      env,
+      stubCtx(rendererFetch),
+    );
+
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(result).toBe(response);
+  });
+});
+
+// ─── AECI-1297: the gateway writes the page_views arrival ─────────────────────
+//
+// A native-cache HIT never runs `Renderer`, so the arrival write lives in the
+// gateway, after `Renderer` answers. These stub the loopback with a response and
+// the `API` binding with a recorder.
+describe('cacheGateway — writes the arrival row (AECI-1297)', () => {
+  const HTML = { 'content-type': 'text/html; charset=utf-8' };
+
+  function harness(response: Response) {
+    const rendererFetch = vi.fn().mockResolvedValue(response);
+    const apiFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const waits: Promise<unknown>[] = [];
+    const ctx = {
+      exports: { Renderer: { fetch: rendererFetch } },
+      waitUntil: (p: Promise<unknown>) => waits.push(p),
+    } as unknown as ExecutionContext;
+    const env = { API: { fetch: apiFetch } } as unknown as Bindings;
+    const run = async (request: Request) => {
+      const result = await cacheGateway.fetch(request, env, ctx);
+      await Promise.all(waits);
+      return result;
+    };
+    return { run, apiFetch };
+  }
+
+  it('writes one ssr-arrival POST for a 200 HTML GET on a detail page', async () => {
+    const response = new Response('<html></html>', { status: 200, headers: HTML });
+    const { run, apiFetch } = harness(response);
+    const request = new Request('https://aeci.test/products/acme?utm_source=g');
+    Object.defineProperty(request, 'cf', { value: { asn: 23700, country: 'ID' } });
+
+    const result = await run(request);
+
+    expect(result).toBe(response);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    const sent = apiFetch.mock.calls[0][0] as Request;
+    expect(sent.method).toBe('POST');
+    expect(new URL(sent.url).pathname).toBe('/api/page-views');
+    expect(sent.headers.get('x-aeci-writer')).toBe('ssr-arrival');
+    // The ORIGINAL request.cf feeds the trusted headers (AECI-868).
+    expect(sent.headers.get('x-aeci-cf-asn')).toBe('23700');
+    expect(sent.headers.get('x-aeci-cf-country')).toBe('ID');
+    expect(await sent.json()).toEqual({
+      route: '/products/:slug',
+      path: '/products/acme',
+      navigation: 'arrival',
+    });
+  });
+
+  it.each([
+    ['a 404', 'https://aeci.test/products/ghost', 'GET', 404, HTML],
+    ['a 301', 'https://aeci.test/products/old', 'GET', 301, HTML],
+    ['a HEAD', 'https://aeci.test/products/acme', 'HEAD', 200, HTML],
+    ['a POST', 'https://aeci.test/products/acme', 'POST', 200, HTML],
+    [
+      'a non-HTML 200',
+      'https://aeci.test/products/acme',
+      'GET',
+      200,
+      { 'content-type': 'text/plain' },
+    ],
+    ['a non-cacheable path', 'https://aeci.test/search', 'GET', 200, HTML],
+    ['an untracked path', 'https://aeci.test/admin', 'GET', 200, HTML],
+  ])('writes nothing for %s', async (_label, url, method, status, headers) => {
+    const { run, apiFetch } = harness(new Response(null, { status, headers }));
+
+    await run(new Request(url, { method }));
+
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing for a speculative prefetch', async () => {
+    const { run, apiFetch } = harness(
+      new Response('<html></html>', { status: 200, headers: HTML }),
+    );
+
+    await run(
+      new Request('https://aeci.test/products/acme', { headers: { 'sec-purpose': 'prefetch' } }),
+    );
+
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+});

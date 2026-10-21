@@ -6,9 +6,9 @@
  * `reviewProductResolver` is the shared detail-resolver scaffold with the
  * product-detail side effects stripped, so this spec asserts the OPT-OUTS that
  * distinguish it from `productDetailResolver`: a successful server resolve
- * returns the product but records NO page-view (the load-bearing fix — a review
- * landing must not be counted as a product view), emits no entity meta, and
- * pushes no `Cache-Tag`; a NOT_FOUND still yields a 404. The shared
+ * returns the product, emits no entity meta, and pushes no `Cache-Tag`; a
+ * NOT_FOUND still yields a 404. A review landing is never a product page view:
+ * the gateway writes arrivals for cacheable routes only (AECI-1297). The shared
  * fetch/hydration plumbing is covered by `create-detail-resolver.component.spec.ts`.
  */
 import { TestBed } from '@angular/core/testing';
@@ -54,8 +54,6 @@ describe('reviewProductResolver (AECI-200)', () => {
 
     expect(result).toEqual(product);
     expect(responseInit.status).toBe(200);
-    // The fix: a review-form landing must NOT be counted as a product view.
-    expect(ctx.pageView).toBeNull();
     // No product-detail head/SEO leakage onto this noindex form page.
     expect(setEntityMeta).not.toHaveBeenCalled();
     // Non-cacheable route → no Cache-Tag contribution.
@@ -86,7 +84,6 @@ describe('reviewProductResolver (AECI-200)', () => {
 
     expect(result).toBeNull();
     expect(responseInit.status).toBe(404);
-    expect(ctx.pageView).toBeNull();
   });
 
   it('does NOT follow a retired-slug redirect (AECI-978)', async () => {
