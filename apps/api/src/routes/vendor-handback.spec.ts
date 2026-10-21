@@ -32,6 +32,7 @@ import {
   integrationFieldChallenges,
   integrations,
   licenses,
+  productProposals,
   productVendors,
   products,
   profiles,
@@ -435,6 +436,7 @@ describe('returning the records to AECi hands them back (AECI-1415)', () => {
       integration_ids: expect.arrayContaining([I_OWNED, I_ATTESTED, I_CREATED]),
       evidenced_pair_ids: [],
       contests_rerouted: 0,
+      discarded_proposal_ids: [],
     });
     expect((body!.integration_ids as string[]).length).toBe(3);
   });
@@ -588,6 +590,76 @@ describe('returning the records to AECi hands them back (AECI-1415)', () => {
     const [invite] = await t.db.select().from(vendorSeatInvites);
     expect(invite!.revokedAt).not.toBeNull();
     expect(await auditActions()).toContain('vendor_seat.invite_revoked');
+  });
+});
+
+describe('the return to AECi discards the open product proposals (AECI-1416, ruled 2026-10-19)', () => {
+  const proposal = (id: string, ref: string, decision: 'accepted' | 'declined' | null) => ({
+    id,
+    vendorId: VENDOR,
+    ref,
+    payload: { version: 1, product: { ref, name: ref }, vendors: [] },
+    proposedAt: OWNED_AT,
+    decision,
+    decidedAt: decision ? OWNED_AT : null,
+  });
+
+  it('deletes the open ones in the return batch, keeps the decided ones, and records the ids', async () => {
+    await t.db
+      .insert(productProposals)
+      .values([
+        proposal(u(95), 'p:recOpen00001', null),
+        proposal(u(96), 'p:recDeclined1', 'declined'),
+        proposal(u(97), 'p:recAccepted1', 'accepted'),
+      ]);
+    const { body } = await handBack();
+    expect(body!.discarded_proposal_ids).toEqual([u(95)]);
+    const left = await t.db.select().from(productProposals).orderBy(productProposals.id);
+    expect(left.map((r) => r.id)).toEqual([u(96), u(97)]);
+    const row = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'vendor.records_returned',
+    );
+    expect(row!.metadata).toMatchObject({
+      proposals_discarded: 1,
+      discarded_proposal_ids: [u(95)],
+    });
+  });
+
+  it('lets a re-send of a discarded ref create the product normally', async () => {
+    await t.db.insert(productProposals).values(proposal(u(95), 'p:recOpen00001', null));
+    await handBack();
+    const { response } = await runPromoteIngest(
+      {
+        env: { ENV: 'staging' } as Env,
+        request: new Request('http://localhost:8787/api/promote'),
+        waitUntil: () => {},
+        bookmark: () => null,
+      } satisfies PromoteRunCtx,
+      PromotePayloadSchema.parse({
+        vendors: [{ ref: 'v1', supabaseId: VENDOR, companyName: 'Bentley' }],
+        product: { ref: 'p:recOpen00001', name: 'OpenRoads' },
+      }),
+      {
+        dbFor: t.factory,
+        syncAlgolia: async () => {},
+        notifyIndexNow: async () => {},
+        refreshHomeStats: async () => {},
+      },
+    );
+    expect(response.product?.operation).toBe('created');
+    expect(await t.db.select().from(productProposals)).toEqual([]);
+  });
+
+  it('refuses with 409 VENDOR_PROPOSALS_CHANGED when a proposal lands after the read', async () => {
+    await revoke(SEAT_A);
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(productProposals).values(proposal(u(98), 'p:recLate00001', null));
+      return original(stmts);
+    }) as never);
+    expect(await returnRecords()).toMatchObject({ status: 409, code: 'VENDOR_PROPOSALS_CHANGED' });
+    expect((await vendorRow()).ownedAt).toBe(OWNED_AT);
+    expect((await t.db.select().from(productProposals)).map((r) => r.id)).toEqual([u(98)]);
   });
 });
 

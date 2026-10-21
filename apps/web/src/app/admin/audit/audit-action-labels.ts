@@ -54,6 +54,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'audience.created': $localize`:@@admin.audit.action.audienceCreated:Audience term created`,
   'phase.created': $localize`:@@admin.audit.action.phaseCreated:Phase term created`,
   'promote.blocked': $localize`:@@admin.audit.action.promoteBlocked:Promote blocked by a guard`,
+  // AECI-1416: a new product for an owned vendor, stored for the owner to decide.
+  'product_proposal.created': $localize`:@@admin.audit.action.productProposalCreated:Product proposed to the vendor`,
 
   // ── Claims and vendor positions ───────────────────────────────────────────
   //

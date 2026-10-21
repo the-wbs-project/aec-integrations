@@ -50,6 +50,9 @@ export class ReturnRecordsControl {
    *  roster could not be read: the button stays enabled and the API decides. */
   readonly hasSeats = input.required<boolean | null>();
   readonly idPrefix = input.required<string>();
+  /** `open_proposal_count` from the vendor read (AECI-1416): the open product
+   *  proposals the return deletes. The confirm step names the number when it is not 0. */
+  readonly openProposalCount = input<number>(0);
 
   /** The committed result. The host reloads the page and the audit trail on it. */
   readonly returned = output<AdminReturnRecordsResponse>();
@@ -132,6 +135,9 @@ function messageForError(err: unknown): string {
     }
     if (code === 'VENDOR_NOT_OWNED') {
       return $localize`:@@admin.vendors.returnRecords.error.notOwned:These records are already AECi's. Reload the page. Nothing was changed.`;
+    }
+    if (code === 'VENDOR_PROPOSALS_CHANGED') {
+      return $localize`:@@admin.vendors.returnRecords.error.proposalsChanged:A new product proposal for this vendor arrived while the request ran, so nothing was saved. Reload and try again.`;
     }
     if (code === 'VENDOR_SEATS_CHANGED') {
       return $localize`:@@admin.vendors.returnRecords.error.changed:This vendor's seats changed while the request ran, so nothing was saved. Reload and try again.`;

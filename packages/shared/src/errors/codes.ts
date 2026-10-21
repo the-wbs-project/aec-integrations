@@ -144,6 +144,18 @@ export const ApiErrorCode = {
   // and before the batch. The batch rolls back; re-push and the ownership fence skips
   // that vendor's rows.
   VENDOR_OWNED_DURING_PROMOTE: 'VENDOR_OWNED_DURING_PROMOTE',
+  // AECI-1416: another promote stored a proposal for the same product ref (the
+  // `product_proposals_ref_key` unique index) after this one's plan read and before its
+  // batch. The batch rolls back; re-push and the plan refuses the ref as already sent.
+  PRODUCT_PROPOSED_DURING_PROMOTE: 'PRODUCT_PROPOSED_DURING_PROMOTE',
+  // AECI-1416: the vendor a planned proposal was addressed to stopped owning its records
+  // (the admin "Return records to AECi") after the plan read and before the batch. The
+  // batch rolls back; re-push and the product is created normally.
+  VENDOR_RETURNED_DURING_PROMOTE: 'VENDOR_RETURNED_DURING_PROMOTE',
+  // AECI-1416: `POST /api/admin/vendors/:id/return-to-aeci` (409). A promote stored a new
+  // open product proposal for the vendor between the return's read and its batch, so the
+  // return would have deleted a proposal its audit row does not list. Nothing was written.
+  VENDOR_PROPOSALS_CHANGED: 'VENDOR_PROPOSALS_CHANGED',
   // AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci`, all 409.
   // `VENDOR_NOT_OWNED`: the vendor's records are AECi's already (`owned_at` is NULL).
   // `VENDOR_HAS_SEATS`: the vendor still holds a `vendor_admin` seat, banned or not.

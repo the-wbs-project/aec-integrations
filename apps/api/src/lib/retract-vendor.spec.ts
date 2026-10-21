@@ -128,6 +128,15 @@ describe('buildVendorFootprintSql', () => {
     expect(sql).not.toContain('"billing_accounts"');
   });
 
+  it('counts product proposals, and never names the table on a tier without 0084 (AECI-1416)', () => {
+    expect(buildVendorFootprintSql('v1')).toContain(
+      `(SELECT count(*) FROM "product_proposals" WHERE "vendor_id" = 'v1') AS product_proposals`,
+    );
+    const sql = buildVendorFootprintSql('v1', { productProposalsTable: false });
+    expect(sql).toContain('0 AS product_proposals');
+    expect(sql).not.toContain('"product_proposals"');
+  });
+
   it('counts BOTH edge tables separately — the AECI-721 two-table rule', () => {
     const sql = buildVendorFootprintSql('v1');
     expect(sql).toContain(`FROM "integrations" WHERE "built_by_vendor_id" = 'v1'`);
@@ -187,6 +196,7 @@ describe('classifyVendorRetraction', () => {
     ['profiles', 'profile'],
     ['seatInvites', 'seat invite'],
     ['billingAccounts', 'billing account'],
+    ['productProposals', 'product proposal'],
   ];
 
   for (const [field, needle] of refusalCases) {
@@ -213,8 +223,9 @@ describe('classifyVendorRetraction', () => {
       profiles: 1,
       seatInvites: 1,
       billingAccounts: 1,
+      productProposals: 1,
     });
-    expect(c.blockers).toHaveLength(6);
+    expect(c.blockers).toHaveLength(7);
   });
 });
 

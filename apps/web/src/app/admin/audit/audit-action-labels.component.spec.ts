@@ -52,6 +52,7 @@ const EMITTED_ACTIONS = [
   'audience.created',
   'phase.created',
   'promote.blocked',
+  'product_proposal.created',
   'claim.created',
   'claim.deleted',
   'claim.converted',

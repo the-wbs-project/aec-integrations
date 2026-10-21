@@ -83,6 +83,7 @@ import {
   integrationFieldChallenges,
   licenseReleaseRequests,
   licenses,
+  productProposals,
   profileAudiences,
   profileDetails,
   profiles,
@@ -555,6 +556,13 @@ export function createDeleteAccountHandler(
         .update(licenseReleaseRequests)
         .set({ decidedBy: null, updatedAt: sql`${licenseReleaseRequests.updatedAt}` })
         .where(eq(licenseReleaseRequests.decidedBy, userId)),
+      // AECI-1416: the deciding owner seat of a product proposal, no FK either. The
+      // PROPOSAL survives (the vendor's record of what AECi sent it); only who decided
+      // it is severed. `updated_at` pinned, as above.
+      db
+        .update(productProposals)
+        .set({ decidedBy: null, updatedAt: sql`${productProposals.updatedAt}` })
+        .where(eq(productProposals.decidedBy, userId)),
       // AECI-664: another of the sixteen (`AUTH_AND_RLS.md` §8), same treatment and same
       // reason. The INVITE survives its sender's erasure — a pending invite is the
       // invitee's to redeem, and deleting it would silently break a colleague's link

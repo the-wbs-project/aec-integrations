@@ -311,6 +311,10 @@ export const AdminVendorDetailSchema = z.object({
    *  because it predates the split. */
   integration_count: z.number().int().min(0),
   claim_counts: AdminVendorClaimCountsSchema,
+  /** Open `product_proposals` addressed to this vendor (AECI-1416): new products the
+   *  review app sent while the vendor owns its records. "Return records to AECi"
+   *  discards every one of them, so its confirmation shows this count. */
+  open_proposal_count: z.number().int().min(0),
 });
 export type AdminVendorDetail = z.infer<typeof AdminVendorDetailSchema>;
 
@@ -586,6 +590,10 @@ export const AdminReturnRecordsResponseSchema = z.object({
   integration_ids: z.array(z.string()),
   evidenced_pair_ids: z.array(z.string()),
   contests_rerouted: z.number().int().nonnegative(),
+  /** The vendor's OPEN product proposals the return deleted (AECI-1416). Decided
+   *  proposals stay. With the open row gone, a re-send of that ref creates the
+   *  product normally, because the vendor is AECi's again. */
+  discarded_proposal_ids: z.array(z.string()),
 });
 export type AdminReturnRecordsResponse = z.infer<typeof AdminReturnRecordsResponseSchema>;
 

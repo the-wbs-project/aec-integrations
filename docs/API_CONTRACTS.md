@@ -310,6 +310,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
+| `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
+| `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
+| `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
 | `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Nothing was written |
 | `VENDOR_HAS_SEATS` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) while the vendor holds any `vendor_admin` seat, banned or not. Revoke every seat first. Nothing was written |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or update, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }`, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
@@ -2770,6 +2773,9 @@ export const AdminVendorDetailSchema = z.object({
     resolved: z.number().int().min(0),
     rejected: z.number().int().min(0),
   }),
+  // AECI-1416: open product_proposals addressed to the vendor. "Return records to AECi"
+  // discards them, and its confirmation shows this number.
+  open_proposal_count: z.number().int().min(0),
 });
 ```
 
@@ -3227,7 +3233,8 @@ lapse never call it. Behind `requireAdmin()`, then `rateLimit('write')`. Source 
   product_ids: string[],          // products joined to the vendor that no other OWNED vendor holds
   integration_ids: string[],      // live integrations it had claimed
   evidenced_pair_ids: string[],   // live connector_evidenced_pairs it had claimed
-  contests_rerouted: number }
+  contests_rerouted: number,
+  discarded_proposal_ids: string[] } // AECI-1416: the open product proposals it deleted
 ```
 
 **Refused while any seat remains.** The vendor must hold no `vendor_admin` seat, banned or not.
@@ -3240,7 +3247,11 @@ evidenced pairs un-claimed, open owner-routed contests to AECi unstamped, and a 
 another owned vendor keeps its marker), and one `vendor.records_returned` audit row (entity type
 `vendor`, `beforeState`/`afterState` carry `owned_at`, `metadata` carries `reason`,
 `reasonVisibility`, `internalNote`, `product_count`, `integration_count`, `evidenced_pair_count`,
-`contests_rerouted`, `invites_revoked`). The hand-back audit rows say `cause`/`reason`
+`contests_rerouted`, `invites_revoked`, and since AECI-1416 `proposals_discarded` and
+`discarded_proposal_ids`). Before the audit row, the batch deletes the vendor's OPEN
+`product_proposals` (ruled 2026-10-19), behind a sentinel that aborts when a proposal arrived after
+the read. Decided proposals stay. With the open row gone, a re-send of that ref creates the product
+normally, because the vendor is AECi's again. The hand-back audit rows say `cause`/`reason`
 `records-returned-to-aeci`. Rows written before AECI-1415 say `owner-seat-revoked`.
 
 Post-commit: one batched audit forward, then a purge of every page whose marker flipped through
@@ -3256,6 +3267,7 @@ Errors:
 | 409 | `VENDOR_NOT_OWNED` | `owned_at` is already NULL |
 | 409 | `VENDOR_HAS_SEATS` | The vendor holds any `vendor_admin` seat, banned or not |
 | 409 | `VENDOR_SEATS_CHANGED` | A seat landed, or a double-click already returned the records, between the read and the batch. Nothing written |
+| 409 | `VENDOR_PROPOSALS_CHANGED` | A promote stored a new open product proposal for the vendor between the read and the batch (AECI-1416). Nothing written; reload and try again |
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532): retired
 
@@ -6125,6 +6137,11 @@ export interface PromoteResponse {
     ref: string;
     kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
     reason: string;
+    existingId?: string; // AECI-1011: the vendor-held twin, on `VENDOR_OWNED_TWIN` only
+    // AECI-1416: on `kind: 'product'` only. The `product_proposals` row a new product for an
+    // owned vendor was stored as, or the existing one a re-send was refused on. Optional and
+    // additive: a result stored before AECI-1416 never carries it.
+    proposalId?: string;
   }[];
   // AECI-604: the inverse of `skipped` — existing vendor-owned claims/attestations
   // this promote deliberately left alive. `ref` is the enclosing integration's;
@@ -6192,8 +6209,27 @@ writes the very same columns, so a routine push would silently revert their work
   `skipped[] { kind: 'product' }` with `BLOCKED_PRODUCT_REASON`. Wholesale means AECi's own curation
   columns on that row (`name`, `promotion_status`, `research_*`, `priority_*`, `admin_notes`) also stop
   updating through promote.
-- **A new product that would join an owned vendor is not created** until AECI-1416 ships. Reported as
-  `skipped[] { kind: 'product' }` with `BLOCKED_NEW_PRODUCT_REASON`. Before AECI-1415 promote created it.
+- **A new product that would join an owned vendor is not created. It is stored as a proposal**
+  (AECI-1416, rulings Q4 and Q5 of 2026-10-19). One `product_proposals` row (`DATABASE_SCHEMA.md`
+  §8.6f) holds the validated `product` object, frozen, on the first owned vendor in `vendors[]` order,
+  with a `product_proposal.created` audit row in the same batch. No taxonomy is resolved or minted.
+  `product` is `null`, and the skip is `skipped[] { kind: 'product', reason: PROPOSED_PRODUCT_REASON,
+  proposalId }`. The stored payload is `ProductProposalPayload` (`packages/shared/src/api/promote.ts`):
+  the product and EVERY vendor the payload named, each with its resolved AECi `vendorId` (ruled
+  2026-10-19, "accept means exactly what was sent"). The `ref` must be the review app's record ref,
+  `p:rec…` (`PROPOSAL_REF_RE`). Any other ref is refused with `PROPOSAL_REF_REFUSED_REASON` and
+  nothing is written to the catalog or proposals. A product for an unowned vendor is not checked. A commit-time sentinel aborts
+  the batch with `VENDOR_RETURNED_DURING_PROMOTE` when the addressed vendor stopped owning its record
+  before commit. A `ref` is sent once, ever: a `ref` that already has a proposal (open, accepted or
+  declined) is refused at plan time with `ALREADY_PROPOSED_REASONS[state]` and the existing
+  `proposalId`, and nothing is written to the catalog or proposals for it (the refusal writes its
+  `promote.blocked` audit row, like every refusal). A racing second send of one `ref` trips the unique
+  index on `product_proposals.ref` and the job errors with `PRODUCT_PROPOSED_DURING_PROMOTE`. The
+  insert has no `ON CONFLICT`, so its audit row never records a proposal that was not stored. A
+  proposal-only promote reports `wrote: false` and fires no catalog hooks. Before AECI-1416 the
+  product was skipped with `BLOCKED_NEW_PRODUCT_REASON`, and before AECI-1415 promote created it.
+- Integrations in the same payload that touch a product sent as a proposal are skipped with
+  `PROPOSED_PRODUCT_INTEGRATION_REASON` and never stored (Q4: a proposal carries the product only).
 - Integrations in the same payload with an endpoint on **that** blocked product
   cascade-skip (matched by both `ref` and `supabaseId` — the payload's
   `superRefine` only constrains the `ref` form), with `BLOCKED_INTEGRATION_REASON`. That includes an

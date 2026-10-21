@@ -83,6 +83,7 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     owned_integrations: { integrations: 2, connector_evidenced: 0, total: 2 },
     integration_count: 2,
     claim_counts: { open: 1, in_review: 0, resolved: 2, rejected: 1 },
+    open_proposal_count: 0,
     ...over,
   };
 }
