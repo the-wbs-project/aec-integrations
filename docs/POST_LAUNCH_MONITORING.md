@@ -1266,6 +1266,21 @@ for the day of the switch and for any window spanning it, three things hold.
 no ASN joins `DATACENTER_ASNS` without a human decision on a named holder (§3b, "Widening the list").
 Shadow mode is a way to earn that decision, never a way to skip it.
 
+### 3d. Page-view collection method changes
+
+A change to **how** `page_views` rows are written moves every count built on them, with no change in
+traffic. This table is the dated record. A comparison window that spans a row here is flagged, never
+blended (the same rule as §3c step 5). AECI-1346 must read it before it switches the reported
+numbers.
+
+| Date (UTC) | Tier | Change | Effect on the series |
+|---|---|---|---|
+| 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. |
+
+Demo and production get their own row on the day AECI-1443 enables caching there. On those tiers
+the writer is unchanged at the flip, but the arrival row then survives a HIT. A HIT also skips the
+render, so the AECI-839 p95 measures misses only from that date.
+
 ---
 
 ## 4. Triage → ticket loop
