@@ -67,7 +67,10 @@ describe('VendorProductEndedBanner: when it shows', () => {
     expect(text(f)).toContain('Managed ended for this product');
     expect(text(f)).toContain('It ended on October 9, 2026.');
     expect(text(f)).toContain('Its content stays live and nothing you entered was removed.');
-    expect(text(f)).toContain('AEC Integrations maintains its Managed fields again.');
+    expect(text(f)).toContain(
+      'Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so.',
+    );
+    expect(text(f)).not.toContain('AEC Integrations maintains');
   });
 
   it('shows for a revoked plan too', () => {

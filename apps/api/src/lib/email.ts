@@ -1835,7 +1835,7 @@ export function sendManagedEndedEmail(
     ? 'You had fewer licenses than products. The products assigned longest kept theirs.'
     : null;
   const handback =
-    'Everything your team entered stays live, and nothing is deleted. Your team can no longer edit the Managed fields, and AEC Integrations may update them again.';
+    'Everything your team entered stays live, and nothing is deleted. The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a license to do so.';
   const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
 
   const subject = `Managed has ended for ${subjectNames}`;

@@ -539,8 +539,8 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   an owner's value. A promote cross-table move (`REVIEW_APP_PROMOTE_API.md` §3.4a) copies the
 >   row's columns into the other table; the move must carry `pricing_url` with them, or a value set
 >   while the row was claimed would be lost when a later un-claim lets the row move.
-> - **An un-claimed row keeps its value.** A cleared claim (§11b.6 of the portal spec, AECI-989)
->   leaves `pricing_url` in place, because promote cannot curate it. The next owner edits it.
+> - **An un-claimed row keeps its value.** A cleared claim (an `owner` accept that reassigns the row, §11b.6
+>   of the portal spec, or the admin return of records to AECi, AECI-1415) leaves `pricing_url` in place, because promote cannot curate it. The next owner edits it.
 
 **Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
 Drizzle relations file declares
@@ -5403,7 +5403,7 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 
 ### Usefulness ownership (AECI-963)
 
-Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
+Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
 
 ### Logo ownership (AECI-955)
 

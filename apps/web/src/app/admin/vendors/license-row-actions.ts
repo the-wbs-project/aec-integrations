@@ -72,7 +72,7 @@ type Mode = 'extend' | 'reference' | 'revoke';
  *  - Extend moves the end date later. Nothing else changes, so no page purges.
  *  - Change reference rewrites an invoice license's reference.
  *  - Revoke ends the license now. On a product, the product drops to Free, its
- *    Managed fields are handed back (decision 14), and the vendor is emailed.
+ *    vendor loses the edit right on its Managed fields (decision 14), and the vendor is emailed.
  *    The vendor reads the reason in its portal messages. The internal note stays in
  *    the audit trail. The confirm copy says all of this before the operator presses.
  *

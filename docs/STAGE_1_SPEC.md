@@ -2161,7 +2161,7 @@ Use `logBatchToPosthog` (`apps/api/src/posthog.ts`) for any caller with N relate
 
 ### 26.6 Retention policy
 
-**Scope.** This section governs the **audit and workflow tables only** — `audit_log`, `workflow_instances`, `workflow_transitions`. Retention for `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `notification_delivery_events`, `user_activity_daily`, `ownership_sync_deliveries`, and `vendor_activity_daily` is governed by `ADMIN_PANEL_SPEC.md` §7.4, and its pruning cron is explicitly forbidden from touching the three tables named here.
+**Scope.** This section governs the **audit and workflow tables only** — `audit_log`, `workflow_instances`, `workflow_transitions`. Retention for `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `notification_delivery_events`, `user_activity_daily`, `ownership_sync_deliveries` (AECI-1418, 2026-10-20), and `vendor_activity_daily` is governed by `ADMIN_PANEL_SPEC.md` §7.4, and its pruning cron is explicitly forbidden from touching the three tables named here.
 
 **Stage 1: indefinite retention in D1.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
 
