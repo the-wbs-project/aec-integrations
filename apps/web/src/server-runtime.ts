@@ -93,7 +93,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
-import { submitCount, submitDistribution } from './server-posthog';
+import { logToPosthog, submitCount, submitDistribution } from './server-posthog';
 import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -1416,7 +1416,18 @@ export function createApp(options: {
           'Cache-Tag': 'sitemap,taxonomy',
         },
       });
-    } catch {
+    } catch (err) {
+      // The API enumerate failed (service-binding error, 5xx or timeout). This is
+      // the only 5xx path in the Worker that does not run through `handleSsr`, so
+      // it previously left no trace at all: a crawler-facing sitemap outage was
+      // indistinguishable from a healthy quiet period (AECI-63).
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'error',
+        message: 'ssr.sitemap.failed',
+        source: 'ssr-sitemap',
+        outcome: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
       return new Response('sitemap unavailable', {
         status: 500,
         headers: { 'Cache-Control': 'private, no-store' },
@@ -1668,8 +1679,20 @@ export function createApp(options: {
       );
     } catch (err) {
       // A NOT_FOUND (unknown/malformed id) → render the SSR 404 below; any other
-      // API error is a real failure and must surface.
-      if (!(isServerApiError(err) && err.status === 404)) throw err;
+      // API error is a real failure and must surface. Log it before the rethrow:
+      // this route throws straight to Hono's default handler, so the failure
+      // never reached the observability plane or the `aeci.ssr.render` count.
+      if (!(isServerApiError(err) && err.status === 404)) {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'error',
+          message: 'ssr.integration_redirect.failed',
+          source: 'ssr-pair-redirect',
+          outcome: 'failed',
+          integrationId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     }
 
     if (!integration) return notFound();
