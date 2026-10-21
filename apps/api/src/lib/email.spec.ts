@@ -644,6 +644,46 @@ describe('sendClaimApprovedEmail', () => {
     expect(String(body.html)).not.toContain('vendor-program');
   });
 
+  // AECI-1437: the button lands them in /vendor once. The copy says where the portal
+  // lives for every later visit, in both identity variants, as an inline link.
+  it.each([true, false])(
+    'says where the vendor portal lives after sign-in (invited: %s)',
+    async (invited) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendClaimApprovedEmail(fakeContext(SITE), {
+        to: 'owner@vendor.com',
+        vendorName: 'Globex',
+        invited,
+      });
+      const body = lastBody(fetchSpy);
+      const text = String(body.text);
+      const html = String(body.html);
+      expect(text).toContain(
+        'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left. You can also go to https://aecintegrations.com/vendor?utm_source=email&utm_campaign=claim-approved',
+      );
+      expect(html).toContain(
+        'href="https://aecintegrations.com/vendor?utm_source=email&amp;utm_campaign=claim-approved"',
+      );
+      expect(html).toContain('>aecintegrations.com/vendor</a>.');
+      // Still one button: the portal line is an inline link.
+      expect(html.match(/display:inline-block;background-color:#1e3a2f/g)).toHaveLength(1);
+    },
+  );
+
+  it('names only the account menu when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain(
+      'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.',
+    );
+    expect(text).not.toContain('You can also go to');
+  });
+
   it('the decision seam names the granted vendor, not the claimed product', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimDecisionEmail(fakeContext(), {

@@ -2922,6 +2922,7 @@ This supersedes the "Approved copy" bullet above, including its AECI-1215 Manage
 - **Names the vendor.** It uses the granted vendor's company name, even for a product claim.
 - **CTA.** "Sign in", linking to `/auth/login?return=%2Fvendor`. It is never a one-time link.
 - **Three blocks.** Sign in: an invited claimant reads "We created an account for this email address. Sign in from the sign-in page with this address..." and a linked claimant reads "Sign in with your existing account...". What Free includes: company details, and each product's description, website, logo and categories, plus a prompt to check the integration list and confirm it looks right. How Managed works: licenses sit on the company's billing account, each is assigned to one product, and they are bought later from Billing in the vendor portal. It names no price.
+- **Where the portal lives (AECI-1437, 2026-10-21).** After the sign-in line, both variants say "Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left. You can also go to {site}/vendor". The `/vendor` link is inline, so Sign in stays the one button. Without `PUBLIC_SITE_URL` the line names the menu only.
 - **Gone.** The "attestations" line.
 - **Kept.** The account-status note (no plan changes where you rank or appear) and the inline `/vendor-program` link.
 

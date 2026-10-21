@@ -455,7 +455,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, top left on a phone, or at /vendor), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
