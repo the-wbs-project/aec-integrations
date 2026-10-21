@@ -204,6 +204,25 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 
 ---
 
+## Native cache rollback
+
+Use this when a tier's native Workers Cache serves something wrong and a purge does not fix it.
+Cached tiers since 2026-10-21 (AECI-1443): staging and demo. Production is uncached until
+AECI-1443's second step.
+
+1. Delete that env's `exports` block in `apps/web/wrangler.jsonc`. Leave the top-level block alone.
+2. Merge, then deploy the tier: staging deploys from `main`; demo and production go through
+   `promote-to-demo` and `promote-to-prod` (`docs/environments.md`).
+3. HITs stop at that deploy. Each Worker version is its own cache namespace
+   (`cross_version_cache` off), so the new uncached version never reads the old copies. Those
+   copies expire on their own TTL, 15 minutes for detail pages (`docs/CACHE_STRATEGY.md` §4).
+4. Confirm with `Cf-Cache-Status` on a detail page: it should no longer read `HIT`.
+
+The purge queue consumer stays wired. With no cache it acks each message as
+`outcome:no_cache`. Background: ADR 0020, 2026-10-21 amendment.
+
+---
+
 ## High p95 detail render
 
 **Alert:** `AECi — Detail page render p95, cache MISS (1 h)`, same 1,500 ms threshold, hourly.

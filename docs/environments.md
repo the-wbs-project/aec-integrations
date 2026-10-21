@@ -185,7 +185,7 @@ What replaced it:
 
 - **Local dev** runs the top-level block of each `wrangler.jsonc` with no `--env`. Its `ENV` is `development`. It carries the PostHog vars, so local still reports to `aec-integrations-dev` (525793), now with `env=development`.
 - **The top-level API block keeps the old names** `aeci-app-preview`, `aeci-uploads-preview`, both KV ids and `aeci-promote-preview`. They are local-only names, kept so existing `.wrangler/state` carries over. `pnpm db:*:local` still says `aeci-app-preview --local`, and that is correct. A `--remote` call against the top-level block fails once the remote resources are gone. That is intended.
-- **Local SSR is uncached.** The top-level web block has no `exports` cache block. Native Workers Cache runs on staging only.
+- **Local SSR is uncached.** The top-level web block has no `exports` cache block. Native Workers Cache runs on staging and demo. Production is uncached until AECI-1443's second step.
 - **Search** reads `staging_*` from local and from the Lighthouse run. The docs search box reads `staging_docs` locally when `apps/web/.dev.vars` holds a search key. Nothing local ever writes it: `push-docs.mjs` accepts only `staging|production`, and only CI runs it without `--dry-run`. `AlgoliaEnv` has no `preview`, and `indexPrefixForEnv` folds `development`, and any label that is not staging, demo or production, onto `staging`. See `docs/SEARCH_RANKING.md` and the Algolia write guard in `docs/CICD_PLAN.md` §7.5.
 - **Review on staging.** Staging tracks `main`, so a change is reviewed after it merges. Migrations that have not landed on `main` cannot be exercised on any deployed tier. The PR-level D1 schema drift check (`drift-check.yml`) still covers migration safety.
 
@@ -1265,7 +1265,7 @@ Copy the `env.demo` blocks in both wrangler configs and change the names. Then r
 - **`queues`** — with no crons there is no producer for the five scheduled-job queues,
   and an uncached SSR Worker gives `CACHE_PURGE_QUEUE` nothing to invalidate. Both
   producer bindings are optional in `apps/api/src/env.ts` and no-op when unbound.
-- **(web) the `exports` block** — no `exports` means uncached, like demo/production. On
+- **(web) the `exports` block** — no `exports` means uncached, like production. On
   a test tier that is what you want: every request runs the render, so what you see is
   the deploy you just made, with no MISS→HIT wait and no purge story to operate.
 

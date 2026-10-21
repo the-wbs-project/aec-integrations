@@ -61,6 +61,24 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-10-21 — AECI-1297: staging arrival counts change method
+
+**Method change, not a snapshot.** This entry exists to date a seam in the staging `page_views`
+series, not to read the dashboards.
+
+**What changed.** From the staging deploy of `faa81a01f` at 2026-10-21 10:38 UTC, the SSR gateway
+writes the `navigation = 'arrival'` row on every 200 HTML GET of a cacheable route, cache HIT or MISS.
+Before it, `Renderer` wrote the row on a MISS only, so a landing served from the native cache wrote
+nothing. Staging has run cached since WC-3, so its arrival counts were low by the HIT share until
+this deploy.
+
+**What it means for reading numbers.** Staging arrival counts before and after this time are not
+comparable. Demo and production were uncached at this deploy, so their series is unchanged. They get
+their own seam on the day AECI-1443 enables caching. The dated table is
+`POST_LAUNCH_MONITORING.md` §3d.
+
+**Regressions / tickets filed:** none. **Threshold tuning:** none.
+
 ## 2026-09-13 — AECI-590: the reverse-proxy question is closed on a measurement
 
 Scope: **a measurement plus a doc sweep.** No instrumentation changes, no schema change, no

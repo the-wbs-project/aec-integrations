@@ -2420,7 +2420,7 @@ argument.
 - **Posture as of 2026-08-31: the call is deferred.** We scrape what we can get ourselves first. An incomplete coverage list is explicitly acceptable, so workstream D is not blocked on a MindCloud feed.
 - **`relations()` split.** AECI-722 discharged the remaining deferral, which covered the five non-evidenced tables. AECI-721 had already added the evidenced-pairs block.
 - **The AECI-892 reach read applies `publishableMappingOn` at both ends** of the pair.
-- **The `dispatchConnectorHooks` purge is live on staging only.** *(Preview was retired 2026-10-10, AECI-1268.)* `demo` and `production` run uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
+- **The `dispatchConnectorHooks` purge is live on staging and demo.** *(Preview was retired 2026-10-10, AECI-1268. Demo was cached by AECI-1443 on 2026-10-21.)* `production` runs uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
 - **AECI-1013's vendor-portal reader** reads through `GET /api/vendor/products/:id/connectors`. It dates every reach and sits outside the live-update cursor.
 - **The first production sync (AECI-764, 2026-09-10) followed the review-side sender, AECI-731, shipping.** It loaded Agave, Trimble AppXchange, Aquifer and Kroo, each in one page. Three things it left open have since moved:
   - **MindCloud is live in production since 2026-09-21.** AECI-1029 promoted the product at `04:48Z`. AECI-902 synced its catalogue at `10:14–10:19Z`: 12 pages, 3,395 stubs, 2,016 pairs, 52 mappings, with 79 mappings skipped because their product is unpromoted.
