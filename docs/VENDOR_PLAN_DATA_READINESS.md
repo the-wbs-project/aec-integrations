@@ -158,7 +158,7 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 
 | #   | Gap                                                                                                                  | Why now                                                                                          | Size         | Issue                          |
 | --- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------ | ------------------------------ |
-| G0  | Start Logpush of zone `http_requests` to R2 on the AEC Integrations account. Until it runs, re-run the backfill pull before the oldest unsaved day ages out (next: firewall events by 2026-11-12, requests by 2027-01-01) | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1169 (exists) |
+| G0  | Start Logpush of zone `http_requests` to R2 on The WBS Project account (decided 2026-10-13, AECI-1300). Until it runs, re-run the backfill pull before the oldest unsaved day ages out (next: firewall events by 2026-11-12, requests by 2027-01-01) | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1169 (exists) |
 | G1  | Flag a vendor's own visits on `page_views` (`is_owner_visit`)                                                        | Shipped 2026-10-12, forward only: pilot vendors' views before migration `0068` stay counted and cannot be backfilled | Small to medium | AECI-934 (shipped)              |
 | G2  | Once-a-day vendor portal visit row in D1 (user, vendor, day, utm)                                                    | Only way to count return visits for vendors who decline analytics                                | Small        | New                            |
 | G3  | "Confirm, nothing to change" action on vendor, product and integration, with an audit row and `last_reviewed_at`    | Pilot steps 1 to 3 are invisible when the data was already right                                 | Small        | New                            |
@@ -346,9 +346,10 @@ carries personal data and a consent obligation.
 5. **May a vendor see clicks that went to another vendor from a shared pair page?**
 6. **May we log vendor portal visits in D1 without analytics consent?** It is a first-party
    service log. The privacy policy may need a sentence.
-7. **Which Cloudflare account holds Logpush?** Planning started in epic AECI-1196. AECI-1161 moves
-   AECi resources to The WBS Project account, which conflicts with the AEC Integrations account
-   named here. It needs an ADR because it adds Logpush, Pipelines and R2 Data Catalog to the stack.
+7. **Answered 2026-10-13: The WBS Project** (AECI-1300). The zone and its Logpush job live there
+   since AECI-1161, and the AEC Integrations account is deleted 30 days after the cutover. The ADR
+   owed by epic AECI-1196 still records it, because Logpush, Pipelines and R2 Data Catalog are new
+   to the stack.
 
 ## Summary
 
