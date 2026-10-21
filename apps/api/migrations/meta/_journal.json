@@ -610,6 +610,13 @@
       "when": 1792568839812,
       "tag": "0086_aspiring_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1792574882449,
+      "tag": "0087_third_spitfire",
+      "breakpoints": true
     }
   ]
 }

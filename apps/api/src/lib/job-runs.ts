@@ -295,6 +295,24 @@ export type JobRunDetail =
    *  prior UTC day at run time) and `vendors` is the rows written, one per
    *  activated vendor. */
   | { job: 'vendor-snapshot'; day: string; vendors: number; durationMs: number }
+  /** The daily AECI-1345 traffic classification writer (D19 Phase 2,
+   *  `POST_LAUNCH_MONITORING.md` §3c step 4). `classifierVersion` + `fingerprint`
+   *  name the rules; `constants` carries the scalar tunables and the swarm block
+   *  only, so the row stays far under {@link DETAIL_MAX_BYTES}. `countsByClass` is
+   *  over every row seen, internal included; `rowsWritten` is 0 on a re-run. */
+  | {
+      job: 'traffic-classify';
+      day: string;
+      durationMs: number;
+      classifierVersion: string;
+      fingerprint: string;
+      constants: Record<string, unknown>;
+      rowsSeen: number;
+      rowsWritten: number;
+      countsByClass: Record<string, number>;
+      evidenceIncomplete: number;
+      swarmTruncated: boolean;
+    }
   | {
       job: 'protest-reply-reminder';
       due: number;

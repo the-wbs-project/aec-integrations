@@ -50,6 +50,7 @@ function makeRow(over: Partial<AdminPageViewRow> & { id: number }): AdminPageVie
     referrer_source: 'referrer_source' in over ? (over.referrer_source ?? null) : 'Direct',
     referrer: over.referrer ?? null,
     asn_registry: over.asn_registry ?? null,
+    classification: over.classification ?? null,
   };
 }
 

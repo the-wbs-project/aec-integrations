@@ -1585,7 +1585,7 @@ create index request_confirmations_expires_idx on request_confirmations(expires_
 
 - **Why a holding table.** A status value on `vendor_requests` would change its `status`
   CHECK, a drizzle-kit recreate of a table with FK children, and every reader of that table
-  would need a new filter (ADR 0043). Migration `0086` is a plain `CREATE TABLE` and three
+  would need a new filter (ADR 0043). Migration `0087` is a plain `CREATE TABLE` and three
   `CREATE INDEX`.
 - **The id is the single-use rule.** The confirm inserts the request with this row's id as
   its primary key, so a second confirm trips it and its whole batch rolls back.
@@ -3418,12 +3418,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-one `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, and the twenty-first is the 00:45 `traffic-classify`, AECI-1345). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the eighteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-one AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -3441,6 +3441,8 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 **`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile, and a fourteenth, `indexnow-drain`, with AECI-826 — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+
+**`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
@@ -3828,13 +3830,13 @@ cannot cascade. `apps/api/src/test/migration-0062.spec.ts` pins that.
 
 ---
 
-### 9.7 `page_view_classifications` — **PROPOSED (AECI-872)**
+### 9.7 `page_view_classifications` (AECI-872, built in AECI-1345, migration 0087)
 
-> **PROPOSED. D19 agreed 2026-10-14; this shape is built in Phase 2 (AECI-1345).** This table does not
-> exist yet. There is no migration and no Drizzle model. It is the storage half of
-> `ADMIN_PANEL_SPEC.md` §13 **D19**. The classifier that will fill it exists already, as a pure
-> module (`apps/api/src/lib/traffic-classifier.ts`), and runs today only in the offline shadow runner.
-> **No `pnpm db:generate` before Phase 2.**
+> **Built in Phase 2 (AECI-1345), 2026-10-21.** Migration `0087_third_spitfire.sql` creates
+> the table and its two indexes, and the Drizzle model is `pageViewClassifications` in
+> `apps/api/src/db/schema.ts`. The shape below is the shape that shipped. It is the storage half of
+> `ADMIN_PANEL_SPEC.md` §13 **D19**. The classifier is the pure module
+> `apps/api/src/lib/traffic-classifier.ts`. The nightly writer fills the table.
 
 The versioned classification record. One row says: *this page view was placed in this class, by this
 version of the classifier, for these reasons, looking at this window of evidence, at this time.*
@@ -3844,7 +3846,8 @@ Today none of that is stored anywhere — `page_views.is_bot` is a bare boolean 
 property of the request**: the request's facts are immutable, the judgement about them is not.
 
 ```sql
--- PROPOSED. Not generated, not applied.
+-- As built in migration 0087. The migration spells created_at without a SQL default; the
+-- Drizzle model supplies the house ISO default.
 create table page_view_classifications (
   id integer primary key autoincrement,
 
@@ -3886,7 +3889,7 @@ create table page_view_classifications (
   -- Kept on review (D19, 2026-10-14); see "Indexes" below.
   view_day text not null,
 
-  created_at text not null default (datetime('now'))
+  created_at text not null
 );
 
 -- One judgement per (view, version), append-only. A row is never updated. A
@@ -3931,18 +3934,28 @@ spirit — indexes are billed as rows written, and this table's write volume tra
 delete from this table **explicitly and first**, in the same run and the same window, so the cascade
 is never the thing that does the work.
 
-**Retention: 400 days, aligned with `page_views` §9.1 — not independent.** A classification of a row
-that no longer exists is unreadable, so there is no case for keeping it longer, and keeping it
-shorter would silently empty historical breakdowns. Same whole-UTC-day, chunked-by-`id` mechanism as
-every other §7.4 table.
+**Retention: 400 days, aligned with `page_views` §9.1, with no window of its own.** A classification
+of a row that no longer exists is unreadable, so there is no case for keeping it longer. Keeping it
+shorter would silently empty historical breakdowns. The prune (`apps/api/src/lib/retention-prune.ts`,
+`ADMIN_PANEL_SPEC.md` §7.4) lists the table first in `PRUNABLE`, but the `WindowedTable` type excludes
+it. Each `page_views` chunk counts and deletes the classification rows for the same age predicate and
+`id` range, then deletes the page views, in one batch and in that order. The cascade never does the
+work. The report carries the classifications as their own `tables[]` entry, listed before
+`page_views`, with `page_views`' cutoff and truncation.
 
-**`audit_log`: the writes are exempt, the scheduled delete is not.** Under **ADR 0022** these rows
-are derived and log-class on all three conjunctive tests — computed entirely from data already in
-the database, invisible on every public surface, and reproducible by re-running the classifier — so
-they carry **no `audit_log` row**, exactly like `metrics_daily` §9.3, `job_runs` §9.4 and
-`asn_registry` §9.5. The prune above is a *scheduled* `DELETE`, which ADR 0022 never exempts, so it
-emits one summary row per run in the same `db.batch`: `action='retention.pruned'`,
-`entity_type='page_view_classifications'`. A run that removes nothing writes no row.
+**`audit_log`: the writes are exempt, the scheduled delete is not.** Under **ADR 0022** (2026-10-21
+amendment) these rows are derived and log-class on all three conjunctive tests. They are computed
+from data already in the database, invisible on every public surface, and reproducible by re-running
+the classifier. They carry **no `audit_log` row**, like `metrics_daily` §9.3, `job_runs` §9.4 and
+`asn_registry` §9.5. The prune is a *scheduled* `DELETE`, which ADR 0022 never exempts. It still emits
+ONE `retention.pruned` row per run, `entity_type='retention'`, in the same `db.batch`. The
+classifications appear as their own entry in that row's `metadata.tables`, not as a row of their own.
+A run that removes nothing writes no row.
+
+**Internal is decided at read time, not stored.** The writer classifies every `page_views` row of the
+UTC day, internal rows included, and stores no internal flag. A later operator anchor can turn a row
+internal after its append-only classification is written. Readers apply `NOT_INTERNAL` (§9.1) when
+they read.
 
 **It is purely ADDITIVE. `page_views` does not change.** No new column, no altered CHECK, no altered
 index on that table — so §17's workflow produces a `create table` plus two `create index` statements
@@ -3951,12 +3964,27 @@ the generated SQL before it is ever applied: **if the generated migration contai
 `__new_page_views`, stop.** The additive-only rule is also what makes D19 introducible without the
 one-way backfill of `is_bot` that D14 argued against.
 
-**Would be written by** the Phase 2 cron writer (proposed: alongside the 00:15 snapshot cron, so a
-day is classified once it is complete). The Phase 1 shadow runner writes nothing here. It reads
-production read-only and writes its report to a local file (`POST_LAUNCH_MONITORING.md` §3c).
-**Would be read by** the daily digest, `GET /api/admin/overview`, `GET /api/admin/traffic/breakdown`
-and `GET /api/admin/page-views` (`API_CONTRACTS.md` §6.10). No public surface reads it, and none
-should — D19(g) forbids a new public surface.
+**Written by** `classifyDay(db, day, now)` in `apps/api/src/lib/traffic-classification-writer.ts`.
+The `traffic-classify` cron runs it at `45 0 * * *` for the previous UTC day, queue-backed on
+`aeci-traffic-classify-{env}` (`ADMIN_PANEL_SPEC.md` §13 D19). 00:45 is deliberate. The SPA follow-up
+evidence reads 30 minutes past the day's end, so an earlier run would miss follow-ups of arrivals
+after 23:45. Rows go in 500 per statement, as one JSON array bound to `json_each(?)`, with
+`INSERT … SELECT … ON CONFLICT (page_view_id, classifier_version) DO NOTHING`. The statements run
+sequentially, not in one `db.batch`. Each is idempotent, so the queue retry completes a partial run.
+The evidence window stored per row is the day minus 14 days to the next midnight plus 30 minutes.
+The shadow runner and the writer share one population builder, `buildClassificationDay`
+(`traffic-shadow.ts`).
+
+**No history backfill.** The series starts with the first nightly run. AECI-1444 covers older
+days.
+
+**Read by** `GET /api/admin/overview` (`classification` block) and `GET /api/admin/page-views` (per-row
+`classification`), see `API_CONTRACTS.md` §6.10. The daily digest and `GET /api/admin/traffic/breakdown`
+are Phase 3 (AECI-1346) and do not read it yet. No public surface reads it, and none should. D19(g)
+forbids a new public surface.
+
+**Migration `0087`** is one `CREATE TABLE` and two `CREATE INDEX`. It contains no `__new_page_views`
+and cannot cascade. `apps/api/src/test/migration-0087.spec.ts` pins that.
 
 ---
 
@@ -5373,7 +5401,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `plan_inquiries` (§2a, `API_CONTRACTS.md` §6.13a, ADR 0022's 2026-10-12 amendment), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `plan_inquiries` (§2a, `API_CONTRACTS.md` §6.13a, ADR 0022's 2026-10-12 amendment), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the traffic classification record `page_view_classifications` (§9.7, AECI-1345), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one audit row (`actor_type='system'`) per warned term, in the same batch: `vendor_entitlement.expiry_warned` until AECI-1356, then `license.expiry_warned` filed under the billing account, one per account and end date, with `metadata.license_ids`. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

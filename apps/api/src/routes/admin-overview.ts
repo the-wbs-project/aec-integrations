@@ -82,6 +82,11 @@ import {
   type UtcWindow,
 } from '../lib/admin-analytics';
 import {
+  CLASSIFICATION_UNRESOLVED_SHARE_MAX,
+  readClassificationSummary,
+  type ClassificationSummaryRead,
+} from '../lib/admin-classification';
+import {
   runExpensiveStatusItems,
   statsFreshness,
   type ExpensiveStatusDeps,
@@ -199,6 +204,7 @@ export function createAdminOverviewHandler(
       freshness,
       notes,
       browserStarts,
+      classification,
     ] = await Promise.all([
       countViewsExcludingInternal(db, dayW, 'human', filter),
       countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
@@ -243,9 +249,16 @@ export function createAdminOverviewHandler(
       query.recompute
         ? (deps.readBrowserStarts ?? readPosthogBrowserStarts)(c.env, db, digestWindow)
         : Promise.resolve(null),
+      // AECI-1345. The stored D19 classes for the same day: additive, changing no
+      // figure in `traffic`. Phase 3 (AECI-1346) switches the readers.
+      readClassificationSummary(db, dayW, metrics.operatorLeakViews),
     ]);
 
-    const allNotes: AdminNote[] = [...notes, internalFilterNote(filter)];
+    const allNotes: AdminNote[] = [
+      ...notes,
+      internalFilterNote(filter),
+      ...classificationNotes(classification),
+    ];
     if (isPartial(dayW, now)) {
       allNotes.push(
         note(
@@ -272,6 +285,7 @@ export function createAdminOverviewHandler(
       recomputed: query.recompute,
       notes: allNotes,
       internal_filter: toAdminInternalFilter(filter),
+      classification: classification.summary,
       traffic: {
         // The headline, and the same one the 05:00 email leads with (AECI-745).
         // Through `unresolvedRequests` rather than an inline subtraction
@@ -365,6 +379,40 @@ export function createAdminOverviewHandler(
 
     return json(body);
   };
+}
+
+/**
+ * The three AECI-1345 notes (`API_CONTRACTS.md` §6.10). The heuristic caveat is
+ * unconditional: it says what a permanently present figure means. The other two
+ * are gated, because each describes a condition that may not hold (§13 D15(b)).
+ */
+function classificationNotes(read: ClassificationSummaryRead): AdminNote[] {
+  const out: AdminNote[] = [
+    note(
+      'classification_is_heuristic',
+      'Traffic classes are a heuristic judgement about requests. browser_with_human_evidence means the app ran with nothing contradicting it, not that a human was present.',
+    ),
+  ];
+  if (read.unresolvedShareExceeded) {
+    out.push(
+      note(
+        'classification_unresolved_share',
+        `${read.unresolved} of ${read.classified} classified views are unresolved, above the ${CLASSIFICATION_UNRESOLVED_SHARE_MAX * 100}% threshold.`,
+        { unresolved: read.unresolved, classified: read.classified },
+      ),
+    );
+  }
+  const seam = read.summary.version_seam;
+  if (seam) {
+    out.push(
+      note(
+        'classification_version_seam',
+        `The window spans a classifier change from ${seam.from_version} to ${seam.to_version} on ${seam.changed_on}. Each day is counted on its own latest version.`,
+        { ...seam },
+      ),
+    );
+  }
+  return out;
 }
 
 /** Human page views over a multi-day window (the 7-day delta halves), using the

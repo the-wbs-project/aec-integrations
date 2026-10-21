@@ -337,7 +337,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
 `mailing_list`, `feedback`, `plan_inquiries`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
-`job_runs`, `notification_sends`, `notification_delivery_events`, `ownership_sync_deliveries`, `vendor_activity_daily`, the append-only evidence logs `recrawl_submissions` + `recrawl_submission_causes` (ADR 0022 2026-10-04 amendment), `recrawl_queue_causes`, and the per-user service log `user_activity_daily`
+`job_runs`, `notification_sends`, `notification_delivery_events`, `ownership_sync_deliveries`, `page_view_classifications`, `vendor_activity_daily`, the append-only evidence logs `recrawl_submissions` + `recrawl_submission_causes` (ADR 0022 2026-10-04 amendment), `recrawl_queue_causes`, and the per-user service log `user_activity_daily`
 under ADR 0022's 2026-10-02 amendment). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 
@@ -398,5 +398,3 @@ This file stays under 30 KB (`scripts/check-claude-md-size.mjs`). Record lessons
 doc and add a one-line pointer here only if needed. Never append narrative, issue history, or
 dated incident detail. When a project closes, audit every line: name the failure it prevents or
 delete it.
-
-Last updated: see git log.

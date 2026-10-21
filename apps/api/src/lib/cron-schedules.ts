@@ -1,5 +1,5 @@
 /**
- * The twenty cron expressions the API Worker is triggered on, in one place.
+ * The twenty-one cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-one, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -312,6 +312,23 @@ export const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 export const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 
 /**
+ * Daily traffic classification writer (AECI-1345 / `DATABASE_SCHEMA.md` §9.7,
+ * `ADMIN_PANEL_SPEC.md` §13 D19 Phase 2). **00:45 UTC.**
+ *
+ * It classifies the prior complete UTC day. Not 00:15, as D19 first proposed: the
+ * SPA follow-up evidence reads rows up to `SPA_FOLLOWUP_WINDOW_MINUTES` (30) past
+ * the day's end, so a 00:15 run would miss the follow-ups of arrivals after 23:45.
+ * Minute 45 is clear of the 00:05 IndexNow drain, the 00:15 metrics snapshot, the
+ * 00:25 claim-staleness check and the 00:30 vendor snapshot. The `*` `/15`
+ * reconcile sweep also fires at 00:45, under its own expression.
+ *
+ * Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`), the cron-enqueues, consumer-works
+ * pattern. The insert is `ON CONFLICT DO NOTHING` per classifier version, so a
+ * retry writes nothing twice. It sends nothing and changes no reported number.
+ */
+export const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -337,6 +354,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'gsc-inspect': GSC_INSPECT_CRON,
   'claim-owner-fallback': CLAIM_OWNER_FALLBACK_CRON,
   'request-confirmation-expiry': REQUEST_CONFIRMATION_EXPIRY_CRON,
+  'traffic-classify': TRAFFIC_CLASSIFY_CRON,
 };
 
 /**
@@ -370,11 +388,12 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   gsc_inspect: 'gsc-inspect',
   claim_owner_fallback: 'claim-owner-fallback',
   request_confirmation_expiry: 'request-confirmation-expiry',
+  traffic_classify: 'traffic-classify',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the sub-daily jobs. `vendor-snapshot` (00:30) follows the 00:15
- *  `metrics-snapshot`. `indexnow-drain` has been daily (00:05) since
+ *  day, then the sub-daily jobs. `vendor-snapshot` (00:30) and `traffic-classify`
+ *  (00:45) follow the 00:15 `metrics-snapshot`. `indexnow-drain` has been daily (00:05) since
  *  AECI-1136 but keeps its old slot among the sub-daily jobs, so the screen's
  *  order did not move. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
@@ -383,6 +402,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
   'vendor-snapshot',
+  'traffic-classify',
   'asn-registry',
   'retention-prune',
   'data-quality',

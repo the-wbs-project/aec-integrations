@@ -1003,6 +1003,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 
 **Ownership-sync queue (AECI-1418).** `aeci-ownership-sync-{staging,demo,production}` (binding `OWNERSHIP_SYNC_QUEUE`) is created by the same idempotent `create_queue` step and needs the same two prerequisites. The API Worker is both producer and consumer. Unlike every other queue it is also declared in the local-dev block, as `aeci-ownership-sync-local`, which `wrangler dev` emulates. Its secrets and checklist: "Ownership receiver per tier" above.
 
+**Traffic classification queue (AECI-1345).** `aeci-traffic-classify-{staging,demo,production}` (binding `TRAFFIC_CLASSIFY_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`, and needs the same two prerequisites. The `traffic-classify` cron enqueues one message at 00:45 UTC, and the consumer classifies the prior day (3 retries, batch size 1). Without the binding (local), the cron runs the job inline.
+
 ### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
 
 `POST /api/promote` returns `202 { jobId }` and commits inside a Cloudflare **Workflow**, one per environment (`aeci-promote-{staging,demo,production}`, plus the local-only `aeci-promote-preview` in the top-level block; binding `PROMOTE_WORKFLOW`, class `PromoteWorkflow`).

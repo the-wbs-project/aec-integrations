@@ -92,7 +92,11 @@ export type ScheduledJob =
   | 'claim_owner_fallback'
   // AECI-1435: the daily 14:30 UTC pending-confirmation expiry. Queue-less, like
   // `claim_owner_fallback`: one read and one delete batch with its summary audit row.
-  | 'request_confirmation_expiry';
+  | 'request_confirmation_expiry'
+  // AECI-1345: the daily 00:45 UTC traffic classification writer (D19 Phase 2).
+  // Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`): the insert is idempotent per
+  // classifier version, so a retry is safe.
+  | 'traffic_classify';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -501,6 +505,16 @@ export type Env = {
    * the cron runs the job inline (`enqueueOrRun`).
    */
   VENDOR_SNAPSHOT_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily traffic classification writer (AECI-1345,
+   * `DATABASE_SCHEMA.md` §9.7). Queue-backed so a transient D1 failure gets the
+   * consumer's native retries: the insert is `ON CONFLICT DO NOTHING` per
+   * `(page_view_id, classifier_version)`, so a retry cannot duplicate a row. The
+   * consumer classifies the day before the message's `enqueuedAt`, so a retry that
+   * lands after the next midnight still writes the day the cron meant. Absent on
+   * local → the cron runs the job inline (`enqueueOrRun`).
+   */
+  TRAFFIC_CLASSIFY_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
    * is about an hour of calls and a consumer invocation is capped at 15 minutes,

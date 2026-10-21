@@ -172,6 +172,7 @@ import {
   RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
+  TRAFFIC_CLASSIFY_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
@@ -256,6 +257,12 @@ import {
   snapshotDayFor,
   VENDOR_SNAPSHOT_RUN_METRIC,
 } from './lib/vendor-snapshot';
+import {
+  classifierRunConstants,
+  classifyDay,
+  classifyDayFor,
+  TRAFFIC_CLASSIFY_RUN_METRIC,
+} from './lib/traffic-classification-writer';
 
 /**
  * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
@@ -314,7 +321,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The seventeen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twenty-one cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -964,6 +971,78 @@ async function runVendorSnapshotJob(env: Env, ctx: ExecutionContext): Promise<Jo
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. The upsert makes a retry safe.
+    throw error;
+  }
+}
+
+/**
+ * The nightly traffic classification writer (AECI-1345, `DATABASE_SCHEMA.md` §9.7,
+ * `ADMIN_PANEL_SPEC.md` §13 D19 Phase 2): one `page_view_classifications` row per
+ * `page_views` row of the prior UTC day, for the current classifier version.
+ *
+ * Everything load-bearing lives in `./lib/traffic-classification-writer`; this is
+ * the shell that supplies the day, the clock and the PostHog sink. The day is the
+ * one before the message's `enqueuedAt`, so a queue retry that lands after the next
+ * midnight still writes the day the cron meant. `aeci.traffic_classify.run` is
+ * emitted on every run, `outcome:ok` or `outcome:failed`, so it doubles as the
+ * cron-liveness heartbeat.
+ *
+ * A crash rethrows, like `runVendorSnapshotJob`. The insert is
+ * `ON CONFLICT DO NOTHING` per `(page_view_id, classifier_version)`, so a queue
+ * retry completes a partial run without duplicating a row. `withJobRun` still
+ * records the run as `failed` first.
+ */
+async function runTrafficClassifyJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/traffic-classify');
+  const now = new Date();
+  const enqueued = message?.enqueuedAt ? new Date(message.enqueuedAt) : now;
+  const day = classifyDayFor(Number.isNaN(enqueued.getTime()) ? now : enqueued);
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await classifyDay(db, day, now);
+    const durationMs = Date.now() - started;
+    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.traffic_classify.stored day=${result.day} seen=${result.rowsSeen} written=${result.rowsWritten}`,
+      source: 'traffic-classify-cron',
+      day: result.day,
+      classifierVersion: result.classifierVersion,
+      rowsSeen: result.rowsSeen,
+      rowsWritten: result.rowsWritten,
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'traffic-classify',
+        day: result.day,
+        durationMs,
+        classifierVersion: result.classifierVersion,
+        fingerprint: result.fingerprint,
+        constants: classifierRunConstants(),
+        rowsSeen: result.rowsSeen,
+        rowsWritten: result.rowsWritten,
+        countsByClass: result.countsByClass,
+        evidenceIncomplete: result.evidenceIncomplete,
+        swarmTruncated: result.swarmTruncated,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.traffic_classify.crashed',
+      source: 'traffic-classify-cron',
+      day,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. The per-version insert makes a retry safe.
     throw error;
   }
 }
@@ -2308,6 +2387,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.ATTESTATION_NOTIFY_QUEUE;
     case 'vendor_snapshot':
       return env.VENDOR_SNAPSHOT_QUEUE;
+    case 'traffic_classify':
+      return env.TRAFFIC_CLASSIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2517,6 +2598,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'vendor-snapshot-cron',
     };
   }
+  if (job === 'traffic_classify') {
+    return {
+      path: '/cron/traffic-classify',
+      message: 'aeci.traffic_classify.enqueue_failed',
+      source: 'traffic-classify-cron',
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2589,7 +2677,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all seventeen, which is what makes "each of the seventeen
+ *  enumerate every exit path in all twenty-one, which is what makes "each of the twenty
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2636,6 +2724,8 @@ async function dispatchScheduledJob(
       return runRequestConfirmationExpiryJob(env, ctx);
     case 'vendor_snapshot':
       return runVendorSnapshotJob(env, ctx);
+    case 'traffic_classify':
+      return runTrafficClassifyJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
   }
@@ -2728,6 +2818,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case VENDOR_SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'vendor_snapshot');
+      return;
+    case TRAFFIC_CLASSIFY_CRON:
+      await enqueueOrRun(env, ctx, 'traffic_classify');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');

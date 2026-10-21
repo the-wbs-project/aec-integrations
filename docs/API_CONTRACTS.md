@@ -4480,6 +4480,11 @@ export const AdminNoteCodeSchema = z.enum([
   'reachable_never_counted',           // pair PAGES, never integrations
   'publication_gate_inputs_only',      // §13.7's inputs, not its verdict
   'stub_actions_never_fetched',        // actions IS NULL means never fetched, not none
+  // AECI-1345: the D19 Phase 2 classification block (section "Traffic classification
+  // classes on the admin read surface").
+  'classification_unresolved_share',   // unresolved > 50% of classified non-internal views
+  'classification_version_seam',       // the window spans a classifier version change
+  'classification_is_heuristic',       // unconditional: the classes are a heuristic
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -5022,7 +5027,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty (AECI-1435)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-one (AECI-1345)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5090,6 +5095,8 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift',       // 0 9 * * *
   'request-reconcile',   // */15 * * * *
   'waf-poll',            // 0 * * * *
+  // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
+  'traffic-classify',    // 45 0 * * *   (AECI-1345)
 ]);
 
 export const AdminCronRunSchema = z.object({
@@ -5130,7 +5137,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-All ten rows are always present: omitting a job would read as "not configured", a
+Every row is always present (twenty-one since AECI-1345): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -5720,28 +5727,27 @@ the only writer of `unsubscribed_at` is the subscriber, through the tokenized
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
 an unknown `sort` key, or an unknown `status`.
 
-#### Traffic classification classes on the admin read surface — **PROPOSED (AECI-872)**
+#### Traffic classification classes on the admin read surface (AECI-872, built in AECI-1345)
 
-> **PROPOSED. D19 agreed 2026-10-14; this shape is built in Phase 2 (AECI-1345).** None of the fields
-> below exist yet. This is the wire half of `ADMIN_PANEL_SPEC.md` §13 **D19** and the read side of
-> `DATABASE_SCHEMA.md` §9.7. Nothing in `packages/shared/src/api/admin-panel.ts` changes before
-> Phase 2. The class and reason-code vocabularies are fixed now: `TRAFFIC_CLASSES` and
-> `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. D19 settled that unresolved traffic is
-> reported as a count, with its share carried only by the gated `classification_unresolved_share`
-> note below.
+> **Built in Phase 2 (AECI-1345), 2026-10-21.** This is the wire half of `ADMIN_PANEL_SPEC.md` §13
+> **D19** and the read side of `DATABASE_SCHEMA.md` §9.7. The schemas live in
+> `packages/shared/src/api/admin-panel.ts`. The class and reason-code vocabularies are
+> `TRAFFIC_CLASSES` and `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. D19 settled that
+> unresolved traffic is reported as a count, with its share carried only by the gated
+> `classification_unresolved_share` note below. Phase 2 changes no reported number. Phase 3
+> (AECI-1346) switches the digest and the breakdown to these classes.
 
 Scope is deliberately narrow: **shapes only**. Which classifier runs, when, and how it decides are
-D19's business and §3c's; this section says what the operator's surfaces would return.
+D19's business and §3c's; this section says what the operator's surfaces return.
 
 **1. The four classes are additive on `GET /api/admin/overview`, not a replacement for `traffic`.**
 `page_views_human`, `page_views_human_raw` and `automation_flagged` keep their current meanings
 (AECI-745 redefined `page_views_human` once already, and redefining it a second time would be the
 same silent semantic change this doc had to write out in prose the first time). The classes arrive
-as a sibling object, so a reader can see both answers and the delta between them during the
-shadow-mode window §3c requires.
+as a sibling object, so a reader can see both answers and the delta between them.
 
 ```typescript
-// PROPOSED. Added to AdminOverviewResponseSchema alongside `traffic`.
+// As built. `classification` sits in AdminOverviewResponseSchema beside `traffic`.
 export const AdminTrafficClassSchema = z.enum([
   'identified_automation',
   'suspected_automation',
@@ -5772,7 +5778,7 @@ export const AdminClassificationSummarySchema = z.object({
 
   // The D19(a) rule, on the wire rather than only in the caption: name which of
   // the three questions each figure answers.
-  basis: z.enum(['requests', 'browser_executions']),
+  basis: z.enum(['requests', 'browser_executions']),   // always 'requests' today
 
   // Non-null when the window spans a classifier version change (D19(c)). Days are
   // FLAGGED, never blended, so the reader is told rather than shown an average.
@@ -5784,13 +5790,27 @@ export const AdminClassificationSummarySchema = z.object({
 });
 ```
 
+Rules the built summary follows:
+
+- **Internal is decided at read time.** `counts` covers non-internal views only. `internal_excluded.views`
+  comes from the same query through `NOT_INTERNAL`, because the writer stores no internal flag.
+  `operator_leak_inferred` is `traffic.operator_leak_excluded`, unchanged.
+- **Each day is counted on its own latest version.** Latest means the version whose rows were
+  evaluated last (greatest `evaluated_at`). It is never a string comparison of version names.
+  `classifier_version` is the latest across the window and is `null` when nothing was classified,
+  in which case `counts` is four zeros.
+- **`version_seam` is non-null only when days in the window have different latest versions.** `from_version`
+  is the previous version, `to_version` is the latest, and `changed_on` is the first day counted on the
+  latest. The overview is single-day today, so the seam fires only on a multi-day window.
+- **`visitors` is the §9.8 pair count** of `(user_agent_hash, cf_asn)`.
+
 **2. Three new note codes, following the existing conventions exactly.** They join
 `AdminNoteCodeSchema`; `code` is the contract and `message` stays untranslated operator text.
 
 | Code | Severity | Gated? |
 |---|---|---|
-| `classification_unresolved_share` | `warn` | **Gated** on the unresolved share exceeding its threshold. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
-| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. |
+| `classification_unresolved_share` | `warn` | **Gated** on `unresolved` being strictly more than 50% of the classified non-internal views (`CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5` in `apps/api/src/lib/admin-classification.ts`, ruled 2026-10-21). Params `unresolved` and `classified`. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
+| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. Params `from_version`, `to_version`, `changed_on`. |
 | `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d)). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. |
 
 **3. A per-row classification on `GET /api/admin/page-views`.** One nullable object on
@@ -5798,12 +5818,12 @@ export const AdminClassificationSummarySchema = z.object({
 never alters `is_bot`.
 
 ```typescript
-// PROPOSED. Added to AdminPageViewRowSchema.
+// As built. `classification: AdminPageViewClassificationSchema.nullable()` on AdminPageViewRowSchema.
 export const AdminPageViewClassificationSchema = z.object({
   class: AdminTrafficClassSchema,
   // Short, stable machine codes — never prose, and never localized. The UI renders
   // from these; `DATABASE_SCHEMA.md` §9.7 stores the same array.
-  reason_codes: z.array(z.string().min(1)).max(8),
+  reason_codes: z.array(z.string().min(1)).max(16),   // as-built deviation: the draft said 8
   classifier_version: z.string().min(1),
   evaluated_at: z.string().datetime(),
   evidence_window: AdminWindowSchema,   // may be WIDER than the row's own day
@@ -5817,22 +5837,29 @@ export const AdminPageViewClassificationSchema = z.object({
 
 **Three properties of that row shape are load-bearing.**
 
-- **`null` means "not classified", never "human".** A row written before the classifier existed, or
+- **`null` means "not classified", never "human".** Phase 2 has no history backfill, so every row
+  before the first nightly run returns `null`. A row written before the classifier existed, or
   on a day it did not run, returns `classification: null`. Rendering that as any class would be the
   `is_bot IS NULL` reads-as-human defect (§9.1) recreated in a new field.
-- **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page;
-  closed because the codes are compared across versions months later, so renaming one is a data
+- **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page.
+  The cap is 16, not the 8 this section first drafted (as-built, 2026-10-21, AECI-1345). A brute-force
+  test over the classifier's inputs measured the true worst case at 9 codes, so 8 would truncate
+  evidence. `traffic-classification-writer.spec.ts` pins that. It is closed because the codes are compared across versions months later, so renaming one is a data
   migration rather than a refactor.
 - **Privacy is unchanged and is enforced by the contract.** No field here carries identity.
   `visitor_hash` stays `substr(user_agent_hash, 1, 8)` computed in SQL, and `user_id` /
   `session_id` / `profile_role` remain unselectable (§13 D7). A classification is a judgement about
   a request, not about a person.
 
-**Filtering by class is deliberately NOT proposed here.** `AdminPageViewsQuerySchema` gains no
-`class=` parameter in this draft. The §13 D10 constraint-2 problem would arrive with it — a row
+**Per-row reads.** The row's classification is the latest version for that row by `evaluated_at`.
+`evidence_complete` is true when the stored codes include no `evidence_*` code. `evidence_window` comes
+from the stored `evidence_from` and `evidence_to`, and a normal row spans 16 UTC days. The page costs
+one extra lookup through `json_each(?)`.
+
+**Filtering by class is deliberately NOT built.** `AdminPageViewsQuerySchema` gains no
+`class=` parameter. The §13 D10 constraint-2 problem would arrive with it — a row
 filter needs its counts computed both ways or the operator gets a smaller number with nothing to
-compare it against — and that is a decision for whoever builds the screen, not one to settle in a
-spec draft.
+compare it against — and that is a decision for whoever builds the screen. Phase 3 (AECI-1346) is that work.
 
 #### `GET /api/admin/email/summary`, `GET /api/admin/email/sends`, `POST /api/admin/email/sends/search` (AECI-1223)
 
