@@ -803,7 +803,9 @@ export function sendVendorReviewPublishedEmail(
  *  1. **Sign in.** The CTA is the sign-in page (`/auth/login?return=/vendor`), never a
  *     one-time link: the email may be read days later. An `invited` claimant's account
  *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
- *     copy tells them it exists and which address to use.
+ *     copy tells them it exists and which address to use. Since AECI-1437 a second
+ *     line says where the portal lives for later visits: the header's account menu
+ *     (top left on a phone), or `/vendor` as an inline link. Sign in stays the one button.
  *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
  *  3. **How Managed works:** licenses on the company's billing account, one per
  *     product, bought later from Billing. No price until E8 rules on the copy.
@@ -834,6 +836,13 @@ export function sendClaimApprovedEmail(
     ? `We created an account for this email address. Sign in from ${where} with this address to open your vendor portal.`
     : `Sign in with your existing account from ${where} to open your vendor portal.`;
 
+  // AECI-1437: the button carries them to /vendor once, but the copy has to say where
+  // the portal lives for every visit after that. The door is the header's account menu
+  // (`layout/user-menu.ts`). Without a host the line names the menu only.
+  const portal = portalUrl(c.env);
+  const findAgain =
+    'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.';
+
   // Block 2: what Free includes (§13.3). Every seat holds these on every plan.
   const free =
     "The Free plan includes your company details and each product's description, website, logo and categories. You can also check each product's integration list and confirm it looks right.";
@@ -857,8 +866,20 @@ export function sendClaimApprovedEmail(
   // sign-in remains the email's one button. Omitted with no host.
   const program = vendorProgramUrl(c.env);
   const render = (link: LinkTagger): EmailContent => {
-    const text = [opening, signIn, free, managed];
-    const html = [openingHtml, signIn, free, managed];
+    const text = [opening, signIn];
+    const html = [openingHtml, signIn];
+    if (portal) {
+      const tagged = link(portal);
+      text.push(`${findAgain} You can also go to ${tagged}`);
+      html.push(
+        `${findAgain} You can also go to <a href="${escapeHtml(tagged)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(portal.replace(/^https?:\/\//, ''))}</a>.`,
+      );
+    } else {
+      text.push(findAgain);
+      html.push(findAgain);
+    }
+    text.push(free, managed);
+    html.push(free, managed);
     if (program) {
       const tagged = link(program);
       text.push(`See what each plan includes on our page for software vendors: ${tagged}`);
