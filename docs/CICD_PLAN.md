@@ -464,8 +464,8 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
     "production": {
       "vars": { "ENV": "production", "ALLOW_INDEXING": "true" },
       // Post-apex-cutover (AECI-247/277): the app IS the public site. The bare
-      // apex 301s to www. inside the SSR Worker. Every route here shares the one
-      // ALLOW_INDEXING above — which is why AECI-807 removed a third entry,
+      // apex 301s to www. in the SSR Worker's gateway, ahead of the cache.
+      // Every route here shares the one ALLOW_INDEXING above — which is why AECI-807 removed a third entry,
       // `prod.aecintegrations.com`, rather than trying to exempt it.
       "routes": [
         { "pattern": "aecintegrations.com", "custom_domain": true },

@@ -568,52 +568,6 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
   });
 });
 
-describe('createApp apex → www 301 (canonical host = www; ADR 0011 amendment)', () => {
-  const htmlRenderer = (): SsrRenderer =>
-    fixedRenderer(
-      new Response('<!doctype html><title>x</title>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }),
-    );
-
-  it('301-redirects the bare apex to www, preserving path + query', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
-
-    const req = new Request('https://aecintegrations.com/products/acme?ref=waitlist&token=xyz');
-    const res = await app.fetch(
-      req,
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(301);
-    expect(res.headers.get('Location')).toBe(
-      'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
-    );
-    // Browser-cacheable but edge-excluded (`private`, no s-maxage): the Location
-    // embeds the query, but the WC-4 gateway normalizes the shared-edge key
-    // (AECI-318), so an edge entry would collapse distinct-query apex hits.
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
-  });
-
-  it('does NOT redirect www (falls through to SSR — the canonical served host)', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
-
-    const req = new Request('https://www.aecintegrations.com/');
-    const res = await app.fetch(
-      req,
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Location')).toBeNull();
-  });
-});
-
 describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)', () => {
   it('returns the SSR Worker’s build metadata from env without calling the API binding', async () => {
     // Guards AECI-92: /_version must be served by the SSR Worker itself so CI
