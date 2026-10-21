@@ -6,7 +6,8 @@
  * older than 400 days, `job_runs` older than 90, `notification_sends` older
  * than 400 (AECI-1202), `notification_delivery_events` older than 400
  * (AECI-1222), `user_activity_daily` days older than 400
- * (AECI-1208), and `ownership_sync_deliveries` older than 400 (AECI-1418). It is the **first scheduled
+ * (AECI-1208), `ownership_sync_deliveries` older than 400 (AECI-1418), and the
+ * `page_view_classifications` of every `page_views` row it deletes (AECI-1345). It is the **first scheduled
  * `DELETE` in the system's history**, which is why so much of this file is about
  * refusing to delete rather than deleting.
  *
@@ -102,7 +103,7 @@ import {
   USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, gt, gte, lt, lte, min, sql } from 'drizzle-orm';
+import { and, asc, count, gt, gte, inArray, lt, lte, min, sql } from 'drizzle-orm';
 
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
@@ -113,6 +114,7 @@ import {
   notificationDeliveryEvents,
   notificationSends,
   ownershipSyncDeliveries,
+  pageViewClassifications,
   pageViews,
   userActivityDaily,
 } from '../db/schema';
@@ -153,8 +155,15 @@ const MAX_REPORTED_MISSING_DAYS = 10;
  * `metrics_daily`, `recrawl_submissions` and `recrawl_submission_causes` are
  * absent, and `retention-prune.spec.ts` asserts a real run leaves all six
  * untouched.
+ *
+ * `page_view_classifications` (AECI-1345, `DATABASE_SCHEMA.md` §9.7) has no window
+ * of its own. It is a child of `page_views`: each `page_views` chunk first deletes
+ * the classifications of exactly the rows it is about to delete, in the same batch
+ * and before them, so the `ON DELETE CASCADE` never does the work and the count is
+ * reported rather than lost. It is listed first because it is deleted first.
  */
 export const PRUNABLE = [
+  'page_view_classifications',
   'page_views',
   'job_runs',
   'notification_sends',
@@ -163,6 +172,10 @@ export const PRUNABLE = [
   'ownership_sync_deliveries',
 ] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
+
+/** The tables with a retention window of their own. A child table inherits its
+ *  parent's window and cutoff. */
+export type WindowedTable = Exclude<PrunableTable, 'page_view_classifications'>;
 
 /**
  * Where each prunable table keeps its age column and its pagination cursor.
@@ -180,7 +193,7 @@ type PruneSource =
   | { kind: 'id'; table: SQLiteTable; id: SQLiteColumn; age: SQLiteColumn }
   | { kind: 'day'; table: SQLiteTable; age: SQLiteColumn };
 
-const SOURCES: Record<PrunableTable, PruneSource> = {
+const SOURCES: Record<WindowedTable, PruneSource> = {
   page_views: { kind: 'id', table: pageViews, id: pageViews.id, age: pageViews.createdAt },
   job_runs: { kind: 'id', table: jobRuns, id: jobRuns.id, age: jobRuns.startedAt },
   notification_sends: {
@@ -206,7 +219,7 @@ const SOURCES: Record<PrunableTable, PruneSource> = {
 
 /** The value a table's age column is compared against: the cutoff instant for a
  *  timestamp column, the cutoff day for a day column. */
-function ageCutoff(table: PrunableTable, cutoff: { day: string; iso: string }): string {
+function ageCutoff(table: WindowedTable, cutoff: { day: string; iso: string }): string {
   return SOURCES[table].kind === 'day' ? cutoff.day : cutoff.iso;
 }
 
@@ -249,8 +262,8 @@ export function resolveRetentionWindows(
     USER_ACTIVITY_RETENTION_DAYS?: string;
     OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS?: string;
   },
-  onInvalid?: (table: PrunableTable, reason: string) => void,
-): Record<PrunableTable, number> {
+  onInvalid?: (table: WindowedTable, reason: string) => void,
+): Record<WindowedTable, number> {
   return {
     page_views: resolveRetentionDays(
       env.PAGE_VIEWS_RETENTION_DAYS,
@@ -339,7 +352,7 @@ export function cutoffFor(now: Date, retentionDays: number): { day: string; iso:
  *  row off the PK index — this is the probe that makes the whole "deletes
  *  nothing until ~2027-07" era cost a single row read per table per night. A day
  *  table reads `min(day)` off its `(day)` index instead. */
-async function oldestCreatedAt(db: Db, table: PrunableTable): Promise<string | null> {
+async function oldestCreatedAt(db: Db, table: WindowedTable): Promise<string | null> {
   const src = SOURCES[table];
   if (src.kind === 'day') {
     const [row] = await db.select({ age: min(src.age) }).from(src.table);
@@ -393,6 +406,9 @@ interface ChunkPlan {
   statements: BatchStmt[];
   rowsDeleted: number;
   truncated: boolean;
+  /** `page_views` only: the `page_view_classifications` rows its chunks delete
+   *  first. Zero for every other table. */
+  childRowsDeleted: number;
 }
 
 /**
@@ -410,9 +426,10 @@ interface ChunkPlan {
  * `meta.changes` reliably for batched writes, and the test harness's batch shim
  * returns `[]` outright.
  */
-async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Promise<ChunkPlan> {
+async function planChunks(db: Db, table: WindowedTable, cutoffIso: string): Promise<ChunkPlan> {
   const statements: BatchStmt[] = [];
   let rowsDeleted = 0;
+  let childRowsDeleted = 0;
   let cursor = 0;
 
   const src = SOURCES[table];
@@ -428,23 +445,43 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
         .limit(PRUNE_CHUNK_ROWS)
     ).map((r) => r.id as number);
 
-    if (ids.length === 0) return { statements, rowsDeleted, truncated: false };
+    if (ids.length === 0) {
+      return { statements, rowsDeleted, truncated: false, childRowsDeleted };
+    }
 
     const lastId = ids[ids.length - 1] as number;
     // The date predicate is repeated on purpose: the id range is pagination, the
     // predicate is the authority. See the header note on monotonicity.
-    statements.push(
-      db
-        .delete(src.table)
-        .where(and(lt(src.age, cutoffIso), gt(src.id, cursor), lte(src.id, lastId))),
-    );
+    const range = and(lt(src.age, cutoffIso), gt(src.id, cursor), lte(src.id, lastId));
+    if (table === 'page_views') {
+      // AECI-1345: the classifications of exactly these rows, deleted FIRST, under
+      // the same range and age predicate. Counted here because neither D1 nor the
+      // harness reports a batched delete's row count. The subquery binds three
+      // values, like the parent delete, whatever the chunk size.
+      const ofChunk = inArray(
+        pageViewClassifications.pageViewId,
+        db.select({ id: pageViews.id }).from(pageViews).where(range),
+      );
+      const [counted] = await db
+        .select({ n: count() })
+        .from(pageViewClassifications)
+        .where(ofChunk);
+      const n = counted?.n ?? 0;
+      if (n > 0) {
+        statements.push(db.delete(pageViewClassifications).where(ofChunk));
+        childRowsDeleted += n;
+      }
+    }
+    statements.push(db.delete(src.table).where(range));
     rowsDeleted += ids.length;
     cursor = lastId;
 
-    if (ids.length < PRUNE_CHUNK_ROWS) return { statements, rowsDeleted, truncated: false };
+    if (ids.length < PRUNE_CHUNK_ROWS) {
+      return { statements, rowsDeleted, truncated: false, childRowsDeleted };
+    }
   }
 
-  return { statements, rowsDeleted, truncated: true };
+  return { statements, rowsDeleted, truncated: true, childRowsDeleted };
 }
 
 /**
@@ -473,7 +510,8 @@ async function planDayChunks(
         .limit(PRUNE_CHUNK_ROWS)
     ).map((r) => Number(r.rowid));
 
-    if (rowids.length === 0) return { statements, rowsDeleted, truncated: false };
+    if (rowids.length === 0)
+      return { statements, rowsDeleted, truncated: false, childRowsDeleted: 0 };
 
     const last = rowids[rowids.length - 1] as number;
     statements.push(
@@ -482,10 +520,12 @@ async function planDayChunks(
     rowsDeleted += rowids.length;
     cursor = last;
 
-    if (rowids.length < PRUNE_CHUNK_ROWS) return { statements, rowsDeleted, truncated: false };
+    if (rowids.length < PRUNE_CHUNK_ROWS) {
+      return { statements, rowsDeleted, truncated: false, childRowsDeleted: 0 };
+    }
   }
 
-  return { statements, rowsDeleted, truncated: true };
+  return { statements, rowsDeleted, truncated: true, childRowsDeleted: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -503,10 +543,13 @@ async function planDayChunks(
 export async function runRetentionPrune(
   db: Db,
   now: Date,
-  windows: Record<PrunableTable, number>,
+  windows: Record<WindowedTable, number>,
 ): Promise<RetentionPruneResult> {
+  const pageViewsCutoff = cutoffFor(now, windows.page_views);
   const cutoffs = {
-    page_views: cutoffFor(now, windows.page_views),
+    // A child inherits its parent's cutoff (§9.7: aligned, not independent).
+    page_view_classifications: pageViewsCutoff,
+    page_views: pageViewsCutoff,
     job_runs: cutoffFor(now, windows.job_runs),
     notification_sends: cutoffFor(now, windows.notification_sends),
     notification_delivery_events: cutoffFor(now, windows.notification_delivery_events),
@@ -549,16 +592,37 @@ export async function runRetentionPrune(
   const tables: PrunedTable[] = [];
 
   for (const table of PRUNABLE) {
+    // Planned inside the `page_views` chunks below, never on its own.
+    if (table === 'page_view_classifications') continue;
     const cutoff = cutoffs[table];
     // `page_views` already has its probe; re-probing each other table is one row.
     const oldest = table === 'page_views' ? oldestPageView : await oldestCreatedAt(db, table);
     const limit = ageCutoff(table, cutoff);
     if (oldest === null || oldest >= limit) {
+      if (table === 'page_views') {
+        tables.push({
+          table: 'page_view_classifications',
+          cutoff: cutoff.iso,
+          rowsDeleted: 0,
+          truncated: false,
+        });
+      }
       tables.push({ table, cutoff: cutoff.iso, rowsDeleted: 0, truncated: false });
       continue;
     }
     const plan = await planChunks(db, table, limit);
     statements.push(...plan.statements);
+    if (table === 'page_views') {
+      // Truncation is shared: the child is deleted chunk by chunk with its parent,
+      // so a truncated `page_views` run leaves the classifications of every row
+      // past its cursor untouched too.
+      tables.push({
+        table: 'page_view_classifications',
+        cutoff: cutoff.iso,
+        rowsDeleted: plan.childRowsDeleted,
+        truncated: plan.truncated,
+      });
+    }
     tables.push({
       table,
       cutoff: cutoff.iso,

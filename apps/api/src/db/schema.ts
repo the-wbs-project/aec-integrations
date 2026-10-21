@@ -2799,6 +2799,62 @@ export const pageViews = sqliteTable(
   ],
 );
 
+/**
+ * The versioned traffic classification record (AECI-1345, `DATABASE_SCHEMA.md` §9.7,
+ * `ADMIN_PANEL_SPEC.md` §13 D19). One row says: this page view was placed in this
+ * class, by this classifier version, for these reasons, over this evidence window.
+ *
+ * Written only by the nightly `traffic_classify` job
+ * (`lib/traffic-classification-writer.ts`). Append-only: a row is never updated. A
+ * re-run of the same version inserts nothing; a new version writes a second row
+ * beside the first, so "flagged, never blended" (D19(c)) is checkable in the data.
+ *
+ * Derived and log-class under ADR 0022: no `audit_log` row on write. The §7.4
+ * prune deletes these rows explicitly, before their `page_views`, so the cascade
+ * below is never the thing that does the work.
+ *
+ * No internal-traffic flag is stored. Readers apply `NOT_INTERNAL` when they read,
+ * because a later operator anchor can turn a row internal after this row exists.
+ */
+export const pageViewClassifications = sqliteTable(
+  'page_view_classifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // ON DELETE CASCADE, accepted with D19 alongside its hazard: a future
+    // `page_views` table recreate DROPs the parent and fires this cascade
+    // (`docs/migrations.md` §0). Any migration touching `page_views` is reviewed
+    // against that.
+    pageViewId: integer('page_view_id')
+      .notNull()
+      .references(() => pageViews.id, { onDelete: 'cascade' }),
+    // 'identified_automation' | 'suspected_automation'
+    // | 'browser_with_human_evidence' | 'unresolved'. `unresolved` is a class, never
+    // a null. No CHECK constraint, for `client_verdict`'s two reasons: a log table
+    // must not drop a row on a violation, and a CHECK edit on D1 triggers
+    // drizzle-kit's destructive recreate.
+    class: text('class').notNull(),
+    // JSON array of stable `REASON_CODES` (`lib/traffic-classifier.ts`). Renaming a
+    // code is a data migration, not a refactor.
+    reasonCodes: text('reason_codes', { mode: 'json' }).$type<string[]>().notNull(),
+    // Opaque to SQL. Ordered by the release that set it, never parsed.
+    classifierVersion: text('classifier_version').notNull(),
+    // When the judgement was made, not when the view happened.
+    evaluatedAt: text('evaluated_at').notNull(),
+    // The evidence window the classifier looked at, [from, to) UTC ISO.
+    evidenceFrom: text('evidence_from').notNull(),
+    evidenceTo: text('evidence_to').notNull(),
+    // `substr(page_views.created_at, 1, 10)`, denormalized so the day filter is
+    // served from this table. Safe only because `page_views.created_at` is immutable.
+    viewDay: text('view_day').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('page_view_classifications_view_version_idx').on(t.pageViewId, t.classifierVersion),
+    index('page_view_classifications_day_idx').on(t.viewDay, t.classifierVersion, t.class),
+    // No other index. Write volume tracks `page_views`, and D1 bills index rows.
+  ],
+);
+
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).$type<unknown>().notNull(),

@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   jobRuns,
+  pageViewClassifications,
   pageViews,
   products,
   profiles,
@@ -65,7 +66,10 @@ vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 // assert orchestration, and a live outbound request from a unit test is a flake
 // waiting for a CI runner with slow DNS. The refresh's own behaviour — fail-open,
 // chunking, never re-verdicting — is covered by `lib/asn-registry.spec.ts`.
-vi.mock('./lib/asn-registry', () => ({
+// Partial: only the network refresh is mocked. The read-only `loadAsnAnnotations`
+// stays real, because the AECI-1345 classification writer reads it from D1.
+vi.mock('./lib/asn-registry', async (importActual) => ({
+  ...(await importActual<typeof import('./lib/asn-registry')>()),
   refreshAsnRegistry: vi.fn(() =>
     Promise.resolve({
       status: 'ok',
@@ -155,6 +159,7 @@ const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 const GSC_INSPECT_CRON = '0 13 * * *';
 const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
+const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -818,6 +823,103 @@ describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
   });
 });
 
+describe('traffic classify (AECI-1345): cron → queue → consumer', () => {
+  /** Two views on 2026-10-01 and one on the next day. */
+  async function seedViews(): Promise<void> {
+    await t.db.insert(pageViews).values([
+      { path: '/a', createdAt: '2026-10-01T09:00:00.000Z', isBot: true, botName: 'Googlebot' },
+      { path: '/b', createdAt: '2026-10-01T10:00:00.000Z', navigation: 'arrival' },
+      { path: '/c', createdAt: '2026-10-02T00:10:00.000Z' },
+    ]);
+  }
+  const batchFor = (enqueuedAt: string) =>
+    makeBatchFromBody(
+      { job: 'traffic_classify', trigger: 'cron', enqueuedAt },
+      'aeci-traffic-classify-staging',
+    );
+
+  it('the 00:45 cron enqueues exactly one message and does not run inline', async () => {
+    await seedViews();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ TRAFFIC_CLASSIFY_QUEUE: { send } as never });
+
+    await scheduled(cronController(TRAFFIC_CLASSIFY_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'traffic_classify', trigger: 'cron' }),
+    );
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(0);
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('the consumer classifies the day before enqueuedAt, records the version, emits the heartbeat, and ack()s', async () => {
+    await seedViews();
+    const { batch, ack, retry } = batchFor('2026-10-02T00:45:00.000Z');
+
+    await queue(batch, makeEnv(), ctx);
+
+    const rows = await t.db.select().from(pageViewClassifications);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.viewDay))).toEqual(new Set(['2026-10-01']));
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.traffic_classify.run',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'traffic-classify', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'traffic-classify',
+      day: '2026-10-01',
+      classifierVersion: rows[0]?.classifierVersion,
+      rowsSeen: 2,
+      rowsWritten: 2,
+      constants: { SPA_FOLLOWUP_WINDOW_MINUTES: 30 },
+    });
+    expect((run?.detail as { fingerprint: string }).fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('a retried message writes nothing twice', async () => {
+    await seedViews();
+    await queue(batchFor('2026-10-02T00:45:00.000Z').batch, makeEnv(), ctx);
+    await queue(batchFor('2026-10-02T00:45:00.000Z').batch, makeEnv(), ctx);
+
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(2);
+    const runs = await jobRunRows();
+    expect(runs[1]?.detail).toMatchObject({ rowsSeen: 2, rowsWritten: 0 });
+  });
+
+  it('emits the failed heartbeat and retry()s when the run crashes', async () => {
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = batchFor('2026-10-02T00:45:00.000Z');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.traffic_classify.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'traffic-classify', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
 describe('normalizeJobMessage', () => {
   it('implies trigger=manual and enqueuedAt=receivedAt when a body omits them', () => {
     expect(normalizeJobMessage({ job: 'stats' }, '2026-06-12T07:00:00.000Z')).toEqual({
@@ -1056,6 +1158,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-1435. A scheduled DELETE, so NOT audit-exempt: carved out below, and its
     // own test asserts the summary row.
     [REQUEST_CONFIRMATION_EXPIRY_CRON, 'request-confirmation-expiry'],
+    // AECI-1345. Derived and log-class (ADR 0022), so it runs the exempt assertion.
+    [TRAFFIC_CLASSIFY_CRON, 'traffic-classify'],
   ];
 
   /**

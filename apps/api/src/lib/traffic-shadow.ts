@@ -36,6 +36,7 @@ import {
   REASON_CODES,
   SPA_FOLLOWUP_WINDOW_MINUTES,
   TRAFFIC_CLASSES,
+  type ClassifierContext,
   type ClassifierRow,
   type ReasonCode,
   type TrafficClass,
@@ -471,8 +472,12 @@ export function sliceMetrics(
 
 // ─── The run ────────────────────────────────────────────────────────────────
 
-/** The columns `classifyPageView` reads, selected under its own field names. */
-const CLASSIFIER_COLUMNS = {
+/**
+ * The columns `classifyPageView` reads, selected under its own field names. Shared
+ * with the Phase 2 writer (`traffic-classification-writer.ts`) through
+ * {@link buildClassificationDay}.
+ */
+export const CLASSIFIER_COLUMNS = {
   id: pageViews.id,
   createdAt: pageViews.createdAt,
   navigation: pageViews.navigation,
@@ -491,6 +496,71 @@ const CLASSIFIER_COLUMNS = {
   isOperator: pageViews.isOperator,
   userAgentHash: pageViews.userAgentHash,
 } satisfies Record<keyof ClassifierRow, unknown>;
+
+/** One UTC day's rows and the context `classifyPageView` needs for them. */
+export interface ClassificationDay {
+  day: string;
+  /** Every `page_views` row created in the UTC day, internal rows included, by id. */
+  rows: ClassifierRow[];
+  ctx: ClassifierContext;
+  networkClassByAsn: ReadonlyMap<number, AsnNetworkClass>;
+  swarm: Awaited<ReturnType<typeof detectSwarms>>;
+  coverage: ArrivalCfCoverage;
+  /** The rows window the judgement rests on, `[from, to)` UTC ISO (`evidenceWindows`). */
+  evidence: { from: string; to: string };
+}
+
+/**
+ * Assemble one UTC day for classification. This is the single population
+ * definition (D19(h)): the shadow runner and the nightly writer both call it, so
+ * the class a row is stored with is the class the shadow report counted.
+ *
+ * The detectors run unchanged: `detectSwarms`, `NOT_INTERNAL`, the SPA follow-up
+ * lookup `SPA_FOLLOWUP_WINDOW_MINUTES` past the day's end, and `loadAsnAnnotations`.
+ */
+export async function buildClassificationDay(db: Db, day: string): Promise<ClassificationDay> {
+  const windows = evidenceWindows(day, day);
+  const startIso = windows.reported.from;
+  const endIso = windows.reported.to;
+  const dayWindow = and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso));
+
+  const [rows, internalRows, hops, swarm, coverage] = await Promise.all([
+    db.select(CLASSIFIER_COLUMNS).from(pageViews).where(dayWindow).orderBy(pageViews.id),
+    db
+      .select({ id: pageViews.id })
+      .from(pageViews)
+      .where(and(dayWindow, sql`not (${NOT_INTERNAL})`)),
+    db
+      .select(CLASSIFIER_COLUMNS)
+      .from(pageViews)
+      .where(
+        and(
+          gte(pageViews.createdAt, startIso),
+          lt(pageViews.createdAt, windows.rows.to),
+          eq(pageViews.writerProvenance, 'browser-spa'),
+          eq(pageViews.clientVerdict, 'browser'),
+        ),
+      ),
+    detectSwarms(db, startIso, endIso),
+    readArrivalCfCoverage(db, startIso, endIso),
+  ]);
+
+  const annotations = await loadAsnAnnotations(
+    db,
+    rows.map((r) => r.cfAsn).filter((a): a is number => a !== null),
+  );
+  const networkClassByAsn = new Map(
+    [...annotations.values()].map((a) => [a.asn, a.network_class] as const),
+  );
+  const ctx: ClassifierContext = {
+    swarmUaHashes: new Set(swarm.uaCandidates.map((c) => c.userAgentHash)),
+    rotatorAsns: new Set(swarm.asnCandidates.map((c) => c.cfAsn)),
+    networkClassByAsn,
+    internalRowIds: new Set(internalRows.map((r) => r.id)),
+    spaFollowupRowIds: findSpaFollowups([...rows, ...hops]),
+  };
+  return { day, rows, ctx, networkClassByAsn, swarm, coverage, evidence: windows.rows };
+}
 
 export interface DayReport {
   day: string;
@@ -544,45 +614,7 @@ export async function runShadow(
   const sessionMatches = new Map<LabelSession, number>();
 
   for (const day of daysBetween(opts.fromDay, opts.toDay)) {
-    const startIso = `${day}T00:00:00.000Z`;
-    const endIso = shiftIso(startIso, DAY_MS);
-    const dayWindow = and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso));
-
-    const [rows, internalRows, hops, swarm, coverage] = await Promise.all([
-      db.select(CLASSIFIER_COLUMNS).from(pageViews).where(dayWindow).orderBy(pageViews.id),
-      db
-        .select({ id: pageViews.id })
-        .from(pageViews)
-        .where(and(dayWindow, sql`not (${NOT_INTERNAL})`)),
-      db
-        .select(CLASSIFIER_COLUMNS)
-        .from(pageViews)
-        .where(
-          and(
-            gte(pageViews.createdAt, startIso),
-            lt(pageViews.createdAt, shiftIso(endIso, SPA_FOLLOWUP_WINDOW_MINUTES * 60_000)),
-            eq(pageViews.writerProvenance, 'browser-spa'),
-            eq(pageViews.clientVerdict, 'browser'),
-          ),
-        ),
-      detectSwarms(db, startIso, endIso),
-      readArrivalCfCoverage(db, startIso, endIso),
-    ]);
-
-    const annotations = await loadAsnAnnotations(
-      db,
-      rows.map((r) => r.cfAsn).filter((a): a is number => a !== null),
-    );
-    const networkClassByAsn = new Map(
-      [...annotations.values()].map((a) => [a.asn, a.network_class] as const),
-    );
-    const ctx = {
-      swarmUaHashes: new Set(swarm.uaCandidates.map((c) => c.userAgentHash)),
-      rotatorAsns: new Set(swarm.asnCandidates.map((c) => c.cfAsn)),
-      networkClassByAsn,
-      internalRowIds: new Set(internalRows.map((r) => r.id)),
-      spaFollowupRowIds: findSpaFollowups([...rows, ...hops]),
-    };
+    const { rows, ctx, networkClassByAsn, swarm, coverage } = await buildClassificationDay(db, day);
     const proxies = findSharedProxyCandidates(rows, networkClassByAsn);
     for (const c of proxies.candidates) sharedProxyCandidates.push({ ...c, day });
 

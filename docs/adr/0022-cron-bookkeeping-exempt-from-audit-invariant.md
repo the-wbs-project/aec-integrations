@@ -320,3 +320,27 @@ operator action edits a row, that is domain state and audits in the same `db.bat
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+
+## Amendment 2026-10-21 — the traffic classification record (AECI-1345)
+
+Nothing above is reversed, and no new class is added. `page_view_classifications`
+(`DATABASE_SCHEMA.md` §9.7) is derived and log-class and passes the three-part test.
+
+**The table.** One row per page view per classifier version, written by the nightly
+`traffic-classify` cron in `apps/api/src/lib/traffic-classification-writer.ts`. It stores the class,
+the reason codes, the classifier version and the evidence window.
+
+**Why it is exempt.** Every column is computed from `page_views` rows already in the database. No
+public surface reads it. Re-running the classifier reproduces it. The writer inserts and never
+updates, so there is no state change to audit.
+
+**The scheduled delete is not exempt.** The retention prune deletes these rows with the `page_views`
+chunk they belong to. It emits the run's one `retention.pruned` row, and the classifications appear
+as their own entry in `metadata.tables`.
+
+**What would end the exemption.** If any code reads this table to decide a person's access, a
+vendor's standing or a ranking, it is no longer derived reporting. It would then audit in the same
+`db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.

@@ -289,6 +289,17 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     $localize`:@@admin.notes.connectorPublicationGateInputsOnly:These rows show what the publication rule looks at, not what it decides. Whether both sides are in our catalogue and whether a person made the mapping are shown here; whether the pair is already delivered, and whether it clears the thin-content bar, are decided elsewhere. A row appearing here is not a row we would publish.`,
   stub_actions_never_fetched: (p) =>
     $localize`:@@admin.notes.connectorStubActionsNeverFetched:${num(p, 'never_fetched')}:NEVER_FETCHED: of ${num(p, 'total')}:TOTAL: listings on this page have never had their action inventory fetched. That is not the same as having no actions: the inventory is fetched on demand, so most listings never carry one.`,
+
+  // ── AECI-1345 — the stored traffic classes (D19 Phase 2) ──────────────────
+  // `warn` for the unresolved share (gated above 50%); the seam and heuristic
+  // notes are `info`. No screen renders the classes until Phase 3 (AECI-1346),
+  // so today only the generic notes list on the overview shows these.
+  classification_unresolved_share: (p) =>
+    $localize`:@@admin.notes.classificationUnresolvedShare:${num(p, 'unresolved')}:UNRESOLVED: of ${num(p, 'classified')}:CLASSIFIED: classified views could not be placed in a class. When more than half are unresolved, read the class split as mostly unknown, not as a confident breakdown.`,
+  classification_version_seam: (p) =>
+    $localize`:@@admin.notes.classificationVersionSeam:The traffic classifier changed from ${str(p, 'from_version')}:FROM: to ${str(p, 'to_version')}:TO: on ${str(p, 'changed_on')}:CHANGED_ON:. Each day is counted on its own latest version, so days either side of the change are not directly comparable.`,
+  classification_is_heuristic: () =>
+    $localize`:@@admin.notes.classificationIsHeuristic:Traffic classes are a heuristic judgement about requests, not about people. "Browser with human evidence" means our app ran and nothing contradicted it. It does not prove a person was there.`,
 };
 
 /**

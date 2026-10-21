@@ -114,7 +114,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the seventeen crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the twenty-one crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -122,6 +122,9 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `connector_evidenced_pairs_empty` | `connector_evidenced_pairs` is the DELIVERED tier for connector edges and AECI-714 created it **empty with nothing writing it** — AECI-721 migrates the ~326 `powered_by` edges in. So the lane renders an empty state, and that is a statement about the migration rather than a measured zero |
  * | `reachable_never_counted` | pair counts on this screen describe how many pair PAGES a vendor publishes, split by `surface`. They are not a reachable-tier count and must never be read as one: `STAGE_1_5_SPEC.md` §13.1/§13.5 are categorical that reachable never counts — not in a heading, not in `integration_count`, not in a facet, not in the home stats |
  * | `publication_gate_inputs_only` | the pairs view shows §13.7's INPUTS, not its verdict. Clause (a) (both sides in our catalog) and the provenance half of (d) are computed; clause (b) (the pair being undelivered) and clause (c) (Addendum A §11.4's "meaningful no" scoring) are **not**, and belong to AECI-716. A row shown here is not thereby publishable |
+ * | `classification_unresolved_share` | AECI-1345 (D19 Phase 2). A `warn`, **gated**: emitted only when `unresolved` views exceed `CLASSIFICATION_UNRESOLVED_SHARE_MAX` (50%) of the classified, non-internal views in the window. `params.unresolved` / `params.classified` carry the two counts. It describes a condition that may not hold, so the D15(b) gate-the-caveat rule applies |
+ * | `classification_version_seam` | AECI-1345. An `info`, **gated** on `classification.version_seam` being non-null: the window spans a classifier version change, and each day is counted on its own latest version, flagged rather than blended (D19(c)). `params` repeat `from_version`, `to_version`, `changed_on` |
+ * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". The `corroborated_is_a_referrer_floor` precedent (§13 D15(d)) |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
@@ -176,6 +179,10 @@ export const AdminNoteCodeSchema = z.enum([
   'reachable_never_counted',
   'publication_gate_inputs_only',
   'stub_actions_never_fetched',
+  // AECI-1345 — the D19 Phase 2 classification block (`API_CONTRACTS.md` §6.10).
+  'classification_unresolved_share',
+  'classification_version_seam',
+  'classification_is_heuristic',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -713,6 +720,85 @@ export const AdminOverviewCatalogSchema = z.object({
 });
 export type AdminOverviewCatalog = z.infer<typeof AdminOverviewCatalogSchema>;
 
+// ─── Traffic classification (AECI-1345, D19 Phase 2) ─────────────────────────
+
+/**
+ * The four D19(b) reporting classes. Mirrors `TRAFFIC_CLASSES` in
+ * `apps/api/src/lib/traffic-classifier.ts`; `admin-overview.spec.ts` pins the two
+ * lists equal. `unresolved` is a class, never an absence.
+ */
+export const AdminTrafficClassSchema = z.enum([
+  'identified_automation',
+  'suspected_automation',
+  'browser_with_human_evidence',
+  'unresolved',
+]);
+export type AdminTrafficClass = z.infer<typeof AdminTrafficClassSchema>;
+
+/**
+ * The classification half of `GET /api/admin/overview` (`API_CONTRACTS.md` §6.10).
+ * A SIBLING of `traffic`, never a replacement: `page_views_human` and its
+ * neighbours keep their meanings until Phase 3 (AECI-1346) switches the readers.
+ * Read from `page_view_classifications` (`DATABASE_SCHEMA.md` §9.7).
+ */
+export const AdminClassificationSummarySchema = z.object({
+  /** The latest classifier version in the window. Null = nothing was classified
+   *  for this window, which is NOT "no rows". */
+  classifier_version: z.string().min(1).nullable(),
+  /** Always all four classes, zeros included. Non-internal views only; each day
+   *  is counted on its own latest version. `visitors` is §9.8 pairs. */
+  counts: z
+    .array(
+      z.object({
+        class: AdminTrafficClassSchema,
+        views: z.number().int().nonnegative(),
+        visitors: z.number().int().nonnegative(),
+      }),
+    )
+    .length(4),
+  /** Internal traffic, BESIDE the classes and never inside one (D19(b)). Decided
+   *  by `NOT_INTERNAL` at read time; nothing internal is stored. */
+  internal_excluded: z.object({
+    views: z.number().int().nonnegative(),
+    /** The D15(b) figure, unchanged: `traffic.operator_leak_excluded`. */
+    operator_leak_inferred: z.number().int().nonnegative(),
+  }),
+  /** Which of D19(a)'s questions the figures answer. Always `requests` today. */
+  basis: z.enum(['requests', 'browser_executions']),
+  /** Non-null when the window spans a version change (D19(c)): flagged, never
+   *  blended. `changed_on` is the first day counted on `to_version`. */
+  version_seam: z
+    .object({
+      from_version: z.string().min(1),
+      to_version: z.string().min(1),
+      changed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    .nullable(),
+});
+export type AdminClassificationSummary = z.infer<typeof AdminClassificationSummarySchema>;
+
+/**
+ * One row's classification on `GET /api/admin/page-views`, beside `asn_registry`
+ * and read the same way: a read-time annotation that never alters `is_bot`.
+ * The row field is nullable, and null means "not classified", never "human".
+ *
+ * `reason_codes` is capped at 16, not §6.10's draft 8: a row can carry more than
+ * 8 codes, and a cap that truncated would drop evidence. `traffic-classification-writer.spec.ts`
+ * pins the classifier's real maximum under this cap.
+ */
+export const AdminPageViewClassificationSchema = z.object({
+  class: AdminTrafficClassSchema,
+  /** Stable machine codes (`REASON_CODES`), never prose and never localized. */
+  reason_codes: z.array(z.string().min(1)).max(16),
+  classifier_version: z.string().min(1),
+  evaluated_at: z.string().datetime(),
+  /** The evidence window the judgement rests on. Wider than the row's own day. */
+  evidence_window: AdminWindowSchema,
+  /** False when the row carries an `evidence_*` code (D19(e)). */
+  evidence_complete: z.boolean(),
+});
+export type AdminPageViewClassification = z.infer<typeof AdminPageViewClassificationSchema>;
+
 export const AdminOverviewResponseSchema = z.object({
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
@@ -722,6 +808,8 @@ export const AdminOverviewResponseSchema = z.object({
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
   traffic: AdminOverviewTrafficSchema,
+  /** AECI-1345 — the stored D19 classes for the same window. Additive. */
+  classification: AdminClassificationSummarySchema,
   audience: AdminOverviewAudienceSchema,
   catalog: AdminOverviewCatalogSchema,
   status: AdminStatusStripSchema,
@@ -1317,7 +1405,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The seventeen cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The twenty-one cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
@@ -1364,6 +1452,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `request-confirmation-expiry` is the twentieth (AECI-1435): daily at 14:30 UTC it
  * deletes the pending claim and listing confirmations past their 7-day link, with one
  * summary audit row (ADR 0043). It sends nothing.
+ * `traffic-classify` is the twenty-first (AECI-1345): daily at 00:45 UTC it classifies
+ * every `page_views` row of the prior UTC day and stores one
+ * `page_view_classifications` row per view for the current classifier version
+ * (`ADMIN_PANEL_SPEC.md` §13 D19 Phase 2). It is queue-backed and sends nothing.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1386,6 +1478,7 @@ export const AdminCronJobSchema = z.enum([
   'gsc-inspect', // 0 13 * * *
   'claim-owner-fallback', // 0 14 * * *
   'request-confirmation-expiry', // 30 14 * * *
+  'traffic-classify', // 45 0 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -1999,6 +2092,13 @@ export const AdminPageViewRowSchema = z.object({
    * pairing is the point, not a contradiction to be resolved.
    */
   asn_registry: AdminAsnAnnotationSchema.nullable(),
+
+  /**
+   * The row's stored D19 classification (AECI-1345, `page_view_classifications`),
+   * latest classifier version. `null` = not classified (written before the writer
+   * ran, or on a day it did not run), never a class and never "human".
+   */
+  classification: AdminPageViewClassificationSchema.nullable(),
 });
 export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
 

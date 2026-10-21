@@ -88,7 +88,7 @@ Comparative figures (decision 3), emailed reports (decision 6), enquiries or any
 
 ### 2.2 Population and classification
 
-The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record lands in Phase 2 (AECI-1345). Until that record exists the report reads the same predicates the digest and `/admin/overview` read (`lib/page-view-predicates.ts`), and says so in its caveat envelope (§4.4). It adds **no third predicate set**. Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
+The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record exists since Phase 2 (AECI-1345, 2026-10-21). Its nightly series has no history backfill, and no reader outside the admin overview and Activity feed uses it yet. Until AECI-1445 switches this report to it, the report reads the same predicates the digest and `/admin/overview` read (`lib/page-view-predicates.ts`), and says so in its caveat envelope (§4.4). It adds **no third predicate set**. Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
 
 Rows from 2026-09-07 to 2026-09-12 are degraded (AECI-868) and carry the corresponding caveat when the range includes them.
 

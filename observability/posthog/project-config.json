@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the nineteen cron expressions and is asserted byte-equal to",
+      "truth for the twenty-one cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -151,7 +151,12 @@
       "AECI-1435 added request-confirmation-expiry, the twentieth cron, daily at 14:30 UTC: it",
       "deletes pending claim confirmations past their 7-day link. Its heartbeat",
       "aeci.request_confirmation.expiry.job fires on EVERY run. It carries activeFrom until its",
-      "first production heartbeat."
+      "first production heartbeat.",
+      "",
+      "AECI-1345 added traffic-classify, the twenty-first cron, daily at 00:45 UTC: it stores one",
+      "page_view_classifications row per page view of the prior UTC day. Its heartbeat",
+      "aeci.traffic_classify.run fires on EVERY run, outcome ok or failed. It carries activeFrom",
+      "until its first production heartbeat."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -329,6 +334,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1435. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that delete nothing, because aeci.request_confirmation.expiry.deleted is zero on a quiet day. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "traffic-classify",
+        "cron": "45 0 * * *",
+        "metric": "aeci.traffic_classify.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-01T01:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1345. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.traffic_classify.run is emitted on EVERY run, outcome ok or failed, so its absence means the writer stopped running. A new cron can miss its first 00:45 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       }
     ]
   }

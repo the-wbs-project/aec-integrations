@@ -134,8 +134,10 @@
   // `aeci-stats-{env}` for the AECI-178 home-stats job, `aeci-reconcile-{env}` for the
   // AECI-214 request→Linear reconciliation sweep, `aeci-data-quality-{env}` for the
   // AECI-241 §23.1 suite, `aeci-attestation-notify-{env}` for the AECI-302 §7
-  // attestation detector sweep, and `aeci-vendor-snapshot-{env}` for the AECI-1210
-  // per-vendor snapshot — seven per env across staging/demo/production) are
+  // attestation detector sweep, `aeci-vendor-snapshot-{env}` for the AECI-1210
+  // per-vendor snapshot, `aeci-gsc-inspect-{env}` for the AECI-1236 URL Inspection
+  // run, and `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
+  // writer — nine per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-prod.yml before the Worker deploy.
   // AECI-1418 adds `aeci-ownership-sync-{env}`, which is NOT a scheduled-job queue:
@@ -544,6 +546,9 @@
           // AECI-1435 pending-confirmation expiry: claim and listing links past 7
           // days are deleted. The */15 sweep is a different expression.
           "30 14 * * *",
+          // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
+          // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
+          "45 0 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -563,6 +568,8 @@
           { "queue": "aeci-attestation-notify-staging", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-staging", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1345: the daily traffic classification writer.
+          { "queue": "aeci-traffic-classify-staging", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-staging", "binding": "GSC_INSPECT_QUEUE" },
@@ -612,6 +619,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-traffic-classify-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -729,7 +742,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same nineteen crons as staging/production (see staging note — incl. the hourly
+      // Same twenty-one crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -774,6 +787,9 @@
           // AECI-1435 pending-confirmation expiry: claim and listing links past 7
           // days are deleted. The */15 sweep is a different expression.
           "30 14 * * *",
+          // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
+          // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
+          "45 0 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -787,6 +803,8 @@
           { "queue": "aeci-attestation-notify-demo", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-demo", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1345: the daily traffic classification writer.
+          { "queue": "aeci-traffic-classify-demo", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-demo", "binding": "GSC_INSPECT_QUEUE" },
@@ -836,6 +854,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-traffic-classify-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -1036,6 +1060,9 @@
           // AECI-1435 pending-confirmation expiry: claim and listing links past 7
           // days are deleted. The */15 sweep is a different expression.
           "30 14 * * *",
+          // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
+          // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
+          "45 0 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1049,6 +1076,8 @@
           { "queue": "aeci-attestation-notify-production", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-production", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1345: the daily traffic classification writer.
+          { "queue": "aeci-traffic-classify-production", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-production", "binding": "GSC_INSPECT_QUEUE" },
@@ -1098,6 +1127,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-traffic-classify-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

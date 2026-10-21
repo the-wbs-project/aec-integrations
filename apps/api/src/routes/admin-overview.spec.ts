@@ -914,3 +914,44 @@ describe('GET /api/admin/overview — browser starts (AECI-870)', () => {
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 });
+
+describe('GET /api/admin/overview — stored traffic classes (AECI-1345)', () => {
+  it('returns four zero counts and a null version before the writer has run, and changes no traffic figure', async () => {
+    await seedDay();
+    const body = await overview();
+
+    expect(body.classification).toMatchObject({
+      classifier_version: null,
+      basis: 'requests',
+      version_seam: null,
+      internal_excluded: { views: 0, operator_leak_inferred: body.traffic.operator_leak_excluded },
+    });
+    expect(body.classification.counts.map((c) => c.views)).toEqual([0, 0, 0, 0]);
+    // The heuristic caveat is unconditional; the two gated notes are absent.
+    expect(codes(body)).toContain('classification_is_heuristic');
+    expect(codes(body)).not.toContain('classification_unresolved_share');
+    expect(codes(body)).not.toContain('classification_version_seam');
+  });
+
+  it('reads the stored classes for the day and warns when unresolved is above half', async () => {
+    await seedDay();
+    const before = await overview();
+    const { classifyDay } = await import('../lib/traffic-classification-writer');
+    const { TRAFFIC_CLASSIFIER_VERSION } = await import('../lib/traffic-classifier');
+    const stored = await classifyDay(t.db, DAY, NOW);
+
+    const body = await overview();
+
+    expect(body.classification.classifier_version).toBe(TRAFFIC_CLASSIFIER_VERSION);
+    const total = body.classification.counts.reduce((a, c) => a + c.views, 0);
+    expect(total + body.classification.internal_excluded.views).toBe(stored.rowsSeen);
+    // seedDay's crawler declares itself; the four other rows carry no human evidence.
+    expect(body.classification.counts.find((c) => c.class === 'identified_automation')?.views).toBe(
+      1,
+    );
+    const warn = body.notes.find((n) => n.code === 'classification_unresolved_share');
+    expect(warn).toMatchObject({ severity: 'warn', params: { unresolved: 4, classified: 5 } });
+    // Phase 2 changes no reported number.
+    expect(body.traffic).toEqual(before.traffic);
+  });
+});

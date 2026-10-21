@@ -544,6 +544,8 @@ jobs:
           # AECI-1210: the daily per-vendor snapshot.
           create_queue aeci-vendor-snapshot-demo
           create_queue aeci-gsc-inspect-demo
+          # AECI-1345: the daily traffic classification writer.
+          create_queue aeci-traffic-classify-demo
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-demo

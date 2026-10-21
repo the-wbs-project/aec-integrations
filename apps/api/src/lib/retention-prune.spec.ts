@@ -670,6 +670,118 @@ describe('runRetentionPrune', () => {
     ]);
   });
 
+  // ── AECI-1345: classifications go first, explicitly, in the same batch ────
+
+  /** One classification per page view in `ids`, under `version`. */
+  function seedClassifications(ids: number[], version = 'tc-test'): void {
+    const insert = t.raw.prepare(
+      `INSERT INTO page_view_classifications
+         (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+          evidence_from, evidence_to, view_day, created_at)
+       SELECT id, 'unresolved', '["no_corroboration"]', ?, created_at, created_at,
+              created_at, substr(created_at, 1, 10), created_at
+         FROM page_views WHERE id = ?`,
+    );
+    for (const id of ids) insert.run(version, id);
+  }
+  const classificationCount = () =>
+    (t.raw.prepare(`SELECT count(*) AS n FROM page_view_classifications`).get() as { n: number }).n;
+  const pageViewIds = () =>
+    (t.raw.prepare(`SELECT id FROM page_views ORDER BY id`).all() as { id: number }[]).map(
+      (r) => r.id,
+    );
+
+  it('deletes the classifications of pruned page views explicitly, first, and counts them exactly', async () => {
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+    await seedPageViews([PV_LAST_PRUNED_DAY, PV_LAST_PRUNED_DAY, PV_CUTOFF_DAY]);
+    const [old1, old2, kept] = pageViewIds() as [number, number, number];
+    // Two versions on one old row, one on the other, one on the kept row.
+    seedClassifications([old1, old2, kept]);
+    seedClassifications([old1], 'tc-test-2');
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    const names = result.tables.map((x) => x.table);
+    expect(names.indexOf('page_view_classifications')).toBe(names.indexOf('page_views') - 1);
+    expect(result.tables.find((x) => x.table === 'page_view_classifications')).toEqual({
+      table: 'page_view_classifications',
+      cutoff: `${PV_CUTOFF_DAY}T00:00:00.000Z`,
+      rowsDeleted: 3,
+      truncated: false,
+    });
+    // The kept row's classification survives; none is orphaned.
+    expect(classificationCount()).toBe(1);
+    expect(
+      t.raw
+        .prepare(
+          `SELECT count(*) AS n FROM page_view_classifications c
+            WHERE NOT EXISTS (SELECT 1 FROM page_views p WHERE p.id = c.page_view_id)`,
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+
+    const rows = await t.db.select().from(auditLog).where(eq(auditLog.action, 'retention.pruned'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metadata).toEqual({
+      rowsDeleted: 5,
+      tables: [
+        {
+          table: 'page_view_classifications',
+          cutoff: `${PV_CUTOFF_DAY}T00:00:00.000Z`,
+          rowsDeleted: 3,
+        },
+        { table: 'page_views', cutoff: `${PV_CUTOFF_DAY}T00:00:00.000Z`, rowsDeleted: 2 },
+      ],
+    });
+  });
+
+  it('never leaves the cascade to do the work: the delete runs with foreign keys enforcing', async () => {
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    seedClassifications(pageViewIds());
+    // Swap the cascade for a hard refusal. If the prune ever deleted a page view
+    // before its classification, the batch would now fail instead of cascading.
+    t.raw.exec(`
+      CREATE TRIGGER pvc_guard BEFORE DELETE ON page_views
+      WHEN EXISTS (SELECT 1 FROM page_view_classifications WHERE page_view_id = OLD.id)
+      BEGIN SELECT RAISE(ABORT, 'classification would cascade'); END;
+    `);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.rowsDeleted).toBe(2);
+    expect(classificationCount()).toBe(0);
+    expect(await tally(pageViews)).toBe(0);
+  });
+
+  it('a truncated page_views run deletes no classification past its cursor', async () => {
+    const day = PV_LAST_PRUNED_DAY;
+    await seedSnapshots([day]);
+    const rows = PRUNE_CHUNK_ROWS * MAX_CHUNKS_PER_TABLE + 1;
+    for (let i = 0; i < rows; i += 500) {
+      await t.db.insert(pageViews).values(
+        Array.from({ length: Math.min(500, rows - i) }, () => ({
+          path: '/x',
+          createdAt: at(day),
+        })),
+      );
+    }
+    const ids = pageViewIds();
+    const lastId = ids[ids.length - 1] as number;
+    // Classify the first row and the one row the budget leaves behind.
+    seedClassifications([ids[0] as number, lastId]);
+
+    const first = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(first.tables.find((x) => x.table === 'page_view_classifications')).toMatchObject({
+      rowsDeleted: 1,
+      truncated: true,
+    });
+    expect(t.raw.prepare(`SELECT page_view_id AS id FROM page_view_classifications`).all()).toEqual(
+      [{ id: lastId }],
+    );
+  });
+
   // ── §7.4 rule 1: chunking + the run budget ───────────────────────────────
 
   it('chunks the deletes and finishes a window that spans several chunks', async () => {
@@ -691,7 +803,9 @@ describe('runRetentionPrune', () => {
     const result = await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(result.rowsDeleted).toBe(rows);
-    expect(result.tables[0]).toMatchObject({ table: 'page_views', truncated: false });
+    expect(result.tables.find((x) => x.table === 'page_views')).toMatchObject({
+      truncated: false,
+    });
     expect(await tally(pageViews)).toBe(1);
   });
 
@@ -711,7 +825,9 @@ describe('runRetentionPrune', () => {
 
     const first = await runRetentionPrune(t.db, NOW, WINDOWS);
     expect(first.rowsDeleted).toBe(PRUNE_CHUNK_ROWS * MAX_CHUNKS_PER_TABLE);
-    expect(first.tables[0]).toMatchObject({ truncated: true });
+    expect(first.tables.find((x) => x.table === 'page_views')).toMatchObject({
+      truncated: true,
+    });
     expect(await tally(pageViews)).toBe(1);
 
     const second = await runRetentionPrune(t.db, NOW, WINDOWS);

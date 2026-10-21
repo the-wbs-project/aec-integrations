@@ -84,6 +84,7 @@ import {
 // The threshold text is imported rather than restated so the note cannot advertise
 // a bar the detector stopped applying.
 import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
+import { readRowClassifications } from './admin-classification';
 import { loadAsnAnnotations } from './asn-registry';
 import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
@@ -1064,10 +1065,11 @@ export async function listPageViews(
     countPageViewRows(db, where),
   ]);
 
-  // Both hydrations are per-PAGE, not per-row: one `IN (…)` for the entities and
-  // one for the registry, issued together. A 50-row page therefore costs two extra
-  // round trips regardless of how many distinct ASNs it contains.
-  const [entities, annotations] = await Promise.all([
+  // All three hydrations are per-PAGE, not per-row: one `IN (…)` for the entities,
+  // one for the registry and one for the stored classifications (AECI-1345), issued
+  // together. A 50-row page therefore costs three extra round trips regardless of
+  // how many distinct ASNs it contains.
+  const [entities, annotations, classifications] = await Promise.all([
     resolveRequestTargets(
       db,
       raw.flatMap((r) =>
@@ -1081,6 +1083,10 @@ export async function listPageViews(
     loadAsnAnnotations(
       db,
       raw.map((r) => r.cfAsn).filter((a): a is number => typeof a === 'number'),
+    ),
+    readRowClassifications(
+      db,
+      raw.map((r) => r.id),
     ),
   ]);
 
@@ -1112,6 +1118,9 @@ export async function listPageViews(
         // Read-time only. `is_bot` above is untouched by this — see
         // `lib/asn-registry.ts` for why the two must not be merged.
         asn_registry: r.cfAsn === null ? null : (annotations.get(r.cfAsn) ?? null),
+        // AECI-1345. The latest stored D19 class, read-time like the registry above.
+        // Null = not classified, never a class (§6.10).
+        classification: classifications.get(r.id) ?? null,
       };
     }),
   };
@@ -1220,6 +1229,15 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   reachable_never_counted: 'warn',
   publication_gate_inputs_only: 'warn',
   stub_actions_never_fetched: 'info',
+  // AECI-1345 — the D19 classification block. `classification_unresolved_share` is
+  // a `warn` on the standard test: a reader who misses it reads a class split whose
+  // largest bucket is "we could not tell" as a confident one. Gated, so it clears
+  // when the share falls back under the threshold. The other two are `info`: the
+  // seam note explains a flagged change the figures already honour, and the
+  // heuristic note is the standing caveat on what the classes mean.
+  classification_unresolved_share: 'warn',
+  classification_version_seam: 'info',
+  classification_is_heuristic: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

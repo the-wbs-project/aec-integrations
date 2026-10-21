@@ -89,6 +89,19 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
       browser_starts: null,
       browser_starts_unavailable: null,
     },
+    // AECI-1345. Additive; no tile renders it until Phase 3 (AECI-1346).
+    classification: {
+      classifier_version: null,
+      counts: [
+        { class: 'identified_automation', views: 0, visitors: 0 },
+        { class: 'suspected_automation', views: 0, visitors: 0 },
+        { class: 'browser_with_human_evidence', views: 0, visitors: 0 },
+        { class: 'unresolved', views: 0, visitors: 0 },
+      ],
+      internal_excluded: { views: 0, operator_leak_inferred: 0 },
+      basis: 'requests',
+      version_seam: null,
+    },
     audience: {
       new_sign_ins: { current: 3, prior: 1, diff: 2, pct: 200 },
       total_users: 57,

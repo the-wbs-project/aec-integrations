@@ -573,3 +573,35 @@ describe('GET /api/admin/page-views — ASN annotation (§7.6)', () => {
     expect((await feed(RANGE)).notes.map((n) => n.code)).toContain('referrer_source_is_unverified');
   });
 });
+
+describe('GET /api/admin/page-views — stored classification (AECI-1345)', () => {
+  it('returns null on every row before the writer has run, never a class', async () => {
+    await seed();
+    const body = await feed(`${RANGE}&traffic=all`);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data.every((r) => r.classification === null)).toBe(true);
+  });
+
+  it('returns the latest stored classification, without altering is_bot', async () => {
+    await seed();
+    const before = await feed(`${RANGE}&traffic=all`);
+    const { classifyDay } = await import('../lib/traffic-classification-writer');
+    const { TRAFFIC_CLASSIFIER_VERSION } = await import('../lib/traffic-classifier');
+    await classifyDay(t.db, '2026-08-10', NOW);
+
+    const body = await feed(`${RANGE}&traffic=all`);
+    expect(body.data.map((r) => r.is_bot)).toEqual(before.data.map((r) => r.is_bot));
+    for (const row of body.data) {
+      expect(row.classification).not.toBeNull();
+      expect(row.classification).toMatchObject({
+        classifier_version: TRAFFIC_CLASSIFIER_VERSION,
+        evaluated_at: NOW.toISOString(),
+        evidence_window: { to: '2026-08-11T00:30:00.000Z', timezone: 'UTC' },
+      });
+      const codes = row.classification!.reason_codes;
+      expect(row.classification!.evidence_complete).toBe(
+        !codes.some((c) => c.startsWith('evidence_')),
+      );
+    }
+  });
+});
