@@ -520,3 +520,55 @@ describe('cacheGateway — preserves the original request.cf alongside the cache
     expect(rendererFetch.mock.calls[0]).toEqual([request]);
   });
 });
+
+// ─── AECI-1441: the apex → www 301 is a gateway step, ahead of the cache ──────
+//
+// The native Workers Cache key carries no host. While the redirect lived inside
+// the cached `Renderer`, a `www.` page already in the cache answered an apex
+// request with a 200 and the redirect never ran. The gateway's own cache is
+// disabled, so the redirect now runs here on every request and the `Renderer`
+// loopback is never reached for the bare apex.
+describe('cacheGateway — apex → www 301 ahead of the cache (ADR 0011 amendment, AECI-1441)', () => {
+  const stubCtx = (rendererFetch: ReturnType<typeof vi.fn>) =>
+    ({ exports: { Renderer: { fetch: rendererFetch } } }) as unknown as ExecutionContext;
+  const env = {} as unknown as Bindings;
+
+  it.each(['GET', 'HEAD', 'POST'])(
+    '301-redirects a bare-apex %s to www without calling the Renderer',
+    async (method) => {
+      const rendererFetch = vi.fn().mockResolvedValue(new Response('rendered'));
+      const request = new Request(
+        'https://aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+        { method },
+      );
+
+      const res = await cacheGateway.fetch(request, env, stubCtx(rendererFetch));
+
+      expect(rendererFetch).not.toHaveBeenCalled();
+      expect(res.status).toBe(301);
+      expect(res.headers.get('Location')).toBe(
+        'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+      );
+      // Browser-cacheable but edge-excluded (`private`, no s-maxage): the Location
+      // embeds the query, but the shared-edge key is normalized and host-less, so an
+      // edge entry would collapse distinct-query apex hits.
+      expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
+      expect(res.headers.get('Cache-Tag')).toBeNull();
+      expect(await res.text()).toBe('');
+    },
+  );
+
+  it('forwards www to the Renderer (the canonical served host never redirects)', async () => {
+    const response = new Response('rendered', { status: 200 });
+    const rendererFetch = vi.fn().mockResolvedValue(response);
+
+    const result = await cacheGateway.fetch(
+      new Request('https://www.aecintegrations.com/'),
+      env,
+      stubCtx(rendererFetch),
+    );
+
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(result).toBe(response);
+  });
+});

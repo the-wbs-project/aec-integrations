@@ -289,8 +289,8 @@
       // reconcile the DNS record + cert on the aecintegrations.com zone on deploy —
       // it REASSIGNED both hostnames off the (retired) landing Worker onto this one
       // (same mechanism environments.md relies on for demo.). The bare apex 301s to
-      // `www.` inside the SSR Worker (`www.` is the canonical served host — ADR 0011
-      // amendment 2026-07-05).
+      // `www.` in the SSR Worker's gateway, ahead of the cache (`www.` is the
+      // canonical served host — ADR 0011 amendment 2026-07-05; gateway since AECI-1441).
       //
       // AECI-807 removed a third entry, `prod.aecintegrations.com`. Two things to
       // know before re-adding any hostname here:
