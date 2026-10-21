@@ -203,7 +203,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 2. Which consent tier model in §6, and which option for the non-consented tier?
 3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
-5. Does the Enterprise contract include Bot Management? Scores started on 2026-10-12, but every stored score is a constant 99 (AECI-1298). The contract question is AECI-1300.
+5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account.
 6. Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)? If the reason was `page_views`, §3 removes it. If not, this design does not unblock caching.
 7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
@@ -217,6 +217,8 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 | Stored bot score is the visitor's (AECI-1298) | Join a day of Logpush to `page_views` by Ray ID and compare `BotScore` with `cf_bot_score` (AECI-1304) |
 
 ## 9. Sequencing with Bot Management
+
+> **On hold (2026-10-21, AECI-1300).** Bot Management is not licensed and will not be for now. The Logpush work (AECI-1196) goes ahead alone. Couplings 1, 5 and 6 below wait until Bot Management is bought. Logpush's bot-score fields carry no usable value without it.
 
 The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one sequence. Six couplings tie them:
 

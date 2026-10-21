@@ -918,7 +918,9 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 > **As-built (2026-10-04, AECI-1161).** The zone is on The WBS Project's Enterprise plan, and this section describes the Pro-era setup that was copied across. The settings were compared item by item on 2026-09-30 and match the old zone, except two that cannot be saved on a Pending zone and are cutover steps: **continuous script monitoring** goes on, and **Bot Preference Sync** goes off (on, it rewrites our `robots.txt`). "Bot Fight Mode is absent" and the Pro-only remarks below describe the old zone. Enterprise zones may expose more bot features, so check the dashboard before relying on those remarks. The comparison table is in `scripts/ops/2026-09-wbs-account-move/README.md`.
 
-> *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815).*
+> **Bot Management is not licensed (ruled 2026-10-21, AECI-1300).** Cloudflare scored the zone from **2026-10-12**, but we do not pay for Bot Management and will not for now. Chris met Cloudflare on 2026-10-19. Adding it needs a paid Enterprise plan with Bot Management on top, and that is out of our price range. The zone's current Enterprise plan comes free through the Cloudflare for Startups program, which WBS has held for about four years. **Build as if we have no Bot Management.** Do not read `page_views.cf_bot_score` or any Logpush bot field as a signal. Every stored score since 2026-10-12 is a constant 99 (AECI-1298). Our own bot detection stays the only classifier. Revisit when the budget allows (epic AECI-1299).
+
+> *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815), Bot Management ruled not licensed 2026-10-21 (AECI-1300).*
 > Nothing in this repo reads, writes, or tests these. No CI check catches them when
 > they drift. They are the reason §2 is **not** the whole bot story.
 
@@ -946,8 +948,9 @@ dashboard toggle no file in this repo mentions.
 
 Two consequences worth internalising:
 
-- **Bot Fight Mode is a Free-plan feature and is absent here.** We are on Pro, which
-  shows Super Bot Fight Mode instead. Do not go looking for a BFM toggle.
+- **Bot Fight Mode is a Free-plan feature and is absent here.** The old zone was on Pro,
+  which shows Super Bot Fight Mode instead. The Enterprise zone has not been re-checked
+  for it. Do not go looking for a BFM toggle.
 - **The `AI Crawl Control` custom rule is generated.** It appears on the Custom rules
   screen alongside our four hand-written rules. Edit it from the AI Crawl Control
   dashboard, never directly — direct edits are not reflected back, so the two views
@@ -957,7 +960,7 @@ Two consequences worth internalising:
 
 | Setting | State | Note |
 |---|---|---|
-| Bot Fight Mode | Not present | Pro plan |
+| Bot Fight Mode | Not present | Old zone, Pro plan |
 | AI bot policies → Search | Allow | Search indexing is distribution for a directory |
 | AI bot policies → Agent | Allow | ChatGPT browsing, Claude fetch, Perplexity |
 | AI bot policies → Training | Allow | Decided explicitly, not defaulted |
@@ -973,7 +976,8 @@ Two consequences worth internalising:
 
 ### Three traps
 
-**1. SBFM has no path scoping on Pro, and our CI probes are `curl`.** Setting
+**1. SBFM had no path scoping on the old Pro zone, and our CI probes are `curl`.** Not
+re-checked on the Enterprise zone, so assume it still holds. Setting
 **Definitely automated traffic** to *Block* or *Managed Challenge* applies domain-wide.
 `scripts/smoke-test.sh` and the `/api/health` + `/api/version` probes all run `curl` from
 GitHub Actions and score as definitely automated. §2 deliberately excludes those paths.
@@ -983,8 +987,10 @@ Mode rules* custom rule for those paths **first**.
 **2. JavaScript Detections is currently pure cost.** Every SBFM action is set to *Allow*,
 so SBFM blocks and challenges nothing. JavaScript Detections still injects the
 `/cdn-cgi/challenge-platform` script on every page, which is the known cause of our
-depressed Lighthouse Best-Practices score. The bot score it produces is **Enterprise-only
-in custom rules**, so nothing on Pro consumes it. Tracked separately.
+depressed Lighthouse Best-Practices score. The bot score is **Enterprise-only in custom
+rules**, so nothing on the old Pro zone consumed it. The zone is now Enterprise, but Bot
+Management is not licensed (above). `page_views` stores a `cf_bot_score`, and nothing may
+act on it. Tracked separately.
 
 **3. `Block AI bots` disappears on 2026-09-15.** Its job moves to the Training preset in
 `Configure AI bot policies`. Until then the two overlap, and **the legacy toggle wins** —
