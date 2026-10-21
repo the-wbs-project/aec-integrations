@@ -997,8 +997,11 @@ place only.
 `curl -I` sends **HEAD**, and `handleSsr` gates its cache branch on
 `request.method === 'GET'`. A HEAD therefore takes the non-cacheable branch and returns
 `private, no-store` with no `Cache-Tag` and no CSP — **on every route that renders a
-`200`, always**. The one exception is a HEAD that 404s: the non-cacheable branch still
-sends a 404 through `withCacheHeaders`, so it carries `Cache-Tag: route:404` and the CSP.
+`200`, always**. The one exception is a HEAD that 404s on a public path: the
+non-cacheable branch still sends that 404 through `withCacheHeaders`, so it carries
+`Cache-Tag: route:404` and the CSP. A 404 on a never-cacheable path (`/admin`, `/vendor`,
+`/account` and the rest of `isNeverCacheablePath`, AECI-1442) stays `private, no-store`
+with no `Cache-Tag` and no CSP.
 Either way it is a measurement artifact, not a defect, and it cost real time during
 AECI-800. Use `-D - -o /dev/null` to inspect headers on a genuine GET.
 

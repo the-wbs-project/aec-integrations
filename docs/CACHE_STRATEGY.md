@@ -45,7 +45,7 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 | `index:home` | The home page (`/`). Its credibility strip + stats cards render the `home.*` `stats_cache` counts, which are refreshed on every successful promote (AECI-305) — so a promote purges `index:home` to repaint them. Distinct from `taxonomy` (which the home page also carries but only fires on a term-set change) and from `route:index` (incident-only, §3.3). |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
-| `route:404` | Single sentinel tag on every 404 response — both cacheable-route 404s and non-cacheable-path 404s (see §4). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
+| `route:404` | Single sentinel tag on 404 responses — cacheable-route 404s and 404s on public non-cacheable paths (see §4). A 404 on a never-cacheable path (`/auth`, `/account`, `/welcome`, `/admin`, `/vendor`, `/search`) carries no tag (AECI-1442). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
 
 Every cacheable response carries **at minimum**:
 
@@ -161,11 +161,13 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 
 Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses themselves remain `Cache-Control: private, no-store`. Only SSR HTML is edge-cached.
 
-Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/admin*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
+Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/welcome`, `/admin*`, `/vendor*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
 
 **`/admin/*` is deliberately uncacheable, and that must stay true.** The operator console renders one admin's view of the site, and the edge cache is keyed by URL — so a single cacheable `/admin` response would serve that view to the next visitor who happened to hit the path. `ADMIN_PANEL_SPEC.md` §9.2 makes "absent from `ROUTE_CACHE_PATTERNS`" a standing requirement rather than a current fact, and `apps/web/src/server.spec.ts` asserts `isCacheableRoute` returns `false` for `/admin`, its children, and their locale-prefixed forms. The panel's own API responses carry the same posture from the other side: `json()` in the API Worker defaults every response to `private, no-store`, and the `/api/admin/*` reads set no `Cache-Tag`. Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS` or to `cacheTagInputsForPath`.
 
 **Exception — 404 responses on non-cacheable paths (AECI-62):** if the Angular SSR renderer returns HTTP 404 on a non-cacheable path (e.g. an unknown URL caught by the `**` wildcard route), the Worker applies `NOT_FOUND_TTL` (`max-age=0, s-maxage=60`) and `Cache-Tag: route:404` instead of `private, no-store`. The 404 content is session-neutral (no user-specific data), so edge caching is safe and prevents a flood of unknown URLs from melting the SSR Worker. The `route:404` tag provides the same bulk-purge handle as on cacheable routes. All other non-cacheable responses (2xx, 3xx, 5xx) continue to emit `private, no-store`.
+
+**The exception skips never-cacheable paths (AECI-1442).** A 404 on `/auth`, `/account`, `/welcome`, `/admin`, `/vendor` or `/search` (exact or any subpath, after locale stripping) stays `private, no-store` with no `Cache-Tag`. A 404 there can be a per-visitor answer. For example, the vendor-portal resolver maps a 403 to a 404 render for a signed-in visitor without access. Caching that publicly would serve it to every visitor for 60 s. `/vendor` is singular: `/vendors/:slug` and `/vendor-program` are public and keep the exception. The predicate is `isNeverCacheablePath` in `server-runtime.ts`.
 
 ---
 
@@ -616,7 +618,7 @@ If a Worker returns HTTP 200 with a "not found" body and a normal TTL for a miss
 
 **Rule:** 404 / not-found responses must return **HTTP 404** with a short TTL (≤ 60s — see §4). Status code 404 lets downstream tooling (sitemaps, monitoring) distinguish real misses, and the short TTL means newly-created entities become visible quickly without a purge call.
 
-Cross-reference: `STAGE_1_SPEC.md` §9.1b. The frozen stack-test probe documented the trap as a deliberate gap at `spikes/stack-test/README.md:215-217`; production `apps/web/` implements the correct behavior via `NOT_FOUND_TTL` (`apps/web/src/server-runtime.ts:169`).
+Cross-reference: `STAGE_1_SPEC.md` §9.1b. The frozen stack-test probe documented the trap as a deliberate gap at `spikes/stack-test/README.md:215-217`; production `apps/web/` implements the correct behavior via the `NOT_FOUND_TTL` constant in `apps/web/src/server-runtime.ts`.
 
 ---
 

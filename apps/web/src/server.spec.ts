@@ -20,6 +20,7 @@ import {
   isAdminPath,
   isVendorPath,
   isCacheableRoute,
+  isNeverCacheablePath,
   isPreviewPath,
   isReviewPath,
   stripLocalePrefix,
@@ -1324,6 +1325,67 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     expect(res.status).toBe(404);
     // AECI-62 — browser revalidates every navigation; edge caches for 60s.
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('cache-tag')).toBe('route:404');
+  });
+
+  // AECI-1442 — a 404 on a never-cacheable path can be a per-visitor "no access"
+  // answer, so it must stay `private, no-store` with no `route:404` tag. The
+  // `/admin` and `/vendor` cases carry a session cookie to clear the anon gate.
+  it.each([
+    ['/vendor/acme/products', true],
+    ['/admin/missing', true],
+    ['/account/missing', false],
+    ['/auth/missing', false],
+    ['/search', false],
+  ])('keeps a 404 on %s private and untagged (AECI-1442)', async (path, needsSession) => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
+    });
+
+    const res = await app.fetch(
+      new Request(`https://www.aecintegrations.com${path}`, {
+        headers: needsSession ? { cookie: 'sb-proj-auth-token=session' } : {},
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('cache-tag')).toBeNull();
+  });
+});
+
+describe('isNeverCacheablePath (AECI-1442)', () => {
+  it.each([
+    '/auth',
+    '/auth/login',
+    '/account',
+    '/account/x',
+    '/welcome',
+    '/admin',
+    '/admin/reviews',
+    '/vendor',
+    '/vendor/acme',
+    '/search',
+    '/search/x',
+  ])('is true for %s', (path) => {
+    expect(isNeverCacheablePath(path)).toBe(true);
+  });
+
+  it.each([
+    '/',
+    '/vendors',
+    '/vendors/acme',
+    '/vendor-program',
+    '/products/missing',
+    '/authors',
+    '/accounts',
+    '/searching',
+    '/this-route-does-not-exist',
+  ])('is false for %s', (path) => {
+    expect(isNeverCacheablePath(path)).toBe(false);
   });
 });
 

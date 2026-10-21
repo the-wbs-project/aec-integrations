@@ -838,7 +838,7 @@ If a Worker returns HTTP 200 with a "not found" body and a normal TTL for a miss
 
 **Rule:** 404 / not-found responses must return **HTTP 404** with a short TTL (≤60s), not 200. The TTL is short enough that newly-created entities become visible quickly without a purge call; the status code allows downstream tooling (sitemaps, monitoring) to distinguish real misses.
 
-The stack-test probe returned 200 for KV-miss with a 5-minute TTL — a gap it documented at `spikes/stack-test/README.md:215-217`. `apps/web/` closes it: 404s carry HTTP 404 and a ≤60s edge TTL via `NOT_FOUND_TTL` (`apps/web/src/server-runtime.ts:169`, §9.1b).
+The stack-test probe returned 200 for KV-miss with a 5-minute TTL — a gap it documented at `spikes/stack-test/README.md:215-217`. `apps/web/` closes it: 404s carry HTTP 404 and a ≤60s edge TTL via the `NOT_FOUND_TTL` constant in `apps/web/src/server-runtime.ts` (§9.1b).
 
 ### 9.2 TTLs
 
