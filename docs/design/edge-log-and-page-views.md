@@ -209,7 +209,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 2. Which consent tier model in §6, and which option for the non-consented tier?
 3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
-5. Does the Enterprise contract include Bot Management? Scores started on 2026-10-12, but every stored score is a constant 99 (AECI-1298). The contract question is AECI-1300.
+5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account.
 6. Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)? If the reason was `page_views`, §3 removes it. If not, this design does not unblock caching.
 7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
@@ -224,6 +224,8 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 
 ## 9. Sequencing with Bot Management
 
+> **On hold (2026-10-21, AECI-1300).** Bot Management is not licensed and will not be for now. The Logpush work (AECI-1196) goes ahead alone. Couplings 1, 5 and 6 below wait until Bot Management is bought. Logpush's bot-score fields carry no usable value without it.
+
 The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one sequence. Six couplings tie them:
 
 1. Logpush records Cloudflare's own bot score per request. It is the ground truth for our stored score (AECI-1298) and for judging the shadow run.
@@ -237,10 +239,10 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 
 | Id | Issue | Why now |
 |---|---|---|
-| N1 | AECI-1300: Bot Management entitlement, cost, Logpush account | Blocks the Logpush spike and any purchase decision |
+| N1 | AECI-1300: Bot Management entitlement, cost, Logpush account | Done 2026-10-21. Not licensed and out of budget. Logpush goes on The WBS Project. |
 | N2 | AECI-1302: verify retention, refresh history pulls before 2026-10-31 | Done 2026-10-13. New zone keeps 90 days of requests, 31 of firewall events. Pulls refreshed across the zone move |
 | N3 | AECI-1301: Ray ID and verified-bot fields on `page_views`. **Shipped** (migration `0072`: `cf_ray`, `cf_verified_bot`, `cf_verified_bot_category`) | Additive. Unblocks AECI-1298 diagnosis and the join. |
-| N4 | Freeze, recorded on AECI-1299 | No new hand-built heuristics. Nothing reads `cf_bot_score`. |
+| N4 | Freeze, recorded on AECI-1299 | Half lifted 2026-10-21 (AECI-1300). Hand-built heuristics may be added again, since they are our only classifier. Nothing reads `cf_bot_score`. `cf_verified_bot_category` is allowed, because Cloudflare fills it without Bot Management. |
 
 ### Before (spikes and decisions)
 
