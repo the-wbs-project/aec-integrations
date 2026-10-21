@@ -42,6 +42,7 @@ import { BillingLicensesTable } from './billing-licenses-table';
 import { LicenseBulkActions } from './license-bulk-actions';
 import { LicenseRowActions } from './license-row-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
+import { ReturnRecordsControl } from './return-records-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -136,6 +137,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     LicenseRowActions,
     LicenseBulkActions,
     ProvisionSeatControl,
+    ReturnRecordsControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
     NewTabIcon,
@@ -289,6 +291,12 @@ export class VendorDetail {
   /** `null` seats means the roster query itself degraded — distinct from `[]`,
    *  which means the vendor genuinely has no seats. */
   protected readonly seatsUnavailable = computed(() => this.vendor()?.seats === null);
+  /** Any seat at all, banned ones included: the return to AECi is refused while one
+   *  remains (AECI-1415). `null` when the roster could not be read. */
+  protected readonly hasAnySeat = computed<boolean | null>(() => {
+    const seats = this.vendor()?.seats;
+    return seats == null ? null : seats.length > 0;
+  });
 
   /** The §5.2 payer test as one readable line — shared with `/admin/claims`. */
   protected readonly roleBreakdownLabel = productRolesLabel;
@@ -452,6 +460,12 @@ export class VendorDetail {
    * stale in some other way if the seat already existed without being visible.
    */
   protected async onSeatProvisioned(): Promise<void> {
+    await this.load();
+    void this.loadAudit();
+  }
+
+  /** The return to AECi wrote `owned_at` and audit rows (AECI-1415). */
+  protected async onRecordsReturned(): Promise<void> {
     await this.load();
     void this.loadAudit();
   }

@@ -115,7 +115,7 @@ import {
 } from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
 import { classifyClaimantConflict, resolveClaimantIdentity } from '../lib/claimant-identity';
-import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { stampOwnershipStatement, VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import {
   adminVendorRequestConfig,
   resolveRequestTargets,
@@ -226,7 +226,13 @@ function emitClaimModeration(
 interface ClaimTarget {
   /** `companyName` names a billing account created by this grant (AECI-1351) and
    *  the vendor in the approval email (AECI-1367). */
-  vendor: { id: string; slug: string; verified: boolean; companyName: string };
+  vendor: {
+    id: string;
+    slug: string;
+    verified: boolean;
+    companyName: string;
+    ownedAt: string | null;
+  };
   /** Every license the vendor holds, live and ended. Read, never written: the audit
    *  rows' plan snapshot (AECI-1355) and the response's `tier` (AECI-1358) read them. */
   vendorLicenses: LicenseBefore[];
@@ -269,7 +275,7 @@ async function resolveTargetVendor(
   }
 
   const vendor = await db.query.vendors.findFirst({
-    columns: { id: true, slug: true, verified: true, companyName: true },
+    columns: { id: true, slug: true, verified: true, companyName: true, ownedAt: true },
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
@@ -531,6 +537,7 @@ async function approveClaim(
     profileBefore,
     submitterName: existing.submitterName,
     billingAccountCreated: account.billingAccountId !== null,
+    ownershipStamped: vendor.ownedAt === null,
     reason,
     targetType: existing.targetType,
     targetId: existing.targetId,
@@ -586,6 +593,9 @@ async function approveClaim(
   try {
     const stmts: BatchStmt[] = [
       ...grant.stmts,
+      // AECI-1415 (ADR 0042): approval flips ownership to the vendor, in this batch.
+      // Guarded on `owned_at IS NULL`, so a second claimant changes nothing here.
+      stampOwnershipStatement(db, vendor.id, resolvedAt),
       ...account.stmts,
       ...(acceptances?.stmts ?? []),
       ...(returned?.stmts ?? []),

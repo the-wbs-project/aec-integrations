@@ -1,21 +1,30 @@
 /**
- * What a vendor's rows do when its seats go away (AECI-989 /
- * `docs/STAGE_2_ATTESTATIONS_SPEC.md` §13.9 "The seat hand-back").
+ * What a vendor's rows do when its seats go away, and when AECi takes its records
+ * back (AECI-989, reworked by AECI-1415 / ADR 0042; `docs/STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13.9).
  *
- * Three builders, one per seat event. Each READS what it needs, then RETURNS the
- * statements, audit rows, workflow transitions and purge tags for the caller to put
- * in its own `db.batch([...])` (§26.1). None of them executes a write.
+ * Builders, one per event. Each READS what it needs, then RETURNS the statements,
+ * audit rows, workflow transitions and purge tags for the caller to put in its own
+ * `db.batch([...])` (§26.1). None of them executes a write.
  *
- * ── 1. THE HAND-BACK: `planVendorHandback` ──────────────────────────────────
- * Runs when a vendor is left with NO `vendor_admin` profile at all, banned or not.
- * Two callers: the admin seat revoke (`routes/admin-vendors.ts`) and the account
- * erasure of a vendor's last seat (`routes/account.ts`, AECI-1106). That second
- * caller is why it is exported and takes no Hono context. The erasure passes a
- * `null` actor, because the actor's own profile is deleted in the same batch.
+ * ── 0. SEAT LOSS FREEZES, IT DOES NOT HAND BACK (ruled 2026-10-19, AECI-1341 Q1) ──
+ * Ownership is stored (`vendors.owned_at`) and seat loss never moves it. When a
+ * revoke or an account erasure leaves a vendor with no `vendor_admin` profile at all
+ * (`seatLossOutcome` = `vacant`), the caller plans the SEAT LAPSE below, the same as
+ * a ban: the edit right ends with the seats, the open owner contests move to AECi's
+ * queue stamped, and nothing else changes. `maintained_by`, `claimed_at` and
+ * `owned_at` stay, so promote keeps refusing the records (`REVIEW_APP_PROMOTE_API.md`
+ * §4a). A later seat grant gets the stamped contests back, as after an unban.
+ *
+ * ── 1. THE RETURN TO AECi: `planVendorHandback` ─────────────────────────────
+ * The one explicit admin action, "Return records to AECi"
+ * (`POST /api/admin/vendors/:id/return-to-aeci`, `routes/admin-vendors.ts`), is its
+ * only caller. It exists for a mistaken approval. The route refuses while the vendor
+ * holds any `vendor_admin` seat, and clears `vendors.owned_at` in the same batch.
  *
  * - `vendors.maintained_by` and every owned `products.maintained_by` go back to
- *   `'aeci'`. A product co-owned with a vendor that still holds a seat keeps its
- *   marker: AECI-520 still blocks promote on it, so AECi is not curating it again.
+ *   `'aeci'`. A product co-owned with another OWNED vendor keeps its marker: promote
+ *   still refuses it (Q3), so AECi is not curating it again.
  * - Every LIVE integration the vendor owns and has claimed loses `claimed_at`, so
  *   the promote fence (`REVIEW_APP_PROMOTE_API.md` §4b) lifts and promote writes it
  *   again. This is the un-claim the owner-reassignment accept already makes
@@ -36,11 +45,10 @@
  * - An un-claimed integration's `maintained_by` goes back to `'aeci'` only when no
  *   live vendor attestation survives on it, which is §13.4's retraction rule. An
  *   attestation is not ownership (ADR 0035 decision 13).
- * - Every open contest routed to this owner goes to AECi, as the reassignment
- *   accept's `rerouteOwnerContests` does. A contest a ban had already moved keeps
- *   its `owner_seat_lapsed_at` stamp, and it still cannot come back: the return
- *   needs the row claimed by this owner since before the stamp, and this
- *   hand-back ends that claim. A later re-claim is newer than the stamp.
+ * - Every open contest still routed to this owner goes to AECi. A contest the seat
+ *   loss had already moved keeps its `owner_seat_lapsed_at` stamp, and it still
+ *   cannot come back: the return needs the row claimed by this owner since before
+ *   the stamp, and this un-claim ends that claim. A later re-claim is newer.
  * - Claims, attestations, links and contests are kept. Nothing is deleted.
  * - `last_reviewed_at` is never touched in either direction (§13.4).
  * - `vendors.verified` and the vendor's licenses are untouched. Seat and plan stay
@@ -50,11 +58,11 @@
  * `aeciMaintainedFlip` returns `null` in `routes/vendor-attestations.ts`.
  *
  * ── 2. THE SEAT LAPSE: `planOwnerSeatLapse` ─────────────────────────────────
- * Runs when a vendor still has a `vendor_admin` profile but none of them is
- * unbanned: a ban of its last active seat, or a revoke that leaves only banned
- * seats. A ban hands nothing back (ruled 2026-09-23): it is reversible, and a
- * hand-back would make an unban lose data. But nobody at the vendor can answer a
- * contest, so every open owner-routed contest moves to AECi's queue, stamped with
+ * Runs when a vendor is left with no unbanned seat: a ban of its last active seat,
+ * a revoke that leaves only banned seats, and since AECI-1415 a revoke or erasure
+ * that leaves no seat at all. Nothing is handed back (ruled 2026-09-23 for the ban,
+ * 2026-10-19 for every seat loss). But nobody at the vendor can answer a contest,
+ * so every open owner-routed contest moves to AECi's queue, stamped with
  * `owner_seat_lapsed_at`. `claimed_at` is untouched.
  *
  * ── 3. THE SEAT RETURN: `planOwnerSeatReturn` ───────────────────────────────
@@ -153,9 +161,30 @@ export interface HandbackBatch {
   entitlementGuarded?: boolean;
 }
 
-/** `metadata.reason` on the un-claim row. The marker flips keep
- *  `maintenance-marker` so one grep still finds every maintenance flip (§13.9). */
-export const HANDBACK_REASON = 'owner-seat-revoked';
+/**
+ * What the return to AECi handed back (AECI-1415): the records that are AECi's again,
+ * so promote writes them on the next push. Every product joined to the vendor that no
+ * other owned vendor holds, and every live integration and evidenced pair it had
+ * claimed. The admin route answers with it, and it is the hook the ownership message
+ * to the review app reads (AECI-1418).
+ */
+export interface ReturnedRecords {
+  productIds: string[];
+  integrationIds: string[];
+  evidencedPairIds: string[];
+  contestsRerouted: number;
+}
+
+/** {@link planVendorHandback}'s result: the batch plus what it hands back. */
+export interface VendorReturnBatch extends HandbackBatch {
+  returned: ReturnedRecords;
+}
+
+/** `metadata.reason` on the un-claim row of the admin return (AECI-1415), and
+ *  `metadata.cause` on its marker flips. The flips keep `maintenance-marker` as their
+ *  reason so one grep still finds every maintenance flip (§13.9). Rows written
+ *  before AECI-1415 by the last-seat hand-back say `owner-seat-revoked`. */
+export const HANDBACK_REASON = 'records-returned-to-aeci';
 
 /** `metadata.reason` on a contest the lapse moves to AECi. */
 export const SEAT_LAPSE_REASON = 'owner-seat-lapsed';
@@ -203,11 +232,13 @@ async function sealed(batch: HandbackBatch, db: Db, p: HandbackParams): Promise<
 // ─── Which seat event is this? ───────────────────────────────────────────────
 
 /** What losing a seat means for the vendor, given the seats that REMAIN after it. */
-export type SeatLossOutcome = 'handback' | 'lapse' | 'none';
+export type SeatLossOutcome = 'vacant' | 'lapse' | 'none';
 
 /**
- * `handback` when no `vendor_admin` profile remains, `lapse` when some remain and
- * all are banned, `none` while any unbanned seat remains. `excludeUserId` is the
+ * `vacant` when no `vendor_admin` profile remains, `lapse` when some remain and
+ * all are banned, `none` while any unbanned seat remains. `vacant` and `lapse` both
+ * plan the seat lapse since AECI-1415. They differ only in the race sentinel and in
+ * whether a remaining seat can be told. `excludeUserId` is the
  * seat being removed or banned, read as already gone because the pre-batch read
  * cannot see the batch.
  */
@@ -226,7 +257,7 @@ export async function seatLossOutcome(
         ne(profiles.id, excludeUserId),
       ),
     );
-  if (remaining.length === 0) return 'handback';
+  if (remaining.length === 0) return 'vacant';
   return remaining.some((r) => r.bannedAt === null) ? 'none' : 'lapse';
 }
 
@@ -240,11 +271,11 @@ const SEATS_CHANGED_TOKEN = 'vendor-seats-changed';
  *
  * The first raises when that UPDATE matched no row: a double-click, where the first
  * request already revoked or banned the seat. Without it the loser would commit
- * every hand-back audit row for writes its guarded UPDATEs did not make.
+ * every re-route audit row for writes its guarded UPDATEs did not make.
  *
  * The second raises when the seats left after the UPDATE are not the ones the plan
  * read. Two seats revoked at once would each see the other still there, plan
- * `none`, and leave a seatless vendor with nothing handed back.
+ * `none`, and leave a seatless vendor with its owner contests unmoved.
  *
  * `planned = null` keeps the first guard only, for an unban, which plans nothing
  * that depends on the other seats.
@@ -261,7 +292,7 @@ export function seatRaceSentinels(
   const any = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE})`;
   const active = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
   const mismatch =
-    planned === 'handback'
+    planned === 'vacant'
       ? any
       : planned === 'lapse'
         ? sql`(NOT ${any} OR ${active})`
@@ -366,10 +397,16 @@ export async function ownerSeatLapsed(db: Db, vendorId: string): Promise<boolean
   return active.length === 0;
 }
 
-// ─── 1. The hand-back ────────────────────────────────────────────────────────
+// ─── 1. The return to AECi ───────────────────────────────────────────────────
 
-export async function planVendorHandback(db: Db, p: HandbackParams): Promise<HandbackBatch> {
+export async function planVendorHandback(db: Db, p: HandbackParams): Promise<VendorReturnBatch> {
   const batch = emptyBatch();
+  const returned: ReturnedRecords = {
+    productIds: [],
+    integrationIds: [],
+    evidencedPairIds: [],
+    contestsRerouted: 0,
+  };
   const actor = { actorId: p.actorId, actorType: p.actorType };
   const base = { source: p.source, vendorId: p.vendorId };
 
@@ -377,7 +414,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
     columns: { id: true, slug: true, maintainedBy: true },
     where: eq(vendors.id, p.vendorId),
   });
-  if (!vendor) return batch;
+  if (!vendor) return { ...batch, returned };
 
   // The vendor row.
   if (vendor.maintainedBy === 'vendor') {
@@ -399,20 +436,21 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
     batch.purgeTags.push(`vendor:${vendor.slug}`);
   }
 
-  // Every owned product, the same `product_vendors` set AECI-520 blocks on.
+  // Every owned product, the same `product_vendors` set the promote fence blocks on.
   const owned = await db
     .select({ id: products.id, slug: products.slug, maintainedBy: products.maintainedBy })
     .from(productVendors)
     .innerJoin(products, eq(products.id, productVendors.productId))
     .where(eq(productVendors.vendorId, p.vendorId));
-  const vendorProducts = owned.filter((row) => row.maintainedBy === 'vendor');
-  const seatedCoOwned = await productsWithSeatedCoOwner(
+  const ownedCoOwned = await productsWithOwnedCoOwner(
     db,
     p.vendorId,
-    vendorProducts.map((row) => row.id),
+    owned.map((row) => row.id),
   );
+  returned.productIds = owned.filter((row) => !ownedCoOwned.has(row.id)).map((row) => row.id);
+  const vendorProducts = owned.filter((row) => row.maintainedBy === 'vendor');
   for (const product of vendorProducts) {
-    if (seatedCoOwned.has(product.id)) continue;
+    if (ownedCoOwned.has(product.id)) continue;
     batch.stmts.push(
       db
         .update(products)
@@ -466,6 +504,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
     claimedRows.map((row) => row.id),
   );
   for (const row of claimedRows) {
+    returned.integrationIds.push(row.id);
     const guard = and(eq(integrations.id, row.id), eq(integrations.builtByVendorId, p.vendorId));
     // The carve-out markers the AECI-1089 claim and the AECI-1090 edit write on a
     // connector-powered row, so one filter finds every owner-side write on them.
@@ -549,6 +588,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
     claimedPairs.map((row) => row.id),
   );
   for (const row of claimedPairs) {
+    returned.evidencedPairIds.push(row.id);
     const guard = and(
       eq(connectorEvidencedPairs.id, row.id),
       eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
@@ -610,18 +650,19 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
         eq(integrationFieldChallenges.status, 'open'),
       ),
     );
+  returned.contestsRerouted = contests.length;
   for (const contest of contests) {
     rerouteContest(db, batch, actor, contest, p.now, {
       to: 'aeci',
       stamp: null,
       reason: HANDBACK_REASON,
-      transitionReason: 'owner seat revoked: re-routed to AECi',
+      transitionReason: 'records returned to AECi: re-routed to AECi',
       source: p.source,
     });
   }
 
   batch.purgeTags = [...new Set(batch.purgeTags)];
-  return sealed(batch, db, p);
+  return { ...(await sealed(batch, db, p)), returned };
 }
 
 /** Ids per `IN (...)` lookup. D1 caps bound parameters per query at 100, and a
@@ -634,8 +675,9 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
-/** Products in `productIds` that another vendor, holding any seat, also owns. */
-async function productsWithSeatedCoOwner(
+/** Products in `productIds` that another OWNED vendor (`owned_at` set) also holds.
+ *  Promote still refuses those (Q3, AECI-1415), so their marker stays. */
+async function productsWithOwnedCoOwner(
   db: Db,
   vendorId: string,
   productIds: readonly string[],
@@ -645,12 +687,12 @@ async function productsWithSeatedCoOwner(
     const rows = await db
       .selectDistinct({ productId: productVendors.productId })
       .from(productVendors)
-      .innerJoin(profiles, eq(profiles.vendorId, productVendors.vendorId))
+      .innerJoin(vendors, eq(vendors.id, productVendors.vendorId))
       .where(
         and(
           inArray(productVendors.productId, ids),
           ne(productVendors.vendorId, vendorId),
-          eq(profiles.role, VENDOR_ADMIN_ROLE),
+          isNotNull(vendors.ownedAt),
         ),
       );
     for (const row of rows) found.add(row.productId);

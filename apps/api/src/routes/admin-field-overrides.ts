@@ -16,10 +16,11 @@
  * 1. **Admin only, rate-limited after the guard.** `requireAdmin()` then
  *    `rateLimit('write')` at registration, on the two writes. The GET is a read: no
  *    limiter, no audit row (§9.3).
- * 2. **Vendor-held records only.** A company with an active seat (the promote fence's
- *    `loadClaimedVendorIds`), a product with such an owner (the same fence's
- *    `productBlocked`), or an integration or pair that is claimed or vendor-created
- *    (`isVendorHeld`). Anything else answers `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`:
+ * 2. **Vendor-held records only.** An owned company (`vendors.owned_at`, the promote
+ *    fence's `loadOwnedVendorIds`, AECI-1415), a product joined to one (the same
+ *    fence's `productBlocked`), or an integration or pair that is claimed or
+ *    vendor-created (`isVendorHeld`). A frozen owned record with no seat left is
+ *    still vendor-held: promote does not write it, so this is AECi's only path. Anything else answers `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`:
  *    promote writes it, so the correction belongs upstream in the review app.
  * 3. **Factual fields, the vendor's own value rule.** `AdminSetFieldOverrideSchema`
  *    names the allow-list; `parseFieldOverrideValue` applies the vendor PATCH rule. A
@@ -73,7 +74,7 @@ import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notification
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType } from '../lib/authz';
-import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import { loadOwnedVendorIds } from '../lib/claimed-vendors';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { overrideColumn, overrideTable } from '../lib/field-overrides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -122,7 +123,7 @@ async function loadTarget(
     case 'vendor': {
       const row = await db.query.vendors.findFirst({ where: eq(vendors.id, id) });
       if (!row) return null;
-      const held = (await loadClaimedVendorIds(db, [id])).has(id);
+      const held = (await loadOwnedVendorIds(db, [id])).has(id);
       return {
         entityType,
         id,
@@ -146,8 +147,8 @@ async function loadTarget(
       ]);
       if (!row) return null;
       // The promote fence's own test (`productBlocked`, routes/promote.ts): a product is
-      // vendor-held when any vendor that owns it has an active seat.
-      const claimed = await loadClaimedVendorIds(
+      // vendor-held when any vendor joined to it is owned (Q3, AECI-1415).
+      const claimed = await loadOwnedVendorIds(
         db,
         owners.map((o) => o.vendorId),
       );

@@ -41,3 +41,9 @@ INSERT OR REPLACE INTO "profiles" ("id", "display_name", "role", "created_at", "
 -- per account, distinct from the admin persona above.
 INSERT OR REPLACE INTO "profiles" ("id", "display_name", "role", "vendor_id", "created_at", "updated_at") VALUES
   ('e1a8f812-b123-4b4a-8d3f-e1e76822a1df', 'E2E Test Vendor (vendor@thewbsproject.com)', 'vendor_admin', '00000000-0000-4000-8000-000000000061', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+-- AECI-1415: a seated vendor is an OWNED vendor (`vendors.owned_at`, ADR 0042). The
+-- claim grant stamps it in production. Seeding the seat directly skips the grant, so
+-- the stamp is set here, or promote would still write the seeded vendor's rows.
+UPDATE "vendors" SET "owned_at" = COALESCE("owned_at", strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  WHERE "id" = '00000000-0000-4000-8000-000000000061';

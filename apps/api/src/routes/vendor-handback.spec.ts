@@ -1,18 +1,21 @@
 /**
- * The seat hand-back (AECI-989 / `STAGE_2_ATTESTATIONS_SPEC.md` §13.9), driven
- * through the two admin writers that remove or disable a seat, against the
- * real-SQLite harness:
+ * Seat loss and the return to AECi (AECI-989, reworked by AECI-1415 / ADR 0042;
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §13.9), driven through the admin writers against
+ * the real-SQLite harness:
  *
  *  - `DELETE /api/admin/vendors/:id/seats/:userId` (`admin-vendors.ts`): the last
- *    seat hands the record back; a revoke leaving only banned seats re-routes
- *    contests; a revoke leaving an active seat changes nothing.
+ *    seat FREEZES the record. Ownership, markers and claims stay; the open owner
+ *    contests move to AECi, stamped. A revoke leaving an active seat changes nothing.
  *  - `PATCH /api/admin/reviewers/:id` (`admin-reviewers.ts`): a ban of the last
  *    active seat re-routes contests and hands nothing back; the unban routes them
  *    back.
+ *  - `POST /api/admin/vendors/:id/return-to-aeci` (`admin-vendors.ts`): "Return
+ *    records to AECi", the one action that hands records back, refused while any
+ *    seat remains.
  *
- * The promotability assertion runs the real promote ingest after the revoke,
- * because "claimed_at is NULL" is only the mechanism. The contract is that the
- * review app can write the row again.
+ * The promotability assertions run the real promote ingest, because "claimed_at is
+ * NULL" is only the mechanism. The contract is whether the review app can write the
+ * row again.
  */
 
 import { PromotePayloadSchema } from '@aeci/shared';
@@ -33,6 +36,7 @@ import {
   products,
   profiles,
   taxonomyDataObjects,
+  vendorSeatInvites,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -43,9 +47,13 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
-import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
+import {
+  createAdminRevokeSeatHandler,
+  createProvisionSeatHandler,
+  createReturnRecordsHandler,
+} from './admin-vendors';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
-import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
+import { runPromoteIngest, type PromoteRunCtx } from './promote';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
 import { planSeatGrantReturn, planVendorHandback } from '../lib/vendor-handback';
 
@@ -79,6 +87,7 @@ const CLAIM = u(61);
 
 const REVIEWED = '2026-09-01T00:00:00.000Z';
 const CLAIMED_AT = '2026-09-02T00:00:00.000Z';
+const OWNED_AT = '2026-08-30T00:00:00.000Z';
 
 const ADMIN_SESSION = {
   userId: ADMIN,
@@ -103,9 +112,17 @@ beforeEach(async () => {
       promotionStatus: 'promoted',
       maintainedBy: 'vendor',
       lastReviewedAt: REVIEWED,
+      ownedAt: OWNED_AT,
     },
     { id: OTHER, slug: 'autodesk', companyName: 'Autodesk', promotionStatus: 'promoted' },
-    { id: CO_OWNER, slug: 'trimble', companyName: 'Trimble', promotionStatus: 'promoted' },
+    // Seated, so owned (AECI-1415): promote refuses P_SHARED through it too (Q3).
+    {
+      id: CO_OWNER,
+      slug: 'trimble',
+      companyName: 'Trimble',
+      promotionStatus: 'promoted',
+      ownedAt: OWNED_AT,
+    },
   ]);
   // AECI-1351: the post-back-fill state, so a provision writes no account row.
   await t.db.insert(billingAccounts).values({ id: u(71), vendorId: VENDOR, name: 'Bentley' });
@@ -201,6 +218,7 @@ function adminApp(): App {
     await next();
   });
   app.delete('/api/admin/vendors/:id/seats/:userId', createAdminRevokeSeatHandler(t.factory));
+  app.post('/api/admin/vendors/:id/return-to-aeci', createReturnRecordsHandler(t.factory));
   app.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   app.post(
     '/api/admin/vendors/:id/seats',
@@ -218,7 +236,12 @@ async function call(
   path: string,
   method: 'DELETE' | 'PATCH' | 'POST',
   payload?: unknown,
-): Promise<{ status: number; code: string | null; send: ReturnType<typeof vi.fn> }> {
+): Promise<{
+  status: number;
+  code: string | null;
+  send: ReturnType<typeof vi.fn>;
+  body: Record<string, unknown> | null;
+}> {
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
@@ -231,8 +254,10 @@ async function call(
       : { method, body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } };
   const res = await adminApp().request(path, init, env, execCtx);
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
-  return { status: res.status, code: body?.error?.code ?? null, send };
+  const body = (await res.json().catch(() => null)) as
+    | ({ error?: { code?: string } } & Record<string, unknown>)
+    | null;
+  return { status: res.status, code: body?.error?.code ?? null, send, body };
 }
 
 const revoke = (userId: string) =>
@@ -241,6 +266,48 @@ const ban = (userId: string) =>
   call(`/api/admin/reviewers/${userId}`, 'PATCH', { action: 'ban', reason: 'abuse' });
 const unban = (userId: string) =>
   call(`/api/admin/reviewers/${userId}`, 'PATCH', { action: 'unban' });
+const returnRecords = (payload: unknown = { reason: 'Approved by mistake' }) =>
+  call(`/api/admin/vendors/${VENDOR}/return-to-aeci`, 'POST', payload);
+/** Revoke the last seat (the freeze), then return the records (the hand-back). */
+async function handBack() {
+  expect((await revoke(SEAT_A)).status).toBe(204);
+  const returned = await returnRecords();
+  expect(returned.status).toBe(200);
+  return returned;
+}
+
+/** The review app's push of Revit, restating I_OWNED under a new name. */
+const promoteRevit = (name: string) =>
+  runPromoteIngest(
+    {
+      env: { ENV: 'staging' } as Env,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    } satisfies PromoteRunCtx,
+    PromotePayloadSchema.parse({
+      vendors: [],
+      product: { ref: 'p1', supabaseId: P_THEIRS, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: I_OWNED,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: P_MINE },
+          name,
+          mechanismKind: 'native',
+          claims: [],
+        },
+      ],
+    }),
+    {
+      dbFor: t.factory as DbFactory,
+      syncAlgolia: async () => {},
+      notifyIndexNow: async () => {},
+      refreshHomeStats: async () => {},
+    },
+    {},
+  );
 
 const integration = async (id: string) =>
   (await t.db.query.integrations.findFirst({ where: eq(integrations.id, id) }))!;
@@ -266,16 +333,62 @@ async function catalogSnapshot() {
   };
 }
 
-// ─── The last seat ───────────────────────────────────────────────────────────
+// ─── The last seat: it freezes (AECI-1415) ──────────────────────────────────
 
-describe('revoking the LAST seat hands the record back (AECI-989)', () => {
-  it('returns the vendor and its solely-owned products to AECi, keeping last_reviewed_at', async () => {
+describe('revoking the LAST seat freezes the record and hands nothing back (AECI-1415)', () => {
+  it('keeps ownership, every marker and every claim', async () => {
+    const before = await catalogSnapshot();
     expect((await revoke(SEAT_A)).status).toBe(204);
+    const after = await catalogSnapshot();
+    expect(after.vendor.ownedAt).toBe(OWNED_AT);
+    expect(after.vendor.maintainedBy).toBe('vendor');
+    expect(after.products).toEqual(before.products);
+    expect(after.integrations).toEqual(before.integrations);
+    expect(after.claims).toEqual(before.claims);
+    expect(after.attestations).toEqual(before.attestations);
+    // Seat and plan are orthogonal (PAID_TIERS §5.2): the license stays live.
+    const held = await t.db.select().from(licenses);
+    expect(held.every((l) => l.endedAt === null)).toBe(true);
+  });
+
+  it('moves the open owner contest to AECi, stamped, so a new seat gets it back', async () => {
+    await revoke(SEAT_A);
+    const row = await contest();
+    expect(row.routedTo).toBe('aeci');
+    expect(row.ownerSeatLapsedAt).not.toBeNull();
+    const [rerouted] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'integration.contest.rerouted'));
+    expect(rerouted!.metadata).toMatchObject({ reason: 'owner-seat-lapsed' });
+  });
+
+  it('writes the seat row and the re-route only, and purges nothing', async () => {
+    const { send } = await revoke(SEAT_A);
+    expect(await auditActions()).toEqual(
+      ['vendor_claim.seat_revoked', 'integration.contest.rerouted'].sort(),
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('promote still refuses the frozen records', async () => {
+    await revoke(SEAT_A);
+    const { response } = await promoteRevit('Curated after the revoke');
+    expect(response.skipped.map((s) => s.ref)).toContain('i1');
+    expect((await integration(I_OWNED)).name).toBe('Owner name');
+  });
+});
+
+// ─── The return to AECi (AECI-1415) ──────────────────────────────────────────
+
+describe('returning the records to AECi hands them back (AECI-1415)', () => {
+  it('clears ownership and returns the vendor and its solely-owned products to AECi', async () => {
+    await handBack();
 
     const vendor = await vendorRow();
+    expect(vendor.ownedAt).toBeNull();
     expect(vendor.maintainedBy).toBe('aeci');
     expect(vendor.lastReviewedAt).toBe(REVIEWED);
-    // Seat and plan are orthogonal (PAID_TIERS §5.2): the license stays live.
     expect(vendor.verified).toBe(true);
     const held = await t.db.select().from(licenses);
     expect(held.length).toBeGreaterThan(0);
@@ -284,12 +397,12 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     const mine = await product(P_MINE);
     expect(mine.maintainedBy).toBe('aeci');
     expect(mine.lastReviewedAt).toBe(REVIEWED);
-    // A co-owner still holds a seat, so AECI-520 still blocks promote on it.
+    // An owned co-owner still holds it (Q3), so promote still refuses it.
     expect((await product(P_SHARED)).maintainedBy).toBe('vendor');
   });
 
   it('un-claims every live owned integration, and flips the marker only where no vendor attestation survives', async () => {
-    await revoke(SEAT_A);
+    await handBack();
 
     const owned = await integration(I_OWNED);
     expect(owned.claimedAt).toBeNull();
@@ -313,9 +426,22 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     expect(retired.retiredAt).toBe(CLAIMED_AT);
   });
 
+  it('answers with what it handed back', async () => {
+    const { body } = await handBack();
+    expect(body).toEqual({
+      vendor_id: VENDOR,
+      owned_at: null,
+      product_ids: [P_MINE],
+      integration_ids: expect.arrayContaining([I_OWNED, I_ATTESTED, I_CREATED]),
+      evidenced_pair_ids: [],
+      contests_rerouted: 0,
+    });
+    expect((body!.integration_ids as string[]).length).toBe(3);
+  });
+
   it('keeps every claim and attestation, and deletes nothing', async () => {
     const before = await catalogSnapshot();
-    await revoke(SEAT_A);
+    await handBack();
     const after = await catalogSnapshot();
     expect(after.claims).toEqual(before.claims);
     expect(after.attestations).toEqual(before.attestations);
@@ -323,17 +449,39 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     expect(after.contests).toHaveLength(before.contests.length);
   });
 
-  it('re-routes the open owner contest to AECi for good, unstamped', async () => {
+  it('keeps the contest the freeze moved with AECi, for good', async () => {
+    await handBack();
+    const row = await contest();
+    expect(row.routedTo).toBe('aeci');
+    expect(row.status).toBe('open');
+    // A later seat and a re-claim do not bring it back: the re-claim is newer.
+    await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+    await t.db
+      .update(integrations)
+      .set({ claimedAt: '2099-01-01T00:00:00.000Z' })
+      .where(eq(integrations.id, I_OWNED));
+    await ban(SEAT_B);
+    await unban(SEAT_B);
+    expect((await contest()).routedTo).toBe('aeci');
+  });
+
+  it('re-routes a contest still routed to the owner to AECi, unstamped', async () => {
     await revoke(SEAT_A);
+    // A contest filed and routed to the owner while it had a seat, left as it was.
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ routedTo: 'owner', ownerSeatLapsedAt: null })
+      .where(eq(integrationFieldChallenges.id, CONTEST));
+    expect((await returnRecords()).status).toBe(200);
     const row = await contest();
     expect(row.routedTo).toBe('aeci');
     expect(row.ownerSeatLapsedAt).toBeNull();
-    expect(row.status).toBe('open');
   });
 
-  it('writes every audit row in the revoke batch, with the maintenance-marker reason on each flip', async () => {
-    const batchSpy = vi.spyOn(t.db, 'batch');
+  it('writes every row in ONE return batch, with the reason on the return row', async () => {
     await revoke(SEAT_A);
+    const batchSpy = vi.spyOn(t.db, 'batch');
+    await returnRecords();
     const writes = batchSpy.mock.calls.filter(([stmts]) => stmts.length > 0);
     expect(writes).toHaveLength(1);
     batchSpy.mockRestore();
@@ -341,6 +489,8 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     expect(await auditActions()).toEqual(
       [
         'vendor_claim.seat_revoked',
+        'integration.contest.rerouted', // the freeze
+        'vendor.records_returned',
         'vendor.updated', // vendor marker
         'product.updated', // P_MINE marker
         'integration.updated', // I_OWNED un-claim
@@ -348,9 +498,25 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
         'integration.updated', // I_ATTESTED un-claim
         'integration.updated', // I_CREATED un-claim
         'integration.updated', // I_CREATED marker
-        'integration.contest.rerouted',
       ].sort(),
     );
+    const [returned] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor.records_returned'));
+    expect(returned).toMatchObject({
+      entityType: 'vendor',
+      entityId: VENDOR,
+      vendorId: VENDOR,
+      actorId: ADMIN,
+      beforeState: { owned_at: OWNED_AT },
+      afterState: { owned_at: null },
+    });
+    expect(returned!.metadata).toMatchObject({
+      reason: 'Approved by mistake',
+      product_count: 1,
+      integration_count: 3,
+    });
     const flips = (await t.db.select().from(auditLog)).filter(
       (row) => (row.afterState as { maintained_by?: string } | null)?.maintained_by === 'aeci',
     );
@@ -358,13 +524,13 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     for (const row of flips) {
       expect(row.metadata).toMatchObject({
         reason: 'maintenance-marker',
-        cause: 'owner-seat-revoked',
+        cause: 'records-returned-to-aeci',
       });
     }
   });
 
   it('purges the vendor page, the product page and each pair page whose marker changed', async () => {
-    const { send } = await revoke(SEAT_A);
+    const { send } = await handBack();
     expect(send).toHaveBeenCalledTimes(1);
     const { tags, source } = send.mock.calls[0]![0] as { tags: string[]; source: string };
     expect(source).toBe('moderation');
@@ -380,65 +546,87 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     expect(tags).not.toContain('product:synchro');
   });
 
-  it('lets promote write the handed-back integration again (the AECI-1005 fence lifts)', async () => {
-    const promote = (name: string) =>
-      runPromoteIngest(
-        {
-          env: { ENV: 'staging' } as Env,
-          request: new Request('http://localhost:8787/api/promote'),
-          waitUntil: () => {},
-          bookmark: () => null,
-        } satisfies PromoteRunCtx,
-        PromotePayloadSchema.parse({
-          vendors: [],
-          product: { ref: 'p1', supabaseId: P_THEIRS, name: 'Revit' },
-          integrations: [
-            {
-              ref: 'i1',
-              supabaseId: I_OWNED,
-              sourceProduct: { ref: 'p1' },
-              targetProduct: { supabaseId: P_MINE },
-              name,
-              mechanismKind: 'native',
-              claims: [],
-            },
-          ],
-        }),
-        {
-          dbFor: t.factory as DbFactory,
-          syncAlgolia: async () => {},
-          notifyIndexNow: async () => {},
-          refreshHomeStats: async () => {},
-        },
-        {},
-      );
-
-    // Fenced while the seat stands.
-    const fenced = await promote('Curated before');
-    expect(fenced.response.skipped).toContainEqual({
-      ref: 'i1',
-      kind: 'integration',
-      reason: REFUSED_CLAIMED_INTEGRATION,
-    });
+  it('lets promote write the returned integration again (the fences lift)', async () => {
+    // Refused while the vendor owns its record, with or without a seat.
+    const fenced = await promoteRevit('Curated before');
+    expect(fenced.response.skipped.map((s) => s.ref)).toContain('i1');
     expect((await integration(I_OWNED)).name).toBe('Owner name');
 
-    await revoke(SEAT_A);
+    await handBack();
 
-    const written = await promote('Curated after');
+    const written = await promoteRevit('Curated after');
     expect(written.response.skipped.filter((s) => s.ref === 'i1')).toEqual([]);
     expect(written.response.integrations.map((i) => i.id)).toContain(I_OWNED);
     expect((await integration(I_OWNED)).name).toBe('Curated after');
   });
 
-  it('is a no-op beyond the seat when nothing is vendor-maintained or claimed', async () => {
+  it('is the return row alone when nothing is vendor-maintained or claimed', async () => {
     await t.db.update(vendors).set({ maintainedBy: 'aeci' }).where(eq(vendors.id, VENDOR));
     await t.db.update(products).set({ maintainedBy: 'aeci' });
     await t.db.update(integrations).set({ claimedAt: null, maintainedBy: 'aeci' });
     await t.db.delete(integrationFieldChallenges);
 
-    const { send } = await revoke(SEAT_A);
-    expect(await auditActions()).toEqual(['vendor_claim.seat_revoked']);
+    const { send } = await handBack();
+    expect(await auditActions()).toEqual(
+      ['vendor.records_returned', 'vendor_claim.seat_revoked'].sort(),
+    );
     expect(send).not.toHaveBeenCalled();
+    expect((await vendorRow()).ownedAt).toBeNull();
+  });
+
+  it('revokes a live seat invite in the same batch', async () => {
+    await revoke(SEAT_A);
+    await t.db.insert(vendorSeatInvites).values({
+      id: u(90),
+      vendorId: VENDOR,
+      email: 'colleague@bentley.example',
+      token: 'tok-return-records',
+      invitedById: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    expect((await returnRecords()).status).toBe(200);
+    const [invite] = await t.db.select().from(vendorSeatInvites);
+    expect(invite!.revokedAt).not.toBeNull();
+    expect(await auditActions()).toContain('vendor_seat.invite_revoked');
+  });
+});
+
+describe('the return to AECi refuses, and writes nothing', () => {
+  it('while an unbanned seat remains (409 VENDOR_HAS_SEATS)', async () => {
+    const before = await catalogSnapshot();
+    const res = await returnRecords();
+    expect(res).toMatchObject({ status: 409, code: 'VENDOR_HAS_SEATS' });
+    expect(await catalogSnapshot()).toEqual(before);
+    expect(await auditActions()).toEqual([]);
+  });
+
+  it('while only a BANNED seat remains: an unban would re-seat an AECi record', async () => {
+    await t.db.update(profiles).set({ bannedAt: CLAIMED_AT }).where(eq(profiles.id, SEAT_A));
+    expect(await returnRecords()).toMatchObject({ status: 409, code: 'VENDOR_HAS_SEATS' });
+    expect((await vendorRow()).ownedAt).toBe(OWNED_AT);
+  });
+
+  it('when AECi owns the records already (409 VENDOR_NOT_OWNED)', async () => {
+    await handBack();
+    expect(await returnRecords()).toMatchObject({ status: 409, code: 'VENDOR_NOT_OWNED' });
+  });
+
+  it('without a reason (400)', async () => {
+    await revoke(SEAT_A);
+    expect((await returnRecords({})).status).toBe(400);
+    expect((await vendorRow()).ownedAt).toBe(OWNED_AT);
+  });
+
+  it('when a seat lands between the read and the batch (409 VENDOR_SEATS_CHANGED)', async () => {
+    await revoke(SEAT_A);
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+      return original(stmts);
+    }) as never);
+    expect(await returnRecords()).toMatchObject({ status: 409, code: 'VENDOR_SEATS_CHANGED' });
+    expect((await vendorRow()).ownedAt).toBe(OWNED_AT);
+    expect((await integration(I_OWNED)).claimedAt).toBe(CLAIMED_AT);
   });
 });
 
@@ -483,6 +671,7 @@ describe('a ban of the last active seat (AECI-989, ruled 2026-09-23)', () => {
 
     const after = await catalogSnapshot();
     expect(after.vendor.maintainedBy).toBe('vendor');
+    expect(after.vendor.ownedAt).toBe(OWNED_AT);
     expect(after.integrations).toEqual(before.integrations);
     expect(after.products).toEqual(before.products);
 
@@ -525,11 +714,12 @@ describe('a ban of the last active seat (AECI-989, ruled 2026-09-23)', () => {
     expect(await contest()).toMatchObject({ routedTo: 'aeci', status: 'declined' });
   });
 
-  it('never routes back a contest a hand-back took, even after the owner re-claims', async () => {
-    // Ban, then the banned seat is revoked (the hand-back), then a fresh seat, a
-    // re-claim, a ban and an unban. The contest stayed with AECi throughout.
+  it('never routes back a contest a return took, even after the owner re-claims', async () => {
+    // Ban, then the banned seat is revoked and the records returned to AECi, then a
+    // fresh seat, a re-claim, a ban and an unban. The contest stayed with AECi.
     await ban(SEAT_A);
     await revoke(SEAT_A);
+    expect((await returnRecords()).status).toBe(200);
     await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
     await t.db
       .update(integrations)
@@ -592,7 +782,7 @@ describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGE
     }) as never);
   }
 
-  it('a double-click revoke: the loser commits no hand-back audit rows', async () => {
+  it('a double-click revoke: the loser commits no re-route audit rows', async () => {
     interleaveBeforeBatch(() =>
       t.db
         .update(profiles)
@@ -605,14 +795,14 @@ describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGE
     expect((await vendorRow()).maintainedBy).toBe('vendor');
   });
 
-  it('a seat provisioned while the last-seat revoke ran: no hand-back', async () => {
+  it('a seat provisioned while the last-seat revoke ran: nothing re-routed', async () => {
     interleaveBeforeBatch(() =>
       t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR }),
     );
     expect((await revoke(SEAT_A)).status).toBe(409);
     const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
     expect(seat.role).toBe('vendor_admin');
-    expect((await integration(I_OWNED)).claimedAt).toBe(CLAIMED_AT);
+    expect((await contest()).routedTo).toBe('owner');
   });
 
   it('two seats revoked at once: the one that planned "none" rolls back', async () => {
@@ -624,9 +814,11 @@ describe('a seat write that loses a race writes nothing (409 VENDOR_SEATS_CHANGE
         .where(eq(profiles.id, SEAT_B)),
     );
     expect((await revoke(SEAT_A)).status).toBe(409);
-    // A retry now sees the last seat and hands back.
+    expect((await contest()).routedTo).toBe('owner');
+    // A retry now sees the last seat and freezes: the contest moves, the claim stays.
     expect((await revoke(SEAT_A)).status).toBe(204);
-    expect((await integration(I_OWNED)).claimedAt).toBeNull();
+    expect((await contest()).routedTo).toBe('aeci');
+    expect((await integration(I_OWNED)).claimedAt).toBe(CLAIMED_AT);
   });
 });
 
@@ -768,7 +960,7 @@ describe('a new seat grant clears the vendor-banned license flags, as an unban d
 
 // ─── The plan stamp: passed in, or read once (AECI-1192 review) ──────────────
 
-describe("the hand-back stamps the caller's plan, or reads it when none is passed", () => {
+describe("the return stamps the caller's plan, or reads it when none is passed", () => {
   const params = {
     vendorId: VENDOR,
     actorId: ADMIN,
@@ -800,8 +992,8 @@ describe("the hand-back stamps the caller's plan, or reads it when none is passe
     }
   });
 
-  it('the admin revoke stamps its hand-back rows with the plan the seat row carries', async () => {
-    expect((await revoke(SEAT_A)).status).toBe(204);
+  it('the revoke and the return stamp their rows with the plan the seat row carries', async () => {
+    await handBack();
     const rows = await t.db
       .select({
         action: auditLog.action,
@@ -817,7 +1009,7 @@ describe("the hand-back stamps the caller's plan, or reads it when none is passe
 
 // ─── Evidenced pairs (AECI-1089) ─────────────────────────────────────────────
 
-describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-1089)', () => {
+describe('the return hands back claimed evidenced pairs too (AECI-1089, AECI-1415)', () => {
   const P_CONNECTOR = u(33);
   const P_OTHER_CONNECTOR = u(34);
   const EP_OWNED = u(80); // owned + claimed, no vendor attestation
@@ -872,8 +1064,15 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
       .values({ id: u(84), claimId: PAIR_CLAIM, source: 'vendor_a', asserted: true });
   });
 
+  it('the freeze leaves every pair claimed and vendor-maintained', async () => {
+    const before = await t.db.select().from(connectorEvidencedPairs);
+    await revoke(SEAT_A);
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual(before);
+  });
+
   it('un-claims every live owned pair, and flips the marker only where no vendor attestation survives', async () => {
-    expect((await revoke(SEAT_A)).status).toBe(204);
+    const { body } = await handBack();
+    expect((body!.evidenced_pair_ids as string[]).sort()).toEqual([EP_OWNED, EP_ATTESTED].sort());
 
     const owned = await pair(EP_OWNED);
     expect(owned.claimedAt).toBeNull();
@@ -899,15 +1098,16 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
       claims: await t.db.select().from(claims),
       attestations: await t.db.select().from(attestations),
     };
-    await revoke(SEAT_A);
+    await handBack();
     expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(before.pairs.length);
     expect(await t.db.select().from(claims)).toEqual(before.claims);
     expect(await t.db.select().from(attestations)).toEqual(before.attestations);
   });
 
-  it('writes the pair audit rows in the revoke batch, on the pair entity with the evidenced anchor', async () => {
-    const batchSpy = vi.spyOn(t.db, 'batch');
+  it('writes the pair audit rows in the return batch, on the pair entity with the evidenced anchor', async () => {
     await revoke(SEAT_A);
+    const batchSpy = vi.spyOn(t.db, 'batch');
+    await returnRecords();
     expect(batchSpy.mock.calls.filter(([stmts]) => stmts.length > 0)).toHaveLength(1);
     batchSpy.mockRestore();
 
@@ -931,12 +1131,12 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
     );
     expect(flip?.metadata).toMatchObject({
       reason: 'maintenance-marker',
-      cause: 'owner-seat-revoked',
+      cause: 'records-returned-to-aeci',
     });
   });
 
   it("purges the flipped pair's page, both endpoints and its connector's page", async () => {
-    const { send } = await revoke(SEAT_A);
+    const { send } = await handBack();
     const { tags } = send.mock.calls[0]![0] as { tags: string[] };
     expect(tags).toEqual(
       expect.arrayContaining([
@@ -951,12 +1151,13 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
   });
 
   it('writes nothing to the pairs when a seat lands between the plan and the batch (409 VENDOR_SEATS_CHANGED)', async () => {
+    await revoke(SEAT_A);
     const original = t.db.batch.bind(t.db);
     vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
       await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
       return original(stmts);
     }) as never);
-    const { status } = await revoke(SEAT_A);
+    const { status } = await returnRecords();
     expect(status).toBe(409);
     const owned = await pair(EP_OWNED);
     expect(owned.claimedAt).toBe(CLAIMED_AT);
@@ -988,12 +1189,21 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     vi.mocked(logToPosthog).mockClear();
   });
 
-  it('the last-seat revoke: the seat row and every hand-back row', async () => {
+  it('the last-seat revoke: the seat row and the contest re-route', async () => {
     await revoke(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // seat_revoked, vendor, product, 5 integration rows and the contest re-route.
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(9);
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
     expect(batchedMessages().filter((m) => m.startsWith('workflow '))).toHaveLength(0);
+    expect(auditForwardsPerRow()).toEqual([]);
+  });
+
+  it('the return: the return row and every hand-back row', async () => {
+    await revoke(SEAT_A);
+    vi.mocked(logBatchToPosthog).mockClear();
+    await returnRecords();
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    // records_returned, vendor, product and 5 integration rows.
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(8);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
@@ -1030,7 +1240,7 @@ describe('each seat write forwards its audit rows and transitions in ONE request
 
 // ─── A connector-powered integrations row (review MINOR 3) ───────────────────
 
-describe('the hand-back of a connector-powered integrations row', () => {
+describe('the return of a connector-powered integrations row', () => {
   const P_POWERED_BY = u(35);
   const I_POWERED = u(44);
 
@@ -1053,13 +1263,13 @@ describe('the hand-back of a connector-powered integrations row', () => {
   });
 
   it("purges the powered_by product's page when the marker flips", async () => {
-    const { send } = await revoke(SEAT_A);
+    const { send } = await handBack();
     const { tags } = send.mock.calls[0]![0] as { tags: string[] };
     expect(tags).toContain('product:workato');
   });
 
   it('marks both of its audit rows with the carve-out markers, and no ordinary row', async () => {
-    await revoke(SEAT_A);
+    await handBack();
     const rows = await t.db
       .select()
       .from(auditLog)

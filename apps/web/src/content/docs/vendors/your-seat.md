@@ -47,14 +47,14 @@ Owners remove a seat with **Remove** on the **Seats** tab. The person loses acce
 
 You cannot remove your own seat from the portal. If you are leaving your company, ask an owner to remove you. If you are the last owner, contact us first so the account is not left without one.
 
-If AEC Integrations removes the last seat on your company's account, your listing goes back to us to maintain. The integrations your company claimed become unclaimed. The data flows you added, and your answers on them, stay on those integrations. When your company has a seat again, claim the integrations again.
+If the last seat on your company's account goes, your listing stays yours. Nobody can edit it until your company has a seat again, and we do not overwrite it in the meantime. Your claimed integrations stay claimed. Open questions about your integrations come to us until a seat returns, then go back to you.
 
 ## Your account and your seat
 
 Your seat belongs to your account on AEC Integrations, the one you sign in with.
 
 - Colleagues with a seat on your vendor account see your display name in the vendor portal. You set it on your [account page](/account). See [Your account and your data](/docs/account/your-data).
-- If you delete your account, you give up your seat. If yours is the last seat on your company's account, your listing goes back to us to maintain, as described above.
+- If you delete your account, you give up your seat. If yours is the last seat on your company's account, your listing stays yours, as described above.
 
 ## What a seat can do
 

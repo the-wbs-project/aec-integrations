@@ -33,6 +33,7 @@ import type {
   AdminFieldOverrideResponse,
   AdminFieldOverridesResponse,
   AdminSetFieldOverrideInput,
+  AdminReturnRecordsResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -191,6 +192,26 @@ export class AdminVendorsApi {
       this.http.delete<void>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/seats/${encodeURIComponent(userId)}`,
         { body: overrideReasonBody(reason, internalNote) },
+      ),
+    );
+  }
+
+  /**
+   * `POST /api/admin/vendors/:id/return-to-aeci` — "Return records to AECi"
+   * (AECI-1415, ADR 0042). The one action that moves ownership back to AECi, for a
+   * mistaken claim approval. The API refuses while the vendor holds any seat
+   * (`409 VENDOR_HAS_SEATS`). The reason is required and lands in the
+   * `vendor.records_returned` audit row.
+   */
+  returnRecords(
+    vendorId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminReturnRecordsResponse> {
+    return firstValueFrom(
+      this.http.post<AdminReturnRecordsResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/return-to-aeci`,
+        overrideReasonBody(reason, internalNote),
       ),
     );
   }

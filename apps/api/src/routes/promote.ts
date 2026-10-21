@@ -123,7 +123,11 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import {
+  loadOwnedProductIds,
+  loadOwnedVendorIds,
+  promoteOwnershipSentinels,
+} from '../lib/claimed-vendors';
 import {
   isPromoteClaimFenceError,
   promoteClaimFenceSentinel,
@@ -1063,16 +1067,21 @@ export function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unkn
 
 export const AUDIT_META = { source: 'review-app-promote' } as const;
 
-// ─── Claimed-vendor block reasons (AECI-520) ─────────────────────────────────
+// ─── Ownership fence reasons (AECI-520, reworked by AECI-1415 / ADR 0042) ─────
 // Constants, not interpolated strings: the review app surfaces `skipped[].reason`
 // verbatim, and the causal vendor ids belong in the `promote.blocked` audit row,
-// not in a message specs and operators have to pattern-match.
-const BLOCKED_VENDOR_REASON =
-  'vendor is claimed by a vendor admin; review-app writes to claimed vendors are blocked';
-const BLOCKED_PRODUCT_REASON =
-  'product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
-const BLOCKED_INTEGRATION_REASON =
-  'an endpoint product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
+// not in a message specs and operators have to pattern-match. One string per cause,
+// so a curator can tell them apart (`REVIEW_APP_PROMOTE_API.md` §4a).
+export const BLOCKED_VENDOR_REASON =
+  'vendor owns its record; review-app writes to a vendor-owned record are refused';
+export const BLOCKED_PRODUCT_REASON =
+  'product belongs to a vendor that owns its record; review-app writes to it are refused';
+export const BLOCKED_NEW_PRODUCT_REASON =
+  'new product would join a vendor that owns its record; it is not created, and becomes a proposal to the vendor once AECI-1416 ships';
+export const BLOCKED_INTEGRATION_REASON =
+  'an endpoint is a product this promote refuses because its vendor owns its record';
+export const BLOCKED_OWNED_ENDPOINT_REASON =
+  'the source or target product belongs to a vendor that owns its record; review-app writes to the integration are refused';
 
 // ─── Maintenance-fence reasons (AECI-981) ────────────────────────────────────
 // Same constant discipline as the block reasons above, and the entity type lives
@@ -2183,10 +2192,11 @@ export async function runPromoteIngest(
     }
   }
 
-  // ── Claimed-vendor block (AECI-520) ──────────────────────────────────────
-  // Once a vendor admin claims a vendor, the review app stops being the writer
-  // for that vendor's row and its products. The rule is deliberately coarse: the
-  // vendor's row/products are skipped entirely. That means AECi's own curation
+  // ── Ownership fence (AECI-520, stored ownership since AECI-1415 / ADR 0042) ──
+  // Once a vendor owns its record (`vendors.owned_at`, stamped at claim approval and
+  // never cleared by seat loss), the review app stops being the writer for that
+  // vendor's row and its products. The rule is deliberately coarse: the vendor's
+  // row/products are skipped entirely. That means AECi's own curation
   // columns on those rows (`name`, `promotion_status`, `research_*`,
   // `priority_*`, `admin_notes`) also stop updating through promote — accepted
   // at launch because vendor volume is low and the concierge model has a human
@@ -2205,20 +2215,33 @@ export async function runPromoteIngest(
       ).map((r) => r.vendorId)
     : [];
 
-  // A vendor with no `supabaseId` is being created, so it cannot be claimed — a
+  // A vendor with no `supabaseId` is being created, so it cannot be owned — a
   // payload that only creates pays no extra read at all.
-  const claimedVendorIds = await loadClaimedVendorIds(db, [
+  const claimedVendorIds = await loadOwnedVendorIds(db, [
     ...updatedVendorIds,
     ...existingProductVendorIds,
   ]);
+  // Does the payload's product id name a live row? A dead pointer falls back to a
+  // create (AECI-568), and a create is fenced by its own rule below.
+  const productRowExists = payload.product?.supabaseId
+    ? (await db.query.products.findFirst({
+        columns: { id: true },
+        where: eq(products.id, payload.product.supabaseId),
+      })) !== undefined
+    : false;
+  const joinsOwnedVendor = updatedVendorIds.some((id) => claimedVendorIds.has(id));
 
-  // An EXISTING product is blocked when a claimed vendor owns it today, or when
-  // this payload would hand it to one. Creation is never blocked: nothing
-  // vendor-owned exists yet, and blocking it would stall catalog growth for
-  // every vendor that has signed up.
+  // An EXISTING product is blocked when an owned vendor holds it today (Q3: any one
+  // joined vendor is enough), or when this payload would join it to one.
   const productBlocked =
-    Boolean(payload.product?.supabaseId) &&
-    [...existingProductVendorIds, ...updatedVendorIds].some((id) => claimedVendorIds.has(id));
+    productRowExists &&
+    (existingProductVendorIds.some((id) => claimedVendorIds.has(id)) || joinsOwnedVendor);
+  // A NEW product that would join an owned vendor is not created either (ruled
+  // 2026-10-19). Creating it would put a record under the vendor's name that the
+  // vendor did not make. Until AECI-1416 turns it into a proposal to the vendor, it is
+  // skipped with its own reason.
+  const newProductBlocked = Boolean(payload.product) && !productRowExists && joinsOwnedVendor;
+  const productSkipped = productBlocked || newProductBlocked;
 
   // ── Vendors ──────────────────────────────────────────────────────────────
   const vendorIdByRef = new Map<string, string>();
@@ -2388,7 +2411,7 @@ export async function runPromoteIngest(
   // below: `resolveTaxonomy` MINTS missing terms, so a blocked promote would
   // otherwise create orphan terms in the nav and purge every browse page it merely
   // mentioned.
-  const writesProduct = Boolean(p) && !productBlocked;
+  const writesProduct = Boolean(p) && !productSkipped;
   const emptyTax = {
     ids: [] as string[],
     results: [] as PromoteTaxonomyResult[],
@@ -2837,6 +2860,20 @@ export async function runPromoteIngest(
       entityType: 'product',
       entityId: p.supabaseId as string,
     });
+  } else if (p && newProductBlocked) {
+    // No row exists, so the audit row names the owned vendors it would have joined.
+    skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_NEW_PRODUCT_REASON });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product',
+      entityId: p.supabaseId ?? null,
+      metadata: {
+        ref: p.ref,
+        cause: 'new-product-on-owned-vendor',
+        ownedVendorIds: updatedVendorIds.filter((id) => claimedVendorIds.has(id)),
+      },
+    });
   }
 
   // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
@@ -2908,26 +2945,52 @@ export async function runPromoteIngest(
     return plan.stmts;
   };
 
-  // An integration touching THIS payload's blocked product is skipped too
-  // (AECI-520).
-  //
-  // SCOPE, precisely: this cascades off THIS payload's blocked product only. A
-  // payload promoting some other product may still write an integration whose far
-  // endpoint is a claimed vendor's product, and that is intentional: owning a
-  // PRODUCT does not make a vendor the owner of every integration touching it.
-  //
-  // Integrations are vendor-owned, and AECi seeds them (ADR 0035). The owner of an
-  // integration is its `built_by_vendor_id`, and ownership is enforced per ROW by
-  // the AECI-1005 fence below, keyed on `claimed_at`: once the owner has claimed an
-  // edge, promote writes nothing to it, whichever product the payload is about.
-  // Until then the edge is still AECi's seed and promote keeps curating it. So
-  // checking ownership of every endpoint here would block legitimate seeding for
-  // no ownership reason, and it would still miss a third-party owner, which owns
-  // neither endpoint.
+  // An integration touching THIS payload's skipped product is skipped too
+  // (AECI-520), including one where that product is only the `poweredByProduct`:
+  // the link would otherwise degrade to null and clear a stored connector.
   const touchesBlockedProduct = (ref: EntityRef): boolean =>
-    productBlocked &&
+    productSkipped &&
     ((ref.ref !== undefined && ref.ref === p?.ref) ||
       (ref.supabaseId != null && ref.supabaseId === p?.supabaseId));
+
+  // ── The owned-endpoint fence (AECI-1415, ruling Q2 2026-10-19) ─────────────
+  // Promote refuses EVERY integration where an owned product is the source or the
+  // target, whichever product the payload is about. Before AECI-1415 only THIS
+  // payload's product cascaded, and an edge whose far endpoint was a claimed vendor's
+  // product still wrote (the §4a scope note, dropped; ADR 0035 2026-10-19 amendment).
+  // "Endpoint" covers the stored row too: an update that moves an edge AWAY from an
+  // owned product is a write to that vendor's integration. An edge where the owned
+  // product is only the `poweredByProduct` connector still writes: the connector
+  // vendor does not own the pair it delivers. The AECI-1005 claim fence below still
+  // applies to every edge this one lets through.
+  const ownedEndpointIds = await loadOwnedProductIds(
+    db,
+    payload.integrations.flatMap((intg) =>
+      [intg.sourceProduct.supabaseId, intg.targetProduct.supabaseId].filter(
+        (id): id is string => typeof id === 'string' && id !== p?.supabaseId,
+      ),
+    ),
+  );
+  const checkedEndpointIds = new Set<string>([
+    ...payload.integrations.flatMap((intg) =>
+      [intg.sourceProduct.supabaseId, intg.targetProduct.supabaseId].filter(
+        (id): id is string => typeof id === 'string',
+      ),
+    ),
+  ]);
+  // The stored endpoints of an edge this payload updates are read lazily: most are
+  // the payload's own endpoints, already in the set above.
+  const isOwnedEndpoint = async (id: string): Promise<boolean> => {
+    // The payload's own product is decided by the product fence above, not by its
+    // pre-batch joins, because this batch rewrites those joins.
+    if (p && id === productId) return false;
+    if (p?.supabaseId && id === p.supabaseId) return productBlocked;
+    if (!checkedEndpointIds.has(id)) {
+      checkedEndpointIds.add(id);
+      if ((await loadOwnedProductIds(db, [id])).has(id)) ownedEndpointIds.add(id);
+    }
+    return ownedEndpointIds.has(id);
+  };
 
   for (const intg of payload.integrations) {
     // `poweredByProduct` is checked alongside the two endpoints, not left to
@@ -2936,11 +2999,14 @@ export async function runPromoteIngest(
     // that was never planned, and `linkData` then writes
     // `powered_by_product_id = null` — wiping an existing link on a promote whose
     // entire purpose was to leave that product alone, with nothing in `skipped[]`
-    // to show for it.
+    // to show for it. Only the `ref` form, since AECI-1415: a `supabaseId` names the
+    // stored row and resolves whether or not the product is written, and an edge
+    // whose owned product is only the connector still writes (ruling Q2).
     if (
       touchesBlockedProduct(intg.sourceProduct) ||
       touchesBlockedProduct(intg.targetProduct) ||
-      (intg.poweredByProduct != null && touchesBlockedProduct(intg.poweredByProduct))
+      (intg.poweredByProduct?.ref !== undefined &&
+        touchesBlockedProduct({ ref: intg.poweredByProduct.ref }))
     ) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
       continue;
@@ -3007,6 +3073,31 @@ export async function runPromoteIngest(
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
+    // ── AECI-1415: the owned-endpoint fence (see `isOwnedEndpoint` above). ─────
+    const storedEndpoints =
+      located === null
+        ? []
+        : located.table === 'integrations'
+          ? [located.row.sourceProductId, located.row.targetProductId]
+          : [located.row.productAId, located.row.productBId];
+    let ownedEndpoint = false;
+    for (const id of [sourceId, targetId, ...storedEndpoints]) {
+      if (await isOwnedEndpoint(id)) {
+        ownedEndpoint = true;
+        break;
+      }
+    }
+    if (ownedEndpoint) {
+      skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_OWNED_ENDPOINT_REASON });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: located?.table === 'evidenced' ? 'connector_evidenced_pair' : 'integration',
+        entityId: located?.id ?? intg.supabaseId ?? null,
+        metadata: { ref: intg.ref, cause: 'owned-endpoint' },
+      });
+      continue;
+    }
     // ── AECI-1005: the ownership fence. A claimed row is the vendor's. ────────
     // Checked before EVERY write branch below, including both cross-table moves,
     // and before the claim ingest is queued, so nothing about this edge is planned:
@@ -3681,6 +3772,26 @@ export async function runPromoteIngest(
   // ── Audit rows (appended last; same atomic batch as the writes above) ─────
   for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
 
+  // ── AECI-1415: the commit-time half of the ownership fence ─────────────────
+  // Every vendor and endpoint product the plan treated as unowned and writes. A claim
+  // approval that commits between the plan reads and this batch aborts it whole, and
+  // the job errors with `VENDOR_OWNED_DURING_PROMOTE`. Only when the batch writes
+  // catalog state: a fully refused promote has nothing to guard. Unshifted AHEAD of
+  // the writes and after `catalogWrites`, so `wrote` does not count it. The ledger
+  // row is unshifted below, so it stays the first statement.
+  const ownershipGuardVendorIds = [
+    ...vendorResults.filter((r) => r.operation === 'updated').map((r) => r.id),
+    ...(productResult?.operation === 'updated' ? existingProductVendorIds : []),
+  ];
+  const ownershipGuardProductIds = integrationEndpoints.flatMap((e) =>
+    [e.sourceId, e.targetId, ...(e.movedFromIds ?? [])].filter((id) => id !== productId),
+  );
+  if (catalogWrites > 0) {
+    stmts.unshift(
+      ...promoteOwnershipSentinels(db, ownershipGuardVendorIds, ownershipGuardProductIds),
+    );
+  }
+
   const response: PromoteResponse = {
     vendors: vendorResults,
     product: productResult,
@@ -3752,6 +3863,19 @@ export async function runPromoteIngest(
       // whole batch rolled back, so nothing was written, including the ledger row, and
       // a re-push plans against the claimed row and skips it.
       if (isPromoteClaimFenceError(err)) {
+        // AECI-1415: the ownership sentinel raises the same SQLite error. The batch
+        // rolled back, so a re-read that finds a guarded vendor or endpoint owned now
+        // is the one that fired.
+        if (
+          (await loadOwnedVendorIds(db, ownershipGuardVendorIds)).size > 0 ||
+          (await loadOwnedProductIds(db, ownershipGuardProductIds)).size > 0
+        ) {
+          throw new ApiError(
+            409,
+            'VENDOR_OWNED_DURING_PROMOTE',
+            'A vendor in this bundle took ownership of its record while the promote was running. Nothing was written; re-push the bundle.',
+          );
+        }
         // AECI-1011: the twin sentinel raises the same SQLite error, so re-read to
         // say which one fired. Both mean "nothing was written; re-push". AECI-1088
         // adds the evidenced twin sentinel's candidates to the same re-read.

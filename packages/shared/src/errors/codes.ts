@@ -139,6 +139,17 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
+  // AECI-1415 (ADR 0042): a vendor this promote planned as unowned became owned (a
+  // claim approval or seat provision stamped `vendors.owned_at`) after the plan read
+  // and before the batch. The batch rolls back; re-push and the ownership fence skips
+  // that vendor's rows.
+  VENDOR_OWNED_DURING_PROMOTE: 'VENDOR_OWNED_DURING_PROMOTE',
+  // AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci`, all 409.
+  // `VENDOR_NOT_OWNED`: the vendor's records are AECi's already (`owned_at` is NULL).
+  // `VENDOR_HAS_SEATS`: the vendor still holds a `vendor_admin` seat, banned or not.
+  // Revoke every seat first. Nothing was written.
+  VENDOR_NOT_OWNED: 'VENDOR_NOT_OWNED',
+  VENDOR_HAS_SEATS: 'VENDOR_HAS_SEATS',
   // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
   // reach a request URL, which both Workers log; the search is a POST body (400).
   ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',

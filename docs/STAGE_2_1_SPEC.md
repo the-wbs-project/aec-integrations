@@ -85,6 +85,8 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 
 #### 3.3.1 Pulled forward 2026-09-22 and 2026-09-23
 
+*Superseded in part by AECI-1415 (2026-10-19, ADR 0042): the AECI-989 and AECI-1106 rows below record what shipped in September. Since AECI-1415 a last-seat revoke and an account erasure hand nothing back. They run the seat lapse only, and the records stay vendor-owned and frozen. Only the admin "Return records to AECi" action hands records back (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).*
+
 | Issue | What it closes | Why it moved |
 |---|---|---|
 | **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. Fix: the callback retries and signs out on persistent failure, and `GET /api/account` self-heals (`AUTH_AND_RLS.md` §3.1a). | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
