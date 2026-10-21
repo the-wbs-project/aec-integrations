@@ -126,15 +126,10 @@ export interface ClaimIngestItem {
   isNewAnchor: boolean;
   /**
    * True when the payload's `sourceProduct` is endpoint B of the anchor (AECI-996).
-   * An `evidenced_pair` anchor is reversed when the source sorts second: its A is the
-   * lower product id, while a payload claim's direction is written against source →
-   * target. Each one-way payload direction is flipped into the anchor's frame BEFORE
-   * it is matched or stored, so a reversed pair stores what the integration asserts.
-   *
-   * An `integration` anchor is reversed only on the license hand-back (AECI-1407):
-   * there promote writes the claims but not the row, so a payload that names the
-   * stored row's endpoints the other way round is flipped into the row's frame.
-   * Everywhere else the row is rewritten in the payload's own frame first.
+   * Only an `evidenced_pair` anchor can be reversed: its A is the lower product id,
+   * while a payload claim's direction is written against source → target. Each
+   * one-way payload direction is flipped into the anchor's frame BEFORE it is matched
+   * or stored, so a reversed pair stores what the integration asserts.
    */
   frameReversed?: boolean;
   /**
@@ -164,9 +159,6 @@ export interface ClaimIngestPlan {
   audits: AuditLogEntry[];
   skipped: PromoteSkipped[];
   preserved: PromotePreserved[];
-  /** Anchors at least one of `statements` writes to (AECI-1336). The license hand-back
-   *  reports an edge as written only when its anchor is here. */
-  writtenAnchorIds: Set<string>;
 }
 
 /** A pre-existing claim plus its live attestations. */
@@ -318,17 +310,8 @@ export async function planClaimIngest(
   // curation from. Collected across the payload so the delete is a handful of
   // chunked statements rather than one per claim.
   const aeciAttestationsToClear: string[] = [];
-  const writtenAnchorIds = new Set<string>();
 
   for (const item of plannedItems) {
-    // Every statement below that names this anchor's claims marks it written. Counted
-    // from the lengths, so a branch added later cannot forget to mark it.
-    const before =
-      claimUpserts.length +
-      claimDeletes.length +
-      claimConverts.length +
-      attestationInserts.length +
-      aeciAttestationsToClear.length;
     const existing = existingByAnchor.get(item.anchorId) ?? [];
     const existingByIdentity = new Map<string, ExistingClaim>();
     for (const row of existing) {
@@ -524,13 +507,6 @@ export async function planClaimIngest(
       }
       preserve(item.ref, 'attestation', PRESERVED_VENDOR_ATTESTATIONS, liveVendorRows.length);
     }
-    const after =
-      claimUpserts.length +
-      claimDeletes.length +
-      claimConverts.length +
-      attestationInserts.length +
-      aeciAttestationsToClear.length;
-    if (after > before) writtenAnchorIds.add(item.anchorId);
   }
 
   for (const chunk of chunked([...new Set(aeciAttestationsToClear)])) {
@@ -552,7 +528,6 @@ export async function planClaimIngest(
     audits,
     skipped,
     preserved: [...preservedTally.values()],
-    writtenAnchorIds,
   };
 }
 

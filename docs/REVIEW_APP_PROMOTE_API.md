@@ -279,9 +279,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 
 Omit it entirely for a vendor-only / integration-only push (§3.5). When present:
 
-**AECI-963 usefulness exception:** a product's `usefulness` applies while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote does not write the column while the product holds a live license, and reports the refusal in `preserved[]` (§4). **Since AECI-1407 the fence lifts when the license ends, for a vendor-written block only.** A push to a product with no live license writes a `'vendor'` block and sets `usefulness_source` back to NULL. A block with `usefulness_source = 'admin'` stays fenced whatever the license state, and the push gets the `preserved[]` entry. See "Usefulness ownership override" below.
-
-**AECI-1407 license hand-back:** a product a claimed vendor owns is blocked wholesale (§4a), with one opening. If the product holds no live license, `toolIntegrationsUrl`, `apiDocsUrl` and `usefulness` are written and the rest of the product is not. An admin-written `usefulness` stays fenced there too. §4a has the detail.
+**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -1084,54 +1082,35 @@ The `result` object in full:
   claims and attestations that were **not** in your payload and survived anyway,
   because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
   coexistence worked. Entries are `{ ref, kind: "claim" | "attestation" |
-  "usefulness" | "license_hand_back", reason, count }`, aggregated per reason, with
-  `ref` set to the enclosing integration's `ref`. For the ordinary promote of an
-  unclaimed product it is always `[]`. Log it if you want operator visibility; never
-  treat it as an error.
-- **`kind: "license_hand_back"` (AECI-1407) is the receipt for the §4a hand-back.**
-  It appears only when a claimed vendor's product holds no live license and the push
-  was partly written. On the **product's** `ref`, `reason` names the hand-back fields
-  the write actually carried, then lists the product fields the vendor kept after a
-  colon, and `count` is how many were kept. The written fields are some of
-  `toolIntegrationsUrl`, `apiDocsUrl` and `usefulness`. `usefulness` is not written
-  over an admin-written block, so it is left out of the written list there and gets
-  its own `kind: "usefulness"` entry instead. That case reads:
-  `product has no live license, so promote wrote only toolIntegrationsUrl and apiDocsUrl; the claimed vendor keeps: name, description`.
-  `productRole` is listed as kept even when you omit it, because the schema
-  defaults it. On an **integration's** `ref` it means the edge's AECi claims were written and its columns
-  were not. It is `preserved[]` and not `skipped[]` because part of the entity did
-  land, and `skipped[]` means "never written". Re-pushing does not change it. The
-  entries stop when the product takes a license, and the whole product is then
-  `skipped[] { kind: "product" }` again.
+  "usefulness", reason, count }`, aggregated per reason, with `ref` set to the
+  enclosing integration's `ref`. For the ordinary promote of an unclaimed product it
+  is always `[]`. Log it if you want operator visibility; never treat it as an error.
 - **`kind: "usefulness"` is the one entry that is about something you DID send
   (AECI-963), and its `ref` is the PRODUCT's.** It means a vendor has authored that
   product's "how teams use it" block, so the column is no longer promote-writable
-  and the block you pushed was not written. **It lasts as long as the product holds a
-  live license (AECI-1407)**, so re-pushing will not change it while the license
-  stands. When the license ends (a lapse, a release or a revoke), the next push that
-  carries `usefulness` writes it, clears the vendor's credit, and the entry stops.
-  An admin-written block (`usefulness_source = "admin"`) is different: it is fenced
-  whatever the license state, so its entry appears on every push that carries
-  `usefulness`, licensed or not.
+  and the block you pushed was not written. **This is a permanent steady state for
+  that product, not a backlog that drains** — re-pushing will not change it, in the
+  same way an unpromoted connector (Make, n8n, Boomi) permanently produces an
+  unresolved link. Zapier was the example here until AECI-1064 promoted it on
+  2026-09-23.
   Surface it to a curator once rather than alerting on it: the useful action is to
-  keep your copy current but not treat it as live while the entry appears. There is
-  no "take it back" control. The hand-back happens only when the license ends.
+  stop maintaining a copy that no longer ships, and there is no "take it back"
+  control by design.
 - **In the common case you will see `skipped[] { kind: "product" }` instead, and
   no `preserved[]` entry at all.** A vendor can only author the block while it
-  holds a portal seat and a license on the product, and a claimed vendor's licensed
-  products are already blocked wholesale (§4a), so the whole product is skipped and
-  nothing reaches the usefulness fence. The `kind: "usefulness"` entry is what you
-  see once the seat is gone (a banned or revoked seat, §4a's last paragraph) while a
-  license still stands. A claimed product with no license takes the hand-back
-  instead, and its block is written (§4a), unless an admin wrote it.
-- **That entry is advisory.** The guard that decides the write is evaluated inside
-  the SQL UPDATE; this receipt comes from a read taken a moment earlier in the same
-  request. A vendor save landing between the two means the column WAS preserved and
-  the receipt is missing. Since AECI-1407 the reverse can happen too, in one narrow
-  case: a license that ends between the read and the commit lets the write through
-  under a receipt that says it was kept. A license ends through a daily job or an
-  admin action, so that window is rare. Treat the entry as "this block was fenced a
-  moment ago", not as proof.
+  holds a portal seat, and a claimed vendor's products are already blocked
+  wholesale (§4a) — so the whole product is skipped and nothing reaches the
+  usefulness fence. The `kind: "usefulness"` entry is what you see once that
+  claim is gone (a banned or revoked seat, §4a's last paragraph), which is
+  exactly the moment promote would otherwise overwrite copy the vendor wrote.
+- **That entry is advisory, and one-sided.** The guard that decides the write is
+  evaluated inside the SQL UPDATE; this receipt comes from a read taken a moment
+  earlier in the same request. A vendor save landing between the two means the
+  column WAS preserved and the receipt is missing. The reverse — a receipt for
+  something that was then overwritten — cannot happen, because nothing ever clears
+  `usefulness_source` back to NULL. So you may conclude "the listed blocks were
+  definitely not written"; you may **not** conclude "everything unlisted was
+  written".
 
 ---
 
@@ -1151,7 +1130,6 @@ What that looks like in a response:
 | You update an **existing product a claimed vendor owns** — or a product this payload would attach to one | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: "product belongs to a claimed vendor; …" }`. Nothing about the product changes, including its vendor/taxonomy/extension links. |
 | An integration in that same payload has an endpoint on the blocked product | Skipped with `kind: "integration"` and a reason mentioning the claimed vendor. |
 | You **create** a new vendor or product | Never blocked — nothing vendor-owned exists yet. |
-| You update an existing product a claimed vendor owns, and **the product holds no live license** (AECI-1407) | The license hand-back below: `toolIntegrationsUrl`, `apiDocsUrl` and `usefulness` are written, and nothing else. `product` comes back `updated`, and `preserved[]` gains `{ ref, kind: "license_hand_back" }` naming the fields the vendor kept. |
 | Anything else in the same payload | Promotes normally. |
 
 This is **not an error** — the response is still `200`, and re-pushing will not
@@ -1161,70 +1139,13 @@ vendor (through their portal) or with an AECi admin, not with a re-push.
 The taxonomy facets on a blocked product are not resolved at all, so
 `taxonomy` comes back empty for that push and no new term is created.
 
-### The license hand-back: one opening in the block (AECI-1407)
-
-When a product's license ends, the Managed-only fields go back to AECi
-(`VENDOR_SIGNUP_PROCESS.md` decision 14). The text stays live and nothing reverts.
-The claimed vendor loses the edit right, and promote may write those fields again.
-This is the only exception to the block. AECi checks it when promote writes, not when
-the license ends, so a lapse, a release and an admin revoke all hand back the same way.
-
-It applies when **all** of these hold:
-
-- the product exists (you sent a `supabaseId` that resolves), and a claimed vendor
-  owns it or this payload would join it to one;
-- **no live license is assigned to the product**, from any billing account. A live
-  license on another of the vendor's products does not count.
-
-Then promote writes:
-
-| What | How |
-|---|---|
-| `toolIntegrationsUrl`, `apiDocsUrl` | Written only when present and non-null. Absent or `null` leaves the stored value alone (ruling C, 2026-10-19). Your serializer sends `null` for an unset URL, and under ADR 0030 an absence never deletes, so a `null` must not blank a URL the vendor entered. The receipt's written list leaves a skipped `null` out. |
-| `usefulness` | Written when present, `null` clears it, absent leaves it alone. Groups resolve **find-only** against the existing audience and phase terms, and a group that does not resolve lands in `skipped[] { kind: "usefulness" }`. The same write sets `usefulness_source` back to NULL, so the product page stops saying "Written by {vendor}". **Not written when `usefulness_source = "admin"`**: the hand-back covers vendor-written usefulness only, so an admin's block stays and `preserved[]` gains `{ ref, kind: "usefulness" }`. If nothing is left to write, because `usefulness` was fenced and the URLs were absent or `null`, nothing is written and you get `skipped[] { kind: "product" }`. |
-| AECi claims on the product's **existing** integrations | See below. |
-
-Promote does **not** write `name`, `description`, `productRole`, `promotionStatus`,
-`lastReviewedAt`, any other column, the taxonomy facets, the vendor joins or
-`extensionOf`. The vendor row is still blocked as before. The taxonomy facets stay
-with the vendor until E6b (AECI-1341) turns promote changes on a claimed vendor into
-proposals the owner accepts.
-
-If the payload carries none of the three fields, nothing about the product is written,
-and you get `skipped[] { kind: "product" }` as before. The product's edges are
-planned separately, so an AECi claim on an existing edge below can still be written
-in the same push.
-
-**Data flows on existing edges.** An integration in the same payload that has the
-hand-back product as an endpoint writes its `claims[]` and the `aeci` attestation slot,
-and nothing else, when all of these hold:
-
-- its `supabaseId` names an existing row, in `integrations` or
-  `connector_evidenced_pairs`;
-- the stored row joins the same two products the payload names, in either order;
-- the row is not vendor-held. §4b's fence (`claimed_at` set, or `origin = "vendor"`)
-  still refuses it, claims included.
-
-The integration's own columns, its endpoints, its connector and its table are not
-written. A new edge, a re-pointed edge, an unresolvable id, and an edge that touches
-the product only as its `poweredByProduct` stay skipped with the claimed-vendor
-reason. An edge whose `poweredByProduct` is also one of its endpoints (Convention A,
-`STAGE_1_5_SPEC.md` §13.2a) is handed back like any other edge. Claim directions you
-send against source → target are flipped when the
-stored row runs the other way. Vendor attestations are never touched. A written edge
-comes back in `integrations[]` as `updated`, with its stored id, and `preserved[]`
-gains `{ ref, kind: "license_hand_back" }` for it. An edge counts as written only when
-its claims change something. An edge with no claims sent and none stored writes
-nothing, so it gets neither entry.
-
-**Two races, both safe.** The product write tests the license inside the SQL UPDATE,
-so a license assigned mid-promote leaves the product as it was. The product's
-`updated` result and its `license_hand_back` receipt are then advisory: they come from
-the plan, and the job does not error over the product alone. The claims are
-guarded by a statement that aborts the whole batch if the product has taken a live
-license by then, and the job ends `errored` with `LICENSE_GRANTED_DURING_PROMOTE`
-(§6.2). Nothing was written. Re-push with a new `jobId`, and the product is then
-blocked whole.
+The block holds whether or not the product has a live license. A product whose license
+has ended is still blocked whole: its Managed fields stay as the vendor left them, and
+AECi edits them by hand if it must. *The AECI-1407 license hand-back opening, which let
+promote write `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` and AECi claims on such
+a product, and its `preserved[] { kind: "license_hand_back" }` receipt and
+`LICENSE_GRANTED_DURING_PROMOTE` error, were removed 2026-10-19 (AECI-1414, ruling on
+AECI-1341).*
 
 **Two scope notes, so the behaviour isn't surprising:**
 
@@ -1252,9 +1173,7 @@ Its `maintained_by` returns to `'aeci'` unless a vendor attestation still stands
 your `lastReviewedAt` lands again too (§3.6a). A vendor-created row stays fenced (§4c).
 A claimed evidenced pair (AECI-1089) is handed back the same way, so the §4b fence on
 `connector_evidenced_pairs` lifts and the connector-catalog arm writes it again. Nothing on
-your side changes. That seat hand-back is a different thing from the license hand-back
-above. A vendor that keeps its seat but has no license on a product gets the license
-hand-back only.
+your side changes.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1286,7 +1205,7 @@ is about:
 | `builtByVendor` | Not written. A claimed row's owner changes only through AECi's admin path. |
 | A different `sourceProduct` / `targetProduct` (an endpoint re-point) | Not written, and no endpoint-move record is made. |
 | A `poweredByProduct` change that would move the row between `integrations` and `connector_evidenced_pairs` (§3.4a) | Not performed. A move re-creates the row in the other table and deletes the source, and promote writes nothing to a vendor-held row. An unclaimed row's claims and contests do survive a move (AECI-1110); the fence is about ownership, not the cascade. |
-| `claims[]`, including AECi-seeded claims and the `aeci` attestation slot | Not written. An empty `claims[]` does not retire AECi's prior claims either. The §4a license hand-back does not lift this: it writes claims only on an edge that is not vendor-held. |
+| `claims[]`, including AECi-seeded claims and the `aeci` attestation slot | Not written. An empty `claims[]` does not retire AECi's prior claims either. |
 | `lastReviewedAt` | Not written. There is no separate `review-signal` entry for it; the integration entry below covers it. |
 
 The edge is reported once in `skipped[]`:
@@ -1926,7 +1845,6 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
-| `LICENSE_GRANTED_DURING_PROMOTE` | The bundle's product had no live license, so AECi planned the §4a license hand-back, including AECi claims on its edges. A license was assigned to the product before the batch committed (AECI-1407). The whole batch rolled back | Re-push with a **new `jobId`**. The product now holds a license, so the re-push reports it as `skipped[] { kind: "product" }` and commits the rest. |
 | `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
@@ -2336,7 +2254,6 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, **always**, even on a `poweredByProduct` edge, which AECi re-anchors itself (§3.4a), `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
-- [ ] Handle `preserved[]` `kind: "license_hand_back"` (§4a, AECI-1407): the product is claimed but holds no license, so only `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` (never over an admin-written block) and AECi claims on existing edges were written. Show the curator which fields the vendor kept. An `errored` job with `LICENSE_GRANTED_DURING_PROMOTE` is a re-push with a new `jobId`.
 - [ ] Handle `skipped[]` `kind: "integration"` with the claimed-integration reason (§4b): the integration's **owner has claimed it**, so it is vendor-owned and nothing about it is writable from here, including its claims. Show the curator that, and don't retry. An `errored` job with `INTEGRATION_CLAIMED_DURING_PROMOTE` is the one case to re-push, with a new `jobId`.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
@@ -2351,9 +2268,9 @@ window, so reusing the first promote's id would just hand you back that job's ol
 
 `usefulness` remains optional nullable on the product promote payload, and for a product no vendor has touched nothing changes: promote writes it, clears it on `null`, and leaves it alone when the key is absent.
 
-What changed is that the column can now be taken away from you. A vendor editing the "how teams use it" block in the vendor portal sets `products.usefulness_source` to `vendor`, and from that moment promote writes the column only while `usefulness_source IS NULL` **or the value is `vendor` and the product holds no live license** (AECI-1407). An `admin` value fences the column always. The test is inside the SQL UPDATE rather than read during planning, so a vendor save landing mid-promote still wins, and so does a license assigned mid-promote. Promote does not accept `usefulness_source`, and no upstream payload change is required.
+What changed is that the column can now be taken away from you. A vendor editing the "how teams use it" block in the vendor portal sets `products.usefulness_source` to `vendor`, and from that moment promote writes the column only while `usefulness_source IS NULL`. The test is inside the SQL UPDATE rather than read during planning, so a vendor save landing mid-promote still wins. Promote does not accept or write `usefulness_source`, and no upstream payload change is required.
 
-**The transition reverses when the license ends (AECI-1407, ruled 2026-10-19).** Writing the block is a Managed right, so it lasts only while a live license is assigned to the product. When the license lapses, is released or is revoked, the next push that carries `usefulness` writes it and sets `usefulness_source` back to NULL in the same statement. This covers vendor-written usefulness only (ruled 2026-10-19). A block with `usefulness_source = 'admin'` is AECi's own copy, so it stays fenced whatever the license state and every push that carries `usefulness` gets the `preserved[]` entry. That clear is promote's only write to the column, and it stops the product page crediting the vendor with AECi's copy. Nothing is written at the moment the license ends, so a product nobody re-pushes keeps the vendor's words, still labelled, until you do. While a license stands, the review app's copy is not live for that product, and the `preserved[]` entry described in §4 tells you which products those are. The same opening applies to a claimed vendor's product through §4a's license hand-back.
+The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are.
 
 Why this field and not the rest of the catalogue: `usefulness` is narrative copy about a vendor's own product, and the vendor is better placed to write it than we are. The rest of the product record stays upstream-owned. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 
