@@ -4,7 +4,7 @@
 **Scope:** All changes in this branch against the base branch.
 **Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `ANGULAR_STYLE_GUIDE.md` (Angular + TypeScript conventions, lint enforcement), `UNIT_TESTING_GUIDE.md` (test standards), `CODE_REVIEW_EXEMPTIONS.md` (findings the team has consciously accepted or deferred).
 
-**Pre-implementation half:** this document reviews a **diff**. The **plan** gets reviewed earlier, by step 4.5 of the `spec-anchor` skill (`.agents/skills/spec-anchor/SKILL.md`), which rates findings 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR against the same governing docs. The vocabulary is deliberately different so you can tell at a glance which reviewer produced a block.
+**Pre-implementation half:** this document reviews a **diff**. The **plan** gets reviewed earlier, by step 4.5 of the `spec-anchor` skill (`.agents/skills/spec-anchor/plan-check.md`), which rates findings 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR against the same governing docs. The vocabulary is deliberately different so you can tell at a glance which reviewer produced a block.
 
 ---
 
