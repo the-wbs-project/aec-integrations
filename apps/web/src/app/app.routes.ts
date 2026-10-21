@@ -544,6 +544,15 @@ export const routes: Routes = [
     path: 'unsubscribe',
     loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
   },
+  // AECI-1435 — the confirm page behind the claim-confirm email
+  // (`/claims/confirm?token=…`, ADR 0042). Same rules as `/unsubscribe`: NOT
+  // cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed `private, no-store`),
+  // noindex, no resolver, and it POSTs to `/api/requests/confirm` only on the confirm
+  // click, because mail scanners prefetch links. Not linked from nav.
+  {
+    path: 'claims/confirm',
+    loadComponent: () => import('./claims/claim-confirm').then((m) => m.ClaimConfirmPage),
+  },
   // AECI-1204 — the confirm page for the "Mute the daily reminder email" link in the daily
   // attestation digest (`/notifications/mute?token=…`). Same rules as
   // `/unsubscribe`: NOT cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed

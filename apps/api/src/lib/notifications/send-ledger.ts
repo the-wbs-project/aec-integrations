@@ -31,7 +31,7 @@
  * `db.batch`, inside its own try/catch.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, count, eq, gte, inArray } from 'drizzle-orm';
 
 import { getDb, type Db } from '../../db/client';
 import { notificationSends, type NotificationSendOutcome } from '../../db/schema';
@@ -165,6 +165,38 @@ export async function recordSend(
   } catch (error) {
     warn(logger, 'record', input.notificationId, error);
     return null;
+  }
+}
+
+/**
+ * How many sends of one notification to one recipient since `since` may have gone
+ * out: `sending`, `sent` or `unknown`. A `failed`, `skipped`, `suppressed`,
+ * `duplicate` or `paused` row sent nothing, so it does not count. Read by the
+ * `claim-confirm` daily bound (AECI-1435). Uses `notification_sends_recipient_idx`.
+ * A DB error fails open to 0, so the bound never stops a mail. Never throws.
+ */
+export async function countHeldSends(
+  db: Db | null,
+  input: { notificationId: string; recipientHash: string; since: string },
+  logger: Logger = console,
+): Promise<number> {
+  if (!db || !input.recipientHash) return 0;
+  try {
+    const [row] = await db
+      .select({ n: count() })
+      .from(notificationSends)
+      .where(
+        and(
+          eq(notificationSends.recipientHash, input.recipientHash),
+          gte(notificationSends.createdAt, input.since),
+          eq(notificationSends.notificationId, input.notificationId),
+          inArray(notificationSends.outcome, ['sending', 'sent', 'unknown']),
+        ),
+      );
+    return row?.n ?? 0;
+  } catch (error) {
+    warn(logger, 'count', input.notificationId, error);
+    return 0;
   }
 }
 

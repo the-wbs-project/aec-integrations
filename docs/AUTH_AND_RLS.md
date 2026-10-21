@@ -568,8 +568,9 @@ await db.batch([
 | `GET /api/products/:slug/integrations/:otherSlug/timeline` (AECI-303) | None | None | None — the pair's per-claim attestation **history**. Public like the pair read itself: a reader who can see a pair can see how its claims got there. The only content control is the same seam, which answers `{ claims: [], diff_access: 'latest_only' }` when gated — never a 403, because the free latest view must survive a shared historical link (`STAGE_2_SPEC.md` §8.1(4)). **As-built 2026-09-24:** no web consumer. The pair page's `ClaimProvenance` popover dropped its History section, so nothing in `apps/web` calls this route. The route and its gating are unchanged and still deployed (`API_CONTRACTS.md` timeline section). |
 | `POST /api/reviews` | Hard-required | `reviewer`, not banned | `review.submitted` |
 | `DELETE /api/account` | Hard-required | Active user | `account.deleted`; on a vendor's last seat also the AECI-989 hand-back rows, and on a seat left with only banned colleagues the `integration.contest.rerouted` rows, all with a `null` actor and `metadata.source: 'account'` (AECI-1106) |
-| `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted`. A claim also writes `agreement.accepted` for its vendor terms acceptance in the same batch (AECI-1366, `DATABASE_SCHEMA.md` §8.6d) |
-| `POST /api/requests/listing` (AECI-1293) | None (anon form) | None | `listing_request.created`, plus `agreement.accepted` for its vendor terms acceptance (AECI-1366). A typed-in listing from the claim dialog, stored in `listing_requests`. Zone WAF Rule A only, sharing the `/api/requests/*` per-IP counter (`docs/waf-rate-limits.md` §6.2). `VENDOR_PROGRAM_PAGE_SPEC.md` §15 |
+| `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted`. A claim also writes `agreement.accepted` for its vendor terms acceptance in the same batch (AECI-1366, `DATABASE_SCHEMA.md` §8.6d). **Since AECI-1435 an anonymous claim writes only `request_confirmation.created`** with its pending row, and the rows above move to `POST /api/requests/confirm`. A signed-in visitor whose strictly verified email (`verifySupabaseJwt`, never the grace verifier) is the typed address skips the link. The session is read, never required, so this is not an authz gate (ADR 0042) |
+| `POST /api/requests/confirm` (AECI-1435) | None (the token is the credential) | None | `request_confirmation.confirmed`, plus every row the claim or listing submit writes, in one batch. The token is single-use and stored only as a SHA-256 hash. `rateLimit('token', { by: 'ip' })` plus zone Rule A (`docs/waf-rate-limits.md` §6.2) |
+| `POST /api/requests/listing` (AECI-1293) | None (anon form) | None | `listing_request.created`, plus `agreement.accepted` for its vendor terms acceptance (AECI-1366). At confirm for an anonymous visitor since AECI-1435, like the claim. A typed-in listing from the claim dialog, stored in `listing_requests`. Zone WAF Rule A only, sharing the `/api/requests/*` per-IP counter (`docs/waf-rate-limits.md` §6.2). `VENDOR_PROGRAM_PAGE_SPEC.md` §15 |
 | `PATCH /api/admin/listing-requests/:id` (AECI-1293) | Hard-required | `admin` | `listing_request.resolved` / `listing_request.rejected`, in the same `db.batch` as the status update. `ADMIN_PANEL_SPEC.md` |
 | `PATCH /api/admin/product-requests/:id` (AECI-1377) | Hard-required | `admin` | `product_request.added` / `product_request.already_listed` / `product_request.declined` + the requesting vendor's `notification.sent` (`portal-product-request-decided`, `vendor_id` set), in the same `db.batch` as the status update, behind a `changes()` sentinel so a lost race writes nothing. `GET /api/admin/product-requests` is a read. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6 |
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
@@ -737,6 +738,14 @@ the digest's header and footer link. The route is rate-limited by IP on the `tok
 by the token. An unknown token answers `200 { ok: false }`, because a mail appliance reads any
 non-2xx as a broken link. An unmute through `PUT /api/vendor/notification-preferences` rotates the
 token, so a mute link in an earlier digest stops working and cannot re-mute the seat.
+
+**The claim confirm token is the third** (AECI-1435, ADR 0042). `POST /api/requests/confirm`
+sends the anonymous claim or listing request a token names, with no session. Unlike the two
+above it is single-use and stored only as its SHA-256 hash in `request_confirmations`, so a
+read of the table cannot be replayed as a link. It rides only in the `claim-confirm` email,
+which is never blind-copied to the operator list. It expires after 7 days. The route is
+rate-limited by IP on the `token` bucket, never by the token. An unknown token is a `404`
+that never echoes it, because the caller is a page, not a mail appliance.
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the
@@ -1081,6 +1090,15 @@ so the statement is left out. `apps/api/src/routes/account.spec.ts` asserts both
 address also sits in the `before_state` / `after_state` of past
 `billing_account.email_changed` audit rows. Erasure does not rewrite those rows, as it does
 not rewrite `metadata.invited_email` on `vendor_seat.invited` rows.
+
+**Pending claim confirmations are deleted (AECI-1435, 2026-10-21).** A
+`request_confirmations` row (ADR 0042) holds an address typed on the anonymous claim or
+listing form and the whole request body, waiting on the emailed link. It is nobody else's
+record, so the erasure batch deletes every row whose stored, lowercased `submitter_email`
+equals the session's email, trimmed and lowercased. A confirmed row holds no body, and it is
+deleted too. A session with no email has nothing to match, so the statement is left out.
+`apps/api/src/routes/account.spec.ts` asserts it. The daily expiry cron deletes every row 7
+days after its submit anyway.
 
 **Agreement acceptances survive erasure as evidence (AECI-1362).** An
 `agreement_acceptances` row (`DATABASE_SCHEMA.md` §8.6d) records who accepted the vendor

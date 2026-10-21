@@ -4,7 +4,10 @@
  *
  * Three INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
  * vendor terms box on the claim form), and the Stripe checkout webhook (E9, the Managed
- * plan agreement box, not built yet). One UPDATE caller:
+ * plan agreement box, not built yet). Since AECI-1435 an anonymous claim or listing
+ * request writes its acceptance at confirm, not at submit: the version, IP and user
+ * agent are the submit's, carried on the pending `request_confirmations` row, and the
+ * time is the confirm's. One UPDATE caller:
  * the claim approval (AECI-1367) links the claim's acceptances to the new seat, the
  * vendor and its billing account through `linkClaimAcceptanceStatements`. Like `lib/audit.ts` and
  * `lib/billing-account.ts`, this module never runs a batch. It RETURNS the acceptance
@@ -111,6 +114,13 @@ export interface AgreementAcceptanceParams {
    * webhook path, and ignored when `source` is `checkout` (module header).
    */
   requestHeaders?: Headers | null;
+  /**
+   * The claim-path evidence captured earlier (AECI-1435). A confirmed anonymous claim
+   * is accepted at confirm, but the IP and user agent are the SUBMIT's, stored on the
+   * pending `request_confirmations` row. When present it wins over `requestHeaders`.
+   * Ignored when `source` is `checkout`, like the headers.
+   */
+  evidence?: AcceptanceRequestEvidence | null;
   /** `audit_log.actor_id`: a `profiles.id` that exists, or null (anonymous, webhook). */
   actorId?: string | null;
   actorType: AuditLogActorType;
@@ -169,9 +179,11 @@ export function agreementAcceptanceStatements(
   const acceptedAt = new Date(acceptedAtMs).toISOString();
 
   const evidence =
-    p.source === 'claim'
-      ? acceptanceRequestEvidence(p.requestHeaders)
-      : { ip: null, userAgent: null };
+    p.source !== 'claim'
+      ? { ip: null, userAgent: null }
+      : p.evidence
+        ? { ip: p.evidence.ip, userAgent: truncateUserAgent(p.evidence.userAgent) }
+        : acceptanceRequestEvidence(p.requestHeaders);
 
   const id = crypto.randomUUID();
   const row = {

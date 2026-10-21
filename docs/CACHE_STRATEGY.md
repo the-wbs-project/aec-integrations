@@ -648,6 +648,7 @@ Pages that emit `noindex` today, and how:
 | Any 404 | always | `MetaService.setNotFoundMeta` |
 | `/search` | always — filtered results aren't canonical content | `MetaService.setSearchMeta` |
 | `/unsubscribe` | always — tokenized, transactional (AECI-537) | `setStaticPageMeta({ noindex: true })` |
+| `/claims/confirm` | always: tokenized, single-use, transactional (AECI-1435). Absent from `ROUTE_CACHE_PATTERNS`, so `private, no-store` | `setStaticPageMeta({ noindex: true })` |
 | `/roadmap` | always (for now) — coming-soon placeholder, thin content; paired with sitemap exclusion | `setStaticPageMeta({ noindex: true })` |
 | Product-pair page | no integrations between the two products, **or** a non-default version selection (AECI-303 / §9.2 — every (vA × vB) combination would otherwise be an indexable near-duplicate) | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
 | `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |

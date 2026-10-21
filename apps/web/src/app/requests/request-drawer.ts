@@ -78,6 +78,13 @@ export class RequestDrawer {
     computation: () => false,
   });
 
+  /** AECI-1435: the sent claim waits on the emailed link, so the header reads "Check
+   *  your inbox". Reset with the target, like `sentTo`. */
+  protected readonly sentConfirm = linkedSignal<unknown, boolean>({
+    source: () => this.drawer.target(),
+    computation: () => false,
+  });
+
   constructor() {
     // Browser-only: open/close the CDK overlay imperatively when the shared
     // service state changes. `viewChild` resolves after view init, so the dialog

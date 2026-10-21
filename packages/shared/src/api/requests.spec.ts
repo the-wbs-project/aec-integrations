@@ -6,7 +6,14 @@ import {
   AdminVendorRequestSchema,
   ListListingRequestsQuerySchema,
 } from './admin-requests';
-import { ClaimFormSchema, ClaimRequestSchema, ListingRequestSchema } from './requests';
+import {
+  ClaimFormSchema,
+  ClaimRequestSchema,
+  ConfirmRequestResponseSchema,
+  ConfirmRequestSchema,
+  ListingRequestSchema,
+  RequestSubmitResponseSchema,
+} from './requests';
 
 const claim = {
   submitter_name: 'Ada Lovelace',
@@ -171,5 +178,69 @@ describe('admin listing request schemas (AECI-1293)', () => {
 
   it('no longer carries plan_interest on the vendor request row (AECI-1365)', () => {
     expect(AdminVendorRequestSchema.shape).not.toHaveProperty('plan_interest');
+  });
+});
+
+describe('the emailed confirmation (AECI-1435)', () => {
+  const ID = '11111111-2222-4333-8444-555555555555';
+
+  it('requires confirmation_required on every submit response', () => {
+    expect(RequestSubmitResponseSchema.safeParse({ request_id: ID, message: 'ok' }).success).toBe(
+      false,
+    );
+    expect(
+      RequestSubmitResponseSchema.parse({
+        request_id: ID,
+        message: 'ok',
+        confirmation_required: true,
+      }),
+    ).toMatchObject({ confirmation_required: true });
+  });
+
+  it('takes a trimmed, non-empty, bounded token', () => {
+    expect(ConfirmRequestSchema.parse({ token: '  abc  ' })).toEqual({ token: 'abc' });
+    expect(ConfirmRequestSchema.safeParse({ token: '   ' }).success).toBe(false);
+    expect(ConfirmRequestSchema.safeParse({}).success).toBe(false);
+    expect(ConfirmRequestSchema.safeParse({ token: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('answers confirmed or already_confirmed, for a claim or a listing', () => {
+    const ok = {
+      status: 'confirmed',
+      kind: 'claim',
+      request_id: ID,
+      routed: true,
+      company_name: 'Acme',
+    };
+    expect(ConfirmRequestResponseSchema.parse(ok)).toEqual(ok);
+    expect(ConfirmRequestResponseSchema.safeParse({ ...ok, status: 'expired' }).success).toBe(
+      false,
+    );
+    expect(ConfirmRequestResponseSchema.safeParse({ ...ok, kind: 'correction' }).success).toBe(
+      false,
+    );
+  });
+
+  it('answers rejected for a claim only, with a reason and the other company', () => {
+    const rejected = {
+      status: 'rejected',
+      kind: 'claim',
+      request_id: ID,
+      routed: false,
+      company_name: 'Acme',
+      reason: 'other_vendor',
+      vendor_name: 'Globex',
+    };
+    expect(ConfirmRequestResponseSchema.parse(rejected)).toEqual(rejected);
+    const admin = { ...rejected, reason: 'already_admin', vendor_name: null };
+    expect(ConfirmRequestResponseSchema.parse(admin)).toEqual(admin);
+    for (const bad of [
+      { ...rejected, reason: 'banned' },
+      { ...rejected, kind: 'listing' },
+      { ...rejected, routed: true },
+      { status: 'rejected', kind: 'claim', request_id: ID, routed: false, company_name: 'Acme' },
+    ]) {
+      expect(ConfirmRequestResponseSchema.safeParse(bad).success).toBe(false);
+    }
   });
 });

@@ -1354,6 +1354,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * to AECi every claim that was routed to a company's owners 7 days ago and that they
  * have not decided, with one audit row per claim and one operator digest
  * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). It reads D1 only.
+ *
+ * `request-confirmation-expiry` is the twentieth (AECI-1435): daily at 14:30 UTC it
+ * deletes the pending claim and listing confirmations past their 7-day link, with one
+ * summary audit row (ADR 0042). It sends nothing.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1375,6 +1379,7 @@ export const AdminCronJobSchema = z.enum([
   'vendor-snapshot', // 30 0 * * *
   'gsc-inspect', // 0 13 * * *
   'claim-owner-fallback', // 0 14 * * *
+  'request-confirmation-expiry', // 30 14 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

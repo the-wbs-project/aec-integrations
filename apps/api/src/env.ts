@@ -89,7 +89,10 @@ export type ScheduledJob =
   | 'gsc_inspect'
   // AECI-1368: the daily 14:00 UTC claim owner fallback. Queue-less, like
   // `protest_reply_reminder`: the guarded UPDATE is its own fence.
-  | 'claim_owner_fallback';
+  | 'claim_owner_fallback'
+  // AECI-1435: the daily 14:30 UTC pending-confirmation expiry. Queue-less, like
+  // `claim_owner_fallback`: one read and one delete batch with its summary audit row.
+  | 'request_confirmation_expiry';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

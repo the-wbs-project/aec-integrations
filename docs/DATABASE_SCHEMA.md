@@ -130,6 +130,7 @@ Tables grouped by domain:
 **Operations and workflow**:
 - `vendor_requests` — incoming claim and correction requests
 - `listing_requests` — typed-in listings from the claim dialog, a product or company not in the catalog (§8.1a, AECI-1293)
+- `request_confirmations`: anonymous claims and listing requests waiting on the emailed link (§8.1c, AECI-1435, ADR 0042)
 - `product_requests` — a seated vendor asking AECi to add the other product of an integration (§8.1b, AECI-1377)
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
@@ -1398,7 +1399,8 @@ create table vendor_requests (
 
   -- AECI-1368 (migration 0077): owner routing (STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10).
   -- routed_to_owners_at: set at submit when the claimed company has an unbanned owner
-  -- seat, so its owners decide first. NULL for every other row.
+  -- seat, so its owners decide first. NULL for every other row. For an anonymous
+  -- claim "submit" is the confirm (AECI-1435, §8.1c).
   -- owner_fallback_at: set by the claim_owner_fallback cron when it hands a routed
   -- claim back to AECi after 7 days with no decision. It clears routed_to_owners_at
   -- in the same statement. Both plain nullable ADD COLUMNs, never a CHECK.
@@ -1547,6 +1549,50 @@ create index product_requests_vendor_created_idx on product_requests(vendor_id, 
   `db.batch` (ADR 0022). The decision batch carries a `changes()` sentinel, so a lost
   two-admin race rolls back whole. Every row sets `audit_log.vendor_id` (§8.4).
 - **No retention prune**, like `listing_requests`.
+
+### 8.1c `request_confirmations` (AECI-1435)
+
+An anonymous claim or typed-in listing request waiting on the emailed link (ADR 0042,
+`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3). Written by `POST /api/requests/claim` and
+`POST /api/requests/listing` on the confirm path, updated by `POST /api/requests/confirm`,
+deleted by the daily `request_confirmation_expiry` cron and by the account erasure. No
+admin surface reads it.
+
+```sql
+create table request_confirmations (
+  id              text primary key,   -- uuid; becomes the vendor_requests / listing_requests id
+  kind            text not null,      -- 'claim' | 'listing', Zod-enforced, NO CHECK
+  token_hash      text not null,      -- SHA-256 hex of the emailed token, never the token
+  submitter_email text not null,      -- the typed address, trimmed and lowercased
+  payload         text,               -- the validated request body as JSON; NULL once confirmed
+  terms_version   text not null,      -- the vendor_terms version shown at submit
+  ip              text,               -- CF-Connecting-IP at submit, for the acceptance
+  user_agent      text,               -- the submit's user agent, cut to 512, for the acceptance
+  created_at      text not null,
+  expires_at      text not null,      -- created_at + 7 days, checked in TS
+  confirmed_at    text                -- set once, by the confirm that wrote the request
+);
+create unique index request_confirmations_token_hash_key on request_confirmations(token_hash);
+create index request_confirmations_email_idx on request_confirmations(submitter_email, created_at);
+create index request_confirmations_expires_idx on request_confirmations(expires_at);
+```
+
+- **Why a holding table.** A status value on `vendor_requests` would change its `status`
+  CHECK, a drizzle-kit recreate of a table with FK children, and every reader of that table
+  would need a new filter (ADR 0042). Migration `0083` is a plain `CREATE TABLE` and three
+  `CREATE INDEX`.
+- **The id is the single-use rule.** The confirm inserts the request with this row's id as
+  its primary key, so a second confirm trips it and its whole batch rolls back.
+- **No FK and no CHECK**, the `listing_requests` precedent. No FK in or out, so nothing
+  cascades and the erasure has no inbound reference to null.
+- **Domain state, audited.** The insert writes `request_confirmation.created`, the confirm
+  `request_confirmation.confirmed`, both in the same `db.batch` (ADR 0022). Their metadata is
+  `{ kind, target_type, target_id }`, never the email, token or hash.
+- **Pruned daily.** `request_confirmation_expiry` (`30 14 * * *`) deletes rows past
+  `expires_at`, confirmed or not, up to 500 a run, with one summary
+  `request_confirmation.expired` audit row in the same batch. Zero rows writes nothing.
+- **Erasure.** `DELETE /api/account` deletes rows whose `submitter_email` equals the session's
+  email (`AUTH_AND_RLS.md` §8).
 
 ### 8.2 `workflow_instances`
 
@@ -2292,6 +2338,11 @@ create unique index agreement_acceptances_stripe_session_key
   `listing_request_id` = the new listing request. Both set `source = 'claim'`, stamp the
   current version, `CF-Connecting-IP` and the user agent, and put both statements after
   their own insert in their own batch. The checkout webhook (E9) is still to come.)*
+  *(As built 2026-10-21, AECI-1435: an anonymous claim or listing request writes its row at
+  confirm, not at submit. The version, IP and user agent are the submit's, carried on the
+  `request_confirmations` row (§8.1c) and passed as the helper's `evidence`. The time is the
+  confirm's. A signed-in claimant whose verified email is the typed address still writes it
+  at submit.)*
 - **Current version only.** The helper refuses a version other than
   `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
@@ -3269,7 +3320,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the nineteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, and the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (

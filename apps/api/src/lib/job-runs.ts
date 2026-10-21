@@ -310,6 +310,15 @@ export type JobRunDetail =
       capped: number;
       alert: EmailOutcome | null;
     }
+  /** The daily AECI-1435 pending-confirmation expiry. `deleted` is the rows past their
+   *  7-day link deleted this run, `unconfirmed` how many of them nobody clicked, and
+   *  `capped` 1 when more remain for the next run. */
+  | {
+      job: 'request-confirmation-expiry';
+      deleted: number;
+      unconfirmed: number;
+      capped: number;
+    }
   /** The daily AECI-1236 URL Inspection run. One row per CHUNK (one consumer
    *  invocation), all sharing `runId`; `remaining` is the budget the chunk started
    *  with and `next` what it passed on (null = the run ended here). */

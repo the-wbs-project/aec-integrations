@@ -217,12 +217,94 @@ export type ListingRequestInput = z.input<typeof ListingRequestSchema>;
 
 // ─── Responses ───────────────────────────────────────────────────────────────
 
-/** Returned by `POST /api/requests/{claim,correction,listing}`. */
+/**
+ * Returned by `POST /api/requests/{claim,correction,listing}`.
+ *
+ * `confirmation_required` (AECI-1435, ADR 0042) is `true` when the claim or listing
+ * request is waiting on the typed address: nothing reached the queue yet, and the
+ * visitor must click the link we emailed. `request_id` is then the pending id, which
+ * becomes the request's id on confirm, so analytics joins still hold. It is `false`
+ * when the submit went straight in: a signed-in visitor whose verified email is the
+ * typed address, and every correction.
+ */
 export const RequestSubmitResponseSchema = z.object({
   request_id: z.string().uuid(),
   message: z.string(),
+  confirmation_required: z.boolean(),
 });
 export type RequestSubmitResponse = z.infer<typeof RequestSubmitResponseSchema>;
+
+// ─── POST /api/requests/confirm (AECI-1435) ─────────────────────────────────
+
+/**
+ * How long the emailed confirm link works (AECI-1435, ruled 2026-10-21). Shared so the
+ * API's expiry, the email copy, the dialog receipt and the confirm page agree.
+ */
+export const REQUEST_CONFIRMATION_DAYS = 7;
+
+/** What a pending confirmation holds. */
+export const RequestConfirmationKindSchema = z.enum(['claim', 'listing']);
+export type RequestConfirmationKind = z.infer<typeof RequestConfirmationKindSchema>;
+
+/**
+ * Wire body for `POST /api/requests/confirm`: the token from the emailed link. Sent
+ * only by the confirm button on `/claims/confirm`, never on page load, because mail
+ * scanners fetch the links they are sent. The cap is generous: real tokens are 43
+ * characters.
+ */
+export const ConfirmRequestSchema = z.object({
+  token: z.string().trim().min(1, 'The link is missing its token.').max(200),
+});
+export type ConfirmRequest = z.infer<typeof ConfirmRequestSchema>;
+
+/**
+ * Why the AECI-1420 account check rejected a claim at confirm. `other_vendor`: the
+ * address already holds a seat on another company. `already_admin`: it is an AEC
+ * Integrations staff account. The same vocabulary as the API's `ClaimantConflict`.
+ */
+export const ConfirmRejectionReasonSchema = z.enum(['other_vendor', 'already_admin']);
+export type ConfirmRejectionReason = z.infer<typeof ConfirmRejectionReasonSchema>;
+
+/**
+ * `200` from `POST /api/requests/confirm`. `confirmed` means this click sent the
+ * request. `already_confirmed` means an earlier click did, and nothing was written.
+ * `routed` is true when a claim went to the company's owners first (AECI-1368), so
+ * the page shows the routed receipt; it is false for a listing and for an
+ * `already_confirmed`. `company_name` names the company claimed, or the typed name
+ * of a listing, for the receipt copy. Null on `already_confirmed`.
+ *
+ * `rejected` (ruled 2026-10-21) means this click sent the claim and the AECI-1420
+ * account check stored it rejected at once. `reason` says why. `vendor_name` names the
+ * company the address already manages on `other_vendor`, null when that row is gone
+ * and always null on `already_admin`. The clicker proved the mailbox, so naming it
+ * tells them nothing the reasoned `claim-rejected` email does not. A check that could
+ * not run is not a rejection: that claim answers `confirmed`.
+ *
+ * Every other outcome is an error envelope (`API_CONTRACTS.md` §6.7): `404 NOT_FOUND`
+ * with `details.resource = 'request_confirmation'` for an unknown token, `422
+ * INVALID_STATE_TRANSITION` with `details.reason = 'expired'` past the 7 days, and
+ * `404 NOT_FOUND` with `details.resource` `vendor` or `product` when the claimed
+ * listing is gone.
+ */
+const ConfirmRequestBase = {
+  kind: RequestConfirmationKindSchema,
+  request_id: z.string().uuid(),
+  routed: z.boolean(),
+  company_name: z.string().nullable(),
+};
+export const ConfirmRequestResponseSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('confirmed'), ...ConfirmRequestBase }),
+  z.object({ status: z.literal('already_confirmed'), ...ConfirmRequestBase }),
+  z.object({
+    status: z.literal('rejected'),
+    ...ConfirmRequestBase,
+    kind: z.literal('claim'),
+    routed: z.literal(false),
+    reason: ConfirmRejectionReasonSchema,
+    vendor_name: z.string().nullable(),
+  }),
+]);
+export type ConfirmRequestResponse = z.infer<typeof ConfirmRequestResponseSchema>;
 
 // ─── GET /api/requests/claim-target/:type/:slug ──────────────────────────────
 

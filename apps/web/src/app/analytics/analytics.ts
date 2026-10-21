@@ -301,8 +301,35 @@ export class Analytics {
   /** §14.1 names `vendor_id`, but the request form holds only `(target_type,
    *  slug)` and the response returns only `request_id` — so we record the
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
-  claimRequested(input: { target_type: string; slug: string; request_id: string }): void {
+  /** AECI-1435: `confirmation_required` is true when the claim waits on the emailed
+   *  link. `request_id` is then the pending id, which the claim takes on confirm. */
+  claimRequested(input: {
+    target_type: string;
+    slug: string;
+    request_id: string;
+    confirmation_required: boolean;
+  }): void {
     this.capture('claim_requested', { ...input });
+  }
+
+  /**
+   * The confirm button on `/claims/confirm` was pressed and answered (AECI-1435).
+   * `kind` is `claim` or `listing`, null when the link resolved to nothing. `outcome`
+   * is the page state it led to. `rejected` is a claim the account check stored
+   * rejected at confirm. Never the token, the email, or the other company's name.
+   */
+  claimConfirmed(input: {
+    kind: 'claim' | 'listing' | null;
+    outcome:
+      | 'confirmed'
+      | 'already_confirmed'
+      | 'rejected'
+      | 'expired'
+      | 'not_found'
+      | 'gone'
+      | 'error';
+  }): void {
+    this.capture('claim_confirmed', { kind: input.kind, outcome: input.outcome });
   }
 
   /**
@@ -330,8 +357,11 @@ export class Analytics {
    * AECI-1293). Only the page: the name, website and email the visitor typed never
    * leave the form. The `listing_requests` table stays the authoritative count.
    */
-  listingRequested(input: { page: PlanCtaPage }): void {
-    this.capture('listing_requested', { page: input.page });
+  listingRequested(input: { page: PlanCtaPage; confirmation_required: boolean }): void {
+    this.capture('listing_requested', {
+      page: input.page,
+      confirmation_required: input.confirmation_required,
+    });
   }
 
   correctionRequested(input: { target_type: string; slug: string; request_id: string }): void {

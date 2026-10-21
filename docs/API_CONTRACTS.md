@@ -268,7 +268,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
-| `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
+| `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
@@ -1326,6 +1326,15 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 //                     accepted_terms (literal true, required; AECI-1366) }
 ```
 
+**As built, AECI-1435 (2026-10-21): an anonymous claim waits on an emailed link (ADR 0042).** The handler resolves the target first, so a dead listing still answers `404`. Then it checks who is asking. A visitor whose strictly verified session email (`verifiedSessionEmail` in `lib/session-email.ts`, the bearer or `sb-*` cookie through `verifySupabaseJwt`, never the grace verifier) equals `submitter_email`, trimmed and lowercased, takes the path the rest of this section describes, at submit. Anyone else takes the confirm path:
+
+- One `db.batch`: a `request_confirmations` row (the validated body as JSON, a SHA-256 hash of a 43-character single-use token, the address lowercased, the current `vendor_terms` version, `CF-Connecting-IP`, the user agent, `expires_at` 7 days out) and its `request_confirmation.created` audit row. The metadata holds `{ kind, target_type, target_id }`, never the email.
+- No `vendor_requests` row, no acceptance row, no account check, no routing, no Linear issue, no alert and no receipt. All of that runs at confirm (`POST /api/requests/confirm` below).
+- After commit the typed address gets `claim-confirm`, with the only link `/claims/confirm?token=…`. It is never blind-copied to the operator list, and it is bounded to 3 per address per UTC day.
+- `201` with `confirmation_required: true`, `request_id` = the pending id (the claim takes it on confirm) and the message "Check your email. Your claim is not sent until you click the link we emailed you."
+
+On the signed-in path `confirmation_required` is `false` and the message is the one below. The audit metadata of the claim gains `confirmation: 'session' | 'email'`.
+
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
@@ -1347,9 +1356,9 @@ Unlike the other submitter fields, the KEY is omittable: it carries `.default(''
 
 **`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
 
-**The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The `201` and its message are unchanged. After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created: the claim needs no operator work, and the Linear webhook would move a terminal claim back to `open` on any touch. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
+**The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). At confirm since AECI-1435 (2026-10-21) for an anonymous claim: everything in this paragraph runs when the link is clicked, and at submit only on the signed-in path.** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The signed-in submit's `201` and its message are unchanged. On the confirm path the confirm answers `status: 'rejected'` with the reason, so the page can say why (ruled 2026-10-21, see `POST /api/requests/confirm` below). After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created: the claim needs no operator work, and the Linear webhook would move a terminal claim back to `open` on any touch. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
 
-**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
+**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. For an anonymous claim the instant is the confirm's (AECI-1435), so the owners' 7 days start when the claim is sent. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
 
 #### `GET /api/requests/claim-target/:type/:slug` (AECI-1368)
 
@@ -1377,7 +1386,7 @@ export const CorrectionRequestSchema = CorrectionFormSchema.extend({
 //                          submitter_email (email, ≤200) }
 ```
 
-Both return `RequestSubmitResponse` (`{ request_id: string; message: string }`) with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
+Both return `RequestSubmitResponse` (`{ request_id: string; message: string; confirmation_required: boolean }`) with HTTP `201`. A correction never waits on a link, so its `confirmation_required` is always `false` (AECI-1435). Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
 
 #### `POST /api/requests/listing` (AECI-1293)
 
@@ -1395,7 +1404,57 @@ Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has
 
 **As built, AECI-1366 (2026-10-15).** The schema extends `ClaimFormSchema`, so it requires `accepted_terms: true` exactly as the claim does. The batch adds the acceptance row (`listing_request_id` = the new row, `vendor_request_id` null, migration 0078) and its `agreement.accepted` audit row, four statements in all. After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded.
 
+**As built, AECI-1435 (2026-10-21).** The listing waits on the emailed link exactly as an anonymous claim does (above). The batch, the alert and the receipt in this section run at confirm, and the row takes the pending id. A signed-in visitor whose verified email is the typed address skips the link. The confirm-path message is "Check your email. Your request is not sent until you click the link we emailed you."
+
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
+
+#### `POST /api/requests/confirm` (AECI-1435)
+
+The click behind the `claim-confirm` email (ADR 0042). The `/claims/confirm?token=…` page renders one button and POSTs only on the click, because mail scanners fetch links. Public, no session: the token is the proof the typed address got the mail.
+
+```typescript
+export const ConfirmRequestSchema = z.object({
+  token: z.string().trim().min(1).max(200),
+});
+const ConfirmRequestBase = {
+  kind: z.enum(['claim', 'listing']),
+  request_id: z.string().uuid(), // the pending id, now the request's id
+  routed: z.boolean(),           // a claim went to the company's owners first
+  company_name: z.string().nullable(), // the company, or the typed listing name
+};
+export const ConfirmRequestResponseSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('confirmed'), ...ConfirmRequestBase }),
+  z.object({ status: z.literal('already_confirmed'), ...ConfirmRequestBase }),
+  z.object({
+    status: z.literal('rejected'),   // ruled 2026-10-21
+    ...ConfirmRequestBase,
+    kind: z.literal('claim'),
+    routed: z.literal(false),
+    reason: z.enum(['other_vendor', 'already_admin']),
+    vendor_name: z.string().nullable(), // the company the address manages; null on already_admin
+  }),
+]);
+```
+
+The handler hashes the token and loads the pending row by its hash.
+
+| Outcome | Answer |
+|---|---|
+| Unknown token | `404 NOT_FOUND`, `details.resource = 'request_confirmation'`. The message never echoes the token |
+| Already confirmed | `200`, `status: 'already_confirmed'`. Nothing is written or sent |
+| Past `expires_at` (the instant itself counts) | `422 INVALID_STATE_TRANSITION`, `details.reason = 'expired'`, the expired-invite precedent. Nothing is written |
+| The claimed listing is gone | The `404 NOT_FOUND` `resolveClaimTarget` gives, `details.resource` `vendor` or `product`. The row stays pending |
+| The vendor terms version changed since the submit | `400 VALIDATION_FAILED`, `field: 'version'` (`agreementAcceptanceStatements`). The page shows the expired state |
+| A claim the AECI-1420 account check stores rejected | `200`, `status: 'rejected'`, `reason` `other_vendor` or `already_admin`, `vendor_name` the company the address already manages (null when that row is gone, always null on `already_admin`). The claim is written `rejected` and the reasoned `claim-rejected` goes, as below |
+| Otherwise | `200`, `status: 'confirmed'`. This includes a claim whose account check could not run: AECi's queue flags it |
+
+A confirmed claim runs the signed-in claim path above through `submitClaimNow`: the AECI-1420 check, owner routing, the duplicate probe, the domain match. A listing runs `submitListingNow`. The request takes the pending id as its primary key. The acceptance carries the stored version, IP and user agent, with the confirm time. The same batch updates the pending row (`confirmed_at`, `payload = NULL`, guarded on `confirmed_at IS NULL`) and writes a `request_confirmation.confirmed` audit row. The post-commit chain is the submit's: the Linear issue, `claim-submitted-alert`, then `claim-received` or the reasoned `claim-rejected`, then `claim-owner-review`.
+
+**Why the confirm names the other company (ruled 2026-10-21, Chris).** The signed-in submit keeps its generic receipt, because the person at the keyboard has proved only the session. The confirm click proves the mailbox. The reasoned `claim-rejected` email already names the company to that mailbox, so the page tells the clicker nothing new. A second click on a rejected claim's link still answers `already_confirmed`.
+
+**Single use.** Two confirms racing both pass the read. The loser's batch fails on the request's primary key and rolls back whole. The handler re-reads, finds `confirmed_at` set, and answers `already_confirmed`. A batch failure with the row still pending is a `500`, and the link still works.
+
+Rate limit: the `token` bucket, keyed by IP, never by the token (`waf-rate-limits.md` §6.2), plus zone Rule A. Errors also: `MALFORMED_REQUEST` (400), `VALIDATION_FAILED` (400, a blank token), `RATE_LIMITED` (429). Web client: `RequestsApi.confirmRequest`.
 
 ### 6.8 Account
 
@@ -4896,7 +4955,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all nineteen
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty (AECI-1435)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran

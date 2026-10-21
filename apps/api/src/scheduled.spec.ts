@@ -18,6 +18,7 @@ import {
   pageViews,
   products,
   profiles,
+  requestConfirmations,
   reviews,
   vendorActivityDaily,
   vendorRequests,
@@ -153,6 +154,7 @@ const SNAPSHOT_CRON = '15 0 * * *';
 const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 const GSC_INSPECT_CRON = '0 13 * * *';
 const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
+const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1033,6 +1035,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-1368. NOT audit-exempt: each claim it moves writes an audit row. On an
     // empty database it moves nothing, so it is carved out of the exempt table below.
     [CLAIM_OWNER_FALLBACK_CRON, 'claim-owner-fallback'],
+    // AECI-1435. A scheduled DELETE, so NOT audit-exempt: carved out below, and its
+    // own test asserts the summary row.
+    [REQUEST_CONFIRMATION_EXPIRY_CRON, 'request-confirmation-expiry'],
   ];
 
   /**
@@ -1048,7 +1053,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       job !== 'retention-prune' &&
       job !== 'entitlement-expiry' &&
       job !== 'indexnow-drain' &&
-      job !== 'claim-owner-fallback',
+      job !== 'claim-owner-fallback' &&
+      job !== 'request-confirmation-expiry',
   );
 
   // `indexnow-drain` is carved out for the same reason as the prune: its delete is
@@ -1174,6 +1180,39 @@ describe('job_runs bookkeeping (§7.2)', () => {
       expect.anything(),
       expect.anything(),
       'aeci.claim.owner_fallback.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('the confirmation expiry runs inline and writes ONE summary audit row for its delete (AECI-1435)', async () => {
+    await t.db.insert(requestConfirmations).values({
+      id: '44444444-4444-4444-8444-444444444444',
+      kind: 'claim',
+      tokenHash: 'h-1',
+      submitterEmail: 'claimant@acme.example',
+      payload: '{}',
+      termsVersion: '1.0',
+      expiresAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await scheduled(cronController(REQUEST_CONFIRMATION_EXPIRY_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'request-confirmation-expiry', outcome: 'ok' });
+    expect(row?.detail).toMatchObject({ job: 'request-confirmation-expiry', deleted: 1 });
+    expect(await t.db.select().from(requestConfirmations)).toHaveLength(0);
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'system',
+      action: 'request_confirmation.expired',
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.request_confirmation.expiry.job',
       1,
       ['trigger:cron', 'outcome:ok'],
     );

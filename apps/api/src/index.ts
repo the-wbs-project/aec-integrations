@@ -73,6 +73,7 @@ import {
   createModerateListingRequestHandler,
 } from './routes/admin-listing-requests';
 import { createListingRequestHandler } from './routes/listing-requests';
+import { createConfirmRequestHandler } from './routes/request-confirmations';
 import {
   createAdminProductRequestsListHandler,
   createDecideProductRequestHandler,
@@ -384,7 +385,7 @@ phase28.get('/api/taxonomy', createTaxonomyHandler());
 phase28.get('/api/stats/home', createStatsHomeHandler());
 
 // Vendor requests (AECI-128) — claim & correction form submissions. Public (no
-// auth). Insert into `vendor_requests` with an audit + genesis workflow transition;
+// auth). An anonymous claim is parked until its emailed link is clicked (AECI-1435). Insert into `vendor_requests` with an audit + genesis workflow transition;
 // the Phase 6 pipeline (Linear issue creation, domain-match + duplicate flags,
 // reconciliation sweep, admin moderation) hangs off the submit + the seams in
 // `routes/requests.ts` / `lib/linear.ts`. No n8n (dropped — STAGE_1_PHASE_6_SPEC.md §4).
@@ -395,6 +396,16 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // per IP like the claim route, and like it, it carries no in-Worker bucket
 // (`docs/waf-rate-limits.md` §6.2).
 phase28.post('/api/requests/listing', createListingRequestHandler());
+// AECI-1435 (ADR 0042): an anonymous claim or listing request waits in
+// `request_confirmations` until the typed address clicks the emailed link. The
+// `/claims/confirm` page POSTs the token here on its button, never on load. Under
+// `/api/requests/`, so zone Rule A caps it per IP, and the `token` bucket keyed by IP
+// (never by the token, the invite-accept reasoning) bounds a token grind in-Worker.
+phase28.post(
+  '/api/requests/confirm',
+  rateLimit('token', { by: 'ip' }),
+  createConfirmRequestHandler(),
+);
 // AECI-1368: which company a claim would land on and whether it has an owner seat
 // (`{ vendor_id, has_seats }`), so the claim form can show the routed disclosure
 // before submit. A public read: no auth, no `rateLimit()`, `private, no-store`.

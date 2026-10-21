@@ -259,7 +259,7 @@ export const NOTIFICATIONS = {
     audience: 'operator',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/requests/claim (routes/requests.ts); and the */15 request-reconcile sweep (lib/reconciliation-sweep.ts) when its retry creates the issue',
+      ref: 'POST /api/requests/confirm (routes/request-confirmations.ts) or POST /api/requests/claim on the signed-in path (routes/requests.ts); and the */15 request-reconcile sweep (lib/reconciliation-sweep.ts) when its retry creates the issue',
     },
     envRule: 'any-tier',
     dedupe:
@@ -271,12 +271,30 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
     note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). When every product of the claimed vendor is a connector, the body adds "Connector vendor: contact them directly", the same flag as the /admin/claims row (AECI-1367). When the claim was routed to the company\'s owners, the body adds "Sent to the owners at <Company>; AECi steps in on <date>" (AECI-1366). When the submit-time account check stored the claim rejected, the body adds "Rejected automatically: the address already holds a seat on <Company>", or the staff-account wording, and the Linear row says no issue is created (AECI-1420). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
+  'claim-confirm': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/claim (routes/requests.ts) and POST /api/requests/listing (routes/listing-requests.ts), on an anonymous submit or one whose session email is not the typed address',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key claim-confirm:{pendingId}, so one mail per submit. Plus at most 3 per address per UTC day, counted from notification_sends by recipient hash; over the bound the send is a duplicate row and nothing goes.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
+    summary:
+      'Asks the typed address to confirm a claim or listing request before it is sent, with a 7-day single-use link to /claims/confirm.',
+    note: 'AECI-1435, ADR 0042. Nothing reaches AECi until the link is clicked and the page button pressed. Never blind-copied to the operator list, because the copy would be a second working link. Always on: without it no anonymous claim can be sent at all. A signed-in claimant whose verified email is the typed address skips it.',
+  },
   'claim-received': {
     channel: 'email',
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/requests/claim (routes/requests.ts) and POST /api/requests/listing (routes/listing-requests.ts)',
+      ref: 'POST /api/requests/confirm (routes/request-confirmations.ts), and POST /api/requests/claim or /listing when the signed-in email is the typed address',
     },
     envRule: 'production-external',
     dedupe:
@@ -287,12 +305,15 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_PROGRAM_PAGE_SPEC.md §15.3',
     summary:
       'Tells the person who sent a claim or a typed-in listing request that we have it, what they claimed, and what happens next.',
-    note: "Sent after the operator alert, in the same waitUntil. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
+    note: "Sent after the operator alert, in the same waitUntil, once the request is in: at confirm for an anonymous visitor (AECI-1435), at submit for a signed-in one whose verified email is the typed address. No link that grants anything: it links the vendor terms they accepted and the help page. Routed variant (AECI-1368) when the company has an owner seat: their team has been asked to confirm the claimant and AECi steps in after 7 days. Always on: it is the claimant's record that they accepted the vendor terms, and the only notice that a claim was sent in their name. The address is typed, not verified, so the daily key bounds what a stranger can make us send to it.",
   },
   'listing-request-alert': {
     channel: 'email',
     audience: 'operator',
-    trigger: { kind: 'route', ref: 'POST /api/requests/listing (routes/listing-requests.ts)' },
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/confirm (routes/request-confirmations.ts) or POST /api/requests/listing on the signed-in path (routes/listing-requests.ts)',
+    },
     envRule: 'any-tier',
     dedupe: 'Key listing-request-alert:{requestId}, so at most one alert per saved request.',
     ledger: ['notification_sends'],
@@ -462,7 +483,7 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'PATCH /api/admin/claims/:id (routes/admin-claims.ts), POST /api/vendor/seats/claims/:id/decline and the POST /api/vendor/seats/claims/:id/accept auto-reject (routes/vendor-seat-claims.ts), and the POST /api/requests/claim auto-reject (routes/requests.ts)',
+      ref: 'PATCH /api/admin/claims/:id (routes/admin-claims.ts), POST /api/vendor/seats/claims/:id/decline and the POST /api/vendor/seats/claims/:id/accept auto-reject (routes/vendor-seat-claims.ts), and the claim auto-reject at POST /api/requests/confirm or the signed-in POST /api/requests/claim (routes/requests.ts)',
     },
     envRule: 'production-external',
     dedupe:
@@ -509,7 +530,10 @@ export const NOTIFICATIONS = {
   'claim-owner-review': {
     channel: 'email',
     audience: 'external',
-    trigger: { kind: 'route', ref: 'POST /api/requests/claim (routes/requests.ts)' },
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/confirm (routes/request-confirmations.ts) or the signed-in POST /api/requests/claim (routes/requests.ts)',
+    },
     envRule: 'production-external',
     dedupe:
       'One per owner seat per claim: key claim-owner-review:{requestId}:{profileId}. Per vendor per UTC day, only the first 5 routed claims send it (OWNER_REVIEW_DAILY_LIMIT, a D1 count of routed_to_owners_at); later claims still route and still list in Seats.',
@@ -1123,7 +1147,7 @@ export const NOTIFICATIONS = {
     audience: 'operator',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/requests/{claim,correction} (routes/requests.ts); retried by lib/reconciliation-sweep.ts',
+      ref: 'POST /api/requests/{claim,correction} (routes/requests.ts), and POST /api/requests/confirm for an anonymous claim (routes/request-confirmations.ts); retried by lib/reconciliation-sweep.ts',
     },
     envRule: 'any-tier',
     dedupe: 'Read-guard on the linked issue id, then a compare-and-set persist.',

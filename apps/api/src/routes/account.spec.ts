@@ -19,6 +19,7 @@ import {
   profileAudiences,
   profileDetails,
   profiles,
+  requestConfirmations,
   reviewResponses,
   reviews,
   taxonomyAudiences,
@@ -525,6 +526,33 @@ describe('DELETE /api/account', () => {
       [u(41), null, STAMP],
       [u(42), 'ap@trimble.com', STAMP],
     ]);
+  });
+
+  it('deletes the pending claim confirmations of the erased address, and no others (AECI-1435)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    const pending = (id: string, email: string) => ({
+      id,
+      kind: 'claim',
+      tokenHash: `hash-${id}`,
+      submitterEmail: email,
+      payload: '{}',
+      termsVersion: '1.0',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(requestConfirmations)
+      .values([pending(u(50), 'me@example.com'), pending(u(51), 'other@example.com')]);
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    const rows = await t.db.select().from(requestConfirmations);
+    expect(rows.map((r) => r.id)).toEqual([u(51)]);
   });
 
   it('nulls license_release_requests.requested_by and decided_by, keeping the rows (AECI-1373)', async () => {

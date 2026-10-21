@@ -34,6 +34,14 @@ submissions.
 | The claim dialog's "Not listed? Type it in" path | A `listing_requests` row, its `listing_request.created` audit row, and the `listing-request-alert` email to support (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) | Work it from the "Listing requests" section of `/admin/requests` (§15.5). Resolve or reject it there. The claimant already has an automatic `claim-received` receipt. |
 | A cold email | Nothing until you file it | File a Linear issue (below). |
 
+**As built, AECI-1435 (2026-10-21): a request in the queue is from a confirmed address.** An
+anonymous typed-in listing, and an anonymous claim, wait until the typed address clicks the emailed
+confirm link (ADR 0042). Nothing reaches `/admin/requests`, `/admin/claims` or the support inbox
+before that. So the email on a listing request or a claim in the queue has received our mail.
+It still says nothing about whether the person works at the company: the domain and LinkedIn checks
+are unchanged. A request that was never confirmed is not in any queue, and its pending row is
+deleted after 7 days.
+
 **A cold email becomes a Linear issue.**
 
 - Team: AECi. No project.

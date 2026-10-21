@@ -22,13 +22,20 @@
  * `context_product_id` ("Came from" for the reviewer). A correction is about a listing,
  * so it keeps its product target.
  *
+ * **An anonymous claim waits on its emailed link** (AECI-1435, ADR 0042). Unless the
+ * visitor is signed in with the typed address, the submit only parks the claim in
+ * `request_confirmations` and emails a confirm link (`lib/request-confirmations.ts`).
+ * Everything below then runs at confirm (`routes/request-confirmations.ts`), through
+ * `submitClaimNow`, with the pending row's id as the claim's id.
+ *
  * **A claim from an address that already manages another company is stored rejected**
- * (AECI-1420, ruled 2026-10-19). Before the batch, a lookup-only account check
- * (`checkClaimAccount`) asks whether the typed address holds a seat on another vendor
- * or is a staff account. If so, the same batch writes the row `rejected` by the system,
+ * (AECI-1420, ruled 2026-10-19; at confirm since AECI-1435). Before the batch, a
+ * lookup-only account check (`checkClaimAccount`) asks whether the typed address
+ * holds a seat on another vendor or is a staff account. If so, the same batch writes the row `rejected` by the system,
  * the claim is not routed to owners, and the claimant gets the reasoned
- * `claim-rejected` instead of the receipt. The 201 and its message are unchanged: the
- * person at the keyboard may not own the address they typed.
+ * `claim-rejected` instead of the receipt. The signed-in submit's 201 and its message
+ * are unchanged. The confirm page does say why (ruled 2026-10-21): the click proved
+ * the mailbox, so `POST /api/requests/confirm` answers `status: 'rejected'`.
  *
  * Each submit is one atomic `db.batch` (the §26.1 invariant, AECI-249): the
  * `vendor_requests` insert + the `workflow_instance` (`vendor_claim` |
@@ -51,6 +58,7 @@ import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
   RequestTargetTypeSchema,
+  type ClaimRequest,
   type ClaimTargetResponse,
   type RequestKind,
   type RequestSubmitResponse,
@@ -74,7 +82,10 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
-import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
+import {
+  agreementAcceptanceStatements,
+  type AcceptanceRequestEvidence,
+} from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -82,6 +93,7 @@ import {
   sendClaimDecisionEmail,
   sendClaimReceivedEmail,
   sendClaimSubmittedNotification,
+  type ClaimRejectionReason,
 } from '../lib/email';
 import {
   ACCOUNT_CONFLICT_REASON,
@@ -102,6 +114,12 @@ import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 import { claimTargetIsPureConnector } from '../lib/vendor-product-roles';
 import { emailOwnersOfRoutedClaim } from '../lib/claim-owner-routing';
 import { vendorHasOwnerSeat } from '../lib/owner-seat';
+import { createPendingConfirmation } from '../lib/request-confirmations';
+import {
+  sessionMatchesTypedEmail,
+  verifiedSessionEmail,
+  type SessionEmailResolver,
+} from '../lib/session-email';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -166,6 +184,15 @@ interface ContextProduct {
   slug: string;
 }
 
+/** The company a claim is stored against (`resolveClaimTarget`). */
+export interface ClaimTarget {
+  id: string;
+  name: string;
+  slug: string;
+  websiteUrl: string | null;
+  contextProduct: ContextProduct | null;
+}
+
 /**
  * Resolve a CLAIM's `(target_type, slug)` to the company it claims (AECI-1364,
  * `docs/VENDOR_SIGNUP_PROCESS.md` decision 1: a claim is on the company, never a
@@ -179,17 +206,11 @@ interface ContextProduct {
  * same `404 NOT_FOUND` a missing product does, so the claim dialog offers "Type it in
  * instead" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.2).
  */
-async function resolveClaimTarget(
+export async function resolveClaimTarget(
   db: Db,
   targetType: RequestTargetType,
   slug: string,
-): Promise<{
-  id: string;
-  name: string;
-  slug: string;
-  websiteUrl: string | null;
-  contextProduct: ContextProduct | null;
-}> {
+): Promise<ClaimTarget> {
   if (targetType === 'vendor') {
     const row = await db.query.vendors.findFirst({
       columns: { id: true, companyName: true, slug: true, website: true },
@@ -306,14 +327,43 @@ interface RequestInsert {
 
 type AccountConflict = Extract<ClaimAccountCheck, { outcome: 'conflict' }>;
 
+/**
+ * What the confirm path of an anonymous claim changes in the shared core (AECI-1435,
+ * ADR 0042). Absent on a signed-in claim and on every correction, which take today's
+ * path unchanged.
+ */
+export interface CreateRequestOptions {
+  /** The pending `request_confirmations.id`, used as the `vendor_requests.id`. A
+   *  second confirm then trips the PK, and the whole batch rolls back. */
+  requestId?: string;
+  /** The vendor terms evidence captured at submit: the version shown, the IP and the
+   *  user agent. The acceptance's time is the confirm's. */
+  acceptance?: { version: string; evidence: AcceptanceRequestEvidence };
+  /** Statements appended to the batch (the confirmed-row update and its audit row),
+   *  and their audit entries for the post-commit forward. */
+  extra?: { stmts: BatchStmt[]; auditEntries: AuditLogEntry[] };
+  /** `metadata.confirmation`: how the typed address was shown to be the claimant's.
+   *  `session` for a signed-in match, `email` for a clicked link. Claims only. */
+  confirmation?: 'session' | 'email';
+}
+
+/** The `201` message of a claim that went in. */
+export const CLAIM_RECEIVED_MESSAGE =
+  'Your claim has been received. We will review it and follow up by email.';
+
+/** The `201` message of a claim that waits on the emailed link (AECI-1435). */
+export const CLAIM_CONFIRM_MESSAGE =
+  'Check your email. Your claim is not sent until you click the link we emailed you.';
+
 /** Insert the row + open its workflow instance/genesis transition + write the
- *  audit entry, all in one atomic `db.batch`; return the 201 envelope. */
+ *  audit entry, all in one atomic `db.batch`; return the request id. */
 async function createRequest(
   c: Context<{ Bindings: Env }>,
   db: Db,
   kind: RequestKind,
   insert: RequestInsert,
-): Promise<Response> {
+  opts: CreateRequestOptions = {},
+): Promise<string> {
   // Phase 6.8 (AECI-215): compute the two informational signals BEFORE the insert —
   // so the row persists the real `domain_match` (not the `'pending'` default) and the
   // duplicate probe never self-matches the row we're about to create. Both are hints
@@ -354,12 +404,15 @@ async function createRequest(
           context_product_slug: contextProduct?.slug ?? null,
           // AECI-1368: whether the claim went to the company's owners first.
           routed_to_owners: insert.routedToOwnersAt !== null,
+          // AECI-1435: how the address was shown to be the claimant's.
+          ...(opts.confirmation ? { confirmation: opts.confirmation } : {}),
         }
       : {}),
   };
 
-  // Ids generated up front so the batch needs no return values.
-  const requestId = crypto.randomUUID();
+  // Ids generated up front so the batch needs no return values. A confirmed claim
+  // takes its pending row's id (AECI-1435).
+  const requestId = opts.requestId ?? crypto.randomUUID();
   const workflowId = crypto.randomUUID();
 
   // AECI-1366: a claim carries the vendor terms acceptance ("I represent this company
@@ -368,16 +421,20 @@ async function createRequest(
   // Profile, vendor and billing account stay null until the approval links them
   // (`linkClaimAcceptanceStatements`, matched on `vendor_request_id`). The rows ride the
   // claim's own batch, so a failed batch writes neither the claim nor the acceptance.
+  //
+  // AECI-1435: a confirmed anonymous claim is accepted at confirm. The version, IP and
+  // user agent are the submit's, from the pending row; the time is now.
   const acceptance =
     kind === 'claim'
       ? agreementAcceptanceStatements(db, {
           document: 'vendor_terms',
-          version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+          version: opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
           source: 'claim',
           email: insert.submitterEmail,
           vendorRequestId: requestId,
           acceptedAt: new Date().toISOString(),
           requestHeaders: c.req.raw.headers,
+          evidence: opts.acceptance?.evidence ?? null,
           actorId: null,
           actorType: 'user',
         })
@@ -447,6 +504,8 @@ async function createRequest(
       : []),
     // AFTER the claim insert: the acceptance's `vendor_request_id` FK names it.
     ...(acceptance?.stmts ?? []),
+    // AECI-1435: the confirmed-row update and its audit row.
+    ...(opts.extra?.stmts ?? []),
   ];
   await db.batch(stmts as BatchTuple);
 
@@ -457,6 +516,7 @@ async function createRequest(
       auditEntry,
       ...(reject ? [reject.auditEntry] : []),
       ...(acceptance ? [acceptance.auditEntry] : []),
+      ...(opts.extra?.auditEntries ?? []),
     ],
     reject ? [workflowEntry, reject.workflowEntry] : [workflowEntry],
     'request-form',
@@ -593,15 +653,7 @@ async function createRequest(
     );
   }
 
-  const body: RequestSubmitResponse = {
-    request_id: requestId,
-    message:
-      kind === 'claim'
-        ? 'Your claim has been received. We will review it and follow up by email.'
-        : // AECI-1205: no correction email exists, so this no longer promises one.
-          'Your correction has been received. We will review it and update the listing if it needs a change.',
-  };
-  return json(body, { status: 201 });
+  return requestId;
 }
 
 /**
@@ -657,7 +709,7 @@ export function createCorrectionSubmitHandler(
     const { db } = writeDb(c, dbFor);
     const target = await resolveTarget(db, payload.target_type, payload.slug);
 
-    return createRequest(c, db, 'correction', {
+    const requestId = await createRequest(c, db, 'correction', {
       targetType: payload.target_type,
       targetId: target.id,
       targetName: target.name,
@@ -673,39 +725,71 @@ export function createCorrectionSubmitHandler(
       routedToOwnersAt: null,
       rejectedAtSubmit: null,
     });
+    const body: RequestSubmitResponse = {
+      request_id: requestId,
+      // AECI-1205: no correction email exists, so this no longer promises one.
+      message:
+        'Your correction has been received. We will review it and update the listing if it needs a change.',
+      // A correction never waits on an emailed link (AECI-1435): it grants nothing.
+      confirmation_required: false,
+    };
+    return json(body, { status: 201 });
   };
 }
 
-export function createClaimSubmitHandler(
-  dbFor: DbFactory = getDb,
-  resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
-): (c: Context<{ Bindings: Env }>) => Promise<Response> {
-  return async (c) => {
-    const payload = await parseJsonBody(c, ClaimRequestSchema);
-    const { db } = writeDb(c, dbFor);
-    // AECI-1364: a product target is normalised to its company here. The response
-    // is unchanged, so the forms and the dialog need no new handling.
-    const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
-    // AECI-1420: one account belongs to one company (`STAGE_2_SPEC.md` §8.3). A
-    // lookup-only check, for every claim: `target.id` is the VENDOR (a product claim
-    // was normalised above), so a seat elsewhere is a conflict and a seat here is not.
-    // `unavailable` (no Supabase creds, GoTrue down) proceeds exactly as before. The
-    // admin queue's banner catches what got through.
-    const account = await checkClaimAccount(
-      db,
-      c.env,
-      { email: payload.submitter_email, vendorId: target.id },
-      resolveIdentity,
-    );
-    const rejectedAtSubmit = account.outcome === 'conflict' ? account : null;
-    // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`. A
-    // claim rejected at submit is never routed: the owners have nothing to decide.
-    const routedToOwnersAt =
-      !rejectedAtSubmit && (await vendorHasOwnerSeat(db, target.id))
-        ? new Date().toISOString()
-        : null;
+/** What {@link submitClaimNow} did, for the confirm page's receipt. */
+export interface SubmittedClaim {
+  requestId: string;
+  /** Routed to the company's owners first (AECI-1368). */
+  routed: boolean;
+  /**
+   * Why the AECI-1420 account check stored it rejected, or null when it did not. The
+   * same reason the reasoned `claim-rejected` email states. The confirm page shows it
+   * (the clicker proved the mailbox). The signed-in submit's receipt does not.
+   */
+  rejection: ClaimRejectionReason | null;
+}
 
-    return createRequest(c, db, 'claim', {
+/**
+ * Send a claim in: the account check, owner routing and the shared core. The
+ * signed-in path of `POST /api/requests/claim` calls it at submit. The confirm
+ * (`POST /api/requests/confirm`, AECI-1435) calls it with the pending row's payload,
+ * so the AECI-1420 check, the routing (`routed_to_owners_at` is the confirm time, so
+ * the owners' 7 days start then), the duplicate probe and the domain match all run
+ * when the address is shown to be the claimant's.
+ */
+export async function submitClaimNow(
+  c: Context<{ Bindings: Env }>,
+  db: Db,
+  payload: ClaimRequest,
+  target: ClaimTarget,
+  resolveIdentity: typeof resolveClaimantIdentity,
+  opts: CreateRequestOptions = {},
+): Promise<SubmittedClaim> {
+  // AECI-1420: one account belongs to one company (`STAGE_2_SPEC.md` §8.3). A
+  // lookup-only check, for every claim: `target.id` is the VENDOR (a product claim
+  // was normalised by `resolveClaimTarget`), so a seat elsewhere is a conflict and a
+  // seat here is not. `unavailable` (no Supabase creds, GoTrue down) proceeds exactly
+  // as before. The admin queue's banner catches what got through.
+  const account = await checkClaimAccount(
+    db,
+    c.env,
+    { email: payload.submitter_email, vendorId: target.id },
+    resolveIdentity,
+  );
+  const rejectedAtSubmit = account.outcome === 'conflict' ? account : null;
+  // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`. A
+  // claim rejected here is never routed: the owners have nothing to decide.
+  const routedToOwnersAt =
+    !rejectedAtSubmit && (await vendorHasOwnerSeat(db, target.id))
+      ? new Date().toISOString()
+      : null;
+
+  const requestId = await createRequest(
+    c,
+    db,
+    'claim',
+    {
       targetType: 'vendor',
       targetId: target.id,
       targetName: target.name,
@@ -722,7 +806,72 @@ export function createClaimSubmitHandler(
       sourceUrl: null,
       routedToOwnersAt,
       rejectedAtSubmit,
+    },
+    opts,
+  );
+  return {
+    requestId,
+    routed: routedToOwnersAt !== null,
+    rejection: rejectedAtSubmit ? accountConflictEmailReason(rejectedAtSubmit) : null,
+  };
+}
+
+/**
+ * `POST /api/requests/claim`.
+ *
+ * **Who skips the emailed link** (AECI-1435, ADR 0042). A signed-in visitor whose
+ * VERIFIED session email (`verifiedSessionEmail`, the strict verifier) is the typed
+ * address is the claimant already, so the claim goes straight in, exactly as before.
+ * Anyone else, including a failed verify, gets the confirm path: the claim is parked in
+ * `request_confirmations` and the `claim-confirm` email goes to the typed address.
+ * Nothing else runs until the link is clicked.
+ *
+ * The target resolves first on both paths, so a dead listing still answers `404` and
+ * the dialog can offer "Type it in instead".
+ */
+export function createClaimSubmitHandler(
+  dbFor: DbFactory = getDb,
+  resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
+  sessionEmail: SessionEmailResolver = verifiedSessionEmail,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const payload = await parseJsonBody(c, ClaimRequestSchema);
+    const { db } = writeDb(c, dbFor);
+    // AECI-1364: a product target is normalised to its company here.
+    const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
+
+    if (sessionMatchesTypedEmail(await sessionEmail(c), payload.submitter_email)) {
+      const { requestId } = await submitClaimNow(c, db, payload, target, resolveIdentity, {
+        confirmation: 'session',
+      });
+      const body: RequestSubmitResponse = {
+        request_id: requestId,
+        message: CLAIM_RECEIVED_MESSAGE,
+        confirmation_required: false,
+      };
+      return json(body, { status: 201 });
+    }
+
+    // The payload is stored as validated. The confirm re-parses it with the same
+    // schema and resolves the target again, because the listing may change in 7 days.
+    const { id } = await createPendingConfirmation(c, db, {
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: target.id,
+      email: payload.submitter_email,
+      payload,
+      subject: {
+        kind: 'claim',
+        companyName: target.name,
+        contextProductName: target.contextProduct?.name ?? null,
+      },
     });
+    const body: RequestSubmitResponse = {
+      request_id: id,
+      message: CLAIM_CONFIRM_MESSAGE,
+      confirmation_required: true,
+    };
+    return json(body, { status: 201 });
   };
 }
 

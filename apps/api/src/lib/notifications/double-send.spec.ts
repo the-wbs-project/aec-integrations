@@ -30,7 +30,7 @@ import { createModerateReviewHandler } from '../../routes/admin-reviews';
 import { createSubscribeHandler, createUnsubscribeHandler } from '../../routes/landing-forms';
 import { createClaimSubmitHandler } from '../../routes/requests';
 import { makeTestDb, type TestDb } from '../../test/d1';
-import { buildAppWithHandler, fakeExecutionContext } from '../../test/helpers';
+import { buildAppWithHandler, fakeExecutionContext, signedInAsTyped } from '../../test/helpers';
 import type { AuthzVariables } from '../authz';
 import { runClaimStaleCheck } from '../claim-stale-check';
 import { runReconciliationSweep } from '../reconciliation-sweep';
@@ -120,7 +120,7 @@ describe('claim intake alert', () => {
     const app = buildAppWithHandler({
       method: 'post',
       path: '/api/requests/claim',
-      handler: createClaimSubmitHandler(t.factory),
+      handler: createClaimSubmitHandler(t.factory, undefined, signedInAsTyped),
     });
     const ctx = fakeExecutionContext();
     const res = await app.request(
@@ -226,7 +226,7 @@ describe('claim receipt', () => {
     const app = buildAppWithHandler({
       method: 'post',
       path: '/api/requests/claim',
-      handler: createClaimSubmitHandler(t.factory),
+      handler: createClaimSubmitHandler(t.factory, undefined, signedInAsTyped),
     });
     const claim = async (email: string) => {
       const ctx = fakeExecutionContext();

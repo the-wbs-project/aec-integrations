@@ -51,9 +51,13 @@
                 brnDialogTitle
                 class="mt-1 font-display text-xl font-semibold tracking-tight text-(--text-primary)"
               >
-                @if (sentTo() !== null) { @switch (t.kind) { @case ('claim') {
+                @if (sentTo() !== null) { @switch (t.kind) { @case ('claim') { @if (sentConfirm()) {
+                <ng-container i18n="@@requests.sent.claim.confirm.title"
+                  >Check your inbox</ng-container
+                >
+                } @else {
                 <ng-container i18n="@@requests.sent.claim.title">Claim sent</ng-container>
-                } @case ('correction') {
+                } } @case ('correction') {
                 <ng-container i18n="@@requests.sent.correction.title">Correction sent</ng-container>
                 } } } @else { @switch (t.kind) { @case ('claim') { @if (t.company; as name) {
                 <ng-container i18n="@@requests.claim.title.company">Claim {{ name }}</ng-container>
@@ -88,7 +92,13 @@
           </div>
 
           <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
-            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') { @if (sentRouted()) {
+            @if (sentTo(); as email) { @switch (t.kind) { @case ('claim') { @if (sentConfirm()) {
+            <ng-container i18n="@@requests.sent.claim.confirm.subtitle"
+              >We've sent a link to
+              <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong>. Your
+              claim is not sent until you click it.</ng-container
+            >
+            } @else if (sentRouted()) {
             <ng-container i18n="@@requests.sent.claim.subtitle.routed"
               >We've emailed a receipt to
               <strong class="font-bold break-all text-(--text-primary)">{{ email }}</strong
@@ -145,6 +155,7 @@
           [company]="t.company ?? null"
           variant="drawer"
           (sentRouted)="sentRouted.set($event)"
+          (sentConfirm)="sentConfirm.set($event)"
           (sent)="sentTo.set($event)"
           (done)="drawer.close()"
         />
