@@ -53,7 +53,11 @@ function decodeSlug(raw: string): string | null {
 
 export function parseLandingPath(path: string): LandingPath {
   if (parsePairPagePath(path)) return { route: PAIR_ROUTE, entity: { type: 'pair' } };
-  const m = path.match(DETAIL_PATH_RE);
+  // One trailing slash is tolerated (`/categories/bim/` is still a cacheable
+  // browse URL), so the row keeps its pattern and entity.
+  const m = (path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path).match(
+    DETAIL_PATH_RE,
+  );
   if (m) {
     const segment = m[1]!;
     const type = Object.hasOwn(SEGMENT_ENTITY, segment) ? SEGMENT_ENTITY[segment] : undefined;

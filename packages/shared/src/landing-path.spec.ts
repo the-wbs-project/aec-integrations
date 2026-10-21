@@ -36,6 +36,13 @@ describe('parseLandingPath', () => {
     });
   });
 
+  it('tolerates one trailing slash on a detail path', () => {
+    expect(parseLandingPath('/categories/bim/')).toEqual({
+      route: '/categories/:slug',
+      entity: { type: 'category', slug: 'bim' },
+    });
+  });
+
   it.each([
     '/',
     '/products',
