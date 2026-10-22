@@ -644,18 +644,23 @@ making the D1 write wait on the raw write.
 
 ## Logpush job disabled
 
-**Alert:** Cloudflare's "Logpush job disabled" notification, by email to Chris (AECI-1447). It is not a
-PostHog alert and has no row in the table above.
+**Alert:** Cloudflare's "Failing Logpush Job Disabled" notification (policy "AECi edge log: Logpush job
+disabled", alert type `failing_logpush_job_disabled_alert`), by email to Chris (AECI-1447). Cloudflare sends
+it after a job has failed to push for more than 24 hours and been disabled. It is not a PostHog alert and
+has no row in the table above.
 
 **What it means:** Cloudflare stopped one of the two Logpush jobs that write the edge request log to
-`aeci-edge-log-production` (ADR 0045). It does this after deliveries keep failing. The site and every
+`aeci-edge-log-prod-us` (ADR 0045). It does this after deliveries keep failing. The site and every
 `page_views` figure are fine. The hole is in the permanent copy of Cloudflare's request record.
 
 **First checks**
 
-1. Which job: the email names it. `http_requests` or `firewall_events`.
+1. Which job: the email gives the destination. Its path starts `http_requests/` (job `1978506`) or
+   `firewall_events/` (job `1978507`).
 2. Read its state from the zone Logpush API, `GET /zones/<zone id>/logpush/jobs/<job id>`. Look at
    `enabled`, `last_complete` and `last_error`. The job ids are in `environments.md` "Edge request log".
+   The AECI-1447 one-off token is revoked after setup. A read needs a token with zone Logs Read or Logs Edit. The
+   request is in `scripts/ops/2026-10-edge-log-logpush/README.md` step 3.
 3. Confirm the bucket still exists and the destination credentials still work. A deleted bucket or a
    revoked R2 token is the usual cause.
 

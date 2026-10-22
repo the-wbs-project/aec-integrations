@@ -16,7 +16,7 @@ The first version of epic AECI-1196 proposed Logpush into Basin Pipelines and th
 
 ## Decision
 
-1. **Two Logpush jobs write gzip NDJSON to one R2 bucket, `aeci-edge-log-production`, on The WBS Project account.** One job per dataset: `http_requests` under `http_requests/{DATE}/` and `firewall_events` under `firewall_events/{DATE}/`. Output is ndjson with RFC 3339 timestamps and a sample rate of 1. A Logpush job covers the whole zone, so the log holds every `aecintegrations.com` host: `www.`, the apex, `demo.` and `staging.`. Filter on `ClientRequestHost` to read one tier. There is one bucket, not one per tier.
+1. **Two Logpush jobs write gzip NDJSON to one R2 bucket, `aeci-edge-log-prod-us`, on The WBS Project account.** One job per dataset: `http_requests` under `http_requests/{DATE}/` and `firewall_events` under `firewall_events/{DATE}/`. Output is ndjson with RFC 3339 timestamps and a sample rate of 1. A Logpush job covers the whole zone, so the log holds every `aecintegrations.com` host: `www.`, the apex, `demo.` and `staging.`. Filter on `ClientRequestHost` to read one tier. There is one bucket, not one per tier.
 2. **The `http_requests` job takes every field except `ClientIP` and the Bot-Management-only set.** The excluded set is `BotScore`, `BotScoreSrc`, `BotTags`, `BotDetectionTags`, `BotDetectionIDs`, `JA4`, `JA3Hash`, `JA4Signals` and `JSDetectionPassed`. `VerifiedBotCategory` is kept, because Cloudflare fills it without Bot Management. `RequestHeaders` is kept and filled by one custom-fields rule (phase `http_log_custom_fields`, expression `true`) naming nine request headers: `sec-gpc`, `dnt`, `sec-fetch-mode`, `sec-fetch-site`, `sec-fetch-dest`, `accept-language`, `sec-ch-ua`, `sec-ch-ua-mobile` and `sec-ch-ua-platform`.
 3. **The `firewall_events` job takes every field except `ClientIP`.** It carries `ClientASNDescription`, the AS holder name `http_requests` lacks.
 4. **No raw IP is stored.** `ClientIP` is omitted from both jobs. Grouping captured page views by IP stays possible later, through the Ray ID and ADR 0041's monthly `ip_hash`. That join is not built (item 9). This answers `docs/design/edge-log-and-page-views.md` §7 Q3 for the Logpush bucket.
@@ -46,3 +46,10 @@ The first version of epic AECI-1196 proposed Logpush into Basin Pipelines and th
 - `docs/VENDOR_PERFORMANCE_SPEC.md` §2.3 item 3 (assistant fetches on their own line) has a permanent source but still no reader.
 - Deferred to a later epic: the daily rollup and the §2.3 assistant-fetch reader; the Ray ID join, the gateway `Server-Timing` stamp, the edge-only table and beacon coverage (AECI-1304, AECI-1330); consent-tiered storage; retiring the WAF poll and the pull scripts.
 - Re-open trigger: a reader of the log is needed, Bot Management is bought (AECI-1299), or AECI-1457 chooses the Ray ID route, which revives AECI-1330.
+
+**Amendment 2026-10-22 (AECI-1447):** Four facts surfaced while creating the resources. The decision is unchanged.
+
+- The bucket is `aeci-edge-log-prod-us`, in ENAM, not `aeci-edge-log-production`. The first create had no location hint and landed in APAC. R2 honours a hint only on a name's first create, so a same-name recreate kept APAC.
+- The zone's Logpush field list offers none of the item 2 Bot Management fields while Bot Management is unlicensed. The jobs use an explicit field list, every offered field except `ClientIP`, so buying Bot Management cannot add them silently.
+- The one-off token in item 8 needs account Notifications Edit as well as zone Logs Edit. The item 10 notification is an account alerting policy. Zone Logs Edit covered the `http_log_custom_fields` ruleset.
+- Item 1's host list is incomplete. The first delivered files also hold `review.aecintegrations.com`, the review app, and `us.i.posthog.com`, the PostHog ingest proxy on the zone. Filtering on `ClientRequestHost` still separates them.
