@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **21 are committed** (2026-10-16): the AECI-1099 `profile-ensure-failed` alert, the three AECI-1206 email alerts, the two AECI-1222 delivery alerts and the AECI-1384 `pageviews-raw-unsent` alert reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-one** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, `request-confirmation-expiry`, AECI-1435, and `traffic-classify`, AECI-1345) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-one** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, and `traffic-classify`, AECI-1345) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 53 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -522,9 +522,10 @@ entry with an `activeFrom` (AECI-1221).** The sweep reads production, where a ne
 run, so its row would report MISSING from merge until the first production run. Before
 `activeFrom` a missing heartbeat prints `PENDING` and does not fail the sweep. After it the row
 is ordinary. Delete `activeFrom` once the cron's first production heartbeat is in. `gsc-inspect`
-carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368), `request-confirmation-expiry` (AECI-1435) and `traffic-classify` (AECI-1345). AECI-1232 removed it from
+carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368) and `traffic-classify` (AECI-1345). AECI-1232 removed it from
 `protest-reply-reminder` and `vendor-snapshot` on 2026-10-05, after both heartbeats appeared in
-production. The rule is
+production. AECI-1439 removed it from `request-confirmation-expiry` on 2026-10-22, after its first
+production run at 2026-10-21 14:30 UTC. The rule is
 `observability/posthog/README.md` §"New crons: activeFrom".
 `cron-schedules.spec.ts` fails if a cron has no entry.
 

@@ -423,20 +423,17 @@ Three entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
 delete it once `aeci.claim.owner_fallback.job` appears in production.
-`request-confirmation-expiry` (AECI-1435) carries the same `2026-11-01T15:00:00Z` placeholder.
-Move it to the real production promote plus a day, and delete it once
-`aeci.request_confirmation.expiry.job` appears in production.
 `traffic-classify` (AECI-1345) carries `2026-11-01T01:00:00Z`, also a placeholder past the expected
 production promote. Move it to the real promote plus a day, and delete it once
 `aeci.traffic_classify.run` appears in production.
 
-AECI-1232 removed the previous two on 2026-10-05, after a production sweep reported both
-heartbeats `ok`:
+Removed entries, each once its heartbeat had appeared in production:
 
-| Cron | Heartbeat | First seen in production |
-|---|---|---|
-| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run |
-| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run |
+| Cron | Heartbeat | First seen in production | Removed by |
+|---|---|---|---|
+| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run | AECI-1232, 2026-10-05 |
+| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run | AECI-1232, 2026-10-05 |
+| `request-confirmation-expiry` (AECI-1435) | `aeci.request_confirmation.expiry.job` | 2026-10-21, 14:30 UTC run | AECI-1439, 2026-10-22 |
 
 ## The liveness sweep drill
 
