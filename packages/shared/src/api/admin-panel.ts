@@ -125,6 +125,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `classification_unresolved_share` | AECI-1345 (D19 Phase 2). A `warn`, **gated**: emitted only when `unresolved` views exceed `CLASSIFICATION_UNRESOLVED_SHARE_MAX` (50%) of the classified, non-internal views in the window. `params.unresolved` / `params.classified` carry the two counts. It describes a condition that may not hold, so the D15(b) gate-the-caveat rule applies |
  * | `classification_version_seam` | AECI-1345. An `info`, **gated** on `classification.version_seam` being non-null: the window spans a classifier version change, and each day is counted on its own latest version, flagged rather than blended (D19(c)). `params` repeat `from_version`, `to_version`, `changed_on` |
  * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". The `corroborated_is_a_referrer_floor` precedent (§13 D15(d)) |
+ * | `collection_method_seam` | AECI-1346. An `info`, **gated** on a `POST_LAUNCH_MONITORING.md` §3d row for this tier falling inside the 30-day chart window (`COLLECTION_METHOD_CHANGES`). One note per row. `params`: `changed_at` (ISO timestamp), `tier`, `summary`, `comparable` (`'true'` or `'false'`). On a `'false'` row the class `delta_day` and the residual deltas that span it are null. On a `'true'` row the note is informational and the deltas stand |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
@@ -183,6 +184,9 @@ export const AdminNoteCodeSchema = z.enum([
   'classification_unresolved_share',
   'classification_version_seam',
   'classification_is_heuristic',
+  // AECI-1346 — a `POST_LAUNCH_MONITORING.md` §3d collection-method change inside
+  // the window. The second seam source, beside the classifier version.
+  'collection_method_seam',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -612,8 +616,13 @@ export const AdminOverviewTrafficSchema = z.object({
   /** Post-automation human page views, this day vs the prior day — the digest's
    *  delta, and **filtered on BOTH sides** (AECI-741): a filtered day against an
    *  unfiltered prior day manufactures a large fake drop. Redefined by AECI-745
-   *  alongside `page_views_human`, for the same reason and with the same caveat. */
-  delta_day: AdminDeltaSchema,
+   *  alongside `page_views_human`, for the same reason and with the same caveat.
+   *
+   *  **Null when a non-comparable §3d collection-method change falls between the
+   *  two days** (AECI-1346, `collection_method_seam` with `comparable: 'false'`).
+   *  The two days count different row populations, so the difference measures
+   *  nothing. Null is never a zero change. */
+  delta_day: AdminDeltaSchema.nullable(),
   /**
    * Human page views, the 7 days ending with this one vs the 7 before that.
    *
@@ -622,8 +631,11 @@ export const AdminOverviewTrafficSchema = z.object({
    * on every request, which is not a cost this endpoint can carry. Two deltas
    * with different populations sitting side by side is a real hazard; the answer
    * is to label it, not to fabricate a filtered week from an unfiltered one.
+   *
+   * Null when a non-comparable §3d collection-method change falls inside the 14
+   * days it compares (AECI-1346), for the same reason as `delta_day`.
    */
-  delta_7d: AdminDeltaSchema,
+  delta_7d: AdminDeltaSchema.nullable(),
   /** 30 UTC days ending with the reported day, zero-filled. RAW, like
    *  `delta_7d` and for the same reason. The filtered series is the
    *  `traffic.page_views_human_after_automation` metric key, which is served from
@@ -735,10 +747,27 @@ export const AdminTrafficClassSchema = z.enum([
 ]);
 export type AdminTrafficClass = z.infer<typeof AdminTrafficClassSchema>;
 
+/** A `YYYY-MM-DD` UTC day. */
+const AdminUtcDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * One `POST_LAUNCH_MONITORING.md` §3d collection-method change for this tier
+ * (AECI-1346). Read from `COLLECTION_METHOD_CHANGES` in
+ * `apps/api/src/lib/collection-method-changes.ts`, which a spec pins to the doc.
+ *
+ * `arrivals_comparable: false` gets the classifier-seam treatment: deltas across
+ * it are null. `true` is informational: the boundary is shown and the deltas stand.
+ */
+const AdminMethodChangeSchema = z.object({
+  summary: z.string().min(1),
+  arrivals_comparable: z.boolean(),
+});
+
 /**
  * The classification half of `GET /api/admin/overview` (`API_CONTRACTS.md` §6.10).
- * A SIBLING of `traffic`, never a replacement: `page_views_human` and its
- * neighbours keep their meanings until Phase 3 (AECI-1346) switches the readers.
+ * A SIBLING of `traffic`, never a replacement: `page_views_human` keeps its
+ * meaning. Phase 3 (AECI-1346) made the classes the lead figure on the panel and
+ * in the 05:00 digest. The residual stays as the previous measure.
  * Read from `page_view_classifications` (`DATABASE_SCHEMA.md` §9.7).
  */
 export const AdminClassificationSummarySchema = z.object({
@@ -753,6 +782,13 @@ export const AdminClassificationSummarySchema = z.object({
         class: AdminTrafficClassSchema,
         views: z.number().int().nonnegative(),
         visitors: z.number().int().nonnegative(),
+        /**
+         * Views, this day against the prior day (AECI-1346), with `computeDelta`
+         * semantics. Null when the two are not comparable: the prior day was not
+         * classified, the two days have different latest versions, or a
+         * non-comparable §3d row falls between them. Null is never a zero change.
+         */
+        delta_day: AdminDeltaSchema.nullable(),
       }),
     )
     .length(4),
@@ -765,17 +801,56 @@ export const AdminClassificationSummarySchema = z.object({
   }),
   /** Which of D19(a)'s questions the figures answer. Always `requests` today. */
   basis: z.enum(['requests', 'browser_executions']),
-  /** Non-null when the window spans a version change (D19(c)): flagged, never
-   *  blended. `changed_on` is the first day counted on `to_version`. */
+  /**
+   * Non-null when the window spans a version change (D19(c)): flagged, never
+   * blended. `changed_on` is the first day counted on `to_version`.
+   *
+   * On the overview this is computed over the **30-day chart window** (AECI-1346),
+   * because the chart spans it. The counts above stay single-day.
+   */
   version_seam: z
     .object({
       from_version: z.string().min(1),
       to_version: z.string().min(1),
-      changed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      changed_on: AdminUtcDaySchema,
     })
     .nullable(),
+  /**
+   * §3d collection-method changes for this tier inside the 30-day chart window
+   * (AECI-1346), oldest first. Empty on a local run: no tier matches.
+   */
+  method_seams: z.array(
+    AdminMethodChangeSchema.extend({
+      changed_at: z.string().datetime(),
+    }),
+  ),
 });
 export type AdminClassificationSummary = z.infer<typeof AdminClassificationSummarySchema>;
+
+/**
+ * One day of the overview's 30-day class chart (AECI-1346). Zero-filled by day
+ * across the window, like `series_30d`.
+ *
+ * `counts` is **null on a day that was not classified**, never four zeros: the
+ * chart draws that day as "Not classified". Each day is counted on its own latest
+ * version, so a change in `classifier_version` between two points is a boundary.
+ */
+export const AdminClassificationPointSchema = z.object({
+  day: AdminUtcDaySchema,
+  classifier_version: z.string().min(1).nullable(),
+  counts: z
+    .object({
+      identified_automation: z.number().int().nonnegative(),
+      suspected_automation: z.number().int().nonnegative(),
+      browser_with_human_evidence: z.number().int().nonnegative(),
+      unresolved: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  /** The §3d change that falls on this day, or null. The chart draws a boundary
+   *  before the day. When two rows share a day, the non-comparable one wins. */
+  method_change: AdminMethodChangeSchema.nullable(),
+});
+export type AdminClassificationPoint = z.infer<typeof AdminClassificationPointSchema>;
 
 /**
  * One row's classification on `GET /api/admin/page-views`, beside `asn_registry`
@@ -810,6 +885,9 @@ export const AdminOverviewResponseSchema = z.object({
   traffic: AdminOverviewTrafficSchema,
   /** AECI-1345 — the stored D19 classes for the same window. Additive. */
   classification: AdminClassificationSummarySchema,
+  /** AECI-1346 — the four classes per day across the 30-day chart window,
+   *  zero-filled by day, with null counts on unclassified days. */
+  classification_series_30d: z.array(AdminClassificationPointSchema),
   audience: AdminOverviewAudienceSchema,
   catalog: AdminOverviewCatalogSchema,
   status: AdminStatusStripSchema,

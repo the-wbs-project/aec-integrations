@@ -150,7 +150,8 @@ export async function computeFlowMetric(
  * backfill.
  */
 export async function computeHumanViewsAfterAutomation(db: Db, day: string): Promise<number> {
-  const metrics = await collectAnalyticsMetrics(db, windowsForDay(day));
+  // No class read (AECI-1346): the snapshot stores no class figure.
+  const metrics = await collectAnalyticsMetrics(db, windowsForDay(day), { classification: false });
   if (!metrics.automation) {
     throw new Error(`automation detector did not run for ${day}; refusing to store a raw count`);
   }

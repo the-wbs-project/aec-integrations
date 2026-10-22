@@ -127,6 +127,23 @@ export interface StackedBarPoint {
    * dimmed and hatched. Absent or `false` = draw normally. Geometry ignores it.
    */
   degraded?: boolean;
+  /**
+   * The column was never measured (AECI-1346: a day the traffic classifier did not
+   * run). Drawn as an outlined empty column, never as a zero-height bar, because a
+   * zero is a measurement and this is the absence of one. Its `segments` are
+   * ignored by the geometry and by the scale.
+   */
+  notMeasured?: boolean;
+  /**
+   * Localized descriptions of what changed between the previous column and this one
+   * (AECI-1346: a classifier version change, a collection-method change). Drawn as
+   * one dashed vertical rule before the column, with one legend entry per distinct
+   * description. Absent or empty = no boundary.
+   */
+  boundaryBefore?: readonly string[];
+  /** What the column was measured under (AECI-1346: the classifier version), for
+   *  the hidden table's version column. Geometry ignores it. */
+  version?: string | null;
 }
 
 export interface StackedBarRect {
@@ -167,7 +184,9 @@ export function stackedBarGeometry(
   const gap = Math.min(Math.max(opts.gap ?? 0.2, 0), 0.9);
   const slot = box.width / points.length;
   const barWidth = slot * (1 - gap);
-  const totals = points.map((p) => p.segments.reduce((sum, v) => sum + sanitize(v), 0));
+  const totals = points.map((p) =>
+    p.notMeasured ? 0 : p.segments.reduce((sum, v) => sum + sanitize(v), 0),
+  );
   const max = niceMax(totals);
 
   const rects: StackedBarRect[] = [];
@@ -175,6 +194,8 @@ export function stackedBarGeometry(
     const x = pointIndex * slot + (slot - barWidth) / 2;
     // Stack upward from the baseline: series 0 sits on the floor.
     let bottom = box.height;
+    // An unmeasured column draws no segments: see `StackedBarPoint.notMeasured`.
+    if (point.notMeasured) return;
     point.segments.forEach((raw, seriesIndex) => {
       const value = sanitize(raw);
       if (value === 0) return;
@@ -192,4 +213,67 @@ export function stackedBarGeometry(
   });
 
   return { rects, max, barWidth: round(barWidth) };
+}
+
+// ─── Stacked-bar annotations (AECI-1346) ─────────────────────────────────────
+
+/** A full-height outline for a column that was never measured. */
+export interface StackedBarOutline {
+  pointIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A vertical rule on the slot edge BEFORE `pointIndex`, so it sits in the gap
+ *  between two columns and never over either bar. */
+export interface StackedBarBoundary {
+  pointIndex: number;
+  x: number;
+}
+
+export interface StackedBarMarks {
+  outlines: readonly StackedBarOutline[];
+  boundaries: readonly StackedBarBoundary[];
+}
+
+/**
+ * The annotation layer beside {@link stackedBarGeometry}: outlines for
+ * `notMeasured` columns and boundary rules for `boundaryBefore`. Kept separate so
+ * the bar geometry's shape (and every caller that reads it) is unchanged.
+ *
+ * Uses the same slot arithmetic as the bars, so an outline lines up exactly with
+ * where that column's bar would have been. A boundary before the FIRST column is
+ * dropped: the window edge already is the boundary, and a rule on `x = 0` would
+ * draw on top of the chart's own edge.
+ */
+export function stackedBarMarks(
+  points: readonly StackedBarPoint[],
+  box: ChartBox,
+  opts: { gap?: number } = {},
+): StackedBarMarks {
+  if (points.length === 0) return { outlines: [], boundaries: [] };
+
+  const gap = Math.min(Math.max(opts.gap ?? 0.2, 0), 0.9);
+  const slot = box.width / points.length;
+  const barWidth = slot * (1 - gap);
+
+  const outlines: StackedBarOutline[] = [];
+  const boundaries: StackedBarBoundary[] = [];
+  points.forEach((point, pointIndex) => {
+    if (point.notMeasured) {
+      outlines.push({
+        pointIndex,
+        x: round(pointIndex * slot + (slot - barWidth) / 2),
+        y: 0,
+        width: round(barWidth),
+        height: round(box.height),
+      });
+    }
+    if (pointIndex > 0 && (point.boundaryBefore?.length ?? 0) > 0) {
+      boundaries.push({ pointIndex, x: round(pointIndex * slot) });
+    }
+  });
+  return { outlines, boundaries };
 }

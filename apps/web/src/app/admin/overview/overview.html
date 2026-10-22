@@ -78,22 +78,26 @@
     <aec-admin-notes [notes]="o.notes" />
   </div>
 
-  <!-- Stat tiles ------------------------------------------------------- -->
-  <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-    <!-- Leads with the POST-AUTOMATION figure (AECI-745) — the same number the
-         05:00 email leads with. The raw server-side count it was subtracted from
-         is in the caption, where the subtraction is legible, rather than in a
-         tile of its own: two tiles both labelled the same thing is how a reader
-         ends up quoting whichever one they saw first.
+  <!-- Traffic classes (AECI-1346, D19). The lead slot: the same figures the
+       05:00 email now leads with. -->
+  <div class="mt-6">
+    <aec-traffic-classes-card
+      [summary]="o.classification"
+      [day]="windowDay()"
+      [notComparable]="classDeltaReason()"
+    />
+  </div>
 
-         AECI-869 renamed the class. The tile said "Human page views after
-         automation" and led the screen with a claim the evidence does not
-         support: surviving the crawler list, the header checks and the swarm
-         thresholds is the absence of a bot match. A new message id, not an edited
-         string, because the meaning changed and a translator must re-read it. -->
+  <!-- Stat tiles ------------------------------------------------------- -->
+  <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <!-- The residual, demoted to the previous measure by AECI-1346. Its figure,
+         caption and sparkline are unchanged (AECI-745, AECI-869): the raw
+         server-side count it was subtracted from stays in the caption, where the
+         subtraction is legible. A new message id, not an edited string, because
+         the label now says what the tile is. A later issue removes the tile. -->
     <aec-stat-tile
-      i18n-label="@@admin.overview.tile.unresolvedRequests"
-      label="Requests of unresolved origin"
+      i18n-label="@@admin.overview.tile.unresolvedRequestsPrevious"
+      label="Requests of unresolved origin (previous measure)"
       [value]="o.traffic.page_views_human.total"
       [caption]="pageViewsCaption()"
       [deltas]="pageViewDeltas()"
@@ -186,17 +190,20 @@
     <h3
       id="admin-overview-traffic-heading"
       class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.overview.traffic.heading"
+      i18n="@@admin.overview.traffic.headingClasses"
     >
-      Page views over the last 30 days
+      Page requests by class over the last 30 days
     </h3>
     <div class="mt-3">
       <aec-stacked-bar-chart
         [points]="trafficPoints()"
         [seriesLabels]="trafficSeriesLabels"
+        [seriesFills]="trafficSeriesFills"
         [label]="trafficChartLabel"
         [emptyLabel]="trafficChartEmpty"
         [degradedLabel]="trafficChartDegraded"
+        [notMeasuredLabel]="trafficChartNotClassified"
+        [versionLabel]="trafficChartVersion"
       />
     </div>
   </section>

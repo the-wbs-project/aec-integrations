@@ -1238,6 +1238,10 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   classification_unresolved_share: 'warn',
   classification_version_seam: 'info',
   classification_is_heuristic: 'info',
+  // AECI-1346 — a §3d collection-method change inside the chart window. `info`:
+  // it explains a boundary the figures already honour. A non-comparable row nulls
+  // the deltas that span it, so no figure on the screen is left wrong.
+  collection_method_seam: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

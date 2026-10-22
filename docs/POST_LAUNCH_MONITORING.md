@@ -607,6 +607,11 @@ behind it:
 
 ### 3a-ter. The digest headline is a RESIDUAL, and the telemetry behind it can go missing (AECI-869)
 
+> **Since AECI-1346 this figure is the previous measure, not the headline.** The 05:00 email and
+> `/admin/overview` lead with the four D19 traffic classes (§3c step 5). The residual below them is
+> unchanged: same figure, same name, same caveats. AECI-1462 retires it. Read "the headline" in
+> this section as "the residual".
+
 **What the headline means now.** The 05:00 email and the `/admin/overview` lead tile both read
 **"N requests of unresolved origin"**. Same figure, same subtraction, same
 `unresolvedRequests()` call (`apps/api/src/lib/analytics-digest.ts`) — the word *human* is what
@@ -686,7 +691,9 @@ left to the reader:
    network column, so its delta stays a real comparison on a blind day. Suppressing it would be a
    false alarm.
 3. **The 30-day chart marks the days rather than dropping them.** Each `series_30d` point carries
-   `degraded`, and `series_spans_degraded_days` counts them in the honesty envelope. A day with **no
+   `degraded`, and `series_spans_degraded_days` counts them in the honesty envelope. Since
+   AECI-1346 the chart draws the four classes from `classification_series_30d`, and this rule
+   applies to the class chart. A day with **no
    stored coverage row is `false`** — "not assessed", never "blind" — because painting every
    unmeasured day red is the one failure mode a telemetry marker must not have.
 
@@ -698,7 +705,8 @@ backfill over the AECI-868 window is sequenced separately and recorded in the is
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
 > **Since AECI-869 the headline is called "N requests of unresolved origin"** — same figure, same
-> subtraction, new name and a telemetry-health line beside it. **§3a-ter above is the current
+> subtraction, new name and a telemetry-health line beside it. Since AECI-1346 it is the previous
+> measure, below the four traffic classes (§3c step 5). **§3a-ter above is the current
 > description**; everything below is the history that produced it, and every occurrence of "human
 > views after automation" in this section names the figure this one renamed. The word *human* now
 > appears on the corroborated line alone.
@@ -895,6 +903,9 @@ one, and adding the totals would report more suspicious views than the day conta
 | `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
 | `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
+| `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
+| `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
 
 **Tuning any threshold in this table obsoletes the stored `traffic.page_views_human_after_automation`
 series, and nothing detects it (AECI-827 / ADR 0027).** The AECI-827 re-check converges
@@ -1143,9 +1154,9 @@ Ops-routed findings are unaffected.
 
 This is the operational half of `ADMIN_PANEL_SPEC.md` §13 **D19**, agreed on 2026-10-14. Steps 1 to 3
 run with the offline shadow runner. The stored classification record in step 4 shipped with
-Phase 2 (**AECI-1345**, 2026-10-21), and the seam in step 5 arrives with Phase 3 (**AECI-1346**).
-Until Phase 3 ships, the digest still reports under §3b, and §3b stays the live procedure for every
-threshold here.
+Phase 2 (**AECI-1345**, 2026-10-21). The seam in step 5 shipped with Phase 3 (**AECI-1346**,
+2026-10-22), which also switched the digest and `/admin/overview` to the classes. §3b stays the
+live procedure for every threshold here.
 
 Today a threshold change is one edit to a constant in `lib/swarm-detection.ts` and a note in
 `POST_LAUNCH_HEALTH_REPORT.md`. That is the whole record. Two gaps follow from it and §3b already
@@ -1179,8 +1190,8 @@ column must read `yes` on every day, or the runner is not seeing the digest's po
 
 Three constants are new with the classifier and are shadow-only until cut-over:
 `SUSPECTED_MIN_SIGNAL_FAMILIES` (2), `SPA_FOLLOWUP_WINDOW_MINUTES` (30) and the runner's
-`SHARED_PROXY_MIN_UA_HASHES` (5). They change no reported number today, so they join §3b's tunables
-table with Phase 3. The first two are rule inputs, so changing either bumps the classifier version.
+`SHARED_PROXY_MIN_UA_HASHES` (5). They joined §3b's tunables table with Phase 3 (AECI-1346). The
+first two are rule inputs, so changing either bumps the classifier version.
 
 The run must be exercised against the D19(d) reviewed sample, which has to contain all six of:
 
@@ -1241,15 +1252,20 @@ the stored series legible afterwards:
 - **`job_runs.detail`** carries the version and the constant values the run actually used. Built in
   Phase 2 (AECI-1345): the `traffic-classify` run records `classifierVersion`, `fingerprint` and
   `constants` (`SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, the swarm constants)
-  beside `rowsSeen`, `rowsWritten` and `countsByClass`. The analytics digest's own detail still
-  carries counts only (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`,
-  `swarmTruncated`, `verdictFlaggedViews`, `nonBrowserCandidates`).
+  beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
+  digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
+  per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
+  and the reported day) and `classificationReadFailed`. Its counts stay beside them
+  (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
+  `verdictFlaggedViews`, `nonBrowserCandidates`).
 - **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
 - **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
   is unchanged and is not superseded by any of the above.
 
-**5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. This
-step arrives with Phase 3 (AECI-1346). The
+**5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. Built
+in Phase 3 (AECI-1346): the `classification_version_seam` note on the overview's 30-day window,
+null class deltas across the change, and a seam line in the email. §3d's collection-method rows are
+a second seam source with the same treatment. The
 rule is D19(c): **days under different classifier versions are flagged, never blended.** Concretely,
 for the day of the switch and for any window spanning it, three things hold.
 
@@ -1270,14 +1286,32 @@ Shadow mode is a way to earn that decision, never a way to skip it.
 
 A change to **how** `page_views` rows are written moves every count built on them, with no change in
 traffic. This table is the dated record. A comparison window that spans a row here is flagged, never
-blended (the same rule as §3c step 5). AECI-1346 must read it before it switches the reported
-numbers.
+blended (the same rule as §3c step 5).
 
-| Date (UTC) | Tier | Change | Effect on the series |
-|---|---|---|---|
-| 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. |
-| 2026-10-22 02:40 (`957951a08`) | demo | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Demo arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
-| 2026-10-22 03:53 (`88cedfbc3`) | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
+**What reads it (AECI-1346).** The code form is `COLLECTION_METHOD_CHANGES` in
+`apps/api/src/lib/collection-method-changes.ts`. `collection-method-changes.spec.ts` parses this
+table and asserts it equals the constant, so a doc row without a code row fails CI, and the reverse
+too. A new row is one PR that edits both. The match is on the tier (`ENV`). A local run matches no
+row.
+
+Each row gets one of two treatments, set by the last column:
+
+- **Arrivals comparable: no.** The same treatment as a classifier seam. On `/admin/overview` the
+  class `delta_day` is null, and so are the residual's `delta_day` and `delta_7d` when their days
+  span the row. The 05:00 email prints "not comparable with the prior day (collection method
+  changed)" in place of those deltas. The chart draws a boundary.
+- **Arrivals comparable: yes.** Informational. The `collection_method_seam` note fires, the email
+  prints a line saying the counts stay comparable, and the chart draws a boundary labelled as
+  comparable. The deltas stand.
+
+Either way the note fires for every 30-day chart window that contains the row. So production's
+2026-10-22 row shows on the overview until 2026-11-21.
+
+| Date (UTC) | Tier | Change | Effect on the series | Arrivals comparable |
+|---|---|---|---|---|
+| 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. | no |
+| 2026-10-22 02:40 (`957951a08`) | demo | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Demo arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. | yes |
+| 2026-10-22 03:53 (`88cedfbc3`) | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. | yes |
 
 The writer itself does not change at a cache flip. A HIT skips the render, so from each tier's
 flip the render counts and the AECI-839 p95 measure misses only.

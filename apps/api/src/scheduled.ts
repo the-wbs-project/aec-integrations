@@ -114,7 +114,11 @@ import {
   type PosthogMetricPoint,
 } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
-import type { OwnershipSyncMessage } from '@aeci/shared';
+import type {
+  AdminClassificationSummary,
+  AdminTrafficClass,
+  OwnershipSyncMessage,
+} from '@aeci/shared';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
@@ -146,6 +150,8 @@ import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
   dailyWindows,
+  digestMethodSeams,
+  type AnalyticsMetrics,
   type DigestWindow,
   unresolvedRequests,
 } from './lib/analytics-digest';
@@ -233,6 +239,7 @@ import {
 import {
   toOrphanSweepEntity,
   withJobRun,
+  type AnalyticsDigestSummary,
   type DriftReportDetail,
   type JobRunReport,
   type JobRunSink,
@@ -1415,6 +1422,54 @@ async function readPosthogFloor(env: Env, window: DigestWindow): Promise<Posthog
   );
 }
 
+/**
+ * The analytics digest's class fields for `job_runs.detail` (AECI-1346). Null
+ * classes are recorded as null, never as zeros.
+ */
+function digestClassificationDetail(
+  metrics: AnalyticsMetrics,
+  envLabel: string,
+  dayLabel: string,
+): Pick<
+  AnalyticsDigestSummary,
+  'classifierVersion' | 'classViews' | 'classificationSeam' | 'classificationReadFailed'
+> {
+  const c = metrics.classification;
+  if (!c) {
+    return {
+      classifierVersion: null,
+      classViews: null,
+      classificationSeam: null,
+      classificationReadFailed: true,
+    };
+  }
+  const summary = c.day.summary;
+  const classified = summary.classifier_version !== null;
+  return {
+    classifierVersion: summary.classifier_version,
+    classViews: classified
+      ? {
+          identified_automation: viewsOf(summary, 'identified_automation'),
+          suspected_automation: viewsOf(summary, 'suspected_automation'),
+          browser_with_human_evidence: viewsOf(summary, 'browser_with_human_evidence'),
+          unresolved: viewsOf(summary, 'unresolved'),
+        }
+      : null,
+    classificationSeam: {
+      version: c.versionSeam,
+      method: digestMethodSeams(envLabel, dayLabel).map((r) => ({
+        at: r.at,
+        arrivalsComparable: r.arrivalsComparable,
+      })),
+    },
+    classificationReadFailed: false,
+  };
+}
+
+function viewsOf(summary: AdminClassificationSummary, cls: AdminTrafficClass): number {
+  return summary.counts.find((x) => x.class === cls)?.views ?? 0;
+}
+
 async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/analytics-digest');
   try {
@@ -1554,6 +1609,10 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           operatorLeakViews: metrics.operatorLeakViews,
           corroboratedViews: metrics.corroboratedViews.day,
           corroboratedVisitors: metrics.corroboratedVisitors,
+          // AECI-1346. The classes the email led with, so the morning's figures
+          // are reconstructible from `job_runs` without re-reading a day whose
+          // classification may since have been re-evaluated.
+          ...digestClassificationDetail(metrics, env.ENV ?? 'development', window.dayLabel),
         },
       },
     };

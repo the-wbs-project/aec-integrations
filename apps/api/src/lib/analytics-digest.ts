@@ -18,6 +18,14 @@
  * backfill runs — a safe degradation (matches the pre-split behavior) rather than
  * silently dropping rows.
  *
+ * ─── The classes lead (AECI-1346) ────────────────────────────────────────────
+ *
+ * Since D19 Phase 3 the email opens with the four stored traffic classes
+ * ({@link DigestClassification}), read through the same functions
+ * `/admin/overview` uses. The residual below is the PREVIOUS measure. Everything
+ * this docblock says about it still holds, but it no longer leads. AECI-1462
+ * retires it.
+ *
  * ─── What the headline is CALLED, and why (AECI-869) ────────────────────────
  *
  * It is **"requests of unresolved origin"**, not "human page views". The figure is
@@ -64,9 +72,25 @@
 
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
+import type { AdminClassificationSummary, AdminTrafficClass } from '@aeci/shared';
+
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+import {
+  classDeltaBlocker,
+  CLASSIFICATION_UNRESOLVED_SHARE_MAX,
+  type ClassDeltaBlocker,
+  readClassificationSeries,
+  readClassificationSummary,
+  type ClassificationDay,
+  type ClassificationSummaryRead,
+} from './admin-classification';
 import { textAsc } from './collation';
+import {
+  anyNotComparable,
+  collectionMethodSeam,
+  type CollectionMethodChange,
+} from './collection-method-changes';
 import {
   ARRIVAL_CF_COVERAGE_MIN,
   readArrivalCfCoverage,
@@ -261,6 +285,28 @@ export interface AnalyticsMetrics {
    * over-reports, so the morning after the pipeline breaks reads as growth.
    */
   priorArrivalCoverage: ArrivalCfCoverage;
+  /**
+   * The stored D19 traffic classes for the reported day and the prior day
+   * (AECI-1346, D19 Phase 3). The email leads with them.
+   *
+   * **Null means the read FAILED**, and the email says the classes could not be
+   * read. A day the classifier never ran is not null: it is an object whose
+   * `day.summary.classifier_version` is null. Neither state prints zeros.
+   */
+  classification: DigestClassification | null;
+}
+
+/**
+ * The classes the digest leads with, read from `page_view_classifications`
+ * through the same two functions `/admin/overview` uses (`admin-classification.ts`).
+ */
+export interface DigestClassification {
+  /** The reported day: four class counts with visitors, plus the internal split. */
+  day: ClassificationSummaryRead;
+  /** The prior day's views per class, or null when the prior day was not classified. */
+  prior: ClassificationDay | null;
+  /** The D19(c) seam over `[prior day, reported day]`, or null. */
+  versionSeam: AdminClassificationSummary['version_seam'];
 }
 
 const TOP_PRODUCTS_LIMIT = 5;
@@ -533,8 +579,11 @@ async function countOperatorLeakViews(db: Db, startIso: string, endIso: string):
 export async function collectAnalyticsMetrics(
   db: Db,
   window: DigestWindow,
+  options: CollectOptions = {},
 ): Promise<AnalyticsMetrics> {
   const { swarm, automation, exclusion } = await runAutomationFilter(db, window);
+  const classificationRead =
+    options.classification === false ? Promise.resolve(null) : readDigestClassification(db, window);
   const [
     humanViewsDay,
     humanViewsPrior,
@@ -553,6 +602,7 @@ export async function collectAnalyticsMetrics(
     operatorLeakViews,
     arrivalCoverage,
     priorArrivalCoverage,
+    classification,
   ] = await Promise.all([
     countPageViews(db, window.startIso, window.endIso, 'human'),
     countPageViews(db, window.priorStartIso, window.startIso, 'human'),
@@ -575,7 +625,15 @@ export async function collectAnalyticsMetrics(
     // fan-out rather than after it.
     readArrivalCfCoverage(db, window.startIso, window.endIso),
     readArrivalCfCoverage(db, window.priorStartIso, window.startIso),
+    // AECI-1346. The D19 classes, in the same fan-out. Soft: a failure is null.
+    classificationRead,
   ]);
+  // The summary passes the D15(b) operator-leak figure through, so the email's
+  // internal line and the residual's leak line are one number. It is counted in
+  // the same fan-out, so it is attached here.
+  if (classification) {
+    classification.day.summary.internal_excluded.operator_leak_inferred = operatorLeakViews;
+  }
   return {
     pageViews: { day: humanViewsDay, prior: humanViewsPrior },
     botPageViews: { day: botViewsDay, prior: botViewsPrior },
@@ -592,7 +650,47 @@ export async function collectAnalyticsMetrics(
     swarm,
     arrivalCoverage,
     priorArrivalCoverage,
+    classification,
   };
+}
+
+/** Options for {@link collectAnalyticsMetrics}. */
+export interface CollectOptions {
+  /**
+   * Read the D19 classes (AECI-1346). Default true. The `metrics_daily` snapshot
+   * passes false: it stores no class figure, so the read would be wasted.
+   */
+  classification?: boolean;
+}
+
+/**
+ * The reported day's class summary and the prior day's class views (AECI-1346).
+ *
+ * Two reads: the day's summary, and a two-day series that yields the prior day
+ * and the seam through the same `versionSeamFor` rule the overview uses.
+ *
+ * **Fails soft.** A failure returns null and the email says the classes could
+ * not be read. Throwing would take the whole 05:00 email down for one section.
+ */
+async function readDigestClassification(
+  db: Db,
+  window: DigestWindow,
+): Promise<DigestClassification | null> {
+  const priorDay = window.priorStartIso.slice(0, 10);
+  try {
+    const [day, series] = await Promise.all([
+      readClassificationSummary(db, { fromDay: window.dayLabel, toDay: window.dayLabel }, 0),
+      readClassificationSeries(db, { fromDay: priorDay, toDay: window.dayLabel }),
+    ]);
+    return {
+      day,
+      prior: series.perDay.get(priorDay) ?? null,
+      versionSeam: series.versionSeam,
+    };
+  } catch (err) {
+    console.warn('[analytics-digest] classification read failed; the email omits the classes', err);
+    return null;
+  }
 }
 
 /**
@@ -849,16 +947,186 @@ export function computeDelta(c: DailyCount): Delta {
  * Passed by the caller rather than derived here because this function takes a
  * {@link DailyCount} and a count does not know which days it spans.
  */
-function deltaText(c: DailyCount, opts: { notComparable?: boolean } = {}): string {
-  if (opts.notComparable) {
-    return 'not comparable with the prior day (arrival network telemetry was unavailable)';
-  }
+function deltaText(
+  c: DailyCount,
+  opts: { notComparable?: NotComparableReason | null } = {},
+): string {
+  if (opts.notComparable) return NOT_COMPARABLE_TEXT[opts.notComparable];
   const { diff, pct } = computeDelta(c);
   if (diff === 0) return 'no change vs prior day';
   const magnitude = Math.abs(diff);
   const sign = diff > 0 ? '+' : '-';
   const pctText = pct === null ? '' : ` (${sign}${Math.abs(pct)}%)`;
   return `${sign}${magnitude}${pctText} vs ${c.prior} prior day`;
+}
+
+/**
+ * Why a day-over-day delta prints no arithmetic. `telemetry` is AECI-869's
+ * blind-day rule. The other three are AECI-1346's class rules
+ * ({@link classDeltaBlocker}), and `method` also covers the residual.
+ */
+export type NotComparableReason = 'telemetry' | Exclude<ClassDeltaBlocker, 'day_unclassified'>;
+
+const NOT_COMPARABLE_TEXT: Record<NotComparableReason, string> = {
+  telemetry: 'not comparable with the prior day (arrival network telemetry was unavailable)',
+  classifier: 'not comparable with the prior day (classifier changed)',
+  method: 'not comparable with the prior day (collection method changed)',
+  prior_unclassified: 'not comparable with the prior day (the prior day was not classified)',
+};
+
+/**
+ * The §3d collection-method changes for this tier between the start of the prior
+ * day and the end of the reported day (AECI-1346). A row there means the two
+ * days the deltas compare were counted differently. `env` is the raw `ENV` var.
+ */
+export function digestMethodSeams(env: string, dayLabel: string): CollectionMethodChange[] {
+  const w = windowsForDay(dayLabel);
+  return collectionMethodSeam(env, { startIso: w.priorStartIso, endIso: w.endIso });
+}
+
+/**
+ * Why the residual's page-view deltas print no arithmetic, or null. AECI-869's
+ * telemetry rule first, then a non-comparable §3d row (AECI-1346), because both
+ * change which rows the two days count.
+ */
+function residualNotComparable(
+  metrics: AnalyticsMetrics,
+  methodRows: readonly CollectionMethodChange[],
+): NotComparableReason | null {
+  if (trafficDaysNotComparable(metrics)) return 'telemetry';
+  if (anyNotComparable(methodRows)) return 'method';
+  return null;
+}
+
+/** The four D19(b) classes, in reporting order, with the email's labels. */
+const CLASS_LABELS: ReadonlyArray<{ cls: AdminTrafficClass; label: string }> = [
+  { cls: 'identified_automation', label: 'Identified automation' },
+  { cls: 'suspected_automation', label: 'Suspected automation' },
+  { cls: 'browser_with_human_evidence', label: 'Browser activity with supporting human evidence' },
+  { cls: 'unresolved', label: 'Unresolved' },
+];
+
+/** The heuristic caveat, printed beside the human-evidence row, never in the footer. */
+const HEURISTIC_NOTE =
+  'This class is a heuristic. It means our app ran and nothing contradicted it. It does not prove a person was there.';
+
+const NOT_CLASSIFIED_NOTE = 'The classifier did not run for this day. No class counts are shown.';
+const CLASSES_UNREAD_NOTE =
+  'The traffic classes could not be read for this day. No class counts are shown.';
+
+/** `2026-10-21T10:38:00.000Z` as `2026-10-21 10:38 UTC`. */
+function utcMinute(iso: string): string {
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
+/** One sentence per §3d row, naming the change and its treatment. */
+function methodSeamSentence(row: CollectionMethodChange): string {
+  return (
+    `Collection method changed at ${utcMinute(row.at)}: ${row.summary} (${row.issue}). ` +
+    (row.arrivalsComparable
+      ? 'Arrival counts stay comparable, so the changes vs the prior day stand.'
+      : 'Counts either side are not comparable, so the changes vs the prior day are not shown.')
+  );
+}
+
+/** One row of the class section, already computed for both renderings. */
+interface ClassRow {
+  label: string;
+  views: number;
+  visitors: number;
+  delta: string;
+  cls: AdminTrafficClass;
+}
+
+/**
+ * Everything the class section prints, computed once for the subject, the text
+ * and the HTML (AECI-1346). `state` separates the three cases that must never
+ * look alike: classified, not classified, and a failed read.
+ */
+interface ClassSection {
+  state: 'classified' | 'not_classified' | 'unread';
+  version: string | null;
+  rows: ClassRow[];
+  internalViews: number;
+  operatorLeak: number;
+  unresolvedShare: { unresolved: number; classified: number } | null;
+  versionSeam: AdminClassificationSummary['version_seam'];
+  methodRows: CollectionMethodChange[];
+}
+
+function classSection(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): ClassSection {
+  const methodRows = digestMethodSeams(opts.env, opts.dayLabel);
+  const c = metrics.classification;
+  const empty = {
+    version: null,
+    rows: [],
+    internalViews: 0,
+    operatorLeak: 0,
+    unresolvedShare: null,
+    versionSeam: null,
+    methodRows,
+  };
+  if (!c) return { state: 'unread', ...empty };
+  const summary = c.day.summary;
+  if (!summary.classifier_version) return { state: 'not_classified', ...empty };
+
+  const blocker = classDeltaBlocker(
+    summary.classifier_version,
+    c.prior?.version,
+    anyNotComparable(methodRows),
+  );
+  const reason = blocker === 'day_unclassified' ? null : blocker;
+  const rows = CLASS_LABELS.map(({ cls, label }) => {
+    const count = summary.counts.find((x) => x.class === cls);
+    const views = count?.views ?? 0;
+    return {
+      cls,
+      label,
+      views,
+      visitors: count?.visitors ?? 0,
+      delta: deltaText({ day: views, prior: c.prior?.views[cls] ?? 0 }, { notComparable: reason }),
+    };
+  });
+  return {
+    state: 'classified',
+    version: summary.classifier_version,
+    rows,
+    internalViews: summary.internal_excluded.views,
+    operatorLeak: summary.internal_excluded.operator_leak_inferred,
+    unresolvedShare: c.day.unresolvedShareExceeded
+      ? { unresolved: c.day.unresolved, classified: c.day.classified }
+      : null,
+    versionSeam: c.versionSeam,
+    methodRows,
+  };
+}
+
+/** The class section's warning and seam sentences, shared by both renderings. */
+function classSectionNotes(sec: ClassSection): string[] {
+  const out: string[] = [];
+  if (sec.versionSeam) {
+    out.push(
+      `Classifier changed from ${sec.versionSeam.from_version} to ${sec.versionSeam.to_version} ` +
+        `on ${sec.versionSeam.changed_on}. Each day is counted on its own version, so the changes ` +
+        'vs the prior day are not shown.',
+    );
+  }
+  out.push(...sec.methodRows.map(methodSeamSentence));
+  return out;
+}
+
+function unresolvedShareSentence(share: { unresolved: number; classified: number }): string {
+  return (
+    `More than ${CLASSIFICATION_UNRESOLVED_SHARE_MAX * 100}% of the classified requests are unresolved ` +
+    `(${share.unresolved} of ${share.classified}). Read the split as mostly unknown, not as a confident breakdown.`
+  );
+}
+
+function internalSentence(sec: ClassSection): string {
+  return (
+    `Internal traffic, excluded by identity: ${plural(sec.internalViews, 'view')}. ` +
+    `Operator-leak inference: ${plural(sec.operatorLeak, 'view')}. It is not a class, and no class above counts it.`
+  );
 }
 
 export function buildAnalyticsDigest(
@@ -888,9 +1156,20 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
   // count keeps its parenthesis. Without the filter the AECI-658 hedge is now
   // redundant for the same reason — "up to N unresolved" says nothing "N
   // unresolved (UNFILTERED)" does not, and UNFILTERED names the actual defect.
-  const headline = metrics.automation
+  const residual = metrics.automation
     ? `${net.day} ${unresolvedLabel(net.day)} (${pv.day} raw)`
     : `${pv.day} ${unresolvedLabel(pv.day)} (UNFILTERED)`;
+  // AECI-1346. The classes lead. `automation` is identified plus suspected. When
+  // there are no classes the residual form stays, with a suffix saying why, so a
+  // missing classifier run is visible before the email is opened.
+  const sec = classSection(metrics, opts);
+  const views = (cls: AdminTrafficClass) => sec.rows.find((r) => r.cls === cls)?.views ?? 0;
+  const headline =
+    sec.state === 'classified'
+      ? `${views('browser_with_human_evidence')} with human evidence · ` +
+        `${views('unresolved')} unresolved · ` +
+        `${views('identified_automation') + views('suspected_automation')} automation (${sec.version})`
+      : `${residual} · ${sec.state === 'unread' ? 'CLASSES UNAVAILABLE' : 'NOT CLASSIFIED'}`;
   // The telemetry outage goes in the SUBJECT, not only the body. A four-day
   // outage read as a good week because every surface that could have reported it
   // was one the operator had to open first.
@@ -938,7 +1217,7 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
 function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
   const lines = metrics.automation
     ? [
-        `The headline counts requests no rule could exclude. It is the ${metrics.pageViews.day} views`,
+        `The previous measure counts requests no rule could exclude. It is the ${metrics.pageViews.day} views`,
         `counted server-side less the ${metrics.automation.flagged.day} attributed to automated clients.`,
         'Read it as a RESIDUAL, not as people: surviving the crawler list, the header checks and the',
         'automation thresholds is the absence of a bot match, not evidence of a person. The raw',
@@ -948,7 +1227,7 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
         'population.',
       ]
     : [
-        'The automation filter did not run for this day, so the headline is UNFILTERED: nothing has',
+        'The automation filter did not run for this day, so the previous measure is UNFILTERED: nothing has',
         'been subtracted from the raw server-side count at all. Page views are counted on every',
         'full-document load, so any crawler that does not run JavaScript is in the number, and it is',
         'not comparable with a day the filter ran on.',
@@ -961,7 +1240,7 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
       ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE,
       `Only ${arrivalsWithAsn} of ${arrivals} full-document arrivals carried a network (ASN), so the`,
       'datacentre classification, both automation groupings and the operator retro-join had no input',
-      'and could not fire. Absent evidence is not evidence of absence: the headline is inflated by an',
+      'and could not fire. Absent evidence is not evidence of absence: the previous measure is inflated by an',
       'unknown amount and this day is NOT comparable with a day that has telemetry.',
     );
   }
@@ -973,7 +1252,7 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
     lines.push(
       `Separately, PostHog recorded ${plural(pageviews, 'page view')} from ` +
         `${people} ${people === 1 ? 'identity' : 'identities'} on the same day and host. That is a` +
-        ' different population, not a floor under the headline: it fires only when our JavaScript' +
+        ' different population, not a floor under the previous measure: it fires only when our JavaScript' +
         ' runs and the visitor consented, and its filter is event, date and host only — so operators' +
         ' and any script that runs JavaScript are both still in it. Twice in August its "1 person"' +
         ' was the operator. Do not add it to, or subtract it from, any figure above.',
@@ -993,7 +1272,7 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
         ' PostHog-detected bots excluded. Counts bundle executions, not people; browsers with' +
         ' tracker blockers never report. This is the one figure here a client that never runs' +
         ' JavaScript cannot enter, which makes a zero on a day with arrivals a finding rather' +
-        ' than a quiet day. It is not a floor under the headline and not an addend to it: a' +
+        ' than a quiet day. It is not a floor under the previous measure and not an addend to it: a' +
         ' successful start proves execution, not humanity, and a real headless browser produces' +
         ' one. Do not add it to, or subtract it from, any figure above.',
     );
@@ -1038,7 +1317,7 @@ function corroboratedLines(metrics: AnalyticsMetrics): string[] {
     return [
       'No arrival carried an external search or social referrer, so nothing in the day is',
       'positively corroborated as human. That is common at this volume, not an outage — and it',
-      'does not make the headline above any more or less likely to be people.',
+      'does not make the previous measure above any more or less likely to be people.',
     ];
   }
   const visitors = metrics.corroboratedVisitors;
@@ -1050,7 +1329,7 @@ function corroboratedLines(metrics: AnalyticsMetrics): string[] {
     'It is supporting evidence, not a verified floor. Privacy tools strip the header, so real',
     'referrals land in Direct and this under-counts; and a referrer is a claim the request made,',
     'not a verified fact — only the host is stored, and production holds one confirmed forgery.',
-    'It is a SUBSET of the headline, never an addend to it.',
+    'It is a SUBSET of the previous measure, never an addend to it.',
   ];
 }
 
@@ -1064,19 +1343,20 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `Day (UTC): ${opts.dayLabel}`,
     `Generated: ${opts.generatedAt.toISOString()}`,
     '',
+    ...classSectionText(metrics, opts),
+    '',
     // AECI-869: the section no longer claims the population it reports. "Humans"
-    // was the heading over a residual.
-    '== Traffic (unresolved origin) ==',
+    // was the heading over a residual. AECI-1346 demoted it below the classes.
+    '== Previous measure: requests of unresolved origin ==',
   ];
-  // Headline first, raw second, indented under it (AECI-741). The operator asked
-  // for the post-automation figure to be the number they SEE; ordering is most of
-  // what makes that true in a plain-text mail client, where there is no type
+  // Residual first, raw second, indented under it (AECI-741). Ordering is most of
+  // what makes that readable in a plain-text mail client, where there is no type
   // scale to lean on.
   const net = unresolvedRequests(metrics);
-  const notComparable = trafficDaysNotComparable(metrics);
+  const notComparable = residualNotComparable(metrics, digestMethodSeams(opts.env, opts.dayLabel));
   if (metrics.automation) {
     t.push(
-      `Requests of unresolved origin: ${net.day} (${deltaText(net, { notComparable })})  [headline]`,
+      `Requests of unresolved origin: ${net.day} (${deltaText(net, { notComparable })})  [previous measure]`,
       `  from ${pv.day} counted server-side (${deltaText(pv, { notComparable })}), less ` +
         `${plural(metrics.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
     );
@@ -1182,6 +1462,74 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     'Report-only: counts are read from the app database; the window is the full prior UTC day.',
   );
   return t.join('\n');
+}
+
+/**
+ * The class section as plain text (AECI-1346). First in the email. Every figure
+ * names its basis (D19(a)), internal traffic is its own line (D19(b)), and a
+ * seam is flagged, never blended (D19(c)).
+ */
+function classSectionText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
+  const sec = classSection(metrics, opts);
+  const t: string[] = ['== Traffic by class (requests) =='];
+  const notes = classSectionNotes(sec).map((n) => `  ** ${n}`);
+  if (sec.state !== 'classified') {
+    t.push(sec.state === 'unread' ? CLASSES_UNREAD_NOTE : NOT_CLASSIFIED_NOTE, ...notes);
+    return t;
+  }
+  t.push(`Classifier ${sec.version}. Counts are requests, not people.`, ...notes);
+  for (const r of sec.rows) {
+    t.push(
+      `${r.label}: ${plural(r.views, 'view')} from ${plural(r.visitors, 'visitor')} (${r.delta})`,
+    );
+    if (r.cls === 'browser_with_human_evidence') t.push(`  ${HEURISTIC_NOTE}`);
+    if (r.cls === 'unresolved' && sec.unresolvedShare) {
+      t.push(`  ** ${unresolvedShareSentence(sec.unresolvedShare)}`);
+    }
+  }
+  t.push(internalSentence(sec));
+  return t;
+}
+
+/** The class section as HTML (AECI-1346). Same facts and sentences as the text. */
+function classSectionHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
+  const sec = classSection(metrics, opts);
+  const callout = (text: string) =>
+    `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">${escapeHtml(text)}</p>`;
+  const notes = classSectionNotes(sec).map(callout).join('');
+  const title = sectionTitle('Traffic by class (requests)');
+  if (sec.state !== 'classified') {
+    return (
+      title + emptyNote(sec.state === 'unread' ? CLASSES_UNREAD_NOTE : NOT_CLASSIFIED_NOTE) + notes
+    );
+  }
+  const muted = `font-weight:400;color:${HTML.muted}`;
+  const rows = sec.rows.flatMap((r) => {
+    const out = [
+      kvRow(
+        r.label,
+        `${r.views} <span style="${muted}">· ${escapeHtml(plural(r.visitors, 'visitor'))} · ${escapeHtml(r.delta)}</span>`,
+      ),
+    ];
+    if (r.cls === 'browser_with_human_evidence') {
+      out.push(
+        `<tr><td colspan="2" style="padding:0 0 7px;font-size:12px;color:${HTML.muted}">${escapeHtml(HEURISTIC_NOTE)}</td></tr>`,
+      );
+    }
+    if (r.cls === 'unresolved' && sec.unresolvedShare) {
+      out.push(
+        `<tr><td colspan="2" style="padding:0 0 7px;font-size:12px;color:${HTML.danger}">${escapeHtml(unresolvedShareSentence(sec.unresolvedShare))}</td></tr>`,
+      );
+    }
+    return out;
+  });
+  return (
+    title +
+    `<p style="margin:0 0 6px;font-size:13px;color:${HTML.muted}">Classifier <strong style="color:${HTML.ink}">${escapeHtml(sec.version ?? '')}</strong>. Counts are requests, not people.</p>` +
+    notes +
+    kvTable(rows) +
+    `<p style="margin:10px 0 0;padding-top:8px;border-top:1px solid ${HTML.border};font-size:13px;color:${HTML.muted}">${escapeHtml(internalSentence(sec))}</p>`
+  );
 }
 
 // ── html ──
@@ -1322,14 +1670,14 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   // AECI-869 relabelled it. Same figure, same subtraction, same sub-line; the
   // caption no longer calls the residual "human".
   const net = unresolvedRequests(metrics);
-  const notComparable = trafficDaysNotComparable(metrics);
+  const notComparable = residualNotComparable(metrics, digestMethodSeams(opts.env, opts.dayLabel));
   const headlineStat = metrics.automation
     ? primaryStat(net.day, unresolvedLabel(net.day), deltaText(net, { notComparable })) +
       `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">` +
       `From <strong style="color:${HTML.ink}">${pv.day}</strong> counted server-side ` +
       `(${escapeHtml(deltaText(pv, { notComparable }))}), less <strong style="color:${HTML.ink}">${metrics.automation.flagged.day}</strong> ` +
       `flagged as automation. The raw figure is an <strong>upper bound</strong> on humans; the ` +
-      `headline is what no rule could exclude, which is not the same as a person.</p>`
+      `previous measure is what no rule could exclude, which is not the same as a person.</p>`
     : primaryStat(pv.day, unresolvedLabel(pv.day), deltaText(pv, { notComparable })) +
       `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans. ` +
       `<strong style="color:${HTML.danger}">The automation filter did not run for this day</strong>, so nothing has been removed.</p>`;
@@ -1345,7 +1693,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       `operator retro-join could not fire. This day is not comparable with a day that has telemetry.</p>`
     : '';
   const traffic =
-    sectionTitle('Traffic (unresolved origin)') +
+    sectionTitle('Previous measure: requests of unresolved origin') +
     headlineStat +
     telemetryLine +
     posthogLine +
@@ -1437,7 +1785,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<div style="max-width:640px;margin:0 auto;padding:24px 12px">` +
     `<div style="background:#fff;border:1px solid ${HTML.border};border-radius:10px;overflow:hidden;font-family:${FONT};color:${HTML.ink}">` +
     header +
-    `<div style="padding:4px 24px 24px">${traffic}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
+    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${traffic}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
     `</div>` +
     `<div style="max-width:640px;margin:12px auto 0;padding:0 4px;font-size:12px;line-height:1.5;color:${HTML.muted};font-family:${FONT}">${footer}</div>` +
     `</div></body></html>`

@@ -44,6 +44,8 @@
 import {
   AdminOverviewQuerySchema,
   AdminOverviewResponseSchema,
+  type AdminClassificationPoint,
+  type AdminClassificationSummary,
   type AdminNote,
   type AdminOverviewResponse,
 } from '@aeci/shared';
@@ -67,6 +69,7 @@ import {
   countAll,
   countUniqueVisitorsBoth,
   countViewsExcludingInternal,
+  enumerateDays,
   internalFilterNote,
   isPartial,
   note,
@@ -82,10 +85,18 @@ import {
   type UtcWindow,
 } from '../lib/admin-analytics';
 import {
+  classDeltaBlocker,
   CLASSIFICATION_UNRESOLVED_SHARE_MAX,
+  readClassificationSeries,
   readClassificationSummary,
+  type ClassificationSeriesRead,
   type ClassificationSummaryRead,
 } from '../lib/admin-classification';
+import {
+  anyNotComparable,
+  collectionMethodSeam,
+  type CollectionMethodChange,
+} from '../lib/collection-method-changes';
 import {
   runExpensiveStatusItems,
   statsFreshness,
@@ -204,7 +215,8 @@ export function createAdminOverviewHandler(
       freshness,
       notes,
       browserStarts,
-      classification,
+      classificationDay,
+      classificationSeries,
     ] = await Promise.all([
       countViewsExcludingInternal(db, dayW, 'human', filter),
       countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
@@ -249,15 +261,41 @@ export function createAdminOverviewHandler(
       query.recompute
         ? (deps.readBrowserStarts ?? readPosthogBrowserStarts)(c.env, db, digestWindow)
         : Promise.resolve(null),
-      // AECI-1345. The stored D19 classes for the same day: additive, changing no
-      // figure in `traffic`. Phase 3 (AECI-1346) switches the readers.
-      readClassificationSummary(db, dayW, metrics.operatorLeakViews),
+      // AECI-1345. The stored D19 classes for the same day. Since AECI-1346 the
+      // collector reads them for the email, so the panel takes the same read and
+      // the two cannot differ. A failed collector read is soft there, so the panel
+      // reads again here and fails loudly, as it did before.
+      metrics.classification?.day ?? readClassificationSummary(db, dayW, metrics.operatorLeakViews),
+      // AECI-1346. The 30-day class chart, its seam, and the prior day the class
+      // deltas compare against. One grouped read.
+      readClassificationSeries(db, chartW),
     ]);
+
+    // AECI-1346. §3d collection-method changes for this tier (`ENV`; a local run
+    // matches none). Three windows, one per comparison: the chart, the
+    // day-over-day pair, and the two weeks behind `delta_7d`.
+    const methodChart = collectionMethodSeam(c.env.ENV, chartW);
+    const methodDay = collectionMethodSeam(c.env.ENV, {
+      startIso: digestWindow.priorStartIso,
+      endIso: digestWindow.endIso,
+    });
+    const methodWeek = collectionMethodSeam(c.env.ENV, {
+      startIso: priorWeekW.startIso,
+      endIso: weekW.endIso,
+    });
+    const classification = withComparisons(
+      classificationDay,
+      classificationSeries,
+      shiftDay(day, -1),
+      methodChart,
+      anyNotComparable(methodDay),
+    );
 
     const allNotes: AdminNote[] = [
       ...notes,
       internalFilterNote(filter),
       ...classificationNotes(classification),
+      ...methodSeamNotes(methodChart),
     ];
     if (isPartial(dayW, now)) {
       allNotes.push(
@@ -286,8 +324,14 @@ export function createAdminOverviewHandler(
       notes: allNotes,
       internal_filter: toAdminInternalFilter(filter),
       classification: classification.summary,
+      classification_series_30d: classificationPoints(
+        enumerateDays(chartW),
+        classificationSeries,
+        methodChart,
+      ),
       traffic: {
-        // The headline, and the same one the 05:00 email leads with (AECI-745).
+        // The residual, the same figure the 05:00 email prints (AECI-745). Since
+        // AECI-1346 both surfaces lead with the classes and this is the previous measure.
         // Through `unresolvedRequests` rather than an inline subtraction
         // so the two surfaces cannot grow separate definitions of it — the same
         // reason the AECI-683 figures below come straight off the collector.
@@ -301,13 +345,17 @@ export function createAdminOverviewHandler(
         unique_visitors: uniqueVisitors,
         // Filtered on BOTH sides — `net` carries the prior day's post-automation
         // count too, which is why the detector runs over the prior window at all.
-        delta_day: computeDelta(net),
+        // Null across a non-comparable §3d row (AECI-1346): the two days count
+        // different rows, so the difference measures nothing.
+        delta_day: anyNotComparable(methodDay) ? null : computeDelta(net),
         // RAW on both sides, unlike `delta_day`, and the schema says so: a
         // filtered 7-day pair means running the detector over 14 further days on
         // every request. Two deltas with different populations side by side is a
         // real hazard — the answer is that the panel labels it, not that we
         // fabricate a filtered week out of an unfiltered one.
-        delta_7d: computeDelta({ day: weekHuman, prior: priorWeekHuman }),
+        delta_7d: anyNotComparable(methodWeek)
+          ? null
+          : computeDelta({ day: weekHuman, prior: priorWeekHuman }),
         series_30d: series30d,
         top_sources: metrics.referrers.map((r) => ({ source: r.source, views: r.views })),
         top_products: metrics.topProducts.map((p) => ({
@@ -413,6 +461,91 @@ function classificationNotes(read: ClassificationSummaryRead): AdminNote[] {
     );
   }
   return out;
+}
+
+/**
+ * The day's class summary, completed with the comparisons that need more than one
+ * day (AECI-1346): each class's `delta_day`, the 30-day `version_seam`, and the
+ * §3d rows in the chart window.
+ *
+ * `version_seam` moves to the chart window because the chart spans it, and §3c
+ * step 5 says a window crossing a change shows it. The counts stay single-day.
+ */
+function withComparisons(
+  read: ClassificationSummaryRead,
+  series: ClassificationSeriesRead,
+  priorDay: string,
+  methodChart: readonly CollectionMethodChange[],
+  methodDayNotComparable: boolean,
+): ClassificationSummaryRead {
+  const prior = series.perDay.get(priorDay);
+  const blocked = classDeltaBlocker(
+    read.summary.classifier_version,
+    prior?.version,
+    methodDayNotComparable,
+  );
+  const summary: AdminClassificationSummary = {
+    ...read.summary,
+    counts: read.summary.counts.map((c) => ({
+      ...c,
+      delta_day:
+        blocked || !prior ? null : computeDelta({ day: c.views, prior: prior.views[c.class] }),
+    })),
+    version_seam: series.versionSeam,
+    method_seams: methodChart.map((r) => ({
+      changed_at: r.at,
+      summary: r.summary,
+      arrivals_comparable: r.arrivalsComparable,
+    })),
+  };
+  return { ...read, summary };
+}
+
+/**
+ * `classification_series_30d`: one point per day of the chart window, zero-filled
+ * by day. A day with no classified rows has `counts: null`, never four zeros, so
+ * the chart can draw it as "Not classified".
+ */
+function classificationPoints(
+  days: readonly string[],
+  series: ClassificationSeriesRead,
+  methodChart: readonly CollectionMethodChange[],
+): AdminClassificationPoint[] {
+  return days.map((d) => {
+    const point = series.perDay.get(d);
+    const onDay = methodChart.filter((r) => r.at.slice(0, 10) === d);
+    // Two rows on one day: the non-comparable one decides how the boundary reads.
+    const change = onDay.find((r) => !r.arrivalsComparable) ?? onDay[0];
+    return {
+      day: d,
+      classifier_version: point?.version ?? null,
+      counts: point ? { ...point.views } : null,
+      method_change: change
+        ? { summary: change.summary, arrivals_comparable: change.arrivalsComparable }
+        : null,
+    };
+  });
+}
+
+/**
+ * One `collection_method_seam` note per §3d row in the chart window (AECI-1346).
+ * Gated on a row being there, and unconditional once it is, per §3c step 5.
+ */
+function methodSeamNotes(rows: readonly CollectionMethodChange[]): AdminNote[] {
+  return rows.map((r) =>
+    note(
+      'collection_method_seam',
+      r.arrivalsComparable
+        ? `Page-view collection changed at ${r.at} (${r.summary}). Arrival counts stay comparable across it.`
+        : `Page-view collection changed at ${r.at} (${r.summary}). Counts either side are not comparable, so deltas across it are null.`,
+      {
+        changed_at: r.at,
+        tier: r.tier,
+        summary: r.summary,
+        comparable: r.arrivalsComparable ? 'true' : 'false',
+      },
+    ),
+  );
 }
 
 /** Human page views over a multi-day window (the 7-day delta halves), using the
