@@ -60,7 +60,8 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor and product logo editing (validated R2 uploads, promote ownership) | `docs/STAGE_2_5_SPEC.md` §11, ADR 0032 |
 | Vendor-authored "How teams use it" narrative (`product.usefulness.edit`, `usefulness_source` fence) | `docs/STAGE_2_5_SPEC.md` §12, ADR 0033 |
 | Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence, twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; `REVIEW_APP_PROMOTE_API.md` §4b–§4c |
-| Record ownership (`owned_at`, promote sends nothing about owned records, product proposals, return to AECi, ownership message to the review app) | ADR 0042; `REVIEW_APP_PROMOTE_API.md` §4a, §4d |
+| Record ownership (`owned_at`, promote refuses them, product proposals, return to AECi) | ADR 0042; `REVIEW_APP_PROMOTE_API.md` §4a |
+| Ownership record and review-app mirror | ADR 0044; `REVIEW_APP_PROMOTE_API.md` §4d |
 | Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
 | Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037 |
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
@@ -136,7 +137,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 - **Issue tracker:** Linear. **i18n:** `@angular/localize`, en-US only at launch.
 - **Email:** Resend (transactional) + Microsoft 365 (mailboxes). `docs/email.md` is truth.
 - **Workflow automation:** a Cloudflare Worker for the form→Linear pipeline. No n8n, no Slack.
-- **Theme:** light only. No toggle, no system-preference detection. Dark is not roadmapped.
+- **Theme:** light only. No toggle, no system-preference detection.
 
 ## Constraints that aren't negotiable
 
@@ -172,8 +173,8 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
 - **Cache: tags, native Workers Cache, and `Vary`.** Every cacheable SSR response sets `Cache-Tag`
   via the helper in `apps/web/src/server/cache-tags.ts`; invalidation is `ctx.cache.purge()`,
   cross-Worker via the `aeci-cache-purge-{env}` Queue. `Vary` may only be `Accept-Language`
-  (`Lint: ✅`, tests exempt). Native caching is live on staging and demo; production runs
-  uncached today. Miniflare does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
+  (`Lint: ✅`, tests exempt). Native caching is live on staging, demo and production. Miniflare
+  does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
 - **Cached SSR routes render visitor-state-neutral HTML.** The cache is keyed by URL, not cookies.
   Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
   `apps/web/src/server-runtime.ts`) and reconcile after hydration.

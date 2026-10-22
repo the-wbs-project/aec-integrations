@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-19
 - Issue: AECI-1415 (E6b.3, epic AECI-1341). Ruled on AECI-1341.
-- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1417 (the owner accepts or declines it), AECI-1418 (the ownership message to the review app, landed 2026-10-20), AECI-1424 (vendor product create, landed 2026-10-22). Not built: AECI-1413 (the mirror of vendor edits to the review app), AECI-1412 (the review-app receiver, review repo)
+- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1417 (the owner accepts or declines it), AECI-1418 (the ownership message to the review app, landed 2026-10-20), AECI-1424 (vendor product create, landed 2026-10-22), AECI-1412 (the review-app receiver, review repo, live on production; the backfill delivered 4 of 4 on 2026-10-22), AECI-1413 (the mirror of vendor edits to the review app, ADR 0044, in progress)
 - Amends: ADR 0035 (promote refusal and the last-seat hand-back), ADR 0039 (the vendor-held test)
 - Relates to: ADR 0021 (async promote), `docs/REVIEW_APP_PROMOTE_API.md` §4a to §4c, `docs/STAGE_2_ATTESTATIONS_SPEC.md` §13.9
 
@@ -155,3 +155,9 @@ were rejected. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8, `API_CONTRACTS.m
 
 When AECI-1343 decides the connector catalogue, or when AECI-1413 mirrors vendor edits through
 the same receiver.
+
+*Revisited 2026-10-22 (AECI-1413, AECI-1452):* ADR 0044 extends the ownership record to schema
+version 2, which carries the content of every owned record so the review app holds a read-only
+mirror. This ADR's ownership rule is unchanged. The record's "What it does not say" bullet
+holds for v1 only: v2 lists each attestation by its natural key inside its integration, still
+with no id.

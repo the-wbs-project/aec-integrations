@@ -183,8 +183,8 @@ things the live data settled, which the pre-verification text got wrong or left 
   reading of exactly `1500` means the 95th observation fell in the 1000–1500 bucket, and
   that does **not** fire (observed: `last_value: 1500`, state `Not firing`). A firing
   therefore means the true p95 is above 1,500 ms, which is exactly the Datadog semantics.
-- **It sits close to its line.** Production runs uncached, so every detail render is a
-  MISS and the sample is not thin (50–800 renders/hour). The median build is 500–1000 ms
+- **It sits close to its line.** Production ran uncached when this was measured, so every
+  detail render was a MISS and the sample was not thin (50–800 renders/hour). The median build is 500–1000 ms
   and the 95th observation lands in the 1000–1500 bucket about a third of all hours —
   which reads `1500` and does *not* fire. It crosses 1,500 ms for 2 hours on 09-07,
   0 on 09-08 and 2 on 09-09, and those are the firings. That is a real latency finding,

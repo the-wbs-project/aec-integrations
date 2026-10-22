@@ -150,6 +150,7 @@ import {
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { purgeTags } from './vendor-shared';
 import { vendorAuditStamp } from '../lib/audit-vendor';
+import { dispatchMirrorSync } from '../lib/ownership-sync';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -541,6 +542,10 @@ export function createModerateContestHandler(
       c.executionCtx.waitUntil(
         fileContestIssue(c, db, fileIssue, after, hydration, accept.appliedMode),
       );
+      // AECI-1413: an accept that wrote the row here changed an owned record's content,
+      // and this route does not run through `afterVendorWrite`. An upstream-only accept
+      // wrote nothing here, so there is nothing to mirror.
+      if (accept.wroteHere) dispatchMirrorSync(c, audits, 'admin', db);
     }
 
     const body = toAdminContest(after, hydration);

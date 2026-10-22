@@ -16,7 +16,11 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { OWNERSHIP_SYNC_MAX_RETRIES, OWNERSHIP_SYNC_QUEUE_PREFIX } from './lib/ownership-sync';
+import {
+  mirrorSchemaVersion,
+  OWNERSHIP_SYNC_MAX_RETRIES,
+  OWNERSHIP_SYNC_QUEUE_PREFIX,
+} from './lib/ownership-sync';
 
 const RAW = readFileSync(join(__dirname, '..', 'wrangler.jsonc'), 'utf8');
 const WORKFLOWS = join(__dirname, '..', '..', '..', '.github', 'workflows');
@@ -38,7 +42,11 @@ const config = JSON.parse(
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n')
     .replace(/,(\s*[}\]])/g, '$1'),
-) as { queues?: QueueBlock; env: Record<string, { queues?: QueueBlock }> };
+) as {
+  queues?: QueueBlock;
+  vars?: Record<string, string>;
+  env: Record<string, { queues?: QueueBlock; vars?: Record<string, string> }>;
+};
 
 const BLOCKS: { label: string; queue: string; block: QueueBlock | undefined }[] = [
   { label: 'base (local dev)', queue: 'aeci-ownership-sync-local', block: config.queues },
@@ -62,6 +70,23 @@ describe('AECI-1418: OWNERSHIP_SYNC_QUEUE in every wrangler block', () => {
       max_retries: OWNERSHIP_SYNC_MAX_RETRIES,
       max_concurrency: 1,
     });
+  });
+});
+
+describe('AECI-1413: REVIEW_APP_MIRROR_SCHEMA in every wrangler block', () => {
+  // Vars are not inherited into a named env either. "1" everywhere until the review
+  // receiver v2 ships: the live receiver answers 400 to v2, and a 400 is permanent.
+  const VARS = [
+    { label: 'base (local dev)', vars: config.vars },
+    ...(['staging', 'demo', 'production'] as const).map((env) => ({
+      label: env,
+      vars: config.env[env]?.vars,
+    })),
+  ];
+
+  it.each(VARS)('$label sends schema v1', ({ vars }) => {
+    expect(vars?.REVIEW_APP_MIRROR_SCHEMA).toBe('1');
+    expect(mirrorSchemaVersion(vars ?? {})).toBe(1);
   });
 });
 

@@ -1165,6 +1165,14 @@ This is **not an error** — the response is still `200`, and re-pushing will no
 help. If the content genuinely needs to change, the change belongs with the
 vendor (through their portal) or with an AECi admin, not with a re-push.
 
+**Mirrored content never promotes (AECI-1413, ADR 0044).** From ownership record schema
+version 2 (§4d), the live app sends an owned vendor's current content back to you. Store it
+read-only. A mirror write must never start a promote, mark a record ready, or stamp
+`promote_job_id`: the record is owned, so this section would refuse the push anyway, and a
+promote of mirrored content is a write loop. A product the review app first learns of through
+the mirror (vendor-created or proposal-accepted) is a mirror row from birth and is never
+promoted while owned.
+
 The taxonomy facets on a blocked product are not resolved at all, so
 `taxonomy` comes back empty for that push and no new term is created.
 
@@ -1490,9 +1498,15 @@ repo's AECI-1412. It is live in production and confirmed the path below. The pro
 backfill delivered 4 of 4 with HTTP 200 on 2026-10-22. Since AECI-1427 a production deploy
 fails when either secret is absent (ruling D4). Decision: ADR 0042, amendment 2026-10-20.
 
+**Schema version 2 (AECI-1413, ADR 0044):** contract defined 2026-10-22 (AECI-1452). It adds
+the content of every vendor-owned record, so the review app's copy becomes a read-only
+mirror. The live producer sends it only where `REVIEW_APP_MIRROR_SCHEMA` is `"2"` (below).
+Every tier sends v1 until the review receiver accepts v2.
+
 This is the one call that runs the other way. Everything above is the review app calling
 AECi. Here the AECi API Worker calls the review app, to say who owns one vendor's records
-(§4a). The review app makes vendor-owned records read-only and stops sending them.
+(§4a) and, from schema version 2, what those records say. The review app makes
+vendor-owned records read-only and stops sending them.
 
 ### When it is sent
 
@@ -1506,8 +1520,15 @@ The live app sends one vendor's record after each of these commits:
 | Owner declines a product proposal | `proposal_declined` |
 | "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`) | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
+| A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454) | `vendor_edit` |
+| An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, field correction with a lock and its lift, integration retire or restore (v2 producer, AECI-1454) | `admin_edit` |
 
 `reason` is informational. Act on the record's state, never on the reason.
+
+`vendor_edit` and `admin_edit` joined `OWNERSHIP_SYNC_REASONS` with the AECI-1454 producer
+(`dispatchMirrorSync`). The live app sends them only where
+`REVIEW_APP_MIRROR_SCHEMA` is `"2"`, so a receiver that parses only v1 never sees them. A v2
+receiver must accept both.
 
 ### The request
 
@@ -1569,16 +1590,124 @@ The review app imports or mirrors it.
 | `integrations[]` | Every integration where one of those products is the source or the target (ruling Q2). `table` says where the id lives: `integrations` (source or target) or `connector_evidenced_pairs` (`product_a` or `product_b`), because promote routes connector-delivered edges there (§3.4a). An edge where the vendor's product is only the `poweredByProduct` connector is **not** listed. Each is `vendor`-owned when either endpoint product is owned. |
 | `proposals[]` | Every product proposal addressed to the vendor (AECI-1416): its `ref` (your `p:rec…`), `state` (`open`, `accepted`, `declined`), `decidedAt`, and the `productId` an accept created. Bind your record to that id. A proposal "Return records to AECi" discarded is no longer listed. |
 
-**Ids.** Every id is an AECi UUID, the `supabaseId` you store per record (§3.1). An id you
-never stored is not an error. Ignore it. A vendor-created product or integration is one.
+**Ids.** Every id is an AECi UUID, the `supabaseId` you store per record (§3.1). A
+vendor-created product or integration, or a product a proposal accept created, is an id you
+never stored. What you do with one depends on the schema version:
 
-**Attestations are not listed.** The live app's attestation rows are rebuilt on every
+- **v1:** it is not an error. Ignore it.
+- **v2 (reversed, AECI-1413):** create a read-only mirror row for it from its `content`,
+  bound to the id. That is how vendor-created and proposal-accepted products reach the review
+  side. The row is never promoted (below).
+
+**Attestations carry no ids.** The live app's attestation rows are rebuilt on every
 promote and their ids are informational only (§3, "`claims` shape"). You cannot map them.
-Derive an attestation's owner from its integration.
+v1 does not list them: derive an attestation's owner from its integration. v2 lists each
+claim slot inside its integration, keyed by `{ dataObject, direction, source }`.
 
 **The §4b and §4c fences still apply.** Promote refuses a claimed or vendor-created
 integration whatever `owner` says here. `owner` in this record is the ADR 0042 product rule
 only.
+
+### Schema version 2: the content mirror (AECI-1413)
+
+Decision: ADR 0044. Once a company is owned, its records are edited only in the live app,
+and promote refuses them (§4a). Version 2 sends those edits back, so the review app, its MCP
+and the catalog agents read live truth instead of a copy frozen at claim time.
+
+**Accept both versions, told apart by `schemaVersion`.** `OwnershipRecordSchema` is a
+discriminated union of `OwnershipRecordV1Schema` (unchanged) and `OwnershipRecordV2Schema`.
+A v2 record carries every v1 field with the same meaning, plus:
+
+| Field | Meaning |
+|---|---|
+| `vendor` | The vendor's content (`OwnershipVendorContentSchema`). Present exactly when `owner` is `vendor`, else `null`: a returned vendor's own fields are yours again. |
+| `products[].content` | The product's content (`OwnershipProductContentSchema`). Present exactly when that product's `owner` is `vendor`. |
+| `integrations[].content` | The integration's content (`OwnershipIntegrationContentSchema`), either table. Present exactly when that integration's `owner` is `vendor`. |
+| `integrations[].claims` | Its claim slots (`OwnershipClaimSchema`). Present exactly when `content` is. |
+| `recordHash` | Lowercase hex SHA-256 of the record's canonical JSON, without `version`, `asOf`, `reason` and `recordHash`. Store it. The versions read below echoes it. |
+
+**Content is whole state.** Every key is present, `null` when the live column is empty. Field
+names are the promote wire names (§3), so map them to your columns by reversing your promote
+mapping. The fields promote never carries are marked *live-only* below.
+
+**Vendor content.** `companyName`, `description`, `website`, `headquarters`, `foundedYear`,
+`publicPrivate`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`,
+`youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `githubOrg`, `phoneNumber`, `contactEmail`,
+`logoUrl`, `lastReviewedAt`, and live-only `maintainedBy`.
+
+**Product content.** `name`, `productRole`, `description`, `website`, `toolIntegrationsUrl`,
+`apiDocsUrl`, `logoUrl`, `usefulness`, `categories`, `audiences`, `phases`, `trades`
+(slugs), `lastReviewedAt`, and live-only `slug`, `maintainedBy` and `versions`
+(`[{ label, releasedAt, sunsetAt }]` in release order).
+
+**Integration content**, either table. `name`, `sourceProduct`, `targetProduct`,
+`builtByVendor`, `poweredByProduct` (each `{ supabaseId }` or `null`), `mechanismKind`,
+`mechanismName`, `direction` (`a_to_b`, `b_to_a`, `both`), `description`, `listingUrl`,
+`docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `lastReviewedAt`, and
+live-only `pricingUrl`, `maintainedBy`, `origin`, `claimedAt`, `retiredAt` and
+`vendorLinks` (`[{ productId, kind, url }]`). On a `connector_evidenced_pairs` row,
+`sourceProduct` and `targetProduct` are the pair's id-sorted A and B, `poweredByProduct` is
+its connector, `direction` and every claim are framed to that A and B (§3.4a), and
+`mechanismKind` is absent because the row stores none.
+
+**Claim slots.** `dataObject` (slug), `direction`, `source` (`aeci`, `vendor_a`,
+`vendor_b`), `asserted`, `note`, and live-only `introducedVersion` and `deprecatedVersion`
+(`product_versions` labels of the attesting endpoint's product) and `retractedAt`. One entry
+per slot. It is the slot's active attestation, or when none is active the most recently
+retracted one, so you learn a position was withdrawn.
+
+**Left out on purpose:** derived and aggregate columns (`verified`, `review_count`, rating
+averages, `integration_count`), `created_at` and `updated_at`, and the curation columns you
+author yourself (`sourceUrl`, `adminNotes`, research, priority and search columns,
+`hasApiDocs`, `extensionOf`, an integration's `notes`). A write to one is not a mirror event
+and never shows as drift.
+
+The one map from live columns to these names is `apps/api/src/lib/review-mirror-fields.ts`.
+Its parity spec fails when a vendor-editable field has no entry, or an entry names a wire
+field that is neither a promote field nor listed live-only.
+
+**`recordHash`.** `computeOwnershipRecordHash(record)` in the shared module computes it.
+Canonical JSON sorts object keys by UTF-16 code unit at every depth, drops `undefined`, and
+keeps array order. Before hashing, the set-like arrays are sorted: products, integrations and
+proposals by id, claim slots by natural key, vendor links by product and kind, and the four
+taxonomy slug lists. Product versions and usefulness groups keep their order, because a reader
+sees it. You may recompute it to check a body. You must store the value you received.
+
+**Rules for a v2 receiver**, on top of rules 1 to 4 below:
+
+5. **Store content read-only.** A curator cannot edit a mirrored field while the record is
+   `vendor`-owned. The value changes only by the next record.
+6. **A mirror write never promotes.** Receiving or storing a record must never start a
+   promote, mark a record ready to promote, or stamp `promote_job_id`. Promote refuses owned
+   records anyway (§4a), and a promote of a mirrored row would be a write loop.
+7. **Create a mirror row for an unknown product or integration id** (the reversed v1 rule
+   above). An unknown **vendor** id is still `404`.
+8. **When ownership returns**, the next record carries `owner: aeci` and no content for the
+   records that left vendor ownership. Keep the last mirrored values as your starting point.
+
+**The flag.** The live producer sends v2 only where the per-env wrangler var
+`REVIEW_APP_MIRROR_SCHEMA` is `"2"`. It is `"1"` on every tier until this receiver ships v2.
+The current receiver answers `400` to a shape it does not parse, and the live app treats
+`400` as permanent. An unflagged v2 would therefore drop every message silently. The flag
+lets the producer merge to `main` and stay promotable. Production flips it by hand, then
+re-sends every owned vendor with `ops:backfill-ownership-sync` (AECI-1413 sub-issue 4).
+
+### The versions read (drift check)
+
+```
+GET {REVIEW_APP_OWNERSHIP_URL}/vendors?ids={id},{id},…
+Authorization: Bearer {REVIEW_APP_OWNERSHIP_TOKEN}
+```
+
+- At most 100 ids per request (`OWNERSHIP_VERSIONS_MAX_IDS`), comma-separated, built by
+  `ownershipVersionsUrl`. The live app chunks.
+- The response is `OwnershipVersionsResponseSchema`:
+  `{ "vendors": [{ "vendorId", "version", "recordHash" }] }`. List only vendors you hold a
+  record for. `recordHash` is `null` when you hold only a v1 record.
+- The live app's daily `review_mirror_drift` data-quality check builds each owned vendor's v2
+  hash and counts a vendor that is missing here, has a `null` hash, or has a different hash.
+  It compares hashes, not `updated_at`, because `updated_at` moves on writes that are not
+  mirrored, such as a `verified` flip or a count recompute (ADR 0044).
 
 ### What the receiver answers
 
@@ -1610,7 +1739,7 @@ Rules for the receiver:
 3. **Replace, do not merge.** A product absent from `products[]` is no longer this
    vendor's. Do not infer a delete of the product itself from its absence (ADR 0030 is the
    same rule in the other direction).
-4. **A vendor id you have never stored** is `404`. The live app does not retry it. It is visible without reading the ledger: the daily data-quality check `ownership_sync_unknown_vendor` (`warn`, on the `aeci.data_quality.check` gauge and in the digest) counts every vendor whose latest delivery was a `404`, until a later delivery succeeds (ruled 2026-10-20).
+4. **A vendor id you have never stored** is `404`, under both schema versions. The live app does not retry it. It is visible without reading the ledger: the daily data-quality check `ownership_sync_unknown_vendor` (`warn`, on the `aeci.data_quality.check` gauge and in the digest) counts every vendor whose latest delivery was a `404`, until a later delivery succeeds (ruled 2026-10-20).
 
 ### How the live app sends it
 
@@ -2492,6 +2621,10 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Handle a `kind: "product"` skip that carries **`proposalId`** (§4a, AECI-1416): the new product was stored as a proposal for the vendor that owns its record, or a re-send was refused because that `ref` was already sent. Record that the product was sent, show the curator the reason (it names the proposal's state), and never send that `ref` again. Integrations touching it come back skipped with `PROPOSED_PRODUCT_INTEGRATION_REASON`; re-send them once the product exists. An `errored` job with `PRODUCT_PROPOSED_DURING_PROMOTE` or `VENDOR_RETURNED_DURING_PROMOTE` is re-pushed with a new `jobId`. A `PROPOSAL_REF_REFUSED_REASON` skip means the ref was not `p:rec…`: fix the ref, then re-send. Tolerate `proposalId` being absent on older results.
 - [ ] Handle `skipped[]` `kind: "integration"` with the claimed-integration reason (§4b): the integration's **owner has claimed it**, so it is vendor-owned and nothing about it is writable from here, including its claims. Show the curator that, and don't retry. An `errored` job with `INTEGRATION_CLAIMED_DURING_PROMOTE` or `VENDOR_OWNED_DURING_PROMOTE` is the one case to re-push, with a new `jobId`.
 - [ ] **Receive the ownership record (§4d, AECI-1412):** an idempotent `PUT` per vendor, bearer-checked, keep the highest `version` (answer `409` to a lower one), replace rather than merge, and make every `vendor`-owned vendor, product and integration read-only. Bind an accepted proposal's `ref` to its `productId`.
+- [ ] **Accept ownership record v2 (§4d, AECI-1413, ADR 0044):** parse `OwnershipRecordSchema` (a union on `schemaVersion`, 1 or 2). Store each owned record's `content` and `claims` read-only, mapped by reversing your promote mapping. Create a read-only mirror row for an unknown product or integration id. Store `recordHash` as received. Accept the `vendor_edit` and `admin_edit` reasons.
+- [ ] **Never promote from a mirror write (§4a, §4d rule 6):** receiving a record never starts a promote, marks a record ready, or stamps `promote_job_id`. Cover it with a test.
+- [ ] **Serve the versions read (§4d):** `GET {base}/vendors?ids=…`, at most 100 ids, same bearer, answering `{ vendors: [{ vendorId, version, recordHash }] }` for the vendors you hold, `recordHash: null` for a v1-only record.
+- [ ] **Tell AECi when v2 is live,** so the operator flips `REVIEW_APP_MIRROR_SCHEMA` to `"2"` on production and runs the backfill. Before that, the live app keeps sending v1.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It is refused outright on a vendor-maintained record and reported as `kind: "review-signal"` (§3.6a). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.

@@ -5,6 +5,7 @@
  */
 
 import { OwnershipRecordSchema, type OwnershipRecord } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,8 +26,12 @@ import {
   buildOwnershipRecord,
   classifyStatus,
   deliverOwnershipSync,
+  dispatchMirrorSync,
   enqueueOwnershipSync,
+  mirrorSchemaVersion,
+  mirrorTargets,
   OWNERSHIP_SYNC_MAX_RETRIES,
+  resolveMirrorVendorIds,
   retryDelaySeconds,
 } from './ownership-sync';
 
@@ -287,6 +292,9 @@ describe('deliverOwnershipSync', () => {
         productCount: 2,
         integrationCount: 3,
         error: null,
+        // AECI-1413: every record sent today is v1, with no hash.
+        schemaVersion: 1,
+        recordHash: null,
       }),
     ]);
     expect(deliveryOutcomes()).toEqual([['outcome:delivered', 'reason:claim_approved']]);
@@ -367,7 +375,12 @@ describe('deliverOwnershipSync', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(message.ack).toHaveBeenCalledOnce();
     expect(ledger).toEqual([
-      expect.objectContaining({ outcome: 'unconfigured', httpStatus: null, recordVersion: null }),
+      expect.objectContaining({
+        outcome: 'unconfigured',
+        httpStatus: null,
+        recordVersion: null,
+        schemaVersion: null,
+      }),
     ]);
     expect(deliveryOutcomes()).toEqual([['outcome:unconfigured', 'reason:claim_approved']]);
     expect(vi.mocked(logToPosthog).mock.calls[0]![3]).toMatchObject({ level: 'warn' });
@@ -459,6 +472,239 @@ describe('enqueueOwnershipSync', () => {
       'outcome:unbound',
       'reason:seat_provisioned',
     ]);
+    expect(vi.mocked(logToPosthog)).toHaveBeenCalled();
+  });
+});
+
+// ── The content-edit hook (AECI-1413) ─────────────────────────────────────────
+
+describe('mirrorSchemaVersion', () => {
+  it('is 2 only for exactly "2"; anything else is 1', () => {
+    expect(mirrorSchemaVersion({ REVIEW_APP_MIRROR_SCHEMA: '2' })).toBe(2);
+    expect(mirrorSchemaVersion({ REVIEW_APP_MIRROR_SCHEMA: ' 2 ' })).toBe(2);
+    expect(mirrorSchemaVersion({ REVIEW_APP_MIRROR_SCHEMA: '1' })).toBe(1);
+    expect(mirrorSchemaVersion({ REVIEW_APP_MIRROR_SCHEMA: 'v2' })).toBe(1);
+    expect(mirrorSchemaVersion({})).toBe(1);
+  });
+});
+
+const entry = (patch: Partial<AuditLogEntry>): AuditLogEntry => ({
+  actorType: 'user',
+  action: 'x.updated',
+  ...patch,
+});
+
+describe('mirrorTargets', () => {
+  it('reads vendors, products and edges, and names the parent of a version, claim or attestation', () => {
+    expect(
+      mirrorTargets([
+        entry({ entityType: 'vendor', entityId: V }),
+        entry({ entityType: 'product', entityId: P_MINE }),
+        entry({ entityType: 'integration', entityId: I_SOURCE }),
+        entry({ entityType: 'connector_evidenced_pair', entityId: E_ENDPOINT }),
+        entry({ entityType: 'product_version', entityId: u(90), productId: P_SHARED }),
+        entry({ entityType: 'claim', entityId: u(91), metadata: { integrationId: I_TARGET } }),
+        entry({
+          entityType: 'attestation',
+          entityId: u(92),
+          metadata: { integrationId: I_SOURCE },
+        }),
+      ]),
+    ).toEqual({
+      vendorIds: [V],
+      productIds: [P_MINE, P_SHARED],
+      edgeIds: [I_SOURCE, E_ENDPOINT, I_TARGET],
+    });
+  });
+
+  it('ignores every other entity type', () => {
+    expect(
+      mirrorTargets([
+        entry({ entityType: 'profile', entityId: u(93) }),
+        entry({ entityType: 'billing_account', entityId: u(94), vendorId: V }),
+        entry({ entityType: 'review_response', entityId: u(95), productId: P_MINE }),
+        entry({ entityType: 'product_proposal', entityId: PROPOSAL_OPEN }),
+      ]),
+    ).toEqual({ vendorIds: [], productIds: [], edgeIds: [] });
+  });
+});
+
+describe('resolveMirrorVendorIds', () => {
+  const resolve = (targets: Partial<Parameters<typeof resolveMirrorVendorIds>[1]>) =>
+    resolveMirrorVendorIds(t.db, { vendorIds: [], productIds: [], edgeIds: [], ...targets }).then(
+      (ids) => [...ids].sort(),
+    );
+
+  it('a vendor counts only when owned', async () => {
+    expect(await resolve({ vendorIds: [V, W, X] })).toEqual([V]);
+  });
+
+  it('a product resolves to its OWNED joined vendors only', async () => {
+    // P_SHARED is joined to V (owned) and W (not).
+    expect(await resolve({ productIds: [P_SHARED] })).toEqual([V]);
+    await t.db.update(vendors).set({ ownedAt: OWNED_AT }).where(eq(vendors.id, W));
+    expect(await resolve({ productIds: [P_SHARED] })).toEqual([V, W]);
+  });
+
+  it("an integration resolves to both endpoints' owned vendors", async () => {
+    // I_SOURCE is P_MINE (V) -> P_OTHER (X).
+    expect(await resolve({ edgeIds: [I_SOURCE] })).toEqual([V]);
+    await t.db.update(vendors).set({ ownedAt: OWNED_AT }).where(eq(vendors.id, X));
+    expect(await resolve({ edgeIds: [I_SOURCE] })).toEqual([V, X]);
+    // The target side counts too: I_TARGET is P_OTHER (X) -> P_SHARED (V, W).
+    expect(await resolve({ edgeIds: [I_TARGET] })).toEqual([V, X]);
+  });
+
+  it('an evidenced pair resolves through product_a and product_b, never the connector', async () => {
+    expect(await resolve({ edgeIds: [E_ENDPOINT] })).toEqual([V]);
+    // E_CONNECTOR's only tie to V is as the connector.
+    expect(await resolve({ edgeIds: [E_CONNECTOR] })).toEqual([]);
+  });
+
+  it('unowned records and a powered_by product resolve to nothing', async () => {
+    expect(
+      await resolve({ productIds: [P_OTHER, P_FAR], edgeIds: [I_UNRELATED, I_POWERED] }),
+    ).toEqual([]);
+    expect(await resolve({})).toEqual([]);
+  });
+
+  it('dedupes a vendor named several ways, in one batch of reads', async () => {
+    const batch = vi.spyOn(t.db, 'batch');
+    expect(
+      await resolve({
+        vendorIds: [V],
+        productIds: [P_MINE, P_SHARED],
+        edgeIds: [I_SOURCE, E_ENDPOINT],
+      }),
+    ).toEqual([V]);
+    expect(batch).toHaveBeenCalledOnce();
+  });
+});
+
+describe('dispatchMirrorSync', () => {
+  /** A v2 tier unless `schema` says otherwise: the hook is inert on v1. */
+  function producer(queue: unknown, schema = '2') {
+    const ctx = fakeExecutionContext();
+    const c = {
+      env: { ...TEST_ENV, OWNERSHIP_SYNC_QUEUE: queue, REVIEW_APP_MIRROR_SCHEMA: schema } as Env,
+      executionCtx: ctx,
+      req: { raw: new Request('http://localhost/x') },
+    };
+    const drain = () =>
+      Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map((call) => call[0] as Promise<unknown>));
+    return { c, ctx, drain };
+  }
+
+  it('enqueues one vendor_edit message per owned vendor the write touched', async () => {
+    await t.db.update(vendors).set({ ownedAt: OWNED_AT }).where(eq(vendors.id, X));
+    const send = vi.fn();
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+    const { c, drain } = producer({ send, sendBatch });
+    dispatchMirrorSync(
+      c,
+      [entry({ entityType: 'integration', entityId: I_SOURCE })],
+      'vendor',
+      t.db,
+    );
+    await drain();
+    expect(send).not.toHaveBeenCalled();
+    const bodies = (sendBatch.mock.calls[0]![0] as { body: { vendorId: string; reason: string } }[])
+      .map((m) => m.body)
+      .sort((a, b) => (a.vendorId < b.vendorId ? -1 : 1));
+    expect(bodies).toEqual([
+      { vendorId: V, reason: 'vendor_edit', enqueuedAt: expect.any(String) },
+      { vendorId: X, reason: 'vendor_edit', enqueuedAt: expect.any(String) },
+    ]);
+  });
+
+  it('an admin origin sends admin_edit', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { c, drain } = producer({ send, sendBatch: vi.fn() });
+    dispatchMirrorSync(c, entry({ entityType: 'product', entityId: P_MINE }), 'admin', t.db);
+    await drain();
+    expect(send).toHaveBeenCalledWith({
+      vendorId: V,
+      reason: 'admin_edit',
+      enqueuedAt: expect.any(String),
+    });
+  });
+
+  it('an unowned record enqueues nothing', async () => {
+    const send = vi.fn();
+    const sendBatch = vi.fn();
+    const { c, drain } = producer({ send, sendBatch });
+    dispatchMirrorSync(
+      c,
+      entry({ entityType: 'integration', entityId: I_UNRELATED }),
+      'vendor',
+      t.db,
+    );
+    await drain();
+    expect(send).not.toHaveBeenCalled();
+    expect(sendBatch).not.toHaveBeenCalled();
+  });
+
+  it('a write with no mirrored entity, or a Worker with no queue, reads nothing', async () => {
+    const batch = vi.spyOn(t.db, 'batch');
+    const bound = producer({ send: vi.fn(), sendBatch: vi.fn() });
+    dispatchMirrorSync(bound.c, entry({ entityType: 'profile', entityId: u(93) }), 'vendor', t.db);
+    const unbound = producer(undefined);
+    dispatchMirrorSync(
+      unbound.c,
+      entry({ entityType: 'product', entityId: P_MINE }),
+      'vendor',
+      t.db,
+    );
+    expect(bound.ctx.waitUntil).not.toHaveBeenCalled();
+    expect(unbound.ctx.waitUntil).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
+  });
+
+  it.each([['1'], ['']])(
+    'a v1 tier (REVIEW_APP_MIRROR_SCHEMA=%j) reads and sends nothing',
+    async (schema) => {
+      const batch = vi.spyOn(t.db, 'batch');
+      const send = vi.fn();
+      const { c, ctx } = producer({ send, sendBatch: vi.fn() }, schema);
+      dispatchMirrorSync(c, entry({ entityType: 'vendor', entityId: V }), 'vendor', t.db);
+      expect(ctx.waitUntil).not.toHaveBeenCalled();
+      expect(batch).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an enqueue failure is swallowed, counted and warned', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('queue down'));
+    const { c, drain } = producer({ send, sendBatch: vi.fn() });
+    dispatchMirrorSync(c, entry({ entityType: 'vendor', entityId: V }), 'vendor', t.db);
+    await expect(drain()).resolves.toBeDefined();
+    expect(vi.mocked(submitCount).mock.calls.at(-1)![5]).toEqual([
+      'outcome:failed',
+      'reason:vendor_edit',
+    ]);
+    expect(vi.mocked(logToPosthog)).toHaveBeenCalled();
+  });
+
+  it('a D1 read failure is swallowed and warned, with nothing sent', async () => {
+    vi.spyOn(t.db, 'batch').mockRejectedValueOnce(new Error('D1 down'));
+    const send = vi.fn();
+    const { c, drain } = producer({ send, sendBatch: vi.fn() });
+    dispatchMirrorSync(c, entry({ entityType: 'vendor', entityId: V }), 'vendor', t.db);
+    await expect(drain()).resolves.toBeDefined();
+    expect(send).not.toHaveBeenCalled();
+    expect(vi.mocked(logToPosthog).mock.calls.at(-1)![3]).toMatchObject({
+      level: 'warn',
+      reason: 'vendor_edit',
+      error: 'D1 down',
+    });
+  });
+
+  it('with no db passed and no DB binding, it warns and never throws', async () => {
+    const send = vi.fn();
+    const { c, drain } = producer({ send, sendBatch: vi.fn() });
+    dispatchMirrorSync(c, entry({ entityType: 'vendor', entityId: V }), 'vendor');
+    await expect(drain()).resolves.toBeDefined();
+    expect(send).not.toHaveBeenCalled();
     expect(vi.mocked(logToPosthog)).toHaveBeenCalled();
   });
 });

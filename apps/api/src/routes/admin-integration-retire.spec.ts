@@ -650,3 +650,42 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     await expectAdminCauses(t);
   });
 });
+
+// AECI-1413: the admin retire and restore share the vendor tail (`afterRetireCommit`
+// → `afterVendorWrite`), so they enqueue the review-app mirror with no code of their
+// own. The vendor retire takes the same tail with the vendor reason.
+describe('retire and restore: the review-app mirror message (AECI-1413)', () => {
+  let ownershipSend: ReturnType<typeof vi.fn>;
+  beforeEach(async () => {
+    ownershipSend = vi.fn().mockResolvedValue(undefined);
+    callEnv = {
+      OWNERSHIP_SYNC_QUEUE: {
+        send: ownershipSend,
+        sendBatch: vi.fn(),
+      } as unknown as Env['OWNERSHIP_SYNC_QUEUE'],
+      // The hook is inert on a v1 tier.
+      REVIEW_APP_MIRROR_SCHEMA: '2',
+    };
+    await t.db.update(vendors).set({ ownedAt: CLAIMED_AT }).where(eq(vendors.id, VENDOR_B));
+  });
+  const message = (reason: string) => ({
+    vendorId: VENDOR_B,
+    reason,
+    enqueuedAt: expect.any(String),
+  });
+
+  it('an admin retire and an admin restore each enqueue admin_edit for the owned vendor', async () => {
+    expect((await adminRetire(I_MAIN)).status).toBe(200);
+    expect(ownershipSend).toHaveBeenCalledOnce();
+    expect(ownershipSend).toHaveBeenLastCalledWith(message('admin_edit'));
+    expect((await adminRestore(I_MAIN)).status).toBe(200);
+    expect(ownershipSend).toHaveBeenCalledTimes(2);
+    expect(ownershipSend).toHaveBeenLastCalledWith(message('admin_edit'));
+  });
+
+  it('a vendor retire enqueues vendor_edit', async () => {
+    expect((await call(AUTH_B, `/api/vendor/integrations/${I_MAIN}/retire`)).status).toBe(200);
+    expect(ownershipSend).toHaveBeenCalledOnce();
+    expect(ownershipSend).toHaveBeenLastCalledWith(message('vendor_edit'));
+  });
+});
