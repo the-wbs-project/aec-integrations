@@ -2277,7 +2277,7 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 
 **Two R2 stores keep 400 days outside this table.** An R2 bucket lifecycle rule deletes them, not
 this cron, and neither is a D1 table. The raw page-view store (`aeci-page-views-raw-{staging,production}`,
-ADR 0041) holds one envelope per capture. The edge request log (`aeci-edge-log-production`, ADR 0045, created by AECI-1447)
+ADR 0041) holds one envelope per capture. The edge request log (`aeci-edge-log-prod-us`, ADR 0045, created by AECI-1447 on 2026-10-22)
 holds Cloudflare's Logpush record of every request to the zone. Their windows match `page_views` on
 purpose. A change to either window is a lifecycle-rule change in `environments.md`, not a constant here.
 

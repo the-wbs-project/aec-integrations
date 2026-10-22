@@ -1213,7 +1213,7 @@ rule change.
   surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
   and can drive an alert (Enterprise Logpush — the "push" alternative — was not on
   our Pro plan, so we poll. Since 2026-10-22, ADR 0045 sends `firewall_events` to R2 by Logpush
-  as a permanent store, created by AECI-1447. **The poll stays on purpose.** The Logpush copy is a
+  as a permanent store, created by AECI-1447 on 2026-10-22. **The poll stays on purpose.** The Logpush copy is a
   store with no reader and no alert, so the poll remains the only alerting path until a reader
   exists). The API Worker's hourly cron
   (`apps/api/src/scheduled.ts` `runWafMetricsJob`, the `'0 * * * *'` trigger) reads

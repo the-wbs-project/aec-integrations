@@ -209,7 +209,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 2. Which consent tier model in §6, and which option for the non-consented tier?
 3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Answered 2026-10-22 for the Logpush bucket by ADR 0045: 400 days, `ClientIP` dropped from both jobs.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
-5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account, as `aeci-edge-log-production` (ADR 0045).
+5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account, as `aeci-edge-log-prod-us` (ADR 0045).
 6. ~~Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)?~~ *Closed 2026-10-21. No reason was recorded for the 2026-10-08 "off" ruling, and Chris does not remember one. Superseded by AECI-1440, which enabled the cache on staging, demo and production.*
 7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
@@ -258,7 +258,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 
 | Id | Step | Epic |
 |---|---|---|
-| D1 | Logpush production capture and lifecycle rule (AECI-1447). Backfill copy into `graphql-backfill/` (AECI-1448) | AECI-1196 |
+| D1 | Logpush production capture and lifecycle rule (AECI-1447, done 2026-10-22). Backfill copy into `graphql-backfill/` (AECI-1448) | AECI-1196 |
 | D2 | Bot classifier and path-to-entity parser move to `@aeci/shared` | AECI-1299 |
 | D3 | Arrival writer move to the gateway (AECI-1297, built). The arrival row carries the page-load Ray ID itself | AECI-1196 |
 | D4 | Shadow classifier for 2 to 4 weeks on AECI-872's machinery, cross-checked against Logpush | AECI-1299 |

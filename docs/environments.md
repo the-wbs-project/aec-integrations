@@ -1526,25 +1526,35 @@ deploy resolves the binding against the account.
 ## Edge request log (AECI-1196, ADR 0045)
 
 One store for the whole zone, not one per tier. Logpush jobs are zone-wide, so the log holds `www.`, the
-apex, `demo.` and `staging.` together. Nothing in the repo or on a Worker binds to it. **AECI-1447 creates
-these resources and fills in the ids below.** Until then nothing is running.
+apex, `demo.`, `staging.`, the review app on `review.` and the PostHog ingest proxy together. Nothing in the repo or on a Worker binds to it. AECI-1447 created
+these resources on 2026-10-22 on The WBS Project account. Both jobs were created at about 07:22 UTC that day.
 
 | Resource | Value |
 |---|---|
 | Account | The WBS Project (`004dc1af…`) |
-| R2 bucket | `aeci-edge-log-production` |
-| Bucket lifecycle rule | delete after 400 days |
-| Logpush job `http_requests` | destination `http_requests/{DATE}/`, ndjson, gzip, RFC 3339 timestamps, sample rate 1. All fields except `ClientIP` and the Bot-Management-only set. Job id: recorded by AECI-1447 |
-| Logpush job `firewall_events` | destination `firewall_events/{DATE}/`, same format. All fields except `ClientIP`. Job id: recorded by AECI-1447 |
-| Custom-fields ruleset | phase `http_log_custom_fields`, one rule, expression `true`, request headers `sec-gpc`, `dnt`, `sec-fetch-mode`, `sec-fetch-site`, `sec-fetch-dest`, `accept-language`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform` |
-| Notification | Cloudflare "Logpush job disabled", to Chris's email |
+| Zone | `aecintegrations.com` (`2246ff6d…`) |
+| R2 bucket | `aeci-edge-log-prod-us`, location ENAM |
+| Bucket lifecycle rule | `delete-after-400-days`, all prefixes, expire after 400 days |
+| Logpush job `http_requests` | id `1978506`, name `aeci-edge-log-http-requests`. Destination `http_requests/{DATE}/`, ndjson, gzip, RFC 3339 timestamps, sample rate 1. An explicit list of 107 fields: every field the zone offers except `ClientIP` |
+| Logpush job `firewall_events` | id `1978507`, name `aeci-edge-log-firewall-events`. Destination `firewall_events/{DATE}/`, same format. An explicit list of 43 fields: every field the zone offers except `ClientIP` |
+| Custom-fields ruleset | id `437f997da91246078372afa02ceccadb`, phase `http_log_custom_fields`, one rule (`19c08c0d…`), expression `true`, request headers `sec-gpc`, `dnt`, `sec-fetch-mode`, `sec-fetch-site`, `sec-fetch-dest`, `accept-language`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform` |
+| Notification | policy `684f0ef6a20a453e977b9d6cce072b02`, "AECi edge log: Logpush job disabled", alert type `failing_logpush_job_disabled_alert`, email to Chris |
+| R2 writer token | `aeci-edge-log-logpush-writer`, Object Read & Write on `aeci-edge-log-prod-us` |
 
 - **Wrangler cannot create Logpush jobs.** An agent creates them through the zone Logpush API with a
-  one-off token Chris creates (zone Logs Edit) and revokes afterwards. Create the bucket and lifecycle
-  rule with wrangler from `/tmp`, OAuth login.
-- **The jobs write with a long-lived R2 token. Never revoke it.** An R2 API token with Object Read &
-  Write on `aeci-edge-log-production` supplies the S3 key pair in each job's `destination_conf`.
-  Revoking it stops both jobs. Its name: recorded by AECI-1447.
+  one-off token Chris creates and revokes afterwards. It needs zone Logs Edit, which also covers the
+  custom-fields ruleset, and account Notifications Edit for the notification. Create the bucket and
+  lifecycle rule with wrangler from `/tmp`, OAuth login. Request bodies:
+  `scripts/ops/2026-10-edge-log-logpush/README.md`.
+- **The jobs write with a long-lived R2 token. Never revoke it.** The R2 writer token above supplies the
+  S3 key pair in each job's `destination_conf`. Revoking it stops both jobs.
+- **The field lists are explicit, not "all fields".** The zone offers no Bot Management fields
+  (`BotScore`, `JA4` and the rest of ADR 0045 item 2) because Bot Management is not licensed. If it is
+  bought, those fields appear in the zone's list but not in these jobs. A new field Cloudflare adds is
+  not captured until someone edits the job.
+- **A location hint only counts on a bucket name's first create.** The first `aeci-edge-log-production`
+  was created without a hint and landed in APAC. Deleting it and recreating it with `--location enam`
+  kept APAC, so the bucket was renamed. Pass `--location` the first time you create any bucket name.
 - **Logpush never back-fills.** A job captures from the moment it starts. History before that is in the
   GraphQL pulls (`scripts/ops/2026-10-traffic-history/`), which AECI-1448 copies to `graphql-backfill/`.
 - **Read recipe:** `ANALYTICS.md` §11a. **Runbook:** `RUNBOOKS.md` "Logpush job disabled".
