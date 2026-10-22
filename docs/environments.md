@@ -100,60 +100,55 @@ opens, no clicks), copy its signing secret into the GH secret, then run the next
 promote. The push is warn-and-skip. Until it lands, the endpoint answers 401 to everything,
 which Resend shows as failed deliveries.
 
-### Ownership receiver per tier (AECI-1418)
+### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app
 (`REVIEW_APP_PROMOTE_API.md` §4d) through the `aeci-ownership-sync-{env}` queue, which the
 same Worker produces and consumes. Each tier needs the queue and two Worker secrets. The
 queue is created by the idempotent `create_queue` step in each deploy workflow. The secrets
-are pushed from per-tier GH secrets, warn-and-skip.
+are pushed from per-tier GH secrets.
+
+**Production requires both secrets (AECI-1427, ruling D4 of 2026-10-20).** A production
+promote fails in its preflight when either GH secret is empty. It fails again after deploy
+if the live Worker lacks either name. Staging and demo stay warn-and-skip.
 
 | Tier | Queue | GH secrets (pushed as `REVIEW_APP_OWNERSHIP_URL` / `_TOKEN`) | Receiver |
 | --- | --- | --- | --- |
 | **Local** | `aeci-ownership-sync-local` (Miniflare, inside `wrangler dev`) | none. Set both in `apps/api/.dev.vars` only to point at a local mock | none by default: every delivery is `unconfigured` |
-| **Staging** | `aeci-ownership-sync-staging` (`deploy.yml`) | `REVIEW_APP_OWNERSHIP_URL_STAGING`, `REVIEW_APP_OWNERSHIP_TOKEN_STAGING` | the review app's staging receiver, once AECI-1412 names it |
-| **Demo** | `aeci-ownership-sync-demo` (`promote-to-demo.yml`) | `REVIEW_APP_OWNERSHIP_URL_DEMO`, `REVIEW_APP_OWNERSHIP_TOKEN_DEMO`: **leave unset** | none, by ruling (2026-10-20). Demo stays `unconfigured`. The push step stays so a later ruling needs no workflow change |
-| **Production** | `aeci-ownership-sync-production` (`promote-to-prod.yml`) | `REVIEW_APP_OWNERSHIP_URL_PRODUCTION`, `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION` | the review app's production receiver |
+| **Staging** | `aeci-ownership-sync-staging` (`deploy.yml`) | `REVIEW_APP_OWNERSHIP_URL_STAGING`, `REVIEW_APP_OWNERSHIP_TOKEN_STAGING`: **leave unset** | none. The review app has only a production receiver. Staging stays `unconfigured`, warn-and-skip |
+| **Demo** | `aeci-ownership-sync-demo` (`promote-to-demo.yml`) | `REVIEW_APP_OWNERSHIP_URL_DEMO`, `REVIEW_APP_OWNERSHIP_TOKEN_DEMO`: **leave unset** | none, by ruling D5 (2026-10-20). Demo stays `unconfigured`, warn-and-skip. The push step stays so a later ruling needs no workflow change |
+| **Production** | `aeci-ownership-sync-production` (`promote-to-prod.yml`) | `REVIEW_APP_OWNERSHIP_URL_PRODUCTION`, `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION`: **required** | the review app's production receiver (AECI-1412), base URL `https://review.aecintegrations.com/api/ownership` |
+
+The production base URL is the review app's custom domain. Never use its workers.dev host.
+Cloudflare Access fronts that host, so every `PUT` would be refused before the receiver
+sees it. The consumer appends `/vendors/{vendorId}` to the base.
 
 Without both secrets a tier acks every message as `unconfigured`, writes its
-`ownership_sync_deliveries` row and logs a warning. Nothing retries. The token is a new
-random value that the review app also stores. It is not `REVIEW_APP_TOKEN`.
+`ownership_sync_deliveries` row and logs a warning. Nothing retries. That is expected on
+staging and demo. The token is a random value that the review app also stores. It is not
+`REVIEW_APP_TOKEN`.
 
-**Operator checklist, per tier, after AECI-1412 gives the receiver URL.** Nothing here runs
-before that. The CI deploy token already carries Queues edit for the other queues, so the
-queue needs no manual step. To pre-create it by hand anyway, run this from `apps/api` (an
-"already exists" answer is fine):
-
-```bash
-pnpm exec wrangler queues create aeci-ownership-sync-staging
-```
-
-Generate the token, give the same value to the review app for that tier, then set both GH
-secrets. `gh secret set` prompts for each value:
+**Operator checklist: rotating the production pair.** Production was provisioned and
+backfilled on 2026-10-22 (4 of 4 delivered, HTTP 200). Use this to rotate the token or to
+recover a deleted secret. The CI deploy token already carries Queues edit, so the queue
+needs no manual step. Generate the token and give the same value to the review app's
+production receiver. Then set both GH secrets. `gh secret set` prompts for each value:
 
 ```bash
 openssl rand -hex 32
-gh secret set REVIEW_APP_OWNERSHIP_URL_STAGING
-gh secret set REVIEW_APP_OWNERSHIP_TOKEN_STAGING
+gh secret set REVIEW_APP_OWNERSHIP_URL_PRODUCTION
+gh secret set REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION
 ```
 
-The next deploy pushes them. **Staging and production only.** Repeat for production with
-`_PRODUCTION` and the matching queue name. Demo stays unconfigured by ruling (2026-10-20).
-Making the pair required on production is follow-up issue AECI-1427, blocked by AECI-1412. Then confirm the Worker holds both names from
+The next production promote pushes them. Then confirm the Worker holds both names from
 `apps/api`:
 
 ```bash
-pnpm exec wrangler secret list --env staging
+pnpm exec wrangler secret list --env production
 ```
 
-Last, send the backfill (ruling Q7). Read the queue id, dry-run, then apply. Production
-needs Chris's go-ahead on the day and adds `--allow-production`. `RUNBOOKS.md` has the
-production form.
-
-```bash
-pnpm exec wrangler queues info aeci-ownership-sync-staging
-pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env staging
-```
+To re-send vendors after a rotation, use the production form in `RUNBOOKS.md`
+"Ownership records not reaching the review app". It needs Chris's go-ahead on the day.
 
 ## Promotion model
 
@@ -840,6 +835,7 @@ Secrets are stored in three places:
 | `LINEAR_API_KEY` (form→Linear pipeline) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed) | ✅ un-suffixed `LINEAR_API_KEY` | AECI-211 / Phase 6.4 → **AECI-851**. Linear personal API key; a submitted claim/correction becomes an issue in the shared "Vendor Requests" project. **REQUIRED on production** — the only fail-open-at-runtime key that is fail-closed at deploy time. `promote-to-prod.yml` preflights it in `REQUIRED_SECRETS` (before any deploy or migration), pushes it to the prod API Worker, then re-asserts it on the live Worker via `REQUIRED_WORKER_SECRETS`. Required rather than warn-and-skip because the absent-key path is **silent**: `createLinearIssueForRequest()` returns early with no metric and no log, so a vendor claim reaches nobody and the only signal is the 60-minute reconciliation-sweep email. **PRODUCTION ONLY.** The board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live project, so a staging/demo/PR-preview key files fixture claims as real issues — `AECI-638` ("Claim: Fixture Procore") and `AECI-662` are exactly that, from the AECI-637 window. Do not add a push to `deploy.yml` / `promote-to-demo.yml` / `pr-preview.yml` until non-prod has its own Linear project and those constants become env-configurable. **Never on the web Worker.** ⚠️ **This row did not exist until AECI-851, and neither did any CI step.** Production ran from the 2026-07 apex cutover to 2026-09-10 with no key at all; the first real vendor claim (Procore, request `943e4502-…`) submitted, returned its 201, and routed to nobody. |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` (inbound Linear webhook) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed) | ✅ un-suffixed `LINEAR_WEBHOOK_SIGNING_SECRET` | AECI-212 / Phase 6.5 → **AECI-851**. HMAC-SHA256 signing secret for `POST /api/webhooks/linear` (the Linear→site status sync). Copy it from Linear → Settings → API → Webhooks. **Recommended, not required** — the opposite call from `LINEAR_API_KEY` above, because this one **fails closed** (every delivery rejected 401 before any write) and emits `aeci.webhooks.linear.hmac_failure`, which has its own alert. Its absence is loud, not silent, and a prod webhook may not be registered in Linear at all, in which case the secret is moot and must not block a promote. Warn-and-skip in `promote-to-prod.yml`, production only, same reasoning as the row above. **Never on the web Worker.** |
 | `RESEND_WEBHOOK_SECRET` (inbound Resend delivery webhook) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `RESEND_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1222. Svix signing secret (`whsec_…`) for `POST /api/webhooks/resend`. **Per tier, unlike `RESEND_API_KEY`:** each tier registers its own endpoint in the Resend dashboard and each endpoint has its own secret. Pushed by `deploy.yml` (staging), `promote-to-demo.yml` (demo) and `promote-to-prod.yml` (production). **Recommended, warn-and-skip**, for the Linear webhook secret's reason: the endpoint **fails closed** (every event 401s and counts `aeci.webhooks.resend.signature_failure`), so its absence is loud, and an unregistered tier must not block a deploy. Not pushed to PR previews. **Never on the web Worker.** Not set by AECI-1222: provision it after registering the endpoint (§Resend delivery webhook per tier). |
+| `REVIEW_APP_OWNERSHIP_URL` + `REVIEW_APP_OWNERSHIP_TOKEN` (ownership receiver) | ❌ **leave unset**: no staging receiver exists (warn-and-skip) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ suffixed per tier: `REVIEW_APP_OWNERSHIP_{URL,TOKEN}_{STAGING,DEMO,PRODUCTION}` | AECI-1418 → **AECI-1427**. Base URL and bearer for the review app's `PUT /vendors/{vendorId}` receiver (`REVIEW_APP_PROMOTE_API.md` §4d). Production base is `https://review.aecintegrations.com/api/ownership`. Required on production in preflight and postflight (ruling D4). Demo stays unset by ruling D5. See "Ownership receiver per tier". |
 | `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/RUNBOOKS.md` "gsc-inspect halted on quota or failed" |
 | `TOOL_TOKEN` (agent Worker) | ❌ no staging tier | ✅ on **agent Worker only**, set BY HAND | ❌ — no GH secret, nothing in CI pushes it | AECI-1030 / ADR 0034. Shared-secret bearer fallback for `apps/agent`'s in-Worker gate (`src/access.ts`, the byte-for-byte copy of `apps/datatool`'s). The gate **fails closed**: with neither this token nor a verifiable Cloudflare Access assertion, every route 403s, the agent mounts and the test chat page included. Set per tier with `wrangler secret put TOOL_TOKEN -c dist/aeci_agent/wrangler.json` after the matching build — the emitted config is what names the Worker, so build `production` first to target `aeci-agent-production`. A browser on the Access allowlist needs no token; a `curl` needs **both** this token and the `aeci-gh-actions` service-token headers, because Access gates the edge and this gates the Worker. |
 | `TYPESAFE_API_KEY` (agent Worker) — **optional and UNSET** | ❌ | ❌ **deliberately unset** | ❌ | AECI-1030 / ADR 0034. TypeSafe AI key for the optional Jev relevance filter (`apps/agent/src/lib/jev.ts`). **Unset is the default and the supported state**, and it is unset on every tier today — no request has ever been sent to TypeSafe from this repo. It needs **two** switches, not one: this key AND a per-conversation `initialData.jevFilter` toggle recorded when the conversation is created. With either absent the filter returns its input unchanged and opens no connection. Setting it means passage text (public catalog data) and the user's question leave Cloudflare for `api.typesafe.ai`; no user identity, session id, conversation id, IP, D1 row or internal column goes with them. |
@@ -903,7 +899,7 @@ All Worker secrets are pushed per environment: `wrangler secret put REVIEW_APP_T
 
 | Tier | Staging (`deploy.yml`) | Production (`promote-to-prod.yml`) | Effect if missing |
 | --- | --- | --- | --- |
-| **Required (fail)** | `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`, `ALGOLIA_SEARCH_KEY` (the prod promote no longer requires `DIRECT_URL_PRODUCTION` / `SUPABASE_ACCESS_TOKEN` / R2 keys — it touches no Postgres, AECI-256) | Deploy/promote refused |
+| **Required (fail)** | `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`, `ALGOLIA_SEARCH_KEY`, `LINEAR_API_KEY` (AECI-851), `REVIEW_APP_OWNERSHIP_URL_PRODUCTION`, `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION` (AECI-1427) (the prod promote no longer requires `DIRECT_URL_PRODUCTION` / `SUPABASE_ACCESS_TOKEN` / R2 keys — it touches no Postgres, AECI-256) | Deploy/promote refused |
 | **Recommended (warn)** | `ADMIN_PURGE_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` | `ADMIN_PURGE_TOKEN`, `CF_ZONE_ID`, `SUPABASE_SERVICE_ROLE_KEY` | Degraded only (observability / WAF poll / the `AUTH_AND_RLS.md` §3.1 split-identity seams); deploy proceeds |
 
 To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` to `REQUIRED_SECRETS` in the relevant workflow's preflight step (and, if it's a Worker runtime secret, add a push step + the postflight `REQUIRED_WORKER_SECRETS` list).

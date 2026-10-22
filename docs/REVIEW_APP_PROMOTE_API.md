@@ -1475,8 +1475,9 @@ both, which satisfies the order rule.**
 ## 4d. Ownership records (live app → review app)
 
 **Status:** live side built 2026-10-20 (AECI-1418, E6b.2). The receiver is the review
-repo's AECI-1412, which builds against this section. The URL path below is a placeholder
-until AECI-1412 confirms it. Decision: ADR 0042, amendment 2026-10-20.
+repo's AECI-1412. It is live in production and confirmed the path below. The production
+backfill delivered 4 of 4 with HTTP 200 on 2026-10-22. Since AECI-1427 a production deploy
+fails when either secret is absent (ruling D4). Decision: ADR 0042, amendment 2026-10-20.
 
 This is the one call that runs the other way. Everything above is the review app calling
 AECi. Here the AECi API Worker calls the review app, to say who owns one vendor's records
@@ -1505,8 +1506,12 @@ Authorization: Bearer {REVIEW_APP_OWNERSHIP_TOKEN}
 Content-Type: application/json
 ```
 
-- `REVIEW_APP_OWNERSHIP_URL` is a base URL per tier. The path suffix `/vendors/{vendorId}`
-  is a **placeholder** the review repo confirms in AECI-1412.
+- `REVIEW_APP_OWNERSHIP_URL` is a base URL per tier. AECI-1412 confirmed the path suffix
+  `/vendors/{vendorId}`. The production base is `https://review.aecintegrations.com/api/ownership`.
+  Never use the review app's workers.dev host. Cloudflare Access fronts it, so the `PUT`
+  would be refused before the receiver sees it.
+- Only production has a receiver. Staging and demo stay unconfigured
+  (`docs/environments.md` "Ownership receiver per tier").
 - `REVIEW_APP_OWNERSHIP_TOKEN` is the reverse of `REVIEW_APP_TOKEN`: a separate bearer the
   review app checks, constant-time. A separate value so either side rotates alone.
 - One request per vendor. 10 second timeout. The live app never reads the response body.
@@ -1566,6 +1571,20 @@ only.
 
 ### What the receiver answers
 
+The production receiver (AECI-1412) answers these codes:
+
+| Receiver status | When |
+|---|---|
+| `200` | A new `version`, or the same `version` again |
+| `409` | A lower `version` than it holds |
+| `404` | A vendor id it never stored |
+| `400` | A body that does not parse, or a path id that does not match the body's `vendorId` |
+| `401` | A missing or wrong bearer token |
+| `503` | Its own token secret is unset |
+
+The live app's classification below covers every one of them. `503` retries. `400`, `401`
+and `404` are permanent. A `503` that outlasts the retry budget ends `exhausted`.
+
 | Status | Meaning | The live app does |
 |---|---|---|
 | `200` or `204` | Stored, or the same `version` again (a no-op) | Done |
@@ -1594,10 +1613,10 @@ Code: `apps/api/src/lib/ownership-sync.ts`.
 
 A tier with no `REVIEW_APP_OWNERSHIP_URL` or `REVIEW_APP_OWNERSHIP_TOKEN` acks every message
 as `unconfigured`, writes its ledger row and logs a warning. Nothing retries, and the gap
-shows in `aeci.ownership_sync.delivery{outcome:unconfigured}` (`OBSERVABILITY.md`).
-
-**The end-to-end test waits on AECI-1412.** Until the receiver is live, every tier reports
-`unconfigured` or `permanent`.
+shows in `aeci.ownership_sync.delivery{outcome:unconfigured}` (`OBSERVABILITY.md`). That is
+expected on staging and demo. On production it cannot happen through CI: `promote-to-prod.yml`
+requires both secrets in its preflight and on the live Worker (AECI-1427). An `unconfigured`
+row on production means a secret was deleted out of band.
 
 ---
 

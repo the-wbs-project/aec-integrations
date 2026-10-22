@@ -2302,14 +2302,14 @@ pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env produ
 
 | Latest outcome | Meaning | Do |
 |---|---|---|
-| `unconfigured` | The tier has no `REVIEW_APP_OWNERSHIP_URL` or `_TOKEN` | Provision both (`environments.md` "Ownership receiver per tier"), deploy, then re-send the vendor |
+| `unconfigured` | The tier has no `REVIEW_APP_OWNERSHIP_URL` or `_TOKEN`. Expected on staging and demo. On production a promote cannot ship without both (AECI-1427), so a secret was deleted out of band | Restore both (`environments.md` "Ownership receiver per tier"), promote, then re-send the vendor |
 | `permanent` with `401` or `403` | The token does not match the review app's | Rotate the pair on both sides, then re-send |
 | `permanent` with `404` | The review app has never stored this vendor id. The daily `ownership_sync_unknown_vendor` data-quality check (`warn`) lists it too | Expected for a vendor the review app never promoted. Otherwise check the id mapping in the review app, then re-send |
 | `exhausted` | Six attempts over about 15 minutes all failed with a retryable status | Check the review app is up, then re-send |
 | no row at all | The message was never enqueued (`aeci.ownership_sync.enqueue{outcome:failed}` or `unbound`) | Re-send |
 
 **Re-send one vendor.** The record is the whole current state, so a re-send is always safe.
-Read the queue id, dry-run, then apply with that id in place of `QUEUE_ID`. Production needs Chris's go-ahead and AECI-1412 live.
+Read the queue id, dry-run, then apply with that id in place of `QUEUE_ID`. Production needs Chris's go-ahead.
 
 ```bash
 pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production

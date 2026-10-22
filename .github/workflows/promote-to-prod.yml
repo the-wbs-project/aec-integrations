@@ -245,7 +245,8 @@ jobs:
           # VALUE check is real (same must-be-mapped rule as above).
           RESEND_WEBHOOK_SECRET_PRODUCTION: ${{ secrets.RESEND_WEBHOOK_SECRET_PRODUCTION }}
           # AECI-1418: the ownership receiver (REVIEW_APP_PROMOTE_API.md §4d), per tier.
-          # Mapped so the VALUE check is real.
+          # Mapped so the VALUE check is real. AECI-1427: both are REQUIRED on
+          # production (see the REQUIRED_SECRETS comment below).
           REVIEW_APP_OWNERSHIP_URL_PRODUCTION: ${{ secrets.REVIEW_APP_OWNERSHIP_URL_PRODUCTION }}
           REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION: ${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION }}
           INDEXNOW_KEY_PRODUCTION: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
@@ -272,7 +273,14 @@ jobs:
           # no log, so a submitted vendor claim reaches nobody and the only signal
           # is the 60-minute reconciliation-sweep email. A warn-and-skip log is
           # exactly what left prod analytics dark for weeks in AECI-326.
-          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY'
+          # AECI-1427 (ruling D4, 2026-10-20): REVIEW_APP_OWNERSHIP_URL_PRODUCTION and
+          # REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION are REQUIRED on production now that
+          # the review app's receiver is live (AECI-1412). Without them every
+          # ownership change is acked as `unconfigured` and never reaches the review
+          # app, so the review app keeps vendor-owned records editable. Staging and demo
+          # stay warn-only: staging has no receiver to point at, and demo stays
+          # unconfigured by ruling D5.
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL_PRODUCTION REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
           # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
@@ -309,7 +317,7 @@ jobs:
           # emits aeci.webhooks.linear.hmac_failure, so its absence is loud rather
           # than silent — and a prod webhook may not be registered in Linear at all,
           # in which case the secret is moot and must not block a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET RESEND_WEBHOOK_SECRET_PRODUCTION GSC_SA_KEY_JSON_PRODUCTION REVIEW_APP_OWNERSHIP_URL_PRODUCTION REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET RESEND_WEBHOOK_SECRET_PRODUCTION GSC_SA_KEY_JSON_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -643,9 +651,13 @@ jobs:
             | pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env production
 
       # AECI-1418: the ownership receiver's base URL and bearer token
-      # (REVIEW_APP_PROMOTE_API.md §4d). Recommended + warn-and-skip: absent, the
-      # consumer acks every delivery with an `unconfigured` ledger row, a count and a
-      # warn, so the gap is visible and nothing retries. Both or neither.
+      # (REVIEW_APP_PROMOTE_API.md §4d). Both or neither.
+      #
+      # AECI-1427 (ruling D4): REQUIRED on production, asserted in preflight AND on
+      # the Worker below, the same as LINEAR_API_KEY. AECI-1418 shipped this step
+      # warn-and-skip while the receiver (AECI-1412) was not live. It is live now,
+      # so an absent pair means ownership records stop reaching the review app,
+      # not a pending provision. Staging and demo keep warn-and-skip.
       - name: Push REVIEW_APP_OWNERSHIP_URL + TOKEN to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -656,8 +668,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$OWNERSHIP_URL_VALUE" ] || [ -z "$OWNERSHIP_TOKEN_VALUE" ]; then
-            echo "::warning::REVIEW_APP_OWNERSHIP_URL_PRODUCTION / REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION not set — skipping. Ownership records are not sent to the review app from production (ledger outcome 'unconfigured') until both are provisioned."
-            exit 0
+            echo "::error::REVIEW_APP_OWNERSHIP_URL_PRODUCTION and REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION must both be set (AECI-1427). Without them production sends no ownership records to the review app. Preflight should already have failed the run; if you are seeing this, REQUIRED_SECRETS drifted. See docs/environments.md \"Ownership receiver per tier\"."
+            exit 1
           fi
           printf '%s' "$OWNERSHIP_URL_VALUE" \
             | pnpm exec wrangler secret put REVIEW_APP_OWNERSHIP_URL --env production
@@ -1051,7 +1063,8 @@ jobs:
           # key that was never pushed, was pushed to the wrong env, or was deleted
           # out of band. That is the exact class of miss that ran production without
           # one from the apex cutover to 2026-09-10.
-          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY LINEAR_API_KEY'
+          # AECI-1427: the ownership receiver pair is required here for the same reason.
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL REVIEW_APP_OWNERSHIP_TOKEN'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
       - name: Smoke test production (API + SSR at SHA, DB healthy)
