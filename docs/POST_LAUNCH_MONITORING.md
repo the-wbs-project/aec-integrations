@@ -1277,7 +1277,7 @@ numbers.
 |---|---|---|---|
 | 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. |
 | 2026-10-22 02:40 (`957951a08`) | demo | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Demo arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
-| TODO: the promote-to-prod time and SHA of the AECI-1443 production change, filled in after that promote | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
+| 2026-10-22 03:53 (`88cedfbc3`) | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
 
 The writer itself does not change at a cache flip. A HIT skips the render, so from each tier's
 flip the render counts and the AECI-839 p95 measure misses only.
