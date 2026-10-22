@@ -601,10 +601,11 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 `11342302`–`11342372`), verified 2026-09-04.
 
 > **Update 2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts
-> are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. Production
-> also carries one orphan alert, "AECi — Search-engine pings refused (> 90% in 24 h)". It is the
-> pre-AECI-1136 name of `indexnow-failure-rate`. Alerts are matched by name, so that rename created
-> a second alert. Delete the orphan by hand. The older notes below are history.
+> are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. An orphan
+> alert, "AECi — Search-engine pings refused (> 90% in 24 h)", was deleted by hand the same day. It
+> was the pre-AECI-1136 name of `indexnow-failure-rate`. Alerts are matched by name, so that rename
+> had created a second alert. Until AECI-1456 lands, an alert rename needs the old live alert deleted
+> by hand after the apply. The older notes below are history.
 >
 > **Update 2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
 > `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and not applied.

@@ -24,7 +24,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 
 | Question | Where to look |
 |---|---|
-| "My phone buzzed — what fired?" | One of the 21 committed PostHog alerts, all live in production since `apply.sh` ran on 2026-10-22 (AECI-1439). Production project only, hourly unless the alert says daily. None is `Errored` after that run. Production also carries one orphan alert, "Search-engine pings refused (> 90% in 24 h)", see Alerts below |
+| "My phone buzzed — what fired?" | One of the 21 committed PostHog alerts, all live in production since `apply.sh` ran on 2026-10-22 (AECI-1439). Production project only, hourly unless the alert says daily. None is `Errored` after that run |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-one** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, and `traffic-classify`, AECI-1345) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 53 committed insights, applied from `observability/posthog/insights.json` |
@@ -1322,13 +1322,13 @@ reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
-> **Applied 2026-10-22 (AECI-1439).** `apply.sh` ran against production, and none of the live alerts is `Errored` after it. Production carries 22 alerts: the 21 committed ones plus an orphan, "AECi — Search-engine pings refused (> 90% in 24 h)" (created 2026-09-10). It is the pre-AECI-1136 name of `indexnow-failure-rate`. The applier matches alerts by name, so the 2026-09-28 rename created a second alert instead of renaming the first. Both read the same insight and both email. Delete the orphan by hand.
+> **Applied 2026-10-22 (AECI-1439).** `apply.sh` ran against production, and none of the live alerts is `Errored` after it. The same day, an orphan alert was deleted by hand: "AECi — Search-engine pings refused (> 90% in 24 h)", the pre-AECI-1136 name of `indexnow-failure-rate`. The applier matches alerts by name, so the 2026-09-28 rename had created a second alert instead of renaming the first, and both emailed. **Rename an alert in `alerts.json` only after AECI-1456 lands**, or delete the old live alert by hand after the apply.
 >
 > **12 of the 14 live production alerts were `Errored` on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every query that read `m.attributes` failed validation. AECI-1115 rewrote all 36 affected insights in `observability/posthog/insights.json` to join the series table. Each rewritten query was run read-only against production and compiles. The live alerts leave `Errored` only when `apply.sh` runs against production. See "Gotchas when querying" item 12 for the join.
 
 | | Datadog monitors | PostHog alerts |
 |---|---|---|
-| Count | **26**, all applied and live | **21** committed, all live since 2026-10-22: 13 cover 16 of those 26, and 8 are net-new (AECI-826, AECI-1099, three in AECI-1206, two in AECI-1222, AECI-1384). Production also carries the orphan named above |
+| Count | **26**, all applied and live | **21** committed, all live since 2026-10-22: 13 cover 16 of those 26, and 8 are net-new (AECI-826, AECI-1099, three in AECI-1206, two in AECI-1222, AECI-1384). Production carries exactly these 21 |
 | Applied to | production (and `env`-scoped where relevant) | dashboards and insights on **both** projects. Alerts on **production only**, applied 2026-10-22 |
 | Cadence | 5 min – 1 day, per monitor | **hourly**, except five **daily** alerts with a 24 h or longer window: `indexnow-failure-rate` (since 2026-09-24), `email-failure-rate` and `email-volume-spike` (AECI-1206), `email-bounce-rate` and `email-complaint-rate` (AECI-1222, 7-day window) (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |
