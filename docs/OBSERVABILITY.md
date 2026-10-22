@@ -24,7 +24,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 
 | Question | Where to look |
 |---|---|
-| "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **21 are committed** (2026-10-16): the AECI-1099 `profile-ensure-failed` alert, the three AECI-1206 email alerts, the two AECI-1222 delivery alerts and the AECI-1384 `pageviews-raw-unsent` alert reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
+| "My phone buzzed — what fired?" | One of the 21 committed PostHog alerts, all live in production since `apply.sh` ran on 2026-10-22 (AECI-1439). Production project only, hourly unless the alert says daily. None is `Errored` after that run. Production also carries one orphan alert, "Search-engine pings refused (> 90% in 24 h)", see Alerts below |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-one** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, and `traffic-classify`, AECI-1345) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 53 committed insights, applied from `observability/posthog/insights.json` |
@@ -1219,6 +1219,9 @@ deleted with the rest of the plane at AECI-651.
 > condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
 > together with `observability/posthog/README.md`.
 >
+> **2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts are
+> live, and the cron insights carry the AECI-1435 metric. The older notes below are history.
+>
 > **2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
 > `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and NOT applied.
 >
@@ -1263,7 +1266,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all twenty-one watched; an entry may carry an `activeFrom` grace, AECI-1221). |
 | `observability/posthog/insights.json` | 7 dashboards, 53 insights (32 board + 21 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
-| `observability/posthog/alerts.json` | 21 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Seven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222, not yet applied), and `pageviews-raw-unsent` (AECI-1384, not yet applied). Eight in all. |
+| `observability/posthog/alerts.json` | 21 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Seven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222), and `pageviews-raw-unsent` (AECI-1384). All applied 2026-10-22. Eight in all. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
@@ -1319,16 +1322,18 @@ reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
+> **Applied 2026-10-22 (AECI-1439).** `apply.sh` ran against production, and none of the live alerts is `Errored` after it. Production carries 22 alerts: the 21 committed ones plus an orphan, "AECi — Search-engine pings refused (> 90% in 24 h)" (created 2026-09-10). It is the pre-AECI-1136 name of `indexnow-failure-rate`. The applier matches alerts by name, so the 2026-09-28 rename created a second alert instead of renaming the first. Both read the same insight and both email. Delete the orphan by hand.
+>
 > **12 of the 14 live production alerts were `Errored` on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every query that read `m.attributes` failed validation. AECI-1115 rewrote all 36 affected insights in `observability/posthog/insights.json` to join the series table. Each rewritten query was run read-only against production and compiles. The live alerts leave `Errored` only when `apply.sh` runs against production. See "Gotchas when querying" item 12 for the join.
 
 | | Datadog monitors | PostHog alerts |
 |---|---|---|
-| Count | **26**, all applied and live | **21** committed, 14 live: 13 cover 16 of those 26, and 8 are net-new (AECI-826, AECI-1099, three in AECI-1206, two in AECI-1222, AECI-1384). Only 14 are live; the rest wait for `apply.sh` |
-| Applied to | production (and `env`-scoped where relevant) | **non-production dashboards only**; alerts are prod-only and unapplied pending the `phx_` key |
+| Count | **26**, all applied and live | **21** committed, all live since 2026-10-22: 13 cover 16 of those 26, and 8 are net-new (AECI-826, AECI-1099, three in AECI-1206, two in AECI-1222, AECI-1384). Production also carries the orphan named above |
+| Applied to | production (and `env`-scoped where relevant) | dashboards and insights on **both** projects. Alerts on **production only**, applied 2026-10-22 |
 | Cadence | 5 min – 1 day, per monitor | **hourly**, except five **daily** alerts with a 24 h or longer window: `indexnow-failure-rate` (since 2026-09-24), `email-failure-rate` and `email-volume-spike` (AECI-1206), `email-bounce-rate` and `email-complaint-rate` (AECI-1222, 7-day window) (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |
 | Delivery | email to `@chrisw@thewbsproject.com` | email `subscribed_users`, today `chrisw@thewbsproject.com`. A recipient must be a PostHog organization member. No Slack/webhook wired — deliberate; AECi has no Slack |
-| Pages today? | **Yes** | No |
+| Pages today? | **Yes** | **Yes**, by email (since 2026-10-22) |
 
 The full **26-row disposition** — every Datadog monitor, its old threshold, and
 where it landed — is in `observability/posthog/README.md` and is reproduced for

@@ -387,10 +387,8 @@ items settled since then are marked ✅ with their date:
   (`status`, `duration_ms`, `results_bucket`) are on the `searchPerformed()` signature in
   source but not yet in the production taxonomy — PostHog's taxonomy warning on those
   columns is the expected pre-AW2 state, not a bug in the query.
-- ❌ The AECI-782 / AECI-826 rename has not been applied to production (354071). The
-  objects themselves **do** exist there — see "Live objects — BOTH projects are applied"
-  below — but both projects still carry the old titles and descriptions. `apply.sh`
-  lands the rename in place; it is operator step 3 below.
+- ✅ The AECI-782 / AECI-826 rename is applied to production (354071). `apply.sh` ran there on
+  2026-10-22 (AECI-1439).
 
 ---
 
@@ -602,6 +600,12 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts
+> are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. Production
+> also carries one orphan alert, "AECi — Search-engine pings refused (> 90% in 24 h)". It is the
+> pre-AECI-1136 name of `indexnow-failure-rate`. Alerts are matched by name, so that rename created
+> a second alert. Delete the orphan by hand. The older notes below are history.
+>
 > **Update 2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
 > `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and not applied.
 > It has no Datadog predecessor and watches `aeci.pageviews.raw` for any `failed` or `skipped` in an hour.
