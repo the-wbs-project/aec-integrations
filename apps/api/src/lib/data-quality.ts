@@ -784,14 +784,16 @@ export async function checkOwnershipSyncUnknownVendor(db: Db): Promise<CheckFind
  * accepted (`GET {REVIEW_APP_OWNERSHIP_URL}/vendors?ids=…`, at most
  * {@link OWNERSHIP_VERSIONS_MAX_IDS} ids a call, the same bearer token as the PUT). One
  * line per vendor that is missing on the review side, holds only a v1 record, or holds
- * a different hash.
+ * a different hash. A vendor whose own build throws is a `build_failed` line: the
+ * builder throws when a stored value fails the v2 content schema, and the queue
+ * consumer is retrying and then dropping that vendor too.
  *
  * It compares hashes, not `updated_at` against the version: `updated_at` moves on
  * writes that are not mirrored (a `verified` flip, a count recompute), so a timestamp
  * comparison would page as false drift every day.
  *
  * Skipped when the receiver URL or token is unset, or the tier still sends v1
- * (`REVIEW_APP_MIRROR_SCHEMA` is not `"2"`): a v1 tier has no hash to compare. A
+ * (`REVIEW_APP_MIRROR_SCHEMA` is not `"2"`): a v1 tier has no hash to compare. Only a
  * review-side failure (network, timeout, non-2xx, a body that fails the schema) throws,
  * so the orchestrator reports the check errored rather than clean.
  */
@@ -820,18 +822,32 @@ export async function checkReviewMirrorDrift(
     .where(isNotNull(vendors.ownedAt))
     .orderBy(asc(vendors.id));
 
-  // Build every record first. A D1 read that fails errors the check.
+  // Build every record first. A vendor whose build throws (a stored value that fails
+  // the v2 content schema, or a failed read) is a `build_failed` line, not an errored
+  // check: one bad vendor must not blind the check for every other vendor.
   const built = await mapWithConcurrency(owned, WORKER_CONNECTION_LIMIT, (v) =>
     deps.buildRecord(db, v.id),
   );
   const expected = new Map<string, string>();
+  const buildFailed: string[] = [];
   built.forEach((result, i) => {
-    if (result.status === 'rejected') throw result.reason;
+    const vendorId = owned[i]!.id;
+    if (result.status === 'rejected') {
+      const reason: unknown = result.reason;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      buildFailed.push(`vendor ${vendorId}: build_failed (${truncate(message)})`);
+      return;
+    }
     // `null`: the vendor row vanished between the two reads, so there is nothing to compare.
-    if (result.value) expected.set(owned[i]!.id, result.value.recordHash);
+    if (result.value) expected.set(vendorId, result.value.recordHash);
   });
   const ids = [...expected.keys()];
-  if (ids.length === 0) return { lines: [], note: 'no owned vendors' };
+  if (ids.length === 0) {
+    return {
+      lines: buildFailed,
+      note: owned.length === 0 ? 'no owned vendors' : 'no record built',
+    };
+  }
 
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += OWNERSHIP_VERSIONS_MAX_IDS) {
@@ -866,7 +882,7 @@ export async function checkReviewMirrorDrift(
     for (const entry of read.value) held.set(entry.vendorId, entry);
   }
 
-  const lines: string[] = [];
+  const lines: string[] = [...buildFailed];
   for (const [vendorId, hash] of expected) {
     const entry = held.get(vendorId);
     if (!entry) {
@@ -883,6 +899,13 @@ export async function checkReviewMirrorDrift(
     }
   }
   return { lines, note: `compared ${ids.length} owned vendor(s) in ${chunks.length} read(s)` };
+}
+
+/** Longest build error kept on a `build_failed` line; a Zod message can run long. */
+const BUILD_ERROR_MAX = 200;
+
+function truncate(message: string): string {
+  return message.length > BUILD_ERROR_MAX ? `${message.slice(0, BUILD_ERROR_MAX)}…` : message;
 }
 
 // ───────────────────────────── registry + orchestrator ───────────────────────

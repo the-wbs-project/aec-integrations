@@ -2341,13 +2341,14 @@ absent copy of that vendor's records. It runs only when the tier sends v2
 skipped and reads 0.
 
 **Read the lines first.** Open `/admin/system`, run the data-quality checks, and read the
-`review_mirror_drift` sample. Each line names the vendor id and one of three causes.
+`review_mirror_drift` sample. Each line names the vendor id and one of four causes.
 
 | Line says | Meaning | Do |
 |---|---|---|
 | `missing on the review side` | The review app holds no record for this vendor | Read the vendor's ledger ("Ownership records not reaching the review app" above). A `404` there is the unknown-vendor case. Otherwise re-send the vendor |
 | `the review side holds no v2 record` | The review app last accepted a v1 record | Expected once, right after the v2 flip and before the backfill. Afterwards, re-send the vendor |
 | `hash differs` | The review app's v2 record is older than the live state | A mirrored edit did not deliver. Read the ledger, then re-send the vendor |
+| `build_failed` | A stored value on this vendor's records violates the v2 contract, so the record cannot be built. The text after it is the builder's error, cut at 200 characters. The queue consumer is retrying this vendor too, and drops it after its last attempt, so nothing reaches the review app | Fix the stored value the error names, then re-send the vendor. Other vendors are still checked, so the rest of the sample is real |
 
 The re-send is the `--vendor` command in the section above. The record is the whole current
 state, so a re-send is always safe. Production needs Chris's go-ahead.

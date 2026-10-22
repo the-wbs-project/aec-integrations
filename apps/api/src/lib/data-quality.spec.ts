@@ -852,6 +852,55 @@ describe('checkReviewMirrorDrift', () => {
     expect(calls[0]!.url).toBe(`${BASE}/vendors?ids=${vid(1)}`);
   });
 
+  it('counts a vendor whose build throws as build_failed and still checks the rest', async () => {
+    await seedOwned(vid(1), vid(2), vid(3));
+    const long = `products[0].content.name: ${'x'.repeat(400)}`;
+    const build = vi.fn(async (_db: unknown, vendorId: string) => {
+      if (vendorId === vid(2)) throw new Error(long);
+      return { recordHash: HASH_A };
+    });
+    const { impl, calls } = versionsFetch({
+      [vid(1)]: { recordHash: HASH_A },
+      [vid(3)]: { recordHash: HASH_B, version: 4 },
+    });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: build,
+      fetchImpl: impl,
+    });
+    // The failed vendor is not asked about; the others are still compared.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${BASE}/vendors?ids=${vid(1)},${vid(3)}`);
+    expect(out.lines).toEqual([
+      `vendor ${vid(2)}: build_failed (${long.slice(0, 200)}…)`,
+      `vendor ${vid(3)}: hash differs (review version 4 holds bbbbbbbbbbbb, live builds aaaaaaaaaaaa)`,
+    ]);
+
+    // Through the orchestrator it is a finding, not an errored check.
+    const results = await runDataQualityChecks({
+      db: t.db,
+      now: NOW,
+      reviewMirror: { env: ENV_V2, buildRecord: build, fetchImpl: impl },
+    });
+    const drift = results.find((r) => r.id === 'review_mirror_drift');
+    expect(drift?.error).toBeUndefined();
+    expect(drift?.count).toBe(2);
+  });
+
+  it('reports build_failed lines and makes no request when every build throws', async () => {
+    await seedOwned(vid(1));
+    const { impl, calls } = versionsFetch({});
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: vi.fn(async () => {
+        throw new Error('bad stored value');
+      }),
+      fetchImpl: impl,
+    });
+    expect(out.lines).toEqual([`vendor ${vid(1)}: build_failed (bad stored value)`]);
+    expect(calls).toHaveLength(0);
+  });
+
   it('makes no request when no vendor is owned', async () => {
     await seedVendor({ id: vid(1) });
     const { impl, calls } = versionsFetch({});
