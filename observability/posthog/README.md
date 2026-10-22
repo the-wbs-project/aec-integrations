@@ -387,10 +387,8 @@ items settled since then are marked ✅ with their date:
   (`status`, `duration_ms`, `results_bucket`) are on the `searchPerformed()` signature in
   source but not yet in the production taxonomy — PostHog's taxonomy warning on those
   columns is the expected pre-AW2 state, not a bug in the query.
-- ❌ The AECI-782 / AECI-826 rename has not been applied to production (354071). The
-  objects themselves **do** exist there — see "Live objects — BOTH projects are applied"
-  below — but both projects still carry the old titles and descriptions. `apply.sh`
-  lands the rename in place; it is operator step 3 below.
+- ✅ The AECI-782 / AECI-826 rename is applied to production (354071). `apply.sh` ran there on
+  2026-10-22 (AECI-1439).
 
 ---
 
@@ -423,20 +421,17 @@ Three entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
 delete it once `aeci.claim.owner_fallback.job` appears in production.
-`request-confirmation-expiry` (AECI-1435) carries the same `2026-11-01T15:00:00Z` placeholder.
-Move it to the real production promote plus a day, and delete it once
-`aeci.request_confirmation.expiry.job` appears in production.
 `traffic-classify` (AECI-1345) carries `2026-11-01T01:00:00Z`, also a placeholder past the expected
 production promote. Move it to the real promote plus a day, and delete it once
 `aeci.traffic_classify.run` appears in production.
 
-AECI-1232 removed the previous two on 2026-10-05, after a production sweep reported both
-heartbeats `ok`:
+Removed entries, each once its heartbeat had appeared in production:
 
-| Cron | Heartbeat | First seen in production |
-|---|---|---|
-| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run |
-| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run |
+| Cron | Heartbeat | First seen in production | Removed by |
+|---|---|---|---|
+| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run | AECI-1232, 2026-10-05 |
+| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run | AECI-1232, 2026-10-05 |
+| `request-confirmation-expiry` (AECI-1435) | `aeci.request_confirmation.expiry.job` | 2026-10-21, 14:30 UTC run | AECI-1439, 2026-10-22 |
 
 ## The liveness sweep drill
 
@@ -605,6 +600,13 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts
+> are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. An orphan
+> alert, "AECi — Search-engine pings refused (> 90% in 24 h)", was deleted by hand the same day. It
+> was the pre-AECI-1136 name of `indexnow-failure-rate`. Alerts are matched by name, so that rename
+> had created a second alert. Until AECI-1456 lands, an alert rename needs the old live alert deleted
+> by hand after the apply. The older notes below are history.
+>
 > **Update 2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
 > `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and not applied.
 > It has no Datadog predecessor and watches `aeci.pageviews.raw` for any `failed` or `skipped` in an hour.

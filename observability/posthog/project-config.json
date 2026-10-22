@@ -330,10 +330,9 @@
         "cron": "30 14 * * *",
         "metric": "aeci.request_confirmation.expiry.job",
         "maxAgeMinutes": 1560,
-        "activeFrom": "2026-11-01T15:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1435. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that delete nothing, because aeci.request_confirmation.expiry.deleted is zero on a quiet day. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+        "_note": "AECI-1435. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat is emitted on EVERY run, including the many that delete nothing, because aeci.request_confirmation.expiry.deleted is zero on a quiet day. activeFrom (AECI-1221) was removed by AECI-1439 on 2026-10-22, once aeci.request_confirmation.expiry.job had appeared in production (first run 2026-10-21 14:30 UTC)."
       },
       {
         "job": "traffic-classify",

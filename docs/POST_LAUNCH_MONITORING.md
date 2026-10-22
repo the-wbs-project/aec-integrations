@@ -239,7 +239,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twenty-one** (`gsc-inspect`, `claim-owner-fallback`, `request-confirmation-expiry` and `traffic-classify` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368, AECI-1435 and AECI-1345). It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twenty-one** (`gsc-inspect`, `claim-owner-fallback` and `traffic-classify` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368 and AECI-1345). It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
