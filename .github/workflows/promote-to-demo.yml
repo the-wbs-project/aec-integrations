@@ -674,7 +674,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$OWNERSHIP_URL_VALUE" ] || [ -z "$OWNERSHIP_TOKEN_VALUE" ]; then
-            echo "::warning::REVIEW_APP_OWNERSHIP_URL_DEMO / REVIEW_APP_OWNERSHIP_TOKEN_DEMO not set — skipping. Ownership records are not sent to the review app from demo (ledger outcome 'unconfigured') until both are provisioned."
+            echo "::warning::REVIEW_APP_OWNERSHIP_URL_DEMO / REVIEW_APP_OWNERSHIP_TOKEN_DEMO not set, skipping. Expected: demo has no ownership receiver by ruling D5 (2026-10-20), so demo sends no ownership records (ledger outcome 'unconfigured'). See docs/environments.md \"Ownership receiver per tier\"."
             exit 0
           fi
           printf '%s' "$OWNERSHIP_URL_VALUE" \
