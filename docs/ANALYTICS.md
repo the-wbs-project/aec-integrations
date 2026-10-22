@@ -16,9 +16,11 @@ The third surface is the `page_views` D1 table + `/admin` (§14.2), which is
 **consent-independent** and sees the Cloudflare request context PostHog cannot.
 When the two disagree on a count, `page_views` is the authoritative number and
 PostHog is the authoritative *funnel* — see "Consent shapes every number" below.
-How `page_views` will sit beside the planned Cloudflare edge log (Logpush,
-AECI-1196), joined on the Ray ID and stored by consent tier, is proposed in
-[`design/edge-log-and-page-views.md`](./design/edge-log-and-page-views.md).
+Cloudflare's own record of every request at the edge is kept in R2 by Logpush
+(§11a, ADR 0045), from the day AECI-1447 starts the jobs. It is a store only: the Ray ID join to `page_views`, the daily
+rollup and consent tiers proposed in
+[`design/edge-log-and-page-views.md`](./design/edge-log-and-page-views.md) are
+deferred.
 
 ---
 
@@ -614,6 +616,46 @@ a capture" in `RUNBOOKS.md`. Locally the binding is absent and the write is coun
 **Consent.** The store captures every visitor, including those who send DNT or Sec-GPC. That gap is
 AECI-1386. §5 above describes the consent tiers for PostHog. This store sits outside them.
 
+## 11a. The edge request log
+
+**Answer first.** Cloudflare's per-request record for the whole zone is copied to R2 by two Logpush
+jobs and kept 400 days. Nothing reads it automatically. Read it by hand with DuckDB. ADR 0045 is the
+decision. AECI-1447 creates the bucket and the jobs.
+
+**What it is.** One bucket, `aeci-edge-log-production`, on The WBS Project account. Gzip NDJSON, one
+JSON object per line, under `http_requests/{DATE}/` and `firewall_events/{DATE}/`, with `{DATE}` as
+`YYYYMMDD`. A job covers the whole zone, so `www.`, the apex, `demo.` and `staging.` are all in it.
+Filter on `ClientRequestHost`.
+
+**How it differs from §11.** §11 holds only captures that reach `capturePageView`, with a monthly IP
+hash and secret query parameters removed. This log holds every request: pages, assets, API calls,
+redirects, errors, and every WAF decision in `firewall_events`. It has no IP in any form. The URL and the
+referer keep their query strings as sent. It has no Bot Management score. `VerifiedBotCategory` is
+there, and `RequestHeaders` carries nine client hints (`sec-gpc`, `dnt`, `sec-fetch-*`,
+`accept-language`, `sec-ch-ua*`).
+
+**Reading it.** Create an R2 API token with read access to `aeci-edge-log-production` (a token scoped to the
+§11 bucket cannot read it), run the same `CREATE SECRET` as §11, then `read_json` over the gzip files:
+
+```sql
+SELECT
+  VerifiedBotCategory AS category,
+  count(*) AS requests
+FROM read_json(
+  's3://aeci-edge-log-production/http_requests/20261101/*.log.gz',
+  format = 'newline_delimited'
+)
+WHERE ClientRequestHost = 'www.aecintegrations.com'
+GROUP BY ALL
+ORDER BY requests DESC;
+```
+
+**Joins.** `RayID` equals `page_views.cf_ray` and the §11 envelope's `cf.ray`. No join is built
+(AECI-1304).
+
+**Health.** Cloudflare's "Logpush job disabled" email to Chris. Runbook "Logpush job disabled" in
+`RUNBOOKS.md`. A missed day is lost unless a GraphQL pull fills it in time.
+
 ## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric
@@ -626,3 +668,5 @@ AECI-1386. §5 above describes the consent tiers for PostHog. This store sits ou
   operator console over `page_views`.
 - [`adr/0041-raw-page-view-store.md`](./adr/0041-raw-page-view-store.md) — the raw
   page-view store in R2 (§11).
+- [`adr/0045-edge-request-log-via-logpush-to-r2.md`](./adr/0045-edge-request-log-via-logpush-to-r2.md)
+  — the edge request log in R2 (§11a).

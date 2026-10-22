@@ -1523,6 +1523,32 @@ deploy resolves the binding against the account.
 - **A missing production binding is alarmed.** The alert `pageviews-raw-unsent` fires on `outcome:skipped`.
   Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture".
 
+## Edge request log (AECI-1196, ADR 0045)
+
+One store for the whole zone, not one per tier. Logpush jobs are zone-wide, so the log holds `www.`, the
+apex, `demo.` and `staging.` together. Nothing in the repo or on a Worker binds to it. **AECI-1447 creates
+these resources and fills in the ids below.** Until then nothing is running.
+
+| Resource | Value |
+|---|---|
+| Account | The WBS Project (`004dc1af…`) |
+| R2 bucket | `aeci-edge-log-production` |
+| Bucket lifecycle rule | delete after 400 days |
+| Logpush job `http_requests` | destination `http_requests/{DATE}/`, ndjson, gzip, RFC 3339 timestamps, sample rate 1. All fields except `ClientIP` and the Bot-Management-only set. Job id: recorded by AECI-1447 |
+| Logpush job `firewall_events` | destination `firewall_events/{DATE}/`, same format. All fields except `ClientIP`. Job id: recorded by AECI-1447 |
+| Custom-fields ruleset | phase `http_log_custom_fields`, one rule, expression `true`, request headers `sec-gpc`, `dnt`, `sec-fetch-mode`, `sec-fetch-site`, `sec-fetch-dest`, `accept-language`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform` |
+| Notification | Cloudflare "Logpush job disabled", to Chris's email |
+
+- **Wrangler cannot create Logpush jobs.** An agent creates them through the zone Logpush API with a
+  one-off token Chris creates (zone Logs Edit) and revokes afterwards. Create the bucket and lifecycle
+  rule with wrangler from `/tmp`, OAuth login.
+- **The jobs write with a long-lived R2 token. Never revoke it.** An R2 API token with Object Read &
+  Write on `aeci-edge-log-production` supplies the S3 key pair in each job's `destination_conf`.
+  Revoking it stops both jobs. Its name: recorded by AECI-1447.
+- **Logpush never back-fills.** A job captures from the moment it starts. History before that is in the
+  GraphQL pulls (`scripts/ops/2026-10-traffic-history/`), which AECI-1448 copies to `graphql-backfill/`.
+- **Read recipe:** `ANALYTICS.md` §11a. **Runbook:** `RUNBOOKS.md` "Logpush job disabled".
+
 ## What lives where
 
 | File | Purpose |

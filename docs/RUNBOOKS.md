@@ -28,6 +28,10 @@ the Datadog monitors did:
   which fails red in GitHub Actions and emails. If a cron is silent, check that job's
   run history, not PostHog.
 
+**Cloudflare email.** One page comes from Cloudflare, not PostHog: the "Logpush job
+disabled" notification for the edge request log (ADR 0045). Runbook:
+[Logpush job disabled](#logpush-job-disabled).
+
 ### Reading logs
 
 Every `service:<worker> source:<subsystem>` filter used in the runbooks below maps
@@ -637,6 +641,36 @@ recreate the raw headers or `request.cf`. The gap matters only for a later back-
 **Repair:** restore the binding or the stream and deploy. New captures resume at once. There is no
 back-fill. Note the window in the issue so a later rebuild knows the hole exists. Do not "fix" it by
 making the D1 write wait on the raw write.
+
+## Logpush job disabled
+
+**Alert:** Cloudflare's "Logpush job disabled" notification, by email to Chris (AECI-1447). It is not a
+PostHog alert and has no row in the table above.
+
+**What it means:** Cloudflare stopped one of the two Logpush jobs that write the edge request log to
+`aeci-edge-log-production` (ADR 0045). It does this after deliveries keep failing. The site and every
+`page_views` figure are fine. The hole is in the permanent copy of Cloudflare's request record.
+
+**First checks**
+
+1. Which job: the email names it. `http_requests` or `firewall_events`.
+2. Read its state from the zone Logpush API, `GET /zones/<zone id>/logpush/jobs/<job id>`. Look at
+   `enabled`, `last_complete` and `last_error`. The job ids are in `environments.md` "Edge request log".
+3. Confirm the bucket still exists and the destination credentials still work. A deleted bucket or a
+   revoked R2 token is the usual cause.
+
+**Impact:** Logpush never back-fills. Every hour the job is off is missing from the log unless a GraphQL
+pull recovers it. Cloudflare keeps requests for 90 days and firewall events for only 31.
+
+**Repair:**
+
+1. Fix the cause and re-enable the job through the same API, `PUT … { "enabled": true }`. This needs a
+   token with zone Logs Edit. Create a one-off token and revoke it afterwards, as when the jobs were
+   created. If the cause is a revoked R2 token, create a new bucket-scoped Object Read & Write R2 token
+   and `PUT` a new `destination_conf` with its key pair. Do not revoke that one.
+2. Fill the gap from GraphQL with `scripts/ops/2026-10-traffic-history/pull.mjs`, before the 31-day or
+   90-day limit. Upload the output under `graphql-backfill/` in the same bucket.
+3. Note the window and how it was filled in the issue.
 
 ## page_views duplicate PK (prod data corruption) — historical (Postgres only)
 

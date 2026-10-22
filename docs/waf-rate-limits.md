@@ -919,7 +919,7 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 > **As-built (2026-10-04, AECI-1161).** The zone is on The WBS Project's Enterprise plan, and this section describes the Pro-era setup that was copied across. The settings were compared item by item on 2026-09-30 and match the old zone, except two that cannot be saved on a Pending zone and are cutover steps: **continuous script monitoring** goes on, and **Bot Preference Sync** goes off (on, it rewrites our `robots.txt`). "Bot Fight Mode is absent" and the Pro-only remarks below describe the old zone. Enterprise zones may expose more bot features, so check the dashboard before relying on those remarks. The comparison table is in `scripts/ops/2026-09-wbs-account-move/README.md`.
 
-> **Bot Management is not licensed (ruled 2026-10-21, AECI-1300).** Cloudflare scored the zone from **2026-10-12**, but we do not pay for Bot Management and will not for now. Chris met Cloudflare on 2026-10-19. Adding it needs a paid Enterprise plan with Bot Management on top, and that is out of our price range. The zone's current Enterprise plan comes free through the Cloudflare for Startups program, which WBS has held for about four years. **Build as if we have no Bot Management.** Do not read `page_views.cf_bot_score`, or the Logpush bot score, as a signal. Cloudflare's verified-bot fields are allowed: `cf_verified_bot_category` is filled without Bot Management, and the traffic classifier already reads it. Every stored score since 2026-10-12 is a constant 99 (AECI-1298). Our own bot detection stays the only classifier. Revisit when the budget allows (epic AECI-1299).
+> **Bot Management is not licensed (ruled 2026-10-21, AECI-1300).** Cloudflare scored the zone from **2026-10-12**, but we do not pay for Bot Management and will not for now. Chris met Cloudflare on 2026-10-19. Adding it needs a paid Enterprise plan with Bot Management on top, and that is out of our price range. The zone's current Enterprise plan comes free through the Cloudflare for Startups program, which WBS has held for about four years. **Build as if we have no Bot Management.** Do not read `page_views.cf_bot_score` as a signal. The Logpush jobs leave out `BotScore` and the other Bot-Management-only fields (ADR 0045). Cloudflare's verified-bot fields are allowed: `cf_verified_bot_category` is filled without Bot Management, and the traffic classifier already reads it. Every stored score since 2026-10-12 is a constant 99 (AECI-1298). Our own bot detection stays the only classifier. Vendor-maintained verdicts (Turnstile, AECI-1457; Monocle, AECI-1459) become inputs to it. Revisit when the budget allows (epic AECI-1299).
 
 > *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815), Bot Management ruled not licensed 2026-10-21 (AECI-1300).*
 > Nothing in this repo reads, writes, or tests these. No CI check catches them when
@@ -1212,8 +1212,10 @@ rule change.
 - **The metrics plane (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
   surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
   and can drive an alert (Enterprise Logpush — the "push" alternative — was not on
-  our Pro plan, so we poll. The WBS zone is Enterprise, so Logpush is now available; moving
-  off the poll is separate work, AECI-1169). The API Worker's hourly cron
+  our Pro plan, so we poll. Since 2026-10-22, ADR 0045 sends `firewall_events` to R2 by Logpush
+  as a permanent store, created by AECI-1447. **The poll stays on purpose.** The Logpush copy is a
+  store with no reader and no alert, so the poll remains the only alerting path until a reader
+  exists). The API Worker's hourly cron
   (`apps/api/src/scheduled.ts` `runWafMetricsJob`, the `'0 * * * *'` trigger) reads
   the **previous clock hour** of the zone's `firewallEventsAdaptiveGroups` over the
   GraphQL Analytics API (`packages/shared/src/cloudflare-analytics.ts`) and emits:

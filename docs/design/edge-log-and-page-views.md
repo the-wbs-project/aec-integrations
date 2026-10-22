@@ -2,7 +2,7 @@
 
 **Version:** 0.1
 **Date:** 2026-10-13
-**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Two decisions are made: keep `page_views` (§1), and the gateway writes arrivals (§3, ruled 2026-10-21, built in AECI-1297). Everything else is unbuilt and a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins.
+**Status:** Design proposal. Input to the ADR that epic [AECI-1196](https://linear.app/aec-integrations/issue/AECI-1196) owes, and the shared sequence with the Bot Management epic [AECI-1299](https://linear.app/aec-integrations/issue/AECI-1299) (§9). Two decisions are made: keep `page_views` (§1), and the gateway writes arrivals (§3, ruled 2026-10-21, built in AECI-1297). Everything else is unbuilt and a proposal until that ADR accepts it. Where the ADR and this file disagree, the ADR wins. *2026-10-22:* the ADR is [ADR 0045](../adr/0045-edge-request-log-via-logpush-to-r2.md). It keeps the store only: two Logpush jobs to R2, no IP, 400 days. The rollup (§4), the Ray ID join and consent tiers (§6) are deferred to a later epic and stay proposals here.
 **Related:** `docs/ANALYTICS.md` §5 (consent tiers), `docs/CACHE_STRATEGY.md` (gateway and `Renderer`), `docs/VENDOR_PLAN_DATA_READINESS.md` gap G0, AECI-1196 comment of 2026-10-02 (Cloudflare Basin names).
 
 Cloudflare renamed its data platform to Basin on 2026-10-01. Pipelines is now Basin Pipelines, R2 Data Catalog is Basin Catalog and R2 SQL is Basin SQL. This file says "Logpush" for the per-request edge log and "the rollup" for the daily job that reads it.
@@ -33,8 +33,8 @@ Logpush records every request that reaches Cloudflare's edge. It sees nothing th
 |---|---|
 | `product_id`, `vendor_id`, pair and taxonomy ids | Map the logged path to an entity with the same parser `page_views` ingest uses. Retired slugs, 301s and the retraction "detach, keep the row" rule all apply. |
 | `is_bot`, `bot_name` | Re-run our classifier on the full user agent. The log has the full string. `page_views` keeps only a hash. |
-| Client signals (`sec-fetch-*`, `accept-language`, `sec-ch-ua`) | Logpush custom fields for those request headers. Believed to need Enterprise, which the zone now has. Not verified. |
-| AS holder name | Believed absent from `http_requests`. Join the ASN to our ASN registry. Not verified. |
+| Client signals (`sec-fetch-*`, `accept-language`, `sec-ch-ua`) | Logpush custom fields for those request headers. *Decided 2026-10-22 (ADR 0045):* one custom-fields rule logs nine headers, including `sec-gpc` and `dnt`, into `RequestHeaders`. Cloudflare states no plan requirement. AECI-1447 confirms they arrive. |
+| AS holder name | Absent from `http_requests` (Cloudflare docs, 2026-10-21). Join the ASN to our ASN registry. `firewall_events` carries it as `ClientASNDescription`. |
 | Dedupe | The API refuses a repeat row for the same visitor and page inside `PAGE_VIEW_DEDUPE_WINDOW_MS`. Logs record every reload. The rollup must apply the same rule. |
 | `ref_source`, `ref_token` | The query string is in the logged URI |
 
@@ -44,7 +44,7 @@ Logpush records only from the day it starts. `page_views` goes back to launch. K
 
 ### What Logpush adds
 
-Error responses, redirects and non-cacheable routes. Full user agent, Cloudflare bot score, verified-bot category, TLS fingerprint. Since AECI-1297 (§3) `page_views` itself counts cache hits and visitors and AI assistants that never run JavaScript, so Logpush no longer has to add those.
+Error responses, redirects and non-cacheable routes. Full user agent and verified-bot category. ADR 0045 leaves out the Cloudflare bot score and the TLS fingerprints, because Bot Management is not licensed. Since AECI-1297 (§3) `page_views` itself counts cache hits and visitors and AI assistants that never run JavaScript, so Logpush no longer has to add those.
 
 ## 3. The caching gap, and the ruling that closed it
 
@@ -207,9 +207,9 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 
 1. ~~Option 1 or option 2 in §3: browser or gateway writes arrivals?~~ *Closed 2026-10-21: the gateway (option 2). Built in AECI-1297.*
 2. Which consent tier model in §6, and which option for the non-consented tier?
-3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
+3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Answered 2026-10-22 for the Logpush bucket by ADR 0045: 400 days, `ClientIP` dropped from both jobs.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
-5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account.
+5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account, as `aeci-edge-log-production` (ADR 0045).
 6. ~~Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)?~~ *Closed 2026-10-21. No reason was recorded for the 2026-10-08 "off" ruling, and Chris does not remember one. Superseded by AECI-1440, which enabled the cache on staging, demo and production.*
 7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
@@ -220,11 +220,11 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 | Gateway stamp is fresh on a hit (AECI-1303) | **Done 2026-10-14. Go.** A spike deployed to staging, then rolled back. Five requests to one `/products` URL (one MISS, four HITs) carried five different Ray IDs. Each `desc` equalled its own `cf-ray` without the colo suffix. HEAD, a cached 404, both redirect kinds and a POST carried the stamp too. Chromium 148, real Chrome 154, Firefox 150 and WebKit 26.4 (the Playwright builds) all read it through `serverTiming`. Real Safari was not tested, because Access blocked the automated session. The findings are in §4. |
 | Custom fields and AS holder name (AECI-1304) | Read the current `http_requests` field list and the custom-field plan limits |
 | Gateway coverage | A unit test that every gateway response, redirects and errors included, carries the header |
-| Stored bot score is the visitor's (AECI-1298) | Join a day of Logpush to `page_views` by Ray ID and compare `BotScore` with `cf_bot_score` (AECI-1304) |
+| Stored bot score is the visitor's (AECI-1298) | ~~Join a day of Logpush to `page_views` by Ray ID and compare `BotScore` with `cf_bot_score` (AECI-1304)~~ Moot: ADR 0045 leaves `BotScore` out of the job, and nothing reads `cf_bot_score` |
 
 ## 9. Sequencing with Bot Management
 
-> **On hold (2026-10-21, AECI-1300).** Bot Management is not licensed and will not be for now. The Logpush work (AECI-1196) goes ahead alone. Couplings 1, 5 and 6 below wait until Bot Management is bought. Logpush's bot-score fields carry no usable value without it.
+> **On hold (2026-10-21, AECI-1300).** Bot Management is not licensed and will not be for now. The Logpush work (AECI-1196) goes ahead alone. Couplings 1 and 6 below wait until Bot Management is bought. Coupling 5 no longer does: our detectors retire on vendor-maintained verdicts (Turnstile, AECI-1457; Monocle, AECI-1459), not on a purchase. Logpush's bot-score fields carry no usable value without it.
 
 The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one sequence. Six couplings tie them:
 
@@ -242,7 +242,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | N1 | AECI-1300: Bot Management entitlement, cost, Logpush account | Done 2026-10-21. Not licensed and out of budget. Logpush goes on The WBS Project. |
 | N2 | AECI-1302: verify retention, refresh history pulls before 2026-10-31 | Done 2026-10-13. New zone keeps 90 days of requests, 31 of firewall events. Pulls refreshed across the zone move |
 | N3 | AECI-1301: Ray ID and verified-bot fields on `page_views`. **Shipped** (migration `0072`: `cf_ray`, `cf_verified_bot`, `cf_verified_bot_category`) | Additive. Unblocks AECI-1298 diagnosis and the join. |
-| N4 | Freeze, recorded on AECI-1299 | Half lifted 2026-10-21 (AECI-1300). Hand-built heuristics may be added again, since they are our only classifier. Nothing reads `cf_bot_score`. `cf_verified_bot_category` is allowed, because Cloudflare fills it without Bot Management. |
+| N4 | Freeze, recorded on AECI-1299 | Freeze released 2026-10-21 (AECI-1300). Every rule change goes through `docs/POST_LAUNCH_MONITORING.md` §3c. Nothing reads `cf_bot_score`. `cf_verified_bot_category` is allowed, because Cloudflare fills it without Bot Management. |
 
 ### Before (spikes and decisions)
 
@@ -250,21 +250,21 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 |---|---|---|
 | S1 | AECI-1298: why the stored score is a constant 99 | N3 helps |
 | S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit. **Done 2026-10-14: go** (§8) | none |
-| S3 | AECI-1304: one day of Logpush through Basin, Ray ID join, score comparison | N1, N3 |
+| S3 | AECI-1304: one day of Logpush through Basin, Ray ID join, score comparison. **Deferred 2026-10-21** (parked in Backlog; ADR 0045 uses no Basin) | N1, N3 |
 | S4 | AECI-872: agree the classification procedure and shadow thresholds. **Done 2026-10-14: D19 agreed; the classifier and shadow runner are built** | none |
-| S5 | AECI-1196 ADR, with counsel on the privacy items | S2, S3 |
+| S5 | AECI-1196 ADR, with counsel on the privacy items. **Done 2026-10-22: ADR 0045** (AECI-1446), without S3. Counsel still owed | S2, S3 |
 
 ### During (filed after the ADR)
 
 | Id | Step | Epic |
 |---|---|---|
-| D1 | Logpush production capture, lifecycle rule, backfill load | AECI-1196 |
+| D1 | Logpush production capture and lifecycle rule (AECI-1447). Backfill copy into `graphql-backfill/` (AECI-1448) | AECI-1196 |
 | D2 | Bot classifier and path-to-entity parser move to `@aeci/shared` | AECI-1299 |
 | D3 | Arrival writer move to the gateway (AECI-1297, built). The arrival row carries the page-load Ray ID itself | AECI-1196 |
 | D4 | Shadow classifier for 2 to 4 weeks on AECI-872's machinery, cross-checked against Logpush | AECI-1299 |
-| D5 | Daily rollup: enrichment, edge-only table, beacon coverage, AI-assistant fetches. Retire the GraphQL pulls and the WAF poll. | AECI-1196 |
+| D5 | Daily rollup: enrichment, edge-only table, beacon coverage, AI-assistant fetches. Retire the GraphQL pulls and the WAF poll. **Deferred to a later epic** (ADR 0045). The WAF poll stays until a reader exists | later epic |
 | D6 | Cutover with one published method-change date | both |
 | D7 | Retire swarm detection, `client_verdict`, `DATACENTER_ASNS`, the referrer floor and the PostHog second-opinion lines, one per PR | AECI-1299 |
-| D8 | Consent-tiered storage, if the ADR adopts it | AECI-1196 |
+| D8 | Consent-tiered storage. **Not adopted by ADR 0045; deferred** | later epic |
 
 D3 also removes the `page_views` objection to edge caching. The caching ruling (AECI-1240) stays a separate decision.

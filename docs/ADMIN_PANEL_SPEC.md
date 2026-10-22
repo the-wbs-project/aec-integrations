@@ -2275,6 +2275,12 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 | `metrics_daily` | indefinite | none | AECI-581 |
 | `vendor_activity_daily` | indefinite | none | AECI-1210 |
 
+**Two R2 stores keep 400 days outside this table.** An R2 bucket lifecycle rule deletes them, not
+this cron, and neither is a D1 table. The raw page-view store (`aeci-page-views-raw-{staging,production}`,
+ADR 0041) holds one envelope per capture. The edge request log (`aeci-edge-log-production`, ADR 0045, created by AECI-1447)
+holds Cloudflare's Logpush record of every request to the zone. Their windows match `page_views` on
+purpose. A change to either window is a lifecycle-rule change in `environments.md`, not a constant here.
+
 `notification_sends` is the email send ledger (`DATABASE_SCHEMA.md` §9.9). It keeps 400 days to
 match `page_views`: "what did we send this person last year" is a support question that needs the
 same year-over-year reach. Its rows are small and number tens a day. It is pruned by the same cron,
