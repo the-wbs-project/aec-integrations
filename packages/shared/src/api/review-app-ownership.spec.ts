@@ -99,6 +99,14 @@ describe('OwnershipSyncMessageSchema', () => {
     expect(OwnershipSyncMessageSchema.parse(msg)).toEqual(msg);
     expect(OwnershipSyncMessageSchema.safeParse({ ...msg, reason: 'x' }).success).toBe(false);
   });
+
+  it('accepts the AECI-1413 content-edit reasons on the message and the record', () => {
+    for (const reason of ['vendor_edit', 'admin_edit'] as const) {
+      const msg = { vendorId: u(1), reason, enqueuedAt: '2026-10-20T00:00:00.000Z' };
+      expect(OwnershipSyncMessageSchema.parse(msg)).toEqual(msg);
+      expect(OwnershipRecordSchema.safeParse({ ...owned, reason }).success).toBe(true);
+    }
+  });
 });
 
 describe('ownershipRecordUrl', () => {

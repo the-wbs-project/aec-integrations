@@ -34,8 +34,9 @@ import {
   type OwnershipSyncReason,
   type RecordOwner,
 } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, type SQL } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -50,6 +51,7 @@ import {
 import type { Env } from '../env';
 import { logToPosthog, submitCount } from '../posthog';
 import { loadOwnedProductIds, loadOwnedVendorIds } from './claimed-vendors';
+import type { BatchStmt, BatchTuple } from './audit';
 import type { DbFactory } from './handler-utils';
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,16 @@ export const OWNERSHIP_SYNC_TIMEOUT_MS = 10_000;
 /** Ids per `IN (...)` list. D1 caps a statement at 100 bound parameters, and the
  *  integration reads bind each chunk twice (source OR target). */
 const ID_CHUNK = 40;
+
+/**
+ * The record schema this tier sends (AECI-1413). Read from the per-env wrangler var
+ * `REVIEW_APP_MIRROR_SCHEMA`: exactly `"2"` selects v2, anything else (unset, `"1"`,
+ * a typo) is v1. Failing to v1 is the safe direction: the live receiver accepts v1
+ * and answers 400 to a shape it does not know, which the consumer drops as permanent.
+ */
+export function mirrorSchemaVersion(env: Pick<Env, 'REVIEW_APP_MIRROR_SCHEMA'>): 1 | 2 {
+  return env.REVIEW_APP_MIRROR_SCHEMA?.trim() === '2' ? 2 : 1;
+}
 
 /** `retry()` delay before attempt `attempt + 1`: 30 s, 60 s, 120 s, 240 s, 480 s. */
 export function retryDelaySeconds(attempt: number): number {
@@ -204,6 +216,199 @@ export function dispatchOwnershipSyncToOwned(
         return [always];
       })
       .then((ids) => enqueueOwnershipSync(target, ids, reason)),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The content-edit hook (AECI-1413)
+// ---------------------------------------------------------------------------
+
+/** Who made a content edit. Picks the message reason: `vendor_edit` or `admin_edit`. */
+export type MirrorEditOrigin = 'vendor' | 'admin';
+
+/** The ids a write's audit entries name, by kind. */
+export interface MirrorTargets {
+  vendorIds: string[];
+  productIds: string[];
+  /** `integrations` or `connector_evidenced_pairs` ids. Both tables are read for each. */
+  edgeIds: string[];
+}
+
+function metadataIntegrationId(entry: AuditLogEntry): string | null {
+  const meta = entry.metadata;
+  if (!meta || typeof meta !== 'object') return null;
+  const value = (meta as { integrationId?: unknown }).integrationId;
+  return typeof value === 'string' && value ? value : null;
+}
+
+/**
+ * The records a write touched, read from its audit entries:
+ *
+ * - `vendor` names a vendor, `product` a product, `integration` and
+ *   `connector_evidenced_pair` an edge.
+ * - `product_version` names its product through the entry's `productId`.
+ * - `claim` and `attestation` name their integration through `metadata.integrationId`.
+ *   The v2 record carries versions and claims, so these edits change it too.
+ *
+ * Every other entity type (seats, licenses, notifications, reviews, proposals) is not
+ * mirrored content and is ignored.
+ */
+export function mirrorTargets(entries: readonly AuditLogEntry[]): MirrorTargets {
+  const vendorIds = new Set<string>();
+  const productIds = new Set<string>();
+  const edgeIds = new Set<string>();
+  for (const entry of entries) {
+    const entityId = entry.entityId ?? null;
+    switch (entry.entityType) {
+      case 'vendor':
+        if (entityId) vendorIds.add(entityId);
+        break;
+      case 'product':
+        if (entityId) productIds.add(entityId);
+        break;
+      case 'integration':
+      case 'connector_evidenced_pair':
+        if (entityId) edgeIds.add(entityId);
+        break;
+      case 'product_version':
+        if (entry.productId) productIds.add(entry.productId);
+        break;
+      case 'claim':
+      case 'attestation': {
+        const integrationId = metadataIntegrationId(entry);
+        if (integrationId) edgeIds.add(integrationId);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return { vendorIds: [...vendorIds], productIds: [...productIds], edgeIds: [...edgeIds] };
+}
+
+/** Edge ids per resolution read. Each chunk is bound four times, under D1's 100 cap. */
+const MIRROR_EDGE_CHUNK = 20;
+
+/**
+ * Resolve the targets to the OWNED vendors whose record they sit in, in ONE D1 round
+ * trip (a `db.batch` of reads):
+ *
+ * - a vendor id counts when that vendor is owned;
+ * - a product id resolves to every owned vendor joined to it (`product_vendors`);
+ * - an edge id resolves to every owned vendor joined to its source or target product
+ *   (`integrations`), or to its `product_a` or `product_b`
+ *   (`connector_evidenced_pairs`). The connector and `powered_by` products do not
+ *   count, as in {@link buildOwnershipRecord}.
+ */
+export async function resolveMirrorVendorIds(db: Db, targets: MirrorTargets): Promise<string[]> {
+  const ownedJoinedTo = (where: SQL | undefined) =>
+    db
+      .selectDistinct({ vendorId: productVendors.vendorId })
+      .from(productVendors)
+      .innerJoin(vendors, and(eq(vendors.id, productVendors.vendorId), isNotNull(vendors.ownedAt)))
+      .where(where);
+
+  const reads: BatchStmt[] = [];
+  for (const ids of chunk(targets.vendorIds)) {
+    reads.push(
+      db
+        .select({ vendorId: vendors.id })
+        .from(vendors)
+        .where(and(inArray(vendors.id, ids), isNotNull(vendors.ownedAt))),
+    );
+  }
+  for (const ids of chunk(targets.productIds)) {
+    reads.push(ownedJoinedTo(inArray(productVendors.productId, ids)));
+  }
+  for (let i = 0; i < targets.edgeIds.length; i += MIRROR_EDGE_CHUNK) {
+    const ids = targets.edgeIds.slice(i, i + MIRROR_EDGE_CHUNK);
+    const direct = (end: 'sourceProductId' | 'targetProductId') =>
+      inArray(
+        productVendors.productId,
+        db
+          .select({ id: integrations[end] })
+          .from(integrations)
+          .where(inArray(integrations.id, ids)),
+      );
+    const evidenced = (end: 'productAId' | 'productBId') =>
+      inArray(
+        productVendors.productId,
+        db
+          .select({ id: connectorEvidencedPairs[end] })
+          .from(connectorEvidencedPairs)
+          .where(inArray(connectorEvidencedPairs.id, ids)),
+      );
+    reads.push(
+      ownedJoinedTo(
+        or(
+          direct('sourceProductId'),
+          direct('targetProductId'),
+          evidenced('productAId'),
+          evidenced('productBId'),
+        ),
+      ),
+    );
+  }
+  if (reads.length === 0) return [];
+  const results = (await db.batch(reads as BatchTuple)) as { vendorId: string }[][];
+  return [...new Set(results.flat().map((row) => row.vendorId))];
+}
+
+/**
+ * The content-edit hook (AECI-1413). After a write commits, re-send the record of
+ * every OWNED vendor the write touched, so the review app's read-only copy follows
+ * the live edit. Runs inside `waitUntil` and never throws: the write already
+ * committed, and the backfill (`ops:backfill-ownership-sync`) re-sends any vendor.
+ *
+ * Reason `vendor_edit` or `admin_edit`, per `origin`. The message is the same pointer
+ * every producer sends. The consumer reads the whole record at delivery.
+ *
+ * `db` is the caller's request client when it has one. Without it the hook opens a
+ * `first-primary` session, so the read sees the write that just committed.
+ *
+ * Skips without a D1 read when:
+ *
+ * - the tier sends v1 ({@link mirrorSchemaVersion}). The new reasons are not in the
+ *   live receiver's v1 vocabulary, and a body it cannot parse is a 400, which the
+ *   consumer drops as permanent. A v1 record carries no content either, so a v1 tier
+ *   loses nothing by not sending. The hook goes live with the `"2"` flip.
+ * - the write touched no mirrored entity.
+ * - this Worker has no `OWNERSHIP_SYNC_QUEUE` binding. Every ownership producer
+ *   already reports an unbound tier, and `wrangler-ownership-sync.spec.ts` gates it.
+ */
+export function dispatchMirrorSync(
+  c: OwnershipSyncProducerContext,
+  auditEntries: AuditLogEntry | readonly AuditLogEntry[],
+  origin: MirrorEditOrigin,
+  db?: Db,
+): void {
+  const entries: readonly AuditLogEntry[] = Array.isArray(auditEntries)
+    ? auditEntries
+    : [auditEntries as AuditLogEntry];
+  const targets = mirrorTargets(entries);
+  const empty = targets.vendorIds.length + targets.productIds.length + targets.edgeIds.length === 0;
+  if (mirrorSchemaVersion(c.env) !== 2 || empty || !c.env.OWNERSHIP_SYNC_QUEUE) return;
+  const reason: OwnershipSyncReason = origin === 'vendor' ? 'vendor_edit' : 'admin_edit';
+  const target = { env: c.env, ctx: c.executionCtx, request: c.req.raw };
+  c.executionCtx.waitUntil(
+    (async () => {
+      let vendorIds: string[];
+      try {
+        const client = db ?? getDb(c.env, { constraint: 'first-primary' }).db;
+        vendorIds = await resolveMirrorVendorIds(client, targets);
+      } catch (error) {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'warn',
+          message:
+            'aeci.ownership_sync: owned-vendor read for a content edit failed; nothing enqueued (re-send with ops:backfill-ownership-sync)',
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      // Never rejects: a send failure is counted and warned inside.
+      await enqueueOwnershipSync(target, vendorIds, reason);
+    })(),
   );
 }
 
@@ -374,6 +579,9 @@ async function recordDelivery(
       outcome: row.outcome,
       httpStatus: row.httpStatus ?? null,
       recordVersion: row.record?.version ?? null,
+      // AECI-1413: the schema of the record this attempt sent, null when none was
+      // built. v1 today. `record_hash` stays null until the v2 builder fills it.
+      schemaVersion: row.record?.schemaVersion ?? null,
       owner: row.record?.owner ?? null,
       productCount: row.record?.products.length ?? null,
       integrationCount: row.record?.integrations.length ?? null,

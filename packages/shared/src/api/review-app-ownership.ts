@@ -67,6 +67,9 @@ export const OWNERSHIP_SYNC_REASONS = [
   'proposal_declined',
   'records_returned',
   'backfill',
+  // AECI-1413: a content edit on an owned vendor's records, by the vendor or by AECi.
+  'vendor_edit',
+  'admin_edit',
 ] as const;
 export type OwnershipSyncReason = (typeof OWNERSHIP_SYNC_REASONS)[number];
 

@@ -128,6 +128,17 @@ Without both secrets a tier acks every message as `unconfigured`, writes its
 staging and demo. The token is a random value that the review app also stores. It is not
 `REVIEW_APP_TOKEN`.
 
+**Record schema per tier (AECI-1413).** The consumer reads the plain wrangler var
+`REVIEW_APP_MIRROR_SCHEMA` to pick the record it sends: `"2"` sends the v2 content mirror,
+anything else sends v1. It is `"1"` in all four `apps/api/wrangler.jsonc` blocks (local,
+staging, demo, production), and stays `"1"` everywhere until the review receiver v2 ships.
+The live receiver answers 400 to a shape it does not know, and the consumer treats a 400 as
+permanent, so an early `"2"` would drop every message. The same flag gates the content-edit
+hook (`dispatchMirrorSync`): on `"1"` a vendor or admin edit enqueues nothing, because the
+`vendor_edit` and `admin_edit` reasons are not in the v1 receiver's vocabulary either.
+`wrangler-ownership-sync.spec.ts` pins the value in every block. Flipping production is a
+reviewed change to that file.
+
 **Operator checklist: rotating the production pair.** Production was provisioned and
 backfilled on 2026-10-22 (4 of 4 delivered, HTTP 200). Use this to rotate the token or to
 recover a deleted secret. The CI deploy token already carries Queues edit, so the queue

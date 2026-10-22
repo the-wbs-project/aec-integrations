@@ -405,3 +405,90 @@ describe('logo routes', () => {
     ).toBe(404);
   });
 });
+
+// AECI-1413: the review-app mirror. The admin logo PATCH enqueues it itself, and the
+// vendor profile and product PATCHes enqueue it through `afterVendorWrite`.
+describe('logo writes: the review-app mirror message (AECI-1413)', () => {
+  async function send(path: string, data: unknown, schema = '2') {
+    const ownershipSend = vi.fn().mockResolvedValue(undefined);
+    const ctx = fakeExecutionContext();
+    const res = await app().request(
+      `https://example.com${path}`,
+      {
+        method: 'PATCH',
+        headers: { origin: 'https://example.com', 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+      },
+      {
+        ...env,
+        OWNERSHIP_SYNC_QUEUE: {
+          send: ownershipSend,
+          sendBatch: vi.fn(),
+        } as unknown as Env['OWNERSHIP_SYNC_QUEUE'],
+        REVIEW_APP_MIRROR_SCHEMA: schema,
+      },
+      ctx,
+    );
+    await Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map((call) => call[0]));
+    return { status: res.status, ownershipSend };
+  }
+  const own = () =>
+    t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-19T00:00:00.000Z' })
+      .where(eq(vendors.id, uuid(2)));
+
+  it.each(['vendors', 'products'])(
+    'an admin %s logo PATCH on an owned record enqueues admin_edit for its vendor',
+    async (kind) => {
+      await own();
+      const id = kind === 'vendors' ? uuid(2) : uuid(3);
+      const { status, ownershipSend } = await send(`/api/admin/${kind}/${id}/logo`, {
+        logo_url: 'https://example.com/logo.png',
+        reason: REASON,
+      });
+      expect(status).toBe(200);
+      expect(ownershipSend).toHaveBeenCalledOnce();
+      expect(ownershipSend).toHaveBeenCalledWith({
+        vendorId: uuid(2),
+        reason: 'admin_edit',
+        enqueuedAt: expect.any(String),
+      });
+    },
+  );
+
+  it('on a v1 tier (the shipped flag) an owned edit enqueues nothing', async () => {
+    await own();
+    const { status, ownershipSend } = await send(
+      `/api/admin/products/${uuid(3)}/logo`,
+      { logo_url: 'https://example.com/logo.png', reason: REASON },
+      '1',
+    );
+    expect(status).toBe(200);
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it('an admin logo PATCH on an unowned record enqueues nothing', async () => {
+    const { status, ownershipSend } = await send(`/api/admin/products/${uuid(3)}/logo`, {
+      logo_url: 'https://example.com/logo.png',
+      reason: REASON,
+    });
+    expect(status).toBe(200);
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+
+  it.each(['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`])(
+    'a vendor PATCH %s on an owned record enqueues vendor_edit',
+    async (path) => {
+      await own();
+      const { status, ownershipSend } = await send(path, { description: 'Edited description' });
+      expect(status).toBe(200);
+      expect(ownershipSend).toHaveBeenCalledOnce();
+      expect(ownershipSend).toHaveBeenCalledWith({
+        vendorId: uuid(2),
+        reason: 'vendor_edit',
+        enqueuedAt: expect.any(String),
+      });
+    },
+  );
+});
