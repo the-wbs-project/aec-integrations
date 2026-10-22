@@ -219,7 +219,7 @@ production by the second AECI-1443 change.
 4. Confirm with `Cf-Cache-Status` on a detail page: it should no longer read `HIT`.
 
 Any curl check of `Cf-Cache-Status` needs a browser user agent, for example
-`curl -sI -A 'Mozilla/5.0' <url>`. A bare curl gets a Cloudflare challenge instead. That is a 403
+`curl -sI -A 'Mozilla/5.0' https://www.aecintegrations.com/`. A bare curl gets a Cloudflare challenge instead. That is a 403
 with `cf-mitigated: challenge`, and it never shows `cf-cache-status`.
 
 The purge queue consumer stays wired. With no cache it acks each message as
