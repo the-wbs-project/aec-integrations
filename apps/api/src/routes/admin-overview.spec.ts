@@ -185,8 +185,8 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     // Traffic
     expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
     expect(body.traffic.page_views_bot.total).toBe(metrics.botPageViews.day);
-    expect(body.traffic.delta_day.current).toBe(metrics.pageViews.day);
-    expect(body.traffic.delta_day.prior).toBe(metrics.pageViews.prior);
+    expect(body.traffic.delta_day!.current).toBe(metrics.pageViews.day);
+    expect(body.traffic.delta_day!.prior).toBe(metrics.pageViews.prior);
     // Sign-ins + moderation
     expect(body.audience.new_sign_ins.current).toBe(metrics.newUsers.day);
     expect(body.audience.total_users).toBe(metrics.totalUsers);
@@ -282,7 +282,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     // Still 4 humans / 2 prior — the console rows are gone from every read path.
     expect(body.traffic.page_views_human.total).toBe(4);
     expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
-    expect(body.traffic.delta_day.prior).toBe(metrics.pageViews.prior);
+    expect(body.traffic.delta_day!.prior).toBe(metrics.pageViews.prior);
     expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1, degraded: false });
     expect(body.traffic.series_30d.at(-2)).toEqual({
       day: '2026-08-09',
@@ -953,5 +953,208 @@ describe('GET /api/admin/overview — stored traffic classes (AECI-1345)', () =>
     expect(warn).toMatchObject({ severity: 'warn', params: { unresolved: 4, classified: 5 } });
     // Phase 2 changes no reported number.
     expect(body.traffic).toEqual(before.traffic);
+  });
+});
+
+describe('GET /api/admin/overview — class deltas, the class series and seams (AECI-1346)', () => {
+  /** One page view on `day`, classified as `cls` under `version`. */
+  async function classified(day: string, cls: string, version: string, extra = {}) {
+    const [row] = await t.db
+      .insert(pageViews)
+      .values({
+        path: '/x',
+        isBot: false,
+        cfAsn: 7922,
+        userAgentHash: `ua-${day}-${cls}`,
+        createdAt: `${day}T10:00:00.000Z`,
+        ...extra,
+      })
+      .returning({ id: pageViews.id });
+    t.raw
+      .prepare(
+        `INSERT INTO page_view_classifications
+           (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+            evidence_from, evidence_to, view_day, created_at)
+         VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row!.id,
+        cls,
+        version,
+        `${day}T23:59:00.000Z`,
+        `${day}T00:00:00.000Z`,
+        `${day}T00:00:00.000Z`,
+        day,
+        `${day}T23:59:00.000Z`,
+      );
+  }
+  const delta = (body: AdminOverviewResponse, cls: string) =>
+    body.classification.counts.find((c) => c.class === cls)?.delta_day;
+
+  it('computes a views delta per class against the prior day on the same version', async () => {
+    await classified('2026-08-09', 'unresolved', 'v1');
+    await classified(DAY, 'unresolved', 'v1');
+    await classified(DAY, 'unresolved', 'v1', { userAgentHash: 'other' });
+    await classified(DAY, 'identified_automation', 'v1');
+
+    const body = await overview();
+    expect(delta(body, 'unresolved')).toEqual({ current: 2, prior: 1, diff: 1, pct: 100 });
+    expect(delta(body, 'identified_automation')).toEqual({
+      current: 1,
+      prior: 0,
+      diff: 1,
+      pct: null,
+    });
+    expect(body.classification.version_seam).toBeNull();
+    expect(codes(body)).not.toContain('collection_method_seam');
+    expect(body.classification.method_seams).toEqual([]);
+  });
+
+  it('nulls every class delta when the prior day was not classified', async () => {
+    await classified(DAY, 'unresolved', 'v1');
+    const body = await overview();
+    expect(body.classification.counts.map((c) => c.delta_day)).toEqual([null, null, null, null]);
+  });
+
+  it('nulls every class delta across a version change, and the 30-day seam fires the note', async () => {
+    await classified('2026-08-09', 'unresolved', 'v1');
+    await classified(DAY, 'unresolved', 'v2');
+    const body = await overview();
+    expect(body.classification.counts.map((c) => c.delta_day)).toEqual([null, null, null, null]);
+    expect(body.classification.version_seam).toEqual({
+      from_version: 'v1',
+      to_version: 'v2',
+      changed_on: DAY,
+    });
+    expect(codes(body)).toContain('classification_version_seam');
+  });
+
+  it('fires the seam note for a change anywhere in the chart window, deltas kept', async () => {
+    // The change is three weeks back. The reported pair is on one version.
+    await classified('2026-07-20', 'unresolved', 'v1');
+    await classified('2026-08-09', 'unresolved', 'v2');
+    await classified(DAY, 'unresolved', 'v2');
+    const body = await overview();
+    expect(body.classification.version_seam).toMatchObject({
+      from_version: 'v1',
+      to_version: 'v2',
+    });
+    expect(codes(body)).toContain('classification_version_seam');
+    expect(delta(body, 'unresolved')).toEqual({ current: 1, prior: 1, diff: 0, pct: 0 });
+  });
+
+  it('zero-fills the class series by day, with null counts on unclassified days', async () => {
+    await classified('2026-08-09', 'suspected_automation', 'v1');
+    await classified(DAY, 'unresolved', 'v1');
+    const body = await overview();
+    const series = body.classification_series_30d;
+    expect(series).toHaveLength(30);
+    expect(series[0]!.day).toBe('2026-07-12');
+    expect(series.at(-1)).toEqual({
+      day: DAY,
+      classifier_version: 'v1',
+      counts: {
+        identified_automation: 0,
+        suspected_automation: 0,
+        browser_with_human_evidence: 0,
+        unresolved: 1,
+      },
+      method_change: null,
+    });
+    expect(series.at(-2)?.counts?.suspected_automation).toBe(1);
+    // Unclassified days are null, never four zeros.
+    expect(series[0]).toEqual({
+      day: '2026-07-12',
+      classifier_version: null,
+      counts: null,
+      method_change: null,
+    });
+  });
+
+  it('keeps internal traffic out of the class series', async () => {
+    await classified(DAY, 'unresolved', 'v1');
+    await classified(DAY, 'unresolved', 'v1', { isOperator: true, userAgentHash: 'op' });
+    const body = await overview();
+    expect(body.classification_series_30d.at(-1)?.counts?.unresolved).toBe(1);
+  });
+
+  it('a non-comparable §3d row (staging 2026-10-21) nulls class and residual deltas', async () => {
+    const day = '2026-10-21';
+    await classified('2026-10-20', 'unresolved', 'v1');
+    await classified(day, 'unresolved', 'v1');
+    const body = await overview(`/api/admin/overview?day=${day}`, { ...TEST_ENV, ENV: 'staging' });
+
+    expect(body.classification.counts.map((c) => c.delta_day)).toEqual([null, null, null, null]);
+    expect(body.traffic.delta_day).toBeNull();
+    expect(body.traffic.delta_7d).toBeNull();
+    const n = body.notes.find((x) => x.code === 'collection_method_seam');
+    expect(n).toMatchObject({
+      severity: 'info',
+      params: {
+        changed_at: '2026-10-21T10:38:00.000Z',
+        tier: 'staging',
+        comparable: 'false',
+      },
+    });
+    expect(body.classification.method_seams).toEqual([
+      {
+        changed_at: '2026-10-21T10:38:00.000Z',
+        summary: expect.any(String),
+        arrivals_comparable: false,
+      },
+    ]);
+    expect(body.classification_series_30d.at(-1)?.method_change).toEqual({
+      summary: expect.any(String),
+      arrivals_comparable: false,
+    });
+  });
+
+  it('a comparable §3d row (production 2026-10-22) is informational: deltas kept', async () => {
+    const day = '2026-10-22';
+    await classified('2026-10-21', 'unresolved', 'v1');
+    await classified(day, 'unresolved', 'v1');
+    const body = await overview(`/api/admin/overview?day=${day}`, {
+      ...TEST_ENV,
+      ENV: 'production',
+    });
+    expect(delta(body, 'unresolved')).toEqual({ current: 1, prior: 1, diff: 0, pct: 0 });
+    expect(body.traffic.delta_day).not.toBeNull();
+    expect(body.traffic.delta_7d).not.toBeNull();
+    expect(body.notes.find((x) => x.code === 'collection_method_seam')?.params).toMatchObject({
+      tier: 'production',
+      comparable: 'true',
+    });
+  });
+
+  it('keeps the staging row in the chart window weeks later, with the deltas restored', async () => {
+    const body = await overview('/api/admin/overview?day=2026-11-10', {
+      ...TEST_ENV,
+      ENV: 'staging',
+    });
+    expect(codes(body)).toContain('collection_method_seam');
+    expect(body.traffic.delta_day).not.toBeNull();
+    expect(body.traffic.delta_7d).not.toBeNull();
+  });
+
+  it('matches no §3d row on a local run', async () => {
+    const body = await overview('/api/admin/overview?day=2026-10-21');
+    expect(codes(body)).not.toContain('collection_method_seam');
+    expect(body.traffic.delta_day).not.toBeNull();
+  });
+
+  it('reports the same class figures the digest collector read', async () => {
+    await classified('2026-08-09', 'unresolved', 'v1');
+    await classified(DAY, 'browser_with_human_evidence', 'v1');
+    const body = await overview();
+    const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
+    expect(
+      body.classification.counts.map(({ class: c, views, visitors }) => ({ c, views, visitors })),
+    ).toEqual(
+      metrics.classification!.day.summary.counts.map(({ class: c, views, visitors }) => ({
+        c,
+        views,
+        visitors,
+      })),
+    );
   });
 });

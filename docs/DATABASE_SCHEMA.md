@@ -3983,10 +3983,23 @@ The shadow runner and the writer share one population builder, `buildClassificat
 **No history backfill.** The series starts with the first nightly run. AECI-1444 covers older
 days.
 
-**Read by** `GET /api/admin/overview` (`classification` block) and `GET /api/admin/page-views` (per-row
-`classification`), see `API_CONTRACTS.md` §6.10. The daily digest and `GET /api/admin/traffic/breakdown`
-are Phase 3 (AECI-1346) and do not read it yet. No public surface reads it, and none should. D19(g)
-forbids a new public surface.
+**Read by** four readers, all through `apps/api/src/lib/admin-classification.ts`. See
+`API_CONTRACTS.md` §6.10 for the shapes.
+
+- `GET /api/admin/overview`: the `classification` block for the reported day (AECI-1345).
+- `GET /api/admin/overview`: `classification_series_30d`, the per-class day deltas and the 30-day
+  seam, from one grouped read over the chart window (`readClassificationSeries`, AECI-1346).
+- The 05:00 analytics digest: the reported day and the prior day, read in
+  `collectAnalyticsMetrics` (AECI-1346). The overview takes the day from the same read, so the two
+  surfaces cannot differ.
+- `GET /api/admin/page-views`: the per-row `classification` (AECI-1345).
+
+`GET /api/admin/traffic/breakdown` does not read it. The class column and filter on
+`/admin/activity` are AECI-1461. No public surface reads it, and none should. D19(g) forbids a new
+public surface.
+
+The series read joins `page_views` and applies `NOT_INTERNAL` over up to 30 days on every overview
+load. `page_view_classifications_day_idx` serves the `(view_day, classifier_version)` pairs.
 
 **Migration `0087`** is one `CREATE TABLE` and two `CREATE INDEX`. It contains no `__new_page_views`
 and cannot cascade. `apps/api/src/test/migration-0087.spec.ts` pins that.

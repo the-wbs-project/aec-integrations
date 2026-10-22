@@ -10,7 +10,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { type ChartBox, niceMax, sparklineGeometry, stackedBarGeometry } from './chart-geometry';
+import {
+  type ChartBox,
+  niceMax,
+  sparklineGeometry,
+  stackedBarGeometry,
+  stackedBarMarks,
+} from './chart-geometry';
 
 const BOX: ChartBox = { width: 100, height: 20 };
 
@@ -145,5 +151,54 @@ describe('stackedBarGeometry', () => {
     );
     expect(g.rects).toHaveLength(0);
     expect(g.max).toBe(1);
+  });
+});
+
+// AECI-1346 — unmeasured columns and boundaries.
+describe('stackedBarGeometry with notMeasured columns', () => {
+  const box: ChartBox = { width: 100, height: 100 };
+
+  it('draws no bars for an unmeasured column and leaves it out of the scale', () => {
+    const g = stackedBarGeometry(
+      [
+        { label: 'd1', segments: [10] },
+        { label: 'd2', segments: [900], notMeasured: true },
+      ],
+      box,
+    );
+    expect(g.rects.map((r) => r.pointIndex)).toEqual([0]);
+    expect(g.max).toBe(10);
+  });
+});
+
+describe('stackedBarMarks', () => {
+  const box: ChartBox = { width: 100, height: 50 };
+
+  it('returns nothing for an empty series', () => {
+    expect(stackedBarMarks([], box)).toEqual({ outlines: [], boundaries: [] });
+  });
+
+  it('outlines an unmeasured column full height, aligned to where its bar would be', () => {
+    const points = [
+      { label: 'd1', segments: [1] },
+      { label: 'd2', segments: [], notMeasured: true },
+    ];
+    const bar = stackedBarGeometry([points[0]!, { label: 'd2', segments: [1] }], box, { gap: 0.2 })
+      .rects[1]!;
+    const { outlines } = stackedBarMarks(points, box, { gap: 0.2 });
+    expect(outlines).toEqual([{ pointIndex: 1, x: bar.x, y: 0, width: bar.width, height: 50 }]);
+  });
+
+  it('puts a boundary on the slot edge before the column, never on the first column', () => {
+    const { boundaries } = stackedBarMarks(
+      [
+        { label: 'd1', segments: [1], boundaryBefore: ['ignored at the window edge'] },
+        { label: 'd2', segments: [1] },
+        { label: 'd3', segments: [1], boundaryBefore: ['Classifier changed'] },
+        { label: 'd4', segments: [1], boundaryBefore: [] },
+      ],
+      box,
+    );
+    expect(boundaries).toEqual([{ pointIndex: 2, x: 50 }]);
   });
 });

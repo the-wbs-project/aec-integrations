@@ -40,6 +40,72 @@ function series30d(): AdminOverviewResponse['traffic']['series_30d'] {
   }));
 }
 
+/** AECI-1346. Per-class views for day `i`: identified, suspected, human, unresolved. */
+function classCounts(i: number) {
+  return {
+    identified_automation: 1000 + i,
+    suspected_automation: 200 + i,
+    browser_with_human_evidence: 40 + i,
+    unresolved: 300 + i,
+  };
+}
+
+function classSeries30d(
+  version: (i: number) => string | null = () => 'tc-2026.10.1',
+): AdminOverviewResponse['classification_series_30d'] {
+  return Array.from({ length: 30 }, (_, i) => {
+    const v = version(i);
+    return {
+      day: dayAt(i),
+      classifier_version: v,
+      counts: v === null ? null : classCounts(i),
+      method_change: null,
+    };
+  });
+}
+
+/** The reported day (index 29) against the prior day (index 28), all comparable. */
+function classSummary(
+  over: Partial<AdminOverviewResponse['classification']> = {},
+): AdminOverviewResponse['classification'] {
+  const today = classCounts(29);
+  const prior = classCounts(28);
+  const keys = [
+    'identified_automation',
+    'suspected_automation',
+    'browser_with_human_evidence',
+    'unresolved',
+  ] as const;
+  return {
+    classifier_version: 'tc-2026.10.1',
+    counts: keys.map((k) => ({
+      class: k,
+      views: today[k],
+      visitors: Math.floor(today[k] / 3),
+      delta_day: {
+        current: today[k],
+        prior: prior[k],
+        diff: today[k] - prior[k],
+        pct: Math.round(((today[k] - prior[k]) / prior[k]) * 100),
+      },
+    })),
+    internal_excluded: { views: 37, operator_leak_inferred: 4 },
+    basis: 'requests',
+    version_seam: null,
+    method_seams: [],
+    ...over,
+  };
+}
+
+/** AECI-1346. The API's not-classified shape: null version, four zeros. */
+function notClassifiedSummary(): AdminOverviewResponse['classification'] {
+  return classSummary({
+    classifier_version: null,
+    counts: classSummary().counts.map((c) => ({ ...c, views: 0, visitors: 0, delta_day: null })),
+    internal_excluded: { views: 0, operator_leak_inferred: 0 },
+  });
+}
+
 function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewResponse {
   return {
     window: {
@@ -89,19 +155,9 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
       browser_starts: null,
       browser_starts_unavailable: null,
     },
-    // AECI-1345. Additive; no tile renders it until Phase 3 (AECI-1346).
-    classification: {
-      classifier_version: null,
-      counts: [
-        { class: 'identified_automation', views: 0, visitors: 0 },
-        { class: 'suspected_automation', views: 0, visitors: 0 },
-        { class: 'browser_with_human_evidence', views: 0, visitors: 0 },
-        { class: 'unresolved', views: 0, visitors: 0 },
-      ],
-      internal_excluded: { views: 0, operator_leak_inferred: 0 },
-      basis: 'requests',
-      version_seam: null,
-    },
+    // AECI-1346. The lead card's figures: one version across the window.
+    classification: classSummary(),
+    classification_series_30d: classSeries30d(),
     audience: {
       new_sign_ins: { current: 3, prior: 1, diff: 2, pct: 200 },
       total_users: 57,
@@ -764,6 +820,8 @@ describe('AdminOverview', () => {
             top_sources: [],
             top_products: [],
           },
+          // The chart draws from the class series since AECI-1346.
+          classification_series_30d: [],
         }),
       );
       expect(el.textContent).toContain('No page views recorded in the last 30 days');
@@ -832,6 +890,166 @@ describe('AdminOverview', () => {
       expect(chart.querySelector('rect[data-degraded-day]')).toBeNull();
       expect(chart.querySelector('pattern')).toBeNull();
       expect(chart.textContent).not.toContain('Missing network information');
+    });
+  });
+  // ─── AECI-1346: the classes lead, the residual is the previous measure ──────
+  describe('traffic classes (AECI-1346)', () => {
+    it('leads with the classes card, before the residual tile', async () => {
+      const { el } = await setup(makeApiMock());
+      const card = el.querySelector('aec-traffic-classes-card');
+      const firstTile = el.querySelector('aec-stat-tile');
+      expect(card).not.toBeNull();
+      // DOCUMENT_POSITION_FOLLOWING: the tile comes after the card.
+      expect(card!.compareDocumentPosition(firstTile!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      const classes = [...card!.querySelectorAll('[data-class]')].map((n) =>
+        n.getAttribute('data-class'),
+      );
+      expect(classes).toEqual([
+        'identified_automation',
+        'suspected_automation',
+        'browser_with_human_evidence',
+        'unresolved',
+      ]);
+      expect(card!.textContent).toContain('Classifier tc-2026.10.1');
+      expect(card!.textContent).toContain('Requests, not people');
+    });
+
+    it('keeps the residual as the previous measure, caption and sparkline intact', async () => {
+      const { el } = await setup(makeApiMock());
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Requests of unresolved origin (previous measure)'),
+      )!;
+      expect(tile).toBeTruthy();
+      expect(tile.textContent).toContain('Requests no rule could exclude');
+      expect(tile.querySelector('aec-sparkline')).not.toBeNull();
+      expect(tile.textContent).toContain('+6 (+9%)');
+    });
+
+    it('says "not comparable" on the residual across a collection-method change', async () => {
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({ ...base, traffic: { ...base.traffic, delta_day: null, delta_7d: null } }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('previous measure'),
+      )!;
+      expect(tile.textContent).toContain(
+        'Not comparable with the prior day (collection method changed)',
+      );
+      expect(tile.textContent).toContain(
+        'Not comparable with the prior 7 days (collection method changed)',
+      );
+      expect(tile.textContent).not.toContain('No change');
+    });
+
+    it('names the classifier change when the reported day starts a new version', async () => {
+      const series = classSeries30d((i) => (i < 29 ? 'tc-2026.10.1' : 'tc-2026.10.2'));
+      const summary = classSummary({
+        classifier_version: 'tc-2026.10.2',
+        counts: classSummary().counts.map((c) => ({ ...c, delta_day: null })),
+        version_seam: {
+          from_version: 'tc-2026.10.1',
+          to_version: 'tc-2026.10.2',
+          changed_on: dayAt(29),
+        },
+      });
+      const { el } = await setup(
+        makeApiMock(makeOverview({ classification: summary, classification_series_30d: series })),
+      );
+      const deltas = [...el.querySelectorAll('aec-traffic-classes-card [data-delta]')];
+      expect(deltas).toHaveLength(4);
+      for (const d of deltas) {
+        expect(d.textContent?.trim()).toBe(
+          'Not comparable with the prior day (classifier changed)',
+        );
+      }
+    });
+
+    it('says the prior day was not classified when that is why', async () => {
+      const series = classSeries30d((i) => (i === 28 ? null : 'tc-2026.10.1'));
+      const summary = classSummary({
+        counts: classSummary().counts.map((c) => ({ ...c, delta_day: null })),
+      });
+      const { el } = await setup(
+        makeApiMock(makeOverview({ classification: summary, classification_series_30d: series })),
+      );
+      const delta = el.querySelector('aec-traffic-classes-card [data-delta]');
+      expect(delta?.textContent?.trim()).toBe(
+        'Not comparable with the prior day (prior day not classified)',
+      );
+    });
+
+    it('shows "Not classified" and no zeros when the classifier did not run', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeOverview({
+            classification: notClassifiedSummary(),
+            classification_series_30d: classSeries30d(() => null),
+          }),
+        ),
+      );
+      const card = el.querySelector('aec-traffic-classes-card')!;
+      expect(card.querySelector('[data-not-classified]')).not.toBeNull();
+      expect(card.querySelector('[data-class]')).toBeNull();
+      expect(card.querySelector('[data-internal]')).toBeNull();
+      expect(card.textContent).toContain('Not classified');
+
+      const chart = el.querySelector('aec-stacked-bar-chart')!;
+      expect(chart.querySelectorAll('rect[data-not-measured]')).toHaveLength(30);
+      // Outlines, not the empty-state line that would claim nothing was recorded.
+      expect(chart.textContent).not.toContain('No page views recorded');
+      const firstRow = chart.querySelector('table.sr-only tbody tr')!;
+      expect(firstRow.textContent).toContain('Not classified');
+      expect(firstRow.textContent).not.toMatch(/\b0\b/);
+    });
+
+    it('draws the 30-day chart from the class series, four labelled series', async () => {
+      const { el } = await setup(makeApiMock());
+      const chart = el.querySelector('aec-stacked-bar-chart')!;
+      const headers = [...chart.querySelectorAll('table.sr-only thead th')].map((th) =>
+        th.textContent?.trim(),
+      );
+      expect(headers).toEqual([
+        'Day',
+        'Identified automation',
+        'Suspected automation',
+        'Browser activity with supporting human evidence',
+        'Unresolved',
+      ]);
+      const lastRow = [...chart.querySelectorAll('table.sr-only tbody tr')].at(-1)!;
+      expect([...lastRow.querySelectorAll('td')].map((td) => td.textContent?.trim())).toEqual([
+        '1029',
+        '229',
+        '69',
+        '329',
+      ]);
+      expect(chart.querySelector('line[data-boundary]')).toBeNull();
+      expect(chart.querySelector('rect[data-not-measured]')).toBeNull();
+    });
+
+    it('draws a boundary at a classifier change and a method change, with legend entries', async () => {
+      const series = classSeries30d((i) =>
+        i < 3 ? null : i < 20 ? 'tc-2026.10.1' : 'tc-2026.10.2',
+      );
+      series[25] = {
+        ...series[25]!,
+        method_change: { summary: 'gateway writes every arrival', arrivals_comparable: true },
+      };
+      const { el } = await setup(makeApiMock(makeOverview({ classification_series_30d: series })));
+      const chart = el.querySelector('aec-stacked-bar-chart')!;
+      // The first classified day after unclassified ones is not a version change.
+      expect(chart.querySelectorAll('line[data-boundary]')).toHaveLength(2);
+      expect(chart.querySelectorAll('rect[data-not-measured]')).toHaveLength(3);
+      expect(chart.textContent).toContain('Classifier changed: tc-2026.10.1 to tc-2026.10.2');
+      expect(chart.textContent).toContain('Collection method changed, counts comparable');
+      expect(chart.textContent).toContain('Not classified');
+      const headers = [...chart.querySelectorAll('table.sr-only thead th')].map((th) =>
+        th.textContent?.trim(),
+      );
+      expect(headers).toContain('Classifier version');
+      expect(headers).toContain('Change before this day');
     });
   });
 });

@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pageViews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
+  classDeltaBlocker,
   CLASSIFICATION_UNRESOLVED_SHARE_MAX,
+  readClassificationSeries,
   readClassificationSummary,
   readRowClassifications,
 } from './admin-classification';
@@ -77,10 +79,11 @@ describe('readClassificationSummary', () => {
     const read = await readClassificationSummary(t.db, { fromDay: D1, toDay: D1 }, 3);
     expect(read.summary).toEqual({
       classifier_version: null,
-      counts: TRAFFIC_CLASSES.map((c) => ({ class: c, views: 0, visitors: 0 })),
+      counts: TRAFFIC_CLASSES.map((c) => ({ class: c, views: 0, visitors: 0, delta_day: null })),
       internal_excluded: { views: 0, operator_leak_inferred: 3 },
       basis: 'requests',
       version_seam: null,
+      method_seams: [],
     });
     expect(read.unresolvedShareExceeded).toBe(false);
   });
@@ -151,6 +154,84 @@ describe('readClassificationSummary', () => {
     classify(ids[2]!, 'unresolved', 'v1', '2026-10-02T00:45:00.000Z');
     const over = await readClassificationSummary(t.db, { fromDay: D1, toDay: D1 }, 0);
     expect(over).toMatchObject({ unresolved: 2, classified: 3, unresolvedShareExceeded: true });
+  });
+});
+
+describe('readClassificationSeries (AECI-1346)', () => {
+  const D3 = '2026-10-03';
+
+  it('omits an unclassified day rather than returning zeros for it', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`);
+    await view(`${D2}T10:00:00.000Z`); // a real row, never classified
+    classify(a, 'unresolved', 'v1', '2026-10-02T00:45:00.000Z');
+
+    const read = await readClassificationSeries(t.db, { fromDay: D1, toDay: D2 });
+    expect([...read.perDay.keys()]).toEqual([D1]);
+    expect(read.perDay.get(D1)).toEqual({
+      version: 'v1',
+      views: {
+        identified_automation: 0,
+        suspected_automation: 0,
+        browser_with_human_evidence: 0,
+        unresolved: 1,
+      },
+    });
+    expect(read.perDay.has(D2)).toBe(false);
+    expect(read.versionSeam).toBeNull();
+  });
+
+  it('counts each day on its own latest version', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`);
+    classify(a, 'unresolved', 'v1', '2026-10-02T00:45:00.000Z');
+    classify(a, 'identified_automation', 'v2', '2026-10-04T00:45:00.000Z');
+
+    const read = await readClassificationSeries(t.db, { fromDay: D1, toDay: D1 });
+    expect(read.perDay.get(D1)?.version).toBe('v2');
+    expect(read.perDay.get(D1)?.views.identified_automation).toBe(1);
+    expect(read.perDay.get(D1)?.views.unresolved).toBe(0);
+  });
+
+  it('flags the seam across the window with the same rule as the summary', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`);
+    const b = await view(`${D2}T10:00:00.000Z`);
+    const c = await view(`${D3}T10:00:00.000Z`);
+    classify(a, 'unresolved', 'v1', '2026-10-02T00:45:00.000Z');
+    classify(b, 'unresolved', 'v2', '2026-10-03T00:45:00.000Z');
+    classify(c, 'unresolved', 'v2', '2026-10-04T00:45:00.000Z');
+
+    const series = await readClassificationSeries(t.db, { fromDay: D1, toDay: D3 });
+    const summary = await readClassificationSummary(t.db, { fromDay: D1, toDay: D3 }, 0);
+    expect(series.versionSeam).toEqual({ from_version: 'v1', to_version: 'v2', changed_on: D2 });
+    expect(summary.summary.version_seam).toEqual(series.versionSeam);
+  });
+
+  it('keeps internal traffic and unknown classes out of the counts', async () => {
+    const human = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'a' });
+    const op = await view(`${D1}T11:00:00.000Z`, { isOperator: true, userAgentHash: 'op' });
+    const future = await view(`${D1}T12:00:00.000Z`, { userAgentHash: 'f' });
+    classify(human, 'browser_with_human_evidence', 'v1', '2026-10-02T00:45:00.000Z');
+    classify(op, 'browser_with_human_evidence', 'v1', '2026-10-02T00:45:00.000Z');
+    classify(future, 'a_class_from_the_future', 'v1', '2026-10-02T00:45:00.000Z');
+
+    const read = await readClassificationSeries(t.db, { fromDay: D1, toDay: D1 });
+    expect(read.perDay.get(D1)?.views).toEqual({
+      identified_automation: 0,
+      suspected_automation: 0,
+      browser_with_human_evidence: 1,
+      unresolved: 0,
+    });
+  });
+});
+
+describe('classDeltaBlocker (AECI-1346)', () => {
+  it('compares only two classified days on one version with no non-comparable method row', () => {
+    expect(classDeltaBlocker('v1', 'v1', false)).toBeNull();
+    expect(classDeltaBlocker(null, 'v1', false)).toBe('day_unclassified');
+    expect(classDeltaBlocker('v1', null, false)).toBe('prior_unclassified');
+    expect(classDeltaBlocker('v2', 'v1', false)).toBe('classifier');
+    expect(classDeltaBlocker('v1', 'v1', true)).toBe('method');
+    // The classifier reason wins: the class counts are defined by it.
+    expect(classDeltaBlocker('v2', 'v1', true)).toBe('classifier');
   });
 });
 

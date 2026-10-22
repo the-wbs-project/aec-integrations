@@ -734,6 +734,85 @@ describe('scheduled (cron producer)', () => {
   });
 });
 
+describe('analytics digest job_runs detail (AECI-1346)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function classified(day: string, cls: string, version: string) {
+    const [row] = await t.db
+      .insert(pageViews)
+      .values({
+        path: '/',
+        userAgentHash: `ua-${day}`,
+        cfAsn: 7922,
+        createdAt: `${day}T10:00:00.000Z`,
+      })
+      .returning({ id: pageViews.id });
+    t.raw
+      .prepare(
+        `INSERT INTO page_view_classifications
+           (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+            evidence_from, evidence_to, view_day, created_at)
+         VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row!.id,
+        cls,
+        version,
+        `${day}T23:59:00.000Z`,
+        `${day}T00:00:00.000Z`,
+        `${day}T00:00:00.000Z`,
+        day,
+        `${day}T23:59:00.000Z`,
+      );
+  }
+
+  it('records the classifier version, the class views and the seams the email led with', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T05:00:00.000Z'));
+    await classified('2026-10-20', 'unresolved', 'v1');
+    await classified('2026-10-21', 'identified_automation', 'v2');
+
+    await scheduled(cronController(ANALYTICS_CRON), makeEnv({ ENV: 'staging' }), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run?.detail).toMatchObject({
+      job: 'analytics-digest',
+      dayLabel: '2026-10-21',
+      metrics: {
+        classifierVersion: 'v2',
+        classViews: {
+          identified_automation: 1,
+          suspected_automation: 0,
+          browser_with_human_evidence: 0,
+          unresolved: 0,
+        },
+        classificationSeam: {
+          version: { from_version: 'v1', to_version: 'v2', changed_on: '2026-10-21' },
+          method: [{ at: '2026-10-21T10:38:00.000Z', arrivalsComparable: false }],
+        },
+        classificationReadFailed: false,
+      },
+    });
+  });
+
+  it('records null classes, never zeros, for a day the classifier did not run', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-21T05:00:00.000Z'));
+
+    await scheduled(cronController(ANALYTICS_CRON), makeEnv({ ENV: 'production' }), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run?.detail).toMatchObject({
+      metrics: {
+        classifierVersion: null,
+        classViews: null,
+        classificationSeam: { version: null, method: [] },
+        classificationReadFailed: false,
+      },
+    });
+  });
+});
+
 describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
   /** Two activated vendors (one seat each) and one catalog vendor with nothing. */
   async function seedVendors(): Promise<void> {

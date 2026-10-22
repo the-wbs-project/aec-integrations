@@ -4485,6 +4485,8 @@ export const AdminNoteCodeSchema = z.enum([
   'classification_unresolved_share',   // unresolved > 50% of classified non-internal views
   'classification_version_seam',       // the window spans a classifier version change
   'classification_is_heuristic',       // unconditional: the classes are a heuristic
+  // AECI-1346: the second seam source, POST_LAUNCH_MONITORING.md §3d.
+  'collection_method_seam',            // a §3d collection-method change in the chart window
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -4559,16 +4561,16 @@ export const AdminOverviewResponseSchema = z.object({
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
   traffic: z.object({
-    // AECI-745: the HEADLINE, human views AFTER the automation filter — the same
-    // number the 05:00 email leads with. This field was REDEFINED; it carried the
-    // raw count through AECI-744.
+    // AECI-745: human views AFTER the automation filter. This field was REDEFINED;
+    // it carried the raw count through AECI-744. Since AECI-1346 it is the PREVIOUS
+    // measure: the classes lead, and AECI-1462 removes this figure.
     page_views_human: AdminCountSchema,
     page_views_human_raw: AdminCountSchema,  // the server-side upper bound
     automation_flagged: z.number().int().nonnegative().nullable(), // null = detector did not run
     page_views_bot: AdminCountSchema,
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
-    delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
-    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
+    delta_day: AdminDeltaSchema.nullable(), // post-automation, FILTERED on both sides. AECI-1346: null across a non-comparable §3d row
+    delta_7d: AdminDeltaSchema.nullable(),  // 7 days ending here vs the 7 before — RAW. AECI-1346: same null rule
     series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot, degraded } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
@@ -4593,6 +4595,10 @@ export const AdminOverviewResponseSchema = z.object({
     }).nullable(),
     browser_starts_unavailable: z.string().nullable(),   // reason when the read ran and FAILED
   }),
+  // AECI-1345 / AECI-1346. The D19 classes, the lead figure since AECI-1346. Shapes in
+  // "Traffic classification classes on the admin read surface" below.
+  classification: AdminClassificationSummarySchema,
+  classification_series_30d: z.array(AdminClassificationPointSchema),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
     total_users: z.number().int().nonnegative(),
@@ -5727,15 +5733,21 @@ the only writer of `unsubscribed_at` is the subscriber, through the tokenized
 Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, `page < 1`,
 an unknown `sort` key, or an unknown `status`.
 
-#### Traffic classification classes on the admin read surface (AECI-872, built in AECI-1345)
+#### Traffic classification classes on the admin read surface (AECI-872, built in AECI-1345 and AECI-1346)
 
 > **Built in Phase 2 (AECI-1345), 2026-10-21.** This is the wire half of `ADMIN_PANEL_SPEC.md` §13
 > **D19** and the read side of `DATABASE_SCHEMA.md` §9.7. The schemas live in
 > `packages/shared/src/api/admin-panel.ts`. The class and reason-code vocabularies are
 > `TRAFFIC_CLASSES` and `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. D19 settled that
 > unresolved traffic is reported as a count, with its share carried only by the gated
-> `classification_unresolved_share` note below. Phase 2 changes no reported number. Phase 3
-> (AECI-1346) switches the digest and the breakdown to these classes.
+> `classification_unresolved_share` note below. Phase 2 changed no reported number.
+>
+> **Phase 3 (AECI-1346), 2026-10-22.** The panel and the 05:00 digest lead with these classes. The
+> residual (`page_views_human`) stays on the wire with its meaning unchanged, as the previous
+> measure. AECI-1462 removes it. Phase 3 added, all additively: `delta_day` on each class count,
+> `classification_series_30d`, `method_seams`, the `collection_method_seam` note, and a 30-day
+> window for `version_seam`. It also made `traffic.delta_day` and `traffic.delta_7d` nullable. See
+> rule 4 below.
 
 Scope is deliberately narrow: **shapes only**. Which classifier runs, when, and how it decides are
 D19's business and §3c's; this section says what the operator's surfaces return.
@@ -5767,6 +5779,9 @@ export const AdminClassificationSummarySchema = z.object({
     class: AdminTrafficClassSchema,
     views: z.number().int().nonnegative(),
     visitors: z.number().int().nonnegative(),   // §9.8 (user_agent_hash, cf_asn) pairs
+    // AECI-1346. Views, this day vs the prior day, computeDelta semantics. Null
+    // when not comparable: see rule 4. Null is never a zero change.
+    delta_day: AdminDeltaSchema.nullable(),
   })).length(4),
 
   // Internal traffic is reported BESIDE the classes, never inside one (D19(b)).
@@ -5782,10 +5797,40 @@ export const AdminClassificationSummarySchema = z.object({
 
   // Non-null when the window spans a classifier version change (D19(c)). Days are
   // FLAGGED, never blended, so the reader is told rather than shown an average.
+  // On the overview this covers the 30-day chart window (AECI-1346). Counts stay single-day.
   version_seam: z.object({
     from_version: z.string().min(1),
     to_version: z.string().min(1),
     changed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).nullable(),
+
+  // AECI-1346. POST_LAUNCH_MONITORING.md §3d rows for this tier inside the 30-day
+  // chart window, oldest first. Empty on a local run.
+  method_seams: z.array(z.object({
+    changed_at: z.string().datetime(),
+    summary: z.string().min(1),
+    arrivals_comparable: z.boolean(),
+  })),
+});
+
+// AECI-1346. One day of the 30-day class chart. `classification_series_30d:
+// z.array(AdminClassificationPointSchema)` sits in AdminOverviewResponseSchema,
+// zero-filled by day across the chart window, like `series_30d`.
+export const AdminClassificationPointSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  classifier_version: z.string().min(1).nullable(),
+  // NULL on a day that was not classified, never four zeros.
+  counts: z.object({
+    identified_automation: z.number().int().nonnegative(),
+    suspected_automation: z.number().int().nonnegative(),
+    browser_with_human_evidence: z.number().int().nonnegative(),
+    unresolved: z.number().int().nonnegative(),
+  }).nullable(),
+  // The §3d row that falls on this day, or null. Two rows on one day: the
+  // non-comparable one wins.
+  method_change: z.object({
+    summary: z.string().min(1),
+    arrivals_comparable: z.boolean(),
   }).nullable(),
 });
 ```
@@ -5801,8 +5846,25 @@ Rules the built summary follows:
   in which case `counts` is four zeros.
 - **`version_seam` is non-null only when days in the window have different latest versions.** `from_version`
   is the previous version, `to_version` is the latest, and `changed_on` is the first day counted on the
-  latest. The overview is single-day today, so the seam fires only on a multi-day window.
+  latest. Since AECI-1346 the overview computes it over the **30-day chart window**, because the chart
+  spans it (§3c step 5). The summary and the series share one rule, `versionSeamFor`.
 - **`visitors` is the §9.8 pair count** of `(user_agent_hash, cf_asn)`.
+- **`classification_series_30d` counts views only** (AECI-1346). Visitor pairs do not sum across
+  days. Each day is counted on its own latest version. An unclassified day has `counts: null`.
+
+**4. When a delta is null (AECI-1346).** One rule, `classDeltaBlocker` in
+`apps/api/src/lib/admin-classification.ts`, decides it for the panel and the email.
+
+| Delta | Null when |
+|---|---|
+| `classification.counts[].delta_day` | the reported day or the prior day was not classified, the two days have different latest versions, or a §3d row with `arrivals_comparable: false` falls in `[prior day 00:00, reported day 24:00)` |
+| `traffic.delta_day` | a §3d row with `arrivals_comparable: false` falls in that same two-day span |
+| `traffic.delta_7d` | a §3d row with `arrivals_comparable: false` falls in the 14 days it compares |
+
+A comparable §3d row nulls nothing. The `collection_method_seam` note and the chart boundary still
+show it. The §3d rows are `COLLECTION_METHOD_CHANGES` in
+`apps/api/src/lib/collection-method-changes.ts`, matched on the tier in `ENV`. A local run matches
+no row. `collection-method-changes.spec.ts` pins the constant to the §3d table.
 
 **2. Three new note codes, following the existing conventions exactly.** They join
 `AdminNoteCodeSchema`; `code` is the contract and `message` stays untranslated operator text.
@@ -5812,6 +5874,7 @@ Rules the built summary follows:
 | `classification_unresolved_share` | `warn` | **Gated** on `unresolved` being strictly more than 50% of the classified non-internal views (`CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5` in `apps/api/src/lib/admin-classification.ts`, ruled 2026-10-21). Params `unresolved` and `classified`. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
 | `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. Params `from_version`, `to_version`, `changed_on`. |
 | `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d)). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. |
+| `collection_method_seam` | `info` | AECI-1346. **Gated** on a §3d row for this tier falling inside the 30-day chart window, and unconditional once one does (§3c step 5). One note per row. Params `changed_at`, `tier`, `summary`, `comparable` (`'true'` or `'false'`). |
 
 **3. A per-row classification on `GET /api/admin/page-views`.** One nullable object on
 `AdminPageViewRowSchema`, beside `asn_registry` and read the same way — a read-time annotation that
@@ -5859,7 +5922,8 @@ one extra lookup through `json_each(?)`.
 **Filtering by class is deliberately NOT built.** `AdminPageViewsQuerySchema` gains no
 `class=` parameter. The §13 D10 constraint-2 problem would arrive with it — a row
 filter needs its counts computed both ways or the operator gets a smaller number with nothing to
-compare it against — and that is a decision for whoever builds the screen. Phase 3 (AECI-1346) is that work.
+compare it against — and that is a decision for whoever builds the screen. AECI-1346 split that
+work out to AECI-1461, which owns the class column and the class filter on `/admin/activity`.
 
 #### `GET /api/admin/email/summary`, `GET /api/admin/email/sends`, `POST /api/admin/email/sends/search` (AECI-1223)
 

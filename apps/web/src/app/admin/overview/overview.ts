@@ -15,6 +15,13 @@ import { StackedBarChart } from '../charts/stacked-bar-chart';
 import { RankedBarList, type RankedRow } from './ranked-bar-list';
 import { StatTile, type StatTileDelta } from './stat-tile';
 import { StatusStrip } from './status-strip';
+import { TrafficClassesCard } from './traffic-classes-card';
+import {
+  TRAFFIC_CLASS_FILLS,
+  TRAFFIC_CLASS_ORDER,
+  classDeltaReason,
+  trafficClassLabel,
+} from './traffic-classes';
 
 /**
  * Metrics whose 30-day trend the `/overview` bundle does NOT carry, fetched in a
@@ -63,7 +70,15 @@ const SPARKLINE_METRICS = ['traffic.unique_visitors', 'accounts.sign_ins_new'] a
  */
 @Component({
   selector: 'aec-admin-overview',
-  imports: [DatePipe, AdminNotes, StackedBarChart, RankedBarList, StatTile, StatusStrip],
+  imports: [
+    DatePipe,
+    AdminNotes,
+    StackedBarChart,
+    RankedBarList,
+    StatTile,
+    StatusStrip,
+    TrafficClassesCard,
+  ],
   templateUrl: './overview.html',
 })
 export class AdminOverview {
@@ -170,15 +185,51 @@ export class AdminOverview {
    *  never to do silently. */
   protected readonly windowDay = computed(() => this.overview()?.window.from.slice(0, 10) ?? '');
 
-  protected readonly trafficPoints = computed<readonly StackedBarPoint[]>(
-    () =>
-      this.overview()?.traffic.series_30d.map((p) => ({
+  /**
+   * The 30-day chart, in the four classes (AECI-1346), from
+   * `classification_series_30d`. Three marks per column:
+   *
+   * - `notMeasured` on a day the classifier did not run (`counts: null`): an
+   *   outlined column labelled "Not classified", never a zero.
+   * - `boundaryBefore` where the classifier version differs from the previous
+   *   CLASSIFIED day, and on a day carrying a §3d collection-method change. Both
+   *   can fall on one day: one rule, two legend entries. A run of unclassified
+   *   days between two versions puts the rule on the first day of the new one.
+   * - `degraded` joined from `traffic.series_30d` by day (AECI-877): the missing-
+   *   telemetry hatch, on the class columns now.
+   */
+  protected readonly trafficPoints = computed<readonly StackedBarPoint[]>(() => {
+    const o = this.overview();
+    if (!o) return [];
+    const degraded = new Set(o.traffic.series_30d.filter((p) => p.degraded).map((p) => p.day));
+    let lastVersion: string | null = null;
+    return o.classification_series_30d.map((p) => {
+      const boundaryBefore: string[] = [];
+      if (p.classifier_version !== null) {
+        if (lastVersion !== null && p.classifier_version !== lastVersion) {
+          boundaryBefore.push(
+            $localize`:@@admin.overview.chart.classifierChanged:Classifier changed: ${lastVersion}:FROM: to ${p.classifier_version}:TO:`,
+          );
+        }
+        lastVersion = p.classifier_version;
+      }
+      if (p.method_change) {
+        boundaryBefore.push(
+          p.method_change.arrivals_comparable
+            ? $localize`:@@admin.overview.chart.methodChangedComparable:Collection method changed, counts comparable`
+            : $localize`:@@admin.overview.chart.methodChanged:Collection method changed`,
+        );
+      }
+      return {
         label: p.day,
-        segments: [p.human, p.bot],
-        // AECI-877 — drawn dimmed and hatched; `series_spans_degraded_days` carries the prose.
-        degraded: p.degraded,
-      })) ?? [],
-  );
+        segments: p.counts ? TRAFFIC_CLASS_ORDER.map((c) => p.counts![c]) : [],
+        notMeasured: p.counts === null,
+        degraded: degraded.has(p.day),
+        boundaryBefore,
+        version: p.classifier_version,
+      };
+    });
+  });
 
   protected readonly humanSeries = computed(
     () => this.overview()?.traffic.series_30d.map((p) => p.human) ?? [],
@@ -191,22 +242,31 @@ export class AdminOverview {
   protected readonly signInSeries = computed(() => this.series()['accounts.sign_ins_new'] ?? []);
 
   /**
-   * The two deltas beside the headline.
+   * The two deltas on the residual tile, the previous measure since AECI-1346.
    *
    * They measure DIFFERENT populations and the API says so: `delta_day` is
    * post-automation on both sides, `delta_7d` is raw on both, because filtering
    * a week would mean running the detector over fourteen further days on every
    * request. Both are internally consistent; only the comparison between them is
    * not, and `deltaPeriodNote` below is what keeps that from being a silent trap.
+   *
+   * Either is null across a non-comparable §3d collection-method change
+   * (AECI-1346), which is the only reason the API nulls them. The tile then says
+   * "Not comparable" and names the change, rather than dropping the line.
    */
   protected readonly pageViewDeltas = computed<readonly StatTileDelta[]>(() => {
     const t = this.overview()?.traffic;
-    return t
-      ? [
-          { delta: t.delta_day, period: 'day' as const },
-          { delta: t.delta_7d, period: 'week' as const },
-        ]
-      : [];
+    if (!t) return [];
+    return [
+      { delta: t.delta_day, period: 'day', notComparable: 'method_changed' },
+      { delta: t.delta_7d, period: 'week', notComparable: 'method_changed' },
+    ];
+  });
+
+  /** Why the class deltas are null, read from the series (AECI-1346). */
+  protected readonly classDeltaReason = computed(() => {
+    const o = this.overview();
+    return o ? classDeltaReason(o.classification_series_30d, this.windowDay()) : undefined;
   });
 
   protected readonly signInDeltas = computed<readonly StatTileDelta[]>(() => {
@@ -237,12 +297,16 @@ export class AdminOverview {
 
   // ── Localized labels needed as strings (chart a11y names, captions) ────────
 
-  protected readonly trafficSeriesLabels: readonly string[] = [
-    $localize`:@@admin.overview.chart.series.unresolved:Unresolved origin`,
-    $localize`:@@admin.overview.chart.series.bot:Bots and crawlers`,
-  ];
+  /** The four class names, in stack order (AECI-1346). */
+  protected readonly trafficSeriesLabels: readonly string[] =
+    TRAFFIC_CLASS_ORDER.map(trafficClassLabel);
+  protected readonly trafficSeriesFills: readonly string[] = TRAFFIC_CLASS_ORDER.map(
+    (c) => TRAFFIC_CLASS_FILLS[c],
+  );
 
-  protected readonly trafficChartLabel = $localize`:@@admin.overview.chart.aria2:Page views per day over the last 30 UTC days, split between requests of unresolved origin and known bot traffic.`;
+  protected readonly trafficChartLabel = $localize`:@@admin.overview.chart.ariaClasses:Page requests per day over the last 30 UTC days, split into four traffic classes: identified automation, suspected automation, browser activity with supporting human evidence, and unresolved. Days the classifier did not run are marked not classified.`;
+  protected readonly trafficChartNotClassified = $localize`:@@admin.overview.chart.notClassified:Not classified`;
+  protected readonly trafficChartVersion = $localize`:@@admin.overview.chart.version:Classifier version`;
   protected readonly trafficChartDegraded = $localize`:@@admin.overview.chart.degraded:Missing network information`;
   protected readonly trafficChartEmpty = $localize`:@@admin.overview.chart.empty:No page views recorded in the last 30 days.`;
   protected readonly sourcesEmpty = $localize`:@@admin.overview.sources.empty:No traffic sources recorded for this day.`;

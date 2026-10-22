@@ -29,7 +29,7 @@
  * green-path job taken down by its own observability.
  */
 
-import type { AdminCronJob } from '@aeci/shared';
+import type { AdminCronJob, AdminTrafficClass } from '@aeci/shared';
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -240,6 +240,25 @@ export interface AnalyticsDigestSummary {
    *  them — the corroborated floor the email prints beside the two bounds. */
   corroboratedViews?: number;
   corroboratedVisitors?: number;
+  /**
+   * The D19 classes the email led with (AECI-1346). `classifierVersion` and
+   * `classViews` are null when the day was not classified or the read failed.
+   * `classificationReadFailed` tells the two apart. `undefined` on every field
+   * means a row written before AECI-1346.
+   */
+  classifierVersion?: string | null;
+  /** Non-internal views per class for the reported day. */
+  classViews?: Record<AdminTrafficClass, number> | null;
+  /**
+   * The seams the email flagged: the classifier version change over
+   * `[prior day, reported day]`, and the §3d collection-method rows in the same
+   * span. Null when the class read failed.
+   */
+  classificationSeam?: {
+    version: { from_version: string; to_version: string; changed_on: string } | null;
+    method: { at: string; arrivalsComparable: boolean }[];
+  } | null;
+  classificationReadFailed?: boolean;
 }
 
 /**

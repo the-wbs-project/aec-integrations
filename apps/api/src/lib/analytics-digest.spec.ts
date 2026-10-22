@@ -893,6 +893,7 @@ describe('buildAnalyticsDigest', () => {
     swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
+    classification: null,
   };
   const opts = {
     env: 'production',
@@ -903,13 +904,13 @@ describe('buildAnalyticsDigest', () => {
   it('summarizes humans + top product + crawl count in the subject', () => {
     const d = buildAnalyticsDigest(base, opts);
     expect(d.subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 512 requests of unresolved origin (UNFILTERED), 8 new users · top: Revit · 260 crawls',
+      'AECi daily digest (production) — 2026-07-23: 512 requests of unresolved origin (UNFILTERED) · CLASSES UNAVAILABLE, 8 new users · top: Revit · 260 crawls',
     );
   });
 
   it('renders human counts, deltas, and the human top-product list in the text body', () => {
     const { text } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain('== Traffic (unresolved origin) ==');
+    expect(text).toContain('== Previous measure: requests of unresolved origin ==');
     expect(text).toContain(
       'Requests of unresolved origin: 512 (+112 (+28%) vs 400 prior day)  [upper bound]',
     );
@@ -948,7 +949,7 @@ describe('buildAnalyticsDigest', () => {
     const { html } = buildAnalyticsDigest(base, opts);
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('AECi daily analytics digest');
-    expect(html).toContain('Traffic (unresolved origin)');
+    expect(html).toContain('Previous measure: requests of unresolved origin');
     expect(html).toContain('Crawler activity');
     expect(html).toContain('Bingbot');
     expect(html).toContain('Datacenter (AWS)');
@@ -981,11 +982,12 @@ describe('buildAnalyticsDigest', () => {
         swarm: null,
         arrivalCoverage: HEALTHY_COVERAGE,
         priorArrivalCoverage: HEALTHY_COVERAGE,
+        classification: null,
       },
       opts,
     );
     expect(subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 40 requests of unresolved origin (UNFILTERED), 0 new users',
+      'AECi daily digest (production) — 2026-07-23: 40 requests of unresolved origin (UNFILTERED) · CLASSES UNAVAILABLE, 0 new users',
     );
     expect(text).toContain('Requests of unresolved origin: 40 (no change vs prior day)');
     expect(text).not.toContain('bot/crawler views excluded');
@@ -1015,6 +1017,7 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
+    classification: null,
   };
   const opts = {
     env: 'production',
@@ -1065,7 +1068,9 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     // — and that identity WAS the operator, which is why AECI-869 stopped calling
     // it a bound on anything.
     expect(text).toContain('PostHog page views: 5 from 1 identity  [separate observation]');
-    expect(text).toContain('That is a different population, not a floor under the headline');
+    expect(text).toContain(
+      'That is a different population, not a floor under the previous measure',
+    );
     expect(html).toContain('separate observation');
     // No arithmetic between the two populations, in either rendering.
     expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
@@ -1146,6 +1151,7 @@ describe('buildAnalyticsDigest — the browser-starts line (AECI-870)', () => {
     swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
+    classification: null,
   };
   const opts = {
     env: 'production',
@@ -1193,7 +1199,7 @@ describe('buildAnalyticsDigest — the browser-starts line (AECI-870)', () => {
       browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
     });
     expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
-    expect(text).toContain('not a floor under the headline and not an addend to it');
+    expect(text).toContain('not a floor under the previous measure and not an addend to it');
   });
 
   it('renders a zero as a zero, because zero starts is a FINDING', () => {
@@ -1263,6 +1269,7 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
     swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
+    classification: null,
   };
   const opts = {
     env: 'production',
@@ -1380,6 +1387,7 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     swarm: null,
     arrivalCoverage: BLIND_COVERAGE,
     priorArrivalCoverage: BLIND_COVERAGE,
+    classification: null,
   };
   const opts = {
     env: 'production',
@@ -1425,14 +1433,16 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     // 5. PostHog is a separate observation with its own caveat, and the email
     //    forbids the arithmetic rather than merely omitting it.
     expect(text).toContain('PostHog page views: 20 from 2 identities  [separate observation]');
-    expect(text).toContain('That is a different population, not a floor under the headline');
+    expect(text).toContain(
+      'That is a different population, not a floor under the previous measure',
+    );
     expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
     expect(text).not.toContain('lower bound');
     expect(text).not.toContain('The truth is between');
 
     // 6. The referrer line is supporting evidence and a SUBSET, never an addend.
     expect(text).toContain('supporting evidence, not a verified floor');
-    expect(text).toContain('It is a SUBSET of the headline, never an addend to it.');
+    expect(text).toContain('It is a SUBSET of the previous measure, never an addend to it.');
 
     // 7. And the NULL-ASN group is labelled rather than counted as a network.
     expect(text).toContain('network unknown (198 requests)');
