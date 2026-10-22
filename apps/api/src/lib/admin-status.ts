@@ -70,6 +70,7 @@ import { createDriftRunner } from './algolia-drift-deps';
 import type { DataQualityCheckResult } from './data-quality';
 import { runDataQualityChecks } from './data-quality';
 import { latestCompletedJobRun } from './job-runs';
+import { createReviewMirrorDriftDeps } from './review-mirror-drift-deps';
 
 /** `stats_cache` older than this is flagged — the same 48h threshold the §23.1
  *  data-quality suite uses (`data-quality.ts` `STATS_STALE_HOURS`), so the two
@@ -251,6 +252,7 @@ export async function runExpensiveStatusItems(
     db,
     now,
     runDrift: sharedDrift,
+    reviewMirror: createReviewMirrorDriftDeps(env),
     ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
   });
 

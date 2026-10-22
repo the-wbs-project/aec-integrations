@@ -38,6 +38,7 @@ import {
 } from '../lib/recrawl-causes';
 import { hasActiveEntitlement } from '../lib/integration-entitlement';
 import { auditVendorLogFields } from '../lib/moderation-forward';
+import { dispatchMirrorSync } from '../lib/ownership-sync';
 import { publicSiteBase } from '../lib/public-urls';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -537,6 +538,10 @@ async function bufferVendorRecrawl(
  * Since AECI-1186 a vendor-origin write buffers only when the vendor holds an
  * active entitlement. The gate lives in `bufferVendorRecrawl`, so every writer
  * inherits it the same way it inherits the buffer.
+ *
+ * Since AECI-1413 the tail also enqueues the review-app mirror message
+ * (`dispatchMirrorSync`) for every owned vendor the entries touch. `db` is reused
+ * for that read when passed; otherwise the hook opens its own session.
  */
 export function afterVendorWrite(
   c: VendorContext,
@@ -572,6 +577,10 @@ export function afterVendorWrite(
     list.map((entry) => vendorAuditLogEvent(entry, origin.auditSource)),
   );
   c.executionCtx.waitUntil(purgeTags(c, tags, origin.purgeSource));
+  // AECI-1413: re-send the ownership record of every owned vendor this write touched,
+  // so the review app's read-only copy follows the edit. Filters the entries itself:
+  // a seat, license or review write touches no mirrored entity and reads nothing.
+  dispatchMirrorSync(c, list, origin.purgeSource === 'vendor' ? 'vendor' : 'admin', db);
   if (recrawl && db) {
     // AECI-1184: the cause every URL of this write is queued under. The audit id is
     // the first entry's, minted by `auditInsert` when the batch was built. An

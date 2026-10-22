@@ -258,6 +258,14 @@ export type Env = {
    */
   REVIEW_APP_OWNERSHIP_TOKEN?: string;
   /**
+   * The ownership record schema the consumer sends (AECI-1413). A plain wrangler var,
+   * `"1"` in all four blocks until the review receiver accepts v2: the live receiver
+   * answers 400 to an unknown shape, and the consumer treats a 400 as permanent.
+   * Read through `mirrorSchemaVersion` (`lib/ownership-sync.ts`), which maps anything
+   * but `"2"` to 1.
+   */
+  REVIEW_APP_MIRROR_SCHEMA?: string;
+  /**
    * HMAC signing secret for the inbound Linear webhook (`POST /api/webhooks/
    * linear`, AECI-212). Set as a Wrangler secret per environment; absent → every
    * webhook is rejected 401 (fail-closed). Verified constant-time in

@@ -881,3 +881,55 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
     expect(row).toMatchObject({ live_value: 'Revit for MicroStation', value_stale: false });
   });
 });
+
+// ─── AECI-1413: the review-app mirror message ────────────────────────────────
+
+describe('PATCH /api/admin/contests/:id — the review-app mirror message (AECI-1413)', () => {
+  async function decide(id: string) {
+    const ownershipSend = vi.fn().mockResolvedValue(undefined);
+    const execCtx = fakeExecutionContext();
+    const env = {
+      ...TEST_ENV,
+      OWNERSHIP_SYNC_QUEUE: { send: ownershipSend, sendBatch: vi.fn() },
+      REVIEW_APP_MIRROR_SCHEMA: '2',
+    } as unknown as Env;
+    const res = await app(ADMIN).request(
+      `/api/admin/contests/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
+        headers: { 'content-type': 'application/json' },
+      },
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    return { status: res.status, ownershipSend };
+  }
+  const own = (vendorId: string) =>
+    t.db.update(vendors).set({ ownedAt: CLAIMED_AT }).where(eq(vendors.id, vendorId));
+
+  it('an accept that writes an owned row here enqueues admin_edit for its owned vendor', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    await own(VENDOR_B);
+    const { status, ownershipSend } = await decide(id);
+    expect(status).toBe(200);
+    expect((await integrationRow()).name).toBe('Revit Link');
+    expect(ownershipSend).toHaveBeenCalledOnce();
+    expect(ownershipSend).toHaveBeenCalledWith({
+      vendorId: VENDOR_B,
+      reason: 'admin_edit',
+      enqueuedAt: expect.any(String),
+    });
+  });
+
+  it('an upstream-only accept writes nothing here and enqueues nothing', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await own(VENDOR_B);
+    const { status, ownershipSend } = await decide(id);
+    expect(status).toBe(200);
+    expect((await integrationRow()).name).toBe('Revit for MicroStation');
+    expect(ownershipSend).not.toHaveBeenCalled();
+  });
+});

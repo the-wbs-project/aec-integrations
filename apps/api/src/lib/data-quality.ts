@@ -13,6 +13,9 @@
  * `runDataQualityChecks` runs them all best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
+ * `review_mirror_drift` (AECI-1455) compares each owned vendor's ownership record
+ * with the review app's mirror of it, over the review app's versions read.
+ *
  * All but **two** check the *catalog*. `arrival_cf_coverage` (AECI-868) and
  * `landing_cf_coverage` (AECI-876) check the *telemetry pipeline* instead, which is a
  * deliberate widening of what this suite is for: the four-day arrival-metadata outage
@@ -37,6 +40,12 @@
  * them dead, so the day it stops holding is the day the suite says so.
  */
 
+import {
+  OWNERSHIP_VERSIONS_MAX_IDS,
+  OwnershipVersionsResponseSchema,
+  ownershipVersionsUrl,
+  type OwnershipVersionEntry,
+} from '@aeci/shared';
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
@@ -44,6 +53,7 @@ import type { AlgoliaIndexDrift } from './algolia-drift';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { textAsc } from './collation';
 import { liveLicenseCountSql } from './license';
+import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
 import {
   and,
   asc,
@@ -61,6 +71,7 @@ import {
 } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
+import type { Env } from '../env';
 import {
   connectorEvidencedPairs,
   integrations,
@@ -165,6 +176,24 @@ export interface DataQualityDeps {
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
    *  `algolia_index_drift` is skipped (no Algolia creds — the local default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
+  /** The `review_mirror_drift` wiring (AECI-1455). `undefined` → that check is
+   *  skipped. Production builds it in `review-mirror-drift-deps.ts`. */
+  reviewMirror?: ReviewMirrorDriftDeps;
+}
+
+/**
+ * What `review_mirror_drift` needs beyond the `Db`. `buildRecord` is the v2 record
+ * builder (`buildOwnershipRecordV2` in `ownership-sync.ts`, AECI-1454), narrowed to the
+ * one field the check reads, so the check unit-tests without building real records.
+ */
+export interface ReviewMirrorDriftDeps {
+  env: Pick<
+    Env,
+    'REVIEW_APP_OWNERSHIP_URL' | 'REVIEW_APP_OWNERSHIP_TOKEN' | 'REVIEW_APP_MIRROR_SCHEMA'
+  >;
+  buildRecord: (db: Db, vendorId: string) => Promise<{ recordHash: string } | null>;
+  /** Injected in specs; production is the global `fetch`. */
+  fetchImpl?: typeof fetch;
 }
 
 // ───────────────────────────── individual checks ─────────────────────────────
@@ -748,6 +777,137 @@ export async function checkOwnershipSyncUnknownVendor(db: Db): Promise<CheckFind
   };
 }
 
+/**
+ * The review app's mirror of each owned vendor, against what we would send it now
+ * (AECI-1455, epic AECI-1413). For every vendor with `owned_at` set it builds the v2
+ * ownership record, then asks the review app for the hash of the last v2 record it
+ * accepted (`GET {REVIEW_APP_OWNERSHIP_URL}/vendors?ids=…`, at most
+ * {@link OWNERSHIP_VERSIONS_MAX_IDS} ids a call, the same bearer token as the PUT). One
+ * line per vendor that is missing on the review side, holds only a v1 record, or holds
+ * a different hash. A vendor whose own build throws is a `build_failed` line: the
+ * builder throws when a stored value fails the v2 content schema, and the queue
+ * consumer is retrying and then dropping that vendor too.
+ *
+ * It compares hashes, not `updated_at` against the version: `updated_at` moves on
+ * writes that are not mirrored (a `verified` flip, a count recompute), so a timestamp
+ * comparison would page as false drift every day.
+ *
+ * Skipped when the receiver URL or token is unset, or the tier still sends v1
+ * (`REVIEW_APP_MIRROR_SCHEMA` is not `"2"`): a v1 tier has no hash to compare. Only a
+ * review-side failure (network, timeout, non-2xx, a body that fails the schema) throws,
+ * so the orchestrator reports the check errored rather than clean.
+ */
+export async function checkReviewMirrorDrift(
+  db: Db,
+  deps?: ReviewMirrorDriftDeps,
+): Promise<CheckFinding> {
+  if (!deps) {
+    return { lines: [], skipped: true, note: 'skipped — mirror drift check not wired' };
+  }
+  const url = deps.env.REVIEW_APP_OWNERSHIP_URL?.trim();
+  const token = deps.env.REVIEW_APP_OWNERSHIP_TOKEN?.trim();
+  if (!url) {
+    return { lines: [], skipped: true, note: 'skipped — REVIEW_APP_OWNERSHIP_URL unset' };
+  }
+  if (!token) {
+    return { lines: [], skipped: true, note: 'skipped — REVIEW_APP_OWNERSHIP_TOKEN unset' };
+  }
+  if (mirrorSchemaVersion(deps.env) !== 2) {
+    return { lines: [], skipped: true, note: 'skipped — REVIEW_APP_MIRROR_SCHEMA is not "2"' };
+  }
+
+  const owned = await db
+    .select({ id: vendors.id })
+    .from(vendors)
+    .where(isNotNull(vendors.ownedAt))
+    .orderBy(asc(vendors.id));
+
+  // Build every record first. A vendor whose build throws (a stored value that fails
+  // the v2 content schema, or a failed read) is a `build_failed` line, not an errored
+  // check: one bad vendor must not blind the check for every other vendor.
+  const built = await mapWithConcurrency(owned, WORKER_CONNECTION_LIMIT, (v) =>
+    deps.buildRecord(db, v.id),
+  );
+  const expected = new Map<string, string>();
+  const buildFailed: string[] = [];
+  built.forEach((result, i) => {
+    const vendorId = owned[i]!.id;
+    if (result.status === 'rejected') {
+      const reason: unknown = result.reason;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      buildFailed.push(`vendor ${vendorId}: build_failed (${truncate(message)})`);
+      return;
+    }
+    // `null`: the vendor row vanished between the two reads, so there is nothing to compare.
+    if (result.value) expected.set(vendorId, result.value.recordHash);
+  });
+  const ids = [...expected.keys()];
+  if (ids.length === 0) {
+    return {
+      lines: buildFailed,
+      note: owned.length === 0 ? 'no owned vendors' : 'no record built',
+    };
+  }
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += OWNERSHIP_VERSIONS_MAX_IDS) {
+    chunks.push(ids.slice(i, i + OWNERSHIP_VERSIONS_MAX_IDS));
+  }
+  const doFetch = deps.fetchImpl ?? fetch;
+  const reads = await mapWithConcurrency(chunks, WORKER_CONNECTION_LIMIT, async (chunk) => {
+    const res = await doFetch(ownershipVersionsUrl(url, chunk), {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      signal: AbortSignal.timeout(OWNERSHIP_SYNC_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      discardResponseBody(res);
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return OwnershipVersionsResponseSchema.parse(await res.json()).vendors;
+  });
+
+  const held = new Map<string, OwnershipVersionEntry>();
+  for (const read of reads) {
+    if (read.status === 'rejected') {
+      const reason: unknown = read.reason;
+      const name = reason instanceof Error ? reason.name : '';
+      throw new Error(
+        name === 'TimeoutError' || name === 'AbortError'
+          ? `review app versions read timed out after ${OWNERSHIP_SYNC_TIMEOUT_MS} ms`
+          : `review app versions read failed: ${reason instanceof Error ? reason.message : String(reason)}`,
+        { cause: reason },
+      );
+    }
+    for (const entry of read.value) held.set(entry.vendorId, entry);
+  }
+
+  const lines: string[] = [...buildFailed];
+  for (const [vendorId, hash] of expected) {
+    const entry = held.get(vendorId);
+    if (!entry) {
+      lines.push(`vendor ${vendorId}: missing on the review side`);
+    } else if (!entry.recordHash) {
+      lines.push(
+        `vendor ${vendorId}: the review side holds no v2 record (version ${entry.version})`,
+      );
+    } else if (entry.recordHash !== hash) {
+      lines.push(
+        `vendor ${vendorId}: hash differs (review version ${entry.version} holds ` +
+          `${entry.recordHash.slice(0, 12)}, live builds ${hash.slice(0, 12)})`,
+      );
+    }
+  }
+  return { lines, note: `compared ${ids.length} owned vendor(s) in ${chunks.length} read(s)` };
+}
+
+/** Longest build error kept on a `build_failed` line; a Zod message can run long. */
+const BUILD_ERROR_MAX = 200;
+
+function truncate(message: string): string {
+  return message.length > BUILD_ERROR_MAX ? `${message.slice(0, BUILD_ERROR_MAX)}…` : message;
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -758,7 +918,8 @@ interface CheckSpec {
 }
 
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
- *  AECI-609 and AECI-1354 mirror guards and the AECI-868 telemetry tripwire). Severity
+ *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
+ *  AECI-1455 review-app mirror drift). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -861,6 +1022,13 @@ export const CHECKS: CheckSpec[] = [
       'Vendors the review app answered 404 (unknown vendor) for, on their latest ownership delivery',
     severity: 'warn',
     run: ({ db }) => checkOwnershipSyncUnknownVendor(db),
+  },
+  {
+    id: 'review_mirror_drift',
+    label: 'Owned vendors whose review-app mirror differs from the live record',
+    // `error`: the review app is curating from a stale copy of a vendor's own records.
+    severity: 'error',
+    run: ({ db, reviewMirror }) => checkReviewMirrorDrift(db, reviewMirror),
   },
 ];
 

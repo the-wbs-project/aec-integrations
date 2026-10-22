@@ -3230,6 +3230,11 @@ export const ownershipSyncDeliveries = sqliteTable(
     /** A short cause on a non-success outcome. Never the token, never a body. */
     error: text('error'),
     durationMs: integer('duration_ms'),
+    /** AECI-1413: the record's `schemaVersion` (1 or 2). NULL when no record was built,
+     *  and on every row written before this column existed. */
+    schemaVersion: integer('schema_version'),
+    /** AECI-1413: the v2 record's `recordHash`. NULL on every v1 delivery. */
+    recordHash: text('record_hash'),
     createdAt: createdAt(),
   },
   (t) => [

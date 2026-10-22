@@ -206,6 +206,7 @@ import {
 } from './lib/entitlement-expiry-metrics';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
+import { createReviewMirrorDriftDeps } from './lib/review-mirror-drift-deps';
 import {
   parseRecipients,
   recordEmailSend,
@@ -1271,7 +1272,12 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
 
   let results: DataQualityCheckResult[];
   try {
-    results = await runDataQualityChecks({ db, now: new Date(), runDrift });
+    results = await runDataQualityChecks({
+      db,
+      now: new Date(),
+      runDrift,
+      reviewMirror: createReviewMirrorDriftDeps(env),
+    });
   } catch (error) {
     // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a
     // missing DB binding). Count the failure heartbeat + log; never rethrow.

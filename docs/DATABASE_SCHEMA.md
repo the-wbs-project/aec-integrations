@@ -5140,7 +5140,9 @@ create table ownership_sync_deliveries (
   integration_count integer,
   error text,                       -- a short cause; never the token, never a body
   duration_ms integer,
-  created_at text not null
+  created_at text not null,
+  schema_version integer,           -- AECI-1413: the record's schemaVersion (1 | 2); null when no record was built
+  record_hash text                  -- AECI-1413: the v2 record's recordHash; null on every v1 delivery
 );
 create index ownership_sync_deliveries_vendor_idx on ownership_sync_deliveries (vendor_id, created_at);
 ```
@@ -5162,6 +5164,13 @@ so a row outlives a retracted vendor and sits on no `ON DELETE` path.
 
 **Migration `0085`** is a plain `CREATE TABLE` and one `CREATE INDEX`. It recreates nothing and
 cannot cascade.
+
+**Migration `0088`** (AECI-1413, AECI-1454) adds `schema_version` and `record_hash`, both
+nullable, by two plain `ALTER TABLE … ADD COLUMN`. No recreate, no CHECK, no cascade exposure.
+Rows written before it carry null in both. The consumer writes `schema_version` for every
+built record and `record_hash` for a v2 one (`buildOwnershipRecordV2`). Which version a tier
+builds is `REVIEW_APP_MIRROR_SCHEMA` (`docs/environments.md`). While it is `"1"`, rows carry
+`schema_version = 1` and a null `record_hash`.
 
 **Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). **Read by** the daily
 data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors

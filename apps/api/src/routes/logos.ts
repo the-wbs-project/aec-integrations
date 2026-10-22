@@ -21,6 +21,7 @@ import { auditActorType, requireCapability, type AuthzVariables } from '../lib/a
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { validateLogo } from '../lib/logo-validation';
 import { forwardAuditBatch } from '../lib/moderation-forward';
+import { dispatchMirrorSync } from '../lib/ownership-sync';
 import { parseJsonBody } from './vendor-shared';
 import { productAuditStamp, vendorAuditStamp } from '../lib/audit-vendor';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
@@ -248,6 +249,9 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     );
     // AECI-1159: ONE batched forward carries the write's row and the vendor's notice.
     forwardAuditBatch(c, [auditEntry, notice], [], 'admin-panel');
+    // AECI-1413: this route does not run through `afterVendorWrite`, so it enqueues
+    // the review-app mirror itself. A no-op unless the record is owned.
+    dispatchMirrorSync(c, auditEntry, 'admin', db);
     return json({ logo_url: columns.logoUrl });
   };
 }
