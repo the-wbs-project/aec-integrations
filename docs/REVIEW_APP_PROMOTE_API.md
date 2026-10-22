@@ -1150,6 +1150,17 @@ What that looks like in a response:
 | You **create** a new vendor | Never blocked, nothing vendor-owned exists yet. |
 | Anything else in the same payload | Promotes normally. |
 
+**Products the vendor adds itself (AECI-1424, 2026-10-22).** An owner seat of an owned
+company can add a product in the portal (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8). This is the
+path for a product you proposed and the owner declined, so a declined `ref` still reaches the
+catalog, without you. Such a product has **no review-app record** and you never learn its id
+from a promote: the live app sends nothing on the create, and the mirror of vendor edits is
+AECI-1413. It is owned from birth, so a payload that names its id is refused like any
+owned product (`BLOCKED_PRODUCT_REASON` above). It does appear in the vendor's ownership
+record (§4d) the next time one is sent for any other reason, as an id you never stored.
+Ignore it, as §4d says for every vendor-created record. A product you send later under the same name is proposed as usual; the
+owner sees both.
+
 This is **not an error** — the response is still `200`, and re-pushing will not
 help. If the content genuinely needs to change, the change belongs with the
 vendor (through their portal) or with an AECi admin, not with a re-push.

@@ -390,6 +390,10 @@ export class VendorLogoField {
   readonly logoUrl = input<string | null>(null);
   readonly canEdit = input(true);
   readonly save = input.required<SaveLogo>();
+  /** What Save and Remove confirm. A form that holds the logo until its own
+   *  submit (the product create, AECI-1424) says so instead of "saved". */
+  readonly savedMessage = input<string | null>(null);
+  readonly removedMessage = input<string | null>(null);
   readonly announce = output<string>();
 
   private readonly dialog = viewChild(BrnDialog);
@@ -568,7 +572,7 @@ export class VendorLogoField {
     return this.commit(
       this.draft(),
       'save',
-      $localize`:@@vendor.logo.saved:Logo saved. Your listing shows it now.`,
+      this.savedMessage() ?? $localize`:@@vendor.logo.saved:Logo saved. Your listing shows it now.`,
     );
   }
 
@@ -577,7 +581,8 @@ export class VendorLogoField {
     return this.commit(
       null,
       'remove',
-      $localize`:@@vendor.logo.removed:Logo removed. Your listing shows the change now.`,
+      this.removedMessage() ??
+        $localize`:@@vendor.logo.removed:Logo removed. Your listing shows the change now.`,
     );
   }
 

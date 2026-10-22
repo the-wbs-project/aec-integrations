@@ -562,6 +562,10 @@ notes now branch on the metric and carry the source in `params`
 (`live_source` / `reconstructed_from` on the first, `source` / `stored_from` on
 the second). Production still shows the divergence the split predicts: 207
 `product.created` events against 204 series points.
+`product.created` has three writers now: promote, the owner's proposal accept
+(`metadata.reason = 'proposal-accepted'`, AECI-1417) and the owner's portal create
+(`metadata.reason = 'vendor-create'`, AECI-1424, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8). All
+three are real additions and all three count.
 
 `catalog_series_starts_at` on that series also discloses a **stored floor later
 than the catalog floor**, which is the 43 pre-2026-06-23 products §7.1 describes.

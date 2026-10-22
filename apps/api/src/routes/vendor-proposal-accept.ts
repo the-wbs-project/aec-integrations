@@ -283,12 +283,12 @@ export interface ProposalAcceptInput {
  *      batch when it matched nothing: another owner or tab decided first;
  *   3. `proposalVendorOwnedSentinel`: aborts when the addressed vendor no longer owns
  *      its record (a "Return records to AECi" between the read and the batch);
- *   4. the product INSERT, then its join rows. A vendor deleted since the read fails
+ *   4. {@link planProductInsert}: the product INSERT, then its join rows. A vendor deleted since the read fails
  *      the `product_vendors` FK and rolls the batch back: no half-linked product.
  */
 export function planProposalAccept(db: Db, input: ProposalAcceptInput): BatchStmt[] {
   const { productId: pid, resolved } = input;
-  const stmts: BatchStmt[] = [
+  return [
     db
       .update(productProposals)
       .set({
@@ -300,15 +300,56 @@ export function planProposalAccept(db: Db, input: ProposalAcceptInput): BatchStm
       .where(and(eq(productProposals.id, input.proposalId), isNull(productProposals.decision))),
     changedOneRowSentinel(db),
     proposalVendorOwnedSentinel(db, input.vendorId),
+    ...planProductInsert(db, {
+      productId: pid,
+      slug: input.slug,
+      name: input.product.name,
+      now: input.now,
+      columns: {
+        ...(resolved.usefulness ? { usefulness: resolved.usefulness } : {}),
+        ...productEditableData(input.product),
+      },
+      links: input.links,
+      terms: resolved,
+    }),
+  ];
+}
+
+/** What {@link planProductInsert} writes. */
+export interface ProductInsertInput {
+  productId: string;
+  slug: string;
+  name: string;
+  now: string;
+  /** The editable columns. The maintenance markers are applied AFTER them, so a
+   *  projected `lastReviewedAt` never survives. */
+  columns: Partial<typeof products.$inferInsert>;
+  links: ReadonlyArray<{ vendorId: string; isPrimary: boolean }>;
+  terms: Pick<ResolvedProposalTerms, 'categories' | 'audiences' | 'phases' | 'trades' | 'hosts'>;
+}
+
+/**
+ * A vendor-maintained, promoted product and its join rows: the half the proposal accept
+ * and the owner's own create (AECI-1424, `routes/vendor-product-create.ts`) share. No
+ * statement here touches a `taxonomy_*` table: every term id was resolved before.
+ *
+ * `promotion_status = 'promoted'` and `promoted_at` = `now`, so the product is public
+ * as a promoted product is. `maintained_by = 'vendor'` and `last_reviewed_at` = `now`
+ * (`maintenanceTransferColumns`), the markers a vendor-created integration carries.
+ * A vendor deleted since the caller's read fails the `product_vendors` FK and rolls
+ * the batch back: no half-linked product.
+ */
+export function planProductInsert(db: Db, input: ProductInsertInput): BatchStmt[] {
+  const { productId: pid, terms } = input;
+  const stmts: BatchStmt[] = [
     db.insert(products).values({
       id: pid,
       slug: input.slug,
-      name: input.product.name,
+      name: input.name,
       promotionStatus: 'promoted',
       promotedAt: input.now,
-      ...(resolved.usefulness ? { usefulness: resolved.usefulness } : {}),
-      ...productEditableData(input.product),
-      // AFTER the projection, which carries the review app's `lastReviewedAt`.
+      ...input.columns,
+      // AFTER the projection, which can carry the review app's `lastReviewedAt`.
       ...maintenanceTransferColumns(input.now),
     }),
   ];
@@ -326,39 +367,35 @@ export function planProposalAccept(db: Db, input: ProposalAcceptInput): BatchStm
         .onConflictDoNothing(),
     );
   }
-  if (resolved.categories.length) {
+  if (terms.categories.length) {
     stmts.push(
       db
         .insert(productCategories)
-        .values(resolved.categories.map((t) => ({ productId: pid, categoryId: t.id }))),
+        .values(terms.categories.map((t) => ({ productId: pid, categoryId: t.id }))),
     );
   }
-  if (resolved.audiences.length) {
+  if (terms.audiences.length) {
     stmts.push(
       db
         .insert(productAudiences)
-        .values(resolved.audiences.map((t) => ({ productId: pid, audienceId: t.id }))),
+        .values(terms.audiences.map((t) => ({ productId: pid, audienceId: t.id }))),
     );
   }
-  if (resolved.phases.length) {
+  if (terms.phases.length) {
     stmts.push(
-      db
-        .insert(productPhases)
-        .values(resolved.phases.map((t) => ({ productId: pid, phaseId: t.id }))),
+      db.insert(productPhases).values(terms.phases.map((t) => ({ productId: pid, phaseId: t.id }))),
     );
   }
-  if (resolved.trades.length) {
+  if (terms.trades.length) {
     stmts.push(
-      db
-        .insert(productTrades)
-        .values(resolved.trades.map((t) => ({ productId: pid, tradeId: t.id }))),
+      db.insert(productTrades).values(terms.trades.map((t) => ({ productId: pid, tradeId: t.id }))),
     );
   }
-  if (resolved.hosts.length) {
+  if (terms.hosts.length) {
     stmts.push(
       db
         .insert(productExtensions)
-        .values(resolved.hosts.map((h) => ({ productId: pid, hostProductId: h.id }))),
+        .values(terms.hosts.map((h) => ({ productId: pid, hostProductId: h.id }))),
     );
   }
   return stmts;

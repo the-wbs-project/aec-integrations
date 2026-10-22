@@ -72,7 +72,7 @@ export function proposalDecisionErrorMessage(err: unknown, decision: Decision): 
     case 'VENDOR_NOT_OWNED':
       return $localize`:@@vendor.proposals.error.notOwned:Your company no longer owns its records, so this product cannot be added from here. Contact AEC Integrations.`;
     case 'PROPOSAL_VENDOR_MISSING':
-      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and contact us.`;
+      return $localize`:@@vendor.proposals.error.vendorMissing:A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and add the product yourself, or contact us.`;
     case 'SLUG_CONFLICT':
       return $localize`:@@vendor.proposals.error.slug:Another product took this name at the same moment. Try again.`;
   }
@@ -221,7 +221,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
         >
           <span i18n="@@vendor.proposals.card.vendorMissing"
             >A company this product would be listed under no longer exists, so it cannot be
-            accepted. Decline it and
+            accepted. Decline it and add the product yourself, or
             <a
               routerLink="/contact"
               class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
@@ -254,9 +254,6 @@ export function proposalDecisionIsStale(err: unknown): boolean {
               <span i18n="@@vendor.proposals.confirm.declineBody"
                 >The product is not added. AEC Integrations will not send it again.</span
               >
-              <!-- AECI-1424 (vendor product create: an owner adds a product to its company)
-                   decides this sentence. When it ships, keep it if the dashboard create exists
-                   as described, or remove it. Ruled 2026-10-20. -->
               <span
                 i18n="@@vendor.proposals.confirm.declineAddYourself"
                 data-testid="proposal-decline-add-yourself"

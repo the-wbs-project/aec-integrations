@@ -5,6 +5,7 @@ import { compareText } from '@aeci/shared/text-sort';
 
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorPlanBadge } from '../components/vendor-plan-badge';
+import { VendorProductCreate } from '../components/vendor-product-create';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
@@ -16,13 +17,16 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * §6.18), read from `product.plan` and `GET /api/vendor/checklist`. The plan is
  * a word, never colour alone.
  *
+ * Since AECI-1424 an owner seat can add a product here ({@link VendorProductCreate},
+ * `?create=open` starts it open). A member seat sees who can instead.
+ *
  * Sorted by name through `compareText`, never a bare `.sort()` (AECI-825: case
  * must not decide an alphabetical order). Primary first, because it is the
  * product a vendor most often came to edit.
  */
 @Component({
   selector: 'aec-vendor-product-list-page',
-  imports: [RouterLink, LogoOrInitial, VendorPlanBadge],
+  imports: [RouterLink, LogoOrInitial, VendorPlanBadge, VendorProductCreate],
   template: `
     @if (me(); as m) {
       <div>
@@ -30,6 +34,18 @@ import { VendorPortalStore } from '../vendor-portal-store';
           <span i18n="@@vendor.section.products">Products</span>
           <span class="ms-1 text-(--text-secondary)">({{ products().length }})</span>
         </h2>
+        <!-- AECI-1424: an owner seat adds a product. A member is told who can. -->
+        @if (m.seat_owner) {
+          <aec-vendor-product-create class="mt-4" [deepLink]="true" />
+        } @else {
+          <p
+            class="mt-4 text-sm text-(--text-secondary)"
+            data-testid="product-create-member"
+            i18n="@@vendor.productCreate.memberLine"
+          >
+            Only account owners can add a product. Ask an owner on the Seats tab.
+          </p>
+        }
         @if (products().length === 0) {
           <!-- Claimed vendor, empty catalog. Not an error: promote has simply not
                landed a product against this vendor yet. -->

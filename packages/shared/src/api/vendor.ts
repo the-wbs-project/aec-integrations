@@ -453,6 +453,55 @@ export type UpdateVendorProductInput = z.infer<typeof UpdateVendorProductSchema>
 export const UpdateVendorProductResponseSchema = z.object({ product: VendorProductSchema });
 export type UpdateVendorProductResponse = z.infer<typeof UpdateVendorProductResponseSchema>;
 
+// ─── Vendor product create (AECI-1424) ───────────────────────────────────────
+//
+//   POST /api/vendor/products
+//
+// `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8. An owner seat of a company that owns its
+// record adds a product the catalog does not have. Ruled 2026-10-22: the body carries
+// the Free fields only, because a new product holds no license, and the edit route
+// would refuse the rest (`PRODUCT_FIELD_CAPABILITIES`). The owner adds trades,
+// audiences, phases, the two doc URLs and "How teams use it" on the product's tabs.
+
+/** The longest product name a vendor may type, the short-text cap (§7.2). */
+export const VENDOR_PRODUCT_NAME_MAX = 200;
+
+/**
+ * The create body. `.strict()`, unlike the edit schema: any other key is a `400`.
+ * That refuses the paid fields AND the curation columns promote's projection carries
+ * (`research_status`, `admin_notes`, `product_role`, …), so a vendor cannot set what
+ * AECi owns by naming it.
+ */
+export const CreateVendorProductSchema = z
+  .object({
+    name: shortText.min(1, 'Enter the product name').max(VENDOR_PRODUCT_NAME_MAX),
+    description: longText.optional(),
+    website: editableUrl.optional(),
+    logo_url: LogoUrlSchema.optional(),
+    // Find-only: an unknown slug is a `VALIDATION_FAILED`, as on the edit route.
+    category_slugs: termSlugList.optional(),
+  })
+  .strict();
+export type CreateVendorProductInput = z.infer<typeof CreateVendorProductSchema>;
+
+/**
+ * Something already on record under the company with the same name, trimmed and
+ * case-insensitive. A warning only: the create is never refused for it (§4.7.2's
+ * rule, ruled 2026-10-22).
+ */
+export const VendorProductDuplicateSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('product'), id: z.string(), name: z.string(), slug: z.string() }),
+  z.object({ kind: z.literal('proposal'), id: z.string(), name: z.string() }),
+]);
+export type VendorProductDuplicate = z.infer<typeof VendorProductDuplicateSchema>;
+
+/** `POST /api/vendor/products` → `201`. */
+export const CreateVendorProductResponseSchema = z.object({
+  product: z.object({ id: z.string(), slug: z.string(), name: z.string() }),
+  possible_duplicates: z.array(VendorProductDuplicateSchema),
+});
+export type CreateVendorProductResponse = z.infer<typeof CreateVendorProductResponseSchema>;
+
 // ─── "Looks right" (AECI-1216) ───────────────────────────────────────────────
 //
 //   POST /api/vendor/profile/review

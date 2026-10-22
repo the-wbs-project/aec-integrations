@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
-import type { VendorSeat } from '@aeci/shared';
+import type { VendorMeResponse, VendorSeat } from '@aeci/shared';
 
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
@@ -43,7 +43,8 @@ type FixtureKey =
   | 'free'
   | 'pilot-ended'
   | 'mixed'
-  | 'product-ended';
+  | 'product-ended'
+  | 'member';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
   'verified',
@@ -57,6 +58,7 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'pilot-ended',
   'mixed',
   'product-ended',
+  'member',
 ];
 
 /** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
@@ -64,6 +66,9 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
 function fixtureFrom(value: string | null): FixtureKey {
   return FIXTURE_KEYS.includes(value as FixtureKey) ? (value as FixtureKey) : 'verified';
 }
+
+/** AECI-1424: the far-term vendor from a member seat. */
+const MEMBER_SEAT_FIXTURE: VendorMeResponse = { ...VENDOR_ME_FIXTURE, seat_owner: false };
 
 /** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -234,6 +239,9 @@ export class VendorDashboardPreview {
     // AECI-1408: the second product's license lapsed (the product-ended banner on
     // its pages), and the primary's end day passed before the daily job ran.
     { key: 'product-ended', label: 'Mixed · one product ended' },
+    // AECI-1424: the far-term vendor seen from a member seat (seat_owner false), so
+    // the owner-only surfaces (Add a product, proposal decisions) show their member state.
+    { key: 'member', label: 'Active · member seat' },
   ];
 
   /**
@@ -282,6 +290,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_MIXED_FIXTURE;
       case 'product-ended':
         return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
+      case 'member':
+        return MEMBER_SEAT_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
     }
@@ -291,6 +301,7 @@ export class VendorDashboardPreview {
   private readonly activeChecklist = computed<ChecklistFixtureState>(() => {
     switch (this.fixture()) {
       case 'verified':
+      case 'member':
       case 'expiring':
       case 'large-catalog':
       case 'product-ended':

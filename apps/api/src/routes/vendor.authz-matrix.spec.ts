@@ -84,6 +84,10 @@
  * two decisions. Owner-seat routes. The granted-seat cell of each decision aims at an
  * unknown proposal id, so it proves the guard passed with the `404` a proposal of
  * another vendor also gets (`vendor-proposals.spec.ts` covers the rest).
+ *
+ * AECI-1424 adds the owner's product create, `POST /api/vendor/products`. An owner-seat
+ * route. VENDOR_A does not own its record, so the granted-seat cell proves the guard
+ * passed with `409 VENDOR_NOT_OWNED` (`vendor-product-create.spec.ts` covers the rest).
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -157,6 +161,7 @@ import {
   createDeclineVendorProposalHandler,
   createListVendorProposalsHandler,
 } from './vendor-proposals';
+import { createCreateVendorProductHandler } from './vendor-product-create';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './vendor-billing-email';
 import {
@@ -448,6 +453,12 @@ function makeApp() {
     requireVendor(guard),
     createUpdateVendorProductHandler(t.factory),
   );
+  // AECI-1424 — seat; the owner and ownership rules are inside the handler.
+  app.post(
+    '/api/vendor/products',
+    requireVendor(guard),
+    createCreateVendorProductHandler(t.factory),
+  );
   // AECI-301 — no path overlap with the product routes, so ordering is free.
   app.get(
     '/api/vendor/integrations',
@@ -609,6 +620,8 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/proposals', method: 'GET' },
   { path: `/api/vendor/proposals/${uuid(990)}/accept`, method: 'POST', ok: 404 },
   { path: `/api/vendor/proposals/${uuid(990)}/decline`, method: 'POST', ok: 404 },
+  // AECI-1424 — owner seats only. VENDOR_A does not own its record: the 409.
+  { path: '/api/vendor/products', method: 'POST', body: { name: 'New product' }, ok: 409 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
   { path: '/api/vendor/billing/email', method: 'PUT', body: { billing_email: 'ap@autodesk.com' } },
   // AECI-1373 — owner seats only; LICENSE_A is live on PRODUCT_A.

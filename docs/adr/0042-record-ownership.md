@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-19
 - Issue: AECI-1415 (E6b.3, epic AECI-1341). Ruled on AECI-1341.
-- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1417 (the owner accepts or declines it), AECI-1418 (the ownership message to the review app, landed 2026-10-20), AECI-1412 (the review-app receiver, review repo, live on production; the backfill delivered 4 of 4 on 2026-10-22), AECI-1413 (the mirror of vendor edits to the review app, ADR 0044, in progress). Not built: AECI-1424 (vendor product create)
+- Follow-ups: AECI-1416 (a new product under an owned vendor becomes a proposal), AECI-1417 (the owner accepts or declines it), AECI-1418 (the ownership message to the review app, landed 2026-10-20), AECI-1424 (vendor product create, landed 2026-10-22), AECI-1412 (the review-app receiver, review repo, live on production; the backfill delivered 4 of 4 on 2026-10-22), AECI-1413 (the mirror of vendor edits to the review app, ADR 0044, in progress)
 - Amends: ADR 0035 (promote refusal and the last-seat hand-back), ADR 0039 (the vendor-held test)
 - Relates to: ADR 0021 (async promote), `docs/REVIEW_APP_PROMOTE_API.md` §4a to §4c, `docs/STAGE_2_ATTESTATIONS_SPEC.md` §13.9
 
@@ -122,6 +122,34 @@ AECI-1412, which must ship before the end-to-end test.
 - **Unconfigured is loud.** A tier without `REVIEW_APP_OWNERSHIP_URL` and
   `REVIEW_APP_OWNERSHIP_TOKEN` acks each message with an `unconfigured` ledger row, a count and
   a warning (the AECI-851 lesson), and never retries.
+
+## Amendment 2026-10-22: AECI-1424 landed (an owner adds a product)
+
+Once a company owns its record, a product reached the catalog only as a promote proposal,
+sent once (Q5). A declined proposal, one that cannot be accepted, or a product AECi never
+found had no path. Chris ruled on 2026-10-20 (on AECI-1341) that the owner adds it from the
+portal (option A). An admin re-open of a declined proposal and an admin create for a vendor
+were rejected. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8, `API_CONTRACTS.md` §6.14.
+
+- **Who.** An owner seat (`requireSeatOwner()`) of a company with `owned_at` set. A member
+  seat is refused, and so is a company that does not own its record (`VENDOR_NOT_OWNED`).
+  An ownership sentinel in the batch covers a "Return records to AECi" that lands mid-request.
+- **What.** Free fields only (ruled 2026-10-22): name, description, website, logo and
+  categories. A new product holds no license, so the edit route would refuse the rest.
+  Taxonomy is find-only and strict: an unknown slug is a `400`, and no term is minted.
+- **Born owned.** The product is promoted, `maintained_by = 'vendor'`, and joined to the
+  caller's vendor as primary. Rule 5 then refuses every promote that names it. There is no
+  `origin` column on `products`: ownership is the fence, and the `product.created` audit row
+  (`metadata.reason = 'vendor-create'`) records who made it. A later "Return records to AECi"
+  makes it AECi's like the vendor's other products, with no review-app record behind it.
+- **No ownership message (ruled 2026-10-22).** The create sends nothing to the review app and
+  adds no `OWNERSHIP_SYNC_REASONS` value. The product has no review-app record until the
+  mirror (AECI-1413), a gap ruled accepted on 2026-10-20. The next whole-record sync from any
+  other trigger lists it, because the record is read from D1 at delivery.
+- **Duplicates warn (ruled 2026-10-22).** A same-name product or open proposal of the company
+  is returned and audited, never refused.
+- **The AECI-1417 decline sentence stays.** "You can add the product yourself from your
+  dashboard." is now true.
 
 ## Revisit
 

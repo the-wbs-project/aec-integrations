@@ -46,7 +46,7 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
         class="text-sm leading-relaxed text-(--text-secondary)"
         i18n="@@vendor.products.sectionEmpty"
       >
-        Your company has no products listed yet. New products are added by AEC Integrations.
+        Your company has no products listed yet. An account owner can add one from the Products tab.
       </p>
     } @else {
       @if (taxonomyFailed()) {
