@@ -1510,12 +1510,12 @@ The live app sends one vendor's record after each of these commits:
 | "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`) | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
 | A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454) | `vendor_edit` |
-| An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, integration retire or restore (v2 producer, AECI-1454) | `admin_edit` |
+| An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, field correction with a lock and its lift, integration retire or restore (v2 producer, AECI-1454) | `admin_edit` |
 
 `reason` is informational. Act on the record's state, never on the reason.
 
-`vendor_edit` and `admin_edit` are documented ahead of the producer that sends them, and join
-`OWNERSHIP_SYNC_REASONS` with it. The live app sends them only where
+`vendor_edit` and `admin_edit` joined `OWNERSHIP_SYNC_REASONS` with the AECI-1454 producer
+(`dispatchMirrorSync`). The live app sends them only where
 `REVIEW_APP_MIRROR_SCHEMA` is `"2"`, so a receiver that parses only v1 never sees them. A v2
 receiver must accept both.
 
