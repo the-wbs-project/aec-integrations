@@ -1,7 +1,8 @@
 /**
  * AECI-1418 — the ownership-sync queue is bound in EVERY wrangler block, its consumer
  * matches the code's retry budget, and every deployed tier creates the queue and pushes
- * the receiver secrets.
+ * the receiver secrets. AECI-1427 — production requires the pair; staging and demo
+ * stay warn-only.
  *
  * Queue bindings are not inherited from the top level into a named env, and the PR
  * suite runs no `wrangler deploy`. A block that forgets the producer leaves a tier
@@ -64,6 +65,13 @@ describe('AECI-1418: OWNERSHIP_SYNC_QUEUE in every wrangler block', () => {
   });
 });
 
+/** Pull the space-separated names of a `KEY: '…'` line out of a workflow. */
+function secretList(raw: string, key: string): string[] {
+  const match = raw.match(new RegExp(`^\\s*${key}:\\s*'([^']*)'`, 'm'));
+  if (!match) throw new Error(`${key} not found in workflow`);
+  return match[1].split(/\s+/).filter(Boolean);
+}
+
 describe('AECI-1418: CI creates the queue and pushes the receiver secrets', () => {
   it.each([
     ['deploy.yml', 'staging', 'STAGING'],
@@ -78,12 +86,56 @@ describe('AECI-1418: CI creates the queue and pushes the receiver secrets', () =
     expect(raw).toContain(
       `REVIEW_APP_OWNERSHIP_URL_${suffix}: \${{ secrets.REVIEW_APP_OWNERSHIP_URL_${suffix} }}`,
     );
-    const recommended = raw.match(/^\s*RECOMMENDED_SECRETS:\s*'([^']*)'/m)?.[1] ?? '';
-    expect(recommended.split(/\s+/)).toEqual(
-      expect.arrayContaining([
-        `REVIEW_APP_OWNERSHIP_URL_${suffix}`,
-        `REVIEW_APP_OWNERSHIP_TOKEN_${suffix}`,
-      ]),
+    expect(raw).toContain(
+      `REVIEW_APP_OWNERSHIP_TOKEN_${suffix}: \${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_${suffix} }}`,
     );
+  });
+});
+
+describe('AECI-1427: the receiver pair is REQUIRED on production only (ruling D4)', () => {
+  const PAIR = (suffix: string) => [
+    `REVIEW_APP_OWNERSHIP_URL_${suffix}`,
+    `REVIEW_APP_OWNERSHIP_TOKEN_${suffix}`,
+  ];
+
+  it('production preflight requires both and no longer recommends them', () => {
+    const raw = readWorkflow('promote-to-prod.yml');
+    expect(secretList(raw, 'REQUIRED_SECRETS')).toEqual(expect.arrayContaining(PAIR('PRODUCTION')));
+    for (const name of PAIR('PRODUCTION')) {
+      expect(secretList(raw, 'RECOMMENDED_SECRETS')).not.toContain(name);
+    }
+  });
+
+  it('production re-asserts both on the live Worker after deploy', () => {
+    // The only check that reads the deployed Worker, so the only one that catches a
+    // push that silently no-op'd or a secret deleted out of band.
+    expect(secretList(readWorkflow('promote-to-prod.yml'), 'REQUIRED_WORKER_SECRETS')).toEqual(
+      expect.arrayContaining(['REVIEW_APP_OWNERSHIP_URL', 'REVIEW_APP_OWNERSHIP_TOKEN']),
+    );
+  });
+
+  it('the production push step fails rather than skips', () => {
+    const raw = readWorkflow('promote-to-prod.yml');
+    const start = raw.indexOf(
+      '- name: Push REVIEW_APP_OWNERSHIP_URL + TOKEN to API Worker (production)',
+    );
+    expect(start).toBeGreaterThan(-1);
+    const step = raw.slice(start);
+    const body = step.slice(0, step.indexOf('- name:', 1));
+    expect(body).toContain('::error::');
+    expect(body).toContain('exit 1');
+    expect(body).not.toContain('::warning::');
+  });
+
+  it.each([
+    ['deploy.yml', 'STAGING'],
+    ['promote-to-demo.yml', 'DEMO'],
+  ])('%s stays warn-only', (file, suffix) => {
+    // Staging has no receiver. Demo stays unconfigured by ruling D5.
+    const raw = readWorkflow(file);
+    expect(secretList(raw, 'RECOMMENDED_SECRETS')).toEqual(expect.arrayContaining(PAIR(suffix)));
+    for (const name of PAIR(suffix)) {
+      expect(secretList(raw, 'REQUIRED_SECRETS')).not.toContain(name);
+    }
   });
 });
