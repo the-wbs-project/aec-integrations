@@ -7,7 +7,7 @@
  * best-effort capture (a throwing check becomes an `error` result).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 
@@ -43,6 +43,7 @@ import {
   checkLogo404Sample,
   checkOwnershipSyncUnknownVendor,
   checkProductsWithoutVendor,
+  checkReviewMirrorDrift,
   checkReviewsMissingAnonymizedAt,
   checkPromotionStatusInvariant,
   checkStaleStatsCache,
@@ -93,6 +94,7 @@ async function seedVendor(over: {
   promotionStatus?: string;
   logoUrl?: string | null;
   updatedAt?: string;
+  ownedAt?: string | null;
 }): Promise<void> {
   await t.db.insert(vendors).values({
     id: over.id,
@@ -102,6 +104,7 @@ async function seedVendor(over: {
     // other check's fixtures would otherwise trip `promotion_status_invariant`.
     promotionStatus: over.promotionStatus ?? 'promoted',
     logoUrl: over.logoUrl ?? null,
+    ownedAt: over.ownedAt ?? null,
     createdAt: over.updatedAt ?? RECENT,
     updatedAt: over.updatedAt ?? RECENT,
   });
@@ -747,6 +750,223 @@ describe('checkLandingCfCoverage', () => {
     // legitimate NULL on the smallest measurable window must still pass.
     const oneNullAtMinimum = (LANDING_CF_COVERAGE_MIN_ROWS - 1) / LANDING_CF_COVERAGE_MIN_ROWS;
     expect(oneNullAtMinimum).toBeGreaterThanOrEqual(LANDING_CF_COVERAGE_MIN);
+  });
+});
+
+// ── review_mirror_drift (AECI-1455) ─────────────────────────────────────────────
+
+describe('checkReviewMirrorDrift', () => {
+  const BASE = 'https://review.example/ownership';
+  const TOKEN = 'review-token';
+  const ENV_V2 = {
+    REVIEW_APP_OWNERSHIP_URL: BASE,
+    REVIEW_APP_OWNERSHIP_TOKEN: TOKEN,
+    REVIEW_APP_MIRROR_SCHEMA: '2',
+  };
+  const HASH_A = 'a'.repeat(64);
+  const HASH_B = 'b'.repeat(64);
+  const vid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+  /** A `buildRecord` that hashes every vendor to `hashes[id]`, else HASH_A. */
+  const builder = (hashes: Record<string, string | null> = {}) =>
+    vi.fn(async (_db: unknown, vendorId: string) => {
+      const h = vendorId in hashes ? hashes[vendorId] : HASH_A;
+      return h === null ? null : { recordHash: h! };
+    });
+
+  /** A versions endpoint that answers from `held`, recording each call. */
+  function versionsFetch(held: Record<string, { version?: number; recordHash: string | null }>) {
+    const calls: { url: string; init: RequestInit | undefined }[] = [];
+    const impl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      const ids = new URL(url).searchParams.get('ids')!.split(',');
+      const out = ids
+        .filter((id) => id in held)
+        .map((id) => ({
+          vendorId: id,
+          version: held[id]!.version ?? 3,
+          recordHash: held[id]!.recordHash,
+        }));
+      return new Response(JSON.stringify({ vendors: out }), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { impl, calls };
+  }
+
+  async function seedOwned(...ids: string[]): Promise<void> {
+    for (const id of ids) await seedVendor({ id, ownedAt: OLD });
+  }
+
+  it('is clean when every owned vendor hash matches, and ignores unowned vendors', async () => {
+    await seedOwned(vid(1), vid(2));
+    await seedVendor({ id: vid(3) }); // not owned: never built, never asked about
+    const build = builder();
+    const { impl, calls } = versionsFetch({
+      [vid(1)]: { recordHash: HASH_A },
+      [vid(2)]: { recordHash: HASH_A },
+    });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: build,
+      fetchImpl: impl,
+    });
+    expect(out.skipped).toBeUndefined();
+    expect(out.lines).toEqual([]);
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${BASE}/vendors?ids=${vid(1)},${vid(2)}`);
+    expect(calls[0]!.init?.method).toBe('GET');
+    expect(new Headers(calls[0]!.init?.headers).get('authorization')).toBe(`Bearer ${TOKEN}`);
+    expect(calls[0]!.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('flags a hash mismatch, a vendor missing on the review side, and a v1-only record', async () => {
+    await seedOwned(vid(1), vid(2), vid(3), vid(4));
+    const { impl } = versionsFetch({
+      [vid(1)]: { recordHash: HASH_A }, // match
+      [vid(2)]: { recordHash: HASH_B, version: 7 }, // mismatch
+      // vid(3) absent: missing
+      [vid(4)]: { recordHash: null, version: 2 }, // v1 only
+    });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder(),
+      fetchImpl: impl,
+    });
+    expect(out.lines).toEqual([
+      `vendor ${vid(2)}: hash differs (review version 7 holds bbbbbbbbbbbb, live builds aaaaaaaaaaaa)`,
+      `vendor ${vid(3)}: missing on the review side`,
+      `vendor ${vid(4)}: the review side holds no v2 record (version 2)`,
+    ]);
+  });
+
+  it('skips a vendor whose record builds to null (row gone between reads)', async () => {
+    await seedOwned(vid(1), vid(2));
+    const { impl, calls } = versionsFetch({ [vid(1)]: { recordHash: HASH_A } });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder({ [vid(2)]: null }),
+      fetchImpl: impl,
+    });
+    expect(out.lines).toEqual([]);
+    expect(calls[0]!.url).toBe(`${BASE}/vendors?ids=${vid(1)}`);
+  });
+
+  it('makes no request when no vendor is owned', async () => {
+    await seedVendor({ id: vid(1) });
+    const { impl, calls } = versionsFetch({});
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder(),
+      fetchImpl: impl,
+    });
+    expect(out).toEqual({ lines: [], note: 'no owned vendors' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['not wired', undefined, 'not wired'],
+    [
+      'URL unset',
+      { ...ENV_V2, REVIEW_APP_OWNERSHIP_URL: undefined },
+      'REVIEW_APP_OWNERSHIP_URL unset',
+    ],
+    ['URL blank', { ...ENV_V2, REVIEW_APP_OWNERSHIP_URL: '  ' }, 'REVIEW_APP_OWNERSHIP_URL unset'],
+    [
+      'token unset',
+      { ...ENV_V2, REVIEW_APP_OWNERSHIP_TOKEN: undefined },
+      'REVIEW_APP_OWNERSHIP_TOKEN unset',
+    ],
+    ['schema "1"', { ...ENV_V2, REVIEW_APP_MIRROR_SCHEMA: '1' }, 'is not "2"'],
+    ['schema unset', { ...ENV_V2, REVIEW_APP_MIRROR_SCHEMA: undefined }, 'is not "2"'],
+  ])('is skipped when %s, with no build and no request', async (_label, env, note) => {
+    await seedOwned(vid(1));
+    const build = builder();
+    const { impl, calls } = versionsFetch({});
+    const out = await checkReviewMirrorDrift(
+      t.db,
+      env ? { env, buildRecord: build, fetchImpl: impl } : undefined,
+    );
+    expect(out.skipped).toBe(true);
+    expect(out.lines).toEqual([]);
+    expect(out.note).toContain(note);
+    expect(build).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('chunks more than 100 owned vendors into reads of at most 100 ids', async () => {
+    const ids = Array.from({ length: 205 }, (_, i) => vid(i + 1));
+    await seedOwned(...ids);
+    const held = Object.fromEntries(ids.map((id) => [id, { recordHash: HASH_A }]));
+    delete held[ids[204]!]; // the last id, in the third chunk, is missing
+    const { impl, calls } = versionsFetch(held);
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder(),
+      fetchImpl: impl,
+    });
+    const sizes = calls.map((c) => new URL(c.url).searchParams.get('ids')!.split(',').length);
+    expect(sizes).toEqual([100, 100, 5]);
+    expect(out.lines).toEqual([`vendor ${ids[204]}: missing on the review side`]);
+    expect(out.note).toBe('compared 205 owned vendor(s) in 3 read(s)');
+  });
+
+  it('throws on a non-2xx and releases the body', async () => {
+    await seedOwned(vid(1));
+    const res = new Response('nope', { status: 503 });
+    const cancel = vi.spyOn(res.body!, 'cancel');
+    const impl = vi.fn(async () => res) as unknown as typeof fetch;
+    await expect(
+      checkReviewMirrorDrift(t.db, { env: ENV_V2, buildRecord: builder(), fetchImpl: impl }),
+    ).rejects.toThrow('review app versions read failed: HTTP 503');
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('throws on a network failure, a timeout, and a body that fails the schema', async () => {
+    await seedOwned(vid(1));
+    const run = (impl: typeof fetch) =>
+      checkReviewMirrorDrift(t.db, { env: ENV_V2, buildRecord: builder(), fetchImpl: impl });
+
+    await expect(
+      run((async () => {
+        throw new TypeError('connection reset');
+      }) as unknown as typeof fetch),
+    ).rejects.toThrow('review app versions read failed: connection reset');
+
+    await expect(
+      run((async () => {
+        throw new DOMException('timed out', 'TimeoutError');
+      }) as unknown as typeof fetch),
+    ).rejects.toThrow('timed out after 10000 ms');
+
+    await expect(
+      run(
+        (async () =>
+          new Response(JSON.stringify({ vendors: [{ vendorId: 'not-a-uuid' }] }), {
+            status: 200,
+          })) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow('review app versions read failed');
+  });
+
+  it('errors (never zero) through the orchestrator when the review side fails', async () => {
+    await seedOwned(vid(1));
+    const results = await runDataQualityChecks({
+      db: t.db,
+      now: NOW,
+      reviewMirror: {
+        env: ENV_V2,
+        buildRecord: builder(),
+        fetchImpl: (async () => new Response('', { status: 500 })) as unknown as typeof fetch,
+      },
+    });
+    const drift = results.find((r) => r.id === 'review_mirror_drift');
+    expect(drift?.error).toContain('HTTP 500');
+    expect(hasErrors(results)).toBe(true);
+  });
+
+  it('is an error-severity check in the registry', () => {
+    expect(CHECKS.find((c) => c.id === 'review_mirror_drift')?.severity).toBe('error');
   });
 });
 

@@ -1130,6 +1130,9 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > unusable: say so in the health report rather than charting across the gap
 > (`POST_LAUNCH_MONITORING.md` §0b, `ADMIN_PANEL_SPEC.md` §9.8).
 
+> **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
+> records** (AECI-1455). It has its own section: [Review-app mirror drift](#review-app-mirror-drift).
+
 **First checks**
 
 1. **Which check?** The "found issues" alerts are split `by {check}` **and by `severity:`** — the
@@ -2324,3 +2327,64 @@ dry run prints the vendors. The script writes nothing to D1. It needs
 `CLOUDFLARE_API_TOKEN` with Queues Edit and D1 Read, and `CLOUDFLARE_ACCOUNT_ID`.
 `--local --apply` is refused: the local queue lives inside `wrangler dev`, so approve a claim
 locally instead.
+
+## Review-app mirror drift
+
+Pages through the existing `data-quality-error` alert. Use this when the daily
+`aeci.data_quality.check{check:review_mirror_drift}` gauge is above 0 or is -1 (AECI-1455).
+
+**What it means.** For every owned vendor the check builds the v2 ownership record we would
+send now, then asks the review app for the hash of the last v2 record it accepted
+(`REVIEW_APP_PROMOTE_API.md` §4d). A line means the review app is curating from a stale or
+absent copy of that vendor's records. It runs only when the tier sends v2
+(`REVIEW_APP_MIRROR_SCHEMA` is `"2"`) and both receiver secrets are set. Otherwise it is
+skipped and reads 0.
+
+**Read the lines first.** Open `/admin/system`, run the data-quality checks, and read the
+`review_mirror_drift` sample. Each line names the vendor id and one of three causes.
+
+| Line says | Meaning | Do |
+|---|---|---|
+| `missing on the review side` | The review app holds no record for this vendor | Read the vendor's ledger ("Ownership records not reaching the review app" above). A `404` there is the unknown-vendor case. Otherwise re-send the vendor |
+| `the review side holds no v2 record` | The review app last accepted a v1 record | Expected once, right after the v2 flip and before the backfill. Afterwards, re-send the vendor |
+| `hash differs` | The review app's v2 record is older than the live state | A mirrored edit did not deliver. Read the ledger, then re-send the vendor |
+
+The re-send is the `--vendor` command in the section above. The record is the whole current
+state, so a re-send is always safe. Production needs Chris's go-ahead.
+
+**The value is -1.** The versions read failed: a network error, a timeout after 10 s, a
+non-2xx answer, or a body that failed the schema. The check's `error` text on
+`/admin/system` names which. A `401` or `403` means the token pair is out of step. A `404`
+on the versions path means the review app's receiver does not serve the versions read yet.
+
+**Many vendors drift at once.** Look for one cause before re-sending vendor by vendor. A
+review-app deploy that changed how it stores records, or a v2 field change on our side
+(`review-mirror-fields.ts`), moves every hash. Fix the cause, then run the full backfill
+below.
+
+## Turning on the v2 ownership mirror in production
+
+Run once, in this order (AECI-1413). Each step depends on the one before it.
+
+1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
+   of AECI-1413 must be shipped. The live receiver answers `400` to a v2 record, and the
+   consumer treats a `400` as permanent. So a flip before this step drops every send.
+2. **Flip the production var.** Set `REVIEW_APP_MIRROR_SCHEMA` to `"2"` in the
+   `production` block of `apps/api/wrangler.jsonc`, and update the matching expectation in
+   `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is
+   a plain var, not a secret, so it ships with the deploy.
+3. **Re-send every owned vendor as v2.** Read the queue id, dry-run, then apply with that
+   id in place of `QUEUE_ID`. Needs Chris's go-ahead.
+
+```bash
+pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production
+pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production
+pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --apply --allow-production --queue-id QUEUE_ID
+```
+
+4. **Expect `review_mirror_drift` to read 0 on the next daily run** (04:00 UTC). To check
+   sooner, run the data-quality checks on `/admin/system` once the queue has drained. Any
+   line left is triaged with "Review-app mirror drift" above.
+
+**Rolling back.** Set the var back to `"1"` and promote. The check then skips, and the
+consumer sends v1 again.
