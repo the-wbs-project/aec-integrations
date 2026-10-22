@@ -120,7 +120,7 @@ export class Renderer extends WorkerEntrypoint<Bindings> {
    * default-export `queue()` consumer delegates each purge here over the `ctx.exports`
    * loopback (the queue routes to the default export; wrangler `queues.consumers` has
    * no entrypoint field). Returns `null` when this env has no cache (`this.ctx.cache`
-   * absent — demo/production until WC-8) so the consumer acks `no_cache` instead of
+   * absent — local, or a tier whose `exports` block was rolled back) so the consumer acks `no_cache` instead of
    * retrying forever.
    */
   purgeCache(options: CachePurgeOptions): Promise<CachePurgeResult | null> {

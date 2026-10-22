@@ -436,7 +436,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
 | Worker error rate high | > 1% / 5m | > 1% / **1 h** | raise the floor only if single failures dominate at low volume. **The cadence, not the threshold, is the thing to watch here** |
-| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod (uncached) p95 sits in the 1.0–1.5 s band a third of all hours and crosses 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-839**), not a threshold to raise |
+| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod p95, measured while prod was uncached, sat in the 1.0–1.5 s band a third of all hours and crossed 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-839**), not a threshold to raise |
 | page_views write errors | > 10% / 10m | > 10% / 1 h, **≥20-write floor** | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | > 30% / 1 h, **≥5-attempt floor** | lower once sign-in volume is non-trivial. The floor already removes the "1 of 2 failed = 50%" false page |
 | Toxicity scoring outage | > 50% / 15m | > 50% / 1 h, **≥5-call floor** | lower once review volume is non-trivial |
@@ -1276,10 +1276,11 @@ numbers.
 | Date (UTC) | Tier | Change | Effect on the series |
 |---|---|---|---|
 | 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. |
+| 2026-10-22 02:40 (`957951a08`) | demo | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Demo arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
+| TODO: the promote-to-prod time and SHA of the AECI-1443 production change, filled in after that promote | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. |
 
-Demo and production get their own row on the day AECI-1443 enables caching there. On those tiers
-the writer is unchanged at the flip, but the arrival row then survives a HIT. A HIT also skips the
-render, so the AECI-839 p95 measures misses only from that date.
+The writer itself does not change at a cache flip. A HIT skips the render, so from each tier's
+flip the render counts and the AECI-839 p95 measure misses only.
 
 ---
 

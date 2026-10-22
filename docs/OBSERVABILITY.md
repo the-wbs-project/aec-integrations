@@ -205,7 +205,7 @@ flagged inline: the raw `status` / `status_code` tags are **gone** (cardinality 
 see the budget below), and `aeci.search.query` is a **retiring** RUM action rather
 than a Worker metric.
 
-> **⚠️ Front-of-Worker cache (WC-3 AECI-317 · WC-8 AECI-322).** Native Cloudflare Workers Cache serves cacheable HITs **without running the SSR Worker** (staging and demo; production uncached until AECI-1443's second step). So the two SSR render metrics only ever record `cache_status:MISS`/`miss` (the Worker runs only on a native-cache miss) or `non_cacheable` — **there is no `cache_status:hit` series.** HIT-rate visibility lives on `Cf-Cache-Status` + the Cloudflare Workers observability dashboard (see "Front-of-Worker cache: HIT observability" below). **WC-8 (AECI-322) completed the rework:** the `cache hit rate < 70%` monitor + its dashboard widget were **retired** (their `cache_status:hit` numerator is now permanently ~0 — they would flatline / alert forever), and the crawler-`noindex` decision is now baked into the cached payload so a HIT can't leak an indexable non-prod page (`docs/CACHE_STRATEGY.md` §7.1).
+> **⚠️ Front-of-Worker cache (WC-3 AECI-317 · WC-8 AECI-322).** Native Cloudflare Workers Cache serves cacheable HITs **without running the SSR Worker** (staging, demo and production since AECI-1443). So the two SSR render metrics only ever record `cache_status:MISS`/`miss` (the Worker runs only on a native-cache miss) or `non_cacheable` — **there is no `cache_status:hit` series.** HIT-rate visibility lives on `Cf-Cache-Status` + the Cloudflare Workers observability dashboard (see "Front-of-Worker cache: HIT observability" below). **WC-8 (AECI-322) completed the rework:** the `cache hit rate < 70%` monitor + its dashboard widget were **retired** (their `cache_status:hit` numerator is now permanently ~0 — they would flatline / alert forever), and the crawler-`noindex` decision is now baked into the cached payload so a HIT can't leak an indexable non-prod page (`docs/CACHE_STRATEGY.md` §7.1).
 
 | Metric | Type | Emitted from | Tags |
 |---|---|---|---|
@@ -1184,7 +1184,7 @@ design. Where each signal lives now:
   the `cache hit rate < 70%` monitor **and** its Traffic-dashboard widget were **retired** in WC-8
   (they would otherwise alert / flatline forever). Wrangler/Miniflare is a confirmed local no-op
   for this front cache (no `Cf-Cache-Status`/`Age`); `e2e/edge-cache.spec.ts` verifies exact
-  `MISS → HIT` against a deployed cached tier, which is staging or demo now (ADR 0020 Q3 / WC-9; PR previews retired 2026-10-10, AECI-1268).
+  `MISS → HIT` against a deployed cached tier, which is staging, demo or production now (ADR 0020 Q3 / WC-9; PR previews retired 2026-10-10, AECI-1268).
 - **SSR render metrics** (`aeci.ssr.render`, `aeci.page.render.duration_ms`) → still emitted, but
   only on the branch where **the Worker actually runs** (a native-cache MISS / non-cacheable) —
   `cache_status:MISS`/`miss`/`non_cacheable`, never `hit`. A fall in MISS volume as HIT-rate climbs
@@ -1308,8 +1308,8 @@ not — *as of AECI-647*. Production has carried live metrics since the 2026-09-
 promote, and the histogram-p95 reconstruction was verified against the raw bucket
 counts on 2026-09-10 (`observability/posthog/README.md` manual step 2). What the live
 data showed: PostHog's absolute upper bound is **strict**, so a reading of exactly
-`1500` does not fire and only a reading of `2500` or more does. Production's uncached
-detail renders put the 95th observation in the 1,000–1,500 ms band about a third of all
+`1500` does not fire and only a reading of `2500` or more does. Production's
+detail renders, uncached until AECI-1443, put the 95th observation in the 1,000–1,500 ms band about a third of all
 hours. Before the D1 region move (AECI-839) it was above 1,500 ms for 0 to 15 hours a
 day, about 5 on average. So the alert fires on real slowness rather than on a
 reconstruction defect. The latency itself is AECI-839.
@@ -1711,7 +1711,7 @@ TELEMETRY_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
 Workers Cache the **first pass is a MISS (the Worker runs → one datapoint in each
 vendor)** and the **second pass is a front-of-Worker HIT that skips the Worker** — so
 pass 2 adds no second datapoint anywhere. Confirm the HIT via the
-**`Cf-Cache-Status: HIT`** response header instead (staging and demo, where
+**`Cf-Cache-Status: HIT`** response header instead (staging, demo and production, where
 `cache.enabled` is on).
 
 | # | Check | Status as of the last pass |

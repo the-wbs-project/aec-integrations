@@ -651,8 +651,9 @@ country each burst (BR, US, DE, and others). On 2026-09-27 it burst at 15:05, 15
 The cost is Worker invocations and noisy metrics. Cloudflare counted about 850, 570 and 900
 `aeci-web-production` invocations in three 15-minute windows that day. The 16:02 burst pushed 8
 detail renders to about 1.8 s and tripped the `High p95 detail render` alert (`RUNBOOKS.md`).
-A 404 on production is a full SSR render because production runs uncached, so each probe costs
-as much as a real page.
+A 404 on production was then a full SSR render, because production ran uncached. So each probe
+cost as much as a real page. Production is cached since AECI-1443. A repeat probe of one path can
+now be a HIT, but each new path is still a full render.
 
 ### What the scanner actually requests
 
