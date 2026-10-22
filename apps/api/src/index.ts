@@ -256,6 +256,7 @@ import {
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
+import { createCreateVendorProductHandler } from './routes/vendor-product-create';
 import {
   createAcceptVendorProposalHandler,
   createDeclineVendorProposalHandler,
@@ -1321,6 +1322,16 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorProductHandler(),
+);
+// AECI-1424 (§4.8, ADR 0042 amendment 2026-10-22): an owner adds a product to a company
+// that owns its record. The proposal accept's gate order: `requireVendor()`, the limiter,
+// then `requireSeatOwner()` and the ownership check inside the handler. Free fields only.
+// The product is born owned, so promote never writes it.
+authVendor.post(
+  '/api/vendor/products',
+  requireVendor(),
+  rateLimit('write'),
+  createCreateVendorProductHandler(),
 );
 // AECI-301. No path overlap with the product routes above, so ordering is free.
 authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());

@@ -166,6 +166,8 @@ export const ApiErrorCode = {
   // `VENDOR_NOT_OWNED`: the vendor's records are AECi's already (`owned_at` is NULL).
   // AECI-1417 reuses it on `POST /api/vendor/proposals/:id/accept`: the addressed vendor
   // no longer owns its record, so an owner click may not create a product under it.
+  // AECI-1424 reuses it on `POST /api/vendor/products`: the caller's company does not own
+  // its record, so an owner may not add a product to it from the portal.
   // `VENDOR_HAS_SEATS`: the vendor still holds a `vendor_admin` seat, banned or not.
   // Revoke every seat first. Nothing was written.
   VENDOR_NOT_OWNED: 'VENDOR_NOT_OWNED',

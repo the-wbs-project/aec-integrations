@@ -66,6 +66,8 @@ import type {
   VendorLicenseResponse,
   CreateLicenseReleaseRequestResponse,
   AcceptVendorProposalResponse,
+  CreateVendorProductInput,
+  CreateVendorProductResponse,
   ListVendorProposalsResponse,
   VendorProposal,
 } from '@aeci/shared';
@@ -401,6 +403,7 @@ export class PreviewVendorApi extends VendorApi {
   private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
   private nextContestSeq = 0;
   private nextCreateSeq = 0;
+  private nextProductSeq = 0;
   private productRequests: VendorProductRequest[] = clone([...VENDOR_PRODUCT_REQUESTS_FIXTURE]);
   private nextRequestSeq = 0;
   private checklistState: ChecklistFixtureState = NOTHING_CHECKED;
@@ -460,6 +463,59 @@ export class PreviewVendorApi extends VendorApi {
         .filter((t) => !t.exists)
         .map(({ facet, value }) => ({ facet, value })),
     };
+  }
+
+  /** AECI-1424, fixture-side: the handler's owner check, then the product joins
+   *  `/me` so the result link opens it. A same-name product already on the vendor
+   *  comes back as a possible duplicate, as the server's warning would. */
+  override async createProduct(
+    body: CreateVendorProductInput,
+  ): Promise<CreateVendorProductResponse> {
+    if (!this.me?.seat_owner) {
+      throw apiError(403, 'FORBIDDEN', 'Only an owner seat may add a product');
+    }
+    const name = body.name.trim();
+    const key = name.toLowerCase();
+    const possible_duplicates: CreateVendorProductResponse['possible_duplicates'] = [
+      ...this.me.products
+        .filter((p) => p.name.trim().toLowerCase() === key)
+        .map((p) => ({ kind: 'product' as const, id: p.id, name: p.name, slug: p.slug })),
+      ...this.proposals
+        .filter((p) => p.product.name.trim().toLowerCase() === key)
+        .map((p) => ({ kind: 'proposal' as const, id: p.id, name: p.product.name })),
+    ];
+    const base = key.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'product';
+    const taken = new Set(this.me.products.map((p) => p.slug));
+    let slug = base;
+    for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+    const id = `preview-created-${++this.nextProductSeq}`;
+    const template = this.me.products[0];
+    if (template) {
+      this.me.products = [
+        ...this.me.products,
+        {
+          ...clone(template),
+          id,
+          slug,
+          name,
+          description: body.description ?? null,
+          website: body.website ?? null,
+          logo_url: body.logo_url ?? null,
+          tool_integrations_url: null,
+          api_docs_url: null,
+          usefulness: null,
+          category_slugs: [...(body.category_slugs ?? [])],
+          audience_slugs: [],
+          phase_slugs: [],
+          trade_slugs: [],
+          integration_count: 0,
+          review_count: 0,
+          locked_fields: [],
+          is_primary: false,
+        },
+      ];
+    }
+    return { product: { id, slug, name }, possible_duplicates };
   }
 
   override async declineProposal(proposalId: string): Promise<void> {

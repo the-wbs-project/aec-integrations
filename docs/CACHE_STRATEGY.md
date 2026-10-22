@@ -346,6 +346,14 @@ home-stats refresh (`index:home` waits for the daily cron, as for every vendor w
 re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
 decline purges nothing.
 
+**(b1f) the owner's product create (AECI-1424)** — `POST /api/vendor/products` creates a
+product under a company that owns its record (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8). It
+purges what the proposal accept purges, from the same deriver: `cacheTagsForPromote` over a
+promote-shaped result, so `product:{slug}`, `index:products`, `sitemap`, `vendor:{slug}`
+and one `category:{slug}` per linked category. The body carries no trade, audience, phase
+or extension host, so none of those tags apply. `afterVendorWrite` enqueues them with
+`source: 'vendor'`. No home-stats refresh and no re-crawl buffer, for the accept's reasons.
+
 **(b1d) the term-end lapse (AECI-1404)** — the 11:00 `entitlement-expiry` job ends every
 passed term first (`lib/license-lapse.ts`, `STAGE_2_PAID_TIERS_SPEC.md` §7.6). After every
 term batch has committed it enqueues ONE message for the whole run, `source: 'moderation'`:

@@ -125,7 +125,7 @@ describe('VendorProposalsSection', () => {
     // Ruling Q5: a declined product is never sent again, so the copy never promises it.
     const missing = second!.querySelector('[data-testid="proposal-vendor-missing"]')!;
     expect(missing.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and contact us.',
+      'A company this product would be listed under no longer exists, so it cannot be accepted. Decline it and add the product yourself, or contact us.',
     );
     expect(missing.textContent).not.toContain('send it again');
     expect(

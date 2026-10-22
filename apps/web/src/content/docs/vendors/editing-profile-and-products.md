@@ -1,12 +1,12 @@
 ---
 title: Editing your profile and products
-description: Editing your company details, logos and each product's description, links, categories and "How teams use it", what each plan can edit, and when a change shows.
+description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: October 19, 2026
+last_updated: October 22, 2026
 ---
 
-Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Some product fields need the Managed plan, and each one says so in the portal.
+Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
 
 ## Your company profile
 
@@ -50,7 +50,15 @@ Once you save a logo, our catalog updates no longer change it.
 
 Open **Products**, then a product. Product names are not edited in the portal, because renaming a product would break its links. To change one, use the **file a correction request** link on the product's **Profile** tab.
 
-Products are added by AEC Integrations. The portal has no way to add one. To have a product listed, [contact us](/contact).
+### Adding a product
+
+Once your company owns its listing, an account owner can add a product we do not list yet. Open **Products** and choose **Add a product**. Members see a line asking them to ask an owner.
+
+Give the product a name. You can also add a description, a website, a logo and its categories. Categories come from the existing list, and nothing new is created. Trades, audiences, phases and "How teams use it" are added on the product's own tabs once it is listed.
+
+The product goes live as soon as you add it. It is yours from the start, so our catalog updates never change it. If a product or a proposal with the same name is already on record, the portal tells you. Both stay as they are, so check whether you meant to add a second one.
+
+If your company does not own its listing yet, [contact us](/contact) to have a product listed.
 
 ### Products we propose
 
@@ -59,9 +67,9 @@ Once your company owns its listing, AEC Integrations no longer adds products to 
 Each proposal shows the product's name, description and website, the companies it would be listed under, and its categories, audiences, phases, trades and "How teams use it" groups. A value that names no existing term on AEC Integrations is marked **Not added**. Accepting leaves it out, and nothing new is created.
 
 - **Accept** adds the product exactly as shown. It is then yours to edit like any other product.
-- **Decline** means it is not added, and we do not send it again. If you want it listed after all, [contact us](/contact).
+- **Decline** means it is not added, and we do not send it again. If you want it listed after all, add it yourself with **Add a product**.
 
-If a company the product would be listed under no longer exists, the proposal cannot be accepted. Decline it and [contact us](/contact).
+If a company the product would be listed under no longer exists, the proposal cannot be accepted. Decline it and add the product yourself, or [contact us](/contact).
 
 Each choice asks you to confirm first. After an accept, the tab lists the values that were left out and links to the new product. Both choices show on the **Changes** tab.
 

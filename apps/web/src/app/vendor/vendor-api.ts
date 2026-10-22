@@ -27,6 +27,8 @@ import type {
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
   CreateVendorIntegrationResponse,
+  CreateVendorProductInput,
+  CreateVendorProductResponse,
   CreateProductRequestInput,
   CreateProductRequestResponse,
   ListVendorProductRequestsResponse,
@@ -737,6 +739,14 @@ export class VendorApi {
   createIntegration(body: CreateVendorIntegrationInput): Promise<CreateVendorIntegrationResponse> {
     return firstValueFrom(
       this.http.post<CreateVendorIntegrationResponse>('/api/vendor/integrations', body),
+    );
+  }
+
+  /** `POST /api/vendor/products` (AECI-1424): an owner seat adds a product to its
+   *  own company. `possible_duplicates` in the 201 is a warning, never a refusal. */
+  createProduct(body: CreateVendorProductInput): Promise<CreateVendorProductResponse> {
+    return firstValueFrom(
+      this.http.post<CreateVendorProductResponse>('/api/vendor/products', body),
     );
   }
 

@@ -2548,6 +2548,10 @@ create index product_proposals_vendor_open_idx
   `product_proposal.declined` row. Both audit rows carry `vendor_id` and are receipts on the
   vendor's Changes page. A decided row is never reopened, and `created_product_id` is never
   cleared, even if that product is later retracted (no FK).
+  A declined product can still reach the catalog: an owner seat adds it directly with
+  `POST /api/vendor/products` (AECI-1424, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8). That create
+  writes the same `products` shape through the same builder (`planProductInsert`) and a
+  `product.created` row with `metadata.reason = 'vendor-create'`, and touches no proposal.
 - **Writers and readers.** Promote inserts (`routes/promote.ts`) and reads the row by `ref` at plan
   time. The admin return deletes open rows. `GET /api/admin/vendors/:id` counts them
   (`open_proposal_count`). `GET /api/vendor/proposals` lists a vendor's open rows on

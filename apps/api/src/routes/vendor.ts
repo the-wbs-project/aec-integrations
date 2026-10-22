@@ -506,7 +506,7 @@ function pickColumns(row: object, keys: readonly string[]): Record<string, unkno
  * §6 guard-rails). Silently dropping an unknown slug would leave the vendor
  * believing an edit landed, so it is a `VALIDATION_FAILED` keyed to the field.
  */
-async function resolveTermIds(
+export async function resolveTermIds(
   db: Db,
   table:
     | typeof taxonomyCategories
@@ -516,13 +516,28 @@ async function resolveTermIds(
   slugs: readonly string[],
   field: string,
 ): Promise<string[]> {
+  return (await resolveTerms(db, table, slugs, field)).map((term) => term.id);
+}
+
+/** {@link resolveTermIds} with each term's slug and name, for a caller that derives cache
+ *  tags from them (the product create, AECI-1424). Same rule: an unknown slug is a 400. */
+export async function resolveTerms(
+  db: Db,
+  table:
+    | typeof taxonomyCategories
+    | typeof taxonomyAudiences
+    | typeof taxonomyPhases
+    | typeof taxonomyTrades,
+  slugs: readonly string[],
+  field: string,
+): Promise<Array<{ id: string; slug: string; name: string }>> {
   if (slugs.length === 0) return [];
   const rows = await db
-    .select({ id: table.id, slug: table.slug })
+    .select({ id: table.id, slug: table.slug, name: table.name })
     .from(table)
     .where(inArray(table.slug, [...slugs]));
 
-  const bySlug = new Map(rows.map((row) => [row.slug, row.id]));
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
   const unknown = slugs.filter((slug) => !bySlug.has(slug));
   if (unknown.length > 0) {
     throw new ApiError(
@@ -533,7 +548,7 @@ async function resolveTermIds(
     );
   }
   // Dedupe while preserving the caller's order.
-  return [...new Set(slugs)].map((slug) => bySlug.get(slug) as string);
+  return [...new Set(slugs)].map((slug) => bySlug.get(slug)!);
 }
 
 /**
