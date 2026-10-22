@@ -15,7 +15,10 @@
  *      to {@link deliverOwnershipSync}. It reads the vendor's CURRENT state from D1,
  *      builds the whole record ({@link buildOwnershipRecord}) and `PUT`s it. The
  *      message carries no ownership data, so a late delivery still sends the latest
- *      state, and the receiver's `version` check drops anything older.
+ *      state, and the receiver's `version` check drops anything older. The record is
+ *      v1 (ids and owners) or, when `REVIEW_APP_MIRROR_SCHEMA` is `"2"`, v2 with the
+ *      content of every vendor-owned record ({@link buildOwnershipRecordV2},
+ *      AECI-1413, ADR 0044).
  *
  * Every attempt writes one `ownership_sync_deliveries` row (log-class, ADR 0022
  * 2026-10-20 amendment) and one `aeci.ownership_sync.delivery` count. Every response
@@ -24,27 +27,57 @@
  */
 
 import {
+  computeOwnershipRecordHash,
+  OWNERSHIP_RECORD_SCHEMA_V1,
+  OWNERSHIP_RECORD_SCHEMA_V2,
   OWNERSHIP_RECORD_SCHEMA_VERSION,
+  OwnershipClaimSchema,
+  ownershipClaimKey,
+  OwnershipIntegrationContentSchema,
+  OwnershipProductContentSchema,
+  OwnershipRecordV2Schema,
   OwnershipSyncMessageSchema,
+  OwnershipVendorContentSchema,
   ownershipRecordUrl,
+  type OwnershipClaim,
   type OwnershipIntegration,
+  type OwnershipIntegrationContent,
+  type OwnershipProductContent,
   type OwnershipProposal,
   type OwnershipRecord,
+  type OwnershipRecordSchemaVersion,
+  type OwnershipRecordV2,
   type OwnershipSyncMessage,
   type OwnershipSyncReason,
+  type OwnershipVendorContent,
   type RecordOwner,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { and, eq, inArray, isNotNull, or, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, or, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
 import {
+  attestations,
+  claims,
   connectorEvidencedPairs,
   integrations,
+  integrationVendorLinks,
   ownershipSyncDeliveries,
+  productAudiences,
+  productCategories,
+  productPhases,
   productProposals,
+  products,
+  productTrades,
   productVendors,
+  productVersions,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyDataObjects,
+  taxonomyPhases,
+  taxonomyTrades,
   vendors,
   type OwnershipSyncOutcome,
 } from '../db/schema';
@@ -52,7 +85,9 @@ import type { Env } from '../env';
 import { logToPosthog, submitCount } from '../posthog';
 import { loadOwnedProductIds, loadOwnedVendorIds } from './claimed-vendors';
 import type { BatchStmt, BatchTuple } from './audit';
+import { VERSION_ORDER } from './drizzle-helpers';
 import type { DbFactory } from './handler-utils';
+import { projectRow } from './review-mirror-fields';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -422,27 +457,33 @@ function chunk<T>(items: readonly T[]): T[][] {
   return out;
 }
 
+/** Binary string order: ids, slugs, enums and timestamps (ANGULAR_STYLE_GUIDE §20a). */
+function compareBinary(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Ids are lowercase UUIDs, so a binary compare is the order (ANGULAR_STYLE_GUIDE §20a). */
-const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const byId = (a: { id: string }, b: { id: string }) => compareBinary(a.id, b.id);
+
+type Edge = { id: string; table: OwnershipIntegration['table']; a: string; b: string };
+
+/** What both schema versions are built from: who owns what, without content. */
+interface OwnershipSkeleton {
+  ownedAt: string | null;
+  /** Every product joined to the vendor, unsorted. */
+  productIds: string[];
+  /** Every edge whose source/target (or `product_a`/`product_b`) is one of them. */
+  edges: Edge[];
+  /** The owned subset of every product id above and every edge endpoint. */
+  ownedProducts: Set<string>;
+  proposals: OwnershipProposal[];
+}
 
 /**
- * Build the vendor's whole ownership record from D1. `null` when the vendor row is gone.
- *
- * - `products`: every product joined to the vendor (`product_vendors`), each with its
- *   own owner. A product is `vendor`-owned when ANY joined vendor is owned (Q3).
- * - `integrations`: every `integrations` row whose source or target is one of those
- *   products, and every `connector_evidenced_pairs` row whose `product_a` or
- *   `product_b` is (Q2). The connector side (`powered_by_product_id`,
- *   `connector_product_id`) does not count. Each is `vendor`-owned when either
- *   endpoint product is owned.
- * - `proposals`: every `product_proposals` row addressed to the vendor.
+ * Read the ownership skeleton both builders share. `null` when the vendor row is gone.
+ * The sets are the ones {@link buildOwnershipRecord} documents.
  */
-export async function buildOwnershipRecord(
-  db: Db,
-  vendorId: string,
-  reason: OwnershipSyncReason,
-  now: Date,
-): Promise<OwnershipRecord | null> {
+async function readOwnershipSkeleton(db: Db, vendorId: string): Promise<OwnershipSkeleton | null> {
   const vendor = await db.query.vendors.findFirst({
     columns: { id: true, ownedAt: true },
     where: eq(vendors.id, vendorId),
@@ -467,7 +508,6 @@ export async function buildOwnershipRecord(
   ]);
   const productIds = [...new Set(joined.map((r) => r.productId))];
 
-  type Edge = { id: string; table: OwnershipIntegration['table']; a: string; b: string };
   const edges = new Map<string, Edge>();
   for (const ids of chunk(productIds)) {
     const [direct, evidenced] = await Promise.all([
@@ -508,7 +548,6 @@ export async function buildOwnershipRecord(
     endpointIds.add(e.b);
   }
   const ownedProducts = await loadOwnedProductIds(db, [...endpointIds]);
-  const ownerOf = (ownedFlag: boolean): RecordOwner => (ownedFlag ? 'vendor' : 'aeci');
 
   const proposals: OwnershipProposal[] = proposalRows
     .map((p) => ({
@@ -521,23 +560,386 @@ export async function buildOwnershipRecord(
     .sort(byId);
 
   return {
+    ownedAt: vendor.ownedAt,
+    productIds,
+    edges: [...edges.values()],
+    ownedProducts,
+    proposals,
+  };
+}
+
+const ownerOf = (ownedFlag: boolean): RecordOwner => (ownedFlag ? 'vendor' : 'aeci');
+
+/**
+ * Build the vendor's whole ownership record from D1. `null` when the vendor row is gone.
+ *
+ * - `products`: every product joined to the vendor (`product_vendors`), each with its
+ *   own owner. A product is `vendor`-owned when ANY joined vendor is owned (Q3).
+ * - `integrations`: every `integrations` row whose source or target is one of those
+ *   products, and every `connector_evidenced_pairs` row whose `product_a` or
+ *   `product_b` is (Q2). The connector side (`powered_by_product_id`,
+ *   `connector_product_id`) does not count. Each is `vendor`-owned when either
+ *   endpoint product is owned.
+ * - `proposals`: every `product_proposals` row addressed to the vendor.
+ *
+ * `schemaVersion` picks the shape (AECI-1413). The consumer passes
+ * {@link mirrorSchemaVersion} of its env. 1, the default, is the frozen AECI-1418
+ * record. 2 is {@link buildOwnershipRecordV2}: the same sets plus content.
+ */
+export async function buildOwnershipRecord(
+  db: Db,
+  vendorId: string,
+  reason: OwnershipSyncReason,
+  now: Date,
+  schemaVersion: OwnershipRecordSchemaVersion = OWNERSHIP_RECORD_SCHEMA_V1,
+): Promise<OwnershipRecord | null> {
+  if (schemaVersion === OWNERSHIP_RECORD_SCHEMA_V2) {
+    return buildOwnershipRecordV2(db, vendorId, reason, now);
+  }
+  const skel = await readOwnershipSkeleton(db, vendorId);
+  if (!skel) return null;
+  return {
     schemaVersion: OWNERSHIP_RECORD_SCHEMA_VERSION,
     vendorId,
-    owner: ownerOf(vendor.ownedAt !== null),
-    ownedAt: vendor.ownedAt,
+    owner: ownerOf(skel.ownedAt !== null),
+    ownedAt: skel.ownedAt,
     version: now.getTime(),
     asOf: now.toISOString(),
     reason,
-    products: productIds.map((id) => ({ id, owner: ownerOf(ownedProducts.has(id)) })).sort(byId),
-    integrations: [...edges.values()]
+    products: skel.productIds
+      .map((id) => ({ id, owner: ownerOf(skel.ownedProducts.has(id)) }))
+      .sort(byId),
+    integrations: skel.edges
       .map((e) => ({
         id: e.id,
         table: e.table,
-        owner: ownerOf(ownedProducts.has(e.a) || ownedProducts.has(e.b)),
+        owner: ownerOf(skel.ownedProducts.has(e.a) || skel.ownedProducts.has(e.b)),
       }))
       .sort(byId),
-    proposals,
+    proposals: skel.proposals,
   };
+}
+
+// ── v2 content (AECI-1413, ADR 0044) ─────────────────────────────────────────────
+
+/** A placeholder that satisfies `RecordHashSchema` while the record is parsed, before
+ *  its real hash is known. Never sent. */
+const HASH_PLACEHOLDER = '0'.repeat(64);
+
+/** Read one owned vendor's own fields through the field map. */
+async function readVendorContent(db: Db, vendorId: string): Promise<OwnershipVendorContent> {
+  const row = await db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) });
+  if (!row) throw new Error(`ownership record v2: vendor ${vendorId} vanished mid-read`);
+  return OwnershipVendorContentSchema.parse(projectRow('vendor', row));
+}
+
+/** Group `{ productId, slug }` rows into sorted slug lists per product. */
+function slugsByProduct(rows: readonly { productId: string; slug: string }[]) {
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    const list = out.get(r.productId) ?? [];
+    list.push(r.slug);
+    out.set(r.productId, list);
+  }
+  for (const list of out.values()) list.sort(compareBinary);
+  return out;
+}
+
+/**
+ * Read the content of the given products through the field map: the row, the four
+ * taxonomy slug lists and the ordered versions. One `db.batch` per 40 ids. Throws when
+ * a product row is gone, so the delivery retries and the next read is whole.
+ */
+async function readProductContent(
+  db: Db,
+  productIds: readonly string[],
+): Promise<Map<string, OwnershipProductContent>> {
+  const out = new Map<string, OwnershipProductContent>();
+  for (const ids of chunk(productIds)) {
+    const [rows, categories, audiences, phases, trades, versions] = await db.batch([
+      db.select().from(products).where(inArray(products.id, ids)),
+      db
+        .select({ productId: productCategories.productId, slug: taxonomyCategories.slug })
+        .from(productCategories)
+        .innerJoin(taxonomyCategories, eq(taxonomyCategories.id, productCategories.categoryId))
+        .where(inArray(productCategories.productId, ids)),
+      db
+        .select({ productId: productAudiences.productId, slug: taxonomyAudiences.slug })
+        .from(productAudiences)
+        .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, productAudiences.audienceId))
+        .where(inArray(productAudiences.productId, ids)),
+      db
+        .select({ productId: productPhases.productId, slug: taxonomyPhases.slug })
+        .from(productPhases)
+        .innerJoin(taxonomyPhases, eq(taxonomyPhases.id, productPhases.phaseId))
+        .where(inArray(productPhases.productId, ids)),
+      db
+        .select({ productId: productTrades.productId, slug: taxonomyTrades.slug })
+        .from(productTrades)
+        .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+        .where(inArray(productTrades.productId, ids)),
+      db
+        .select({
+          productId: productVersions.productId,
+          label: productVersions.label,
+          releasedAt: productVersions.releasedAt,
+          sunsetAt: productVersions.sunsetAt,
+        })
+        .from(productVersions)
+        .where(inArray(productVersions.productId, ids))
+        .orderBy(asc(productVersions.productId), ...VERSION_ORDER),
+    ]);
+    const cats = slugsByProduct(categories);
+    const auds = slugsByProduct(audiences);
+    const phs = slugsByProduct(phases);
+    const trs = slugsByProduct(trades);
+    const vers = new Map<string, OwnershipProductContent['versions']>();
+    for (const v of versions) {
+      const list = vers.get(v.productId) ?? [];
+      list.push({ label: v.label, releasedAt: v.releasedAt, sunsetAt: v.sunsetAt });
+      vers.set(v.productId, list);
+    }
+    const byProduct = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      const row = byProduct.get(id);
+      if (!row) throw new Error(`ownership record v2: product ${id} vanished mid-read`);
+      const projected = projectRow('product', {
+        ...row,
+        categories: cats.get(id) ?? [],
+        audiences: auds.get(id) ?? [],
+        phases: phs.get(id) ?? [],
+        trades: trs.get(id) ?? [],
+        versions: vers.get(id) ?? [],
+      });
+      out.set(id, OwnershipProductContentSchema.parse(projected));
+    }
+  }
+  return out;
+}
+
+const introducedVersion = alias(productVersions, 'mirror_introduced_version');
+const deprecatedVersion = alias(productVersions, 'mirror_deprecated_version');
+
+/** Every attestation, live or retracted, on the claims anchored to `anchor IN ids`. */
+function attestationRowsQuery(
+  db: Db,
+  anchor: typeof claims.integrationId | typeof claims.connectorEvidencedPairId,
+  ids: string[],
+) {
+  return (
+    db
+      .select({
+        anchorId: anchor,
+        dataObject: taxonomyDataObjects.slug,
+        direction: claims.direction,
+        attestationId: attestations.id,
+        source: attestations.source,
+        asserted: attestations.asserted,
+        note: attestations.note,
+        introducedVersion: introducedVersion.label,
+        deprecatedVersion: deprecatedVersion.label,
+        retractedAt: attestations.retractedAt,
+        createdAt: attestations.createdAt,
+      })
+      .from(attestations)
+      .innerJoin(claims, eq(claims.id, attestations.claimId))
+      .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
+      .leftJoin(introducedVersion, eq(introducedVersion.id, attestations.introducedVersionId))
+      .leftJoin(deprecatedVersion, eq(deprecatedVersion.id, attestations.deprecatedVersionId))
+      // `anchor_id` leads `claims_identity_key`; the two anchor columns have no index of
+      // their own. The `anchor` filter keeps a claim on the other table out.
+      .where(and(inArray(claims.anchorId, ids), isNotNull(anchor)))
+  );
+}
+
+type AttestationRow = Awaited<ReturnType<typeof attestationRowsQuery>>[number];
+
+/**
+ * True when `a` should stand for its slot over `b`: the live attestation always wins
+ * (the partial unique index allows one), else the latest retraction. `created_at` then
+ * `id` break a tie, binary, so the pick does not depend on row order.
+ */
+function standsOver(a: AttestationRow, b: AttestationRow): boolean {
+  if ((a.retractedAt === null) !== (b.retractedAt === null)) return a.retractedAt === null;
+  const keys: [string, string][] = [
+    [a.retractedAt ?? '', b.retractedAt ?? ''],
+    [a.createdAt, b.createdAt],
+    [a.attestationId, b.attestationId],
+  ];
+  for (const [x, y] of keys) {
+    const c = compareBinary(x, y);
+    if (c !== 0) return c > 0;
+  }
+  return false;
+}
+
+/**
+ * One claim slot per natural key `{ dataObject, direction, source }`, per anchor: the
+ * slot's live attestation, or its latest retracted one when none is live. Sorted by
+ * natural key, binary.
+ */
+function claimSlotsByAnchor(rows: readonly AttestationRow[]): Map<string, OwnershipClaim[]> {
+  const slots = new Map<string, Map<string, AttestationRow>>();
+  for (const row of rows) {
+    if (row.anchorId === null) continue;
+    const perAnchor = slots.get(row.anchorId) ?? new Map<string, AttestationRow>();
+    slots.set(row.anchorId, perAnchor);
+    const key = ownershipClaimKey({
+      dataObject: row.dataObject,
+      direction: row.direction as OwnershipClaim['direction'],
+      source: row.source as OwnershipClaim['source'],
+    });
+    const held = perAnchor.get(key);
+    if (!held || standsOver(row, held)) perAnchor.set(key, row);
+  }
+  const out = new Map<string, OwnershipClaim[]>();
+  for (const [anchorId, perAnchor] of slots) {
+    out.set(
+      anchorId,
+      [...perAnchor.entries()]
+        .sort(([a], [b]) => compareBinary(a, b))
+        .map(([, row]) => OwnershipClaimSchema.parse(projectRow('claim', row))),
+    );
+  }
+  return out;
+}
+
+interface EdgeContent {
+  content: OwnershipIntegrationContent;
+  claims: OwnershipClaim[];
+}
+
+/**
+ * Read the content and claim slots of the given owned edges through the field map.
+ * One `db.batch` per 40 ids per table. A pair carries `vendorLinks: []`: the links
+ * table references `integrations` rows only. Throws when an edge row is gone, so the
+ * delivery retries and the next read is whole.
+ */
+async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<string, EdgeContent>> {
+  const out = new Map<string, EdgeContent>();
+  const missing = (id: string) => new Error(`ownership record v2: edge ${id} vanished mid-read`);
+
+  const integrationIds = edges.filter((e) => e.table === 'integrations').map((e) => e.id);
+  for (const ids of chunk(integrationIds)) {
+    const [rows, links, attested] = await db.batch([
+      db.select().from(integrations).where(inArray(integrations.id, ids)),
+      db
+        .select({
+          integrationId: integrationVendorLinks.integrationId,
+          productId: integrationVendorLinks.productId,
+          kind: integrationVendorLinks.kind,
+          url: integrationVendorLinks.url,
+        })
+        .from(integrationVendorLinks)
+        .where(inArray(integrationVendorLinks.integrationId, ids)),
+      attestationRowsQuery(db, claims.integrationId, ids),
+    ]);
+    const linksBy = new Map<string, OwnershipIntegrationContent['vendorLinks']>();
+    for (const l of links) {
+      const list = linksBy.get(l.integrationId) ?? [];
+      list.push({ productId: l.productId, kind: l.kind as 'listing' | 'docs', url: l.url });
+      linksBy.set(l.integrationId, list);
+    }
+    for (const list of linksBy.values()) {
+      list.sort((a, b) => compareBinary(a.productId, b.productId) || compareBinary(a.kind, b.kind));
+    }
+    const slots = claimSlotsByAnchor(attested);
+    const rowsById = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      const row = rowsById.get(id);
+      if (!row) throw missing(id);
+      const projected = projectRow('integration', { ...row, vendorLinks: linksBy.get(id) ?? [] });
+      out.set(id, {
+        content: OwnershipIntegrationContentSchema.parse(projected),
+        claims: slots.get(id) ?? [],
+      });
+    }
+  }
+
+  const pairIds = edges.filter((e) => e.table === 'connector_evidenced_pairs').map((e) => e.id);
+  for (const ids of chunk(pairIds)) {
+    const [rows, attested] = await db.batch([
+      db.select().from(connectorEvidencedPairs).where(inArray(connectorEvidencedPairs.id, ids)),
+      attestationRowsQuery(db, claims.connectorEvidencedPairId, ids),
+    ]);
+    const slots = claimSlotsByAnchor(attested);
+    const rowsById = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      const row = rowsById.get(id);
+      if (!row) throw missing(id);
+      const projected = projectRow('connector_evidenced_pair', { ...row, vendorLinks: [] });
+      out.set(id, {
+        content: OwnershipIntegrationContentSchema.parse(projected),
+        claims: slots.get(id) ?? [],
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the vendor's v2 ownership record (AECI-1413, ADR 0044, §4d): the v1 sets and
+ * owners, plus the content of every vendor-owned record, read through the field map
+ * (`lib/review-mirror-fields.ts`). `null` when the vendor row is gone.
+ *
+ * - `vendor`: the vendor's own fields when it is owned, else `null`.
+ * - `products[].content`: on every vendor-owned product. An AECi-owned one has none.
+ * - `integrations[].content` and `claims`: on every vendor-owned edge. One claim per
+ *   natural-key slot: the live attestation, or the latest retracted one.
+ * - `recordHash`: `computeOwnershipRecordHash` of the parsed record. It ignores
+ *   `reason`, `version` and `asOf`, so the drift check may pass any reason and time.
+ *
+ * Every entity is parsed through its v2 content schema, then the whole record through
+ * `OwnershipRecordV2Schema`. A stored value the contract refuses throws, so the
+ * consumer retries and its warn names the field, rather than sending a partial mirror.
+ */
+export async function buildOwnershipRecordV2(
+  db: Db,
+  vendorId: string,
+  reason: OwnershipSyncReason,
+  asOf: Date = new Date(),
+): Promise<OwnershipRecordV2 | null> {
+  const skel = await readOwnershipSkeleton(db, vendorId);
+  if (!skel) return null;
+  const vendorOwned = skel.ownedAt !== null;
+  const edgeOwned = (e: Edge) => skel.ownedProducts.has(e.a) || skel.ownedProducts.has(e.b);
+
+  const [vendorContent, productContent, edgeContent] = await Promise.all([
+    vendorOwned ? readVendorContent(db, vendorId) : Promise.resolve(null),
+    readProductContent(
+      db,
+      skel.productIds.filter((id) => skel.ownedProducts.has(id)),
+    ),
+    readEdgeContent(db, skel.edges.filter(edgeOwned)),
+  ]);
+
+  const parsed = OwnershipRecordV2Schema.parse({
+    schemaVersion: OWNERSHIP_RECORD_SCHEMA_V2,
+    vendorId,
+    owner: ownerOf(vendorOwned),
+    ownedAt: skel.ownedAt,
+    version: asOf.getTime(),
+    asOf: asOf.toISOString(),
+    reason,
+    vendor: vendorContent,
+    products: skel.productIds
+      .map((id) => {
+        const content = productContent.get(id);
+        return content ? { id, owner: ownerOf(true), content } : { id, owner: ownerOf(false) };
+      })
+      .sort(byId),
+    integrations: skel.edges
+      .map((e) => {
+        const owned = edgeContent.get(e.id);
+        return owned
+          ? { id: e.id, table: e.table, owner: ownerOf(true), ...owned }
+          : { id: e.id, table: e.table, owner: ownerOf(false) };
+      })
+      .sort(byId),
+    proposals: skel.proposals,
+    recordHash: HASH_PLACEHOLDER,
+  });
+  return { ...parsed, recordHash: await computeOwnershipRecordHash(parsed) };
 }
 
 // ---------------------------------------------------------------------------
@@ -579,9 +981,11 @@ async function recordDelivery(
       outcome: row.outcome,
       httpStatus: row.httpStatus ?? null,
       recordVersion: row.record?.version ?? null,
-      // AECI-1413: the schema of the record this attempt sent, null when none was
-      // built. v1 today. `record_hash` stays null until the v2 builder fills it.
+      // AECI-1413: the schema of the record this attempt sent and, for v2, its hash.
+      // Both null when no record was built. A v1 record has no hash.
       schemaVersion: row.record?.schemaVersion ?? null,
+      recordHash:
+        row.record?.schemaVersion === OWNERSHIP_RECORD_SCHEMA_V2 ? row.record.recordHash : null,
       owner: row.record?.owner ?? null,
       productCount: row.record?.products.length ?? null,
       integrationCount: row.record?.integrations.length ?? null,
@@ -666,7 +1070,7 @@ export async function deliverOwnershipSync(
   let record: OwnershipRecord | null;
   try {
     if (!db) throw new Error('D1 binding `DB` is not configured');
-    record = await buildOwnershipRecord(db, vendorId, reason, now());
+    record = await buildOwnershipRecord(db, vendorId, reason, now(), mirrorSchemaVersion(env));
   } catch (error) {
     submitCount(ctx, env, request, 'aeci.ownership_sync.delivery', 1, [
       'outcome:read_failed',
