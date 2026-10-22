@@ -54,7 +54,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
 
 /**
  * "Add a product" on the Products tab (AECI-1424, `STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §4.7). An owner seat adds a product to its own company through
+ * §4.8). An owner seat adds a product to its own company through
  * `POST /api/vendor/products`. The product is the company's from the first moment.
  *
  * Owner seats only: the list page mounts this only when `me.seat_owner` is true,
