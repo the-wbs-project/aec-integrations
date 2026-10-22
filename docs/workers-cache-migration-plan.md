@@ -28,7 +28,7 @@
 | WC-10 | [AECI-324](https://linear.app/aec-integrations/issue/AECI-324) | Retire the HTTP purge transport + prune now-unused secrets |
 | WC-11 | [AECI-325](https://linear.app/aec-integrations/issue/AECI-325) | Documentation sweep |
 
-> **Note on deployment status:** native caching is live on the `staging` and `demo` SSR envs. Demo was switched on by AECI-1443 (2026-10-21).
-> Preview was retired 2026-10-10 (AECI-1268), and local SSR is uncached. `production` ships the same
-> two-entrypoint code but runs **uncached** (no `exports` block in `apps/web/wrangler.jsonc`) until
-> AECI-1443's second step, which is beyond WC-1…WC-11. See `docs/CACHE_STRATEGY.md` (top-of-doc "Deployment status").
+> **Note on deployment status:** native caching is live on the `staging`, `demo` and `production` SSR envs.
+> AECI-1443 switched on demo (2026-10-21) and then production, a step beyond WC-1…WC-11.
+> Preview was retired 2026-10-10 (AECI-1268), and local SSR is uncached.
+> See `docs/CACHE_STRATEGY.md` (top-of-doc "Deployment status").

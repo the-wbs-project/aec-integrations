@@ -172,8 +172,8 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
 - **Cache: tags, native Workers Cache, and `Vary`.** Every cacheable SSR response sets `Cache-Tag`
   via the helper in `apps/web/src/server/cache-tags.ts`; invalidation is `ctx.cache.purge()`,
   cross-Worker via the `aeci-cache-purge-{env}` Queue. `Vary` may only be `Accept-Language`
-  (`Lint: ✅`, tests exempt). Native caching is live on staging and demo; production runs
-  uncached today. Miniflare does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
+  (`Lint: ✅`, tests exempt). Native caching is live on staging, demo and production. Miniflare
+  does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
 - **Cached SSR routes render visitor-state-neutral HTML.** The cache is keyed by URL, not cookies.
   Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
   `apps/web/src/server-runtime.ts`) and reconcile after hydration.

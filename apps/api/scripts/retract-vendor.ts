@@ -41,9 +41,9 @@
  *   - It does not repair `claims.origin`, which stays `'vendor'` with a NULL
  *     `created_by_vendor_id` for any vendor-authored claim. That invariant lives in
  *     application code, not in a CHECK; the lane reports the count instead of rewriting it.
- *   - It does not purge the edge cache itself. `production` currently serves uncached
- *     (`apps/web/wrangler.jsonc` has no `exports` block for it), so there is usually
- *     nothing to purge there at all.
+ *   - It does not purge the edge cache itself. It prints the `POST /admin/purge`
+ *     command for the operator. Staging, demo and production are cached (AECI-1443),
+ *     so run that command on each tier the retraction touched.
  *
  * USAGE (from the repo root; remote needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID):
  *   # dry-run, one vendor by slug:
@@ -273,14 +273,14 @@ async function deindexAlgolia(ctx: AlgoliaCtx, vendor: VendorRow): Promise<void>
  * Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
  * in-process via `ctx.cache.purge()`. This CLI runs outside any Worker, so it prints the
  * exact purge command for the operator to run — authenticated with `ADMIN_PURGE_TOKEN`.
- * Note that `demo` and `production` currently ship with no `exports` block in
- * `apps/web/wrangler.jsonc`, so they serve UNCACHED and there is nothing to purge there.
+ * Staging, demo and production are all cached since AECI-1443, so the purge matters
+ * on every deployed tier.
  */
 function reportCachePurge(tags: string[]): void {
   console.warn(
     '⚠  Cache: purge the edge cache by POSTing to the SSR Worker (auth: ADMIN_PURGE_TOKEN):\n' +
       `     POST /admin/purge  {"tags": ${JSON.stringify(tags)}}\n` +
-      '     (demo/production serve uncached today — nothing to purge there.)',
+      '     (staging, demo and production are cached — run it on each tier you touched.)',
   );
 }
 

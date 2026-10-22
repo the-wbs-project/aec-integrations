@@ -159,9 +159,8 @@
       // cached SSR entrypoint — the platform stores its response from
       // `Cache-Control` and serves future HITs without running the render. Set
       // per-env, NEVER at top level (so local `wrangler dev` stays uncached).
-      // Caching is live on staging and demo (AECI-1443). `production` ships the
-      // same two-entrypoint code but stays UNCACHED until AECI-1443's second step
-      // adds this `exports` block there. The WC-5 purge queue consumer is wired just below
+      // Caching is live on staging, demo and production (AECI-1443). The WC-5
+      // purge queue consumer is wired just below
       // (`queues.consumers`) and, because the cache lives on `Renderer`, delegates
       // the `ctx.cache.purge()` into that entrypoint via the `ctx.exports`
       // loopback (ADR 0020 §2/§3). `cross_version_cache` is left at the default
@@ -280,10 +279,16 @@
         "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
       },
       "observability": { "enabled": true },
-      // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code, but
-      // caching stays OFF here (no `cache`/`exports` block). The prod-enable gate
-      // (WC-4/5/6/8) is fully merged; enabling it (add the staging-style `exports`
-      // block) is a deliberate future step (ADR 0020 §1) — see the staging exports note.
+      // AECI-1443 (epic AECI-1440): native Workers Cache ON, the same two-entrypoint
+      // block as staging and demo. The gateway (cache off) runs every request: apex
+      // 301, cache-key normalization, the page_views arrival write. `Renderer`
+      // (cache on) is served from cache on a HIT. Rollback: delete this block and
+      // promote. Each Worker version has its own cache, so HITs stop at that deploy
+      // (docs/RUNBOOKS.md "Native cache rollback").
+      "exports": {
+        "default": { "type": "worker", "cache": { "enabled": false } },
+        "Renderer": { "type": "worker", "cache": { "enabled": true } },
+      },
       // AECI-247/277 apex cutover. Web prod serves the public apex
       // `aecintegrations.com` + `www.`. `custom_domain: true` makes wrangler
       // reconcile the DNS record + cert on the aecintegrations.com zone on deploy —
@@ -315,9 +320,8 @@
       ],
       "services": [{ "binding": "API", "service": "aeci-api-production" }],
       // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
-      // note). Registered ahead of `cache.enabled` (production is currently uncached):
-      // with no cache yet, the `Renderer.purgeCache()` delegate returns null so the
-      // consumer no-ops each message (`outcome:no_cache`) and acks. Provisioned by promote-to-prod.yml.
+      // note). Production is cached since AECI-1443, so each message purges the
+      // tagged pages through `Renderer.purgeCache()`. Provisioned by promote-to-prod.yml.
       "queues": {
         "consumers": [
           {

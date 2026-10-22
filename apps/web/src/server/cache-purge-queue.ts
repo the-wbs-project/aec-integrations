@@ -17,7 +17,7 @@
  * `ctx.cache.purge()` on its own (gateway) ctx — that cache is disabled and the purge
  * would silently no-op. It delegates to `Renderer.purgeCache()` over the `ctx.exports`
  * loopback, which runs the purge in `Renderer`'s cache namespace and returns `null` on
- * an env with no cache (demo/production until WC-8).
+ * an env with no cache (local, or a tier whose `exports` block was rolled back).
  *
  * **Failure / retry**: `purgeCache()` returns `{ success, errors }` (or `null` for "no
  * cache on this env"). On `!success` (or a thrown error) the message is `retry()`-ed —
@@ -82,9 +82,9 @@ async function handleMessage(
 
   // Delegate into the cached `Renderer` entrypoint (WC-4): `ctx.cache.purge()` is
   // entrypoint-scoped and the cache lives on `Renderer`, not this default-export gateway
-  // ctx. `purgeCache()` returns `null` when the env has no cache — e.g. demo/production
-  // before WC-8 flips `cache.enabled` on (the queue + consumer are provisioned ahead of
-  // the cache). Nothing to purge then, so ack; do not retry forever.
+  // ctx. `purgeCache()` returns `null` when the env has no cache — e.g. a tier whose
+  // `exports` block was removed in a rollback (the queue + consumer stay wired). Nothing
+  // to purge then, so ack; do not retry forever.
   const { Renderer } = ctx.exports as unknown as CachePurgeLoopback;
   try {
     const result = await Renderer.purgeCache(options);

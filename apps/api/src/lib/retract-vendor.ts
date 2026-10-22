@@ -93,7 +93,7 @@
  *     already owns nothing.
  *   - It does not repair `claims.origin`. See `VENDOR_ORIGIN_RESIDUE_NOTE`.
  *   - It does not purge the edge cache itself (no Worker cache context); it prints the
- *     `POST /admin/purge` command, and `production` currently serves uncached anyway.
+ *     `POST /admin/purge` command for the operator to run on each cached tier.
  */
 
 import {

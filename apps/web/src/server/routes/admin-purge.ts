@@ -32,10 +32,10 @@
  *
  * CACHE DISABLED: `ExecutionContext.cache` is optional — it is absent when
  * Workers Cache is not enabled on the entrypoint (bare `wrangler dev` / local
- * miniflare, and the demo/production tiers gated until WC-8 lands). In
+ * miniflare, or a tier whose `exports` block was removed in a rollback). In
  * that case the handler reports a graceful no-op (`200 { success: true,
  * skipped: 'cache_disabled' }`) so CI's post-promote purge and manual callers
- * stay green until native cache is enabled on the tier.
+ * stay green whether or not native cache is enabled on the tier.
  *
  * RATE LIMITING: `ctx.cache.purge()` shares Cloudflare's zone-purge rate
  * limiter. A rejection resolves to `{ success: false, errors: [...] }` (we

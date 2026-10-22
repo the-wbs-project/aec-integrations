@@ -23,8 +23,7 @@
  *      We still emit `Cache-Tag` (per-route, for queue purge — WC-5) and a
  *      `Vary: Accept-Language` advertisement; locale variance is already
  *      segmented by URL prefix (see §7 and `server/seo-headers.ts`). (Enabled on
- *      preview + staging first; demo/production stay gated on WC-4/5/6/8 —
- *      ADR 0020.)
+ *      staging, demo and production since AECI-1443 — ADR 0020.)
  *
  *   2. Returning HTTP 200 with a "not found" body and a normal TTL causes the
  *      edge to pin the not-found response. New entities stay invisible until

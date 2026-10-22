@@ -207,8 +207,8 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 ## Native cache rollback
 
 Use this when a tier's native Workers Cache serves something wrong and a purge does not fix it.
-Cached tiers since 2026-10-21 (AECI-1443): staging and demo. Production is uncached until
-AECI-1443's second step.
+Cached tiers (AECI-1443): staging, demo and production. Demo was enabled on 2026-10-21 and
+production by the second AECI-1443 change.
 
 1. Delete that env's `exports` block in `apps/web/wrangler.jsonc`. Leave the top-level block alone.
 2. Merge, then deploy the tier: staging deploys from `main`; demo and production go through
@@ -217,6 +217,10 @@ AECI-1443's second step.
    (`cross_version_cache` off), so the new uncached version never reads the old copies. Those
    copies expire on their own TTL, 15 minutes for detail pages (`docs/CACHE_STRATEGY.md` §4).
 4. Confirm with `Cf-Cache-Status` on a detail page: it should no longer read `HIT`.
+
+Any curl check of `Cf-Cache-Status` needs a browser user agent, for example
+`curl -sI -A 'Mozilla/5.0' https://www.aecintegrations.com/`. A bare curl gets a Cloudflare challenge instead. That is a 403
+with `cf-mitigated: challenge`, and it never shows `cf-cache-status`.
 
 The purge queue consumer stays wired. With no cache it acks each message as
 `outcome:no_cache`. Background: ADR 0020, 2026-10-21 amendment.
@@ -238,9 +242,10 @@ The purge queue consumer stays wired. With no cache it acks each message as
 > i.e. the true p95 is above 1.5 s. The arithmetic was verified against the raw buckets
 > on production on 2026-09-10 (`observability/posthog/README.md` manual step 2).
 >
-> **Why it fires as often as it does.** Production runs with no edge cache, so every
-> detail render is a MISS and reaches this series (50–800 renders/hour). Measured
-> 2026-09-07 → 09-09: the median build is 500–1000 ms, and the 95th observation lands in the
+> **Why it fires as often as it does.** Production ran with no edge cache until AECI-1443,
+> so every detail render was a MISS and reached this series (50–800 renders/hour). Since the
+> production cache flip only MISSes count, so expect fewer renders per hour. Measured
+> 2026-09-07 → 09-09, before the flip: the median build is 500–1000 ms, and the 95th observation lands in the
 > 1000–1500 bucket in about a third of all hours. Before the D1 region move (AECI-839) it
 > crossed 1,500 ms for 0 to 15 hours a day, about 5 on average. The alert is living next
 > to its line because detail renders are slow, not because the port is wrong. Do not raise

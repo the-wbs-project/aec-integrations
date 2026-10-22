@@ -11,7 +11,7 @@ Cloudflare renamed its data platform to Basin on 2026-10-01. Pipelines is now Ba
 
 Logpush does not replace our own page-view tracking. Chris decided this on 2026-10-13 after reviewing what Logpush cannot see (§2). Logpush is added beside `page_views`, not instead of it.
 
-The question that started this was whether dropping `page_views` would let us turn the edge cache back on for demo and production. It would not need to. Caching only breaks one part of `page_views`, and that part has a small fix (§3).
+The question that started this was whether dropping `page_views` would let us turn the edge cache back on for demo and production. It would not need to. AECI-1440 has since turned it on for both (§7 Q6). Caching only breaks one part of `page_views`, and that part has a small fix (§3).
 
 ## 2. What Logpush cannot replace
 
@@ -210,7 +210,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 3. Raw bucket retention, and whether `ClientIP` is dropped, hashed or kept at ingest. *Answered 2026-10-16 for the app-side store by ADR 0041: 400 days, IP kept only as a monthly-keyed hash. Still open for the Logpush buckets.*
 4. Which features move to counters, and which are relabelled as consented-slice numbers?
 5. **Answered 2026-10-21 (AECI-1300): no.** Bot Management needs a paid Enterprise plan plus the add-on, which we cannot afford now. Build as if we do not have it (`docs/waf-rate-limits.md` §3b). The Logpush bucket goes on The WBS Project account.
-6. Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)? If the reason was `page_views`, §3 removes it. If not, this design does not unblock caching.
+6. ~~Why was caching ruled off for demo and production on 2026-10-08 (AECI-1240)?~~ *Closed 2026-10-21. No reason was recorded for the 2026-10-08 "off" ruling, and Chris does not remember one. Superseded by AECI-1440, which enabled the cache on staging, demo and production.*
 7. Browser background revalidation (§4). Should document responses drop `stale-while-revalidate` for browsers, or should the rollup exclude revalidation requests? AECI-1303 saw Firefox use it. We do not know yet whether Logpush can tell a background revalidation from a page load.
 
 ## 8. Checks before relying on any of this
