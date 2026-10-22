@@ -76,7 +76,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
-| Raw page-view store (R2 backup via Pipelines) | ADR 0041; `docs/ANALYTICS.md` §11 |
+| Raw page-view store and edge request log (R2) | ADR 0041, ADR 0045; `docs/ANALYTICS.md` §11, §11a |
 | Vendor claim, licenses and billing: agreed process and build status | `docs/VENDOR_SIGNUP_PROCESS.md` |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |

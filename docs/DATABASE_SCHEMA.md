@@ -3022,7 +3022,7 @@ create table page_views (
   -- cf_ray is the cf-ray header of the request the SSR Worker handled: the page load
   -- for an arrival row (read by the gateway, so a cache HIT has one too), the beacon
   -- POST for an in-app row. It is the join key to
-  -- Cloudflare's own logs (Logpush, AECI-1196) and lets a stored row be looked up in
+  -- Cloudflare's own logs (the Logpush RayID, ADR 0045; join not built, AECI-1304) and lets a stored row be looked up in
   -- Cloudflare analytics (AECI-1298). cf_verified_bot is request.cf.botManagement.verifiedBot
   -- (1 / 0) and cf_verified_bot_category is request.cf.verifiedBotCategory. All three
   -- arrive on trusted x-aeci-cf-* headers ONLY. The API never falls back to its own

@@ -26,13 +26,15 @@ report:
   The gap dates are in `scripts/ops/2026-10-traffic-history/README.md`.
 - **That record expires.** Per-request detail was kept 31 days on Pro. The zone moved to
   Enterprise on 2026-10-04, and the new zone keeps 90 days (firewall events 31). Verified
-  2026-10-13 (AECI-1302). Logpush is self-service on Pro, about 1 to 2 GB
-  a month for us, and captures only from the day it starts.
+  2026-10-13 (AECI-1302). Logpush runs on any plan, is about 1 to 2 GB a month for us, and
+  captures only from the day it starts. *2026-10-22:* the edge request log is decided (ADR 0045):
+  both datasets to R2 bucket `aeci-edge-log-production`, kept 400 days. AECI-1447 starts the jobs.
 - **A one-off backup exists.** Thirty-one days of hourly requests, daily rollups since 2026-04-08
   and six months of Web Analytics page loads are in R2 bucket `aeci-views-temp` on The WBS Project
   account, prefix `cloudflare-backfill-2026-10-01/`. A 2026-10-13 refresh under
   `cloudflare-backfill-2026-10-13/` closes the gap to the zone move, with query string and network
-  lost for 2026-10-01 to 2026-10-04. It is the only copy. The pull scripts are in
+  lost for 2026-10-01 to 2026-10-04. It is the only copy of the days before the first Logpush day.
+  AECI-1448 copies it to `graphql-backfill/` in the edge-log bucket. The pull scripts are in
   `scripts/ops/2026-10-traffic-history/` and `scripts/ops/2026-10-ai-assistant-fetch-history/`.
 - **AI assistants are a real, measurable audience.** September had about 790 verified on-demand
   assistant fetches and 51 ChatGPT-referred visits. Our own data shows almost none of it (items 13
@@ -61,7 +63,7 @@ Chris reviewed this report on 2026-10-01. These rulings supersede the matching f
 | Item 9, G7 notification control and send records | Epic AECI-1197 |
 | Items 24 and 3/5, G3 Free plan, checklists, "Looks right" | Epic AECI-1212 |
 | Item 25, G2 usage tracking | Epic AECI-1207 |
-| G0 permanent Cloudflare request log | Epic AECI-1196 (Stage 2.5) |
+| G0 permanent Cloudflare request log | Epic AECI-1196, ADR 0045 |
 
 This is a point-in-time report for a commercial decision. It is not a spec. It does not govern any
 code. The drafted plan model (Free, Managed, Insights, Enhanced, per product) is not approved.
@@ -94,7 +96,7 @@ support **per-product plans, billing, Insights reporting, Enhanced content or le
   vendor who looks and changes nothing leaves none. Return visits are not recorded.
 - **The best traffic record is Cloudflare's, and it expires.** It sees AI-assistant fetches and
   ChatGPT referrals that `page_views` and PostHog miss. Nothing stores it past 90 days (31 before the
-  2026-10-04 Enterprise move). Logpush (AECI-1169) should start before the pilot.
+  2026-10-04 Enterprise move). Logpush (AECI-1196, ADR 0045) should start before the pilot.
 - **Enhanced and leads are greenfield.** There is no media, testimonial, question or lead model.
 - **No ranking leak was found.** No sort key or Algolia ranking setting reads plan state. There are
   four indirect couplings to rule on (section 5).
@@ -158,7 +160,7 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 
 | #   | Gap                                                                                                                  | Why now                                                                                          | Size         | Issue                          |
 | --- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------ | ------------------------------ |
-| G0  | Start Logpush of zone `http_requests` to R2 on The WBS Project account (decided 2026-10-13, AECI-1300). Until it runs, re-run the backfill pull before the oldest unsaved day ages out (next: firewall events by 2026-11-12, requests by 2027-01-01) | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1169 (exists) |
+| G0  | Start Logpush of zone `http_requests` and `firewall_events` to R2 bucket `aeci-edge-log-production` on The WBS Project account (account decided 2026-10-13, AECI-1300; store decided 2026-10-22, ADR 0045). Until AECI-1447 starts the jobs and AECI-1448 closes the gap, re-run the backfill pull before the oldest unsaved day ages out (next: firewall events by 2026-11-12, requests by 2027-01-01) | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1196 (epic), AECI-1447, AECI-1448 |
 | G1  | Flag a vendor's own visits on `page_views` (`is_owner_visit`)                                                        | Shipped 2026-10-12, forward only: pilot vendors' views before migration `0068` stay counted and cannot be backfilled | Small to medium | AECI-934 (shipped)              |
 | G2  | Once-a-day vendor portal visit row in D1 (user, vendor, day, utm)                                                    | Only way to count return visits for vendors who decline analytics                                | Small        | New                            |
 | G3  | "Confirm, nothing to change" action on vendor, product and integration, with an audit row and `last_reviewed_at`    | Pilot steps 1 to 3 are invisible when the data was already right                                 | Small        | New                            |
@@ -305,10 +307,10 @@ Issues marked "filed" were created on 2026-10-01. The rest are still proposals.
 | 17  | Compatibility questions and leads (section 7)                                | app  | R      | Large    |
 | 18  | Rename the `verified` plan flag and tier id                                  | app  | B      | Medium   |
 | 19  | Spec update: move Performance from Verified to Insights in `VENDOR_PERFORMANCE_SPEC.md` | app | I | Small |
-| 20  | ADR and build: Logpush to an R2 Iceberg table, daily rollup into D1 by cron and queue (G0). Fold into AECI-1169 (filed AECI-1196). Join and consent design: `docs/design/edge-log-and-page-views.md` | app | I | Medium |
-| 21  | Vendor-facing assistant-fetch line on Performance, fed by the D1 rollup (`VENDOR_PERFORMANCE_SPEC.md` §2.3 item 3) | app | I | Medium |
+| 20  | ADR and build: Logpush to R2 (G0). *Ruled 2026-10-21, ADR 0045:* plain gzip NDJSON in R2, no Iceberg table, no daily D1 rollup. The rollup, join and consent design (`docs/design/edge-log-and-page-views.md`) are deferred to a later epic | app | I | Medium |
+| 21  | Vendor-facing assistant-fetch line on Performance, fed by a reader of the edge log (`VENDOR_PERFORMANCE_SPEC.md` §2.3 item 3). The rollup it needs is deferred (ADR 0045) | app | I | Medium |
 
-Existing issues that already cover gaps: AECI-1169 (G0), AECI-934 (G1), AECI-935 (G4), AECI-933 (G5), AECI-762
+Existing issues that already cover gaps: AECI-1196 (G0, ADR 0045), AECI-934 (G1), AECI-935 (G4), AECI-933 (G5), AECI-762
 (G6), AECI-944 and AECI-1160 (G9), AECI-1157 (G11), AECI-343 (item 27), AECI-717 (autocomplete),
 AECI-949 and AECI-936/937 (item 12), AECI-1159 (override reason to vendor; scope 1159a built 2026-10-04 on its branch, not merged), AECI-868 (blocks any
 per-request bot score). None of the others is started. The §2.3 item 3 pointer in
@@ -347,17 +349,16 @@ carries personal data and a consent obligation.
 6. **May we log vendor portal visits in D1 without analytics consent?** It is a first-party
    service log. The privacy policy may need a sentence.
 7. **Answered 2026-10-13: The WBS Project** (AECI-1300). The zone and its Logpush job live there
-   since AECI-1161, and the AEC Integrations account is deleted 30 days after the cutover. The ADR
-   owed by epic AECI-1196 still records it, because Logpush, Pipelines and R2 Data Catalog are new
-   to the stack.
+   since AECI-1161, and the AEC Integrations account is deleted 30 days after the cutover. ADR 0045
+   records it (2026-10-22). The store uses neither Pipelines nor the R2 Data Catalog.
 
 ## Summary
 
 - Seat-only and Managed edit features are ready. Per-product plans, billing, Insights, Enhanced and
   leads are not.
 - Thirteen cheap gaps (G0 to G12) should start before 2026-10-14. Five are already filed.
-- Start Cloudflare Logpush first (AECI-1196). It is the only consent-independent record of
-  AI-assistant traffic, and today it expires after 90 days.
+- Start Cloudflare Logpush first (AECI-1196, ADR 0045, jobs in AECI-1447). It is the only
+  consent-independent record of AI-assistant traffic, and today it expires after 90 days.
 - Per-product plans are a large change: a new `product_plans` table and a product-scoped gate.
 - No ranking leak exists. Of four indirect couplings, one is resolved and one is ruled deliberate.
 - Production is 12 commits behind `main`. Promote before the pilot.

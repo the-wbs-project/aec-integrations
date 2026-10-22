@@ -43,3 +43,7 @@ The fix is a copy of what the API received, kept outside D1, so a future change 
 - Visitors who send DNT or Sec-GPC are still captured. That gap is AECI-1386.
 - Q3 of the edge-log design is answered for this store only. It is still open for the Logpush raw buckets.
 - Re-open trigger: AECI-1385's review, or the consent-tiered design being built.
+
+## Amendment 2026-10-22 (AECI-1446)
+
+The Logpush side of this ADR's context is decided in ADR 0045. Epic AECI-1196 keeps a plain store: Logpush to an R2 bucket with no IP, kept 400 days. So the consent-tiered design in `edge-log-and-page-views.md` §6 is not adopted for either store. Q3 is now answered for the Logpush bucket too. The Ray ID join named in item 5 is parked (AECI-1304). The Ray ID stays on the row so that join can be built later.

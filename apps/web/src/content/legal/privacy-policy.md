@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 16, 2026
+last_updated: October 22, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -24,6 +24,7 @@ We collect only what we need to run the service:
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics.
+- **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
@@ -93,6 +94,7 @@ We keep personal data only as long as we need it for the purposes above:
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
+- **Edge request log**: for up to 400 days, then it is deleted automatically.
 - **Analytics and monitoring data**: for a limited retention window in line with the relevant provider's settings, after which it is deleted or aggregated.
 
 ## Your rights

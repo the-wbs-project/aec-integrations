@@ -1158,7 +1158,7 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 > of WAF events shipped in AECI-262 (to Datadog then; the metric itself is
 > vendor-independent and rides the same transport swap) — the API Worker's hourly cron polls the zone's
 > `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits
-> `aeci.waf.ratelimit.blocked` (the free Pro-plan alternative to Enterprise Logpush);
+> `aeci.waf.ratelimit.blocked` (a GraphQL poll, built on Pro before Logpush was available; it stays beside the ADR 0045 Logpush store, which has no alert);
 > CF Security Events remains the per-IP triage surface. See `waf-rate-limits.md` §5
 > and `OBSERVABILITY.md`. `/api/page-views` (high-volume beacon) and
 > `/api/webhooks/linear` (HMAC-verified, single source) are deliberately excluded —
