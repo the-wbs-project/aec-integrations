@@ -4003,6 +4003,12 @@ days.
 `/admin/activity` are AECI-1461. No public surface reads it, and none should. D19(g) forbids a new
 public surface.
 
+One vendor-facing reader is planned: `GET /api/vendor/performance` (AECI-940), behind sign-in and
+`analytics.view`. D19(g) was amended on 2026-10-23 (AECI-1445) to allow it. It reads the table
+only as a filter that drops automation-classed views, through a window form of
+`automationClassFilterForDay` in the same module, and shows the classifier version. It never
+exposes class counts, per-row classes or reason codes (`VENDOR_PERFORMANCE_SPEC.md` §2.2).
+
 The series read joins `page_views` and applies `NOT_INTERNAL` over up to 30 days on every overview
 load. `page_view_classifications_day_idx` serves the `(view_day, classifier_version)` pairs.
 

@@ -88,13 +88,15 @@ Comparative figures (decision 3), emailed reports (decision 6), enquiries or any
 
 ### 2.2 Population and classification
 
-The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record exists since Phase 2 (AECI-1345, 2026-10-21). Its nightly series has no history backfill, and no reader outside the admin overview, the Activity feed and the 05:00 digest uses it yet. Until AECI-1445 switches this report to it, the report reads the same predicates the digest and `/admin/overview` read (`lib/page-view-predicates.ts`), and says so in its caveat envelope (§4.4). It adds **no third predicate set**. Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
+The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record exists since Phase 2 (AECI-1345, 2026-10-21). Its nightly series has no history backfill (AECI-1444 covers older days).
+
+**The report reads the record from its first release (AECI-1445, ruled 2026-10-23).** It is never built on the bare shared predicates first. It applies the same class filter the `/admin/overview` and digest top-products and top-sources tables apply since AECI-1460: a view classed `identified_automation` or `suspected_automation` on its day's latest classifier version does not count (§2.3 rule 1). The filter lives in one module, `apps/api/src/lib/admin-classification.ts`. AECI-940 generalises `automationClassFilterForDay` there to a multi-day window, one latest version per day through `latestVersionPerDay`, and keeps its `NOT EXISTS` shape so unclassified rows survive. The report adds **no third predicate set** and no class rule of its own. It uses the classes as a filter only: it never shows a vendor class counts, a per-row class or reason codes (`ADMIN_PANEL_SPEC.md` §13 D19(g), amended 2026-10-23). Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
 
 Rows from 2026-09-07 to 2026-09-12 are degraded (AECI-868) and carry the corresponding caveat when the range includes them.
 
 ### 2.3 Counting rules
 
-1. **A view is one `page_views` row** for the vendor's entity, after the §2.2 population filter, excluding operator rows (`is_operator`, via `NOT_INTERNAL`) and owner-visit rows (`NOT_OWNER_VISIT`, §3.3). Rows from before migration `0068` are NULL and count. Arrival and SPA rows both count; the AECI-743 dedupe key already prevents the double-fire.
+1. **A view is one `page_views` row** for the vendor's entity that passes `HUMAN`, excludes operator rows (`is_operator`, via `NOT_INTERNAL`) and owner-visit rows (`NOT_OWNER_VISIT`, §3.3), and is not classed as automation (§2.2). The class test drops a row with a `page_view_classifications` row in `identified_automation` or `suspected_automation` on its day's latest classifier version. `unresolved` rows count. A day with no classification rows yet (before the first nightly run, or yesterday until the 00:45 UTC `traffic-classify` run classifies it) counts unfiltered, and the `days_unclassified` note says so (§4.4). Rows from before migration `0068` are NULL and count. Arrival and SPA rows both count; the AECI-743 dedupe key already prevents the double-fire.
 2. **A crawl is one `page_views` row with `is_bot = 1`** for the vendor's entity, grouped by purpose: **search indexing**, **AI training**, **on-demand assistant fetch**, **preview / social**, **other**. Until AECI-762 lands the purpose split, the page shows the operator label (`bot_name`) and marks purpose as unavailable. A crawl is a request. The page states that it is not indexing, not model inclusion, and not a citation.
 3. **On-demand assistant fetches** (`ChatGPT-User`, `Perplexity-User`, `Claude-User`) are reported on their own line: each one means a person asked an assistant a question and the assistant fetched the vendor's page. They are the nearest observable thing to an AI-answer referral. `page_views` cannot isolate them today: its crawler labels merge them with other bots. Since AECI-1301 (migration `0072`, 2026-10-13) each row also stores Cloudflare's `cf_verified_bot_category`, and the report-only traffic classifier maps `AI Assistant` to `purpose_assistant_retrieval` (AECI-872). No vendor-facing count reads it yet, rows before 2026-10-13 have none, and the `cf_verified_bot` boolean is always null (AECI-1348). The verified record is Cloudflare's, kept 90 days since the 2026-10-04 Enterprise move (31 before). The edge request log keeps it for 400 days (ADR 0045, epic AECI-1196): Logpush writes every request, `VerifiedBotCategory` included, to R2 bucket `aeci-edge-log-prod-us` from 2026-10-22, when AECI-1447 started the jobs. The first full day is 2026-10-23. No reader or daily rollup exists yet; that is deferred to a later epic. Days before the first Logpush day are in the manual backfill from 2026-08-31 (AI-assistant fetches, all requests for 31 days, Web Analytics for 184 days), in the temporary R2 bucket `aeci-views-temp`, refreshed on 2026-10-13. AECI-1448 moves it into the edge-log bucket. The pull scripts and column docs are in `scripts/ops/2026-10-ai-assistant-fetch-history/` and `scripts/ops/2026-10-traffic-history/`.
 4. **Crawl history for AI crawlers starts 2026-09-09** (AECI-800). The zone-level allow posture in `waf-rate-limits.md` §3b is a measurement dependency; when it changes, the crawl panel changes with no error. The DQ check in §3.5 exists for that, and **AECI-948** (due 2026-09-16) is the operator re-check after the toggle deprecates.
@@ -103,7 +105,7 @@ Rows from 2026-09-07 to 2026-09-12 are degraded (AECI-868) and carry the corresp
 7. **Unknown is a state, not zero.** Unavailable source, outage, no eligible activity, and degraded telemetry are different states and each has a caveat code (§4.4) and a rendering (§5.3). Missing days are gaps in the chart, never zeroes.
 8. **Previous period** is the same-length window immediately before, in absolute counts beside the change. A zero previous period shows counts only, never a percentage.
 9. **Pre-claim history is shown** (decision 8), labelled "before you claimed this listing" from the claim's approval date. The page must not present post-claim growth as caused by claiming.
-10. **Definition changes are dated** in the definitions block. No growth is computed across a classifier version boundary.
+10. **Definition changes are dated** in the definitions block. No growth is computed across a classifier version boundary. The seam is the one `versionSeamFor` in `admin-classification.ts` reports for the operator surfaces (D19(c)).
 
 ### 2.4 Privacy
 
@@ -183,7 +185,7 @@ As built (2026-10-12, AECI-934, `ADMIN_PANEL_SPEC.md` §13 D26):
 - Migration `0068` adds the column. `resolveVisitorSession()` replaces `isOperatorRequest()` and returns `{ isOperator, ownerVendorId }` from one token verification and one `profiles` read. `ownerVendorId` is set only for `vendor_admin` with a non-null `vendor_id`, and the AECI-689 expiry grace applies to it.
 - Ownership is wider than the primary vendor. Any `product_vendors` row ties the vendor to `product_id` or to either pair endpoint, because a co-owner viewing its own listing is not buyer demand either (Chris, 2026-10-12).
 - An SPA hop stores no entity id, so the flag also matches the `/products/:slug` or `/vendors/:slug` slug in the path (Chris, 2026-10-12). `product_id` and `vendor_id` storage is unchanged.
-- The read side is `NOT_OWNER_VISIT` in `lib/page-view-predicates.ts`, NULL-safe. It is deliberately not part of `NOT_INTERNAL`, so platform figures are unchanged. The reader built under AECI-941 must AND it with `NOT_INTERNAL`.
+- The read side is `NOT_OWNER_VISIT` in `lib/page-view-predicates.ts`, NULL-safe. It is deliberately not part of `NOT_INTERNAL`, so platform figures are unchanged. The reader built under AECI-940 must AND it with `NOT_INTERNAL` and the §2.2 class filter.
 - Rows from before `0068` are `NULL`, count as not owner, and are never backfilled. A pilot vendor's earliest self-visits therefore stay in its counts.
 - The page-side disclosure that signed-out self-visits cannot be excluded is not part of AECI-934. It ships with the page under AECI-941.
 
@@ -229,7 +231,7 @@ Query: `from`, `to` (UTC `YYYY-MM-DD`, default the last 30 complete days, maximu
 }
 ```
 
-Every number is a count of rows after the §2 rules. `distinct visitors` does not exist on this contract.
+Every number is a count of rows after the §2 rules. `distinct visitors` does not exist on this contract. `measurement.classifier_version` is the latest classifier version in the window, or null when no day in it is classified; when the window spans a version change, the `classification_version_seam` note carries both versions and the change date (§2.3 rule 10).
 
 ### 4.2 `GET /api/vendor/performance/export`
 
@@ -244,7 +246,20 @@ Same query, `Content-Type: text/csv`, one row per day per metric, plus a header 
 
 ### 4.4 Caveat envelope — `VendorNote`
 
-A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admin-panel.ts`), exported from a new `packages/shared/src/api/vendor-performance.ts` with the same `{ code, message }` shape, so the operator console and the vendor page describe the same bias in the same words. Minimum codes: `automation_filter_applied`, `arrival_telemetry_degraded`, `classifier_version_changed`, `search_console_not_connected`, `search_console_stale`, `pair_attribution_starts_at` (the AECI-929 backfill boundary), `small_group_suppressed`, `partial_failure`. Codes are additive; removing one is a contract change. As-built 2026-10-23 (AECI-1460): `automation_filter_applied` no longer exists in `AdminNoteCodeSchema`, because the report-side automation filter is retired. AECI-1445 picks its replacement when it builds this subset.
+A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admin-panel.ts`), exported from a new `packages/shared/src/api/vendor-performance.ts` with the same `{ code, message }` shape, so the operator console and the vendor page describe the same bias in the same words. Minimum codes, revised 2026-10-23 (AECI-1445):
+
+| Code | When | Admin counterpart |
+|---|---|---|
+| `classification_is_heuristic` | Unconditional. Views exclude rows classed as automation, and the classes are a heuristic judgement | exists (AECI-1345) |
+| `days_unclassified` | Gated: some days in the window have no stored classes, so their views are not filtered by class. `params.days` carries the count | new, the window form of `tables_unclassified` |
+| `classification_version_seam` | Gated: the window spans a classifier version change. `params` as on the admin code | exists (AECI-1345) |
+| `series_spans_degraded_days` | Gated: some days in the window fail the arrival-telemetry coverage bar the admin code uses, which includes the AECI-868 days (§2.2). `params.degraded_days` carries the count | exists (AECI-869) |
+| `search_console_not_connected`, `search_console_stale` | §6 | new |
+| `pair_attribution_starts_at` | The AECI-929 backfill boundary | new |
+| `small_group_suppressed` | §2.4 floor applied | new |
+| `partial_failure` | A section's source failed | new |
+
+AECI-940 adds every "new" code to `AdminNoteCodeSchema` too, so the vendor set stays a subset and both surfaces use the same words. Codes are additive; removing one is a contract change. The earlier list named `automation_filter_applied`, `arrival_telemetry_degraded` and `classifier_version_changed`. None exists in `AdminNoteCodeSchema`: AECI-1460 retired the first, and the other two were never the admin names. The table above replaces them.
 
 ---
 
@@ -365,7 +380,7 @@ Amend `STAGE_2_5_SPEC.md` §7.1 point 5 in the same PR so the prohibition it sta
 | AECI-933, AECI-935 | `ANALYTICS.md` §4 (rows), §6 (funnel) |
 | AECI-934 | `DATABASE_SCHEMA.md` §9.1, `ADMIN_PANEL_SPEC.md` §13 (a decision beside D13) |
 | AECI-936, AECI-937, AECI-938 | `DATABASE_SCHEMA.md` §9 (new subsections), `OBSERVABILITY.md` (the crons), `environments.md` (secrets), `ANALYTICS_BASELINE.md` (what is now automatic) |
-| AECI-940 | `API_CONTRACTS.md` §6.14, `AUTH_AND_RLS.md` §4 (the capability consumer) |
+| AECI-940 | `API_CONTRACTS.md` §6.14, `AUTH_AND_RLS.md` §4 (the capability consumer), `DATABASE_SCHEMA.md` §9.7 "Read by" list and the `admin-classification.ts` docblock (the window class filter, §2.2), the `AdminNoteCodeSchema` table for the §4.4 codes it adds |
 | AECI-941 | `STAGE_2_VENDOR_PORTAL_SPEC.md` §6 (an as-built subsection), `DESIGN.md` (the surface entry and its anchor site), `docs/design/LESSONS.md` |
 | AECI-942 | `privacy-policy.md`, `/methodology` content, `STAGE_2_5_SPEC.md` §7.1 |
 | all | this document's as-built subsections; `CLAUDE.md` source-of-truth row if the description changes |
