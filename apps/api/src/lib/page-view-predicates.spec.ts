@@ -19,7 +19,6 @@ import {
   HUMAN,
   NOT_INTERNAL,
   NOT_OWNER_VISIT,
-  notFlagged,
   OPERATOR_PAIR_LOOKBACK_DAYS,
   OPERATOR_PAIR_MATCH,
 } from './page-view-predicates';
@@ -146,36 +145,5 @@ describe('NOT_OWNER_VISIT (AECI-934 / §13 D26)', () => {
   it('is not part of NOT_INTERNAL, so platform figures still count owner visits', async () => {
     await t.db.insert(pageViews).values({ path: '/c', createdAt: AT, isOwnerVisit: true });
     expect(await countWhere(and(window, NOT_INTERNAL))).toBe(1);
-  });
-});
-
-describe('notFlagged — the exact complement, and its NULL trap', () => {
-  it('is undefined with no exclusion, so callers filter nothing rather than everything', () => {
-    expect(notFlagged(undefined)).toBeUndefined();
-    expect(notFlagged({ uaHashes: [], asns: [], verdicts: [] })).toBeUndefined();
-  });
-
-  it('KEEPS a row whose hash, ASN and verdict are all null', async () => {
-    // `not(inArray(...))` is NULL for this row on all three axes, and a NULL
-    // WHERE DROPS it — so the row would vanish from the digest's tables while
-    // still counting in its headline. "IS NULL OR NOT IN" is what keeps it.
-    await t.db.insert(pageViews).values([{ path: '/', createdAt: AT }]);
-    const kept = await countWhere(
-      and(window, notFlagged({ uaHashes: ['s'], asns: [47544], verdicts: ['non-browser'] })),
-    );
-    expect(kept).toBe(1);
-  });
-
-  it('removes a row on each axis independently', async () => {
-    await t.db.insert(pageViews).values([
-      { path: '/a', createdAt: AT, userAgentHash: 's' },
-      { path: '/b', createdAt: AT, cfAsn: 47544 },
-      { path: '/c', createdAt: AT, clientVerdict: 'non-browser' },
-      { path: '/d', createdAt: AT, userAgentHash: 'person', cfAsn: 7922, clientVerdict: 'browser' },
-    ]);
-    const kept = await countWhere(
-      and(window, notFlagged({ uaHashes: ['s'], asns: [47544], verdicts: ['non-browser'] })),
-    );
-    expect(kept).toBe(1);
   });
 });

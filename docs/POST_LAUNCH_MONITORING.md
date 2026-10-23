@@ -64,6 +64,10 @@ the bundle actually execute in a real browser".** `app_started` does, and since
 AECI-870 the 05:00 digest reads it back and prints it as **"browser starts"** beside
 the consented `$pageview` figure.
 
+> **As-built 2026-10-23 (AECI-1460):** the digest and `/admin/overview` no longer read or print
+> browser starts or the `$pageview` figure. The rule below still holds. Read `app_started` in
+> PostHog directly. The "Browser starts: unavailable" paragraph at the end of this section is history.
+
 **The rule: zero browser starts on a day that had full-document arrivals is a
 defect, not a quiet site.** D1 counts an arrival when the SSR Worker serves the
 document; `app_started` fires only when the JavaScript bundle boots. The two
@@ -607,10 +611,12 @@ behind it:
 
 ### 3a-ter. The digest headline is a RESIDUAL, and the telemetry behind it can go missing (AECI-869)
 
-> **Since AECI-1346 this figure is the previous measure, not the headline.** The 05:00 email and
-> `/admin/overview` lead with the four D19 traffic classes (§3c step 5). The residual below them is
-> unchanged: same figure, same name, same caveats. AECI-1462 retires it. Read "the headline" in
-> this section as "the residual".
+> **Retired 2026-10-23 (AECI-1460).** The residual is gone from the 05:00 email, its subject and
+> `/admin/overview`. So are the corroborated line and the PostHog line described below. The four
+> D19 traffic classes are the only population figure (§3c step 5). From AECI-1346 (2026-10-22)
+> until then the residual sat below the classes as the previous measure. This section is history,
+> except the coverage threshold and the telemetry-health line further down, which still qualify the
+> classes. Read "the headline" in this section as "the residual".
 
 **What the headline means now.** The 05:00 email and the `/admin/overview` lead tile both read
 **"N requests of unresolved origin"**. Same figure, same subtraction, same
@@ -704,6 +710,11 @@ backfill over the AECI-868 window is sequenced separately and recorded in the is
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
+> **Retired 2026-10-23 (AECI-1460).** The residual, `AutomationExclusion`, the corroborated floor
+> and the PostHog lower bound are gone from the digest and `/admin/overview`. The detectors in this
+> section keep running, as inputs to the D19 classifier (§3c). Their constants are still tunable here.
+> The banner paragraphs below are history.
+>
 > **Since AECI-869 the headline is called "N requests of unresolved origin"** — same figure, same
 > subtraction, new name and a telemetry-health line beside it. Since AECI-1346 it is the previous
 > measure, below the four traffic classes (§3c step 5). **§3a-ter above is the current
@@ -877,8 +888,8 @@ names which call site uses which, and so does this table:
 All three are **NULL-safe**, and that is a constraint not a detail: `IN` against a NULL verdict is
 NULL, so every row written before the column shipped (and every `'browser'` / `'unknown'` row) counts
 as **no evidence**, never as "not a browser". `page-view-predicates.ts`'s `notFlagged()` complement
-carries the same NULL-safety on the same axis — a NULL-verdict row counts in the headline, so it must
-survive the tables.
+carried the same NULL-safety on the same axis until AECI-1460 deleted it on 2026-10-23. The verdict
+now reaches reports only through the classifier.
 
 **Still read-side only.** No `is_bot` write, and the commercial proxy/seedbox ASNs this surfaced
 (RapidSeedbox AS214483, Web2Objects AS62874, UAB code200/Oxylabs AS27411, Rockion AS199737) did
@@ -895,8 +906,8 @@ one, and adding the totals would report more suspicious views than the day conta
 | `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
 | `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
 | `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
-| *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`, and a value added there must be added to the digest's `AutomationExclusion.verdicts` in the same change. |
-| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
+| *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`. It is a classifier input, so a change to it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
+| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` said when it bit until AECI-1460 deleted it on 2026-10-23. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
 | `SWARM_PRIOR_LOOKBACK_DAYS` | `14` | How far back the recurrence read looks for a hash's flagged history (AECI-742). Ends at the reported window's start, never inside it. Long enough to survive a client pausing over a weekend, short enough to forgive a hash that reformed within a fortnight. `page_views` is retained 400 days, so the ceiling here is judgement, not retention. |
 | `SWARM_PRIOR_MIN_FLAGGED_DAYS` | `2` | Flagged days inside the lookback before a hash counts as recurring. Two, not one: one flagged day is the evidence the per-day test already acted on, so requiring one would merely re-apply yesterday's verdict. The eight hashes this was built from ran **every** day of 2026-08-21..30. |
 | `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
@@ -907,8 +918,15 @@ one, and adding the totals would report more suspicious views than the day conta
 | `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
 | `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
 
-**Tuning any threshold in this table obsoletes the stored `traffic.page_views_human_after_automation`
-series, and nothing detects it (AECI-827 / ADR 0027).** The AECI-827 re-check converges
+**Tuning a threshold in this table is a classifier-version change (§3c).** Since AECI-1460
+(2026-10-23) these constants reach reports only through the D19 classifier. A change to one changes
+classifier inputs, so it follows the §3c loop and bumps `TRAFFIC_CLASSIFIER_VERSION`. The classifier
+record then shows the seam. `traffic.page_views_human_after_automation` is frozen with no writer, so
+tuning no longer corrupts it. Its stored rows were written under the constants in force on each day.
+The warning that applied before the freeze follows, as history.
+
+**Before 2026-10-23: tuning any threshold in this table obsoleted the stored `traffic.page_views_human_after_automation`
+series, and nothing detected it (AECI-827 / ADR 0027).** The AECI-827 re-check converges
 `metrics_daily` when a raw count moves, and recomputes the filtered key alongside it. A threshold
 change moves `flagged(X)` for **every** stored day with no change to any raw count, so the re-check's
 trigger set is empty, the pass does nothing, and the stored series silently mixes two definitions.
@@ -952,7 +970,8 @@ on `/auth/login` — which is what a lapse looks like from the outside.
 > is still re-read — so the flag stays unclaimable. The retro-join below is **unchanged** and is still
 > what covers an expiry older than that window, plus every row written before 2026-09-14. Expect the
 > `operator_leak_excluded` figure to fall once this reaches production, and read that as the write
-> side working rather than as the inference weakening.
+> side working rather than as the inference weakening. Since AECI-1460 (2026-10-23) the figure is
+> read as `internal_excluded.operator_leak_inferred` on the classes' internal line.
 
 `NOT_INTERNAL` (`lib/page-view-predicates.ts` since AECI-745; `lib/analytics-digest.ts` when this was written) now carries a third half: a correlated `NOT EXISTS` that
 excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within
@@ -969,7 +988,9 @@ excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operat
 - **It is an INFERENCE, so it is reported.** The path and session halves are facts about the request
   and are excluded silently. This one is a judgement about identity, so the digest prints
   `operatorLeakViews`, `job_runs` records it, and `/admin/overview` returns
-  `operator_leak_excluded` with an `operator_leak_is_an_inference` note. Silence here would be the
+  `operator_leak_excluded` with an `operator_leak_is_an_inference` note. Since AECI-1460
+  (2026-10-23) both surfaces report it on the classes' internal line as
+  `internal_excluded.operator_leak_inferred`. The wire field and its note are gone. Silence here would be the
   same failure the headline number itself was guilty of. **All three suppress themselves when the
   figure is zero** (AECI-836 brought the note into line with the other two): there is no inference
   to disclose on a day the retro-join removed nothing, and a caveat with no number beside it
@@ -1158,10 +1179,10 @@ Phase 2 (**AECI-1345**, 2026-10-21). The seam in step 5 shipped with Phase 3 (**
 2026-10-22), which also switched the digest and `/admin/overview` to the classes. §3b stays the
 live procedure for every threshold here.
 
-Today a threshold change is one edit to a constant in `lib/swarm-detection.ts` and a note in
-`POST_LAUNCH_HEALTH_REPORT.md`. That is the whole record. Two gaps follow from it and §3b already
-names both: a change moves `traffic.page_views_human_after_automation` for every stored day with no
-change to any raw count, so nothing detects it; and there is no measured false-positive cost, so
+Before D19 a threshold change was one edit to a constant in `lib/swarm-detection.ts` and a note in
+`POST_LAUNCH_HEALTH_REPORT.md`. That was the whole record. Two gaps followed from it: a change moved
+`traffic.page_views_human_after_automation` for every stored day with no change to any raw count,
+so nothing detected it (closed by AECI-1460, which froze that key on 2026-10-23); and there is no measured false-positive cost, so
 "did this help?" is answered by re-reading one production day. D19's answer is a five-step loop.
 A **classifier** here means any of: a `DATACENTER_ASNS` entry, a `NAMED_BOTS` pattern, one of the
 §3b tunable constants, the `NON_BROWSER_VERDICTS` vocabulary, or a whole new rule.
@@ -1255,9 +1276,11 @@ the stored series legible afterwards:
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
-  and the reported day) and `classificationReadFailed`. Its counts stay beside them
+  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Its detector counts
   (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
-  `verdictFlaggedViews`, `nonBrowserCandidates`).
+  `verdictFlaggedViews`, `nonBrowserCandidates`) were removed from the digest's detail by AECI-1460
+  on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,
+  `pageViewsHumanNetAutomation` and `corroborated*` fields. The raw `pageViewsHuman` stays.
 - **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
 - **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
   is unchanged and is not superseded by any of the above.
@@ -1270,12 +1293,12 @@ rule is D19(c): **days under different classifier versions are flagged, never bl
 for the day of the switch and for any window spanning it, three things hold.
 
 - A note names the change and the two versions. It is emitted **unconditionally** for a spanning
-  window, because it describes what a permanently-present figure means — D15(d)'s treatment of
-  `corroborated_is_a_referrer_floor`, not D15(b)'s gated `operator_leak_is_an_inference`.
+  window, because it describes what a permanently-present figure means. That is D15(b)'s rule for
+  an ungated caveat, which `corroborated_is_a_referrer_floor` followed until AECI-1460 removed it.
 - The stored series is **not** retroactively recomputed to the new definition unless the change was
-  explicitly approved as a re-evaluation. §3b's warning stands: `traffic.page_views_human_after_automation`
-  is snapshot-only and in `NOT_BACKFILLABLE`, so there is no repair tool and a silent mixed series
-  is the default failure.
+  explicitly approved as a re-evaluation. A new version writes new classification rows beside the
+  old ones, so both stay readable. `traffic.page_views_human_after_automation` is frozen since
+  AECI-1460 (2026-10-23) and no longer moves with a version change.
 - A chart crossing the boundary shows the boundary. It does not average across it.
 
 **What does not change.** The classifier is still **report-only**: no step above writes `is_bot`, and
@@ -1297,8 +1320,8 @@ row.
 Each row gets one of two treatments, set by the last column:
 
 - **Arrivals comparable: no.** The same treatment as a classifier seam. On `/admin/overview` the
-  class `delta_day` is null, and so are the residual's `delta_day` and `delta_7d` when their days
-  span the row. The 05:00 email prints "not comparable with the prior day (collection method
+  class `delta_day` is null. Until AECI-1460 (2026-10-23) the residual's `delta_day` and `delta_7d`
+  were nulled too, when their days spanned the row. The 05:00 email prints "not comparable with the prior day (collection method
   changed)" in place of those deltas. The chart draws a boundary.
 - **Arrivals comparable: yes.** Informational. The `collection_method_seam` note fires, the email
   prints a line saying the counts stay comparable, and the chart draws a boundary labelled as
@@ -1315,6 +1338,14 @@ Either way the note fires for every 30-day chart window that contains the row. S
 
 The writer itself does not change at a cache flip. A HIT skips the render, so from each tier's
 flip the render counts and the AECI-839 p95 measure misses only.
+
+**The AECI-1460 cut-over is recorded here as a reporting method change (decided 2026-10-23).** The
+residual and `AutomationExclusion` leave the digest and `/admin/overview`, and
+`traffic.page_views_human_after_automation` stops being written. The writer of `page_views` does not
+change, so each tier gets one informational row with arrivals comparable: **yes**. Class counts are
+unchanged. The residual series ends. A row carries the deploy SHA, so each tier's row is added after
+that tier deploys, in this table and in `COLLECTION_METHOD_CHANGES` in one PR. AECI-1465 tracks the
+three rows.
 
 ---
 

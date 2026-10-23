@@ -701,10 +701,9 @@ export async function detectSwarms(
  *
  * The verdict matcher is UNCONDITIONAL — it is a predicate over each row, not a
  * list of flagged keys — so unlike the previous version this never short-circuits
- * to zero without a round trip. That costs one query on a day that flags nothing,
- * and buys the property that matters: `analytics-digest.ts`'s `notFlagged()` is
- * documented as the exact complement of this function, and a branch here that the
- * complement does not also have is exactly how the two silently drift.
+ * to zero without a round trip. That costs one query on a day that flags nothing.
+ * Until AECI-1460 a complement predicate in the digest mirrored this function;
+ * the classifier is now its only consumer, through `detectSwarms`.
  */
 async function countFlaggedViews(
   db: Db,
@@ -733,113 +732,6 @@ async function countFlaggedViews(
     .where(and(window, or(...matchers)));
   return row?.value ?? 0;
 }
-
-/**
- * One ASCII line for the digest, or null when nothing was flagged.
- *
- * Phrased as "may be" and "one automated client" on purpose. This is a
- * heuristic over a small sample, the operator is the one who decides, and a
- * digest that overstates its own certainty is how a wrong number becomes a
- * wrong decision.
- *
- * The null guard is "nothing was flagged", NOT "there are no candidates"
- * (AECI-744). A null note means "the detector ran and flagged nothing" to
- * `AutomationFilter`, and the headline is `raw - flaggedViews` — so a day whose
- * only flagged views came from the verdict would subtract from the headline with
- * no explanation anywhere in the email. Every subtraction gets a sentence.
- */
-/**
- * How to say where a set of {@link NonBrowserCandidate}s came from, without
- * counting "we do not know" as a network (AECI-869).
- *
- * ─── The defect this fixes ──────────────────────────────────────────────────
- *
- * {@link detectNonBrowserClients} groups by `cf_asn` and deliberately KEEPS the
- * null bucket, because those views are flagged individually and dropping them
- * would lose them from a list the operator triages from. But the note above then
- * counted `verdictCandidates.length` as a number of networks, so one SQL NULL
- * group rendered as "from 1 network". On 2026-09-10 all 198 request-shape
- * exclusions carried a NULL ASN, and the email reported them as having come from
- * one observed network. They came from an unknown number.
- *
- * A NULL group is not a small network, a shared network, or a network we declined
- * to name. It is the absence of the observation entirely — under AECI-868 it was
- * the absence of the whole `request.cf` object — and folding it into a cardinality
- * turns missing data into a measurement. So it is reported alongside the count,
- * with its own view total, and never inside it.
- *
- * `GROUP BY cf_asn` yields at most one null bucket, so there is never more than
- * one "unknown" term to render.
- */
-export function verdictNetworkPhrase(candidates: readonly NonBrowserCandidate[]): string {
-  const named = candidates.filter((c) => c.cfAsn !== null);
-  const unknown = candidates.find((c) => c.cfAsn === null);
-  const namedPhrase = named.length === 1 ? 'from 1 network' : `from ${named.length} networks`;
-  if (!unknown) return namedPhrase;
-  const unknownPhrase = `network unknown (${unknown.views === 1 ? '1 request' : `${unknown.views} requests`})`;
-  return named.length === 0 ? `from ${unknownPhrase}` : `${namedPhrase}, plus ${unknownPhrase}`;
-}
-
-export function swarmNote(summary: SwarmSummary): string | null {
-  const { flaggedViews, totalHumanViews, uaCandidates, asnCandidates, verdictCandidates } = summary;
-  if (flaggedViews === 0) return null;
-
-  const clauses: string[] = [];
-  if (uaCandidates.length > 0) {
-    const n = uaCandidates.length;
-    clauses.push(
-      `${n === 1 ? '1 client' : `${n} clients`} each read nearly every page from a ` +
-        `different network, which is the shape of one automated client behind a ` +
-        `rotating proxy pool rather than separate visitors`,
-    );
-  }
-  if (asnCandidates.length > 0) {
-    const n = asnCandidates.length;
-    clauses.push(
-      `${n === 1 ? '1 network' : `${n} networks`} served nearly a new browser ` +
-        `fingerprint on every request, with request headers that mostly do not look ` +
-        `like a browser, which is the shape of one client rotating its user-agent ` +
-        `rather than separate visitors`,
-    );
-  }
-  if (verdictCandidates.length > 0) {
-    const views = summary.verdictFlaggedViews;
-    clauses.push(
-      `${views === 1 ? '1 view' : `${views} views`} arrived with request headers that ` +
-        `do not look like a browser, ${verdictNetworkPhrase(verdictCandidates)}, ` +
-        `which is evidence about those requests themselves rather than an inference ` +
-        `from how many of them there were`,
-    );
-  }
-  // Said out loud because it is the one clause that rests on evidence from OUTSIDE
-  // the reported day. A reader comparing the note to the day's own numbers would
-  // otherwise find a candidate whose ratio sits under the published threshold and
-  // conclude the detector had drifted.
-  const recurring = uaCandidates.filter((c) => c.priorFlaggedDays > 0).length;
-  const priorNote =
-    recurring > 0
-      ? ` ${recurring === 1 ? '1 of those clients was' : `${recurring} of those clients were`} ` +
-        `already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ` +
-        `${SWARM_PRIOR_LOOKBACK_DAYS} days, so a lower bar applied to it today.`
-      : '';
-  const truncationNote = summary.truncated
-    ? ` Only the ${SWARM_MAX_CANDIDATES} largest of each kind are listed.`
-    : '';
-  return `${flaggedViews} of ${totalHumanViews} may not be people: ${clauses.join('; and ')}.${priorNote}${truncationNote}`;
-}
-
-/** Re-exported so the admin panel can render the same threshold text the digest uses. */
-export const SWARM_THRESHOLD_NOTE =
-  `Flagged when one user-agent hash accounts for ${SWARM_MIN_VIEWS}+ views and ` +
-  `at least ${Math.round(SWARM_MIN_ASN_RATIO * 100)}% of them came from a different network, ` +
-  `or when one network accounts for ${ASN_ROTATOR_MIN_VIEWS}+ views under ` +
-  `${Math.round(ASN_ROTATOR_MIN_UA_RATIO * 100)}%+ distinct user-agents AND most of those ` +
-  `requests do not look like a browser. A single view is also flagged on its own when ` +
-  `its own request headers do not look like a browser, with no view count required. ` +
-  `A hash already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ` +
-  `${SWARM_PRIOR_LOOKBACK_DAYS} days is held to a lower bar on the day being reported: ` +
-  `${SWARM_RECURRING_MIN_VIEWS}+ views at ${Math.round(SWARM_RECURRING_ASN_RATIO * 100)}%+ ` +
-  `from a different network.`;
 
 /** Exported for the spec: whether a candidate's request shape corroborates the
  *  cardinality signal. Kept as a function so the panel and the tests agree on

@@ -12,6 +12,9 @@
  *    views per class per day, each day on its own latest version.
  *  - {@link readRowClassifications} for `GET /api/admin/page-views`: the latest
  *    stored classification of each row on the page.
+ *  - {@link automationClassFilterForDay} (AECI-1460) for the top products and
+ *    top sources tables in the digest and on `/admin/overview`: a predicate that
+ *    drops views classed as automation on the day's latest version.
  *
  * **Internal traffic is decided here, at read time.** The writer stores every row
  * of the day, internal ones included, and stores no internal flag: a later
@@ -32,7 +35,7 @@ import type {
   AdminPageViewClassification,
   AdminTrafficClass,
 } from '@aeci/shared';
-import { and, eq, gte, lte, max, or, sql } from 'drizzle-orm';
+import { and, eq, gte, lte, max, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViewClassifications, pageViews } from '../db/schema';
@@ -106,9 +109,9 @@ async function latestVersionPerDay(
 /**
  * The classification block for `[fromDay, toDay]` (inclusive UTC days).
  *
- * `operatorLeakViews` is the overview's existing D15(b) figure, passed through
- * so `internal_excluded.operator_leak_inferred` and `traffic.operator_leak_excluded`
- * are one number.
+ * `operatorLeakViews` is the collector's D15(b) figure, passed through so
+ * `internal_excluded.operator_leak_inferred` and the email's internal line are
+ * one number.
  */
 export async function readClassificationSummary(
   db: Db,
@@ -280,6 +283,63 @@ export async function readClassificationSeries(
   }
 
   return { perDay, versionSeam: versionSeamFor(versions, ordered) };
+}
+
+/** The two classes the top products and top sources tables drop (AECI-1460). */
+export const AUTOMATION_CLASSES = [
+  'identified_automation',
+  'suspected_automation',
+] as const satisfies readonly AdminTrafficClass[];
+
+/** The tables' class filter for one UTC day, or why there is none. */
+export interface AutomationClassFilter {
+  /** ANDed into the tables' `WHERE`. Undefined when the day is unclassified. */
+  predicate: SQL | undefined;
+  /** The day's latest classifier version, or null when the day has no rows. */
+  version: string | null;
+  /** True when no filter applies, so the tables are unfiltered and say so. */
+  unclassified: boolean;
+}
+
+/**
+ * The predicate the digest's and the overview's top products and top sources
+ * tables use since AECI-1460, which retired `AutomationExclusion`.
+ *
+ * It drops a view classed `identified_automation` or `suspected_automation` on
+ * `day`'s latest classifier version, the same version the class section counts
+ * that day on. Every other view stays, including `unresolved` ones and views the
+ * classifier has not reached yet.
+ *
+ * **`NOT EXISTS` is load-bearing.** A view with no classification row makes the
+ * subquery empty, so `NOT EXISTS` is TRUE and the row is kept. A join or a
+ * `class NOT IN (...)` test would be NULL for that row, and a NULL `WHERE` drops
+ * it. Same three-valued-logic trap `OPERATOR_PAIR_MATCH` documents.
+ *
+ * The subquery correlates on the unaliased `page_views` table, so a caller that
+ * aliases `pageViews` breaks it. `productAttributedViews` does not.
+ *
+ * A day with no classification rows gets no predicate and `unclassified: true`.
+ * The tables then print unfiltered with a note. Three bound parameters, and no
+ * compound `SELECT`, so D1's limits are not in play.
+ */
+export async function automationClassFilterForDay(
+  db: Db,
+  day: string,
+): Promise<AutomationClassFilter> {
+  const { perDay } = await latestVersionPerDay(db, day, day);
+  const version = perDay.get(day) ?? null;
+  if (version === null) return { predicate: undefined, version: null, unclassified: true };
+  const [a, b] = AUTOMATION_CLASSES;
+  return {
+    predicate: sql`not exists (
+      select 1 from ${pageViewClassifications} as pvc
+       where pvc.page_view_id = ${pageViews.id}
+         and pvc.classifier_version = ${version}
+         and pvc.class in (${a}, ${b})
+    )`,
+    version,
+    unclassified: false,
+  };
 }
 
 /**

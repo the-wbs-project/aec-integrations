@@ -17,7 +17,11 @@
  * `net` assertion can only pass by actually reading the table.
  */
 
-import { AdminTimeseriesResponseSchema, type AdminTimeseriesResponse } from '@aeci/shared';
+import {
+  AdminTimeseriesResponseSchema,
+  FROZEN_METRIC_KEYS,
+  type AdminTimeseriesResponse,
+} from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -432,6 +436,22 @@ describe('GET /api/admin/metrics/timeseries — the metrics_daily snapshot (P2.1
     expect(body.source).toBe('snapshot');
     expect(body.points.map((p) => p.value)).toEqual([42, 7]);
     expect(body.total.total).toBe(49);
+  });
+
+  it('still serves the stored rows of a frozen key, and leaves unwritten days absent (AECI-1460)', async () => {
+    // `traffic.page_views_human_after_automation` has no writer since the
+    // cut-over. The rows written before it are history and must stay readable.
+    expect(FROZEN_METRIC_KEYS).toContain('traffic.page_views_human_after_automation');
+    await snap('2026-08-08', 'traffic.page_views_human_after_automation', 14);
+    await snap('2026-08-09', 'traffic.page_views_human_after_automation', 11);
+
+    const body = await series(
+      'metric=traffic.page_views_human_after_automation&from=2026-08-08&to=2026-08-10',
+    );
+    // 2026-08-10 has no stored row. A snapshot-only key reports it absent, never
+    // as a live zero.
+    expect(body.points.map((p) => p.day)).toEqual(['2026-08-08', '2026-08-09']);
+    expect(body.points.map((p) => p.value)).toEqual([14, 11]);
   });
 
   it('falls back to live aggregation for days the snapshot does not cover', async () => {

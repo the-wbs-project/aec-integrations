@@ -152,12 +152,8 @@ import {
   dailyWindows,
   digestMethodSeams,
   type AnalyticsMetrics,
-  type DigestWindow,
-  unresolvedRequests,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
-import { readPosthogBrowserStarts } from './lib/posthog-browser-starts';
-import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
@@ -1397,32 +1393,6 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
  *  the invocation. */
 /**
- * The digest's client-side human floor (AECI-660), or a structured skip.
- *
- * Fail-open by construction: every failure path returns `{ ok: false, reason }`
- * and the digest renders a short "unavailable" note instead of a number. It must
- * never return a zero on failure — a fabricated 0 beside a real 48 reads as a
- * finding rather than as missing data.
- *
- * Host-scoped to this environment's own `PUBLIC_SITE_URL`, because every tier
- * currently shares one PostHog project and an unscoped read would fold demo and
- * staging traffic into the production figure.
- */
-async function readPosthogFloor(env: Env, window: DigestWindow): Promise<PosthogQueryOutcome> {
-  const host = publicHostOf(env.PUBLIC_SITE_URL);
-  if (!host) return { ok: false, reason: 'public_site_url_unset' };
-  return fetchPosthogTraffic(
-    {
-      apiKey: env.POSTHOG_QUERY_API_KEY,
-      projectId: env.POSTHOG_PROJECT_ID,
-      host: env.POSTHOG_API_HOST,
-    },
-    { startIso: window.startIso, endIso: window.endIso, host },
-    fetch,
-  );
-}
-
-/**
  * The analytics digest's class fields for `job_runs.detail` (AECI-1346). Null
  * classes are recorded as null, never as zeros.
  */
@@ -1476,38 +1446,15 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     const { db } = cronDb(env);
     const window = dailyWindows(new Date());
 
-    // Two reads. Swarm detection USED to be orchestrated here, above the
-    // collector, because `swarm-detection` imported the collector's own
-    // `HUMAN` / `NOT_INTERNAL` predicates and calling it from inside would have
-    // closed an import cycle. AECI-745 lifted those predicates into
-    // `lib/page-view-predicates.ts`, so the collector runs the detector itself —
-    // which is what put the filtered headline on `/admin/overview` too, instead
-    // of leaving it reachable only from here and therefore only by email.
-    //
-    // The PostHog half of that old rationale still stands and is why this read
-    // stays out here: it reaches the NETWORK, which the D1-only collector has
-    // never done and should not start doing.
-    //
-    // AECI-870 adds a SECOND network read on the same leg: `app_started`, the
-    // Tier 2 browser-start beacon. Two PostHog requests per run, not more — each
-    // read is exactly one HogQL query, and both share the transport's
-    // timeout/drain discipline, because a Worker invocation holds only ~6
-    // connections waiting for headers (AECI-666).
-    const [metrics, posthog, browserStarts] = await Promise.all([
-      collectAnalyticsMetrics(db, window),
-      readPosthogFloor(env, window),
-      readPosthogBrowserStarts(env, db, window),
-    ]);
-    const swarm = metrics.swarm;
+    // One read, D1 only. AECI-1460 removed the two PostHog reads (the `$pageview`
+    // floor and the AECI-870 browser starts) with the residual they sat beside, so
+    // this job makes no network call before the email send.
+    const metrics = await collectAnalyticsMetrics(db, window);
 
     const digest = buildAnalyticsDigest(metrics, {
       env: env.ENV ?? 'development',
       dayLabel: window.dayLabel,
       generatedAt: new Date(),
-      posthog: posthog.ok ? posthog.traffic : null,
-      posthogUnavailable: posthog.ok ? null : posthog.reason,
-      browserStarts: browserStarts.ok ? browserStarts.starts : null,
-      browserStartsUnavailable: browserStarts.ok ? null : browserStarts.reason,
     });
     const recipients = parseRecipients(env.SUPPORT_EMAIL);
     const telemetry = { env, executionCtx: ctx, req: { raw: req } };
@@ -1562,53 +1509,12 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           newUsers: metrics.newUsers.day,
           totalUsers: metrics.totalUsers,
           pendingModeration: metrics.pendingModeration,
-          // AECI-660 / AECI-658. Recorded so a join that silently stops running
-          // is visible in `job_runs` rather than only as an absence in the email.
-          posthogPageViews: posthog.ok ? posthog.traffic.pageviews : null,
-          posthogPeople: posthog.ok ? posthog.traffic.people : null,
-          posthogSkipped: posthog.ok ? null : posthog.reason,
-          // Null throughout when the detector did not run (AECI-745). A zero here
-          // would record a clean day, which is precisely what an outage must not
-          // be allowed to look like in the history anyone later reads.
-          swarmCandidates: swarm?.uaCandidates.length ?? null,
-          asnRotatorCandidates: swarm?.asnCandidates.length ?? null,
-          swarmFlaggedViews: swarm?.flaggedViews ?? null,
-          swarmTruncated: swarm?.truncated ?? null,
-          // AECI-742. How many of the day's candidates were admitted on a lower
-          // bar because they carried a flagged history. Recorded for the same
-          // reason as `operatorLeakViews` below: a lever that starts over-reaching
-          // has to be visible in `job_runs` history, not only in one morning's
-          // email, and this one draws on evidence from outside the reported day.
-          swarmRecurringCandidates:
-            swarm?.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length ?? null,
-          // AECI-744. The third shape: views flagged by their own request headers
-          // with no view floor, and the networks they came from. Recorded because
-          // the rollup is a read over `page_views`, and by the time anyone asks
-          // "which networks were those?" the window may have aged out of retention.
-          verdictFlaggedViews: swarm?.verdictFlaggedViews ?? null,
-          nonBrowserCandidates: swarm?.verdictCandidates.length ?? null,
-          nonBrowserNetworks:
-            swarm?.verdictCandidates.map((c) => ({
-              asn: c.cfAsn,
-              org: c.asOrganization,
-              views: c.views,
-            })) ?? null,
-          // AECI-741. The headline the email actually led with, recorded so the
-          // number the operator read is reconstructible from `job_runs` without
-          // re-running the detector over a window whose data may since have aged
-          // out of retention.
-          // Through the shared function rather than an inline subtraction: an
-          // open-coded copy here is a second definition of the headline, which is
-          // the exact failure AECI-745 closed everywhere else. Null when the
-          // detector did not run — the raw count IS the headline on such a day,
-          // but recording it under this key would assert a filter that never ran.
-          pageViewsHumanNetAutomation: metrics.automation ? unresolvedRequests(metrics).day : null,
-          // AECI-683. Recorded beside the headline so a leak that starts growing
-          // (or a pair rule that starts over-reaching) is visible in `job_runs`
-          // history rather than only in one morning's email.
+          // AECI-683. Recorded so a leak that starts growing (or a pair rule that
+          // starts over-reaching) is visible in `job_runs` history rather than
+          // only in one morning's email.
           operatorLeakViews: metrics.operatorLeakViews,
-          corroboratedViews: metrics.corroboratedViews.day,
-          corroboratedVisitors: metrics.corroboratedVisitors,
+          // AECI-1460. Whether the morning's tables were filtered by class.
+          tablesUnclassified: metrics.tablesUnclassified,
           // AECI-1346. The classes the email led with, so the morning's figures
           // are reconstructible from `job_runs` without re-reading a day whose
           // classification may since have been re-evaluated.

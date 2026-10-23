@@ -51,10 +51,9 @@ import {
  * toggle.
  *
  * **"Unfiltered" here means "not ASN-filtered", and nothing more** (AECI-752).
- * It is not a claim that no filter ran: `page_views_human` is an
- * {@link AdminCount} whose `total` has been the POST-AUTOMATION figure since
- * AECI-745. Reading this rule as an unqualified one is how `/admin/overview`
- * came to print "every figure here is unfiltered" above a number filtered twice.
+ * It is not a claim that no other filter ran. Reading this rule as an
+ * unqualified one is how `/admin/overview` once came to print "every figure here
+ * is unfiltered" above a number filtered twice (AECI-752).
  *
  * ─── Storage-agnostic by design ──────────────────────────────────────────────
  *
@@ -96,12 +95,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `referrer_source_is_unverified` | `Referer` is client-supplied and unverifiable, so a source is what the request CLAIMED. Emitted unconditionally with any source breakdown, and deliberately not gated on detecting a forgery — a forged referrer is indistinguishable from a real one once §9.7 has reduced it to a host, so "none detected" would be a claim the rows cannot support (AECI-624) |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable. AECI-585 stores a `navigation` flag at ingest, but no endpoint groups on it yet and rows written before it cannot be separated at all |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
- * | `corroborated_is_a_referrer_floor` | `corroborated_views` counts arrivals with a NAMED external referrer (AECI-683). Emitted unconditionally with the figure: it UNDER-counts (Referrer-Policy strips real referrals into `Direct`) and it is forgeable UPWARD, since it rests on the same unverified `Referer` as `referrer_source_is_unverified` |
- * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session. **Emitted only when `operator_leak_excluded` is non-zero** (AECI-836), and `params.rows` repeats that figure. Unlike the two standing caveats above it, this note describes an exclusion that MAY NOT HAVE HAPPENED — at zero it would explain an inference the response never made |
- * | `automation_filter_applied` | the headline is `page_views_human_raw` less the views the swarm detector attributed to automated clients (AECI-745). `message` carries the published thresholds (`SWARM_THRESHOLD_NOTE`) and, when the day flagged anything, that day's own `swarmNote(...)` sentence |
- * | `automation_filter_did_not_run` | the detector failed for this window, so `page_views_human` is UNFILTERED and `automation_flagged` is null. A `warn`: unlike the standing caveats this is a real, clearable condition, and a reader who misses it reads a raw count as a filtered one |
  * | `arrival_telemetry_unavailable` | fewer than `ARRIVAL_CF_COVERAGE_MIN` of this window's full-document arrivals carry a `cf_asn` (AECI-868/AECI-869), so every network-based exclusion — `DATACENTER_ASNS`, both swarm groupings, the ASN rotator, the §13 D15 operator retro-join — had no input and could not fire. A `warn`, and the strongest one on the screen: it does not qualify the figures, it **invalidates** them against any other day. `params` repeat `arrivals` / `arrivals_with_asn` |
- * | `series_spans_degraded_days` | `params.degraded_days` of the days behind `series_30d` (and behind `delta_7d`) failed that same coverage bar, so the chart mixes measured days with blind ones. Separate from the code above because a healthy reported day can still sit on top of a blind month, and telling that reader "telemetry unavailable for this day" would be false |
+ * | `series_spans_degraded_days` | `params.degraded_days` of the days behind `series_30d` failed that same coverage bar, so the chart mixes measured days with blind ones. Separate from the code above because a healthy reported day can still sit on top of a blind month, and telling that reader "telemetry unavailable for this day" would be false |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
  * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
@@ -124,8 +119,9 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `publication_gate_inputs_only` | the pairs view shows §13.7's INPUTS, not its verdict. Clause (a) (both sides in our catalog) and the provenance half of (d) are computed; clause (b) (the pair being undelivered) and clause (c) (Addendum A §11.4's "meaningful no" scoring) are **not**, and belong to AECI-716. A row shown here is not thereby publishable |
  * | `classification_unresolved_share` | AECI-1345 (D19 Phase 2). A `warn`, **gated**: emitted only when `unresolved` views exceed `CLASSIFICATION_UNRESOLVED_SHARE_MAX` (50%) of the classified, non-internal views in the window. `params.unresolved` / `params.classified` carry the two counts. It describes a condition that may not hold, so the D15(b) gate-the-caveat rule applies |
  * | `classification_version_seam` | AECI-1345. An `info`, **gated** on `classification.version_seam` being non-null: the window spans a classifier version change, and each day is counted on its own latest version, flagged rather than blended (D19(c)). `params` repeat `from_version`, `to_version`, `changed_on` |
- * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". The `corroborated_is_a_referrer_floor` precedent (§13 D15(d)) |
- * | `collection_method_seam` | AECI-1346. An `info`, **gated** on a `POST_LAUNCH_MONITORING.md` §3d row for this tier falling inside the 30-day chart window (`COLLECTION_METHOD_CHANGES`). One note per row. `params`: `changed_at` (ISO timestamp), `tier`, `summary`, `comparable` (`'true'` or `'false'`). On a `'false'` row the class `delta_day` and the residual deltas that span it are null. On a `'true'` row the note is informational and the deltas stand |
+ * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". A standing caveat under §13 D15(d) |
+ * | `collection_method_seam` | AECI-1346. An `info`, **gated** on a `POST_LAUNCH_MONITORING.md` §3d row for this tier falling inside the 30-day chart window (`COLLECTION_METHOD_CHANGES`). One note per row. `params`: `changed_at` (ISO timestamp), `tier`, `summary`, `comparable` (`'true'` or `'false'`). On a `'false'` row the class `delta_day` values that span it are null. On a `'true'` row the note is informational and the deltas stand |
+ * | `tables_unclassified` | AECI-1460. An `info`, **gated**: the reported day has no `page_view_classifications` rows, so `top_products` and `top_sources` are NOT filtered by class. On a classified day they drop views classed `identified_automation` or `suspected_automation` on the day's latest classifier version |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
@@ -135,8 +131,6 @@ export const AdminNoteCodeSchema = z.enum([
   'referrer_source_is_unverified',
   'direct_is_mixed_bucket',
   'visitor_definition_approximate',
-  'corroborated_is_a_referrer_floor',
-  'operator_leak_is_an_inference',
   // AECI-869 — the two telemetry-health codes. `arrival_telemetry_unavailable`
   // is about THIS window; `series_spans_degraded_days` is about the days a chart
   // or a multi-day delta reaches back over. Two codes rather than one, because a
@@ -149,11 +143,6 @@ export const AdminNoteCodeSchema = z.enum([
   // behind it, so a stored day inside the trailing window can still fall. The
   // 00:15 re-check converges it; this note covers the hours before it runs.
   'series_within_operator_lookback',
-  // AECI-745 — the automation filter, in the two states it can be in. Two codes
-  // rather than one with a flag, because "it ran" and "it failed" are read by
-  // different people for different reasons and must style differently.
-  'automation_filter_applied',
-  'automation_filter_did_not_run',
   'catalog_series_is_additions_only',
   'catalog_series_starts_at',
   // AECI-686 — the `basis=net` counterparts of the two above.
@@ -187,6 +176,9 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-1346 — a `POST_LAUNCH_MONITORING.md` §3d collection-method change inside
   // the window. The second seam source, beside the classifier version.
   'collection_method_seam',
+  // AECI-1460 — the top products and top sources tables on a day with no stored
+  // classes, which therefore print unfiltered.
+  'tables_unclassified',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -520,194 +512,45 @@ export const AdminArrivalTelemetrySchema = z.object({
 export type AdminArrivalTelemetry = z.infer<typeof AdminArrivalTelemetrySchema>;
 
 /**
- * Successful browser-bundle executions — PostHog `app_started` (AECI-870).
+ * Traffic block. `page_views_bot` / `top_sources` / `top_products` are the
+ * digest's own numbers (via `collectAnalyticsMetrics`); the rest are panel-only
+ * additions.
  *
- * **Starts, never people, and the schema is what enforces it.** The Tier 2
- * client runs with `persistence: 'memory'` (`ANALYTICS.md` §5), so every full
- * page load mints a fresh anonymous distinct id and PostHog resolves a fresh
- * person behind it: over the Sep 7–10 production sample, persons ≈ starts. There
- * is deliberately **no people or session field here** — one cannot be
- * manufactured from anonymous starts, and a field a caller could print is a
- * field a caller will print.
- *
- * **Three counts, and the gaps between them carry the meaning.** `starts_all` is
- * the raw event count. `starts` removes the operator (via a `$identify`
- * retro-join on the admins' Supabase user ids — the PostHog analogue of the D1
- * `NOT_INTERNAL` exclusion) and the clients PostHog's own `$virt_traffic_type`
- * flagged as bots. `search_referred` is the subset of `starts` whose referrer
- * PostHog classified as a search engine.
+ * AECI-1460 removed the residual ("requests of unresolved origin") and every
+ * field that existed only to produce or qualify it: `page_views_human`,
+ * `page_views_human_raw`, `automation_flagged`, `delta_day`, `delta_7d`, the
+ * AECI-683 referrer floor, `operator_leak_excluded` and the AECI-870 browser
+ * starts. The classification block leads instead; the operator-leak figure lives
+ * on as `classification.internal_excluded.operator_leak_inferred`.
  */
-export const AdminBrowserStartsSchema = z.object({
-  /** Every `app_started` row in the window, before either exclusion. */
-  starts_all: z.number().int().nonnegative(),
-  /** `starts_all` less the operator's own starts and PostHog-detected bots. **The
-   *  figure to print.** Zero is a real value and a real finding — it means the
-   *  bundle did not execute, or the collector is blocked, not that nobody came. */
-  starts: z.number().int().nonnegative(),
-  /** Of `starts`, those carrying a non-empty `$search_engine`. The strongest
-   *  human evidence in the client-side stack: a search referrer plus a proven
-   *  bundle execution. */
-  search_referred: z.number().int().nonnegative(),
-});
-export type AdminBrowserStarts = z.infer<typeof AdminBrowserStartsSchema>;
-
-/** Traffic block. `page_views_human` / `delta_day` / `top_sources` /
- *  `top_products` are the digest's own numbers (via `collectAnalyticsMetrics`);
- *  the rest are panel-only additions. */
 export const AdminOverviewTrafficSchema = z.object({
-  /**
-   * **Requests of unresolved origin** — the digest's headline, and since AECI-745
-   * the panel's too. Human-classified page views less the views the automation
-   * filter attributed to automated clients.
-   *
-   * ⚠️ **The FIGURE is unchanged; what it is CALLED changed (AECI-869).** This
-   * field was labelled "human page views after automation" until 2026-09-11, and
-   * both surfaces led with the word *human*. They should not have. Surviving the
-   * crawler list, the AECI-658 header checks and the swarm thresholds is the
-   * **absence of a bot match**, not evidence of a person — and AECI-868 proved
-   * how far that can drift: for four days every arrival carried a NULL `cf_asn`,
-   * so `countDistinct(cf_asn)` was zero, neither grouping could fire, and the
-   * residual inflated with nothing in the email or the panel saying so. The
-   * arithmetic and the wire name both stay; only the label moves. The word
-   * "human" now appears on {@link AdminOverviewTrafficSchema.shape.corroborated_views}
-   * alone, which is the one figure that names its own evidence.
-   *
-   * ⚠️ **This field was also REDEFINED once before.** Through AECI-744 it carried the raw
-   * server-side count; AECI-741 made the filtered figure the email's headline and
-   * left the panel on the raw one, so the two surfaces answered "how many humans?"
-   * with different numbers (14 vs 70 on 2026-08-30). Rather than add a second
-   * headline and leave readers to pick, the headline moved here and the raw count
-   * moved to {@link AdminOverviewTrafficSchema.shape.page_views_human_raw}. A
-   * reader that upgrades without noticing gets the BETTER number, which is why
-   * this direction was chosen — but it is a silent semantic change and nothing in
-   * the type says so, hence this comment.
-   *
-   * `excluding_internal` is filtered the same way, so the pair cannot show an
-   * ASN-excluded figure larger than the total it is a subset of.
-   *
-   * Equal to `page_views_human_raw` when `automation_flagged` is null (the
-   * detector did not run). That is not a coincidence to rely on — read
-   * `automation_flagged` to know which of the two you are looking at.
-   */
-  page_views_human: AdminCountSchema,
-  /**
-   * The RAW server-side count: what `page_views_human` meant before AECI-745.
-   *
-   * Kept, rather than dropped, because it is a genuinely different measurement
-   * and the email prints both: an UPPER bound, counted server-side on every
-   * full-document load, so a crawler that never runs our JavaScript is in it.
-   * The envelope on the tile has to show the subtraction, and a subtraction needs
-   * its minuend.
-   */
-  page_views_human_raw: AdminCountSchema,
-  /**
-   * Human views the automation filter removed from the reported day, or **null
-   * when the detector did not run**.
-   *
-   * Null and zero are different and must render differently: zero is a clean day,
-   * null is an OUTAGE in which the headline above is unfiltered. A UI that prints
-   * "0 flagged" for a failed detector makes the failure look like good news,
-   * which is the one thing it must never look like.
-   */
-  automation_flagged: z.number().int().nonnegative().nullable(),
   page_views_bot: AdminCountSchema,
   /** DISTINCT `(user_agent_hash, cf_asn)` among HUMAN rows in the window (§9.8). */
   unique_visitors: AdminCountSchema,
-  /** Post-automation human page views, this day vs the prior day — the digest's
-   *  delta, and **filtered on BOTH sides** (AECI-741): a filtered day against an
-   *  unfiltered prior day manufactures a large fake drop. Redefined by AECI-745
-   *  alongside `page_views_human`, for the same reason and with the same caveat.
-   *
-   *  **Null when a non-comparable §3d collection-method change falls between the
-   *  two days** (AECI-1346, `collection_method_seam` with `comparable: 'false'`).
-   *  The two days count different row populations, so the difference measures
-   *  nothing. Null is never a zero change. */
-  delta_day: AdminDeltaSchema.nullable(),
   /**
-   * Human page views, the 7 days ending with this one vs the 7 before that.
-   *
-   * **RAW on both sides, unlike `delta_day`** — deliberately, and the panel says
-   * so. Filtering it would mean running the swarm detector over 14 further days
-   * on every request, which is not a cost this endpoint can carry. Two deltas
-   * with different populations sitting side by side is a real hazard; the answer
-   * is to label it, not to fabricate a filtered week from an unfiltered one.
-   *
-   * Null when a non-comparable §3d collection-method change falls inside the 14
-   * days it compares (AECI-1346), for the same reason as `delta_day`.
+   * 30 UTC days ending with the reported day, zero-filled. RAW human and bot
+   * counts. The class chart reads each day's `degraded` mark from here
+   * (AECI-877), which is why the series survived AECI-1460.
    */
-  delta_7d: AdminDeltaSchema.nullable(),
-  /** 30 UTC days ending with the reported day, zero-filled. RAW, like
-   *  `delta_7d` and for the same reason. The filtered series is the
-   *  `traffic.page_views_human_after_automation` metric key, which is served from
-   *  `metrics_daily` precisely because it cannot be computed live per day. */
   series_30d: z.array(AdminTrafficPointSchema),
+  /**
+   * Since AECI-1460, both tables drop views classed `identified_automation` or
+   * `suspected_automation` on the day's latest classifier version. On a day with
+   * no classes they are unfiltered and the response carries `tables_unclassified`.
+   */
   top_sources: z.array(AdminSourceCountSchema),
   top_products: z.array(AdminProductViewsSchema),
-  /**
-   * Human views in the window that arrived with a NAMED external search or social
-   * referrer, and the §9.8 visitors behind them (AECI-683). The digest's own
-   * numbers — the third figure it prints beside the server-side upper bound and
-   * the PostHog lower bound.
-   *
-   * A plain count rather than an {@link AdminCountSchema} on purpose: there is no
-   * ASN-filtered variant of it, and a nullable `excluding_internal` that is always
-   * null would imply a second number exists.
-   *
-   * **This is a FLOOR and it is built on a CLAIM.** Referrer-Policy strips real
-   * referrals into `Direct`, so it under-counts; and nothing verifies a `Referer`
-   * (§9.7 — production holds a confirmed forgery). The UI must print both caveats
-   * beside it, exactly as the email does. The value is still the most useful of
-   * the three, because a rotating-proxy pool sends no `Referer` at all.
-   */
-  corroborated_views: z.number().int().nonnegative(),
-  corroborated_visitors: z.number().int().nonnegative(),
-  /**
-   * Human views excluded because they share a `(user_agent_hash, cf_asn)` pair
-   * with a verified operator session nearby in time — the rows a lapsed admin
-   * session left unflagged (AECI-683, `analytics-digest.ts` `OPERATOR_PAIR_MATCH`).
-   *
-   * Surfaced rather than silently netted off because, unlike the path and session
-   * halves of the same exclusion, this one is an INFERENCE about identity. The
-   * panel and the email report the same figure.
-   */
-  operator_leak_excluded: z.number().int().nonnegative(),
   /**
    * Whether this day's network metadata actually arrived (AECI-868 / AECI-869).
    *
    * Not a caveat about a figure — a statement about whether the INPUT to half the
    * figures existed. `page_views.cf_asn` is written only on full-document
    * arrivals, from `request.cf`, and when it is absent every network-based
-   * exclusion silently does nothing: a blind day looks like a quiet one. That is
-   * the failure this block exists to make visible, and it is why it sits in the
-   * §13 D15 measurement envelope rather than beside the status strip.
+   * classifier input silently does nothing: a blind day looks like a quiet one.
+   * That is the failure this block exists to make visible, and it is why it sits
+   * in the §13 D15 measurement envelope rather than beside the status strip.
    */
   arrival_telemetry: AdminArrivalTelemetrySchema,
-  /**
-   * Successful browser-bundle executions in the window (AECI-870) — PostHog's
-   * `app_started`, the Tier 2 beacon that fires for **every** visitor with no
-   * consent gate (`ANALYTICS.md` §5).
-   *
-   * **Null means the figure was not measured, and that has two causes.** By
-   * default this endpoint does not query PostHog at all: the read is gated on
-   * `?recompute=1` alongside the other two network-dependent items (§13 D8), so
-   * a default dashboard load returns null with a `requires_recompute` note. On a
-   * recompute that failed, `browser_starts_unavailable` names the reason. Null
-   * is never a zero — a fabricated zero beside a real residual reads as a
-   * finding rather than as missing data.
-   */
-  browser_starts: AdminBrowserStartsSchema.nullable(),
-  /**
-   * Why {@link AdminOverviewTrafficSchema.shape.browser_starts} is null, when it
-   * is because the read ran and failed (`posthog_http_503`,
-   * `posthog_credentials_missing`, `admin_lookup_failed`, …). Null when the read
-   * was never attempted.
-   *
-   * A free-form transport string rather than an `AdminNoteCode`, deliberately:
-   * every code in that enum is a fixed vocabulary entry with a matching UI
-   * string, and a PostHog status code is not vocabulary. Mirrors the digest's
-   * own `posthogUnavailable` for the same reason.
-   */
-  browser_starts_unavailable: z.string().nullable(),
 });
 export type AdminOverviewTraffic = z.infer<typeof AdminOverviewTrafficSchema>;
 
@@ -765,9 +608,9 @@ const AdminMethodChangeSchema = z.object({
 
 /**
  * The classification half of `GET /api/admin/overview` (`API_CONTRACTS.md` §6.10).
- * A SIBLING of `traffic`, never a replacement: `page_views_human` keeps its
- * meaning. Phase 3 (AECI-1346) made the classes the lead figure on the panel and
- * in the 05:00 digest. The residual stays as the previous measure.
+ * A sibling of `traffic`. Phase 3 (AECI-1346) made the classes the lead figure
+ * on the panel and in the 05:00 digest, and Phase 4 (AECI-1460) retired the
+ * residual that sat below them, so the classes are the only population figure.
  * Read from `page_view_classifications` (`DATABASE_SCHEMA.md` §9.7).
  */
 export const AdminClassificationSummarySchema = z.object({
@@ -796,7 +639,7 @@ export const AdminClassificationSummarySchema = z.object({
    *  by `NOT_INTERNAL` at read time; nothing internal is stored. */
   internal_excluded: z.object({
     views: z.number().int().nonnegative(),
-    /** The D15(b) figure, unchanged: `traffic.operator_leak_excluded`. */
+    /** The D15(b) operator-leak inference: views `OPERATOR_PAIR_MATCH` removed. */
     operator_leak_inferred: z.number().int().nonnegative(),
   }),
   /** Which of D19(a)'s questions the figures answer. Always `requests` today. */
@@ -909,17 +752,16 @@ export const ADMIN_METRIC_KEYS = [
   /**
    * The **RAW** human count — `NOT_INTERNAL` + `HUMAN`, nothing subtracted.
    *
-   * Not the same thing as the identically-named FIELD on
-   * {@link AdminOverviewTrafficSchema}, which AECI-745 redefined to the
-   * POST-AUTOMATION count and whose raw figure moved to `page_views_human_raw`.
-   * Two shapes happen to share a string; nothing in either type says so, which
-   * is why it is said here and in `ADMIN_PANEL_SPEC.md` §7.1. The filtered
-   * series is the separate key below.
+   * The overview's identically-named field, which AECI-745 redefined to the
+   * post-automation count, was removed by AECI-1460. The frozen filtered series
+   * is the separate key below.
    */
   'traffic.page_views_human',
   /**
    * Human page views less the views the swarm detector attributed to automated
-   * clients — the filtered series behind `/admin/overview`'s headline (AECI-745).
+   * clients — the stored series of the residual `/admin/overview` once led with
+   * (AECI-745). **Frozen by AECI-1460** ({@link FROZEN_METRIC_KEYS}): nothing
+   * writes it any more, and the stored rows are read as history.
    *
    * **Served from `metrics_daily` ONLY.** Every other key here falls back to a
    * live per-day aggregation for days the snapshot has not captured; this one
@@ -927,8 +769,8 @@ export const ADMIN_METRIC_KEYS = [
    * — roughly seven D1 reads per day, so ~210 for a 30-day chart. Days with no
    * stored row are therefore a GAP, not a zero and not a recompute, and
    * `series_partly_reconstructed` / `catalog_series_starts_at` style notes say
-   * where the series begins. Fill history with `pnpm ops:backfill-metrics-daily`,
-   * which can afford the per-day cost that a request cannot.
+   * where the series begins. It has no backfill either (`NOT_BACKFILLABLE` in
+   * `metrics-backfill.ts`), so a stored row is the only record of its day.
    *
    * For the same reason `excludeInternal=1` is rejected on this key: the internal
    * filter bypasses the snapshot by design, and there is no live path to fall
@@ -950,6 +792,26 @@ export const ADMIN_METRIC_KEYS = [
 
 export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * Metric keys that are still readable but no longer written (AECI-1460).
+ *
+ * Frozen by AECI-1460, no writer since the cut-over, stored rows are history.
+ * `traffic.page_views_human_after_automation` was the residual's stored series.
+ * AECI-1460 retired the residual and the `AutomationExclusion` behind it, so the
+ * 00:15 snapshot and its re-check stop writing the key from the deploy that ships
+ * it. The key stays in {@link ADMIN_METRIC_KEYS} so `GET /api/admin/metrics`
+ * keeps serving the stored rows, and it stays snapshot-only and not backfillable.
+ *
+ * The snapshot types its producers against this list, so giving a frozen key a
+ * writer again is a compile error.
+ */
+export const FROZEN_METRIC_KEYS = [
+  'traffic.page_views_human_after_automation',
+] as const satisfies readonly AdminMetricKey[];
+
+/** One of {@link FROZEN_METRIC_KEYS}. */
+export type FrozenMetricKey = (typeof FROZEN_METRIC_KEYS)[number];
 
 /**
  * The metric keys the 00:15 cron RE-CHECKS on later nights, because their value
@@ -985,10 +847,10 @@ export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
  * — so coupling to it would silently change what gets corrected the next time
  * the internal filter moves.
  *
- * `traffic.page_views_human_after_automation` is deliberately absent even though
- * it drifts hardest. It is snapshot-only with no live series
- * (`metricIsSnapshotOnly`), so `metricSeries` THROWS on it; the re-check handles
- * it separately, recomputing it per day only when its raw half moved. A future
+ * `traffic.page_views_human_after_automation` is deliberately absent. It is
+ * snapshot-only with no live series (`metricIsSnapshotOnly`), so `metricSeries`
+ * THROWS on it, and since AECI-1460 it is frozen ({@link FROZEN_METRIC_KEYS}):
+ * the re-check no longer recomputes it, so its stored rows stay as written. A future
  * `traffic.*` key that does have a live series joins this list by construction,
  * which is intended.
  */

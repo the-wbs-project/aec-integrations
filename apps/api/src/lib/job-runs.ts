@@ -161,72 +161,10 @@ export interface AnalyticsDigestSummary {
   newUsers: number;
   totalUsers: number;
   pendingModeration: number;
-  /**
-   * The client-side human floor from PostHog (AECI-660), or null when the join
-   * was skipped. Recorded here so a join that silently stops running is visible
-   * in `job_runs` rather than only as an absence in an email nobody diffs.
-   *
-   * Optional so historical rows (written before this shipped) still parse.
-   */
-  posthogPageViews?: number | null;
-  posthogPeople?: number | null;
-  /** Why the PostHog read was skipped, when it was. Null on success. */
-  posthogSkipped?: string | null;
-  /** Rotating-proxy read-out for the same window (AECI-658): how many UA hashes
-   *  were flagged and how many of the reported human views they account for.
-   *  `swarmFlaggedViews` is a UNION across both groupings, never a sum.
-   *
-   *  **Every swarm field below is `number | null`, and the two absences differ**
-   *  (AECI-745). `undefined` means a historical row written before the field
-   *  existed; explicit `null` means the detector RAN AND FAILED on that day, so
-   *  the digest and the panel both reported an unfiltered figure. A zero would
-   *  record an outage as a clean day, which is the one reading this history must
-   *  never support. */
-  swarmCandidates?: number | null;
-  /** AECI-741: the post-automation figure the digest led with, i.e.
-   *  `pageViewsHuman - swarmFlaggedViews`. Stored rather than derived at read
-   *  time so a retention sweep over `page_views` cannot orphan the number the
-   *  operator was shown. */
-  pageViewsHumanNetAutomation?: number | null;
-  swarmFlaggedViews?: number | null;
-  /** The inverse grouping (AECI-683): networks serving a new user-agent almost
-   *  every request. Recorded separately from `swarmCandidates` because the two
-   *  detect opposite shapes and tuning one must not look like tuning the other. */
-  asnRotatorCandidates?: number | null;
-  /** Whether either candidate list hit `SWARM_MAX_CANDIDATES`. A silent cap would
-   *  make a partial read look complete. */
-  swarmTruncated?: boolean | null;
-  /**
-   * How many of `swarmCandidates` were admitted on the lower bar their flagged
-   * history earns them (AECI-742) — a subset, never an addition.
-   *
-   * Recorded because it is the one part of the day's verdict the day's own rows
-   * cannot explain: these candidates sit UNDER the published `SWARM_MIN_ASN_RATIO`
-   * and are flagged on evidence from the previous `SWARM_PRIOR_LOOKBACK_DAYS`. If
-   * the cross-day memory ever starts over-reaching, it shows up here as a rising
-   * share of the candidates rather than as an unexplained drop in the headline.
-   */
-  swarmRecurringCandidates?: number | null;
-  /**
-   * The third shape (AECI-744): views whose OWN `client_verdict` was
-   * `inconsistent` / `non-browser`, flagged with no view floor because the
-   * verdict is direct evidence about the request rather than an inference from
-   * how many requests there were.
-   *
-   * A component of `swarmFlaggedViews`, never an addend — the union reconciles
-   * the overlap with the two groupings.
-   */
-  verdictFlaggedViews?: number | null;
-  /** How many networks those views came from. */
-  nonBrowserCandidates?: number | null;
-  /**
-   * Which networks, largest first — the triage rollup.
-   *
-   * `asn` is null for rows that carried no ASN, which is a real bucket rather
-   * than a dropped one. Stored rather than re-derived because the rollup reads
-   * `page_views` and the window ages out under retention.
-   */
-  nonBrowserNetworks?: { asn: number | null; org: string | null; views: number }[] | null;
+  // AECI-1460 stopped writing the residual's fields: the PostHog floor, the
+  // swarm read-out, the verdict rollup, `pageViewsHumanNetAutomation` and the
+  // corroborated floor. Rows written before the cut-over still carry them, and
+  // nothing reads them back.
   /**
    * Human views the operator-pair retro-join removed (AECI-683).
    *
@@ -236,10 +174,12 @@ export interface AnalyticsDigestSummary {
    * that stays high on a quiet day means the pair rule is over-reaching.
    */
   operatorLeakViews?: number;
-  /** Human views carrying a NAMED external referrer, and the §9.8 visitors behind
-   *  them — the corroborated floor the email prints beside the two bounds. */
-  corroboratedViews?: number;
-  corroboratedVisitors?: number;
+  /**
+   * True when the morning's top products and top sources tables were NOT filtered
+   * by class, because the day had no classes or the read failed (AECI-1460).
+   * `undefined` means a row written before AECI-1460.
+   */
+  tablesUnclassified?: boolean;
   /**
    * The D19 classes the email led with (AECI-1346). `classifierVersion` and
    * `classViews` are null when the day was not classified or the read failed.

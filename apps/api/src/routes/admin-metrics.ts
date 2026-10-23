@@ -256,7 +256,7 @@ export function createAdminTimeseriesHandler(
       // is a caveat about the hours BEFORE it next runs — and about the one case
       // no pass can reach, a manual `is_operator` backfill over historical rows.
       //
-      // Emitted for the same reason D15(b) reports `operator_leak_excluded` at
+      // Emitted for the same reason D15(b) reports the operator-leak figure at
       // all: the pair match is an inference, and a figure that quietly moves is
       // the failure the whole measurement envelope exists to prevent.
       const softFrom = shiftDay(now.toISOString().slice(0, 10), -OPERATOR_PAIR_LOOKBACK_DAYS);

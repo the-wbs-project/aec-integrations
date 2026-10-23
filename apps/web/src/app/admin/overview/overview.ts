@@ -231,37 +231,11 @@ export class AdminOverview {
     });
   });
 
-  protected readonly humanSeries = computed(
-    () => this.overview()?.traffic.series_30d.map((p) => p.human) ?? [],
-  );
-
   protected readonly uniqueVisitorSeries = computed(
     () => this.series()['traffic.unique_visitors'] ?? [],
   );
 
   protected readonly signInSeries = computed(() => this.series()['accounts.sign_ins_new'] ?? []);
-
-  /**
-   * The two deltas on the residual tile, the previous measure since AECI-1346.
-   *
-   * They measure DIFFERENT populations and the API says so: `delta_day` is
-   * post-automation on both sides, `delta_7d` is raw on both, because filtering
-   * a week would mean running the detector over fourteen further days on every
-   * request. Both are internally consistent; only the comparison between them is
-   * not, and `deltaPeriodNote` below is what keeps that from being a silent trap.
-   *
-   * Either is null across a non-comparable §3d collection-method change
-   * (AECI-1346), which is the only reason the API nulls them. The tile then says
-   * "Not comparable" and names the change, rather than dropping the line.
-   */
-  protected readonly pageViewDeltas = computed<readonly StatTileDelta[]>(() => {
-    const t = this.overview()?.traffic;
-    if (!t) return [];
-    return [
-      { delta: t.delta_day, period: 'day', notComparable: 'method_changed' },
-      { delta: t.delta_7d, period: 'week', notComparable: 'method_changed' },
-    ];
-  });
 
   /** Why the class deltas are null, read from the series (AECI-1346). */
   protected readonly classDeltaReason = computed(() => {
@@ -271,7 +245,7 @@ export class AdminOverview {
 
   protected readonly signInDeltas = computed<readonly StatTileDelta[]>(() => {
     const a = this.overview()?.audience;
-    return a ? [{ delta: a.new_sign_ins, period: 'day' as const }] : [];
+    return a ? [{ delta: a.new_sign_ins }] : [];
   });
 
   protected readonly sourceRows = computed<readonly RankedRow[]>(
@@ -312,7 +286,6 @@ export class AdminOverview {
   protected readonly sourcesEmpty = $localize`:@@admin.overview.sources.empty:No traffic sources recorded for this day.`;
   protected readonly productsEmpty = $localize`:@@admin.overview.products.empty:No product page views recorded for this day.`;
 
-  protected readonly pageViewsSparklineLabel = $localize`:@@admin.overview.tile.unresolved.spark:Page views per day over the last 30 days, counted server-side with no automation filter applied`;
   protected readonly visitorsSparklineLabel = $localize`:@@admin.overview.tile.visitors.spark:Unique visitors per day over the last 30 days`;
   protected readonly signInsSparklineLabel = $localize`:@@admin.overview.tile.signIns.spark:New sign-ins per day over the last 30 days`;
 
@@ -321,83 +294,6 @@ export class AdminOverview {
   protected readonly dayCaption = computed(
     () => $localize`:@@admin.overview.caption.day:UTC day ${this.windowDay()}:DAY:`,
   );
-
-  /**
-   * The measurement envelope for the headline number (AECI-683), in the caption
-   * rather than in a fifth tile.
-   *
-   * §5.1 calls this page "the analytics digest as a live page", and the 05:00
-   * email prints these two figures directly beside its headline — a tile of their
-   * own would separate them from the number they qualify, which is the exact
-   * arrangement that let a figure ~8x too high read as authoritative for weeks.
-   * The `visitorsCaption` below already carries a definition of comparable
-   * length, so this costs no layout: the tiles are `h-full` in one grid row and
-   * already size to that caption.
-   *
-   * Phrased with the counts as trailing values (`…: 9.`) rather than inline
-   * (`9 views`) so no sentence needs singular/plural inflection — `$localize`
-   * tagged templates carry no ICU, and the alternative is a branch per
-   * cardinality combination.
-   *
-   * The CAVEATS live in `aec-admin-notes` above, as
-   * `corroborated_is_a_referrer_floor` and `operator_leak_is_an_inference`; only
-   * the shortest form of each is repeated here, next to the number.
-   */
-  protected readonly pageViewsCaption = computed(() => {
-    const t = this.overview()?.traffic;
-    const flagged = t?.automation_flagged ?? null;
-    const parts = [
-      // The headline is no longer the raw server-side count (AECI-745), so this
-      // sentence no longer calls it an upper bound. That label now belongs to the
-      // figure it was subtracted FROM, and moves with it — describing a filtered
-      // estimate as an upper bound would be the same class of error the AECI-658
-      // hedge was added to fix, pointed the other way.
-      flagged === null
-        ? $localize`:@@admin.overview.caption.unresolvedUnfiltered:UTC day ${this.windowDay()}:DAY:. Requests no rule could exclude, which is not the same as people. The automation filter did not run for this day, so this figure is UNFILTERED, nothing has been subtracted at all, and it is an upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in it. It is not comparable with a day the filter ran on.`
-        : $localize`:@@admin.overview.caption.unresolvedAfterAutomation:UTC day ${this.windowDay()}:DAY:. Requests no rule could exclude, which is not the same as people. Counted server-side: ${t?.page_views_human_raw.total ?? 0}:RAW:, less those attributed to automated clients: ${flagged}:FLAGGED:. The server-side figure is an upper bound on humans: it counts every full-document load, so a crawler that never runs our JavaScript is in it.`,
-      $localize`:@@admin.overview.caption.corroboratedHuman:Arrivals carrying a named external search or social referrer, which corroborates them as human: ${t?.corroborated_views ?? 0}:VIEWS:, from distinct visitors: ${t?.corroborated_visitors ?? 0}:VISITORS:. Supporting evidence rather than a verified floor, built on a claim the request made, and a subset of the figure above.`,
-    ];
-    // AECI-869. FIRST among the conditional parts, because when it applies it does
-    // not qualify the figure above it — it says the exclusions behind that figure
-    // had no input at all. The §13 D15 envelope is where it belongs for the same
-    // reason the rest of it is here: a caveat one card away from its figure is a
-    // caveat nobody reads.
-    if (t?.arrival_telemetry.degraded) {
-      parts.push(
-        $localize`:@@admin.overview.caption.arrivalTelemetryUnavailable:Arrival network telemetry was unavailable for this day; network-based exclusions did not run. Page loads carrying a network: ${t.arrival_telemetry.arrivals_with_asn}:WITH_NETWORK:, of ${t.arrival_telemetry.arrivals}:ARRIVALS:. This figure is too high by an unknown amount and this day is not comparable with a day that has telemetry.`,
-      );
-    }
-    if ((t?.operator_leak_excluded ?? 0) > 0) {
-      parts.push(
-        $localize`:@@admin.overview.caption.operatorLeak:Excluded as operator self-traffic on a lapsed session: ${t?.operator_leak_excluded ?? 0}:VIEWS:.`,
-      );
-    }
-    // AECI-870. A SEPARATE observation on the same envelope, never summed with
-    // the figure above and never subtracted from it: it counts bundle
-    // executions, the headline counts requests, and the populations overlap.
-    // Present only after a recompute, because the read costs a PostHog query and
-    // the default load does not make one; `requires_recompute` already says so.
-    if (t?.browser_starts) {
-      parts.push(
-        $localize`:@@admin.overview.caption.browserStarts:Browser starts: ${t.browser_starts.starts}:STARTS:, of which search-referred: ${t.browser_starts.search_referred}:SEARCH:. Operator and PostHog-detected bots excluded. A separate observation, never added to or subtracted from the figure above: it counts bundle executions rather than people, and browsers running a tracker blocker never report.`,
-      );
-    } else if (t?.browser_starts_unavailable) {
-      parts.push(
-        $localize`:@@admin.overview.caption.browserStartsUnavailable:Browser starts could not be read: ${t.browser_starts_unavailable}:REASON:.`,
-      );
-    }
-    // Said once, on the tile that carries both. The 7-day delta and the trend
-    // line are raw where the headline is filtered, because filtering them means
-    // running the detector over every day they span. That is a defensible cost
-    // decision and an indefensible thing to leave unlabelled — a reader comparing
-    // a filtered day against a raw week would read the difference as a trend.
-    if (flagged !== null) {
-      parts.push(
-        $localize`:@@admin.overview.caption.pageViewsWeekIsRaw:The 7-day change and the trend line are server-side counts with no automation filter applied, so they sit above this figure.`,
-      );
-    }
-    return parts.join(' ');
-  });
 
   protected readonly visitorsCaption = computed(
     () =>

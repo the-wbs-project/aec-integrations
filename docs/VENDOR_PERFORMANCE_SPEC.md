@@ -88,7 +88,7 @@ Comparative figures (decision 3), emailed reports (decision 6), enquiries or any
 
 ### 2.2 Population and classification
 
-The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record exists since Phase 2 (AECI-1345, 2026-10-21). Its nightly series has no history backfill, and no reader outside the admin overview and Activity feed uses it yet. Until AECI-1445 switches this report to it, the report reads the same predicates the digest and `/admin/overview` read (`lib/page-view-predicates.ts`), and says so in its caveat envelope (§4.4). It adds **no third predicate set**. Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
+The report reads **one** population definition, the versioned classification record AECI-872 introduces (`ADMIN_PANEL_SPEC.md` §13 D19, agreed 2026-10-14; `DATABASE_SCHEMA.md` §9.7). The record exists since Phase 2 (AECI-1345, 2026-10-21). Its nightly series has no history backfill, and no reader outside the admin overview, the Activity feed and the 05:00 digest uses it yet. Until AECI-1445 switches this report to it, the report reads the same predicates the digest and `/admin/overview` read (`lib/page-view-predicates.ts`), and says so in its caveat envelope (§4.4). It adds **no third predicate set**. Days evaluated under different classifier versions are flagged, never blended, and the version in force is shown in the definitions block (§5.2 item 7).
 
 Rows from 2026-09-07 to 2026-09-12 are degraded (AECI-868) and carry the corresponding caveat when the range includes them.
 
@@ -244,7 +244,7 @@ Same query, `Content-Type: text/csv`, one row per day per metric, plus a header 
 
 ### 4.4 Caveat envelope — `VendorNote`
 
-A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admin-panel.ts`), exported from a new `packages/shared/src/api/vendor-performance.ts` with the same `{ code, message }` shape, so the operator console and the vendor page describe the same bias in the same words. Minimum codes: `automation_filter_applied`, `arrival_telemetry_degraded`, `classifier_version_changed`, `search_console_not_connected`, `search_console_stale`, `pair_attribution_starts_at` (the AECI-929 backfill boundary), `small_group_suppressed`, `partial_failure`. Codes are additive; removing one is a contract change.
+A **vendor-safe subset** of `AdminNoteCodeSchema` (`packages/shared/src/api/admin-panel.ts`), exported from a new `packages/shared/src/api/vendor-performance.ts` with the same `{ code, message }` shape, so the operator console and the vendor page describe the same bias in the same words. Minimum codes: `automation_filter_applied`, `arrival_telemetry_degraded`, `classifier_version_changed`, `search_console_not_connected`, `search_console_stale`, `pair_attribution_starts_at` (the AECI-929 backfill boundary), `small_group_suppressed`, `partial_failure`. Codes are additive; removing one is a contract change. As-built 2026-10-23 (AECI-1460): `automation_filter_applied` no longer exists in `AdminNoteCodeSchema`, because the report-side automation filter is retired. AECI-1445 picks its replacement when it builds this subset.
 
 ---
 

@@ -260,3 +260,28 @@ Re-open if any of these becomes true:
    a handful of days a month, and the shape of the problem has changed.
 4. **A second producer starts writing `measured` rows on a schedule.** The precedence clause in
    §2 is stated for two writers; a third needs it re-derived, not re-used.
+
+## Amendment (2026-10-23, AECI-1460): the post-automation key is frozen
+
+AECI-1460 retired the residual "requests of unresolved origin" and the `AutomationExclusion`
+behind it (`ADMIN_PANEL_SPEC.md` §13 D19 Phase 4). The D19 classification record is now the only
+population definition on the reporting surface. So `traffic.page_views_human_after_automation`
+has no producer from each tier's cut-over deploy. The 00:15 snapshot no longer writes it, and the
+re-check no longer recomputes it.
+
+What changes in this record:
+
+- **§4 no longer applies.** The pair has one live half. The re-check corrects the raw
+  `traffic.*` keys on their own, under the same guards.
+- **"What this does NOT fix" no longer bites going forward.** A swarm-threshold change cannot
+  obsolete a series that is no longer written. It changes classifier inputs instead, so it is a
+  classifier-version change (`POST_LAUNCH_MONITORING.md` §3c). Stored rows keep whatever mix of
+  definitions they were written under.
+- **The stored rows stay.** The key stays in `ADMIN_METRIC_KEYS`, snapshot-only and in
+  `NOT_BACKFILLABLE`, so `GET /api/admin/metrics/timeseries` still serves them as history.
+  `FROZEN_METRIC_KEYS` in `packages/shared/src/api/admin-panel.ts` names it, and the snapshot types
+  its producers against `SNAPSHOT_WRITTEN_METRIC_KEYS`, so giving the key a writer again fails to
+  compile.
+
+The rest of the decision is unchanged. Stored class keys are a separate follow-up, not part of
+this amendment.

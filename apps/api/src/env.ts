@@ -394,9 +394,9 @@ export type Env = {
    */
   PEERINGDB_API_KEY?: string;
   /**
-   * PostHog **personal** API key scoped to `query:read`, used by the daily digest
-   * to report a human LOWER bound beside the D1 upper bound (AECI-660, completing
-   * the AECI-239 join). Set as a Wrangler secret on the API Worker.
+   * PostHog **personal** API key scoped to `query:read`. It fed the daily digest's
+   * PostHog line (AECI-660, completing the AECI-239 join). Set as a Wrangler
+   * secret on the API Worker.
    *
    * NOT the same credential as the browser's `POSTHOG_KEY` (`phc_…`), which is
    * publishable and inlined into public HTML. This one is `phx_…` and grants
@@ -405,16 +405,17 @@ export type Env = {
    * must be revoked rather than reused here. See `docs/email.md`-adjacent notes
    * in `docs/OBSERVABILITY.md`.
    *
-   * Optional + fail-open: absent (or without `POSTHOG_PROJECT_ID`) → the digest
-   * reports the D1 figure alone plus a short "unavailable" note, exactly as it
-   * did before this shipped.
+   * **No reader since AECI-1460.** The digest's PostHog `$pageview` line and the
+   * AECI-870 browser-start read (digest and `/admin/overview`) were its only
+   * consumers, and both are gone. `deploy.yml`, `promote-to-demo.yml` and
+   * `promote-to-prod.yml` still push it to staging, demo and production; retiring
+   * it there and in the Worker secrets is a follow-up.
    */
   POSTHOG_QUERY_API_KEY?: string;
-  /** Numeric PostHog project id the query runs against (e.g. `354071`). Paired
-   *  with `POSTHOG_QUERY_API_KEY`; absent → the same graceful skip. */
+  /** Numeric PostHog project id the query ran against (e.g. `354071`). Paired
+   *  with `POSTHOG_QUERY_API_KEY`, and unread since AECI-1460 for the same reason. */
   POSTHOG_PROJECT_ID?: string;
-  /** PostHog API host. Defaults to US Cloud (`https://us.posthog.com`) when unset;
-   *  present so a future EU/self-hosted move is a config change, not a code one. */
+  /** PostHog API host for the same retired query. Unread since AECI-1460. */
   POSTHOG_API_HOST?: string;
   /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
@@ -624,9 +625,9 @@ export type Env = {
    *      separate concepts and do not merge them.
    *   2. Show BOTH numbers, never substitute. Every count the panel returns
    *      carries the ASN-unfiltered figure as its primary value. That is a claim
-   *      about THIS filter only: the primary figure on `/admin/overview` is also
-   *      post-automation (AECI-745) and net of the operator-leak match
-   *      (AECI-683). AECI-752 narrowed the operator-facing copy accordingly.
+   *      about THIS filter only: other exclusions (the operator retro-join,
+   *      AECI-683; the class record, AECI-1460) apply on their own axes.
+   *      AECI-752 narrowed the operator-facing copy accordingly.
    *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
    *
    * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`

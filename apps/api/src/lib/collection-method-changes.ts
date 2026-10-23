@@ -13,8 +13,8 @@
  *
  * Two treatments, decided per row by `arrivalsComparable`:
  *
- *  - `false`: the classifier-seam treatment. Day-over-day class deltas and the
- *    residual's deltas that span the row are suppressed.
+ *  - `false`: the classifier-seam treatment. Day-over-day class deltas (and the
+ *    digest's crawler delta) that span the row are suppressed.
  *  - `true`: informational. The note fires and the chart draws the boundary, but
  *    the deltas stand, because §3d records that arrival counts stay comparable.
  */

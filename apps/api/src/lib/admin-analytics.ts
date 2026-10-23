@@ -64,26 +64,13 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import type { AutomationFilter } from './analytics-digest';
-// VALUE imports in the same direction, and safe for the same reason the
-// `SWARM_THRESHOLD_NOTE` import below is: `analytics-digest` imports neither this
-// module nor `arrival-coverage`'s consumers, so no cycle closes. The threshold
-// predicate is imported rather than restated so the panel note and the email's
-// own health line cannot end up reading one ratio two ways (AECI-869).
+// VALUE imports, and safe: `analytics-digest` imports neither this module nor
+// `arrival-coverage`'s consumers, so no cycle closes. The threshold predicate is
+// imported rather than restated so the panel note and the email's own health line
+// cannot end up reading one ratio two ways (AECI-869).
 import { ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE, arrivalTelemetryDegraded } from './analytics-digest';
 import { ARRIVAL_CF_COVERAGE_MIN, type ArrivalCfCoverage } from './arrival-coverage';
-import {
-  type AutomationExclusion,
-  BOT,
-  HUMAN,
-  NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC,
-  notFlagged,
-} from './page-view-predicates';
-// Type-only above, VALUE here — and that is safe in this direction:
-// `analytics-digest` does not import this module, so there is no cycle to close.
-// The threshold text is imported rather than restated so the note cannot advertise
-// a bar the detector stopped applying.
-import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
+import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './page-view-predicates';
 import { readRowClassifications } from './admin-classification';
 import { loadAsnAnnotations } from './asn-registry';
 import { textAsc } from './collation';
@@ -323,27 +310,19 @@ export async function countViewsBoth(
  * second implementation of the same query behind the acceptance criterion that
  * says the two must agree.
  *
- * `exclusion` (AECI-745) applies the automation filter, and the overview passes
- * it for the post-automation figure and omits it for the raw one — the two must
- * match their totals or the tile shows an ASN-excluded SUBSET larger than the
- * number it is a subset of.
+ * AECI-1460 removed its automation-exclusion parameter along with the residual
+ * it served. The overview calls it for the bot figure only.
  */
 export async function countViewsExcludingInternal(
   db: Db,
   w: UtcWindow,
   traffic: AdminTrafficPopulation,
   filter: InternalFilterState,
-  exclusion?: AutomationExclusion,
 ): Promise<number | null> {
   if (!filter.applied) return null;
   return countPageViewRows(
     db,
-    and(
-      inWindow(pageViews.createdAt, w),
-      populationPredicate(traffic),
-      filter.predicate,
-      notFlagged(exclusion),
-    ),
+    and(inWindow(pageViews.createdAt, w), populationPredicate(traffic), filter.predicate),
   );
 }
 
@@ -599,6 +578,10 @@ const CATALOG_NET_SOURCE: Partial<Record<AdminMetricKey, readonly CatalogNetArm[
  * only affordable path, so a day with no stored row is reported as ABSENT rather
  * than zero-filled. A zero would read as "nobody visited", which is the opposite
  * of "we have not measured this day yet".
+ *
+ * Since AECI-1460 the key is also frozen (`FROZEN_METRIC_KEYS`): no writer, so
+ * every day after the cut-over reads as absent. The stored rows before it are
+ * history and stay readable here.
  */
 export function metricIsSnapshotOnly(metric: AdminMetricKey): boolean {
   return metric === 'traffic.page_views_human_after_automation';
@@ -1139,26 +1122,12 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   referrer_source_is_unverified: 'info',
   direct_is_mixed_bucket: 'info',
   visitor_definition_approximate: 'info',
-  corroborated_is_a_referrer_floor: 'info',
-  // `info` on the standard test: the exclusion already happened and the figure
-  // beside it is correct — the note only says how the rows were identified.
-  // Unlike every standing caveat above it, this one is COUNT-GATED (AECI-836):
-  // it never fires on a window where nothing was excluded.
-  operator_leak_is_an_inference: 'info',
   // AECI-827. `info` on the standard test: a reader who misses it still reads the
   // figures correctly — it only explains why the last month of the chart can
   // shift under them. Deliberately NOT a `warn`: nothing is broken, nobody can
   // act on it, and the 00:15 re-check clears it on its own once the window rolls
   // past. See ADR 0027.
   series_within_operator_lookback: 'info',
-  // AECI-745. `info` on the standard test: the filter WORKING is the normal case,
-  // and the note only explains how the headline was reached.
-  automation_filter_applied: 'info',
-  // And `warn` on the same test, for the opposite reason: the headline is
-  // unfiltered and a reader who misses this reads a raw count as a filtered one —
-  // the exact confusion the whole issue was opened to end. Unlike the standing
-  // caveats around it, this one is a real condition that clears on its own.
-  automation_filter_did_not_run: 'warn',
   // AECI-869. `warn`, and it is the strongest reading of the standard test on
   // this map: a reader who misses this does not merely misread a figure, they
   // trust one that had no input. Every network-based exclusion treats a NULL
@@ -1166,8 +1135,8 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // than erroring, and the day reads as quiet. Gated on the coverage ratio, so it
   // clears on its own the moment the pipe is fixed.
   arrival_telemetry_unavailable: 'warn',
-  // Also `warn`, and for the same reason one step removed: the chart and the
-  // 7-day delta silently mix measured days with blind ones, so a reader who
+  // Also `warn`, and for the same reason one step removed: the chart silently
+  // mixes measured days with blind ones, so a reader who
   // misses it reads an artifact of missing input as a change in traffic.
   series_spans_degraded_days: 'warn',
   catalog_series_is_additions_only: 'warn',
@@ -1242,6 +1211,9 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // it explains a boundary the figures already honour. A non-comparable row nulls
   // the deltas that span it, so no figure on the screen is left wrong.
   collection_method_seam: 'info',
+  // AECI-1460. `info`, gated on the reported day having no classes: the tables are
+  // correct for what they say they count, and the note says they are unfiltered.
+  tables_unclassified: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders
@@ -1379,40 +1351,20 @@ export async function earliestStoredMetricDay(
  *
  *  Two kinds live here and the distinction is load-bearing. A **standing**
  *  caveat explains what a permanently-present figure MEANS, so it fires whether
- *  or not the window contains anything (`referrer_source_is_unverified`,
- *  `corroborated_is_a_referrer_floor`). A **gated** caveat describes something
- *  that may not have happened, so it is conditioned on the count it qualifies
- *  (`bot_classification_incomplete`, `referrer_source_incomplete`,
- *  `operator_leak_is_an_inference`). A gated note emitted at zero has no
- *  referent on the screen, which is what AECI-836 fixed. */
+ *  or not the window contains anything (`referrer_source_is_unverified`). A
+ *  **gated** caveat describes something that may not have happened, so it is
+ *  conditioned on the count it qualifies (`bot_classification_incomplete`,
+ *  `referrer_source_incomplete`). A gated note emitted at zero has no referent on
+ *  the screen, which is what AECI-836 fixed.
+ *
+ *  AECI-1460 removed the residual's four notes: the referrer floor, the
+ *  operator-leak inference, and the automation filter's two states. */
 export async function trafficNotes(
   db: Db,
   w: UtcWindow,
   opts: {
     unique?: boolean;
     sources?: boolean;
-    /** Emit the caveats for the AECI-683 corroborated-human figure. */
-    corroborated?: boolean;
-    /**
-     * Views the AECI-683 operator-pair retro-join removed from this window — a
-     * COUNT, not a boolean (AECI-836).
-     *
-     * Pass the same number the response reports as `operator_leak_excluded`, so
-     * the note and the figure can never disagree. `0` or omitted emits nothing:
-     * the note describes an exclusion that may not have happened, and on a
-     * window where none did there is no figure on the screen for it to qualify.
-     */
-    operatorLeakViews?: number;
-    /**
-     * The window's automation filter (AECI-745). Pass it — as `null` when the
-     * detector did not run — on any response whose headline is post-automation.
-     *
-     * `undefined` means "this response does not report the filtered figure at
-     * all" and emits nothing; `null` means "it does, and the filter FAILED",
-     * which is the case that must be loud. Distinguishing the two here is why
-     * this is not a boolean.
-     */
-    automation?: AutomationFilter | null;
     /**
      * This window's arrival network-metadata coverage (AECI-869). Omitted means
      * "this response does not report it" and emits nothing.
@@ -1482,50 +1434,9 @@ export async function trafficNotes(
     );
   }
 
-  if (opts.corroborated) {
-    // Unconditional whenever the corroborated figure is rendered, and for the
-    // same reason `referrer_source_is_unverified` is: the number is small enough
-    // to read as precise, and it is built on the one column §9.7 says is a claim
-    // rather than a fact. Both halves of the caveat matter — it under-counts
-    // (stripped headers land in Direct) AND it is forgeable upward.
-    out.push(
-      note(
-        'corroborated_is_a_referrer_floor',
-        'Corroborated views are those that arrived with a named external search or social referrer. It is a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It is also built on an unverified claim — see referrer_source_is_unverified.',
-      ),
-    );
-  }
-
-  // GATED on the figure, unlike the standing caveats above it (AECI-836). It
-  // used to fire whenever the caller asked for it, so on a day where nothing
-  // leaked the operator read an explanation of how an exclusion was inferred
-  // with no exclusion anywhere on the screen and no number beside it. The tile
-  // caption (`apps/web/src/app/admin/overview/overview.ts`) and all three of the
-  // digest's renderings already suppressed themselves at zero; this was the one
-  // surface of four that did not.
-  //
-  // The test that decides which camp a note belongs in: gate it when the thing
-  // it describes MAY NOT HAVE HAPPENED; leave it standing when it describes what
-  // a permanently-present figure means. `corroborated_is_a_referrer_floor` stays
-  // ungated for exactly that reason — §13 D15(d) requires it, the figure is
-  // always rendered, and "a number this small reads as precise" whether it is
-  // zero or not.
-  const operatorLeak = opts.operatorLeakViews ?? 0;
-  if (operatorLeak > 0) {
-    out.push(
-      note(
-        'operator_leak_is_an_inference',
-        'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
-        { rows: operatorLeak },
-      ),
-    );
-  }
-
-  // AECI-869. Emitted BEFORE the automation notes, because when it fires it is
-  // the reason those notes' figures cannot be trusted: the groupings they
-  // describe key off `cf_asn`, and with no ASN they could not fire at all. The
-  // response's `notes` array is rendered in order, so position is the only thing
-  // that puts the cause above the effect.
+  // AECI-869. Emitted before the series note, because when it fires it is the
+  // reason the day's classes cannot be trusted: the classifier's network inputs
+  // key off `cf_asn`. The response's `notes` array is rendered in order.
   if (opts.arrivalCoverage && arrivalTelemetryDegraded(opts.arrivalCoverage)) {
     const { arrivals, arrivalsWithAsn } = opts.arrivalCoverage;
     out.push(
@@ -1537,37 +1448,16 @@ export async function trafficNotes(
     );
   }
 
-  // GATED on the count, like `operator_leak_is_an_inference`: on a window whose
-  // days were all measured there is nothing on the screen for it to qualify.
+  // GATED on the count: on a window whose days were all measured there is nothing
+  // on the screen for it to qualify.
   if (opts.degradedDays && opts.degradedDays.degraded > 0) {
     const { degraded, requested } = opts.degradedDays;
     out.push(
       note(
         'series_spans_degraded_days',
-        `${degraded} of the ${requested} day(s) behind the trend line and the 7-day change had no arrival network telemetry, so their figures are inflated by an unknown amount. Do not read a step across those days as a change in traffic.`,
+        `${degraded} of the ${requested} day(s) behind the trend line had no arrival network telemetry, so their figures are inflated by an unknown amount. Do not read a step across those days as a change in traffic.`,
         { degraded_days: degraded, requested },
       ),
-    );
-  }
-
-  if (opts.automation !== undefined) {
-    out.push(
-      opts.automation
-        ? note(
-            'automation_filter_applied',
-            // The published thresholds first, then the day's own reading. The
-            // thresholds come from `SWARM_THRESHOLD_NOTE` rather than being
-            // restated here, so the text cannot claim a bar the detector no
-            // longer applies — it interpolates the same constants the detector
-            // compares against.
-            `The headline is human page views less those attributed to automated clients. ${SWARM_THRESHOLD_NOTE}` +
-              (opts.automation.note ? ` This day: ${opts.automation.note}` : ''),
-            { flagged: opts.automation.flagged.day },
-          )
-        : note(
-            'automation_filter_did_not_run',
-            'The automation detector failed for this window, so the human page-view figure is UNFILTERED and is not comparable with a day the filter ran on. It is an upper bound only.',
-          ),
     );
   }
 

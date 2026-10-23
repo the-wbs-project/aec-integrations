@@ -581,17 +581,26 @@ Phase 3). The section order is:
    pairs) and a day delta. The heuristic caveat sits under the human-evidence line, never in the
    footer. The unresolved-share warning prints when unresolved is above 50% of the classified
    views. Internal traffic is its own line, with the operator-leak figure.
-2. **Previous measure: requests of unresolved origin.** The residual, with its content and
-   caveats unchanged. AECI-1462 removes it.
-3. Top products, traffic sources, sign-ins, moderation, crawler activity, footnotes. Unchanged.
+2. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
+   automation)". They drop views classed identified or suspected automation at the day's latest
+   classifier version (`automationClassFilterForDay` in `admin-classification.ts`). Views with no
+   class are kept. On a day with no classification rows, or when the filter read fails, the
+   headings read "(not filtered by class)" and the email prints: "This day has no traffic classes,
+   so the product and source tables are not filtered for automation."
+3. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
 
-The subject has two forms. The `· NO NETWORK TELEMETRY` suffix stays on both.
+**As-built 2026-10-23 (AECI-1460).** The "Previous measure: requests of unresolved origin" section
+is removed, with the PostHog `$pageview` line, the browser-starts line, the corroborated floor and
+the automation-signal line. The digest makes no PostHog query. The operator-leak count stays on the
+internal line.
+
+The subject never falls back to the residual. The `· NO NETWORK TELEMETRY` suffix stays on every form.
 
 | State | Subject after the day label |
 |---|---|
 | Classified | `412 with human evidence · 1203 unresolved · 9880 automation (tc-2026.10.2), …` where automation is identified plus suspected |
-| Not classified | today's residual form, then `· NOT CLASSIFIED` |
-| Class read failed | today's residual form, then `· CLASSES UNAVAILABLE` |
+| Not classified | `· NOT CLASSIFIED`, with no count |
+| Class read failed | `· CLASSES UNAVAILABLE`, with no count |
 
 The class section has three states that never look alike. A classified day prints the counts.
 A day the classifier did not run prints "The classifier did not run for this day" and no
@@ -607,16 +616,17 @@ blended.
   prints the same with its own reason.
 - **Collection-method seam.** When a `POST_LAUNCH_MONITORING.md` §3d row for this tier falls
   between the start of the prior day and the end of the reported day, a line names the change.
-  On a row marked not comparable, every class delta and the residual's page-view deltas print
+  On a row marked not comparable, every class delta prints
   "not comparable with the prior day (collection method changed)". On a row marked comparable,
   the line says the counts stay comparable and the deltas print normally.
 
 The digest's `job_runs.detail` records `classifierVersion`, `classViews`, `classificationSeam`
-and `classificationReadFailed` beside the existing fields.
+and `classificationReadFailed` beside the existing fields. Since AECI-1460 it also records
+`tablesUnclassified`, and no longer records the `posthog*`, `swarm*`, `verdictFlaggedViews`,
+`nonBrowser*`, `pageViewsHumanNetAutomation` or `corroborated*` fields. The raw `pageViewsHuman`
+stays.
 
-The **previous measure** is **"N requests of unresolved origin"** — page
-views that no rule could exclude (`is_bot IS NOT 1`, minus the operator halves, minus the
-automation filter). The email also carries top products, a **Traffic sources** breakdown (human arrivals grouped by
+The email also carries top products, a **Traffic sources** breakdown (human arrivals grouped by
 `referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
 Other), new sign-ins (`profiles` created) + total registered users, the live
 pending-moderation depth (`reviews` where `status='pending'`), and a **Crawler
@@ -628,8 +638,8 @@ split is classified at ingest from the raw User-Agent + Cloudflare ASN
 eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
 strips it, so external sources under-count) (AECI-526 follow-up).
 
-**The residual is qualified in the email itself, and that took four tickets.** It was the
-headline until AECI-1346. The history is worth knowing, because the figure read as
+**The residual was qualified in the email itself, and that took four tickets.** It was the
+headline until AECI-1346 and was removed by AECI-1460 on 2026-10-23. The list below is history. The history is worth knowing, because the figure read as
 authoritative for weeks while being roughly an order of magnitude too high:
 
 - **AECI-575 / §13 D13** — every read excludes the operator-only routes (`/admin/*`,
@@ -684,10 +694,9 @@ authoritative for weeks while being roughly an order of magnitude too high:
   The event has **no production rows before 2026-09-07**, so it is not charted, not delta'd
   and carries no `metrics_daily` key. `ADMIN_PANEL_SPEC.md` §13 **D21**.
 
-**Read the RAW server-side count as an upper bound** regardless: the ASN half of the classifier
-is a hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". And read
-the previous measure as a **residual** — the absence of a bot match is not evidence of a person, which is
-the whole of AECI-869. See
+**Read `is_bot = 0` as "not known to be a bot", not "human"**: the ASN half of the ingest
+classifier is a hand-maintained list. The absence of a bot match is not evidence of a person, which
+is the whole of AECI-869 and why the D19 classes put such rows in Unresolved. See
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
 §3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the

@@ -8,7 +8,7 @@
  * `retry()`s on an unexpected throw.
  */
 
-import { ADMIN_SNAPSHOT_METRIC_KEYS, AdminDataQualityStatusSchema } from '@aeci/shared';
+import { AdminDataQualityStatusSchema } from '@aeci/shared';
 import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,6 +132,7 @@ import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { CHECKS } from './lib/data-quality';
+import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
 import { runHomeStats } from './lib/home-stats';
 import { runGscInspectChunk } from './lib/gsc-inspect-job';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
@@ -791,8 +792,30 @@ describe('analytics digest job_runs detail (AECI-1346)', () => {
           method: [{ at: '2026-10-21T10:38:00.000Z', arrivalsComparable: false }],
         },
         classificationReadFailed: false,
+        // AECI-1460. The day is classified, so the tables were filtered by class.
+        tablesUnclassified: false,
       },
     });
+    // AECI-1460 stopped writing the residual's fields.
+    const metrics = (run?.detail as { metrics: Record<string, unknown> }).metrics;
+    for (const retired of [
+      'posthogPageViews',
+      'posthogPeople',
+      'posthogSkipped',
+      'swarmCandidates',
+      'asnRotatorCandidates',
+      'swarmFlaggedViews',
+      'swarmTruncated',
+      'swarmRecurringCandidates',
+      'verdictFlaggedViews',
+      'nonBrowserCandidates',
+      'nonBrowserNetworks',
+      'pageViewsHumanNetAutomation',
+      'corroboratedViews',
+      'corroboratedVisitors',
+    ]) {
+      expect(metrics).not.toHaveProperty(retired);
+    }
   });
 
   it('records null classes, never zeros, for a day the classifier did not run', async () => {
@@ -1330,10 +1353,11 @@ describe('job_runs bookkeeping (§7.2)', () => {
       recheck: { status: string; corrected: number };
     };
     expect(detail.job).toBe('metrics-snapshot');
-    // Asserted against the vocabulary rather than a literal (AECI-869 made it
-    // 21): the count is a property of `ADMIN_SNAPSHOT_METRIC_KEYS`, and a literal
-    // here only ever fails the PR that legitimately adds a key.
-    expect(detail.metrics).toHaveLength(ADMIN_SNAPSHOT_METRIC_KEYS.length);
+    // Asserted against the vocabulary rather than a literal: the count is a
+    // property of `SNAPSHOT_WRITTEN_METRIC_KEYS` (the snapshot keys less the
+    // AECI-1460 frozen ones), and a literal here only ever fails the PR that
+    // legitimately adds a key.
+    expect(detail.metrics).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
     // An empty database has nothing to correct, and "nothing to correct" must be
     // distinguishable from "the pass did not run".
     expect(detail.recheck).toMatchObject({ status: 'ok', corrected: 0 });

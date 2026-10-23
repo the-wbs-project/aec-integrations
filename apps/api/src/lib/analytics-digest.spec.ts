@@ -4,12 +4,18 @@
  *   - `collectAnalyticsMetrics` — the D1 aggregation, exercised against the in-memory
  *     D1 harness so the real Drizzle SQL (window range, product join, top-N) runs.
  *   - `buildAnalyticsDigest` — the pure formatter (subject / deltas / top-product list).
+ *
+ * AECI-1460 removed the residual, the automation exclusion and the PostHog lines.
+ * The tables now filter by the classification record, which the D1 block below
+ * exercises against real `page_view_classifications` rows.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { pageViews, products, profiles, reviews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { automationClassFilterForDay } from './admin-classification';
 import {
   arrivalTelemetryDegraded,
   buildAnalyticsDigest,
@@ -18,8 +24,8 @@ import {
   dailyWindows,
   PAIR_ATTRIBUTION_NOTE,
   PAIR_ATTRIBUTION_STARTS_ON,
+  TABLES_UNCLASSIFIED_NOTE,
   trafficDaysNotComparable,
-  unresolvedRequests,
   windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
@@ -550,34 +556,6 @@ describe('collectAnalyticsMetrics', () => {
     expect(m.operatorLeakViews).toBe(0);
   });
 
-  it('counts corroborated views and the visitors behind them (AECI-683)', async () => {
-    // `Direct` and `Other` are both excluded, and for different reasons: Direct is
-    // where every stripped referral lands, and Other is an open bucket a forger
-    // controls. Only a NAMED external source corroborates.
-    const row = (
-      referrerSource: string | null,
-      userAgentHash: string,
-      cfAsn: number,
-      createdAt: string,
-    ) => ({ path: '/', isBot: false, referrerSource, userAgentHash, cfAsn, createdAt });
-    await t.db.insert(pageViews).values([
-      row('Google', 'ua-a', 7922, '2026-07-23T01:00:00.000Z'),
-      row('Google', 'ua-a', 7922, '2026-07-23T02:00:00.000Z'), // same visitor, 2nd view
-      row('Bing', 'ua-b', 701, '2026-07-23T03:00:00.000Z'),
-      row('LinkedIn', 'ua-a', 701, '2026-07-23T04:00:00.000Z'), // same UA, new network
-      row('Direct', 'ua-c', 1234, '2026-07-23T05:00:00.000Z'), // not corroborated
-      row('Other', 'ua-d', 1234, '2026-07-23T06:00:00.000Z'), // not corroborated
-      row(null, 'ua-e', 1234, '2026-07-23T07:00:00.000Z'), // pre-classifier row
-      row('Google', 'ua-f', 4321, '2026-07-22T01:00:00.000Z'), // prior day
-    ]);
-
-    const m = await collectAnalyticsMetrics(t.db, window);
-    expect(m.pageViews.day).toBe(7);
-    expect(m.corroboratedViews).toEqual({ day: 4, prior: 1 });
-    // Three visitors: (ua-a,7922), (ua-b,701), (ua-a,701) — the pair, not the hash.
-    expect(m.corroboratedVisitors).toBe(3);
-  });
-
   it('returns zeroes and empty lists on an empty database', async () => {
     const m = await collectAnalyticsMetrics(t.db, window);
     expect(m.pageViews).toEqual({ day: 0, prior: 0 });
@@ -588,277 +566,156 @@ describe('collectAnalyticsMetrics', () => {
     expect(m.topProducts).toEqual([]);
     expect(m.referrers).toEqual([]);
     expect(m.botActivity).toEqual([]);
+    // No classes at all, so the tables are unfiltered and say so.
+    expect(m.tablesUnclassified).toBe(true);
   });
 });
 
-/**
- * Regression guard for a limit this harness CANNOT reproduce.
- *
- * D1 caps bound parameters per statement far below stock SQLite, and
- * better-sqlite3 ships the stock value — so a predicate whose parameter count
- * grows with the DATA passes every assertion in this file and then fails on the
- * first busy day in production (`TESTING_STRATEGY.md` §6.3).
- *
- * The obvious implementation of the operator retro-join is exactly that shape:
- * resolve the operator's `(user_agent_hash, cf_asn)` pairs in JavaScript, then
- * emit `NOT (hash = ? AND asn = ?)` per pair. It binds two parameters per pair,
- * and the operator acquires pairs over time as their browser and network change
- * — six of them already, in production, by 2026-08-19.
- *
- * The correlated `NOT EXISTS` binds two parameters TOTAL (the two `strftime`
- * modifiers) no matter how many pairs exist. Assert the shape, because the
- * result is exactly what this engine cannot get wrong.
- */
-describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-747)', () => {
+describe('collectAnalyticsMetrics — the tables filter by class (AECI-1460)', () => {
   let t: TestDb;
   beforeEach(async () => {
     t = await makeTestDb();
-  });
-  afterEach(() => t.dispose());
-
-  const window = dailyWindows(new Date('2026-07-24T12:00:00.000Z'));
-  const AT = '2026-07-23T10:00:00.000Z';
-
-  beforeEach(async () => {
     await t.db.insert(products).values([
       { id: 'p1', slug: 'p1', name: 'P1' },
       { id: 'p2', slug: 'p2', name: 'P2' },
+      { id: 'p3', slug: 'p3', name: 'P3' },
     ]);
   });
+  afterEach(() => t.dispose());
 
-  /**
-   * Since AECI-745 the exclusion is no longer injected — `collectAnalyticsMetrics`
-   * runs `detectSwarms` itself, so these seeds have to be shapes the REAL detector
-   * flags rather than hashes an argument declared flagged.
-   *
-   * That is a strictly better test and it is also the only honest one now: an
-   * injected list could assert the complement while the detector's own idea of
-   * "flagged" drifted away underneath it, which is the two-definitions problem
-   * this issue existed to remove. Here the headline and the tables are filtered by
-   * one run of one detector, so a drift between them cannot hide.
-   *
-   * Four views under one hash across four networks clears `SWARM_MIN_VIEWS` (4) at
-   * an ASN ratio of 1.0, well over `SWARM_MIN_ASN_RATIO` (0.8).
-   */
-  const swarmRow = (i: number, extra: Record<string, unknown> = {}) => ({
-    path: '/products/p1',
-    productId: 'p1',
-    createdAt: AT,
-    userAgentHash: 'swarm',
-    cfAsn: 1000 + i,
-    cfCountry: ['PL', 'BR', 'ID', 'VN'][i] ?? 'PL',
-    referrerSource: 'Direct',
-    ...extra,
+  const DAY = '2026-07-23';
+  const window = windowsForDay(DAY);
+  const AT = `${DAY}T10:00:00.000Z`;
+
+  async function view(extra: Partial<typeof pageViews.$inferInsert> = {}): Promise<number> {
+    const [row] = await t.db
+      .insert(pageViews)
+      .values({ path: '/products/x', createdAt: AT, ...extra })
+      .returning({ id: pageViews.id });
+    return row!.id;
+  }
+
+  /** One stored classification. `evaluatedAt` decides which version is the
+   *  day's latest, exactly as `latestVersionPerDay` reads it. */
+  function classify(
+    id: number,
+    cls: string,
+    version = 'v1',
+    day = DAY,
+    evaluatedAt = `${day}T23:59:00.000Z`,
+  ) {
+    t.raw
+      .prepare(
+        `INSERT INTO page_view_classifications
+           (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+            evidence_from, evidence_to, view_day, created_at)
+         VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        cls,
+        version,
+        evaluatedAt,
+        `${day}T00:00:00.000Z`,
+        `${day}T00:00:00.000Z`,
+        day,
+        evaluatedAt,
+      );
+  }
+
+  const onProduct = (productId: string, referrerSource: string) => ({
+    path: `/products/${productId}`,
+    productId,
+    referrerSource,
   });
 
-  it('drops flagged UA hashes from top products and traffic sources', async () => {
-    await t.db.insert(pageViews).values([
-      // The exact shape that put a bot-driven page at the top of the 2026-08-30
-      // email: one fingerprint reading one page from four different networks.
-      ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
-      // One genuine reader of p2.
-      {
-        path: '/products/p2',
-        productId: 'p2',
-        createdAt: AT,
-        userAgentHash: 'person',
-        cfAsn: 7922,
-        referrerSource: 'Google',
-      },
-    ]);
+  it('drops classed automation, keeps unresolved and not-yet-classified views', async () => {
+    // p1 is all automation and would lead the table on raw counts.
+    classify(await view(onProduct('p1', 'Direct')), 'identified_automation');
+    classify(await view(onProduct('p1', 'Direct')), 'identified_automation');
+    classify(await view(onProduct('p1', 'Direct')), 'suspected_automation');
+    classify(await view(onProduct('p2', 'Google')), 'unresolved');
+    classify(await view(onProduct('p3', 'Bing')), 'browser_with_human_evidence');
+    // No classification row on a classified day, and NULL hash/ASN: kept. A join
+    // or a NOT IN would be NULL for this row and drop it.
+    await view({ ...onProduct('p3', 'Bing'), userAgentHash: null, cfAsn: null });
 
     const m = await collectAnalyticsMetrics(t.db, window);
 
-    expect(m.automation?.flagged.day).toBe(4);
-    // p1 had 4 of the 5 views and would otherwise lead the table.
-    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
-    expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
+    expect(m.tablesUnclassified).toBe(false);
+    expect(m.topProducts).toEqual([
+      { name: 'P3', slug: 'p3', views: 2 },
+      { name: 'P2', slug: 'p2', views: 1 },
+    ]);
+    expect(m.referrers).toEqual([
+      { source: 'Bing', views: 2 },
+      { source: 'Google', views: 1 },
+    ]);
+    // The raw human count is untouched: the filter is the tables' only.
+    expect(m.pageViews.day).toBe(6);
   });
 
-  it('counts a pair-page view for BOTH endpoints, and drops flagged pair rows (AECI-929)', async () => {
-    // The flagged swarm reads the p1 ↔ p2 PAIR page, so `notFlagged` has to reach
-    // the pair rows too. It does, because the caller's predicate runs inside
-    // `productAttributedViews`' CTE rather than per attribution column.
-    await t.db.insert(pageViews).values([
-      ...Array.from({ length: 4 }, (_, i) =>
-        swarmRow(i, {
-          path: '/products/:contextSlug/integrations/:otherSlug',
-          productId: null,
-          pairProductAId: 'p1',
-          pairProductBId: 'p2',
-        }),
-      ),
-      // One genuine reader of the pair page and one of p2's own page.
-      {
-        path: '/products/:contextSlug/integrations/:otherSlug',
-        pairProductAId: 'p1',
-        pairProductBId: 'p2',
-        createdAt: AT,
-        userAgentHash: 'person',
-        cfAsn: 7922,
-      },
-      {
-        path: '/products/p2',
-        productId: 'p2',
-        createdAt: AT,
-        userAgentHash: 'person',
-        cfAsn: 7922,
-      },
-    ]);
+  it("reads the day's latest version only", async () => {
+    // Automation on v1, unresolved on v2 (evaluated later): kept.
+    const a = await view(onProduct('p1', 'Direct'));
+    classify(a, 'identified_automation', 'v1', DAY, `${DAY}T12:00:00.000Z`);
+    classify(a, 'unresolved', 'v2', DAY, `${DAY}T23:00:00.000Z`);
+    // Unresolved on v1, automation on v2: dropped.
+    const b = await view(onProduct('p2', 'Direct'));
+    classify(b, 'unresolved', 'v1', DAY, `${DAY}T12:00:00.000Z`);
+    classify(b, 'suspected_automation', 'v2', DAY, `${DAY}T23:00:00.000Z`);
 
     const m = await collectAnalyticsMetrics(t.db, window);
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+  });
 
-    expect(m.automation?.flagged.day).toBe(4);
-    // p2: its own view plus the pair view. p1: the pair view only.
+  it('drops a classed-automation pair-page view for BOTH endpoints (AECI-929)', async () => {
+    const pair = {
+      path: '/products/:contextSlug/integrations/:otherSlug',
+      pairProductAId: 'p1',
+      pairProductBId: 'p2',
+    };
+    classify(await view(pair), 'identified_automation');
+    classify(await view(pair), 'identified_automation');
+    classify(await view(pair), 'unresolved');
+    classify(await view({ path: '/products/p2', productId: 'p2' }), 'unresolved');
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+    // p2: its own view plus the kept pair view. p1: the kept pair view only.
     expect(m.topProducts).toEqual([
       { name: 'P2', slug: 'p2', views: 2 },
       { name: 'P1', slug: 'p1', views: 1 },
     ]);
   });
 
-  it('KEEPS rows with a null hash, a null ASN AND a null verdict — the 3VL trap', async () => {
-    // `NOT (ua IN (…) OR asn IN (…) OR verdict IN (…))` is NULL for this row, and
-    // a NULL WHERE drops it — so the row would vanish from the tables while still
-    // counting in the headline. It must survive. The verdict axis (AECI-744) has
-    // the same trap: every row written before that column existed has a NULL.
-    //
-    // The four flagged rows are here so there IS an exclusion to be null-unsafe
-    // about: with an empty candidate list `notFlagged` returns undefined and the
-    // trap cannot fire, which would make this test pass for the wrong reason.
-    await t.db
-      .insert(pageViews)
-      .values([
-        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
-        { path: '/products/p2', productId: 'p2', createdAt: AT, referrerSource: 'Direct' },
-      ]);
+  it('leaves the tables unfiltered, and says so, on a day with no classes', async () => {
+    // Classes exist for the PRIOR day only. They must not filter the reported day.
+    const prior = '2026-07-22';
+    classify(
+      await view({ ...onProduct('p1', 'Direct'), createdAt: `${prior}T10:00:00.000Z` }),
+      'identified_automation',
+      'v1',
+      prior,
+    );
+    await view(onProduct('p1', 'Direct'));
+    await view(onProduct('p1', 'Direct'));
 
     const m = await collectAnalyticsMetrics(t.db, window);
-
-    expect(m.automation?.flagged.day).toBe(4);
-    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
-    expect(m.referrers).toEqual([{ source: 'Direct', views: 1 }]);
+    expect(m.tablesUnclassified).toBe(true);
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 2 }]);
+    expect(m.referrers).toEqual([{ source: 'Direct', views: 2 }]);
   });
 
-  it('excludes rows flagged by their own client_verdict, with no view floor', async () => {
-    // AECI-744's half of the complement. A single `non-browser` view is subtracted
-    // from the headline, so it must leave the tables too — otherwise the email
-    // leads with a filtered number over unfiltered rows, which is the AECI-747
-    // defect wearing a new cause.
-    await t.db.insert(pageViews).values([
-      {
-        path: '/products/p1',
-        productId: 'p1',
-        createdAt: AT,
-        userAgentHash: 'lone',
-        cfAsn: 23724,
-        clientVerdict: 'non-browser',
-        referrerSource: 'Direct',
-      },
-      {
-        path: '/products/p2',
-        productId: 'p2',
-        createdAt: AT,
-        userAgentHash: 'person',
-        cfAsn: 7922,
-        clientVerdict: 'browser',
-        referrerSource: 'Google',
-      },
-    ]);
-
-    const m = await collectAnalyticsMetrics(t.db, window);
-
-    expect(m.automation?.flagged.day).toBe(1);
-    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
-    expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
-  });
-
-  it('the tables and the headline describe ONE population', async () => {
-    await t.db
-      .insert(pageViews)
-      .values([
-        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
-        { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
-        { path: '/', createdAt: AT, userAgentHash: 'person' },
-      ]);
-
-    const m = await collectAnalyticsMetrics(t.db, window);
-
-    // Headline is `raw - flagged` (6 - 4 = 2); the table rows must sum to no more
-    // than that. If the negation ever stops matching `countFlaggedViews`, this is
-    // where it shows up. The bound holds here because no seeded row is a pair page:
-    // since AECI-929 a pair-page row counts once per endpoint, so with pair rows the
-    // table can legitimately sum past the headline.
-    const net = unresolvedRequests(m);
-    const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
-    expect(m.pageViews.day).toBe(6);
-    expect(net.day).toBe(2);
-    expect(tableViews).toBeLessThanOrEqual(net.day);
-    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
-  });
-
-  it("reports the prior day's flagged count too, so the delta is filtered on both sides", async () => {
-    // AECI-741: a filtered day against an unfiltered prior day manufactures a
-    // large fake drop. The detector therefore runs over both windows, and this is
-    // the assertion that keeps the second run from being quietly dropped as an
-    // optimization.
-    const PRIOR = '2026-07-22T10:00:00.000Z';
-    await t.db
-      .insert(pageViews)
-      .values([
-        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
-        ...Array.from({ length: 4 }, (_, i) => swarmRow(i, { createdAt: PRIOR })),
-      ]);
-
-    const m = await collectAnalyticsMetrics(t.db, window);
-
-    expect(m.automation).toEqual({ flagged: { day: 4, prior: 4 }, note: expect.any(String) });
-    expect(unresolvedRequests(m)).toEqual({ day: 0, prior: 0 });
-  });
-
-  it('degrades to an UNFILTERED report when the detector throws, rather than failing', async () => {
-    // A detector bug must not take down the 05:00 digest AND /admin/overview, both
-    // of whose entire job is to keep reporting. `automation: null` is the state the
-    // formatter and the panel already render as "this is the raw count, and we are
-    // telling you it is raw" — so the degradation is visible rather than silent,
-    // which is the only version of it worth having.
-    await t.db
-      .insert(pageViews)
-      .values([
-        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
-        { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
-      ]);
-
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.resetModules();
-    vi.doMock('./swarm-detection', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./swarm-detection')>()),
-      detectSwarms: () => {
-        throw new Error('detector exploded');
-      },
-    }));
-    try {
-      const digest = await import('./analytics-digest');
-      const m = await digest.collectAnalyticsMetrics(t.db, window);
-
-      expect(m.automation).toBeNull();
-      expect(m.swarm).toBeNull();
-      // The headline falls back to the raw count — NOT to zero, and not to a
-      // partially-filtered figure.
-      expect(m.pageViews.day).toBe(5);
-      expect(digest.unresolvedRequests(m).day).toBe(5);
-      // And the tables are unfiltered to match it: a filtered table under an
-      // unfiltered headline is the AECI-747 defect, and it is just as wrong when
-      // the cause is a failure as when the cause is a forgotten argument.
-      expect(m.topProducts).toEqual([
-        { name: 'P1', slug: 'p1', views: 4 },
-        { name: 'P2', slug: 'p2', views: 1 },
-      ]);
-      expect(warn).toHaveBeenCalled();
-    } finally {
-      vi.doUnmock('./swarm-detection');
-      vi.resetModules();
-      warn.mockRestore();
-    }
+  it('compiles to a NOT EXISTS with three bound parameters and no compound SELECT', async () => {
+    classify(await view(), 'unresolved', 'tc-2026.10.2');
+    const f = await automationClassFilterForDay(t.db, DAY);
+    expect(f).toMatchObject({ version: 'tc-2026.10.2', unclassified: false });
+    const q = new SQLiteSyncDialect().sqlToQuery(f.predicate!);
+    expect(q.sql).toMatch(/^not exists \(/);
+    expect(q.sql).not.toMatch(/union/i);
+    expect(q.params).toEqual(['tc-2026.10.2', 'identified_automation', 'suspected_automation']);
+    // It correlates on the unaliased outer table.
+    expect(q.sql).toContain('"page_views"."id"');
   });
 });
 
@@ -884,13 +741,8 @@ describe('buildAnalyticsDigest', () => {
       { name: 'Googlebot', crawls: 80 },
       { name: 'Datacenter (AWS)', crawls: 30 },
     ],
-    corroboratedViews: { day: 12, prior: 9 },
-    corroboratedVisitors: 7,
+    tablesUnclassified: false,
     operatorLeakViews: 0,
-    // No detector result: the "did not run" rendering, which is what these
-    // baseline cases have always exercised.
-    automation: null,
-    swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
     classification: null,
@@ -901,20 +753,18 @@ describe('buildAnalyticsDigest', () => {
     generatedAt: new Date('2026-07-24T12:00:05.000Z'),
   };
 
-  it('summarizes humans + top product + crawl count in the subject', () => {
+  it('summarizes the class state + top product + crawl count in the subject', () => {
     const d = buildAnalyticsDigest(base, opts);
+    // No residual fallback (AECI-1460): an unread day names the reason, no count.
     expect(d.subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 512 requests of unresolved origin (UNFILTERED) · CLASSES UNAVAILABLE, 8 new users · top: Revit · 260 crawls',
+      'AECi daily digest (production) — 2026-07-23: CLASSES UNAVAILABLE, 8 new users · top: Revit · 260 crawls',
     );
   });
 
-  it('renders human counts, deltas, and the human top-product list in the text body', () => {
+  it('renders deltas and the top-product list in the text body', () => {
     const { text } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain('== Previous measure: requests of unresolved origin ==');
-    expect(text).toContain(
-      'Requests of unresolved origin: 512 (+112 (+28%) vs 400 prior day)  [upper bound]',
-    );
-    expect(text).toContain('(260 bot/crawler views excluded — see Crawler activity)');
+    expect(text).not.toContain('unresolved origin');
+    expect(text).toContain('== Most viewed products (excluding classed automation) ==');
     expect(text).toContain('New sign-ins (new accounts): 8 (+3 (+60%) vs 5 prior day)');
     expect(text).toContain('Total sign-ins (registered users): 143');
     expect(text).toContain('1. Revit — 120 views (/revit)');
@@ -924,12 +774,13 @@ describe('buildAnalyticsDigest', () => {
 
   it('lists human traffic sources in the Traffic sources section', () => {
     const { text, html } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain('== Traffic sources (unresolved) ==');
+    expect(text).toContain('== Traffic sources (excluding classed automation) ==');
     expect(text).toContain('1. Direct — 300 views');
     expect(text).toContain('2. Google — 120 views');
     expect(text).toContain('3. LinkedIn — 60 views');
     expect(text).toContain('4. Twitter/X — 32 views');
-    expect(html).toContain('Traffic sources (unresolved)');
+    expect(html).toContain('Traffic sources (excluding classed automation)');
+    expect(html).toContain('Most viewed products (excluding classed automation)');
     expect(html).toContain('LinkedIn');
     expect(html).toContain('Twitter/X');
   });
@@ -949,7 +800,7 @@ describe('buildAnalyticsDigest', () => {
     const { html } = buildAnalyticsDigest(base, opts);
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('AECi daily analytics digest');
-    expect(html).toContain('Previous measure: requests of unresolved origin');
+    expect(html).not.toContain('unresolved origin');
     expect(html).toContain('Crawler activity');
     expect(html).toContain('Bingbot');
     expect(html).toContain('Datacenter (AWS)');
@@ -957,10 +808,10 @@ describe('buildAnalyticsDigest', () => {
 
   it('handles a zero-prior day (omits the percentage) and a downward delta', () => {
     const { text } = buildAnalyticsDigest(
-      { ...base, pageViews: { day: 5, prior: 0 }, newUsers: { day: 3, prior: 10 } },
+      { ...base, botPageViews: { day: 5, prior: 0 }, newUsers: { day: 3, prior: 10 } },
       opts,
     );
-    expect(text).toContain('Requests of unresolved origin: 5 (+5 vs 0 prior day)');
+    expect(text).toContain('Bot/crawler page views: 5 (+5 vs 0 prior day)');
     expect(text).toContain('New sign-ins (new accounts): 3 (-7 (-70%) vs 10 prior day)');
   });
 
@@ -974,12 +825,9 @@ describe('buildAnalyticsDigest', () => {
         pendingModeration: 0,
         topProducts: [],
         referrers: [],
+        tablesUnclassified: false,
         botActivity: [],
-        corroboratedViews: { day: 0, prior: 0 },
-        corroboratedVisitors: 0,
         operatorLeakViews: 0,
-        automation: null,
-        swarm: null,
         arrivalCoverage: HEALTHY_COVERAGE,
         priorArrivalCoverage: HEALTHY_COVERAGE,
         classification: null,
@@ -987,11 +835,11 @@ describe('buildAnalyticsDigest', () => {
       opts,
     );
     expect(subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 40 requests of unresolved origin (UNFILTERED) · CLASSES UNAVAILABLE, 0 new users',
+      'AECi daily digest (production) — 2026-07-23: CLASSES UNAVAILABLE, 0 new users',
     );
-    expect(text).toContain('Requests of unresolved origin: 40 (no change vs prior day)');
-    expect(text).not.toContain('bot/crawler views excluded');
-    expect(text).toContain('Most viewed product: (no unresolved product page views)');
+    expect(text).toContain('New sign-ins (new accounts): 0 (no change vs prior day)');
+    expect(text).toContain('(no product page views)');
+    expect(html).toContain('No product page views.');
     expect(text).toContain('(no referrer data yet)');
     expect(text).toContain('Reviews awaiting moderation: 0');
     expect(text).toContain('No bot/crawler activity.');
@@ -1000,7 +848,7 @@ describe('buildAnalyticsDigest', () => {
   });
 });
 
-describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => {
+describe('buildAnalyticsDigest — the tables (AECI-929, AECI-1460)', () => {
   const metrics: AnalyticsMetrics = {
     pageViews: { day: 48, prior: 40 },
     botPageViews: { day: 734, prior: 700 },
@@ -1009,12 +857,9 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     pendingModeration: 0,
     topProducts: [{ name: 'Corpay', slug: 'corpay', views: 2 }],
     referrers: [{ source: 'Direct', views: 48 }],
+    tablesUnclassified: false,
     botActivity: [{ name: 'Bingbot', crawls: 173 }],
-    corroboratedViews: { day: 3, prior: 2 },
-    corroboratedVisitors: 2,
     operatorLeakViews: 0,
-    automation: null,
-    swarm: null,
     arrivalCoverage: HEALTHY_COVERAGE,
     priorArrivalCoverage: HEALTHY_COVERAGE,
     classification: null,
@@ -1038,315 +883,27 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     expect(empty.html).not.toContain(PAIR_ATTRIBUTION_NOTE);
   });
 
-  it('qualifies the headline number in the subject line', () => {
-    // The subject is what the operator actually reads. For weeks it asserted a
-    // figure that was an order of magnitude high with nothing to qualify it.
-    //
-    // AECI-869 replaced the AECI-658 "up to" hedge rather than adding to it. The
-    // hedge existed to soften the word "human"; with the claim itself gone, the
-    // subject names the class and the filter state, and never says "human".
-    const { subject } = buildAnalyticsDigest(metrics, opts);
-    expect(subject).toContain('48 requests of unresolved origin (UNFILTERED)');
-    expect(subject).not.toContain('human');
-  });
-
-  it('labels the server-side count as an upper bound in both renderings', () => {
+  it('titles the tables "excluding classed automation" and prints no note on a classified day', () => {
     const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('[upper bound]');
-    // The upper-bound label belongs to the RAW server-side count, and says what
-    // it bounds. The headline is a residual and is never described that way.
-    expect(text).toContain('any crawler that does not run JavaScript is in the number');
-    expect(html).toContain('upper bound');
+    expect(text).toContain('== Most viewed products (excluding classed automation) ==');
+    expect(text).toContain('== Traffic sources (excluding classed automation) ==');
+    expect(text).not.toContain(TABLES_UNCLASSIFIED_NOTE);
+    expect(html).not.toContain(TABLES_UNCLASSIFIED_NOTE);
+    expect(text).not.toContain('after automation');
   });
 
-  it('reports the PostHog floor beside it when the join ran', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      posthog: { pageviews: 5, people: 1 },
-    });
-    // The real 2026-08-23 numbers: 48 server-side, 5 client-side from 1 identity
-    // — and that identity WAS the operator, which is why AECI-869 stopped calling
-    // it a bound on anything.
-    expect(text).toContain('PostHog page views: 5 from 1 identity  [separate observation]');
-    expect(text).toContain(
-      'That is a different population, not a floor under the previous measure',
+  it('retitles the tables and prints the note once when they are unfiltered', () => {
+    const { text, html } = buildAnalyticsDigest({ ...metrics, tablesUnclassified: true }, opts);
+    expect(TABLES_UNCLASSIFIED_NOTE).toBe(
+      'This day has no traffic classes, so the product and source tables are not filtered for automation.',
     );
-    expect(html).toContain('separate observation');
-    // No arithmetic between the two populations, in either rendering.
-    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
-    expect(text).not.toContain('LOWER bound');
-    expect(html).not.toContain('lower bound');
-  });
-
-  it('pluralizes people correctly', () => {
-    const { text } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      posthog: { pageviews: 12, people: 4 },
-    });
-    expect(text).toContain('PostHog page views: 12 from 4 identities  [separate observation]');
-    expect(text).not.toContain('persons');
-  });
-
-  it('says the floor is unavailable rather than printing a zero', () => {
-    // A fabricated 0 beside a real 48 would read as a finding rather than as
-    // missing data.
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      posthogUnavailable: 'posthog_credentials_missing',
-    });
-    expect(text).toContain('PostHog client-side figure unavailable (posthog_credentials_missing)');
-    expect(text).not.toContain('PostHog page views: 0');
-    expect(html).toContain('unavailable');
-  });
-
-  it("renders exactly today's email when neither read is supplied", () => {
-    const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).not.toContain('PostHog');
-    expect(html).not.toContain('PostHog');
-    expect(text).not.toContain('Automation signal');
-  });
-
-  it('carries the swarm note into both renderings when one is supplied', () => {
-    const note = '31 of 48 may not be people: 7 clients each read nearly every page.';
-    const { text, html } = buildAnalyticsDigest(
-      { ...metrics, automation: { flagged: { day: 31, prior: 0 }, note } },
-      opts,
-    );
-    expect(text).toContain(`Automation signal: ${note}`);
-    expect(html).toContain('Automation signal');
-    expect(html).toContain('31 of 48 may not be people');
-  });
-
-  it('stays quiet when nothing was flagged', () => {
-    const { text, html } = buildAnalyticsDigest(
-      { ...metrics, automation: { flagged: { day: 0, prior: 0 }, note: null } },
-      opts,
-    );
-    expect(text).not.toContain('Automation signal');
-    expect(html).not.toContain('Automation signal');
-  });
-});
-
-describe('buildAnalyticsDigest — the browser-starts line (AECI-870)', () => {
-  /**
-   * `app_started` is the Tier 2 beacon: it fires for every visitor with no
-   * consent gate, so it is a different population from the consented `$pageview`
-   * figure printed beside it and from the D1 residual printed above both. The
-   * three states this block pins are present / zero / unavailable, and the rule
-   * they all serve is that nothing is ever summed.
-   */
-  const metrics: AnalyticsMetrics = {
-    pageViews: { day: 48, prior: 40 },
-    botPageViews: { day: 734, prior: 700 },
-    newUsers: { day: 0, prior: 0 },
-    totalUsers: 3,
-    pendingModeration: 0,
-    topProducts: [{ name: 'Corpay', slug: 'corpay', views: 2 }],
-    referrers: [{ source: 'Direct', views: 48 }],
-    botActivity: [{ name: 'Bingbot', crawls: 173 }],
-    corroboratedViews: { day: 3, prior: 2 },
-    corroboratedVisitors: 2,
-    operatorLeakViews: 0,
-    automation: { flagged: { day: 8, prior: 6 }, note: null },
-    swarm: null,
-    arrivalCoverage: HEALTHY_COVERAGE,
-    priorArrivalCoverage: HEALTHY_COVERAGE,
-    classification: null,
-  };
-  const opts = {
-    env: 'production',
-    dayLabel: '2026-09-08',
-    generatedAt: new Date('2026-09-09T05:00:00.000Z'),
-  };
-
-  it('prints starts and the search-referred subset in both renderings', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
-    });
-    expect(text).toContain('Browser starts: 21 (9 search-referred)  [separate observation]');
-    expect(html).toContain('>21</strong> browser starts');
-    expect(html).toContain('>9</strong> search-referred');
-  });
-
-  it('names both exclusions, on both renderings', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
-    });
-    expect(text).toContain('Operator and PostHog-detected bots excluded');
-    expect(html).toContain('operator and PostHog-detected bots excluded');
-  });
-
-  it('states the two things the figure is not', () => {
-    // It counts bundle executions, not people — memory persistence mints a fresh
-    // anonymous id per page load, so persons approximately equal starts. And a
-    // tracker blocker silences it entirely: the client posts straight to
-    // us.i.posthog.com with no reverse proxy.
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
-    });
-    expect(text).toContain('Counts bundle executions, not people');
-    expect(text).toContain('browsers with tracker blockers never report');
-    expect(html).toContain('bundle executions, not people');
-    expect(html).toContain('tracker blockers never report');
-  });
-
-  it('forbids the arithmetic rather than merely omitting it', () => {
-    const { text } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
-    });
-    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
-    expect(text).toContain('not a floor under the previous measure and not an addend to it');
-  });
-
-  it('renders a zero as a zero, because zero starts is a FINDING', () => {
-    // A day with arrivals and no starts means a broken bundle or a blocked
-    // collector. Suppressing the line there would hide the one reading that
-    // matters most.
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStarts: { startsAll: 0, starts: 0, searchReferred: 0 },
-    });
-    expect(text).toContain('Browser starts: 0 (0 search-referred)');
-    expect(html).toContain('>0</strong> browser start');
-    expect(text).not.toContain('unavailable');
-  });
-
-  it('says why when the read failed, and never substitutes a zero', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      browserStartsUnavailable: 'posthog_http_503',
-    });
-    expect(text).toContain('Browser starts: unavailable (posthog_http_503)');
-    expect(html).toContain('Browser-start figure unavailable (posthog_http_503)');
-    expect(text).not.toContain('Browser starts: 0');
-  });
-
-  it('omits the line entirely when the caller passed neither', () => {
-    // The default `/admin/overview` load does not query PostHog at all, and the
-    // digest must degrade the same way rather than claiming a zero.
-    const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).not.toContain('Browser starts');
-    expect(html).not.toContain('browser start');
-  });
-
-  it('leaves the PostHog $pageview line untouched and separate', () => {
-    const { text } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      posthog: { pageviews: 20, people: 2 },
-      browserStarts: { startsAll: 34, starts: 21, searchReferred: 9 },
-    });
-    // Two lines, two populations, one vendor. Neither folds into the other.
-    expect(text).toContain('PostHog page views: 20 from 2 identities  [separate observation]');
-    expect(text).toContain('Browser starts: 21 (9 search-referred)  [separate observation]');
-    expect(text).not.toContain('41'); // 20 + 21, the sum nobody may print
-  });
-});
-
-describe('buildAnalyticsDigest — the headline is the post-automation count (AECI-741)', () => {
-  // The real production shape for 2026-08-30: 70 human views server-side, 56 of
-  // them flagged as one rotating-proxy operation, against a prior day of 87 with
-  // 64 flagged. The operator asked for 14 to be the number they see.
-  const metrics: AnalyticsMetrics = {
-    pageViews: { day: 70, prior: 87 },
-    botPageViews: { day: 708, prior: 477 },
-    newUsers: { day: 0, prior: 0 },
-    totalUsers: 3,
-    pendingModeration: 0,
-    topProducts: [],
-    referrers: [{ source: 'Direct', views: 70 }],
-    botActivity: [{ name: 'SemrushBot', crawls: 294 }],
-    corroboratedViews: { day: 0, prior: 2 },
-    corroboratedVisitors: 0,
-    operatorLeakViews: 0,
-    // On the METRICS since AECI-745, not on the options: the collector runs the
-    // detector, so the email and `/admin/overview` subtract the same figure by
-    // construction instead of by both callers remembering to pass it.
-    automation: { flagged: { day: 56, prior: 64 }, note: '56 of 70 may not be people.' },
-    swarm: null,
-    arrivalCoverage: HEALTHY_COVERAGE,
-    priorArrivalCoverage: HEALTHY_COVERAGE,
-    classification: null,
-  };
-  const opts = {
-    env: 'production',
-    dayLabel: '2026-08-30',
-    generatedAt: new Date('2026-08-31T05:00:00.000Z'),
-  };
-
-  it('leads the subject with the filtered figure and keeps the raw one in parentheses', () => {
-    const { subject } = buildAnalyticsDigest(metrics, opts);
-    expect(subject).toContain('14 requests of unresolved origin (70 raw)');
-    expect(subject).not.toContain('up to 70');
-  });
-
-  it('makes the filtered count the primary stat in both renderings', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('Requests of unresolved origin: 14');
-    expect(text).toContain('from 70 counted server-side');
-    expect(text).toContain('less 56 views flagged as automation  [upper bound]');
-    // The big number in the HTML tile is 14, not 70.
-    expect(html).toContain('>14</span> <span style="font-size:14px;color:#71717a">');
-    expect(html).toContain('requests of unresolved origin');
-    // AECI-869: the word appears on the corroborated line and nowhere else.
-    expect(text).not.toContain('human page views');
-  });
-
-  it('computes the delta filtered-against-filtered, never filtered-against-raw', () => {
-    // 14 vs 23 is -9 (-39%). Against the raw prior day of 87 it would read
-    // -73 (-84%) — a fabricated collapse, every single morning.
-    const { text } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('Requests of unresolved origin: 14 (-9 (-39%) vs 23 prior day)');
-    expect(text).not.toContain('vs 87 prior day)  [headline]');
-  });
-
-  it('still reports the raw day-over-day delta on the demoted line', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('from 70 counted server-side (-17 (-20%) vs 87 prior day)');
-    expect(html).toContain('-17 (-20%) vs 87 prior day');
-  });
-
-  it('describes the raw figure as the upper bound and the headline as an estimate', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, opts);
-    expect(text).toContain('The raw');
-    expect(text).toContain('server-side figure is an UPPER bound on humans');
-    expect(text).toContain('Read it as a RESIDUAL, not as people');
-    expect(html).toContain('<strong>upper bound</strong> on humans');
-    expect(html).toContain('what no rule could exclude, which is not the same as a person');
-  });
-
-  it('falls back to the raw count and SAYS SO when the detector did not run', () => {
-    // A failed detector must not be able to look like a clean day.
-    const { subject, text, html } = buildAnalyticsDigest({ ...metrics, automation: null }, opts);
-    expect(subject).toContain('70 requests of unresolved origin (UNFILTERED)');
-    expect(text).toContain(
-      'Requests of unresolved origin: 70 (-17 (-20%) vs 87 prior day)  [upper bound]',
-    );
-    expect(text).toContain('automation filter did not run this day');
-    expect(text).toContain('this figure is UNFILTERED');
-    expect(html).toContain('The automation filter did not run for this day');
-  });
-
-  it('distinguishes "ran, flagged nothing" from "did not run"', () => {
-    const { text } = buildAnalyticsDigest(
-      { ...metrics, automation: { flagged: { day: 0, prior: 0 }, note: null } },
-      opts,
-    );
-    // Ran and found nothing: headline equals raw, with no outage warning.
-    expect(text).toContain('Requests of unresolved origin: 70');
-    expect(text).not.toContain('did not run');
-  });
-
-  it('clamps a headline that would go negative rather than printing one', () => {
-    const { text } = buildAnalyticsDigest(
-      { ...metrics, automation: { flagged: { day: 999, prior: 999 }, note: null } },
-      opts,
-    );
-    expect(text).toContain('Requests of unresolved origin: 0');
-    expect(text).not.toContain('-929');
+    expect(text).toContain('== Most viewed products (not filtered by class) ==');
+    expect(text).toContain('== Traffic sources (not filtered by class) ==');
+    expect(text).not.toContain('excluding classed automation');
+    expect(text.split(TABLES_UNCLASSIFIED_NOTE)).toHaveLength(2);
+    expect(html.split(TABLES_UNCLASSIFIED_NOTE)).toHaveLength(2);
+    // The note sits above the products table.
+    expect(text.indexOf(TABLES_UNCLASSIFIED_NOTE)).toBeLessThan(text.indexOf('Corpay'));
   });
 });
 
@@ -1374,17 +931,9 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     pendingModeration: 0,
     topProducts: [{ name: 'Procore', slug: 'procore', views: 40 }],
     referrers: [{ source: 'Direct', views: 640 }],
+    tablesUnclassified: true,
     botActivity: [{ name: 'Googlebot', crawls: 1851 }],
-    corroboratedViews: { day: 3, prior: 4 },
-    corroboratedVisitors: 3,
     operatorLeakViews: 0,
-    // 198 flagged by request shape alone — the only detector that still worked,
-    // because `client_verdict` is read per row and needs no network.
-    automation: {
-      flagged: { day: 198, prior: 150 },
-      note: '198 of 878 may not be people: 198 views arrived with request headers that do not look like a browser, from network unknown (198 requests), which is evidence about those requests themselves rather than an inference from how many of them there were.',
-    },
-    swarm: null,
     arrivalCoverage: BLIND_COVERAGE,
     priorArrivalCoverage: BLIND_COVERAGE,
     classification: null,
@@ -1393,73 +942,32 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     env: 'production',
     dayLabel: '2026-09-10',
     generatedAt: new Date('2026-09-11T05:00:00.000Z'),
-    posthog: { pageviews: 20, people: 2 },
-    // AECI-870. The measured Sep 10 production figures: 21 raw `app_started`
-    // rows, 13 after the operator and PostHog's own bot verdict are removed, 7 of
-    // those carrying a search referrer. Beside a residual of 680 — the non-
-    // operator bundle executions were 2% of the headline.
-    browserStarts: { startsAll: 21, starts: 13, searchReferred: 7 },
   };
 
-  it('reports 2026-09-10 honestly: unresolved, telemetry missing, no arithmetic', () => {
+  it('reports 2026-09-10 honestly: telemetry missing, no residual, no arithmetic', () => {
     const { subject, text, html } = buildAnalyticsDigest(SEP10, opts);
 
-    // 1. The headline is the residual, under its own name, and the figure is the
-    //    one the day actually produced.
-    expect(subject).toContain('680 requests of unresolved origin (878 raw)');
-    expect(text).toContain('Requests of unresolved origin: 680');
-    expect(html).toContain('>680</span>');
-
-    // 2. "Human" appears ONLY on the corroborated line, and that line says what
-    //    corroborated it.
-    expect(text).toContain('Corroborated as human by an external referrer: 3');
-    expect(text).toContain('That referrer is what corroborates them as human');
-    expect(text).not.toContain('human page views');
-    expect(text).not.toContain('human views');
-    expect(html).not.toContain('human page view');
-
-    // 3. The exclusions that DID run are still listed beside the headline.
-    expect(text).toContain('less 198 views flagged as automation');
-    expect(text).toContain('Bot/crawler page views: 1851');
-
-    // 4. The telemetry outage is unmissable: subject, body, and HTML.
-    expect(subject).toContain('NO NETWORK TELEMETRY');
-    expect(text).toContain(
-      'Arrival network telemetry unavailable for this day; network-based exclusions did not run.',
+    // 1. No residual figure anywhere (AECI-1460). The day was not classified, so
+    //    the subject names the reason and the outage, and carries no count.
+    expect(subject).toBe(
+      'AECi daily digest (production) — 2026-09-10: CLASSES UNAVAILABLE, 0 new users · top: Procore · 1851 crawls · NO NETWORK TELEMETRY',
     );
-    expect(text).toContain('0 of 2736 arrivals carried a network (ASN)');
+    expect(text).not.toContain('680');
+    expect(text).not.toContain('878');
+    expect(html).not.toContain('878');
+
+    // 2. The telemetry outage is unmissable: subject, body, and HTML, above the tables.
+    expect(text).toContain(
+      '  ** Arrival network telemetry unavailable for this day; network-based exclusions did not run.',
+    );
+    expect(text).toContain('Only 0 of 2736 full-document arrivals carried a network (ASN)');
+    expect(text.indexOf('Arrival network telemetry unavailable')).toBeLessThan(
+      text.indexOf('== Most viewed products'),
+    );
     expect(html).toContain('Arrival network telemetry unavailable for this day');
 
-    // 5. PostHog is a separate observation with its own caveat, and the email
-    //    forbids the arithmetic rather than merely omitting it.
-    expect(text).toContain('PostHog page views: 20 from 2 identities  [separate observation]');
-    expect(text).toContain(
-      'That is a different population, not a floor under the previous measure',
-    );
-    expect(text).toContain('Do not add it to, or subtract it from, any figure above.');
-    expect(text).not.toContain('lower bound');
-    expect(text).not.toContain('The truth is between');
-
-    // 6. The referrer line is supporting evidence and a SUBSET, never an addend.
-    expect(text).toContain('supporting evidence, not a verified floor');
-    expect(text).toContain('It is a SUBSET of the previous measure, never an addend to it.');
-
-    // 7. And the NULL-ASN group is labelled rather than counted as a network.
-    expect(text).toContain('network unknown (198 requests)');
-    expect(text).not.toContain('from 1 network,');
-
-    // 8. AECI-870. Browser starts are a FOURTH observation on the same day, and
-    //    the email does no arithmetic between them and the 680. Explicitly: no
-    //    subtraction (680 - 13 = 667), no ratio, no "of which", and no claim that
-    //    13 bounds 680 from below.
-    expect(text).toContain('Browser starts: 13 (7 search-referred)  [separate observation]');
-    expect(html).toContain('browser starts');
-    expect(text).toContain('Counts bundle executions, not people');
-    expect(text).toContain('browsers with tracker blockers never report');
-    for (const forbidden of ['667', '680 - 13', '13 of 680', '2%', '1.9%']) {
-      expect(text).not.toContain(forbidden);
-      expect(html).not.toContain(forbidden);
-    }
+    // 3. The crawler line still reports what WAS caught by name.
+    expect(text).toContain('Bot/crawler page views: 1851');
   });
 
   it('suppresses the day-over-day arithmetic across a telemetry boundary', () => {
@@ -1470,7 +978,7 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
       'not comparable with the prior day (arrival network telemetry was unavailable)',
     );
     // The number that would have been printed is absent, not merely hedged.
-    expect(text).not.toContain('vs 900 prior day');
+    expect(text).not.toContain('vs 1700 prior day');
   });
 
   it('suppresses it when only the PRIOR day was blind', () => {

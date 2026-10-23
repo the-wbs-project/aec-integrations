@@ -126,23 +126,14 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
     ],
     internal_filter: { available: false, applied: false, asns: [] },
     traffic: {
-      // Post-automation (AECI-745): 92 counted server-side, 18 flagged.
-      page_views_human: { total: 74, excluding_internal: null },
-      page_views_human_raw: { total: 92, excluding_internal: null },
-      automation_flagged: 18,
       page_views_bot: { total: 1840, excluding_internal: null },
       unique_visitors: { total: 31, excluding_internal: null },
-      delta_day: { current: 74, prior: 68, diff: 6, pct: 9 },
-      delta_7d: { current: 610, prior: 500, diff: 110, pct: 22 },
       series_30d: series30d(),
       top_sources: [
         { source: 'Google', views: 40 },
         { source: null, views: 12 },
       ],
       top_products: [{ name: 'Procore', slug: 'procore', views: 25 }],
-      corroborated_views: 9,
-      corroborated_visitors: 6,
-      operator_leak_excluded: 26,
       // Healthy by default (AECI-869); the blind case is seeded per test.
       arrival_telemetry: {
         arrivals: 900,
@@ -150,10 +141,6 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
         coverage: 1,
         degraded: false,
       },
-      // AECI-870. Null by default because the default load does not query
-      // PostHog — the read is gated on `?recompute=1`. Seeded per test.
-      browser_starts: null,
-      browser_starts_unavailable: null,
     },
     // AECI-1346. The lead card's figures: one version across the window.
     classification: classSummary(),
@@ -322,7 +309,6 @@ describe('AdminOverview', () => {
 
   it('renders the headline figures, catalog totals and the reported UTC day', async () => {
     const { el } = await setup(makeApiMock());
-    expect(el.textContent).toContain('92'); // human page views
     expect(el.textContent).toContain('31'); // unique visitors
     expect(el.textContent).toContain('412'); // active subscribers
     expect(el.textContent).toContain('496'); // catalog integrations
@@ -351,12 +337,9 @@ describe('AdminOverview', () => {
   });
 
   describe('deltas', () => {
-    it('renders both the day and 7-day delta for human page views', async () => {
+    it('renders the sign-in day delta', async () => {
       const { el } = await setup(makeApiMock());
-      // The day delta is post-automation on both sides; the 7-day delta is raw
-      // on both. Different populations, deliberately, and the caption says so.
-      expect(el.textContent).toContain('+6 (+9%)');
-      expect(el.textContent).toContain('+110 (+22%)');
+      expect(el.textContent).toContain('+2 (+200%)');
     });
 
     it('omits the percentage when the prior period was zero — as the digest does', async () => {
@@ -364,7 +347,10 @@ describe('AdminOverview', () => {
       const { el } = await setup(
         makeApiMock({
           ...base,
-          traffic: { ...base.traffic, delta_day: { current: 5, prior: 0, diff: 5, pct: null } },
+          audience: {
+            ...base.audience,
+            new_sign_ins: { current: 5, prior: 0, diff: 5, pct: null },
+          },
         }),
       );
       expect(el.textContent).toContain('+5 vs 0');
@@ -376,208 +362,13 @@ describe('AdminOverview', () => {
       const { el } = await setup(
         makeApiMock({
           ...base,
-          traffic: { ...base.traffic, delta_day: { current: 5, prior: 5, diff: 0, pct: 0 } },
+          audience: {
+            ...base.audience,
+            new_sign_ins: { current: 5, prior: 5, diff: 0, pct: 0 },
+          },
         }),
       );
       expect(el.textContent).toContain('No change vs the prior day');
-    });
-
-    it('carries the measurement envelope on the headline tile (AECI-683)', async () => {
-      // The figures that qualify the headline sit ON the headline's tile, the way
-      // the 05:00 email prints them beside its own. A separate tile would put the
-      // caveat somewhere the number is not.
-      const { el } = await setup(makeApiMock());
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('upper bound');
-      expect(tile.textContent).toContain('corroborates them as human: 9');
-      expect(tile.textContent).toContain('distinct visitors: 6');
-      expect(tile.textContent).toContain('lapsed session: 26');
-    });
-
-    it('leads with the post-automation figure and shows the subtraction (AECI-745)', async () => {
-      // The number on the tile is the number the 05:00 email leads with. The raw
-      // count it came from is beside it, because a filtered figure with no
-      // visible minuend is a figure nobody can check.
-      const { el } = await setup(makeApiMock());
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('Requests of unresolved origin');
-      // AECI-869: the tile no longer claims the population it reports.
-      expect(tile.textContent).not.toContain('Human page views');
-      expect(tile.textContent).toContain('which is not the same as people');
-      expect(tile.textContent).toContain('74');
-      expect(tile.textContent).toContain('Counted server-side: 92');
-      expect(tile.textContent).toContain('attributed to automated clients: 18');
-      // The upper-bound label now qualifies the RAW figure, not the headline.
-      expect(tile.textContent).toContain('The server-side figure is an upper bound');
-      // …and the raw week and trend line are labelled as such, since they sit
-      // above a filtered headline.
-      expect(tile.textContent).toContain('no automation filter applied');
-    });
-
-    it('says the figure is UNFILTERED when the detector did not run', async () => {
-      // Null is an outage, not a clean day. It must never render as "0 flagged",
-      // and the headline must not silently keep its "after automation" framing.
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({
-          ...base,
-          traffic: { ...base.traffic, automation_flagged: null },
-        }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('automation filter did not run');
-      expect(tile.textContent).toContain('UNFILTERED');
-      expect(tile.textContent).not.toContain('attributed to automated clients: 0');
-      expect(tile.textContent).not.toContain('Counted server-side');
-    });
-
-    it('renders the two AECI-745 automation notes in the honesty envelope', async () => {
-      const base = makeOverview();
-      const applied = await setup(
-        makeApiMock({
-          ...base,
-          notes: [
-            {
-              code: 'automation_filter_applied',
-              severity: 'info',
-              message: 'server fallback text',
-            },
-          ],
-        }),
-      );
-      expect(applied.el.textContent).toContain('less those attributed to automated clients');
-      // The localized body replaces the server's English message rather than
-      // appearing beside it.
-      expect(applied.el.textContent).not.toContain('server fallback text');
-
-      const failed = await setup(
-        makeApiMock({
-          ...base,
-          notes: [
-            {
-              code: 'automation_filter_did_not_run',
-              severity: 'warn',
-              message: 'server fallback text',
-            },
-          ],
-        }),
-      );
-      expect(failed.el.textContent).toContain('automation filter did not run for this window');
-    });
-
-    it('puts the telemetry-health line in the measurement envelope (AECI-869)', async () => {
-      // A four-day outage read as a good week because no surface said the
-      // exclusions had lost their input. This sits on the tile, above every other
-      // caveat, because it does not qualify the number — it invalidates it.
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({
-          ...base,
-          traffic: {
-            ...base.traffic,
-            arrival_telemetry: {
-              arrivals: 2736,
-              arrivals_with_asn: 0,
-              coverage: 0,
-              degraded: true,
-            },
-          },
-        }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('Arrival network telemetry was unavailable for this day');
-      expect(tile.textContent).toContain('network-based exclusions did not run');
-      expect(tile.textContent).toContain('Page loads carrying a network: 0');
-      expect(tile.textContent).toContain('of 2736');
-      expect(tile.textContent).toContain('not comparable with a day that has telemetry');
-    });
-
-    it('omits it entirely when telemetry is healthy', async () => {
-      const { el } = await setup(makeApiMock());
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).not.toContain('Arrival network telemetry');
-    });
-
-    it('puts browser starts in the same envelope as a separate observation (AECI-870)', async () => {
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({
-          ...base,
-          traffic: {
-            ...base.traffic,
-            browser_starts: { starts_all: 21, starts: 13, search_referred: 7 },
-          },
-        }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('Browser starts: 13');
-      expect(tile.textContent).toContain('search-referred: 7');
-      expect(tile.textContent).toContain('Operator and PostHog-detected bots excluded');
-      expect(tile.textContent).toContain('never added to or subtracted from the figure above');
-      expect(tile.textContent).toContain('counts bundle executions rather than people');
-      expect(tile.textContent).toContain('tracker blocker never report');
-      // The headline itself is untouched: 74, not 74 minus 13 and not 74 plus 13.
-      expect(tile.textContent).toContain('74');
-      expect(tile.textContent).not.toContain('61');
-      expect(tile.textContent).not.toContain('87');
-    });
-
-    it('renders a zero browser-start count rather than hiding it', async () => {
-      // Zero starts on a day with arrivals is a broken bundle or a blocked
-      // collector. It is the reading that matters most, so it must render.
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({
-          ...base,
-          traffic: {
-            ...base.traffic,
-            browser_starts: { starts_all: 0, starts: 0, search_referred: 0 },
-          },
-        }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('Browser starts: 0');
-    });
-
-    it('says why when the read failed', async () => {
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({
-          ...base,
-          traffic: {
-            ...base.traffic,
-            browser_starts: null,
-            browser_starts_unavailable: 'posthog_http_503',
-          },
-        }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).toContain('Browser starts could not be read');
-      expect(tile.textContent).toContain('posthog_http_503');
-    });
-
-    it('omits the browser-start line on a default load, where nothing was measured', async () => {
-      const { el } = await setup(makeApiMock());
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).not.toContain('Browser starts');
     });
 
     it('renders the two AECI-869 notes in the honesty envelope', async () => {
@@ -621,41 +412,6 @@ describe('AdminOverview', () => {
       expect(spans.el.textContent).toContain('Do not read a step across those days');
     });
 
-    it('omits the operator-leak sentence entirely when nothing leaked', async () => {
-      // Zero is the healthy state, and "excluded: 0" reads like a finding.
-      const base = makeOverview();
-      const { el } = await setup(
-        makeApiMock({ ...base, traffic: { ...base.traffic, operator_leak_excluded: 0 } }),
-      );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin'),
-      )!;
-      expect(tile.textContent).not.toContain('lapsed session');
-      expect(tile.textContent).toContain('corroborates them as human: 9');
-    });
-
-    it('renders the two AECI-683 caveats in the honesty envelope', async () => {
-      const { el } = await setup(
-        makeApiMock({
-          ...makeOverview(),
-          notes: [
-            {
-              code: 'corroborated_is_a_referrer_floor',
-              severity: 'info',
-              message: 'server copy is ignored',
-            },
-            {
-              code: 'operator_leak_is_an_inference',
-              severity: 'info',
-              message: 'server copy is ignored',
-            },
-          ],
-        }),
-      );
-      expect(el.textContent).toContain('Read it as a floor, not a count of people');
-      expect(el.textContent).toContain('inference about who the visitor was');
-    });
-
     it('invents no delta for the snapshot tiles (subscribers, catalog)', async () => {
       const { el } = await setup(makeApiMock());
       const tiles = [...el.querySelectorAll('aec-stat-tile')];
@@ -684,10 +440,12 @@ describe('AdminOverview', () => {
       api.getTimeseries.mockRejectedValue(new Error('boom'));
       api.getSsrVersion.mockRejectedValue(new Error('boom'));
       const { el } = await setup(api);
-      expect(el.textContent).toContain('92');
+      expect(el.textContent).toContain('31');
       expect(el.querySelector('[role="alert"]')).toBeNull();
-      // The human sparkline comes from the bundle, so it survives regardless.
-      expect(el.querySelectorAll('aec-sparkline').length).toBeGreaterThan(0);
+      // Since AECI-1460 every sparkline comes from the second wave, so the tiles
+      // render without one rather than failing.
+      expect(el.querySelectorAll('aec-stat-tile')).toHaveLength(3);
+      expect(el.querySelectorAll('aec-sparkline')).toHaveLength(0);
     });
 
     it('gives active subscribers no sparkline — there is no series for it', async () => {
@@ -786,7 +544,7 @@ describe('AdminOverview', () => {
       // response over a failed optional refresh loses real information.
       expect(el.querySelector('[role="alert"]')?.textContent).toContain('Recompute failed');
       expect(el.textContent).not.toContain("couldn't load");
-      expect(el.textContent).toContain('92');
+      expect(el.textContent).toContain('412');
       expect(el.querySelector('aec-status-strip')).not.toBeNull();
       expect(el.querySelector('[role="status"]')?.textContent).toContain('unchanged');
       // Still retryable.
@@ -815,7 +573,6 @@ describe('AdminOverview', () => {
           ...base,
           traffic: {
             ...base.traffic,
-            page_views_human: { total: 0, excluding_internal: null },
             series_30d: [],
             top_sources: [],
             top_products: [],
@@ -892,9 +649,9 @@ describe('AdminOverview', () => {
       expect(chart.textContent).not.toContain('Missing network information');
     });
   });
-  // ─── AECI-1346: the classes lead, the residual is the previous measure ──────
+  // ─── AECI-1346: the classes lead; AECI-1460: the residual tile is gone ──────
   describe('traffic classes (AECI-1346)', () => {
-    it('leads with the classes card, before the residual tile', async () => {
+    it('leads with the classes card, before the stat tiles', async () => {
       const { el } = await setup(makeApiMock());
       const card = el.querySelector('aec-traffic-classes-card');
       const firstTile = el.querySelector('aec-stat-tile');
@@ -916,32 +673,31 @@ describe('AdminOverview', () => {
       expect(card!.textContent).toContain('Requests, not people');
     });
 
-    it('keeps the residual as the previous measure, caption and sparkline intact', async () => {
+    it('renders no residual tile and no residual caption (AECI-1460)', async () => {
       const { el } = await setup(makeApiMock());
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('Requests of unresolved origin (previous measure)'),
-      )!;
-      expect(tile).toBeTruthy();
-      expect(tile.textContent).toContain('Requests no rule could exclude');
-      expect(tile.querySelector('aec-sparkline')).not.toBeNull();
-      expect(tile.textContent).toContain('+6 (+9%)');
+      const labels = [...el.querySelectorAll('aec-stat-tile')].map((t) => t.textContent ?? '');
+      expect(labels).toHaveLength(3);
+      expect(labels.some((l) => l.includes('Unique visitors'))).toBe(true);
+      expect(labels.some((l) => l.includes('New sign-ins'))).toBe(true);
+      expect(labels.some((l) => l.includes('Active subscribers'))).toBe(true);
+      expect(el.textContent).not.toContain('unresolved origin');
+      expect(el.textContent).not.toContain('previous measure');
+      expect(el.textContent).not.toContain('Requests no rule could exclude');
+      expect(el.textContent).not.toContain('corroborates them as human');
+      expect(el.textContent).not.toContain('Browser starts');
     });
 
-    it('says "not comparable" on the residual across a collection-method change', async () => {
-      const base = makeOverview();
+    it('renders the tables_unclassified note as localized prose (AECI-1460)', async () => {
       const { el } = await setup(
-        makeApiMock({ ...base, traffic: { ...base.traffic, delta_day: null, delta_7d: null } }),
+        makeApiMock({
+          ...makeOverview(),
+          notes: [{ code: 'tables_unclassified', severity: 'info', message: 'server copy' }],
+        }),
       );
-      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
-        t.textContent?.includes('previous measure'),
-      )!;
-      expect(tile.textContent).toContain(
-        'Not comparable with the prior day (collection method changed)',
+      expect(el.textContent).toContain(
+        'This day has no traffic classes, so the product and source tables are not filtered for automation.',
       );
-      expect(tile.textContent).toContain(
-        'Not comparable with the prior 7 days (collection method changed)',
-      );
-      expect(tile.textContent).not.toContain('No change');
+      expect(el.textContent).not.toContain('server copy');
     });
 
     it('names the classifier change when the reported day starts a new version', async () => {

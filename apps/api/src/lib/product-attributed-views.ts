@@ -22,16 +22,19 @@
  * The obvious shape is three `UNION ALL` arms over `page_views`, each carrying
  * the caller's `WHERE`. It is correct in SQL: each arm reads `page_views`
  * unaliased, so `NOT_INTERNAL`'s correlated subquery still correlates. It is
- * wrong on D1, because it binds the caller's parameters three times. The
- * digest's predicate alone is about 10 parameters before `notFlagged` adds up to
- * 2 × `SWARM_MAX_CANDIDATES` more, so three copies cross D1's 100-parameter cap
- * on a busy day. The better-sqlite3 harness has no such cap, so every spec would
+ * wrong on D1, because it binds the caller's parameters three times. When this
+ * shipped the digest's predicate carried up to 2 × `SWARM_MAX_CANDIDATES` more
+ * parameters for the automation exclusion, so three copies crossed D1's
+ * 100-parameter cap on a busy day. AECI-1460 replaced that exclusion with a
+ * three-parameter class filter, and the CTE still keeps the count from scaling
+ * with the arms. The better-sqlite3 harness has no such cap, so every spec would
  * pass (`TESTING_STRATEGY.md` §6.3).
  *
  * So the caller's predicate runs ONCE, inside a CTE over unaliased `page_views`
- * (which keeps `NOT_INTERNAL` and `notFlagged` exactly as every other reader
- * applies them), and the three arms only pick a column out of the CTE. Three
- * compound terms, inside D1's five-term ceiling.
+ * (which keeps the correlated subqueries in `NOT_INTERNAL` and the class filter
+ * correlating exactly as every other reader applies them), and the three arms
+ * only pick a column out of the CTE. Three compound terms, inside D1's five-term
+ * ceiling.
  *
  * Usage, because the CTE has to be attached to the OUTER statement:
  *
