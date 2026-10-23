@@ -189,11 +189,14 @@ export function isCounterpartAddedUnanswered(
   return isAwaitingCounterpartAnswer(claim) && integration.attestable && isLive(integration);
 }
 
-/** A row the caller added that the other company has not answered. Never on an
- *  owns-both row: there is nobody to wait for. */
+/** A row the caller added and still says Yes to, that the other company has not
+ *  answered. Never on an owns-both row: there is nobody to wait for. Once the
+ *  caller cancels, clears its answer or says No, nothing is asked of the other
+ *  company, so nothing waits on it (AECI-1467). */
 export function isAddedByYouWaiting(integration: VendorIntegration, claim: VendorClaim): boolean {
   return (
     claim.added_by === 'you' &&
+    myAnswer(claim) === 'yes' &&
     claim.counterparty === null &&
     !ownsBoth(integration) &&
     integration.attestable &&

@@ -40,7 +40,7 @@ The box ends with two links:
 - **Change** opens the reason form again, with your reason and the corrected direction filled in. Edit the reason, pick another direction, or pick another reason for the No.
 - **Cancel** takes back both answers: your Yes on the corrected row and your No on the original. The original row then needs your answer again.
 
-A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you. See [Current limits](/docs/vendors#current-limits).
+A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you, and it no longer says it is waiting for the other company. See [Current limits](/docs/vendors#current-limits).
 
 Readers do not see that row. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
 
