@@ -461,6 +461,13 @@ export const routes: Routes = [
         path: 'system',
         loadComponent: () => import('./admin/system/system-status').then((m) => m.SystemStatus),
       },
+      // AECI-653 — the global audit log (`ADMIN_PANEL_SPEC.md` §5.18). One flat
+      // child, no resolver: the parent's `adminSummaryResolver` is the gate, and the
+      // ledger is fetched client-side from the URL's query params.
+      {
+        path: 'audit',
+        loadComponent: () => import('./admin/audit/audit-log').then((m) => m.AuditLog),
+      },
     ],
   },
   // AECI-522 — Phase 2 (Stage 2) vendor portal, at the singular `/vendor` (the

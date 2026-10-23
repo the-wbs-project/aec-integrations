@@ -184,6 +184,14 @@ describe('ConnectorDetail', () => {
     });
   });
 
+  it('links the audit section into the global log on this catalogue (AECI-653)', async () => {
+    const { el } = await setup(makeApiMock());
+    const hrefs = [...el.querySelectorAll('#admin-connector-audit ~ p a')].map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(hrefs).toEqual([`/admin/audit?entity_type=connector_catalog&entity_id=${CATALOG}`]);
+  });
+
   it('renders all five sections', async () => {
     const { el } = await setup(makeApiMock());
     expect([...el.querySelectorAll('h3')].map((h) => h.textContent?.trim())).toEqual([

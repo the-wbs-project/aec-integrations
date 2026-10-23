@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Twenty-three routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **seventeen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Twenty-four routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **eighteen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -156,6 +156,7 @@ Twenty-three routes under the existing `AdminShell` (`app/admin/admin-shell.ts`)
     /admin/reviewers       → redirect to /admin/users?banned=true  (§5.8, AECI-692)
     /admin/email           §5.14 (what we sent and whether it arrived, AECI-1223; sending switches, AECI-1224)
     /admin/system          §5.6
+    /admin/audit           §5.18 (the global audit log — AECI-653)
 ```
 
 **Shell restructure — SHIPPED (AECI-576, P1.2); the nav was COMPLETE for this epic's own routes at AECI-586 (P5.1).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Every screen listed above exists and is linked, so the "omitted until built" mechanic below has no *pending* subjects — it is recorded because it governed how the epic shipped, not because anything is held back. It does still govern later additions: **AECI-652 added Vendors, AECI-692 added Users and AECI-859 added Subscribers through exactly that mechanic**, one `ADMIN_NAV_GROUPS` entry each. ("Complete" therefore means every §5 route is linked, not that the array is closed — `admin-shell.component.spec.ts` pins the ordered result so a later entry cannot land silently.) AECI-692 also demonstrated the inverse — a nav entry can be *replaced*: "Reviewer bans" was swapped for "Users" in the same slot, because `/admin/users?banned=true` is a strict superset of what that screen could show (§5.8). Two mechanics were settled while building it:
@@ -796,7 +797,7 @@ Per §9.3 the GETs (detail, products, audit, acceptances, billing, integrations)
 >
 > ~~**Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).**~~ A vendor **all** of whose products are `product_role = 'connector'`, and that owns no integration it manages, is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9). One that does own integrations it manages is a paying third-party owner and takes the ordinary Grant (§8.10, AECI-1017). Since **AECI-1041 (2026-09-22)** both screens show an "Integrations owned" count over both delivered-tier tables, and on a pure connector vendor that owns integrations the banner above Grant/Reject reads as a paying owner instead of a park. On `/admin/claims`, Grant would open a `verified` entitlement and flip the public `verified` mirror, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for a pure connector vendor that owns no integrations. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
-> **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
+> **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. **Fourth consumer, AECI-653.** The global log at `/admin/audit` (§5.18) renders the same component. It added two optional inputs, both defaulting to the scoped behaviour: `emptyText` replaces the empty line, and `linkEntities` links each entity cell to that entity's history in the global log. No existing `@@admin.audit.*` id moved. Its follow-up added `paging`, `linkActors`, `absoluteTime` and `sortable`, also off by default (§5.18). The one change every consumer sees is that the table stays mounted and `aria-busy` while it refetches. Four notes:
 >
 > - **Two sortable headers on the list, and only two.** `AdminVendorsListQuerySchema.sort` was `created | name | updated` and `created_at` is not on `AdminVendorRowSchema` — so Vendor and Updated got a control and the other five headers stayed plain text with no hover state. A header that looked clickable and reordered the 25 rows on the current page would present a page as a ranking; making more columns sortable is an API change, not a UI one. *(Both halves of this bullet have since been overtaken: all seven columns are sortable, and clicking an active header now reverses it — see the sort-direction note below.)*
 > - **The audit trail's action column reads as English.** `describeAuditAction()` (`app/admin/audit/audit-action-labels.ts`) maps the ~40 action strings the API actually writes, with the two templated families expanded (`{category,audience,phase}.created`, `{reviewer,vendor_admin}.{banned,unbanned}`). An unmapped action humanises its token instead of rendering blank — mandatory, because `action` is a plain `z.string()` by contract precisely so a new writer elsewhere cannot 500 this screen, and `audit_log` is excluded from the retention prune (§13), so this reader meets rows written by code that no longer exists. The raw token stays on screen beneath the description, because a row still has to be greppable against a log line. `metadata` is **not** on the wire, so descriptions are derivable from `action` alone; surfacing `source` / `fields` / `reason` would be a handler and schema change.
@@ -1860,6 +1861,125 @@ table. Recorded here for the screen, the decisions and the badge.
   the four `h2`s and filter groups. API: `admin-license-release-requests.spec.ts`,
   `vendor-license-release.spec.ts`, `lib/admin-queue-counts.spec.ts`.
 
+### 5.18 Audit log — SHIPPED (AECI-653, 2026-10-23)
+
+`/admin/audit` is the global, filterable read of `audit_log`. Before it, the ledger had three
+scoped read surfaces: the vendor, claim and connector-catalogue trails. An operator asking "who
+changed this, when, and what was it before" had to write D1 SQL by hand. The contract is
+`API_CONTRACTS.md` §6.10 `GET /api/admin/audit`. Recorded here for the screen and its decisions.
+
+- **Route and nav.** The last entry in the Operations group, labelled "Audit log". It is not a
+  queue, so it has no badge and is not in the Operations sum (§5.0c). One flat child route, no
+  resolver: the parent's `adminSummaryResolver` is the gate. Component
+  `app/admin/audit/audit-log.ts` and `.html`, client `admin-audit-api.ts`.
+- **The table is the shared trail.** `<aec-audit-trail>` renders the rows, so a row reads the same
+  here as on a detail page. This page turns on the trail's global-log inputs: `paging="cursor"`,
+  `linkEntities`, `linkActors`, `absoluteTime` and `sortable`. Each defaults off, so the three
+  scoped trails keep offset paging through `AdminPaginator` and render as before. The empty line
+  is "No entries match these filters.", or "No entries on this page." on a page reached by a
+  cursor.
+- **Filters.** Entity type, entity id, action, actor id, actor type ("Any" or one of the four), a
+  date preset row, and a From / To day pair in UTC, in that order. They AND together. Apply
+  submits. "Clear filters" empties the form and returns to the bare URL, keeping the order and page size.
+- **Suggestions, and the unknown-value hint.** Entity type and action are free text over a native
+  `<datalist>`. No generic combobox exists in the repo, and building one is out of scope. Entity
+  type suggests `AUDIT_ENTITY_TYPES` from `@aeci/shared`, which a grep test
+  (`apps/api/src/lib/audit-entity-types.spec.ts`) holds equal to every `entityType` literal the
+  API writes. Action suggests the mapped actions. Both filters are exact matches, so a value the
+  list does not know gets a one-line hint under the field: "Not a value this list knows. Apply
+  still searches for it exactly." The hint never blocks Apply.
+- **Index discipline.** Every allowed filter shape starts from an index. The table of filter to
+  index is in `API_CONTRACTS.md` §6.10, so it is not repeated here. Two shapes are refused with
+  `400 VALIDATION_FAILED`: an entity id without an entity type, and actor type as the only
+  constraint. The form runs the draft through the same `AdminAuditLogQuerySchema`, so the operator
+  reads the rule beside the field instead of a 400. A 400 that still arrives renders "The audit
+  log could not use these filters." The entity id field is disabled until it has a type, unless it
+  already holds a value, so a cleared type never locks the operator out of clearing the id.
+- **The default 30-day window and the preset row.** Ruled 2026-10-23. A URL with no entity type,
+  action, actor id, date or preset lands on the last 30 days, today included, in UTC. The reason
+  is the count: unfiltered, the `count()` behind the total walks the whole `created_at` index, and
+  D1 bills rows read. A preset row above the dates picks another window: Today, 7 days, 30 days,
+  90 days or All time, as `aria-pressed` buttons in a labelled group. The pressed chip is derived,
+  never stored. An explicit `range` is that chip. Typed dates show a "Custom dates" state, which
+  is not a button. Otherwise the chip is 30 days when nothing indexed narrows the log, and All
+  time when something does. A chip clears both date inputs, and typing a date clears the chip.
+  The date inputs are seeded only from an explicit `from` / `to` in the URL, never from a preset
+  or the default. Presets and the default resolve to dates in the browser only, after render, so
+  no clock-derived value reaches the SSR HTML (the `activity-feed.ts` rule). The API never sees
+  `range`. Apply writes `range` only when a chip was chosen, so an entity type plus Apply reads
+  that entity's full history. A deep link that names an entity, action or actor gets no window.
+  A URL with only `actor_type` gets the default window too, which makes it a valid query instead
+  of a 400. Actor type with All time is caught in the form. The note under the form reads "With
+  no entity, action or actor filter, the log shows the last 30 days unless you pick another
+  range."
+- **Paging is by keyset cursor.** ADR 0046 records why: an append-only ledger drifts under offset
+  paging. The URL carries `after` or `before`, the cursors the last response handed back. Rows
+  per page is 25, 50 or 100, in a native select labelled "Rows per page". The cursor paginator
+  (`admin-cursor-paginator.ts`) renders above and below the table, with Previous, Next, and
+  "First page" once the operator has left the first page. It states no position: the result line
+  above the table carries the count, and only that line takes focus after paging. An empty page reached by a cursor has null cursors while its flags still say rows exist, so
+  it offers "First page" and disables the direction it holds no cursor for. The total is counted
+  once per filter set: later pages send `count=0` and keep the remembered total. A cursored deep
+  link has none, so it counts. A change of order, page size or filters drops the cursor.
+- **Sort.** Only When sorts, through the shared `aec-sort-header`, because it is the only column
+  the keyset can order by. It writes `order=asc` (newest first is the default and is left off the
+  URL). The table caption and the result line follow the order.
+- **Result line and focus.** A line above the table reads "N entries · newest first" (or "oldest
+  first"). When the total is unknown it reads "Showing n entries". After Next, Previous, First page
+  or a sort, focus moves to that line once the rows land (the `reindex-history.ts` rule), and the
+  live region announces "Showing n entries, newest first". Focus does not move on the first load,
+  on Apply, or on a page-size change, where it stays on the select.
+- **The table stays mounted while it refetches.** The `email-activity.ts` rule. The loading line
+  shows only when there are no rows to keep. Otherwise the table wrapper is `aria-busy`, dims to
+  60% opacity, and every paging control disables. The scoped trails get the same behaviour.
+- **Who and When.** The Who cell links to `/admin/audit?actor_id=<id>`, titled "Show every entry
+  by this account", with the actor id on a mono line under the name. A null actor stays plain
+  text. When shows the exact UTC minute (`yyyy-MM-dd HH:mm UTC`) under the relative stamp.
+- **The URL is the state.** The filters live in the query string and are read from the live query
+  map. The grammar is `entity_type`, `entity_id`, `action`, `actor_id`, `actor_type`, `from`,
+  `to`, `range`, `order`, `after`, `before` and `perPage`. Apply, paging and sorting write the
+  URL. `/admin/users` deliberately does not write back, because it would write on every dropdown
+  change. Here one Apply is one history entry, and the page has to be deep-linkable and
+  shareable. Unknown or invalid params are dropped rather than sent: an unknown `range`, an
+  `order` other than `asc`, a `perPage` outside the three sizes, and the cursor pair unless
+  exactly one of them decodes. A `range` next to a date is dropped, because typed dates win. A
+  `from` after `to` drops both and shows one line under the form: "The dates in the link were out
+  of order and were ignored."
+- **Deep-link grammar.** `/admin/audit?entity_type=<type>&entity_id=<id>`. The vendor detail
+  Audit Trail tab links in with `vendor`, claim detail with `vendor_request`, and connector
+  detail with `connector_catalog`. Each row's entity cell on this page links the same way.
+  Every href is an absolute path, because a relative one resolves against `<base href>`.
+- **The vendor link is a subset, and says so.** The vendor tab ORs four scopes
+  (`auditScopeWhere` in `admin-vendors.ts`). The global filter is `entity_type=vendor` only. So
+  the link reads "Rows filed against this vendor record, in the audit log", never "the same
+  history". The vendor tab stays the complete view of a vendor.
+- **A logged-out deep link loses its filters.** The SSR sign-in bounce keeps only the allowlisted
+  arrival params in `?return=` (`signInReturnPath`). An operator whose session lapsed signs in and
+  lands on the bare page. That is the shared gate's rule. It is not changed here.
+- **PII.** `before_state` and `after_state` are free-form JSON. They can hold email addresses,
+  review text and operator notes. The page is admin-only, like every `/admin` screen. The ledger
+  survives GDPR erasure by design: erasure nulls `audit_log.actor_id`, so an erased actor
+  renders as a null actor. The Who cell then reads "System" over the recorded `user` actor
+  type. The actor id filter takes a uuid only, never an email (§13 D23).
+- **No CSV export in v1.** The ledger survives erasure by design, so an export would copy retained
+  PII out of the system with no further control. File it as its own issue if it is wanted.
+- **Not in v1.** `vendor_id` and `product_id` are indexed but are not filters. No `metadata` on
+  the row, matching the scoped trails. No live updates.
+- **Tests.** `audit-log.component.spec.ts`: URL seeding and sanitising, Apply, re-fetch on a query
+  change, the default window and its absence on a deep link, the preset chip in all four cases,
+  presets never seeding the dates, Next / Previous / First page, the draft surviving a page move,
+  focus on the result line after Next, `count=0` reuse, sort and page size dropping the cursor,
+  the empty page with a cursor, the out-of-order notice, the unknown-value hint, both client
+  refusals, the 400 and 500 states, and the "unavailable" actor. `audit-trail.component.spec.ts`
+  covers the global-log inputs: stay-mounted with `aria-busy`, the result line, the cursor
+  paginator, the actor link, absolute time and the sort header emit. The three detail specs assert
+  their link and their offset paging. `e2e/admin-audit.spec.ts` pins the SSR gate, and
+  `e2e/authed-console.spec.ts` runs axe on the signed-in page. The API side is in
+  `API_CONTRACTS.md` §6.10.
+
+Per §9.3 the GET emits no `audit_log` row. It has no rate limit, because reads are never
+rate-limited.
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
@@ -1902,6 +2022,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/connector-catalogs/:id/audit` | §5.9 audit — **SHIPPED (AECI-722)** | **One** disjunct, not §5.7's four: the flip and the sync both file under `entity_type='connector_catalog'` with the catalogue id |
 | `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
 | `GET /api/admin/claims/:id/audit` | §5.10 audit trail — **SHIPPED (AECI-1276)** | The claim's own trail: `entity_type='vendor_request' AND entity_id=:id`, newest first, through the same page reader as the connector trail. Same 404 / 422 gate as the detail GET. A read: no audit row. The Managed grant's `vendor_entitlement.granted` row stays on the vendor's trail |
+| `GET /api/admin/audit` | §5.18 audit log — **SHIPPED (AECI-653)** | The global, unscoped read of `audit_log`. Optional filters AND together, each starting from an index. `entity_id` needs `entity_type`, and `actor_type` is never the only constraint: both are a 400. Same page reader and row shape as the scoped trails, plus `actor_emails_available`. A read: no audit row, no rate limit. Contract in `API_CONTRACTS.md` §6.10 |
 | `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The fourth write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
 | `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()`. Which admin writes do carry one is listed in `waf-rate-limits.md` §6.2, not here, because a list in this row went stale. A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
@@ -1924,7 +2045,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/vendors/:id/logo` | §5.7 vendor logo — **SHIPPED (AECI-955)** | **The sixth write in this table, and the FIRST catalog-content write** (`STAGE_2_5_SPEC.md` §11 admits it; §2's boundary is amended, not bypassed). Strict `{logo_url, reason, internalNote?}` only (AECI-1191 added the required `reason`, recorded in the audit row's `metadata.reason`; AECI-1159 shows it to the vendor) — no other column is reachable. Writes `logo_url` + `logo_source='admin'` + `updated_at` with its `vendor.updated` audit row in the same `db.batch`, then purges `vendor:{slug}` post-commit. `logo_source` fences promote off that column permanently (`REVIEW_APP_PROMOTE_API.md` "Logo ownership override"). Carries `rateLimit('write')` |
 | `PATCH /api/admin/products/:id/logo` | §5.7 product logo — **SHIPPED (AECI-955)** | **The seventh write**, same shape, same required `reason` (AECI-1191): `product.updated` audit row in the same `db.batch`, purging `product:{slug}` + `index:products`. The narrower tag set than `productEditTags` is deliberate — a logo touches no facet membership, and every browse page that lists the product already embeds its `product:{slug}` tag. Carries `rateLimit('write')` |
 
-**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail and claim audit trail, §5.4a's roster, §5.11's worklist and all three §5.14 email reads, the `POST` search included (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`, and AECI-955's two logo PATCHes via `auditInsert` alongside their guarded `UPDATE`, and AECI-1224's sending switch via `auditInsert` alongside its upsert and race sentinel. **Only one of them touches §2's "no editing catalog data" boundary, and it does so by amendment rather than by accident**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. The AECI-955 logo PATCHes **are** catalog-content writes, admitted as §2's seventh named exception and bounded to a single column by a strict one-key schema (`STAGE_2_5_SPEC.md` §11). Promotion remains the review-app → `POST /api/promote` path, and there is still no *general* admin vendor-edit or product-edit endpoint — logo is the only field an operator can write. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail and claim audit trail, §5.18's global audit log, §5.4a's roster, §5.11's worklist and all three §5.14 email reads, the `POST` search included (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`, and AECI-955's two logo PATCHes via `auditInsert` alongside their guarded `UPDATE`, and AECI-1224's sending switch via `auditInsert` alongside its upsert and race sentinel. **Only one of them touches §2's "no editing catalog data" boundary, and it does so by amendment rather than by accident**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. The AECI-955 logo PATCHes **are** catalog-content writes, admitted as §2's seventh named exception and bounded to a single column by a strict one-key schema (`STAGE_2_5_SPEC.md` §11). Promotion remains the review-app → `POST /api/promote` path, and there is still no *general* admin vendor-edit or product-edit endpoint — logo is the only field an operator can write. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 

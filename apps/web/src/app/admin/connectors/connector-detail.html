@@ -697,6 +697,15 @@
       Every handover and every sync run for this catalogue. The sync entries are the record of when
       its feed actually delivered something.
     </p>
+    <p class="mt-1 text-sm">
+      <a
+        routerLink="/admin/audit"
+        [queryParams]="{ entity_type: 'connector_catalog', entity_id: c.id }"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.connectors.detail.auditGlobalLink"
+        >Open this catalogue's history in the audit log</a
+      >
+    </p>
     <div class="mt-4">
       <aec-audit-trail
         [rows]="auditRows()"

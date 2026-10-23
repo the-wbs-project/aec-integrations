@@ -365,6 +365,34 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expectConsoleClean(capture, 'GET /admin/audience');
   });
 
+  // AECI-653 / `ADMIN_PANEL_SPEC.md` §5.18 — the global audit log. The axe pass
+  // runs here because the filter form renders browser-side only (its default
+  // window comes from the clock), so an unauthenticated run would audit nothing
+  // but the redirect. The ledger may hold no rows in the default 30-day window
+  // locally, so the wait is for the fetch to settle, not for a row.
+  test('/admin/audit hydrates with no console errors and zero axe violations', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/audit');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-admin-audit-log form')).toBeVisible();
+    await expect(page.getByText('Loading the audit trail')).toHaveCount(0);
+    await waitForHydrationSettle(page);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .exclude('aec-site-header')
+      .analyze();
+    expect(
+      results.violations,
+      results.violations
+        .map((v) => `[${v.impact ?? '?'}] ${v.id}: ${v.help} (${v.nodes.length} node(s))`)
+        .join('\n'),
+    ).toEqual([]);
+
+    expectConsoleClean(capture, 'GET /admin/audit');
+  });
+
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {
     test.skip(
       !reviewFixturePresent,

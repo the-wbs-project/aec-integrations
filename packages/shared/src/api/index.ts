@@ -1,6 +1,7 @@
 export * from './account';
 export * from './activity-arrival';
 export * from './admin';
+export * from './admin-audit';
 export * from './admin-claims';
 export * from './admin-connector-catalogs';
 export * from './admin-connectors';

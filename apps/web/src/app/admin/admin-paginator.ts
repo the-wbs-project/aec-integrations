@@ -16,6 +16,12 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  * they are walking.
  *
  * Presentational: the parent owns `page` and refetches on `(pageChange)`.
+ * `busy` disables both buttons while that refetch is in flight.
+ *
+ * Its sibling, `AdminCursorPaginator` (`admin-cursor-paginator.ts`), pages by
+ * keyset cursor instead. Only `/admin/audit` uses it, because an append-only
+ * ledger drifts under offset paging (ADR 0046). Every other admin list, the
+ * three scoped audit trails included, stays on this one and `PageQuerySchema`.
  */
 @Component({
   selector: 'aec-admin-paginator',
@@ -32,7 +38,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
         <div class="flex items-center gap-2">
           <button
             type="button"
-            [disabled]="page() <= 1"
+            [disabled]="busy() || page() <= 1"
             (click)="go(page() - 1)"
             class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
               bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
@@ -45,7 +51,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
           </button>
           <button
             type="button"
-            [disabled]="page() >= pageCount()"
+            [disabled]="busy() || page() >= pageCount()"
             (click)="go(page() + 1)"
             class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
               bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
@@ -68,6 +74,8 @@ export class AdminPaginator {
   readonly perPage = input.required<number>();
   /** Rows matching the current filters, not rows on this page. */
   readonly total = input.required<number>();
+  /** A refetch is in flight: both buttons disable. */
+  readonly busy = input(false);
   readonly pageChange = output<number>();
 
   protected readonly pageCount = computed(() =>

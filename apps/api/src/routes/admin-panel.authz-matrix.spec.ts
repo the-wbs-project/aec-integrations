@@ -18,8 +18,9 @@
  * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, by
  * AECI-1188 with `GET /api/admin/reindex/submissions`, by AECI-1362 with
  * `GET /api/admin/vendors/:id/acceptances`, by AECI-1372 with
- * `GET /api/admin/vendors/:id/billing`, and by AECI-1373 with
- * `GET /api/admin/license-release-requests`.
+ * `GET /api/admin/vendors/:id/billing`, by AECI-1373 with
+ * `GET /api/admin/license-release-requests`, and by AECI-653 with
+ * `GET /api/admin/audit`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -44,6 +45,7 @@ import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import { createAdminAudienceHandler } from './admin-audience';
+import { createAdminAuditLogHandler } from './admin-audit';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminClaimAuditHandler, createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminContestsListHandler } from './admin-contests';
@@ -188,6 +190,8 @@ const ROUTES = [
   { name: 'GET /api/admin/claims/:id', url: `/api/admin/claims/${CLAIM}` },
   // AECI-1276 — the claim's audit trail on the same page. A read.
   { name: 'GET /api/admin/claims/:id/audit', url: `/api/admin/claims/${CLAIM}/audit` },
+  // AECI-653 — the global audit-log viewer. A read. Unfiltered is a valid query.
+  { name: 'GET /api/admin/audit', url: '/api/admin/audit' },
   // AECI-946 — the §5.11 re-index worklist. ONE read; the Done button's DELETE
   // is not here, for the same reason as the vendor DELETE and the AECI-720
   // PATCH above: this file is `get()`-shaped, and a write belongs with the rest
@@ -387,6 +391,9 @@ function makeApp() {
     requireAdmin(guard),
     createAdminClaimAuditHandler(t.factory, noEmails),
   );
+  // AECI-653. The global audit read takes the email seam second, like the claim
+  // audit above, so it gets `noEmails` for the same reason.
+  app.get('/api/admin/audit', requireAdmin(guard), createAdminAuditLogHandler(t.factory, noEmails));
   app.get('/api/admin/reindex', requireAdmin(guard), createAdminReindexListHandler(t.factory));
   app.get(
     '/api/admin/reindex/submissions',
