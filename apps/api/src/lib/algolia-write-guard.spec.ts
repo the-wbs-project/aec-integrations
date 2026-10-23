@@ -4,8 +4,24 @@ import {
   ALGOLIA_LOCAL_WRITE_OPT_IN,
   algoliaWritesAllowed,
   guardAlgoliaWrite,
+  isDeployedTier,
   resetAlgoliaWriteGuardWarning,
 } from './algolia-write-guard';
+
+describe('isDeployedTier (AECI-1423)', () => {
+  it('is true for the three deployed tiers only', () => {
+    for (const ENV of ['staging', 'demo', 'production']) {
+      expect(isDeployedTier({ ENV })).toBe(true);
+    }
+  });
+
+  it('treats development, unset and unknown labels as local', () => {
+    for (const ENV of ['development', 'preview', 'Production', '']) {
+      expect(isDeployedTier({ ENV })).toBe(false);
+    }
+    expect(isDeployedTier({})).toBe(false);
+  });
+});
 
 describe('algoliaWritesAllowed (AECI-1268)', () => {
   it('lets every deployed tier write its own index set without an opt-in', () => {

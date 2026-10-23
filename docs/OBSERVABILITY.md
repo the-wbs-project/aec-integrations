@@ -562,6 +562,22 @@ partial** (per-key and per-entity respectively), and the metric models that as
 recorded `failed`, derived from the *same* `jobOutcome()` the metric tag uses. The
 panel therefore never claims more success than the telemetry does for the same run.
 
+**How a cron reached its job (AECI-1423).** `enqueueOrRun` in `apps/api/src/scheduled.ts` logs
+the dispatch path whenever it runs a job inline. There are three paths.
+
+| Path | Log | Where |
+|---|---|---|
+| Queue-less by design (12 of the 21 jobs) | `console.info` `scheduled: "<job>" is queue-less by design, running inline` | Every tier, every tick. Workers Logs only |
+| Queue-backed, binding absent, deployed tier | `aeci.scheduled.queue_binding_missing`, level `error`, source `scheduled-cron`, attribute `job` | PostHog Logs |
+| Queue-backed, binding absent, local | `console.warn` `scheduled: no queue binding for "<job>", running inline (local)` | Local only |
+
+The error means the env's `queues` block in `apps/api/wrangler.jsonc` lacks that job's producer
+binding. The job still runs inline, so it still writes its `job_runs` row and heartbeat, but it
+loses the queue's retries. No alert reads the error, because no general error-log alert exists.
+Triage is in `RUNBOOKS.md` §"Cron runs missing or stuck in flight on `/admin/system`". Before
+AECI-1423 all twelve queue-less jobs warned "(local)" on every deployed tick, which would have hid
+this case.
+
 ## Measuring the D1 read-replication latency win (AECI-250)
 
 The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:

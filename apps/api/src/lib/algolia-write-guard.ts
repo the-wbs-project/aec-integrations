@@ -43,6 +43,16 @@ export interface AlgoliaWriteGuardEnv {
   ALGOLIA_ALLOW_LOCAL_WRITES?: string;
 }
 
+/**
+ * True when `ENV` names one of the three deployed tiers. Anything else, unset
+ * included, is local. Also read by the cron dispatch (`enqueueOrRun` in
+ * `scheduled.ts`, AECI-1423) to tell a missing queue binding on a deployed tier
+ * from the expected one on local dev, so both decisions share this allowlist.
+ */
+export function isDeployedTier(env: { ENV?: string }): boolean {
+  return env.ENV !== undefined && DEPLOYED_TIERS.has(env.ENV);
+}
+
 let warned = false;
 
 /**
@@ -50,7 +60,7 @@ let warned = false;
  * whose `ALGOLIA_ALLOW_LOCAL_WRITES` is exactly `"true"`.
  */
 export function algoliaWritesAllowed(env: AlgoliaWriteGuardEnv): boolean {
-  if (env.ENV !== undefined && DEPLOYED_TIERS.has(env.ENV)) return true;
+  if (isDeployedTier(env)) return true;
   return env.ALGOLIA_ALLOW_LOCAL_WRITES === 'true';
 }
 

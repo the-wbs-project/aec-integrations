@@ -76,7 +76,7 @@ This is the deliberate contrast with `STAGE_2_VENDOR_PORTAL_SPEC.md` §1.2 ("no 
 | Audit/workflow batch builders | `auditInsert` / `workflowTransitionInsert`, `apps/api/src/lib/audit.ts` ~:42-68 | §2, §5, §7 |
 | The ranking freeze that already makes half the firewall true | `packages/shared/src/algolia.spec.ts` ~:242/:262/:274 (per-entity `customRanking` frozen to its exact Stage-1 value) and ~:283-291 (regex over the union of `searchableAttributes ∪ attributesForFaceting ∪ customRanking`). *(AECI-636 PR-B, 2026-09-22: no longer the Stage-1 values. AECI-636 reopened the freeze by decision; see §3.2.)* | §3.2 |
 | The email route-seam pattern (route declares a `Send*Email` type + no-op default as a factory param; `email.ts` exports a structurally-typed adapter; `index.ts` injects the real one) | `apps/api/src/routes/admin-claims.ts` ~:100-113 + `apps/api/src/lib/email.ts` ~:327-350 | §7 |
-| Inline (queue-less) cron precedent — `queueForJob` returns `undefined`, so the job always runs in the `scheduled` handler | `MODERATION_CRON = '0 6 * * *'`, `apps/api/src/scheduled.ts` ~:135-137 | §7 |
+| Inline (queue-less) cron precedent — `queueForJob` returns `QUEUE_LESS`, so the job always runs in the `scheduled` handler | `MODERATION_CRON = '0 6 * * *'`, `apps/api/src/scheduled.ts` ~:135-137 | §7 |
 | The daily data-quality check suite (report-only; each check is a pure async fn over an injected `Db`, emitting the `aeci.data_quality.check` gauge) | `apps/api/src/lib/data-quality.ts` | §2.1 |
 | The launch-minimum entitlement readout, explicitly flagged for replacement here | ~~`apps/web/src/app/vendor/components/vendor-verified-status.ts`~~ — **deleted by §8**; the successor is `vendor/components/vendor-plan-panel.ts` | §8 |
 
@@ -808,7 +808,7 @@ The refactor landed as described — one statement deleted, the metadata kept, `
 
 The cron string **must stay byte-equal** to its constant, because `scheduled.ts` `switch`es on `controller.cron` and a mismatch silently stops dispatching the job (`cron-schedules.spec.ts` asserts all fourteen match `wrangler.jsonc`). `triggers` are declared on **staging, demo and production** — the base config carries none — so local dev never runs it. *(The `preview` block, and the PR previews that used it, were retired 2026-10-10, AECI-1268.)*
 
-**Queue-less and inline**, following the 06:00 moderation-snapshot precedent (`queueForJob` returns `undefined`) rather than the ADR 0013 cron→queue→consumer path. The job is one indexed read (over `licenses_ends_idx` since AECI-1356, §7.5) plus a handful of emails; going queue-less avoids a new `aeci-entitlements-{env}` queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues create` step in `deploy.yml` / `promote-to-prod.yml`.
+**Queue-less and inline**, following the 06:00 moderation-snapshot precedent (`queueForJob` returns `QUEUE_LESS`) rather than the ADR 0013 cron→queue→consumer path. The job is one indexed read (over `licenses_ends_idx` since AECI-1356, §7.5) plus a handful of emails; going queue-less avoids a new `aeci-entitlements-{env}` queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues create` step in `deploy.yml` / `promote-to-prod.yml`.
 
 ### 7.2 Templates, recipients, and the idempotency fence
 

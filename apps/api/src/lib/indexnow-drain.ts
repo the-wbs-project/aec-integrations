@@ -71,7 +71,7 @@
  * and carries on) and is deliberately left to propagate, exactly as the
  * other cron impls leave theirs: `withJobRun` records the `failed` `job_runs` row
  * and rethrows, which is what keeps a broken database visible rather than reported
- * as a quiet no-op. The job is queue-less (`queueForJob` returns `undefined`)
+ * as a quiet no-op. The job is queue-less (`queueForJob` returns `QUEUE_LESS`)
  * **on purpose rather than for cost**: a queue retry re-submits inside the same
  * rate-limit window, which is the burst behaviour this whole job exists to remove.
  * Tomorrow's run is the backoff.
