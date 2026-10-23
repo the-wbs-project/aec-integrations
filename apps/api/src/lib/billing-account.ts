@@ -26,12 +26,17 @@
  * ── WHAT IT NEVER TOUCHES ──────────────────────────────────────────────────────
  * No statement here names `vendors`, so a second seat cannot move
  * `vendors.updated_at` through this module. `billing_email` is NULL on a new account.
- * An owner may set or clear it from the Billing tab (`billingEmailStatements`,
- * AECI-1389), and decision 16's default-at-checkout still applies when E9 lands.
+ * An owner may set or clear it from the vendor Billing tab (AECI-1389), and AECi from
+ * the admin Billing tab (AECI-1381), both through `billingEmailStatements`. Decision
+ * 16's default-at-checkout still applies when E9 lands.
  *
- * ── THE BILLING EMAIL (AECI-1389) ───────────────────────────────────────────────
- * `billingEmailStatements` is the one writer of `billing_email` outside checkout.
- * It follows the seat-invite precedent (`lib/vendor-seat-invites.ts`): the address
+ * ── THE BILLING EMAIL (AECI-1389, AECI-1381) ────────────────────────────────────
+ * `billingEmailStatements` is the one builder that writes `billing_email` outside
+ * checkout. Two routes call it: the owner's `PUT /api/vendor/billing/email`
+ * (`routes/vendor-billing-email.ts`) and AECi's `PUT /api/admin/vendors/:id/billing/email`
+ * (`routes/admin-vendors-billing.ts`). Both write the same
+ * `billing_account.email_changed` row; `actor_type` and `metadata.source` say whose it
+ * was. It follows the seat-invite precedent (`lib/vendor-seat-invites.ts`): the address
  * goes in the audit row's before/after state, because the row's job is to say which
  * address invoices went to and when that changed. The vendor's history read copies
  * field NAMES only, never the values (`lib/vendor-history.ts`). The account
@@ -200,7 +205,8 @@ export interface BillingEmailParams {
   actorType: AuditLogEntry['actorType'];
   /** The vendor's plan at write time, for the audit row's snapshot columns. */
   vendorPlan: VendorPlanSnapshot;
-  /** `metadata.source`. The vendor portal's `'vendor-portal'`. */
+  /** `metadata.source`. The vendor portal's `'vendor-portal'`, the admin route's
+   *  `'admin-vendors-billing'`. */
   source: string;
 }
 

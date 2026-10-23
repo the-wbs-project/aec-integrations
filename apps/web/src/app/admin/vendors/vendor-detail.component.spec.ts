@@ -209,7 +209,16 @@ async function setup(
       provideRouter([]),
       { provide: AdminVendorsApi, useValue: api },
       { provide: SeatProvisionApi, useValue: provisionApi },
-      { provide: AdminLicensesApi, useValue: { grantLicenses: vi.fn() } },
+      {
+        provide: AdminLicensesApi,
+        useValue: {
+          grantLicenses: vi.fn(),
+          // AECI-1381: echoes the address the way the API stores it.
+          updateBillingEmail: vi.fn(async (_vendorId: string, email: string | null) => ({
+            billing_account: { id: 'acct-1', billing_email: email?.toLowerCase() ?? null },
+          })),
+        },
+      },
       {
         provide: ActivatedRoute,
         useValue: {
@@ -506,6 +515,45 @@ describe('VendorDetail', () => {
       fixture.componentInstance['onLicenseChanged']();
       await settle();
       expect(api.getBilling).toHaveBeenCalledTimes(1);
+      expect(api.listAudit).toHaveBeenCalledTimes(1);
+    });
+
+    it('edits the billing email in place, then reloads only the audit trail (AECI-1381)', async () => {
+      const { fixture, api, el } = await setup(
+        makeApiMock(makeVendor()),
+        { provisionSeat: vi.fn() },
+        'billing',
+      );
+      const control = el.querySelector('aec-billing-email-control') as HTMLElement;
+      // Projected into the account's "Billing email" row, not left as the static text.
+      expect(control.closest('dd')).not.toBeNull();
+      expect(control.textContent).toContain('Not set');
+
+      api.getBilling.mockClear();
+      api.listAudit.mockClear();
+      control
+        .querySelector<HTMLButtonElement>('button[aria-label="Change billing email"]')!
+        .click();
+      fixture.detectChanges();
+      const input = control.querySelector('input') as HTMLInputElement;
+      input.value = 'AP@Acme.example';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      control.querySelector('form')!.dispatchEvent(new Event('submit'));
+      await settle();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const licensesApi = TestBed.inject(AdminLicensesApi) as unknown as {
+        updateBillingEmail: ReturnType<typeof vi.fn>;
+      };
+      expect(licensesApi.updateBillingEmail).toHaveBeenCalledWith(VENDOR_ID, 'AP@Acme.example');
+      expect(
+        control.querySelector('[data-testid="billing-email-value"]')?.textContent?.trim(),
+      ).toBe('ap@acme.example');
+      expect(el.querySelector('[role="status"]')?.textContent).toContain('Billing email saved.');
+      // Patched from the response: no billing refetch, one audit reload.
+      expect(api.getBilling).not.toHaveBeenCalled();
       expect(api.listAudit).toHaveBeenCalledTimes(1);
     });
 

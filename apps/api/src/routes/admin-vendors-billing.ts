@@ -28,17 +28,32 @@
  * then decided, newest first within each, capped at `ADMIN_BILLING_RELEASE_REQUESTS_MAX`.
  * A sixth read in the same batch, through the queue's own joined select
  * (`lib/license-release-requests.ts`), so the tab and `/admin/requests` show one shape.
+ *
+ * ── THE BILLING EMAIL WRITE (AECI-1381) ─────────────────────────────────────────
+ * `PUT /api/admin/vendors/:id/billing/email` ({@link createAdminUpdateBillingEmailHandler}):
+ * AECi sets or clears the account's billing email. Behind `requireAdmin()` then
+ * `rateLimit('write')` at registration. The vendor route's body
+ * (`UpdateBillingEmailRequestSchema`) and builder (`billingEmailStatements`), so the
+ * UPDATE and its `billing_account.email_changed` row land in one `db.batch`, with
+ * `actor_type = 'admin'`. An unchanged value writes nothing. Audit only, like the
+ * vendor route (ruling 2026-10-16): no email, no cache purge, because no public page
+ * reads the address. `ADMIN_PANEL_SPEC.md` §2 counts it as a commercial write.
  */
 
 import {
   ADMIN_BILLING_ACCEPTANCES_MAX,
   ADMIN_BILLING_LICENSES_MAX,
   ADMIN_BILLING_RELEASE_REQUESTS_MAX,
+  AdminUpdateBillingEmailRequestSchema,
+  AdminUpdateBillingEmailResponseSchema,
   AdminVendorBillingResponseSchema,
   ApiErrorCode,
   type AdminBillingLicense,
+  type AdminUpdateBillingEmailRequest,
+  type AdminUpdateBillingEmailResponse,
   type AdminVendorBillingResponse,
 } from '@aeci/shared';
+import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { asc, desc, eq, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -55,12 +70,17 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { listVendorAcceptances } from '../lib/agreement-acceptances';
+import type { BatchTuple } from '../lib/audit';
+import { auditActorType } from '../lib/authz';
+import { billingEmailStatements, loadBillingAccountEmail } from '../lib/billing-account';
+import { loadVendorLicenses } from '../lib/license';
 import {
   releaseRequestSelect,
   toAdminLicenseReleaseRequest,
 } from '../lib/license-release-requests';
 import type { AuthzVariables } from '../lib/authz';
-import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmailsResult } from '../lib/supabase-admin';
 import { toAdminAcceptance } from './admin-vendor-acceptances';
 import type { FetchAuthEmails } from './admin-vendors';
@@ -215,6 +235,77 @@ export function createAdminVendorBillingHandler(
     };
 
     validateResponseInDev(c.env, () => AdminVendorBillingResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+// ─── PUT /api/admin/vendors/:id/billing/email (AECI-1381) ────────────────────
+
+async function parseBillingEmailBody(c: AdminContext): Promise<AdminUpdateBillingEmailRequest> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+  }
+  // A ZodError: the central middleware answers `400 VALIDATION_FAILED`.
+  return AdminUpdateBillingEmailRequestSchema.parse(raw);
+}
+
+/** `PUT /api/admin/vendors/:id/billing/email`. */
+export function createAdminUpdateBillingEmailHandler(
+  dbFor: DbFactory = getDb,
+): (c: AdminContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const vendorId = c.req.param('id');
+    if (!vendorId) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing id', { field: 'id' });
+    }
+
+    // 1. Shape, before any read.
+    const payload = await parseBillingEmailBody(c);
+
+    // 2. The vendor, then its one account (`billing_accounts_vendor_key`). Unlike the
+    // GET, no account is a 404 here: there is nothing to write to.
+    const { db } = writeDb(c, dbFor);
+    const vendor = await db.query.vendors.findFirst({
+      columns: { id: true },
+      where: eq(vendors.id, vendorId),
+    });
+    if (!vendor) throw notFoundError('vendor', { id: vendorId });
+    // Admin has no vendor session, so the audit row's plan snapshot comes from the
+    // vendor's licenses, read beside the account (the `admin-claims.ts` pattern).
+    const [account, vendorLicenses] = await Promise.all([
+      loadBillingAccountEmail(db, vendorId),
+      loadVendorLicenses(db, vendorId),
+    ]);
+    if (!account) throw notFoundError('billing_account', { id: vendorId });
+
+    // 3. The write.
+    const now = new Date().toISOString();
+    const vendorPlan = licensePlanSnapshot(vendorLicenses, now);
+    const batch = billingEmailStatements(db, {
+      billingAccountId: account.id,
+      vendorId,
+      before: account.billingEmail,
+      email: payload.billing_email,
+      now,
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      vendorPlan,
+      source: 'admin-vendors-billing',
+    });
+    if (batch.auditEntry) {
+      await db.batch(batch.stmts as BatchTuple);
+      // No tags and no email: nothing public reads the address (ruling 2026-10-16).
+      forwardAuditBatch(c, [batch.auditEntry], [], 'admin-vendors-billing');
+    }
+
+    const body: AdminUpdateBillingEmailResponse = {
+      billing_account: { id: account.id, billing_email: batch.billingEmail },
+    };
+    validateResponseInDev(c.env, () => AdminUpdateBillingEmailResponseSchema.parse(body));
     return json(body);
   };
 }

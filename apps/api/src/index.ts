@@ -63,7 +63,10 @@ import {
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
 import { createAdminVendorAcceptancesHandler } from './routes/admin-vendor-acceptances';
-import { createAdminVendorBillingHandler } from './routes/admin-vendors-billing';
+import {
+  createAdminUpdateBillingEmailHandler,
+  createAdminVendorBillingHandler,
+} from './routes/admin-vendors-billing';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
@@ -688,6 +691,10 @@ app.route('/', authActivity);
 //     unassigned complimentary or invoice licenses on the billing account, one
 //     `license.granted` audit row each, in one batch. Idempotent on `grant_id`.
 //     Post-commit `licenses-granted` email; purge only on a `verified` mirror flip.
+//   - PUT    /api/admin/vendors/:id/billing/email (AECI-1381) — set or clear the
+//     billing account's billing email. The vendor route's body and builder
+//     (`billingEmailStatements`): one UPDATE and one `billing_account.email_changed`
+//     row in one batch. Unchanged writes nothing. Audit only: no email, no purge.
 //   - PATCH  /api/admin/licenses/:id             (AECI-1371, E4.2) — `extend`,
 //     `reference` (invoice only) or `revoke` one license. Stripe refuses the first
 //     two (409); an ended license refuses all three (422). A revoke ends the license
@@ -983,6 +990,15 @@ authAdmin.post(
   requireAdmin(),
   rateLimit('write'),
   createGrantLicensesHandler(),
+);
+// AECI-1381: AECi sets or clears the vendor's billing email, through
+// `billingEmailStatements` (`lib/billing-account.ts`), the vendor route's builder. A
+// write, so `rateLimit('write')` after the guard. Audit only: no email, no purge.
+authAdmin.put(
+  '/api/admin/vendors/:id/billing/email',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminUpdateBillingEmailHandler(),
 );
 // AECI-1371 (E4.2): extend, re-reference or revoke one license, through
 // `setLicensesTermStatements` / `endLicensesStatements` (`lib/license.ts`). A write,

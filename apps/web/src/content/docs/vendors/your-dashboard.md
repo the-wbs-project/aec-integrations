@@ -86,7 +86,7 @@ If Managed ends for one product while your other products keep it, that product'
 
 ## The portal stays current
 
-While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite. A billing email change by another owner shows on the **Billing** tab when you reload the page.
+While the portal is open in a visible tab, a change a colleague or AEC Integrations makes shows up within a minute, without reloading. That includes a plan starting or ending, which unlocks or locks the matching fields in place. If you have unsaved edits on a form when its record changes, the form keeps your edits and offers to reload. Reloading discards them. The **Seats** and **Changes** tabs are the exception: they update when you open them, so reload to see a colleague accept an invite. A billing email change by another owner or by AEC Integrations shows on the **Billing** tab when you reload the page.
 
 ## Related
 

@@ -795,6 +795,13 @@
     [bulkActions]="licenseBulk"
     (retry)="retryBilling()"
   >
+    <div billingEmail>
+      <aec-billing-email-control
+        [vendorId]="v.id"
+        [current]="billing()?.billing_account?.billing_email ?? null"
+        (changed)="onBillingEmailChanged($event)"
+      />
+    </div>
     <div billingGrant>
       <aec-grant-licenses-control
         [vendorId]="v.id"

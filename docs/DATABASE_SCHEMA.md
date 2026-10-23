@@ -2004,14 +2004,17 @@ may add rows later, so one-per-vendor is a unique index, not the primary key. Th
 back-fill (`ops:backfill-licenses`, AECI-1354, §8.6c) created one for every existing vendor
 with a seat or an entitlement row. It ran on every tier and was deleted by AECI-1358. The vendor's Billing tab reads it
 (`GET /api/vendor/billing`, AECI-1387), and an owner may set or clear `billing_email` there
-(`PUT /api/vendor/billing/email`, AECI-1389).
+(`PUT /api/vendor/billing/email`, AECI-1389). AECi is the second writer of `billing_email`
+outside checkout: the admin Billing tab sets or clears it
+(`PUT /api/admin/vendors/:id/billing/email`, AECI-1381, 2026-10-23). Both routes compose
+`billingEmailStatements`, so both write the same `billing_account.email_changed` audit row.
 
 ```sql
 create table billing_accounts (
   id text primary key,
   vendor_id text not null references vendors(id), -- NO ACTION: a vendor with an account refuses retraction
   name text not null,
-  billing_email text,       -- null until an owner sets it or checkout does (decision 16); lower-cased
+  billing_email text,       -- null until an owner or AECi sets it, or checkout does (decision 16); lower-cased
   stripe_customer_id text,
   created_by text,          -- a profiles.id; NO FK, as notification_settings.updated_by
   created_at text not null,
@@ -5276,7 +5279,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): dropped by migration 0081 (AECI-1357, 2026-10-17). It had no writer after AECI-1375 and no reader after AECI-1357 PR 1. It was admin-only (`requireAdmin()`), and a vendor saw only its own row's two display fields, folded into its `plan` block by `vendor_id`, never `updated_by`
-- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351), the admin license grant and edit (AECI-1370, AECI-1371) and, until AECI-1375 retired its route, the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+- `billing_accounts` and `licenses` (§8.6b, §8.6c): both are written only behind `requireAdmin()`, by the admin seat grants (AECI-1351), the admin license grant and edit (AECI-1370, AECI-1371), the admin billing email edit (AECI-1381) and, until AECI-1375 retired its route, the entitlement dual-write (AECI-1353), plus the `ops:backfill-licenses` script (AECI-1354). One write runs outside `requireAdmin()`: the 11:00 expiry cron stamps `licenses.expiry_notice_sent_at` and `updated_at` (AECI-1356). Since AECI-1355 the vendor guard reads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b); a vendor never queries either table directly. No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
