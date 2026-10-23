@@ -623,6 +623,7 @@ export class IntegrationOverview {
             tip: [
               $localize`:@@vendor.im.tip.added:Who first added the integration to the directory, and when.`,
               $localize`:@@vendor.im.tip.added.public:The public page says "Added by the vendor" when a company added it.`,
+              $localize`:@@vendor.im.tip.added.why:It does not name the company, because AEC Integrations can change the owner later.`,
             ],
           },
         ],
@@ -706,9 +707,12 @@ export class IntegrationOverview {
   private addedValue(): string {
     const i = this.integration();
     const date = formatDay(i.created_at);
+    // Never the owner's name: an AECi owner reassignment (§11b.6) would credit the new
+    // owner with adding the row (AECI-1320, the public card's §4.7.5 rule).
     if (i.origin === 'vendor') {
-      const who = i.owner?.name ?? $localize`:@@vendor.im.added.aCompany:A company`;
-      return date ? `${who}, ${date}` : who;
+      return date
+        ? $localize`:@@vendor.im.added.company:A company, ${date}:date:`
+        : $localize`:@@vendor.im.added.aCompany:A company`;
     }
     return date
       ? $localize`:@@vendor.im.added.aeci:AEC Integrations, ${date}:date:`
