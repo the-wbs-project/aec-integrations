@@ -7445,7 +7445,7 @@ export const VendorAttestationNotificationSchema = z.object({
 export const VendorContestNotificationSchema = z.object({   // AECI-1008
   kind: z.literal('contest'),
   id: z.string().uuid(),
-  event: z.enum(['submitted', 'withdrawn', 'accepted', 'declined', 'closed_by_retire']), // closed_by_retire: AECI-1010, to the submitter
+  event: z.enum(CONTEST_NOTIFICATION_EVENTS), // submitted, withdrawn, accepted, declined; closed_by_retire (AECI-1010) and closed_by_move (AECI-1120), both to the submitter; the five AECI-1009 protest events
   contest_id: z.string().uuid(),
   integration_id: z.string().uuid(),
   integration_name: z.string().nullable(),

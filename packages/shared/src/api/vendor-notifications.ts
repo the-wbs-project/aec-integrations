@@ -105,7 +105,9 @@ export type VendorAttestationNotification = z.infer<typeof VendorAttestationNoti
  * `submitted` and `withdrawn` go to the owner, the decisions go to the submitter.
  * `closed_by_retire` (AECI-1010) also goes to the submitter: the owner, or since
  * AECI-1046 AEC Integrations, retired the integration, and the retire closed the open
- * contest as withdrawn. `retired_by` on the row says which.
+ * contest as withdrawn. `retired_by` on the row says which. `closed_by_move`
+ * (AECI-1120) also goes to the submitter: a promote moved the edge into the
+ * connector tier, which has no `mechanism_kind`, and closed its open contest on it.
  */
 export const CONTEST_NOTIFICATION_EVENTS = [
   'submitted',
@@ -113,6 +115,7 @@ export const CONTEST_NOTIFICATION_EVENTS = [
   'accepted',
   'declined',
   'closed_by_retire',
+  'closed_by_move',
   // AECI-1009 protests (§11b.12.10). `protested` and `protest_withdrawn` reach the
   // owner, `protest_replied` the submitter, and the two decisions reach BOTH sides,
   // told apart by `recipient_role`.

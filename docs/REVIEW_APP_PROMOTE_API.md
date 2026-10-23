@@ -562,7 +562,9 @@ Four consequences worth knowing:
   new frame by the claims' rule above. One exception, on a move **into**
   `connector_evidenced_pairs` only: an **open** `mechanism_kind` contest is closed as `withdrawn`
   (`metadata.reason = 'edge-moved-to-connector-tier'`), because that table has no such column and
-  your push has answered the question. It then moves like the rest, so its history stays. If a
+  your push has answered the question. It then moves like the rest, so its history stays. The
+  submitting vendor gets a `closed_by_move` portal notification in the same batch (AECI-1120),
+  so it learns why its contest closed. If a
   contest on the edge is filed, withdrawn or decided after AECi planned the move and before it
   committed, the promote rolls back and the job ends `errored` with
   `CONTEST_CHANGED_DURING_PROMOTE` (409). Nothing was written. Re-push under a new job id.
