@@ -131,6 +131,12 @@
         [value]="writer()"
         (changed)="setWriter($event)"
       />
+      <aec-select
+        [label]="classLabel"
+        [options]="classOptions"
+        [value]="trafficClass()"
+        (changed)="setClass($event)"
+      />
 
       <div class="flex flex-wrap items-center gap-2">
         <label
@@ -203,7 +209,12 @@
       </dt>
       <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ windowTotal().total }}</dd>
       @let viewsExcl = excludingInternalLabel(windowTotal()); @if (viewsExcl) {
-      <p class="mt-1 text-xs text-(--text-secondary)">{{ viewsExcl }}</p>
+      <dd class="mt-1 text-xs text-(--text-secondary)">{{ viewsExcl }}</dd>
+      }
+      <!-- AECI-1461. A class filter cuts rows too, so the figure it was cut from
+           sits beside it, the same rule as the internal-traffic line above. -->
+      @let viewsAll = allClassesLabel(windowTotalAllClasses()); @if (viewsAll) {
+      <dd class="mt-1 text-xs text-(--text-secondary)">{{ viewsAll }}</dd>
       }
     </div>
 
@@ -219,14 +230,16 @@
           §13 D7 requires the §9.8 definition to sit beside the number, not only in
           the spec. There is no session concept and there never will be one.
         -->
-      <p
+      <dd
         class="mt-1 text-xs text-(--text-secondary)"
         i18n="@@admin.activity.summary.visitorDefinition"
       >
         Distinct browser-and-network pairs in this window. There are no sessions.
-      </p>
+      </dd>
       @let visitorsExcl = excludingInternalLabel(windowVisitors()); @if (visitorsExcl) {
-      <p class="mt-1 text-xs text-(--text-secondary)">{{ visitorsExcl }}</p>
+      <dd class="mt-1 text-xs text-(--text-secondary)">{{ visitorsExcl }}</dd>
+      } @let visitorsAll = allClassesLabel(windowVisitorsAllClasses()); @if (visitorsAll) {
+      <dd class="mt-1 text-xs text-(--text-secondary)">{{ visitorsAll }}</dd>
       }
     </div>
   </dl>
@@ -299,6 +312,18 @@
           >
             Request
           </th>
+          <!--
+                    The stored D19 judgement about the request (AECI-1461). A
+                    heuristic, never an identity: the classification_is_heuristic
+                    note above says so in words.
+                  -->
+          <th
+            scope="col"
+            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+            i18n="@@admin.activity.col.class"
+          >
+            Class
+          </th>
           <th
             scope="col"
             class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
@@ -314,7 +339,7 @@
         <tr class="bg-(--surface-sunken)">
           <th
             scope="rowgroup"
-            colspan="7"
+            colspan="8"
             class="px-3 py-2 text-start text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
           >
             {{ dayLabel(group.day) }}
@@ -393,6 +418,36 @@
             >
             @let verdict = verdictLabel(row); @if (verdict) {
             <span class="mt-0.5 block text-xs" [class]="verdictTone(row)">{{ verdict }}</span>
+            }
+          </td>
+
+          <td class="px-3 py-3 align-top">
+            @if (row.classification; as cls) {
+            <span class="text-(--text-primary)">{{ classLabelFor(cls.class) }}</span>
+            @if (cls.reason_codes.length > 0) {
+            <!-- Machine codes, verbatim and never localized (API_CONTRACTS §6.10). -->
+            <span class="mt-0.5 block font-mono text-xs break-words text-(--text-tertiary)"
+              >{{ cls.reason_codes.join(', ') }}</span
+            >
+            }
+            <span class="mt-0.5 block text-xs text-(--text-tertiary)"
+              >{{ classifierLabel(cls.classifier_version) }}</span
+            >
+            @if (!cls.evidence_complete) {
+            <span
+              class="mt-0.5 block text-xs text-(--accent-secondary-deep)"
+              i18n="@@admin.activity.class.evidenceIncomplete"
+              >Evidence incomplete</span
+            >
+            } } @else {
+            <!--
+                        Null is "not classified", never a class and never human
+                        (API_CONTRACTS §6.10). It is a different fact from the
+                        Event column's "Unclassified", which is about is_bot.
+                      -->
+            <span class="text-(--text-secondary)" i18n="@@admin.activity.class.none"
+              >Not classified</span
+            >
             }
           </td>
 

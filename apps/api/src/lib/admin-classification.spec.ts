@@ -15,6 +15,7 @@ import {
   readClassificationSeries,
   readClassificationSummary,
   readRowClassifications,
+  readWindowVersionSeam,
 } from './admin-classification';
 import { TRAFFIC_CLASSES } from './traffic-classifier';
 
@@ -270,5 +271,21 @@ describe('readRowClassifications', () => {
 
   it('reads nothing for an empty page', async () => {
     expect((await readRowClassifications(t.db, [])).size).toBe(0);
+  });
+});
+
+describe('readWindowVersionSeam (AECI-1461)', () => {
+  it('is null for one version and names the change across two', async () => {
+    const a = await view('2026-08-10T01:00:00.000Z');
+    const b = await view('2026-08-11T01:00:00.000Z');
+    classify(a, 'unresolved', 'v1', '2026-08-11T05:00:00.000Z');
+    expect(await readWindowVersionSeam(t.db, '2026-08-10', '2026-08-11')).toBeNull();
+    classify(b, 'unresolved', 'v2', '2026-08-12T05:00:00.000Z');
+    expect(await readWindowVersionSeam(t.db, '2026-08-10', '2026-08-11')).toEqual({
+      from_version: 'v1',
+      to_version: 'v2',
+      changed_on: '2026-08-11',
+    });
+    expect(await readWindowVersionSeam(t.db, '2026-08-10', '2026-08-10')).toBeNull();
   });
 });

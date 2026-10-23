@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   AdminPageViewRow,
+  AdminTrafficClass,
   AdminPageViewsResponse,
   AdminTrafficBreakdownResponse,
 } from '@aeci/shared';
@@ -76,6 +77,8 @@ function makeResponse(
     internal_filter: { available: false, applied: false, asns: [] },
     window_total: { total: rows.length, excluding_internal: null },
     window_visitors: { total: rows.length, excluding_internal: null },
+    window_total_all_classes: null,
+    window_visitors_all_classes: null,
     ...over,
   };
 }
@@ -465,6 +468,112 @@ describe('ActivityFeed', () => {
       buttonByText(group(el, 'admin-activity-traffic-label'), 'All').click();
       await drain(fixture);
       expect(lastQuery(api).page).toBe(1);
+    });
+  });
+
+  describe('the class column and filter (AECI-1461)', () => {
+    const classified = (
+      cls: AdminTrafficClass,
+      reason_codes: string[],
+      evidence_complete = true,
+    ): AdminPageViewRow['classification'] => ({
+      class: cls,
+      reason_codes,
+      classifier_version: 'd19-v1',
+      evaluated_at: '2026-08-11T05:00:00.000Z',
+      evidence_window: {
+        from: '2026-07-27T00:00:00.000Z',
+        to: '2026-08-11T00:30:00.000Z',
+        timezone: 'UTC',
+        days: 16,
+      },
+      evidence_complete,
+    });
+
+    it('renders the class, verbatim codes and version, and null as Not classified', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([
+            makeRow({
+              id: 3,
+              classification: classified('suspected_automation', [
+                'asn_datacenter',
+                'verdict_non_browser',
+              ]),
+            }),
+            makeRow({
+              id: 2,
+              classification: classified('unresolved', ['evidence_no_asn'], false),
+            }),
+            makeRow({ id: 1 }),
+          ]),
+        ),
+      );
+      const headers = [...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+      expect(headers).toContain('Class');
+      // The day separator still spans every column.
+      expect(el.querySelector('tbody th[scope="rowgroup"]')?.getAttribute('colspan')).toBe(
+        String(headers.length),
+      );
+
+      const cells = [...el.querySelectorAll('tbody tr:not(:first-child)')].map((tr) =>
+        [...(tr.querySelectorAll('td')[6]?.querySelectorAll('span') ?? [])]
+          .map((span) => span.textContent?.trim())
+          .join(' | '),
+      );
+      expect(cells).toEqual([
+        'Suspected automation | asn_datacenter, verdict_non_browser | Classifier d19-v1',
+        'Unresolved | evidence_no_asn | Classifier d19-v1 | Evidence incomplete',
+        // Never a class, and never "human".
+        'Not classified',
+      ]);
+    });
+
+    it('round-trips the class filter, including the not-classified bucket', async () => {
+      const { fixture, api } = await setup(makeApiMock(makeResponse([makeRow({ id: 1 })])));
+      const select = fixture.debugElement.queryAll(By.directive(AecSelect))[3];
+      expect(select.componentInstance.label()).toBe('Class');
+      expect(
+        select.componentInstance.options().map((o: { value: string | null }) => o.value),
+      ).toEqual([
+        null,
+        'identified_automation',
+        'suspected_automation',
+        'browser_with_human_evidence',
+        'unresolved',
+        '__none__',
+      ]);
+
+      select.componentInstance.changed.emit('unresolved');
+      await drain(fixture);
+      expect(lastQuery(api)).toMatchObject({ class: 'unresolved', page: 1 });
+
+      select.componentInstance.changed.emit('__none__');
+      await drain(fixture);
+      expect(lastQuery(api)).toMatchObject({ class: '__none__' });
+
+      select.componentInstance.changed.emit(null);
+      await drain(fixture);
+      expect(lastQuery(api).class).toBeUndefined();
+    });
+
+    it('shows the all-classes figure beside a class-filtered one (§13 D10 constraint 2)', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([makeRow({ id: 1 })], {
+            window_total: { total: 12, excluding_internal: null },
+            window_total_all_classes: { total: 1204, excluding_internal: null },
+            window_visitors_all_classes: { total: 90, excluding_internal: 41 },
+          }),
+        ),
+      );
+      expect(el.textContent).toContain('1204 across all classes');
+      expect(el.textContent).toContain('90 across all classes, 41 excluding internal traffic');
+    });
+
+    it('shows no all-classes line when no class filter is set', async () => {
+      const { el } = await setup(makeApiMock(makeResponse([makeRow({ id: 1 })])));
+      expect(el.textContent).not.toContain('across all classes');
     });
   });
 

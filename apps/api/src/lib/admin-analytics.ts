@@ -71,7 +71,7 @@ import { ApiError } from '../errors';
 import { ARRIVAL_TELEMETRY_UNAVAILABLE_NOTE, arrivalTelemetryDegraded } from './analytics-digest';
 import { ARRIVAL_CF_COVERAGE_MIN, type ArrivalCfCoverage } from './arrival-coverage';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './page-view-predicates';
-import { readRowClassifications } from './admin-classification';
+import { latestClassPredicate, readRowClassifications } from './admin-classification';
 import { loadAsnAnnotations } from './asn-registry';
 import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
@@ -923,11 +923,13 @@ export interface PageViewFilterInput {
   path_contains?: string;
   /** Exact `writer_provenance`, or the null sentinel (AECI-871). */
   writer?: string;
+  /** The row's latest D19 class, or the null sentinel (AECI-1461). */
+  class?: string;
 }
 
 /**
  * The `WHERE` fragment for the feed's `source` / `country` / `path_contains` /
- * `writer` filters, or `undefined` when none are set.
+ * `writer` / `class` filters, or `undefined` when none are set.
  *
  * `ADMIN_PAGE_VIEW_NULL_FILTER` selects the NULL bucket that `breakdown()`
  * surfaces as `key: null` — a query string cannot carry a null, and those rows
@@ -966,7 +968,10 @@ export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined
         ? isNull(pageViews.writerProvenance)
         : eq(pageViews.writerProvenance, f.writer);
 
-  return and(source, country, path, writer);
+  // AECI-1461. Per row, at the row's latest classification. See the helper.
+  const cls = f.class === undefined ? undefined : latestClassPredicate(f.class);
+
+  return and(source, country, path, writer, cls);
 }
 
 export interface PageViewPage {

@@ -8,11 +8,13 @@ import {
   type AdminInternalFilter,
   type AdminNote,
   type AdminPageViewRow,
+  type AdminTrafficClass,
   type AdminTrafficPopulation,
 } from '@aeci/shared';
 
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
+import { TRAFFIC_CLASS_ORDER, trafficClassLabel } from '../overview/traffic-classes';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminPageViewsApi } from './admin-page-views-api';
 
@@ -109,6 +111,8 @@ export class ActivityFeed {
   protected readonly source = signal<string | null>(null);
   protected readonly country = signal<string | null>(null);
   protected readonly writer = signal<string | null>(null);
+  /** AECI-1461. A D19 class, the null sentinel, or null for any class. */
+  protected readonly trafficClass = signal<string | null>(null);
   protected readonly pathContains = signal('');
   protected readonly excludeInternal = signal(false);
   protected readonly page = signal(1);
@@ -117,6 +121,9 @@ export class ActivityFeed {
   protected readonly total = signal(0);
   protected readonly windowTotal = signal<AdminCount>(EMPTY_COUNT);
   protected readonly windowVisitors = signal<AdminCount>(EMPTY_COUNT);
+  /** AECI-1461. The window without the class filter, or null when none is set. */
+  protected readonly windowTotalAllClasses = signal<AdminCount | null>(null);
+  protected readonly windowVisitorsAllClasses = signal<AdminCount | null>(null);
   protected readonly notes = signal<readonly AdminNote[]>([]);
   protected readonly internalFilter = signal<AdminInternalFilter>(NO_FILTER);
 
@@ -169,9 +176,25 @@ export class ActivityFeed {
     },
   ];
 
+  /**
+   * AECI-1461. Static like the writer filter: the four D19 classes are a closed
+   * vocabulary in §13 D19(b)'s order, plus the rows no classifier run has reached.
+   * Those are offered unconditionally because every row before the first nightly
+   * run is one of them.
+   */
+  protected readonly classOptions: readonly AecSelectOption[] = [
+    { value: null, label: $localize`:@@admin.activity.filter.class.any:Any class` },
+    ...TRAFFIC_CLASS_ORDER.map((cls) => ({ value: cls, label: trafficClassLabel(cls) })),
+    {
+      value: ADMIN_PAGE_VIEW_NULL_FILTER,
+      label: $localize`:@@admin.activity.filter.class.none:Not classified`,
+    },
+  ];
+
   protected readonly sourceLabel = $localize`:@@admin.activity.filter.source.label:Source`;
   protected readonly countryLabel = $localize`:@@admin.activity.filter.country.label:Country`;
   protected readonly writerLabel = $localize`:@@admin.activity.filter.writer.label:Writer`;
+  protected readonly classLabel = $localize`:@@admin.activity.filter.class.label:Class`;
 
   /** Rows split into consecutive same-day runs. The server already orders newest
    *  first, so a linear pass is enough — no sorting, no grouping key lookup. */
@@ -219,6 +242,7 @@ export class ActivityFeed {
         ...(this.source() ? { source: this.source() as string } : {}),
         ...(this.country() ? { country: this.country() as string } : {}),
         ...(this.writer() ? { writer: this.writer() as string } : {}),
+        ...(this.trafficClass() ? { class: this.trafficClass() as string } : {}),
         ...(path ? { path_contains: path } : {}),
         exclude_internal: this.excludeInternal(),
         page: this.page(),
@@ -228,6 +252,8 @@ export class ActivityFeed {
       this.total.set(res.total);
       this.windowTotal.set(res.window_total);
       this.windowVisitors.set(res.window_visitors);
+      this.windowTotalAllClasses.set(res.window_total_all_classes ?? null);
+      this.windowVisitorsAllClasses.set(res.window_visitors_all_classes ?? null);
       this.notes.set(res.notes);
       this.internalFilter.set(res.internal_filter);
       this.liveMessage.set(
@@ -302,6 +328,11 @@ export class ActivityFeed {
 
   protected setWriter(value: string | null): void {
     this.writer.set(value);
+    this.refilter();
+  }
+
+  protected setClass(value: string | null): void {
+    this.trafficClass.set(value);
     this.refilter();
   }
 
@@ -470,6 +501,18 @@ export class ActivityFeed {
       : 'text-(--text-tertiary)';
   }
 
+  /** The localized class name (AECI-1461). A class this build does not know is
+   *  shown verbatim rather than guessed at, like {@link writerCell}. */
+  protected classLabelFor(cls: string): string {
+    return (TRAFFIC_CLASS_ORDER as readonly string[]).includes(cls)
+      ? trafficClassLabel(cls as AdminTrafficClass)
+      : cls;
+  }
+
+  protected classifierLabel(version: string): string {
+    return $localize`:@@admin.activity.class.version:Classifier ${version}:VERSION:`;
+  }
+
   /** Country + Cloudflare colo — the colo IS the nearest city (§5.2). */
   protected locationLabel(row: AdminPageViewRow): string {
     return [row.cf_country, row.cf_colo].filter(Boolean).join(' · ');
@@ -513,6 +556,15 @@ export class ActivityFeed {
   protected excludingInternalLabel(count: AdminCount): string | null {
     if (count.excluding_internal === null) return null;
     return $localize`:@@admin.activity.summary.excludingInternal:${count.excluding_internal}:COUNT: excluding internal traffic`;
+  }
+
+  /** "1,204 across all classes": the figure a class filter cut from (AECI-1461).
+   *  Carries its own internal-traffic half when the var is set. */
+  protected allClassesLabel(count: AdminCount | null): string | null {
+    if (count === null) return null;
+    return count.excluding_internal === null
+      ? $localize`:@@admin.activity.summary.allClasses:${count.total}:COUNT: across all classes`
+      : $localize`:@@admin.activity.summary.allClassesWithInternal:${count.total}:COUNT: across all classes, ${count.excluding_internal}:EXCLUDING: excluding internal traffic`;
   }
 
   protected readonly internalToggleLabel = computed(() => {

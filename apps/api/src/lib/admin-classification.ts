@@ -30,10 +30,11 @@
  * notes, so this file and `admin-analytics.ts` do not import each other.
  */
 
-import type {
-  AdminClassificationSummary,
-  AdminPageViewClassification,
-  AdminTrafficClass,
+import {
+  ADMIN_PAGE_VIEW_NULL_FILTER,
+  type AdminClassificationSummary,
+  type AdminPageViewClassification,
+  type AdminTrafficClass,
 } from '@aeci/shared';
 import { and, eq, gte, lte, max, or, sql, type SQL } from 'drizzle-orm';
 
@@ -366,6 +367,51 @@ export function classDeltaBlocker(
   if (dayVersion !== priorVersion) return 'classifier';
   if (methodNotComparable) return 'method';
   return null;
+}
+
+/**
+ * The version seam across `[fromDay, toDay]`, or null when every classified day
+ * in it is counted on one version (AECI-1461). The Activity feed's
+ * `classification_version_seam` gate. Same rule as the overview's, through
+ * {@link versionSeamFor}.
+ */
+export async function readWindowVersionSeam(
+  db: Db,
+  fromDay: string,
+  toDay: string,
+): Promise<AdminClassificationSummary['version_seam']> {
+  const { perDay, ordered } = await latestVersionPerDay(db, fromDay, toDay);
+  return versionSeamFor(perDay, ordered);
+}
+
+/**
+ * The Activity feed's `class=` filter (AECI-1461): the page view's class at its
+ * own latest classification, or, for {@link ADMIN_PAGE_VIEW_NULL_FILTER}, no
+ * classification at all.
+ *
+ * **"Latest" must be {@link readRowClassifications}' rule exactly**: greatest
+ * `evaluated_at`, ties to the larger `id`. Otherwise a filtered row could show a
+ * different class from the one it was filtered on. It is per row, not the day's
+ * latest version that {@link automationClassFilterForDay} uses.
+ *
+ * The scalar subquery is NULL for an unclassified view, so `= ?` drops it, which
+ * is right for a named class. The sentinel is a separate `NOT EXISTS`. Both
+ * correlate on the unaliased `page_views` and use the `page_view_id` prefix of
+ * `page_view_classifications_view_version_idx`. One bound parameter.
+ */
+export function latestClassPredicate(cls: string): SQL {
+  if (cls === ADMIN_PAGE_VIEW_NULL_FILTER) {
+    return sql`not exists (
+      select 1 from ${pageViewClassifications} as pvc
+       where pvc.page_view_id = ${pageViews.id}
+    )`;
+  }
+  return sql`(
+    select pvc.class from ${pageViewClassifications} as pvc
+     where pvc.page_view_id = ${pageViews.id}
+     order by pvc.evaluated_at desc, pvc.id desc
+     limit 1
+  ) = ${cls}`;
 }
 
 /** Whole UTC days touched by `[from, to)`. The evidence window is not day-aligned:

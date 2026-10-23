@@ -100,6 +100,13 @@ export const previewRoutes: Routes = [
         (m) => m.AdminReviewResponsesPreview,
       ),
   },
+  // AECI-1461 — `/admin/activity` over a fake API, so the Class column, the class
+  // filter and the all-classes figure render without an admin session.
+  {
+    path: 'admin-activity',
+    loadComponent: () =>
+      import('./admin-activity/admin-activity-preview').then((m) => m.AdminActivityPreview),
+  },
   // AECI-1223 — `/admin/email` over a fake API, so the summary, the sign-in panel and
   // the sends list render without an admin session.
   {

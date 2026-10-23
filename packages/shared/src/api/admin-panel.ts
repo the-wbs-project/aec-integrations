@@ -1920,6 +1920,17 @@ export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
    * while. It means "written before AECI-871", not "written by nobody".
    */
   writer: z.string().min(1).max(32).optional(),
+  /**
+   * The row's D19 traffic class at its latest classifier version (AECI-1461), or
+   * {@link ADMIN_PAGE_VIEW_NULL_FILTER} for the rows with no classification at
+   * all. "Latest" is the rule {@link AdminPageViewRowSchema}'s `classification`
+   * uses, so a filtered row always shows the class it was filtered on.
+   *
+   * A bounded string rather than {@link AdminTrafficClassSchema}, for the reason
+   * `writer` gives: the sentinel rides the same parameter, and an unknown value
+   * returns an empty page rather than a `400`.
+   */
+  class: z.string().min(1).max(32).optional(),
   exclude_internal: z
     .enum(['0', '1'])
     .default('0')
@@ -2074,6 +2085,15 @@ export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
  * is null on both counts and the UI hides the toggle entirely (§13 D10
  * constraint 3).
  *
+ * ─── The class filter has the same problem, solved beside it (AECI-1461) ─────
+ *
+ * `class` removes rows too, and `window_total` follows it, so the reconciliation
+ * above still holds. What the operator must not lose is the figure the class was
+ * cut from. So when `class` is sent, `window_total_all_classes` and
+ * `window_visitors_all_classes` carry the same counts with every filter except
+ * `class` (and, as above, both internal forms). They are null when no class
+ * filter is sent, because `window_total` already is the all-classes figure then.
+ *
  * `window_visitors` is §9.8's definition: distinct `(user_agent_hash, cf_asn)`
  * pairs in the window. §13 D7 requires that definition, and its over-count (a
  * browser update changes the UA) and under-count (shared NAT), to appear next to
@@ -2092,6 +2112,12 @@ export const AdminPageViewsResponseSchema = paginatedResponseSchema(AdminPageVie
   window_total: AdminCountSchema,
   /** §9.8 distinct `(user_agent_hash, cf_asn)` pairs, in both forms. */
   window_visitors: AdminCountSchema,
+  /** AECI-1461. `window_total` without the `class` filter. Null when no class
+   *  filter was sent. */
+  window_total_all_classes: AdminCountSchema.nullable().default(null),
+  /** AECI-1461. `window_visitors` without the `class` filter. Null when no class
+   *  filter was sent. */
+  window_visitors_all_classes: AdminCountSchema.nullable().default(null),
 });
 export type AdminPageViewsResponse = z.infer<typeof AdminPageViewsResponseSchema>;
 

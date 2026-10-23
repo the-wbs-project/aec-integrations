@@ -275,7 +275,8 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // ── AECI-1345 — the stored traffic classes (D19 Phase 2) ──────────────────
   // `warn` for the unresolved share (gated above 50%); the seam and heuristic
   // notes are `info`. They sit in the overview's envelope above the classes card
-  // (AECI-1346), which renders the figures they qualify.
+  // (AECI-1346), which renders the figures they qualify. The heuristic and seam
+  // notes also ride the Activity feed's envelope, above its Class column (AECI-1461).
   classification_unresolved_share: (p) =>
     $localize`:@@admin.notes.classificationUnresolvedShare:${num(p, 'unresolved')}:UNRESOLVED: of ${num(p, 'classified')}:CLASSIFIED: classified views could not be placed in a class. When more than half are unresolved, read the class split as mostly unknown, not as a confident breakdown.`,
   classification_version_seam: (p) =>
