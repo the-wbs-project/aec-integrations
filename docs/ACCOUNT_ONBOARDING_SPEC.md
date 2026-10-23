@@ -25,7 +25,7 @@ other software types are not AEC vendors as a rule. That follow-up is not built 
 
 One screen. Only the display name is required. "Skip for now" is always available.
 
-| # | Question | Input | Shown to | Stored in |
+| # | Question | Input | Asked of | Stored in |
 |---|---|---|---|---|
 | 1 | Display name | Text, 1 to 80 characters, pre-filled from the Google name | Everyone | `profiles.display_name` |
 | 2 | Where do you work? | Single choice in three groups (§2.1) | Everyone | `profile_details.company_type` |
@@ -267,6 +267,9 @@ check.
 
 ## 9. Privacy and erasure
 
+- Published reviews never show the display name. It appears in the user's own account menu, on a
+  vendor's seat roster, and on admin screens. The `/welcome` and `/account` forms carry no hint
+  that says otherwise.
 - The firm name and LinkedIn link are private. Search, Algolia, ranking and every public page
   never read these tables.
 - The privacy policy (`apps/web/src/content/legal/privacy-policy.md`, version 1.1) names the
