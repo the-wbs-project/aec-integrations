@@ -211,6 +211,8 @@ async function erase(
   );
   const env: Env = {
     ...TEST_ENV,
+    // Only production reaches seam #3 (AECI-1468), and these tests pin its order.
+    ENV: 'production',
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
