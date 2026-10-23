@@ -27,11 +27,13 @@ async function seedView(over: {
   navigation: string | null;
   cfAsn?: number | null;
   createdAt?: string;
+  privacySignal?: boolean | null;
 }): Promise<void> {
   await t.db.insert(pageViews).values({
     path: '/products/procore',
     navigation: over.navigation,
     cfAsn: over.cfAsn ?? null,
+    privacySignal: over.privacySignal ?? null,
     createdAt: over.createdAt ?? IN_WINDOW,
   });
 }
@@ -74,6 +76,16 @@ describe('readArrivalCfCoverage', () => {
     await seedView({ navigation: null, cfAsn: 23700 });
 
     expect(await read()).toEqual({ arrivals: 1, arrivalsWithAsn: 0, coverage: 0 });
+  });
+
+  it('leaves privacy-signal arrivals out of both sides of the ratio (AECI-1386)', async () => {
+    // A DNT/GPC arrival stores NULL cf_asn by design, not because telemetry broke.
+    await seedView({ navigation: 'arrival', cfAsn: 23700, privacySignal: false });
+    await seedView({ navigation: 'arrival', cfAsn: 23700 }); // history: NULL flag
+    await seedView({ navigation: 'arrival', cfAsn: null, privacySignal: true });
+    await seedView({ navigation: 'arrival', cfAsn: null, privacySignal: true });
+
+    expect(await read()).toEqual({ arrivals: 2, arrivalsWithAsn: 2, coverage: 1 });
   });
 
   it('honours the half-open window on created_at', async () => {

@@ -12,7 +12,9 @@ export type IpHashState = 'present' | 'no_secret' | 'no_ip';
  * must not change the D1 outcome or surface to the caller.
  *
  * Emits `aeci.pageviews.raw` with `outcome:ok|failed|skipped` and `ip_hash:<state>`.
- * `skipped` means the binding is absent (local dev, demo, tests).
+ * `skipped` means the binding is absent (local dev, demo, tests). A privacy-signal
+ * capture never reaches here: the route emits `outcome:privacy_signal` itself and
+ * builds no envelope (AECI-1386).
  *
  * `send()` is a binding call, not an outbound `fetch`, so the Worker connection
  * limit does not apply. It is awaited because the caller runs inside `waitUntil`.

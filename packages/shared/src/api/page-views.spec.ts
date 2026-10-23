@@ -5,6 +5,7 @@ import {
   SPECULATIVE_REQUEST_HEADERS,
   UNTRACKED_ROUTE_PREFIXES,
   PageViewPayloadSchema,
+  hasPrivacySignal,
   isSpeculativeRequest,
   isUntrackedRoute,
 } from './page-views';
@@ -169,5 +170,39 @@ describe('PAGE_VIEW_DEDUPE_WINDOW_MS', () => {
     // double this. The Done-when of AECI-743 requires a real re-visit later in the
     // session to survive, which sets the ceiling.
     expect(PAGE_VIEW_DEDUPE_WINDOW_MS * 2).toBeLessThanOrEqual(30_000);
+  });
+});
+
+describe('hasPrivacySignal (AECI-1386)', () => {
+  const h = (init: Record<string, string>) => new Headers(init);
+
+  it.each([
+    ['sec-gpc', '1'],
+    ['dnt', '1'],
+    ['sec-gpc', ' 1 '],
+    ['Sec-GPC', '1'],
+  ])('flags %s: %j', (name, value) => {
+    expect(hasPrivacySignal(h({ [name]: value }))).toBe(true);
+  });
+
+  it('flags a request that carries both signals', () => {
+    expect(hasPrivacySignal(h({ 'sec-gpc': '1', dnt: '1' }))).toBe(true);
+  });
+
+  it('flags one signal even when the other is off', () => {
+    expect(hasPrivacySignal(h({ 'sec-gpc': '0', dnt: '1' }))).toBe(true);
+  });
+
+  it.each([
+    ['sec-gpc', '0'],
+    ['dnt', '0'],
+    ['dnt', 'yes'],
+    ['sec-gpc', ''],
+  ])('ignores %s: %j', (name, value) => {
+    expect(hasPrivacySignal(h({ [name]: value }))).toBe(false);
+  });
+
+  it('ignores a request with neither header', () => {
+    expect(hasPrivacySignal(h({ 'user-agent': 'Mozilla/5.0' }))).toBe(false);
   });
 });

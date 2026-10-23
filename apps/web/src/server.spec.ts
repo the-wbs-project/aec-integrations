@@ -1,6 +1,7 @@
 import {
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_RAW_HEADERS,
+  PAGE_VIEW_WRITER_HEADER,
   VersionResponseSchema,
   decodeCfRaw,
   encodeCfRaw,
@@ -3050,7 +3051,8 @@ describe('raw page-view store headers (AECI-1384)', () => {
     const request = new Request('https://www.aecintegrations.com/products?utm_source=li', {
       headers: {
         'cf-connecting-ip': '203.0.113.9',
-        'sec-gpc': '1',
+        // `0` is no privacy signal (AECI-1386), so the full raw-store set travels.
+        'sec-gpc': '0',
         'sec-ch-ua-platform': '"macOS"',
         'x-forwarded-for': '198.51.100.1',
       },
@@ -3067,7 +3069,7 @@ describe('raw page-view store headers (AECI-1384)', () => {
       'https://www.aecintegrations.com/products?utm_source=li',
     );
     expect(h.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBe('203.0.113.9');
-    expect(h.get('sec-gpc')).toBe('1');
+    expect(h.get('sec-gpc')).toBe('0');
     expect(h.get('sec-ch-ua-platform')).toBe('"macOS"');
     // IP headers are never forwarded under their own names; only the owned copy.
     expect(h.get('x-forwarded-for')).toBeNull();
@@ -3126,5 +3128,95 @@ describe('raw page-view store headers (AECI-1384)', () => {
     const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
     expect(pv[0]!.headers.get(PAGE_VIEW_RAW_HEADERS.cfRaw)).toBeNull();
     expect(pv[0]!.headers.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBeNull();
+  });
+});
+
+describe('privacy signal on the page-view writes (AECI-1386)', () => {
+  it.each([
+    ['sec-gpc', '1'],
+    ['dnt', '1'],
+  ])(
+    'SSR arrival with %s: %s still fires, with no raw-store headers and only the signal forwarded',
+    async (name, value) => {
+      const { binding, calls } = recordingApiBinding();
+      const app = createApp({
+        ssrRenderer: fixedRenderer(htmlResponse('<html>index</html>')),
+      });
+
+      const request = new Request('https://www.aecintegrations.com/products?utm_source=li', {
+        headers: {
+          'cf-connecting-ip': '203.0.113.9',
+          [name]: value,
+          'sec-ch-ua-platform': '"macOS"',
+          'accept-encoding': 'gzip, br',
+          via: '1.1 proxy',
+          'user-agent': 'Mozilla/5.0 Chrome/128.0.0.0',
+          'sec-fetch-dest': 'document',
+          referer: 'https://www.google.com/',
+          cookie: 'sb-x=1',
+        },
+      });
+      Object.defineProperty(request, 'cf', {
+        value: { country: 'FR', city: 'Lyon', asn: 3215 },
+      });
+      const res = await viaGateway(
+        app,
+        request,
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      // The rendered response is untouched by the signal.
+      expect(await res.text()).toContain('index');
+      expect(res.headers.get('vary') ?? '').not.toMatch(/sec-gpc|dnt/i);
+
+      const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+      expect(pv).toHaveLength(1);
+      const h = pv[0]!.headers;
+      expect(h.get(PAGE_VIEW_RAW_HEADERS.cfRaw)).toBeNull();
+      expect(h.get(PAGE_VIEW_RAW_HEADERS.eyeballUrl)).toBeNull();
+      expect(h.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBeNull();
+      // From the arrival forward list, only the signal itself.
+      expect(h.get(name)).toBe(value);
+      expect(h.get('sec-ch-ua-platform')).toBeNull();
+      expect(h.get('accept-encoding')).toBeNull();
+      expect(h.get('via')).toBeNull();
+      // What the API still needs in memory for its verdicts.
+      expect(h.get('user-agent')).toBe('Mozilla/5.0 Chrome/128.0.0.0');
+      expect(h.get('sec-fetch-dest')).toBe('document');
+      expect(h.get('referer')).toBe('https://www.google.com/');
+      expect(h.get('cookie')).toBe('sb-x=1');
+      expect(h.get(PAGE_VIEW_CF_HEADERS.country)).toBe('FR');
+    },
+  );
+
+  it('proxy path with sec-gpc: 1 strips forged raw-store headers and sets none of its own', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    const beacon = new Request('https://www.aecintegrations.com/api/page-views', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': '203.0.113.9',
+        'sec-gpc': '1',
+        [PAGE_VIEW_RAW_HEADERS.cfRaw]: encodeCfRaw({ forged: true }) as string,
+        [PAGE_VIEW_RAW_HEADERS.eyeballUrl]: 'https://evil.test/',
+        [PAGE_VIEW_RAW_HEADERS.clientIp]: '10.0.0.1',
+      },
+      body: JSON.stringify({ route: '/products/procore', navigation: 'spa' }),
+    });
+    Object.defineProperty(beacon, 'cf', { value: { country: 'US', city: 'Zürich' } });
+    await app.fetch(beacon, binding as unknown as Bindings, fakeExecutionContext());
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    const h = pv[0]!.headers;
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.cfRaw)).toBeNull();
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.eyeballUrl)).toBeNull();
+    expect(h.get(PAGE_VIEW_RAW_HEADERS.clientIp)).toBeNull();
+    expect(h.get('sec-gpc')).toBe('1');
+    expect(h.get(PAGE_VIEW_CF_HEADERS.country)).toBe('US');
+    expect(h.get(PAGE_VIEW_WRITER_HEADER)).toBe('browser-spa');
   });
 });

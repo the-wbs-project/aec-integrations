@@ -1044,6 +1044,7 @@ export async function listPageViews(
         referrer: pageViews.referrer,
         writerProvenance: pageViews.writerProvenance,
         clientVerdict: pageViews.clientVerdict,
+        privacySignal: pageViews.privacySignal,
       })
       .from(pageViews)
       .where(where)
@@ -1109,6 +1110,8 @@ export async function listPageViews(
         // AECI-1345. The latest stored D19 class, read-time like the registry above.
         // Null = not classified, never a class (§6.10).
         classification: classifications.get(r.id) ?? null,
+        // AECI-1386. NULL on history reads as false, as the schema comment says.
+        privacy_signal: r.privacySignal === true,
       };
     }),
   };

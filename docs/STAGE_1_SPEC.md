@@ -1016,7 +1016,7 @@ Client-side initialization in Angular app:
   - `mailing_list_signup` — source (home closing CTA; fired on a genuine new subscribe only — consented funnel, see OBSERVABILITY.md)
 - All events include `locale` and `theme` dimensions
 
-**PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context, **and Tier 3 sees only consented visitors**. The `page_views` table fills both gaps (Section 14.2) and is the consent-independent, authoritative count. Rule of thumb: when someone asks "how many", answer from `page_views`; when they ask "how many **converted**", answer from PostHog.
+**PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context, **and Tier 3 sees only consented visitors**. The `page_views` table fills both gaps (Section 14.2) and is the authoritative count. It needs no consent banner. Since AECI-1386 it honours DNT/GPC by storing an anonymous counter row, so the count stays complete. Rule of thumb: when someone asks "how many", answer from `page_views`; when they ask "how many **converted**", answer from PostHog.
 
 ### 14.2 Server-side page_views (D1)
 
@@ -1033,6 +1033,7 @@ A lean server-side log captured by the SSR Worker's gateway on every cacheable p
 - User agents are hashed, not stored raw
 - **As built 2026-10-16 (AECI-1384, ADR 0041):** the table still holds no IP. A raw copy of each capture in R2 keeps the IP only as a monthly-keyed hash, and the raw `User-Agent` header, for 400 days.
 - No personal info (email, name) in page_views directly — only the foreign key to `profiles`, which can be joined when needed and anonymized on user deletion
+- **As built 2026-10-23 (AECI-1386):** a request with `Sec-GPC: 1` or `DNT: 1` still writes a row, with `privacy_signal = true`. That row keeps the page, the country and the coarse verdicts. It stores no UA hash, network, Ray ID, referrer host, link token, request-shape facts or dedupe key. Its `created_at` is cut to the UTC hour. It writes no raw R2 copy. With no UA hash it is never de-duplicated, so a rare double-fire counts twice. `DATABASE_SCHEMA.md` §9.1 has the full column list.
 
 **Write path:**
 - The SSR Worker's gateway entrypoint writes the page_views row asynchronously via `ctx.waitUntil()` — never blocks the response

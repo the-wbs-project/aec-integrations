@@ -258,6 +258,7 @@ describe('writer limits and constants', () => {
                           referrerSource,
                           isOperator: null,
                           userAgentHash,
+                          privacySignal: null,
                         };
                         worst = Math.max(worst, classifyPageView(row, ctx).reasonCodes.length);
                       }

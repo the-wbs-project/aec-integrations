@@ -20,9 +20,9 @@ import { AdminPageViewsApi } from '../../admin/activity/admin-page-views-api';
  *
  * Dev-only, like every `/preview` route: blocked on the public tiers by the SSR
  * Worker (`isPreviewPath`). The fixture holds one row per class, one row with
- * incomplete evidence and one row no classifier run has reached. The class filter
- * is applied in memory, so the all-classes line and the no-match state are
- * reachable.
+ * incomplete evidence, one row no classifier run has reached and one privacy-signal
+ * row. The class filter is applied in memory, so the all-classes line and the
+ * no-match state are reachable.
  */
 const HOUR = 3_600_000;
 const ago = (hours: number): string => new Date(Date.now() - hours * HOUR).toISOString();
@@ -61,6 +61,7 @@ function row(id: number, hours: number, over: Partial<AdminPageViewRow>): AdminP
     client_verdict: 'browser',
     asn_registry: null,
     classification: null,
+    privacy_signal: false,
     ...over,
   };
 }
@@ -124,6 +125,20 @@ const ROWS: AdminPageViewRow[] = [
     referrer: 'www.linkedin.com',
     writer_provenance: 'browser-spa',
     classification: classification('unresolved', ['no_corroboration']),
+  }),
+  // A DNT/GPC counter row (AECI-1386): no hash, network, colo or referrer host.
+  row(1, 30, {
+    visitor_hash: null,
+    cf_asn: null,
+    cf_colo: null,
+    cf_country: 'FR',
+    referrer: null,
+    privacy_signal: true,
+    classification: classification(
+      'unresolved',
+      ['no_corroboration', 'evidence_privacy_signal'],
+      false,
+    ),
   }),
 ];
 

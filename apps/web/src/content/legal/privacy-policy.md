@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 22, 2026
+last_updated: October 23, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -23,8 +23,8 @@ We collect only what we need to run the service:
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
-- **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics.
-- **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss.
+- **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
+- **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss. It covers every request, whether or not your browser sends Do Not Track or Global Privacy Control, because we need a complete record to keep the site secure.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
@@ -66,6 +66,8 @@ We use a small number of strictly necessary cookies to make the service work, an
 ## Do Not Track, Global Privacy Control, and operational telemetry
 
 We honor the **Do Not Track (DNT)** and **Global Privacy Control (GPC)** browser signals as an opt-out of **product analytics**. If your browser sends either signal, we do not show you the consent banner, we do not record pageviews or product events for you, and we do not store any analytics identifier in your browser. That decision cannot be overridden by a previously stored choice.
+
+**Our own visit count.** We also keep our own count of page visits, separate from product analytics. If your browser sends either signal, your visit is counted only in an anonymous tally. The tally records the page, the hour, your country and language, the kind of site that sent you (such as a search engine) and any campaign label in the link, whether the visit looked automated, and whether a signed-in vendor was viewing its own listing. It holds no browser fingerprint, no details of your network, no technical request log entry and no link token.
 
 **Signed-in activity.** This record is not affected by your cookie choice or by browser privacy signals, because it is part of running your signed-in account.
 

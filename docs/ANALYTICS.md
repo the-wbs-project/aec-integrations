@@ -12,8 +12,9 @@ The split is by question, not by vendor — both land in PostHog:
 | "Is the system healthy?" — logs, metrics, errors, alerts, crons | `OBSERVABILITY.md` |
 | "Are people getting value?" — events, funnels, retention, flags | **this file** |
 
-The third surface is the `page_views` D1 table + `/admin` (§14.2), which is
-**consent-independent** and sees the Cloudflare request context PostHog cannot.
+The third surface is the `page_views` D1 table + `/admin` (§14.2), which needs
+**no consent banner** and sees the Cloudflare request context PostHog cannot. It
+honours DNT/GPC by storing an anonymous counter row (§5, AECI-1386).
 When the two disagree on a count, `page_views` is the authoritative number and
 PostHog is the authoritative *funnel* — see "Consent shapes every number" below.
 Cloudflare's own record of every request at the edge is kept in R2 by Logpush
@@ -170,15 +171,24 @@ most important thing to understand before reading any chart here.
 | **1 — server** | always, no consent concept | Worker logs, all metrics, audit forwards, deploy markers | n/a |
 | **2 — browser operational** | **every visitor, including DNT/GPC** | errors, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie |
 | **3 — product analytics** | consented visitors only; DNT/GPC are a hard deny | `$pageview` + the event catalogue above, `identify`, groups | localStorage |
+| **`page_views` (D1, not PostHog)** | every visitor; DNT/GPC become an anonymous counter row | page, hour, country, coarse verdicts. For DNT/GPC: no UA hash, network, Ray ID, referrer host, link token or raw envelope | none in the browser |
 
 Consequences you must hold in your head when reading a number:
 
 - **Every event in §4 except `app_started` and `deployment` is a
   consented-slice count, not a total.** It is a funnel, not a census.
-- The authoritative, consent-independent counts live elsewhere: page views in
-  the `page_views` D1 table, mailing-list signups in the `mailing_list` table,
-  reviews and requests in their own tables. When a stakeholder asks "how many",
-  answer from D1; when they ask "how many *converted*", answer from PostHog.
+- The authoritative counts live elsewhere: page views in the `page_views` D1
+  table, mailing-list signups in the `mailing_list` table, reviews and requests in
+  their own tables. When a stakeholder asks "how many", answer from D1. When they
+  ask "how many *converted*", answer from PostHog.
+- `page_views` needs no consent banner, but it does honour DNT/GPC (AECI-1386).
+  A request with `Sec-GPC: 1` or `DNT: 1` still adds a row, so the count stays a
+  census. That row has `privacy_signal = true`. It keeps the page, the country and
+  the verdicts (`is_bot`, `referrer_source`, `client_verdict`). It stores no UA
+  hash, ASN, colo, Ray ID, referrer host, link token, request-shape facts or dedupe
+  key. Its `created_at` is cut to the UTC hour. It writes no raw envelope (§11).
+  Such a row is never de-duplicated. In a distinct-visitor count, all privacy rows
+  in a window collapse into one empty-key visitor (`DATABASE_SCHEMA.md` §9.1).
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error
   counts are therefore **occurrence** counts, not affected-visitor counts. That
   is the accepted price of running ops telemetry without asking permission.
@@ -616,8 +626,11 @@ with `json_extract_string(value, '$.path')`. Do not paste real keys into a share
 a capture" in `RUNBOOKS.md`. Locally the binding is absent and the write is counted `skipped`
 (`local-dev.md`).
 
-**Consent.** The store captures every visitor, including those who send DNT or Sec-GPC. That gap is
-AECI-1386. §5 above describes the consent tiers for PostHog. This store sits outside them.
+**Consent.** A capture with `DNT: 1` or `Sec-GPC: 1` writes no envelope, on any outcome (AECI-1386). It
+emits `aeci.pageviews.raw{outcome:privacy_signal}` instead, so the gap is counted. That tag is not
+`skipped`, so `pageviews-raw-unsent` stays quiet. The SSR Worker sends no raw-store headers for such a
+request. The D1 row is still written, as an anonymous counter (§5). This store therefore cannot rebuild
+privacy rows.
 
 ## 11a. The edge request log
 
@@ -655,7 +668,11 @@ ORDER BY requests DESC;
 ```
 
 **Joins.** `RayID` equals `page_views.cf_ray` and the §11 envelope's `cf.ray`. No join is built
-(AECI-1304).
+(AECI-1304). A privacy-signal row stores no `cf_ray`, so it never joins.
+
+**Privacy signals.** This log ignores DNT and GPC. It holds every request, signal or not, because it
+is the security record. Since AECI-1386 it is also the only record of request detail for a DNT/GPC
+visit. The privacy policy says so.
 
 **Health.** Cloudflare's "Logpush job disabled" email to Chris. Runbook "Logpush job disabled" in
 `RUNBOOKS.md`. A missed day is lost unless a GraphQL pull fills it in time.

@@ -52,6 +52,7 @@ function makeRow(over: Partial<AdminPageViewRow> & { id: number }): AdminPageVie
     referrer: over.referrer ?? null,
     asn_registry: over.asn_registry ?? null,
     classification: over.classification ?? null,
+    privacy_signal: over.privacy_signal ?? false,
   };
 }
 
@@ -385,6 +386,24 @@ describe('ActivityFeed', () => {
       );
       expect(el.textContent).toContain('Unknown visitor');
       expect(el.textContent).toContain('Unknown location');
+    });
+
+    it('labels a privacy-signal row as anonymous rather than unknown (AECI-1386)', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([
+            makeRow({
+              id: 1,
+              visitor_hash: null,
+              cf_asn: null,
+              cf_colo: null,
+              privacy_signal: true,
+            }),
+          ]),
+        ),
+      );
+      expect(el.textContent).toContain('Anonymous (privacy signal)');
+      expect(el.textContent).not.toContain('Unknown visitor');
     });
   });
 

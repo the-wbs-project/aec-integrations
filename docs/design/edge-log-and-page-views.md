@@ -172,6 +172,8 @@ Cloudflare logs a request before the visitor has chosen anything. Separate bucke
 
 > **Note 2026-10-16 (AECI-1384, ADR 0041):** a raw app-side store ships ahead of this design. Every capture the API receives writes one envelope through Cloudflare Pipelines to a Parquet sink in R2, for 400 days, with no consent tier. It exists so a change to `page_views` can be back-filled from source, and it holds the IP only as a monthly-keyed hash. It is not the raw tier described here, which stays unbuilt. The 400 days is known privacy debt, reviewed in AECI-1385 (due 2027-04-01).
 
+> **Built 2026-10-23 (AECI-1386):** the app side now honours the browser signal, though not through tiers. A request with `Sec-GPC: 1` or `DNT: 1` writes an anonymous counter row in `page_views` (`privacy_signal = true`, no UA hash, network, Ray ID, referrer host or link token, `created_at` cut to the hour). It writes no raw envelope. The Logpush log (ADR 0045) still records every request, signal or not, because it is the security record.
+
 ### Consent signal
 
 The beacon adds `consent: granted | denied | undecided`, taken from the Tier 3 choice (`docs/ANALYTICS.md` §5). The Worker also reads `Sec-GPC` and `DNT` on the request. Those are a hard deny today and override the beacon. Logpush custom fields can capture `Sec-GPC` too, so edge-only rows can honour it.

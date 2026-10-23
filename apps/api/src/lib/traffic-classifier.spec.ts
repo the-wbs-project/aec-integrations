@@ -49,6 +49,7 @@ function row(overrides: Partial<ClassifierRow> = {}): ClassifierRow {
     referrerSource: 'Direct',
     isOperator: false,
     userAgentHash: 'ua-home',
+    privacySignal: false,
     ...overrides,
   };
 }
@@ -137,6 +138,11 @@ const FIXTURES: ReadonlyArray<{ name: string; row: ClassifierRow; ctx?: Classifi
   { name: 'arrival without its network', row: row({ cfAsn: null }) },
   { name: 'arrival without TLS', row: row({ tlsVersion: null }) },
   { name: 'row written before writer provenance', row: row({ writerProvenance: null }) },
+  {
+    // AECI-1386: what ingest stores for a DNT/GPC request.
+    name: 'privacy-signal SPA hop with the app executed',
+    row: spaHop({ privacySignal: true, userAgentHash: null, cfAsn: null, tlsVersion: null }),
+  },
 ];
 
 function classify(f: (typeof FIXTURES)[number]) {
@@ -350,6 +356,72 @@ describe('classifyPageView', () => {
     expect(r.class).toBe('browser_with_human_evidence');
   });
 
+  describe('privacy-signal rows (AECI-1386)', () => {
+    const privacyRow = (overrides: Partial<ClassifierRow> = {}) =>
+      row({
+        privacySignal: true,
+        userAgentHash: null,
+        cfAsn: null,
+        tlsVersion: null,
+        hasSecChUa: null,
+        hasAcceptLanguage: null,
+        secFetchDest: null,
+        ...overrides,
+      });
+
+    it('never classifies as browser_with_human_evidence, even when the app executed', () => {
+      const r = classifyPageView(
+        privacyRow({ navigation: 'spa', writerProvenance: 'browser-spa' }),
+        ctx(),
+      );
+      expect(r.class).toBe('unresolved');
+      expect(r.reasonCodes).toEqual([
+        'app_executed',
+        'no_corroboration',
+        'evidence_privacy_signal',
+      ]);
+      expect(r.reasonCodes).not.toContain('conflicting_signals');
+    });
+
+    it('replaces the missing ASN and TLS gaps with one privacy code', () => {
+      const r = classifyPageView(privacyRow(), ctx());
+      expect(r.reasonCodes).toEqual(['no_corroboration', 'evidence_privacy_signal']);
+      expect(r.reasonCodes).not.toContain('evidence_no_asn');
+      expect(r.reasonCodes).not.toContain('evidence_no_tls');
+      expect(r.evidenceComplete).toBe(false);
+    });
+
+    it('leaves the identified and suspected steps as they were', () => {
+      expect(classifyPageView(privacyRow({ isBot: true, botName: 'Googlebot' }), ctx()).class).toBe(
+        'identified_automation',
+      );
+      expect(
+        classifyPageView(
+          privacyRow({
+            navigation: 'spa',
+            writerProvenance: 'browser-spa',
+            clientVerdict: 'non-browser',
+          }),
+          ctx(),
+        ).reasonCodes,
+      ).toContain('single_signal_request_shape');
+    });
+
+    it('never reads a label the ASN rule can write as self-declared', () => {
+      // Censys is both a NAMED_BOTS and a DATACENTER_ASNS label. The row has no ASN
+      // to tell which rule wrote it, so it is not `ua_self_declared`.
+      const r = classifyPageView(privacyRow({ isBot: true, botName: 'Censys (scanner)' }), ctx());
+      expect(r.reasonCodes).not.toContain('ua_self_declared');
+      expect(r.class).toBe('unresolved');
+      expect(r.reasonCodes).toContain('bot_label_unmapped');
+    });
+
+    it('reads a NULL privacy_signal as false, so history keeps its class', () => {
+      const r = classifyPageView(spaHop({ privacySignal: null }), ctx());
+      expect(r.class).toBe('browser_with_human_evidence');
+    });
+  });
+
   it('stamps the version on every result', () => {
     expect(classifyPageView(row(), ctx()).version).toBe(TRAFFIC_CLASSIFIER_VERSION);
   });
@@ -387,8 +459,8 @@ describe('classifier version pin', () => {
     // A rule input changed if this fails. Bump TRAFFIC_CLASSIFIER_VERSION in
     // traffic-classifier.ts, then update BOTH literals below in the same change.
     const PINNED = {
-      version: 'tc-2026.10.2',
-      fingerprint: 'e6a50b8578472028b1db2056abaef2514b7e3e1747c74a837bebb25d91ba8981',
+      version: 'tc-2026.10.3',
+      fingerprint: 'c7ce31fb1d669930aa5b3cafcdc7cba25247744591c0166b0721def9e2d0fdb7',
     };
     expect(
       { version: TRAFFIC_CLASSIFIER_VERSION, fingerprint: await classifierFingerprint() },

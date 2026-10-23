@@ -155,6 +155,10 @@ Connection budget and fan-out (AECI-666, ADR 0021's 2026-08-27 amendment). `Lint
   Tier 2 (every visitor, DNT/GPC included, memory persistence, no identifier); pageviews, the
   event catalogue and `identify`/groups are Tier 3 (consented only). Writing anything persistent
   pre-consent is a defect
+- A new `page_views` column that does not say what a privacy-signal row stores in it. A DNT/GPC
+  row (`privacy_signal = true`, AECI-1386) is an anonymous counter. A column that identifies the
+  browser, network or link must be added to `PRIVACY_NULLED` in `routes/page-views.ts`, and the
+  privacy policy checked
 
 ### API contract integrity
 

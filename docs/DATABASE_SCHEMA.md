@@ -2950,6 +2950,25 @@ All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/
 
 **A vendor looking at its own listing is a fourth, separate exclusion (AECI-934, `ADMIN_PANEL_SPEC.md` §13 **D26**).** `is_owner_visit` is true when a verified `vendor_admin` session viewed a page whose vendor, product or pair endpoint belongs to that vendor. It is **not** part of `NOT_INTERNAL`: platform figures keep counting these rows. Only the vendor performance reader ANDs `NOT_OWNER_VISIT` (`page-view-predicates.ts`) with `NOT_INTERNAL`. A hand-written query for a vendor's numbers adds `and (is_owner_visit is null or is_owner_visit = 0)`. Never write `is_owner_visit = 0` alone, which drops every row from before migration `0068`. The column is `NULL` on those rows, is never backfilled, and signed-out self-visits stay unknowable.
 
+**A DNT/GPC visit is an anonymous counter row (AECI-1386, migration `0089`).** `privacy_signal` is true when the request carried `Sec-GPC: 1` or `DNT: 1` (`hasPrivacySignal` in `@aeci/shared`). The privacy policy promises this. Such a row keeps `path`, `concrete_path`, the entity, pair and taxonomy ids, `navigation`, `writer_provenance`, `locale`, `cf_country`, `referrer_source`, `ref_source`, `is_bot`, `bot_name`, `cf_verified_bot`, `cf_verified_bot_category`, `cf_bot_score`, `client_verdict`, `is_operator` and `is_owner_visit`. It always stores NULL in these columns:
+
+| Column | Why it goes |
+|---|---|
+| `user_agent_hash` | never computed for the row |
+| `cf_asn`, `cf_as_organization`, `cf_colo`, `cf_ray` | network and edge location |
+| `referrer`, `ref_token` | referring host and the link token |
+| `sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol` | request-shape facts |
+| `dedupe_key` | needs the UA hash |
+
+The verdicts are still computed at ingest, in memory, from the inputs that are then dropped. `created_at` is cut to the start of the UTC hour, in the same ISO text shape. The row writes no R2 raw envelope (ADR 0041, 2026-10-23 amendment). Four consequences for a reader:
+
+- **No de-duplication.** With no UA hash the row takes no `dedupe_key`, so a rare double-fire counts twice. AECI-1297 already rules out the arrival/SPA overlap.
+- **No distinct visitor.** The `(user_agent_hash, cf_asn)` pair is NULL, so every privacy row in a window collapses into one empty-key visitor in `count(distinct …)` reads. The operator retro-join never matches it, which is the NULL-safe reading.
+- **No human evidence.** The classifier never places it in `browser_with_human_evidence` (§9.7).
+- **No coverage hole.** `readArrivalCfCoverage` leaves it out of both sides of the AECI-868 ratio.
+
+NULL on every row before `0089` reads as false, and is never backfilled. New rows always store 1 or 0. No CHECK and no index.
+
 **One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
 
 The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus three writer-side refusals — speculative (`Sec-Purpose: prefetch`/`prerender`) loads, non-GET requests, and query-only SPA re-navigations. Full mechanism and the reasoning behind each: `API_CONTRACTS.md` §6.9, "One document load, one row".
@@ -3095,6 +3114,11 @@ create table page_views (
   -- and is never backfilled. New rows always store 1 or 0. Deliberately NOT part of
   -- NOT_INTERNAL; the exclusion is NOT_OWNER_VISIT, read by the vendor performance report.
   is_owner_visit integer,  -- 1 = vendor admin on its own listing, 0 = not, null = pre-0068 (treated as not)
+
+  -- AECI-1386, migration 0089. 1 = the request sent Sec-GPC: 1 or DNT: 1, and the row is an
+  -- anonymous counter (no UA hash, network, Ray ID, referrer host, link token, request shape
+  -- or dedupe key; created_at cut to the UTC hour). 0 = no signal. Null = pre-0089, read as 0.
+  privacy_signal integer,
 
   -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
   -- How browser-shaped the request was, written at ingest by
@@ -3919,6 +3943,12 @@ and the reason the class is `not null`. Today an unmatched row silently becomes 
 placed explicitly, so "we could not tell" is a countable population instead of an absence. A row
 that is classified but has no evidence still gets a row, with `class = 'unresolved'` and reason codes
 naming what was missing.
+
+**A privacy-signal row never reaches `browser_with_human_evidence` (AECI-1386, `tc-2026.10.3`).** A
+row with `page_views.privacy_signal = 1` keeps no UA hash, ASN or TLS fact, so nothing on it can be
+corroborated. Its human evidence reads as `no_corroboration`, not `conflicting_signals`, because
+nothing contradicts it. Its evidence gap is the one code `evidence_privacy_signal`, in place of
+`evidence_no_asn` and `evidence_no_tls`. The identified and suspected steps are unchanged. One exception: a label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared`, because the row has no ASN to tell which rule wrote it.
 
 **Indexes: `view_day` is kept (D19, agreed 2026-10-14).** Without it, every digest read joins back to
 `page_views` to reach `created_at`, and the day filter cannot be served from this table at all. With

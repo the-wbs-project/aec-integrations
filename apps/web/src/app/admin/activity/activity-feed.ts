@@ -400,8 +400,12 @@ export class ActivityFeed {
   }
 
   /** `365d59e9 · AS23700` — a truncated hash and a network, and nothing that
-   *  could identify a person (§9.7). */
+   *  could identify a person (§9.7). A privacy-signal row (AECI-1386) stores
+   *  neither on purpose, so it says why rather than reading as unknown. */
   protected visitorLabel(row: AdminPageViewRow): string {
+    if (row.privacy_signal) {
+      return $localize`:@@admin.activity.visitor.privacySignal:Anonymous (privacy signal)`;
+    }
     const parts: string[] = [];
     if (row.visitor_hash) parts.push(row.visitor_hash);
     if (row.cf_asn !== null) parts.push(`AS${row.cf_asn}`);
