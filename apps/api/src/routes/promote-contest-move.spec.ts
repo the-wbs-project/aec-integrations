@@ -9,8 +9,9 @@
  * the way `promote-claim-fence.spec.ts` is.
  */
 
-import { PromotePayloadSchema } from '@aeci/shared';
+import { ListVendorNotificationsResponseSchema, PromotePayloadSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
+import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -25,9 +26,13 @@ import {
   workflowTransitions,
 } from '../db/schema';
 import type { Env } from '../env';
+import { errorHandler } from '../errors';
+import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
+import type { AuthzVariables } from '../lib/authz';
 import type { DbFactory } from '../lib/handler-utils';
 import { VENDOR_OWNED_TWIN } from '../lib/integration-twins';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
   REFUSED_CLAIMED_INTEGRATION,
   runPromoteIngest,
@@ -35,6 +40,7 @@ import {
   type PromoteRunCtx,
 } from './promote';
 import { CONTEST_REANCHORED_ACTION, MOVED_TO_CONNECTOR_TIER_REASON } from './promote-contests';
+import { createListVendorNotificationsHandler } from './vendor-notifications';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
@@ -104,6 +110,32 @@ const contest = async (id: string) =>
   }))!;
 const auditFor = (action: string) =>
   t.db.select().from(auditLog).where(eq(auditLog.action, action));
+/** The contest `notification.sent` rows, the only kind a move writes (AECI-1120). */
+const contestNotices = async () =>
+  (await auditFor(NOTIFICATION_SENT_ACTION)).filter(
+    (r) => (r.metadata as { kind?: string } | null)?.kind === 'contest',
+  );
+
+/** `GET /api/vendor/notifications` as a seat of `vendorId`. */
+async function feedFor(vendorId: string) {
+  const auth: AuthzVariables['auth'] = {
+    userId: uuid(99),
+    email: 'seat@vendor.test',
+    role: 'vendor_admin',
+    vendorId,
+    entitlementTier: 'verified',
+    entitlement: { status: 'active', periodEnd: null },
+  };
+  const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  a.onError(errorHandler());
+  a.use('*', async (c, next) => {
+    c.set('auth', auth);
+    await next();
+  });
+  a.get('/api/vendor/notifications', createListVendorNotificationsHandler(t.factory));
+  const res = await a.request('/api/vendor/notifications', {}, TEST_ENV, fakeExecutionContext());
+  return ListVendorNotificationsResponseSchema.parse(await res.json()).notifications;
+}
 
 beforeEach(async () => {
   t = await makeTestDb();
@@ -292,6 +324,61 @@ describe('promote move into connector_evidenced_pairs (AECI-1110)', () => {
     expect(openOnPair.map((c) => c.field).sort()).toEqual(['direction', 'name']);
   });
 
+  it('tells the submitter why, with one closed_by_move notice in the move batch (AECI-1120)', async () => {
+    await seedIntegrationEdge();
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }, true));
+
+    // One notice: the open `mechanism_kind` contest. The closed one, the open content
+    // and direction contests all move without a word.
+    const notices = await contestNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      actorType: 'system',
+      actorId: null,
+      entityType: 'integration_field_challenge',
+      entityId: OPEN_KIND,
+      vendorId: SUBMITTER,
+      metadata: {
+        kind: 'contest',
+        notificationId: 'portal-contest-closed-by-move',
+        vendorId: SUBMITTER,
+        contestId: OPEN_KIND,
+        integrationId: EDGE,
+        anchor: 'evidenced_pair',
+        // The row's name as the submitter knew it, before the push renamed it.
+        integrationName: 'Seeded',
+        field: 'mechanism_kind',
+        event: 'closed_by_move',
+        pairSlugs: ['navisworks', 'revit'],
+      },
+    });
+
+    // The submitter's feed shows it on the pair page; nobody else's does.
+    const feed = await feedFor(SUBMITTER);
+    expect(feed).toEqual([
+      expect.objectContaining({
+        kind: 'contest',
+        event: 'closed_by_move',
+        contest_id: OPEN_KIND,
+        integration_id: EDGE,
+        field: 'mechanism_kind',
+        pair_path: '/products/navisworks/integrations/revit',
+      }),
+    ]);
+    expect(feed[0]).not.toHaveProperty('retired_by');
+    expect(await feedFor(OWNER)).toEqual([]);
+  });
+
+  it('writes no notice when the only mechanism_kind contest is already closed (AECI-1120)', async () => {
+    await seedIntegrationEdge();
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ status: 'withdrawn' })
+      .where(eq(integrationFieldChallenges.id, OPEN_KIND));
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
+    expect(await contestNotices()).toEqual([]);
+  });
+
   it('writes one reanchored audit row per contest, in the move batch', async () => {
     await seedIntegrationEdge();
     await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
@@ -357,6 +444,7 @@ describe('promote move back into integrations (AECI-1110)', () => {
     );
     // Nothing is withdrawn on the way back: every pair field exists on `integrations`.
     expect(await auditFor('integration.contest.withdrawn')).toEqual([]);
+    expect(await contestNotices()).toEqual([]);
   });
 
   it("re-frames a direction contest out of the pair frame into the row's own", async () => {
@@ -408,6 +496,8 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
       [...before.map((c) => c.id), LATE].sort(),
     );
     expect(await t.db.select().from(promoteJobs)).toEqual([]);
+    // AECI-1120: the notice rolled back with the close it announces.
+    expect(await contestNotices()).toEqual([]);
 
     // The re-push plans against the late contest too, and carries it across.
     await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }), { jobId: 'job-contest-2' });

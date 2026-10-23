@@ -834,6 +834,23 @@ export const NOTIFICATIONS = {
     summary: 'Tells the other side of an open contest that a retire closed it.',
     note: 'Not pausable: a portal row, not email.',
   },
+  'portal-contest-closed-by-move': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/promote → PromoteWorkflow (routes/promote-contests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per closed contest, in the promote batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.9',
+    summary:
+      'Tells the submitter a promote moved the edge to a connector and closed its open mechanism_kind contest.',
+    note: 'Not pausable: a portal row, not email.',
+  },
   'portal-contest-protested': {
     channel: 'portal',
     audience: 'external',

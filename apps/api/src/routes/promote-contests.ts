@@ -23,9 +23,12 @@
  *      (`EVIDENCED_PAIR_CONTEST_FIELDS`), and the move is itself upstream's answer to
  *      "which mechanism": the edge is connector-delivered. It is then re-anchored like
  *      every other row, so its history survives. A closed one is simply re-anchored.
+ *      The submitter is told why, with a `closed_by_move` contest notification
+ *      (AECI-1120), the way a retire's close sends `closed_by_retire`.
  *   4. **Each write carries its audit row in the same batch** (`integration.contest.reanchored`,
- *      plus `integration.contest.withdrawn` and the workflow closure for rule 3), and
- *      `updated_at` moves, so both vendors' `contests` cursors see the change.
+ *      plus `integration.contest.withdrawn`, the workflow closure and the submitter's
+ *      `notification.sent` row for rule 3), and `updated_at` moves, so both vendors'
+ *      `contests` cursors see the change.
  *
  * Only an unclaimed, AECi-seeded row can move: the AECI-1005 / AECI-1088 fence refuses the
  * move on a vendor-held row before any of this is planned.
@@ -50,6 +53,7 @@ import {
   anchorColumnSql,
   contestAnchorWhere,
   CONTEST_ENTITY_TYPE,
+  contestNotificationAudit,
   type ContestAnchor,
   type ContestRow,
 } from '../lib/integration-contests';
@@ -166,6 +170,31 @@ function withdrawWorkflowStatements(
   ];
 }
 
+/**
+ * The snapshot a `closed_by_move` notice carries (AECI-1120): the row's name as the
+ * submitter knew it and the pair page the edge now lives on. Loaded by the caller
+ * only when {@link closesOnMove} is true, so a move that closes nothing reads nothing.
+ */
+export interface ContestMoveNotice {
+  integrationName: string | null;
+  pairSlugs: readonly [string, string] | null;
+}
+
+/** Rule 3's test: a move into the pair table closes an open `mechanism_kind` contest. */
+function closesOnMove(to: ContestAnchor, contest: Pick<ContestRow, 'field' | 'status'>): boolean {
+  return (
+    to.kind === 'evidenced_pair' && contest.field === 'mechanism_kind' && contest.status === 'open'
+  );
+}
+
+/** True when the move will close at least one contest, so it needs a {@link ContestMoveNotice}. */
+export function contestMoveClosesAny(
+  to: ContestAnchor,
+  contests: readonly Pick<ContestRow, 'field' | 'status'>[],
+): boolean {
+  return contests.some((contest) => closesOnMove(to, contest));
+}
+
 /** `a_to_b` ↔ `b_to_a`. `both`, `NULL` and anything unrecognised are their own mirror. */
 function flipDirection(value: string | null): string | null {
   if (value === 'a_to_b') return 'b_to_a';
@@ -188,9 +217,11 @@ export function planContestMove(
     /** The AECI-996 frame test the claims use: the payload's source sorts second. */
     frameReversed: boolean;
     now: string;
+    /** The `closed_by_move` snapshot. Required when {@link contestMoveClosesAny}. */
+    notice?: ContestMoveNotice | null;
   },
 ): { stmts: BatchStmt[]; audits: AuditLogEntry[]; planned: PlannedContestMove } {
-  const { contests, from, to, frameReversed, now } = args;
+  const { contests, from, to, frameReversed, now, notice = null } = args;
   const stmts: BatchStmt[] = [];
   const audits: AuditLogEntry[] = [];
   const actor = { actorId: null, actorType: 'system' as const };
@@ -211,7 +242,7 @@ export function planContestMove(
     // Rule 3: an open `mechanism_kind` contest cannot live on a pair. Close it first,
     // guarded on `open`, then re-anchor it with the rest so its history survives.
     let status = contest.status;
-    if (to.kind === 'evidenced_pair' && contest.field === 'mechanism_kind' && status === 'open') {
+    if (closesOnMove(to, contest)) {
       const metadata = { ...baseMetadata, reason: MOVED_TO_CONNECTOR_TIER_REASON };
       const workflow = withdrawWorkflowStatements(
         db,
@@ -241,6 +272,20 @@ export function planContestMove(
         afterState: { status: 'withdrawn' },
         metadata,
       });
+      // AECI-1120: the submitter learns why, in the same batch. The actor is the
+      // system, so there is no acting vendor to leave out.
+      audits.push(
+        contestNotificationAudit('portal-contest-closed-by-move', actor, {
+          vendorId: contest.submitterVendorId,
+          contestId: contest.id,
+          integrationId: to.id,
+          anchor: 'evidenced_pair',
+          integrationName: notice?.integrationName ?? null,
+          field: 'mechanism_kind',
+          event: 'closed_by_move',
+          pairSlugs: notice?.pairSlugs ?? null,
+        }),
+      );
       status = 'withdrawn';
     }
 

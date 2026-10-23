@@ -81,9 +81,9 @@ run `pnpm docs:notifications` and commit this file.
 | `email` | 38 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 25 |
+| `portal` | 26 |
 | `linear` | 4 |
-| **Total** | **69** |
+| **Total** | **70** |
 
 ## Email (Resend) (`email`, 38)
 
@@ -157,7 +157,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 25)
+## Vendor portal feed only (`portal`, 26)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -170,6 +170,7 @@ notification at all.
 | Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Pausable | Doc | Note |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `portal-claim-added` | Tells a vendor another vendor added a data row to an integration on its product. | external | route: PUT /api/vendor/claims/:claimId/attestation (routes/vendor-attestations.ts) | `any-tier` | One row per recipient, in the attestation batch. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6 | Not pausable: a portal row, not email. |
+| `portal-contest-closed-by-move` | Tells the submitter a promote moved the edge to a connector and closed its open mechanism_kind contest. | external | route: POST /api/promote → PromoteWorkflow (routes/promote-contests.ts) | `any-tier` | One row per closed contest, in the promote batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.9 | Not pausable: a portal row, not email. |
 | `portal-contest-closed-by-retire` | Tells the other side of an open contest that a retire closed it. | external | route: POST /api/{vendor,admin}/integrations/:id/retire (routes/integration-retire-write.ts) | `any-tier` | One row per closed contest, in the retire batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | Not pausable: a portal row, not email. |
 | `portal-contest-decided-by-aeci` | Tells the submitter AECi accepted or declined its contest. | external | route: PATCH /api/admin/contests/:id (routes/admin-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | Not pausable: a portal row, not email. |
 | `portal-contest-decided-by-owner` | Tells the submitter the owner accepted or declined its contest. | external | route: POST /api/vendor/contests/:id/decision (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | A decline carries the 30-day protest deadline. Since AECI-1205 the contest-declined-protest-window email carries it too. Not pausable: a portal row, not email. |

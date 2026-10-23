@@ -157,8 +157,8 @@ export interface ContestNotificationLike {
 /**
  * The notification archive's title for a contest event. The recipient is always
  * the OTHER side (§11b.8): `submitted` and `withdrawn` reach the owner, the two
- * decisions and a retire's close (AECI-1010) reach the submitter, so each
- * sentence is written from that seat. The two protest decisions (AECI-1009) reach
+ * decisions, a retire's close (AECI-1010) and a promote move's close (AECI-1120)
+ * reach the submitter, so each sentence is written from that seat. The two protest decisions (AECI-1009) reach
  * BOTH sides, told apart by `recipient_role`.
  *
  * The `default` branch is the deploy-skew fallback: a web build older than the
@@ -180,6 +180,8 @@ export function contestNotificationTitle(notification: ContestNotificationLike):
       return notification.retired_by === 'aeci'
         ? $localize`:@@vendor.contest.notify.closedByAeciRetire:Your change request was closed because AEC Integrations retired the integration`
         : $localize`:@@vendor.contest.notify.closedByRetire:Your change request was closed because the owner retired the integration`;
+    case 'closed_by_move':
+      return $localize`:@@vendor.contest.notify.closedByMove:Your change request was closed because the integration is now delivered through a connector`;
     case 'protested':
       return $localize`:@@vendor.contest.notify.protested:A vendor asked AEC Integrations to review a change request on your integration`;
     case 'protest_replied':
@@ -234,6 +236,10 @@ export function contestNotificationNote(
         return $localize`:@@vendor.contest.notify.note.closedByAeciRetire:Only AEC Integrations can restore the integration, and restoring it does not reopen your change request. If it comes back and you still want the change, send a new one.`;
       }
       return $localize`:@@vendor.contest.notify.note.closedByRetire:Restoring the integration does not reopen your change request. If it comes back and you still want the change, send a new one.`;
+    case 'closed_by_move':
+      // AECI-1120: only a "How you get it" request closes on a move, because a pair
+      // has no such field. Keep the wording in step with `mechanismKind`'s label.
+      return $localize`:@@vendor.contest.notify.note.closedByMove:An integration delivered through a connector does not record how you get it, so there is nothing left to change. If it changes back and you still want the change, send a new one.`;
     case 'protested': {
       const due = notification.reply_due_at;
       if (!due) {

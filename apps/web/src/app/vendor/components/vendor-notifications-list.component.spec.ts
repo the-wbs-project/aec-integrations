@@ -625,6 +625,30 @@ describe('VendorNotificationsList', () => {
     );
   });
 
+  it('titles and explains a contest a promote move closed (AECI-1120)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'contest',
+          id: '00000000-0000-4000-8000-00000000c2e1',
+          event: 'closed_by_move',
+          contest_id: '00000000-0000-4000-8000-00000000c2e2',
+          integration_id: '00000000-0000-4000-8000-00000000c2e3',
+          integration_name: 'Summit ↔ Procore',
+          field: 'mechanism_kind',
+          pair_path: '/products/procore/integrations/summit',
+          created_at: '2026-10-23T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain(
+      'Your change request was closed because the integration is now delivered through a connector',
+    );
+    expect(body).toContain('does not record how you get it');
+    expect(body).not.toContain('retired');
+  });
+
   it('titles and explains an integration another vendor added (AECI-1011 / AECI-1023)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

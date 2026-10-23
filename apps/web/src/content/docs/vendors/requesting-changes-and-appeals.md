@@ -3,7 +3,7 @@ title: Requesting changes and appeals
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
 order: 9
-last_updated: October 13, 2026
+last_updated: October 23, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
@@ -46,7 +46,7 @@ Updates about requests appear in the portal, so check the integration's page or 
 
 - **Accepted.** The proposed value replaces the one on record. When AEC Integrations accepts one on an integration nobody has claimed, the change usually arrives with the next catalog update.
 - **Declined.** The value on record stays. You see any note the decider added.
-- **Withdrawn.** You can withdraw your own open request at any time, from a confirmation step so it is not sent by accident. A request also closes as withdrawn if the integration is retired, and restoring it does not reopen the request.
+- **Withdrawn.** You can withdraw your own open request at any time, from a confirmation step so it is not sent by accident. A request also closes as withdrawn if the integration is retired, and restoring it does not reopen the request. A request about **How you get it** closes as withdrawn if AEC Integrations finds the integration is delivered through a connector, because those integrations do not record how you get them. In both cases you get a notice in Messages saying why.
 
 ## When your integration is asked about
 

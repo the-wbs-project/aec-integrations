@@ -137,7 +137,8 @@ import {
   promoteClaimFenceSentinel,
   promoteEvidencedClaimFenceSentinel,
 } from '../lib/integration-claims';
-import { type ContestAnchor } from '../lib/integration-contests';
+import { loadContestTarget, type ContestAnchor } from '../lib/integration-contests';
+import { endpointSlugs } from '../lib/integration-owner-writes';
 import {
   anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
@@ -179,6 +180,7 @@ import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-index
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import {
   anyContestMoveRaced,
+  contestMoveClosesAny,
   loadContestsOnAnchor,
   planContestMove,
   type PlannedContestMove,
@@ -3074,11 +3076,28 @@ export async function runPromoteIngest(
     from: ContestAnchor,
     to: ContestAnchor,
     frameReversed: boolean,
+    /** The destination's endpoint product ids, for a `closed_by_move` notice's pair page. */
+    endpoints: readonly [string, string],
   ): Promise<BatchStmt[]> => {
     const contests = await loadContestsOnAnchor(db, from);
     // No contest, no statement: the move is exactly what it was before AECI-1110.
     if (contests.length === 0) return [];
-    const plan = planContestMove(db, { contests, from, to, frameReversed, now: promotedAtIso });
+    // AECI-1120: a move that closes a contest tells its submitter, with the row's name as
+    // the submitter knew it and the pair page the edge now lives on. Read only then.
+    const notice = contestMoveClosesAny(to, contests)
+      ? {
+          integrationName: (await loadContestTarget(db, from))?.name ?? null,
+          pairSlugs: await endpointSlugs(db, endpoints[0], endpoints[1]),
+        }
+      : null;
+    const plan = planContestMove(db, {
+      contests,
+      from,
+      to,
+      frameReversed,
+      now: promotedAtIso,
+      notice,
+    });
     plannedContestMoves.push(plan.planned);
     for (const entry of plan.audits) audit(entry);
     return plan.stmts;
@@ -3428,6 +3447,7 @@ export async function runPromoteIngest(
               { kind: 'integration', id: located.id },
               { kind: 'evidenced_pair', id: located.id },
               evidencedFrameReversed,
+              [sourceId, targetId],
             )
           : [];
       const evidenced = planEvidencedPairWrite({
@@ -3709,6 +3729,7 @@ export async function runPromoteIngest(
             { kind: 'evidenced_pair', id: located.id },
             { kind: 'integration', id: located.id },
             sourceId > targetId,
+            [sourceId, targetId],
           )
         : [];
     const written = planIntegrationWrite({

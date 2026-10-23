@@ -36,9 +36,10 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * email and the license revoke feed row: 66. AECI-1373 added the early-unassign
  * alert and its two decision feed rows: 69. E8.1 (AECI-1398) removed the plan inquiry
  * receipt and alert: 67. AECI-1417 added the product proposal owner email: 68.
- * AECI-1435 added the claim confirm link: 69.
+ * AECI-1435 added the claim confirm link: 69. AECI-1120 added the promote move's
+ * contest close feed row: 70.
  */
-const EXPECTED_COUNT = 69;
+const EXPECTED_COUNT = 70;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -86,7 +87,7 @@ describe('notification registry shape', () => {
       email: 38,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 25,
+      portal: 26,
       linear: 4,
     });
   });
