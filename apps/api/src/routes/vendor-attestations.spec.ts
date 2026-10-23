@@ -1972,6 +1972,18 @@ describe('counterpart_added_unanswered (AECI-1153 / §7.6)', () => {
     expect(await count(AUTH_B)).toBe(0);
   });
 
+  it('stops counting a row once its adder withdraws its Yes or says No (AECI-1315)', async () => {
+    const added = await addAsA();
+    const url = attestationUrl(added.body.claim.id);
+    expect(await count(AUTH_B)).toBe(1);
+    expect((await call(url, { method: 'DELETE' })).status).toBe(204);
+    expect(await count(AUTH_B)).toBe(0);
+    await sendJson('PUT', url, { asserted: false, note: 'The direction is wrong.' });
+    expect(await count(AUTH_B)).toBe(0);
+    await sendJson('PUT', url, { asserted: true });
+    expect(await count(AUTH_B)).toBe(1);
+  });
+
   it('does not count a retired or a connector-powered row', async () => {
     await addAsA();
     await t.db
@@ -1996,6 +2008,14 @@ describe('counterpart_added_unanswered (AECI-1153 / §7.6)', () => {
       direction: 'a_to_b',
       origin: 'vendor',
       createdByVendorId: VENDOR_A,
+    });
+    // The adder's live Yes: without it nothing asks the caller (AECI-1315).
+    await t.db.insert(attestations).values({
+      id: uuid(59),
+      claimId: uuid(49),
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
     });
     const body = (await call('/api/vendor/integrations', {}, AUTH_BOTH)).body;
     expect(body.integrations.filter((e: JsonBody) => e.id === I_INTRA)).toHaveLength(2);

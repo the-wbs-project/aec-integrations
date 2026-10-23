@@ -473,6 +473,7 @@ describe('linkQueryParams and linkFragment (AECI-999, AECI-1149)', () => {
           ...procore.claims[0]!,
           added_by: 'counterpart' as const,
           mine: [],
+          counterparty: { asserted: true, note: null },
         },
       ],
     };
@@ -486,5 +487,29 @@ describe('linkQueryParams and linkFragment (AECI-999, AECI-1149)', () => {
       fragment: 'change-requests',
     });
     expect(buildNeedsItems(input([added])).now.some((i) => i.type === 'addedRows')).toBe(false);
+  });
+
+  it('links past an added row the other company has withdrawn (AECI-1315)', () => {
+    const procore = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
+    const claim = { ...procore.claims[0]!, added_by: 'counterpart' as const, mine: [] };
+    const live = {
+      ...procore,
+      claims: [{ ...claim, counterparty: { asserted: true, note: null } }],
+    };
+    const withdrawn = {
+      ...procore,
+      id: `${procore.id}-withdrawn`,
+      claims: [{ ...claim, id: `${claim.id}-w`, counterparty: null }],
+    };
+    const { now } = buildNeedsItems({
+      ...input([live, withdrawn]),
+      counterpartAddedUnanswered: 1,
+    });
+    expect(now.find((i) => i.type === 'addedRows')!.link).toEqual({
+      kind: 'integration',
+      productSlug: 'summit-model-coordination',
+      integrationId: procore.id,
+      fragment: 'change-requests',
+    });
   });
 });

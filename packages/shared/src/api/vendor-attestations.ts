@@ -484,8 +484,8 @@ export const ListVendorIntegrationsResponseSchema = z.object({
   /**
    * AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6. Distinct claim ids, vendor-wide,
    * that another vendor added and the caller has not answered, on attestable, live
-   * rows: `added_by = 'counterpart'`, `mine = []`, `attestable`, `retired_at` null.
-   * Counted server-side by claim id, so an owns-both integration (listed twice)
+   * rows whose adder still says Yes: {@link isAwaitingCounterpartAnswer}, on an
+   * `attestable` entry with `retired_at` null (AECI-1315). Counted server-side by claim id, so an owns-both integration (listed twice)
    * counts once (AECI-993). The overview's "What needs you" reads it. Defaulted for
    * deploy skew.
    */
@@ -581,6 +581,27 @@ export function attestationNoteProblem(
   if (asserted) return null;
   if (typeof note === 'string' && note.trim().length > 0) return null;
   return 'A No needs a reason. Say what is wrong so the other company and AEC Integrations can act on it.';
+}
+
+/**
+ * A row the other company added that waits on the caller's answer (AECI-1153,
+ * narrowed by AECI-1315; `STAGE_2_ATTESTATIONS_SPEC.md` §7.6): `added_by =
+ * 'counterpart'`, `mine = []`, **and the adder still says Yes**. Once the adder
+ * cancels, clears its answer or says No, the row backs no "Confirmed by {Company}"
+ * badge (AECI-1314), so nothing asks the caller about it.
+ *
+ * One rule for the API's `counterpart_added_unanswered` count and the portal's
+ * items, status and links, so the two cannot disagree. The integration-level gates
+ * (`attestable`, `retired_at` null) stay with the caller.
+ */
+export function isAwaitingCounterpartAnswer(
+  claim: Pick<VendorClaim, 'added_by' | 'mine' | 'counterparty'>,
+): boolean {
+  return (
+    claim.added_by === 'counterpart' &&
+    claim.mine.length === 0 &&
+    claim.counterparty?.asserted === true
+  );
 }
 
 /** `POST` and `PUT` both echo the claim's post-write state, agreement included. */

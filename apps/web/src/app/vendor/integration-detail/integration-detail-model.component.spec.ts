@@ -24,6 +24,7 @@ import {
   disagreementItemId,
   howYouGetIt,
   integrationStatus,
+  isCounterpartAddedUnanswered,
   needsItems,
   noteAudience,
   rowPill,
@@ -66,6 +67,61 @@ const answered = (claim: VendorClaim): VendorClaim => ({
       updated_at: '2026-09-01T00:00:00.000Z',
     },
   ],
+});
+
+describe('a row the other company added, only while it still says Yes (AECI-1315)', () => {
+  const added = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.added_by === 'counterpart')!;
+  const cancelled: VendorClaim = { ...added, counterparty: null };
+  const saidNo: VendorClaim = {
+    ...added,
+    counterparty: { asserted: false, note: 'The direction is wrong.' },
+  };
+  const correction: VendorClaim = {
+    ...added,
+    id: '00000000-0000-4000-8000-0000000013a5',
+    direction: 'both',
+    counterparty: { asserted: true, note: null },
+  };
+  const opts = { ...ctx(), company: 'Procore Technologies' };
+  const yours = (i: VendorIntegration) => needsItems(i, opts).yours.map((n) => n.key);
+
+  it('the adder says Yes: the item, the status and the pill all ask', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [added]);
+    expect(isCounterpartAddedUnanswered(i, added)).toBe(true);
+    expect(integrationStatus(i, ctx())).toBe('needs_decision');
+    expect(yours(i)).toContain(`added-${added.id}`);
+    expect(rowPill(i, added, 'Procore Technologies').label).toBe('Needs your answer');
+  });
+
+  it('the adder cancelled: nothing asks, and the pill says it was withdrawn', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [cancelled]);
+    expect(isCounterpartAddedUnanswered(i, cancelled)).toBe(false);
+    expect(integrationStatus(i, ctx())).not.toBe('needs_decision');
+    expect(integrationStatus(i, ctx())).not.toBe('needs_answer');
+    expect(yours(i)).toEqual([]);
+    expect(rowPill(i, cancelled, 'Procore Technologies')).toEqual({
+      label: 'Withdrawn by Procore Technologies',
+      tone: 'neutral',
+    });
+  });
+
+  it('the adder changed direction: the old row drops out, the corrected row is asked about', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [saidNo, correction]);
+    expect(isCounterpartAddedUnanswered(i, saidNo)).toBe(false);
+    expect(isCounterpartAddedUnanswered(i, correction)).toBe(true);
+    expect(integrationStatus(i, ctx())).toBe('needs_decision');
+    expect(yours(i)).toEqual([`added-${correction.id}`]);
+    expect(rowPill(i, saidNo, 'Procore Technologies').label).toBe(
+      'Withdrawn by Procore Technologies',
+    );
+  });
+
+  it('a row AEC Integrations added still needs an answer, whatever the other company says', () => {
+    const seeded: VendorClaim = { ...cancelled, added_by: null };
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [seeded]);
+    expect(rowPill(i, seeded, 'Procore Technologies').label).toBe('Needs your answer');
+    expect(integrationStatus(i, ctx())).toBe('needs_answer');
+  });
 });
 
 describe('integrationStatus — the first that applies (§6.17.2)', () => {

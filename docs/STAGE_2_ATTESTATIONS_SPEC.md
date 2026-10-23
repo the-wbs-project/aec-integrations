@@ -1816,11 +1816,14 @@ retired. No column is added.
 **The count: `counterpart_added_unanswered` on `GET /api/vendor/integrations`.** A non-negative
 integer on the response, beside `integrations` and `owned`, `.default(0)` for deploy skew
 (`API_CONTRACTS.md` §6.14). It counts **distinct claim ids** that are counterpart-added and
-unanswered from the caller's seat, across the whole vendor. It is computed server-side from the
+unanswered from the caller's seat, across the whole vendor, **while the adder's live answer is
+Yes** (AECI-1315). Once the adder cancels, clears its answer or says No, no "Confirmed by
+{Company}" badge stands behind the row, so it is not counted. The rule is the shared
+`isAwaitingCounterpartAnswer` in `packages/shared/src/api/vendor-attestations.ts`. It is computed server-side from the
 same rows the list returns, so it can never disagree with them. It exists so the overview's "What
 needs you" (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10) gets one total without re-deriving the AECI-993
 dedupe: an owns-both integration is listed twice, and a client sum would count its rows twice.
-The integration page derives its per-integration items from each claim's `added_by` instead.
+The integration page derives its per-integration items from each claim with the same rule.
 The overview gains one Needs-you-now row, "{N} rows another company added need your answer",
 shown while the count is above zero.
 
