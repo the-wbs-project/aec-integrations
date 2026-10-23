@@ -69,7 +69,7 @@ Evidence for all four: **`docs/ACCESSIBILITY_AUDIT.md`** (production `44aba9cf`,
 
 | Issue | What | Severity |
 |---|---|---|
-| **AECI-829** | `/auth/login`, `/products/:slug/review` and `/account` replace the view on a state change with no live region and no focus move. **WCAG 2.1 4.1.3 Status Messages, Level AA**, on the two primary conversion paths. | Serious |
+| **AECI-829** | `/auth/login`, `/products/:slug/review` and `/account` replace the view on a state change with no live region and no focus move. **WCAG 2.1 4.1.3 Status Messages, Level AA**, on the two primary conversion paths. **Fixed 2026-10-23**: focus moves to the success heading on login and review; `/account` has a persistent status region. | Serious |
 | **AECI-830** | Three links with the identical accessible name "Source" pointing to three different destinations; two `role="search"` landmarks, neither named. | Serious |
 | **AECI-831** | Minor set of five: `disabled` rather than `aria-disabled` submit buttons, unnamed integration tables, no `aria-current` on the section nav, no new-tab warning on "Visit website", duplicated `aria-current` in the admin nav. | Minor |
 | **AECI-832** | The coverage the production run could not reach: dialog focus management on all four dialogs, the review-form `Tab` walk, and the mobile viewport. Needs a **local seeded** run. | Coverage |

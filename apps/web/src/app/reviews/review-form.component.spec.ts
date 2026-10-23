@@ -317,6 +317,13 @@ describe('ReviewForm', () => {
       title: 'Solid revit connector',
     });
     expect(el.textContent).toContain('Review received');
+    // AECI-829 (WCAG 4.1.3): the focused submit button went with the form, so
+    // the confirmation heading takes focus and is announced.
+    await fixture.whenStable();
+    const heading = el.querySelector('h1');
+    expect(heading?.textContent).toContain('Review received');
+    expect(heading?.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(heading);
     httpMock.verify();
   });
 

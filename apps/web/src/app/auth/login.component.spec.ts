@@ -182,6 +182,39 @@ describe('LoginPage', () => {
     expect(el.textContent).toContain('pm@example.com');
   });
 
+  // AECI-829 (WCAG 4.1.3): the swap destroys the focused submit button, so the
+  // confirmation heading must take focus or the screen reader announces nothing.
+  it('moves focus to the "Check your email" heading after the swap', async () => {
+    const { fixture, el } = await setup();
+    typeEmail(fixture, 'pm@example.com');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+    await fixture.whenStable();
+
+    const heading = el.querySelector('h1');
+    expect(heading?.textContent).toContain('Check your email');
+    expect(heading?.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it('returns focus to the email field after "Use a different email"', async () => {
+    const { fixture, el } = await setup();
+    typeEmail(fixture, 'pm@example.com');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+
+    const reset = [...el.querySelectorAll('button[type="button"]')].find((b) =>
+      b.textContent?.includes('Use a different email'),
+    ) as HTMLButtonElement;
+    reset.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(document.activeElement).toBe(el.querySelector('#login-email'));
+  });
+
   it('collapses a hostile return param to / before it reaches the service', async () => {
     const { fixture, auth } = await setup({ returnParam: '//evil.example' });
     typeEmail(fixture, 'pm@example.com');

@@ -148,7 +148,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 | §2.2 | AECI-560 sitemap split, gated on 50,000 URLs | SEO |
 | §2.3 | Stack-aware discovery. §5(3) is undecided | None. Unscheduled |
 | §2.4 | DX tail: AECI-533, AECI-602, AECI-621, under epic AECI-1070 | Platform |
-| §2.5 | AECI-829 status messages never announced, on sign-in, review and account | Pilot |
+| §2.5 | AECI-829 status messages never announced, on sign-in, review and account. Fixed 2026-10-23 | Pilot |
 | §2.5 | AECI-830, AECI-831, AECI-832, under epic AECI-1069 | Platform |
 | §2.6 | Rebrand options A, D and E and the admin rename-slug action. §5(6) decisions are open | SEO |
 | §2.6 | AECI-979 taxonomy redirects | Platform |
