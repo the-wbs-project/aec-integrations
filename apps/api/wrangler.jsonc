@@ -126,12 +126,16 @@
   //                 Rotating it invalidates every env at once — docs/CICD_PLAN.md §7.4.
   //
   // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
-  // scheduled jobs). The cron `scheduled` handler does not work inline — it
-  // enqueues a message onto the matching Cloudflare Queue, and the `queue`
-  // consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the queue
-  // producer/consumer bindings are registered ONLY on staging + production (see
+  // scheduled jobs). For a queue-backed job the cron `scheduled` handler does not
+  // work inline — it enqueues a message onto the matching Cloudflare Queue, and the
+  // `queue` consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the
+  // queue producer/consumer bindings are registered ONLY on staging, demo and production (see
   // each env's `triggers` + `queues` blocks) — NOT on the base config, so local
-  // dev carries no queues and runs a job inline when its cron fires. The
+  // dev carries no job queues and runs every job inline when its cron fires.
+  // Twelve jobs have no queue in ANY env, by design (the reason is on each
+  // `queueForJob` case in src/scheduled.ts), so they run inline on every tier and
+  // log an info line. A queue-backed job with no binding on a deployed tier logs
+  // the error `aeci.scheduled.queue_binding_missing` (AECI-1423). The
   // scheduled-job queues (`aeci-algolia-{sync,drift}-{env}` for AECI-139/140,
   // `aeci-stats-{env}` for the AECI-178 home-stats job, `aeci-reconcile-{env}` for the
   // AECI-214 request→Linear reconciliation sweep, `aeci-data-quality-{env}` for the

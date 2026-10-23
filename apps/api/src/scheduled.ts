@@ -11,9 +11,12 @@
  * manual/REST producer to force a run on demand. Both queues are bound per-env in
  * `wrangler.jsonc` (deployed tiers only — NOT the base block, so local dev
  * carries no job queues; the AECI-1418 ownership-sync queue is the one local queue,
- * and `queue()` routes it by name before the job path). On an env without the binding
- * (local `wrangler dev`), `enqueueOrRun` runs the job inline so a
- * `--test-scheduled` tick is never silently dropped.
+ * and `queue()` routes it by name before the job path). Not every job has a queue:
+ * `queueForJob` marks twelve as queue-less by design, each with its reason, and
+ * those always run inline on every tier. A queue-backed job runs inline only when
+ * its binding is absent. That is expected on local `wrangler dev`, where it keeps a
+ * `--test-scheduled` tick from being silently dropped, and an error on a deployed
+ * tier (AECI-1423).
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
  * 02:00 UTC **Mondays** — the weekly §7.6 `asn_registry` refresh
@@ -132,7 +135,7 @@ import {
   drizzlePromotedIds,
 } from './lib/algolia-drift-deps';
 import { runDailySync } from './lib/algolia-sync';
-import { guardAlgoliaWrite } from './lib/algolia-write-guard';
+import { guardAlgoliaWrite, isDeployedTier } from './lib/algolia-write-guard';
 import {
   createAlgoliaDeleteClient,
   createAlgoliaObjectIdClient,
@@ -2341,8 +2344,18 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   };
 }
 
-/** The producer queue binding for a job (absent on local → inline run). */
-function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
+/** Marks a job that has no queue on purpose: it always runs inline (AECI-1423). */
+const QUEUE_LESS = 'queue_less' as const;
+
+/** The producer queue binding for a job. Three answers:
+ *  - a `Queue`: the binding is present, so the cron enqueues.
+ *  - `QUEUE_LESS`: the job has no queue in any env, by design. The reason is on its case.
+ *  - `undefined`: a queue-backed job whose binding is absent. Expected on local dev,
+ *    an error on a deployed tier. */
+function queueForJob(
+  env: Env,
+  job: ScheduledJob,
+): Queue<ScheduledJobMessage> | typeof QUEUE_LESS | undefined {
   switch (job) {
     case 'sync':
       return env.ALGOLIA_SYNC_QUEUE;
@@ -2363,17 +2376,17 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'waf':
       // Queue-less like `moderation` (AECI-262): a single read-only Cloudflare
       // GraphQL read needs no retry — the next hour re-polls the next window. No
       // `WAF_QUEUE` binding exists, so it always runs inline.
-      return undefined;
+      return QUEUE_LESS;
     case 'analytics':
       // Queue-less like `moderation`/`waf` (AECI-526): a cheap read-only aggregation
       // + one fail-open email needs no retry — the next day re-runs. No
       // `ANALYTICS_QUEUE` binding exists, so it always runs inline.
-      return undefined;
+      return QUEUE_LESS;
     case 'retention':
       // Queue-less, and for a stronger reason than the others (AECI-584): this
       // is the only DESTRUCTIVE job, and queue-native retries are precisely what
@@ -2381,7 +2394,7 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // re-attempted tomorrow by the cron, from a re-probed cutoff — never
       // replayed against state it may already have changed. No `RETENTION_QUEUE`
       // binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'entitlement_expiry':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-613 / §7.1): one
       // indexed read over `licenses_ends_idx` (AECI-1356) plus a handful of
@@ -2398,21 +2411,21 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // `managed-ended` emails. The scan is the fence (an ended term is no longer
       // selected), so tomorrow's cron is the only retry. This diverges on purpose
       // from the usual "cron enqueues, consumer works" pattern.
-      return undefined;
+      return QUEUE_LESS;
     case 'snapshot':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
       // already isolated in its own try/catch, and a missed day is recoverable by
       // re-running `ops:backfill-metrics-daily` over that range — the same
       // idempotent `(day, metric)` upsert — so queue-native retries buy nothing.
       // No `SNAPSHOT_QUEUE` binding exists, so it always runs inline.
-      return undefined;
+      return QUEUE_LESS;
     case 'asn_registry':
       // Queue-less like `waf` (AECI-624): one read-only GET plus an upsert that is
       // idempotent by ASN and never deletes, so a failed week costs nothing but
       // freshness and the next Monday converges. Provisioning a twelfth queue for
       // a job whose retry semantics are already "try again next week" would be
       // infrastructure for its own sake. No `ASN_REGISTRY_QUEUE` binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'indexnow_drain':
       // Queue-less **on purpose rather than for cost** (AECI-826). Every other
       // job here is queue-less because retries would buy nothing; this one is
@@ -2422,30 +2435,30 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // `indexnow_queue` on failure and tomorrow's run (daily since AECI-1136)
       // IS the backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
       // be a regression.
-      return undefined;
+      return QUEUE_LESS;
     case 'claim_stale_check':
       // Queue-less like `moderation` / `waf` (AECI-862): one indexed read, one
       // batched Linear query and one fail-open email. A failed run costs at most
       // six hours of warning latency and the next tick re-derives everything from
       // `created_at`, so a retry buys nothing a re-run does not. No
       // `CLAIM_STALE_QUEUE` binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'protest_reply_reminder':
       // Queue-less like `entitlement_expiry` (AECI-1205): one indexed read and a
       // handful of fail-open emails. A missed day is caught by the next run inside the
       // 3-day window, and the ledger key stops a re-send. No
       // `PROTEST_REMINDER_QUEUE` binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'claim_owner_fallback':
       // Queue-less like `protest_reply_reminder` (AECI-1368): one indexed read, one
       // batch and one fail-open digest. The guarded UPDATE is the fence, so a missed
       // day is moved by the next run. No `CLAIM_OWNER_FALLBACK_QUEUE` binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'request_confirmation_expiry':
       // Queue-less like `claim_owner_fallback` (AECI-1435): one indexed read and one
       // delete batch. A missed day is deleted by the next run, and automatic retries
       // are the last thing a destructive job should have. No queue binding exists.
-      return undefined;
+      return QUEUE_LESS;
     case 'gsc_inspect':
       // Queue-backed AND self-chaining (AECI-1236): a run is about an hour of
       // Google calls and a consumer invocation is capped at 15 minutes, so each
@@ -2609,14 +2622,18 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
   };
 }
 
-/** Run a job, or — preferably — enqueue it. On staging/production the matching
- *  queue binding is present, so we `send` a message and return immediately; the
- *  `queue` consumer below does the work (ADR 0013). On an env without the binding
- *  (local `wrangler dev`) there is no queue, so run inline — a
- *  `--test-scheduled` tick must never be silently dropped. */
+/** Run a job, or — preferably — enqueue it. On a deployed tier a queue-backed job's
+ *  binding is present, so we `send` a message and return immediately; the `queue`
+ *  consumer below does the work (ADR 0013). Every other path runs the job inline,
+ *  so a tick is never silently dropped, and logs which path it took (AECI-1423):
+ *  - queue-less by design: an info line, on every tier.
+ *  - binding absent on a deployed tier: an error to PostHog, because a binding is missing.
+ *  - binding absent locally: the plain warning, because local dev has no job queues. */
 async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
   const queue = queueForJob(env, job);
-  if (queue) {
+  if (queue === QUEUE_LESS) {
+    console.info(`scheduled: "${job}" is queue-less by design, running inline`);
+  } else if (queue) {
     const message: ScheduledJobMessage = {
       job,
       trigger: 'cron',
@@ -2638,8 +2655,18 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
         reason: error instanceof Error ? error.message : String(error),
       });
     }
+  } else if (isDeployedTier(env)) {
+    // A queue-backed job with no binding on staging, demo or production: the env's
+    // `queues` block in `wrangler.jsonc` lacks it (bindings are not inherited across
+    // envs). The job still runs inline, without the queue's retries.
+    logToPosthog(ctx, env, cronRequest(enqueueFailureLog(job).path), {
+      level: 'error',
+      message: 'aeci.scheduled.queue_binding_missing',
+      source: 'scheduled-cron',
+      job,
+    });
   } else {
-    console.warn(`scheduled: no queue binding for "${job}" — running inline (local)`);
+    console.warn(`scheduled: no queue binding for "${job}", running inline (local)`);
   }
   await runScheduledJob(env, ctx, job);
 }

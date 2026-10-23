@@ -12,7 +12,7 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * (AECI-214 / Phase 6.7) that retries stuck `vendor_requests` whose §6.4 issue
  * creation failed. Named generically because the union now spans more than
  * Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always runs
- * inline (`queueForJob` returns `undefined`), so it never appears on the wire as
+ * inline (`queueForJob` returns `QUEUE_LESS`), so it never appears on the wire as
  * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
  * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite

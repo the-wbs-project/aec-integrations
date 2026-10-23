@@ -93,7 +93,7 @@ export const DATA_QUALITY_CRON = '0 4 * * *';
 /** Daily operator analytics digest (AECI-526). 05:00 UTC = 12:00 WIB (noon
  *  Jakarta) — a read of the prior *complete* UTC day (page views, top products,
  *  new + total users, pending-moderation depth). Queue-less (a cheap read-only
- *  aggregation + one email), so `queueForJob` returns `undefined` and it always
+ *  aggregation + one email), so `queueForJob` returns `QUEUE_LESS` and it always
  *  runs inline. */
 export const ANALYTICS_CRON = '0 5 * * *';
 
@@ -151,7 +151,7 @@ export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
  *  batch that may have moved the rows it reads — is satisfied either way.
  *
  *  Queue-less and inline, following the 06:00 moderation-snapshot precedent
- *  (`queueForJob` returns `undefined`): one indexed read over
+ *  (`queueForJob` returns `QUEUE_LESS`): one indexed read over
  *  `licenses_ends_idx` (AECI-1356) plus a handful of fail-open emails does not
  *  justify a new `aeci-entitlement-expiry-{env}` queue, two `wrangler.jsonc`
  *  blocks per tier, and a `wrangler queues create` step in two deploy workflows.
@@ -217,7 +217,7 @@ export const INDEXNOW_DRAIN_CRON = '5 0 * * *';
  * (`lib/alert-bands.ts`), so the cadence sets detection latency, not mail volume.
  *
  * Queue-less and inline, following the 06:00 moderation-snapshot and hourly
- * WAF-poll precedent (`queueForJob` returns `undefined`): one indexed read, one
+ * WAF-poll precedent (`queueForJob` returns `QUEUE_LESS`): one indexed read, one
  * batched Linear query and one fail-open email do not justify a
  * `aeci-claim-stale-{env}` queue, three `wrangler.jsonc` blocks and a
  * `wrangler queues create` step in two deploy workflows. A missed run costs at

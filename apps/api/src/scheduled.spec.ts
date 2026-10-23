@@ -274,9 +274,88 @@ describe('scheduled (cron producer)', () => {
   });
 
   it('runs the job inline when no queue binding is present (local)', async () => {
-    await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
+    // The local Algolia write guard would refuse the sync itself, so opt in.
+    const env = makeEnv({ ENV: 'development', ALGOLIA_ALLOW_LOCAL_WRITES: 'true' });
+    await scheduled(cronController(SYNC_CRON), env, ctx);
 
     expect(runDailySync).toHaveBeenCalledTimes(1);
+  });
+
+  describe('inline-path logging (AECI-1423)', () => {
+    const BINDING_MISSING = 'aeci.scheduled.queue_binding_missing';
+    const bindingMissingCalls = () =>
+      vi.mocked(logToPosthog).mock.calls.filter((c) => c[3].message === BINDING_MISSING);
+
+    let info: ReturnType<typeof vi.spyOn>;
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      info.mockRestore();
+      warn.mockRestore();
+    });
+
+    const dispatchLines = (spy: ReturnType<typeof vi.spyOn>) =>
+      spy.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('scheduled: '));
+
+    it('logs a queue-less job at info level on production, with no warning or error', async () => {
+      await scheduled(cronController(MODERATION_CRON), makeEnv({ ENV: 'production' }), ctx);
+
+      expect(dispatchLines(info)).toEqual([
+        'scheduled: "moderation" is queue-less by design, running inline',
+      ]);
+      expect(dispatchLines(warn)).toEqual([]);
+      expect(bindingMissingCalls()).toEqual([]);
+      expect(submitGauge).toHaveBeenCalled();
+    });
+
+    it.each(['staging', 'demo', 'production'] as const)(
+      'logs an error when a queue-backed job has no binding on %s, and still runs it',
+      async (ENV) => {
+        await scheduled(cronController(SYNC_CRON), makeEnv({ ENV }), ctx);
+
+        const calls = bindingMissingCalls();
+        expect(calls).toHaveLength(1);
+        expect(calls[0]![2].url).toBe('https://aeci-api/cron/algolia-sync');
+        expect(calls[0]![3]).toEqual({
+          level: 'error',
+          message: BINDING_MISSING,
+          source: 'scheduled-cron',
+          job: 'sync',
+        });
+        expect(dispatchLines(warn)).toEqual([]);
+        expect(runDailySync).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([['development'], [undefined]] as const)(
+      'keeps the plain local warning when ENV is %s, with no error',
+      async (ENV) => {
+        await scheduled(cronController(STATS_CRON), makeEnv({ ENV }), ctx);
+
+        expect(dispatchLines(warn)).toEqual([
+          'scheduled: no queue binding for "stats", running inline (local)',
+        ]);
+        expect(bindingMissingCalls()).toEqual([]);
+        expect(runHomeStats).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('logs none of the three when a queue-backed job enqueues', async () => {
+      const send = vi.fn().mockResolvedValue(undefined);
+      await scheduled(
+        cronController(SYNC_CRON),
+        makeEnv({ ENV: 'production', ALGOLIA_SYNC_QUEUE: { send } as never }),
+        ctx,
+      );
+
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(dispatchLines(info)).toEqual([]);
+      expect(dispatchLines(warn)).toEqual([]);
+      expect(bindingMissingCalls()).toEqual([]);
+    });
   });
 
   it('runs the stats job inline when no STATS_QUEUE binding is present', async () => {

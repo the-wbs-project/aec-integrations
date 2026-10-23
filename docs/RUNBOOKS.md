@@ -1255,6 +1255,13 @@ telling apart, and the screen distinguishes them on purpose:
 4. **All ten Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
    not run yet under the new deploy. The `cron_liveness_unavailable` note on the response says how
    many, and the note clears itself as the rows arrive.
+5. **PostHog Logs show `aeci.scheduled.queue_binding_missing` (AECI-1423)?** A queue-backed job
+   found no producer binding on a deployed tier, so it ran inline without the queue's retries. The
+   `job` attribute names it. Compare that env's `queues` block in `apps/api/wrangler.jsonc` with
+   `queueForJob` in `apps/api/src/scheduled.ts`. Bindings are not inherited across envs, so the
+   fix is to add the producer and consumer to the block that lacks them and redeploy. The job's
+   own runs are healthy meanwhile. A `scheduled: "<job>" is queue-less by design` info line is not
+   this case: that job has no queue in any env on purpose.
 
 **Repair:** nothing here is repaired by hand. A genuinely-not-firing cron is a Worker scheduling
 issue — escalate to whoever owns the API Worker's crons, exactly as for the individual cron runbooks

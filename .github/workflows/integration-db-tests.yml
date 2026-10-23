@@ -108,8 +108,13 @@ jobs:
       # No `prisma generate` here: the surviving JWKS spec's import graph
       # (lib/user-auth.ts → @aeci/shared / hono / jose) never reached
       # @prisma/client — and Prisma is now fully removed from apps/api (AECI-278).
+      # Pinned, not `@latest`. The CLI ships its binary as a per-platform optional
+      # package, and npm skips an optional dep it cannot install without failing.
+      # v2.122.0 (2026-10-23) installed without its linux-x64 binary, so
+      # `supabase start` died with "No matching Supabase CLI binary package
+      # found". Bump deliberately, and check the job goes green on the bump PR.
       - name: Install Supabase CLI
-        run: npm install -g supabase@latest
+        run: npm install -g supabase@2.121.0
       # `supabase start` boots the FULL stack (Postgres + GoTrue + …). GoTrue must be
       # running because the JWKS spec mints a token via `/auth/v1/admin/*` and verifies
       # it against GoTrue's published JWKS, so a Postgres-only boot (`supabase db start`)

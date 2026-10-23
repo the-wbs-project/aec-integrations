@@ -93,7 +93,7 @@ A queue also cannot dedupe. Two messages carrying the same URL are two messages.
 
 ## Why the job is queue-less, unlike every other sub-hourly job
 
-`queueForJob` returns `undefined` for `indexnow_drain`. Every other queue-less cron here
+`queueForJob` returns `QUEUE_LESS` for `indexnow_drain`. Every other queue-less cron here
 (`moderation`, `waf`, `analytics`, `snapshot`, `retention`, `asn_registry`) is queue-less
 because native retries would **buy nothing**. This one is queue-less because they would be
 **actively harmful**: a retry re-submits inside the same rate-limit window, which is precisely
