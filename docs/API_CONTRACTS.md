@@ -1625,8 +1625,9 @@ Delete the authenticated user's account (GDPR right-to-erasure, `AUTH_AND_RLS.md
 every other inbound reference to the profile, and deletes the profile. The
 "About you" rows (`profile_details`, `profile_audiences`, AECI-1296) go with it by
 cascade. After the batch commits, the Supabase `auth.users` row is deleted over the GoTrue Admin API
-(seam #3, `AUTH_AND_RLS.md` §8 step 4, including the AECI-531 skip when the
-service-role key is absent). Audited `account.deleted` (no PII).
+(seam #3, `AUTH_AND_RLS.md` §8 step 4). A skipped or failed delete does not change the
+response; since AECI-531 it logs at error and counts `aeci.account.erasure.auth_delete`.
+Audited `account.deleted` (no PII).
 
 **A vendor seat's erasure is a seat loss (AECI-1106).** When the profile is a
 `vendor_admin` seat, the batch also carries what the admin revoke of that seat would:

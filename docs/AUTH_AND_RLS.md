@@ -110,7 +110,7 @@ outside it must use a JWT-scoped path.
 |---|---|---|---|---|
 | **#1** provisioning | Idempotent D1 `profiles` create at sign-in, with a self-heal on `GET /api/account` (§3.1a). The **only** creator under D1: no trigger provisions the row. | `lib/profile-provisioning.ts` (called by `routes/auth-profile.ts` and the `GET /api/account` guard) | *none — D1 only, no service role* | n/a |
 | **#2** `auth.users` account reads | Emails for the admin moderation queue, the vendor seat roster and `/admin/vendors`, and since **AECI-1277** the seat emails on the claim queue and claim detail (`GET /api/admin/claims`, `GET /api/admin/claims/:id`), one fan-out per response over the distinct seat ids; **plus `last_sign_in_at` / `created_at` / `email_confirmed_at`** for `/admin/users` (AECI-692). | `lib/supabase-admin.ts` → `fetchAuthUserEmails` (bare map), `fetchAuthUserEmailsResult` (+availability), `fetchAuthUserRecords` (+the three timestamps) | `GET /auth/v1/admin/users/:id` | Every auth-derived field `null` **and the surface says so** — the `Result`/record forms carry `available` + `reason`, so a page renders "unavailable" rather than asserting "no email on file". The queue stays usable |
-| **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
+| **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped**. The D1 erasure already completed, but the `auth.users` row **survives**. Since **AECI-531** the skip logs at error, counts `aeci.account.erasure.auth_delete{outcome:skipped_no_creds}` and pages; cleanup is manual (§8 step 4) |
 | **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Since **AECI-740** the same seam also resolves the address `POST /api/admin/vendors/:id/seats` names, which is why that route reports 503 on a tier with no service-role key exactly as the grant does. Also batched for the admin claim queue's `has_auth_account` reviewer signal. Since **AECI-1420** (2026-10-19) `fetchAuthAccountsByEmail` returns the auth user id, not a boolean. The claim queue and claim detail read `profiles` by those ids in one D1 statement for the `claimant_seat` signal. `has_auth_account` itself still never reads `profiles`. AECI-1420 adds two lookup-only callers through `checkClaimAccount` (`lib/claimant-identity.ts`): the anonymous `POST /api/requests/claim`, which rejects a claim from an address seated on another vendor at submit, and the owner's `POST /api/vendor/seats/claims/:id/accept`. Neither creates an account. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown); the claim submit proceeds as before; the owner Accept answers 503 |
 | **#4b** claimant provisioning | Create an `auth.users` row when the claimant — or, since **AECI-740**, the operator-named seat holder — has no account yet. | `lib/supabase-admin.ts` → `createAuthUser` | `POST /auth/v1/admin/users` | as #4a |
 
@@ -1135,18 +1135,36 @@ and no `apps/api/src/prisma.ts`:
    (`apps/api/src/lib/supabase-admin.ts`) issues a `DELETE /auth/v1/admin/users/:id`
    with the service-role key. It runs **after** the D1 batch commits and never
    throws, so a transient Admin-API failure does not undo the already-completed D1
-   erasure (a `!ok` result is logged for retry). A 404 counts as success — the row
-   is already gone. gotrue's own child tables
+   erasure. A 404 counts as success: the row is already gone. gotrue's own child tables
    (`sessions`/`refresh_tokens`/`identities`) cascade off `auth.users` on its side.
 
-   ⚠️ **Absent creds are NOT equivalent to success.** With no
-   `SUPABASE_SERVICE_ROLE_KEY` the call is skipped (`{ ok: true, skipped: true }`)
-   and **the `auth.users` row survives** — the D1 erasure is complete, but the auth
-   identity is not. Because the skip is reported as `ok`, the current call site logs
-   nothing, so orphaned rows are today **undetectable**. The key is presently pushed
-   to no Worker (§3.1), which means this is the live behaviour in every deployed
-   environment. Tracked as **AECI-531** (warn on the skip + a cleanup runbook + a
-   one-time reconciliation of the historical orphans).
+   **Every outcome is counted, and the two bad ones log at error (AECI-531).** The route
+   classifies the result with `authDeleteOutcome` (`apps/api/src/routes/account.ts`) and
+   emits `aeci.account.erasure.auth_delete` with one `outcome` tag:
+
+   | `outcome` | Meaning | Error log |
+   |---|---|---|
+   | `deleted` | GoTrue removed the row | no |
+   | `already_gone` | GoTrue answered 404 | no |
+   | `skipped_no_creds` | No `SUPABASE_SERVICE_ROLE_KEY`. The call never happened | yes |
+   | `failed` | GoTrue refused the delete or was unreachable | yes |
+
+   **Absent creds are not equivalent to success.** A skip or a failure leaves the
+   person's sign-in identity behind after their data is gone. The error log carries
+   `user_id`, the same id as the `account.deleted` row's `entity_id`, and no email or
+   display name. The metric carries no id. The PostHog alert
+   `erasure-auth-delete-orphaned` fires on either outcome in production, and the cleanup
+   is the `RUNBOOKS.md` section "Erasure left an `auth.users` row behind".
+
+   The key has been on the API Worker on staging, demo and production since AECI-530
+   (§3.1), so the skip is expected only in local `wrangler dev`. Before AECI-530 every
+   deployed erasure was skipped, and before AECI-531 the skip logged nothing. Those
+   historical orphans are found only by reconciling `account.deleted` audit rows against
+   GoTrue. The runbook records that procedure.
+
+   **One auth project backs every tier (ADR 0017).** An `auth.users` id erased on one
+   tier can still hold a live `profiles` row on another. Never delete an orphan by hand
+   until every tier's D1 has been checked for that id.
 5. **Confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`)
    — fire-and-forget and fail-open, captured from the session before erasure;
    deletion never blocks on email.

@@ -32,6 +32,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { sendAccountDeletionEmail } from '../lib/email';
+import { logToPosthog, submitCount } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
@@ -46,6 +47,14 @@ vi.mock('../lib/email', () => ({
   sendAccountDeletionEmail: vi.fn(() => Promise.resolve('sent')),
 }));
 
+// AECI-531: the erasure's seam-#3 outcome is a log and a metric. Spy on both;
+// everything else in the module keeps its real implementation.
+vi.mock('../posthog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../posthog')>()),
+  logToPosthog: vi.fn(),
+  submitCount: vi.fn(),
+}));
+
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const USER = u(900);
 const ADMIN_USER = u(901);
@@ -53,6 +62,8 @@ const ADMIN_USER = u(901);
 let t: TestDb;
 beforeEach(async () => {
   vi.mocked(sendAccountDeletionEmail).mockClear();
+  vi.mocked(logToPosthog).mockClear();
+  vi.mocked(submitCount).mockClear();
   t = await makeTestDb();
 });
 afterEach(() => t.dispose());
@@ -763,6 +774,62 @@ describe('DELETE /api/account', () => {
     const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
     expect(res.status).toBe(200);
     expect(await t.db.select().from(profiles)).toHaveLength(0);
+  });
+
+  // AECI-531: a skipped or failed auth delete leaves the sign-in identity behind
+  // after the D1 data is gone. It must log at error and count, never pass silently.
+  const authDeleteMetric = () =>
+    vi
+      .mocked(submitCount)
+      .mock.calls.filter(([, , , name]) => name === 'aeci.account.erasure.auth_delete')
+      .map(([, , , , value, tags]) => ({ value, tags }));
+  const errorLogs = () =>
+    vi
+      .mocked(logToPosthog)
+      .mock.calls.map(([, , , entry]) => entry)
+      .filter((entry) => entry.level === 'error');
+
+  it('logs an error and counts skipped_no_creds when the service-role key is absent', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const deleteAuthUser = vi.fn(async () => ({ ok: true, skipped: true }));
+    const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profiles)).toHaveLength(0);
+    expect(authDeleteMetric()).toEqual([{ value: 1, tags: ['outcome:skipped_no_creds'] }]);
+    const logs = errorLogs();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      message: expect.stringContaining('skipped, no service-role key'),
+      source: 'account',
+      user_id: USER,
+      outcome: 'skipped_no_creds',
+    });
+    // PII-free: the session email never reaches the log (AUTH_AND_RLS.md §8).
+    expect(JSON.stringify(logs[0])).not.toContain('me@example.com');
+  });
+
+  it('logs an error and counts failed when GoTrue refuses the delete', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const deleteAuthUser = vi.fn(async () => ({ ok: false, status: 500, error: 'boom' }));
+    await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+
+    expect(authDeleteMetric()).toEqual([{ value: 1, tags: ['outcome:failed'] }]);
+    expect(errorLogs()).toEqual([
+      expect.objectContaining({ outcome: 'failed', status: 500, reason: 'boom', user_id: USER }),
+    ]);
+  });
+
+  it.each([
+    [204, 'deleted'],
+    [404, 'already_gone'],
+  ] as const)('counts a %i as %s and logs no error', async (status, outcome) => {
+    await t.db.insert(profiles).values({ id: USER });
+    const deleteAuthUser = vi.fn(async () => ({ ok: true, status }));
+    await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+
+    expect(authDeleteMetric()).toEqual([{ value: 1, tags: [`outcome:${outcome}`] }]);
+    expect(errorLogs()).toEqual([]);
   });
 });
 

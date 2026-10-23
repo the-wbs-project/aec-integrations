@@ -728,7 +728,7 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 2. Re-run **all three** deploy paths so every Worker picks it up: `deploy.yml` (staging — push to `main`, or re-run the last `deploy-staging`), then `promote-to-demo.yml`, then `promote-to-prod.yml`.
 3. Between step 1 and the last re-run there is a **degraded window**, not an outage — every seam fails open (reviewer emails read `null`, the erasure `auth.users` delete is skipped, vendor-claim approval 503s). Accept the window or drain it quickly; nothing fails closed and no deploy is blocked.
 
-Local dev is unaffected — it never carries the key (§7.2). Note the GDPR consequence of the window: account erasures processed during it leave orphaned `auth.users` rows that need the manual cleanup in `AUTH_AND_RLS.md` §8 step 4.
+Local dev is unaffected — it never carries the key (§7.2). Note the GDPR consequence of the window: account erasures processed during it leave orphaned `auth.users` rows that need the manual cleanup in `AUTH_AND_RLS.md` §8 step 4. Since AECI-531 each one logs at error and fires the `erasure-auth-delete-orphaned` alert, so the window is visible.
 
 **Algolia (shared keys, AECI-1270).** The app-wide root admin key stays operator-held and is used _only_ to run the provision script — it is never a GitHub or Worker secret, so it does not rotate through this pipeline. GitHub holds one `ALGOLIA_SEARCH_KEY` and one `ALGOLIA_ADMIN_KEY` for every tier, so those secrets carry the **shared** keys, which rotate together:
 

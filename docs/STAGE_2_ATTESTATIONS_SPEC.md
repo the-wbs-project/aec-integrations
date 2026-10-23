@@ -2904,9 +2904,9 @@ differs from the revoke in four ways:
   attempts (`ERASURE_SEAT_ATTEMPTS`). Only three lost races in a row answer
   `409 VENDOR_SEATS_CHANGED`, with nothing written. An erasure is a legal obligation, so a
   colleague's seat changing at the same moment must not be the reason it fails.
-- **The `auth.users` delete is unchanged.** It still runs after the batch commits. The
-  AECI-531 skip when the service-role key is absent still applies (`AUTH_AND_RLS.md` §8
-  step 4).
+- **The `auth.users` delete is unchanged.** It still runs after the batch commits. A skip
+  when the service-role key is absent still leaves the auth row behind, and since AECI-531
+  it logs at error and is counted (`AUTH_AND_RLS.md` §8 step 4).
 
 **Lookups are chunked.** The `IN (...)` reads over a vendor's products, claimed
 integrations and claimed evidenced pairs run in groups of 80 ids, because D1 allows 100 bound parameters per query.

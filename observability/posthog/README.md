@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-one crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 53 insights (32 board + 21 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 21 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 22 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -600,6 +600,11 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-23 (AECI-531):** the committed set is now 54 insights and 22 alerts. The new
+> `erasure-auth-delete-orphaned` alert and its source insight `alert-erasure-auth-delete-orphaned`
+> watch `aeci.account.erasure.auth_delete` and reach PostHog on the next `apply.sh` run. Production
+> carries 21 until then.
+>
 > **Update 2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts
 > are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. An orphan
 > alert, "AECi — Search-engine pings refused (> 90% in 24 h)", was deleted by hand the same day. It

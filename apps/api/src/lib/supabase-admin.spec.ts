@@ -399,6 +399,31 @@ describe('deleteAuthUser (seam #3)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // AECI-531: the skip leaves the auth identity behind, so it must say so.
+  it('warns that it skipped when admin creds are absent', async () => {
+    stubFetch(new Response(null, { status: 204 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await deleteAuthUser(TEST_ENV, USER_ID);
+    expect(warn).toHaveBeenCalledWith(
+      '[supabase-admin] deleteAuthUser degraded: no_credentials',
+      expect.anything(),
+    );
+  });
+
+  it('warns with the status on a failed delete, and stays silent on a 404', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    stubFetch(new Response('boom', { status: 500 }));
+    await deleteAuthUser(ENV_WITH_CREDS, USER_ID);
+    expect(warn).toHaveBeenCalledWith('[supabase-admin] deleteAuthUser degraded: http_500', 'boom');
+
+    warn.mockClear();
+    stubFetch(new Response('not found', { status: 404 }));
+    await deleteAuthUser(ENV_WITH_CREDS, USER_ID);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('DELETEs the by-id admin URL with both admin headers', async () => {
     const fetchSpy = stubFetch(new Response(null, { status: 204 }));
 
