@@ -5374,6 +5374,7 @@ export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
   country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
   path_contains: z.string().min(1).max(200).optional(),
   writer: z.string().min(1).max(32).optional(),         // AECI-871 — exact, or '__none__'
+  class: z.string().min(1).max(32).optional(),          // AECI-1461 — latest D19 class, or '__none__'
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
@@ -5394,6 +5395,7 @@ export const AdminPageViewRowSchema = z.object({
   writer_provenance: z.string().nullable(),// AECI-871 — 'ssr-arrival' | 'browser-spa' | null
   client_verdict: z.string().nullable(),   // AECI-658, served since AECI-877 — 'browser' | 'inconsistent' | 'non-browser' | 'unknown' | null
   asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
+  classification: AdminPageViewClassificationSchema.nullable(),  // AECI-1345; null = not classified
 });
 
 /** What the §7.6 ASN registry says about one network (AECI-624). `info_type` is
@@ -5418,6 +5420,8 @@ export const AdminPageViewsResponseSchema =
     internal_filter: AdminInternalFilterSchema,  // `applied` = ROWS were filtered
     window_total: AdminCountSchema,              // every filter EXCEPT exclude_internal
     window_visitors: AdminCountSchema,           // §9.8 distinct (hash, ASN) pairs
+    window_total_all_classes: AdminCountSchema.nullable().default(null),    // AECI-1461; null without `class`
+    window_visitors_all_classes: AdminCountSchema.nullable().default(null), // AECI-1461; null without `class`
   });
 ```
 
@@ -5466,6 +5470,22 @@ sets the same precedent (it always asks). Two consequences:
 
 With the var unset (the shipped default on every tier) `excluding_internal` is
 null on both counts and the UI hides the toggle entirely.
+
+**The class filter gets its own second number (AECI-1461).** `class` removes rows
+the same way, so it carries the same constraint-2 problem. `window_total` and
+`window_visitors` keep following the row list, `class` included, so the
+reconciliation above still holds. When `class` is sent, the handler also counts the
+window without it: `window_total_all_classes` and `window_visitors_all_classes`
+honour every other filter and carry both internal forms. They are `null` when no
+class is sent, because `window_total` already is the all-classes figure then, and
+the two extra counts are not run. The UI prints "N across all classes" under each
+figure whenever they are non-null.
+
+`class` matches the row's **latest** classification, the one the row's
+`classification` field shows: greatest `evaluated_at`, then the larger `id`
+(`latestClassPredicate` in `lib/admin-classification.ts`). It is a bounded string
+like `writer`, so an unknown value returns an empty page rather than a `400`.
+`class=__none__` selects the rows with no classification at all.
 
 **Privacy is enforced by the contract, not by the UI.** `visitor_hash` is
 `substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
@@ -5879,8 +5899,8 @@ no row. `collection-method-changes.spec.ts` pins the constant to the §3d table.
 | Code | Severity | Gated? |
 |---|---|---|
 | `classification_unresolved_share` | `warn` | **Gated** on `unresolved` being strictly more than 50% of the classified non-internal views (`CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5` in `apps/api/src/lib/admin-classification.ts`, ruled 2026-10-21). Params `unresolved` and `classified`. It describes something that may not have happened, so D15(b)'s gate-the-caveat rule applies. |
-| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. Params `from_version`, `to_version`, `changed_on`. |
-| `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d), that code removed by AECI-1460). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. |
+| `classification_version_seam` | `info` | **Gated** on `version_seam` being non-null, for the same reason. Params `from_version`, `to_version`, `changed_on`. Since AECI-1461 `GET /api/admin/page-views` emits it too, gated on a seam inside `[from, to]`. |
+| `classification_is_heuristic` | `info` | **Unconditional.** It describes what a permanently-present figure *means* — the `corroborated_is_a_referrer_floor` precedent (§13 D15(d), that code removed by AECI-1460). `browser_with_human_evidence` is not "humans" and the caveat must never be absent from it. Since AECI-1461 `GET /api/admin/page-views` emits it too, unconditionally, because the Activity feed's Class column is always on screen. |
 | `collection_method_seam` | `info` | AECI-1346. **Gated** on a §3d row for this tier falling inside the 30-day chart window, and unconditional once one does (§3c step 5). One note per row. Params `changed_at`, `tier`, `summary`, `comparable` (`'true'` or `'false'`). |
 | `tables_unclassified` | `info` | AECI-1460. **Gated** on the reported day having no `page_view_classifications` rows. Then `top_products` and `top_sources` are not filtered by class. On a classified day they are, and the note is absent. |
 
@@ -5927,11 +5947,14 @@ export const AdminPageViewClassificationSchema = z.object({
 from the stored `evidence_from` and `evidence_to`, and a normal row spans 16 UTC days. The page costs
 one extra lookup through `json_each(?)`.
 
-**Filtering by class is deliberately NOT built.** `AdminPageViewsQuerySchema` gains no
-`class=` parameter. The §13 D10 constraint-2 problem would arrive with it — a row
-filter needs its counts computed both ways or the operator gets a smaller number with nothing to
-compare it against — and that is a decision for whoever builds the screen. AECI-1346 split that
-work out to AECI-1461, which owns the class column and the class filter on `/admin/activity`.
+**Filtering by class: built in AECI-1461, 2026-10-23.** `AdminPageViewsQuerySchema` gained
+`class=`, and the response gained `window_total_all_classes` / `window_visitors_all_classes` so a
+class-filtered figure never stands alone (§13 D10 constraint 2). The rule and the shapes are under
+`GET /api/admin/page-views` above. The filter is per row, at the row's latest classification. It is
+**not** the day's latest version that `automationClassFilterForDay` uses, because the filter has to
+pick the class the row displays. The endpoint now also carries `classification_is_heuristic`
+unconditionally and `classification_version_seam` when `[from, to]` spans a classifier change
+(`readWindowVersionSeam`).
 
 #### `GET /api/admin/email/summary`, `GET /api/admin/email/sends`, `POST /api/admin/email/sends/search` (AECI-1223)
 

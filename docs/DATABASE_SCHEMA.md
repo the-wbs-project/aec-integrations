@@ -3994,10 +3994,12 @@ days.
 - The 05:00 analytics digest: the reported day and the prior day, read in
   `collectAnalyticsMetrics` (AECI-1346). The overview takes the day from the same read, so the two
   surfaces cannot differ.
-- `GET /api/admin/page-views`: the per-row `classification` (AECI-1345).
+- `GET /api/admin/page-views`: the per-row `classification` (AECI-1345), and the `class=` filter
+  (AECI-1461). The filter is a correlated subquery for the row's latest classification, greatest
+  `evaluated_at` and then the larger `id`, on the `page_view_id` prefix of
+  `page_view_classifications_view_version_idx`. It added no index.
 
-`GET /api/admin/traffic/breakdown` does not read it. The class column and filter on
-`/admin/activity` are AECI-1461. No public surface reads it, and none should. D19(g) forbids a new
+`GET /api/admin/traffic/breakdown` does not read it. No public surface reads it, and none should. D19(g) forbids a new
 public surface.
 
 The series read joins `page_views` and applies `NOT_INTERNAL` over up to 30 days on every overview

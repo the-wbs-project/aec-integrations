@@ -48,6 +48,19 @@
  * (`writer=__none__`) means "written before AECI-871" and will be most of the table
  * for a while; it is selectable for the same reason the `source` NULL bucket is.
  *
+ * **`class` is a row filter with its own second number (AECI-1461).** It removes
+ * rows the same way `exclude_internal` does, so the same D10 constraint-2 problem
+ * arrives with it. `window_total` keeps following the row list, and when `class`
+ * is sent the handler also counts the window without it
+ * (`window_total_all_classes` / `window_visitors_all_classes`). The operator always
+ * sees the figure the class was cut from. The two extra counts run only when the
+ * filter is sent, because without it `window_total` already is that figure.
+ *
+ * Two classification notes ride the envelope. `classification_is_heuristic` is
+ * unconditional, because the Class column is always on screen (the overview's
+ * rule for the same note). `classification_version_seam` is gated on the window
+ * spanning a classifier change, the D19(c) flag a class-filtered count needs.
+ *
  * **Every caveat the window earns travels with it.** `trafficNotes(..., {
  * sources: true, unique: true })` emits all four the feed owes its reader:
  * unclassified rows counted as human, missing `referrer_source` (null reads as
@@ -82,6 +95,7 @@ import {
   trafficNotes,
   utcRangeWindow,
 } from '../lib/admin-analytics';
+import { readWindowVersionSeam } from '../lib/admin-classification';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -113,15 +127,47 @@ export function createAdminPageViewsHandler(
     // The column filters apply to the counts too, so `window_total` reconciles
     // with the paginated `total` instead of describing a different population.
     const columns = pageViewFilterPredicate(query);
+    // AECI-1461. The same predicate without `class`: the figure a class was cut from.
+    const allClasses =
+      query.class === undefined ? null : pageViewFilterPredicate({ ...query, class: undefined });
 
-    const [page, windowTotal, windowVisitors, biasNotes] = await Promise.all([
+    const [
+      page,
+      windowTotal,
+      windowVisitors,
+      totalAllClasses,
+      visitorsAllClasses,
+      biasNotes,
+      seam,
+    ] = await Promise.all([
       listPageViews(db, w, query.traffic, rowFilter, columns, query.page, query.perPage),
       countViewsBoth(db, w, query.traffic, countFilter, columns),
       countUniqueVisitorsBoth(db, w, query.traffic, countFilter, columns),
+      allClasses === null ? null : countViewsBoth(db, w, query.traffic, countFilter, allClasses),
+      allClasses === null
+        ? null
+        : countUniqueVisitorsBoth(db, w, query.traffic, countFilter, allClasses),
       trafficNotes(db, w, { sources: true, unique: true }),
+      readWindowVersionSeam(db, w.fromDay, w.toDay),
     ]);
 
-    const notes: AdminNote[] = [...biasNotes, internalFilterNote(countFilter)];
+    const notes: AdminNote[] = [
+      ...biasNotes,
+      internalFilterNote(countFilter),
+      note(
+        'classification_is_heuristic',
+        'Traffic classes are a heuristic judgement about requests. browser_with_human_evidence means the app ran with nothing contradicting it, not that a human was present.',
+      ),
+    ];
+    if (seam) {
+      notes.push(
+        note(
+          'classification_version_seam',
+          `The window spans a classifier change from ${seam.from_version} to ${seam.to_version} on ${seam.changed_on}. Each row shows its own latest version, so rows either side of the change were judged by different rules.`,
+          { ...seam },
+        ),
+      );
+    }
     if (isPartial(w, now)) {
       notes.push(
         note(
@@ -145,6 +191,8 @@ export function createAdminPageViewsHandler(
       internal_filter: toAdminInternalFilter(rowFilter),
       window_total: windowTotal,
       window_visitors: windowVisitors,
+      window_total_all_classes: totalAllClasses,
+      window_visitors_all_classes: visitorsAllClasses,
     };
 
     validateResponseInDev(c.env, () => {

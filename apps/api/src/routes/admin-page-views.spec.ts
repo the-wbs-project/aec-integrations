@@ -605,3 +605,132 @@ describe('GET /api/admin/page-views — stored classification (AECI-1345)', () =
     }
   });
 });
+
+describe('GET /api/admin/page-views — the class filter (AECI-1461)', () => {
+  /** Raw insert of one classification row, so a test can pick the class and version. */
+  function classify(path: string, cls: string, version: string, evaluatedAt: string) {
+    const { id, d } = t.raw
+      .prepare(`SELECT id, substr(created_at, 1, 10) AS d FROM page_views WHERE path = ?`)
+      .get(path) as { id: number; d: string };
+    t.raw
+      .prepare(
+        `INSERT INTO page_view_classifications
+           (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+            evidence_from, evidence_to, view_day, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        cls,
+        JSON.stringify(['no_corroboration']),
+        version,
+        evaluatedAt,
+        `${d}T00:00:00.000Z`,
+        `${d}T00:00:00.000Z`,
+        d,
+        evaluatedAt,
+      );
+  }
+
+  const T1 = '2026-08-11T01:00:00.000Z';
+  const T2 = '2026-08-11T02:00:00.000Z';
+
+  beforeEach(async () => {
+    await seed();
+    // Human rows: product + vendor + taxonomy + /administrators. The taxonomy
+    // row is left unclassified on purpose.
+    classify('/products/:slug', 'unresolved', 'v1', T1);
+    classify('/vendors/:slug', 'browser_with_human_evidence', 'v1', T1);
+    classify('/administrators', 'suspected_automation', 'v1', T1);
+  });
+
+  it('returns only rows whose latest class matches, and the row shows that class', async () => {
+    const body = await feed(`${RANGE}&class=unresolved`);
+    expect(paths(body)).toEqual(['/products/:slug']);
+    expect(body.total).toBe(1);
+    expect(body.data[0]!.classification?.class).toBe('unresolved');
+  });
+
+  it('filters on the latest version, not on any version the row ever had', async () => {
+    classify('/products/:slug', 'identified_automation', 'v2', T2);
+    expect(paths(await feed(`${RANGE}&class=unresolved`))).toEqual([]);
+    const v2 = await feed(`${RANGE}&class=identified_automation`);
+    expect(paths(v2)).toEqual(['/products/:slug']);
+    expect(v2.data[0]!.classification?.classifier_version).toBe('v2');
+  });
+
+  it('breaks an evaluated_at tie on the larger id, the same rule the column uses', async () => {
+    classify('/vendors/:slug', 'suspected_automation', 'v2', T1);
+    const body = await feed(`${RANGE}&class=suspected_automation`);
+    expect(paths(body)).toEqual(['/administrators', '/vendors/:slug']);
+    for (const row of body.data) expect(row.classification?.class).toBe('suspected_automation');
+    expect(paths(await feed(`${RANGE}&class=browser_with_human_evidence`))).toEqual([]);
+  });
+
+  it('selects the unclassified rows with the null sentinel', async () => {
+    const body = await feed(`${RANGE}&class=${ADMIN_PAGE_VIEW_NULL_FILTER}`);
+    expect(paths(body)).toEqual(['/categories/:slug']);
+    expect(body.data[0]!.classification).toBeNull();
+  });
+
+  it('returns an empty page for an unknown class, not a 400', async () => {
+    const body = await feed(`${RANGE}&class=humans`);
+    expect(body.total).toBe(0);
+    expect(body.data).toEqual([]);
+  });
+
+  it('carries the all-classes figure beside the filtered one (§13 D10 constraint 2)', async () => {
+    const unfiltered = await feed(RANGE);
+    expect(unfiltered.window_total_all_classes).toBeNull();
+    expect(unfiltered.window_visitors_all_classes).toBeNull();
+
+    const body = await feed(`${RANGE}&class=unresolved`);
+    expect(body.window_total).toEqual({ total: 1, excluding_internal: null });
+    expect(body.total).toBe(body.window_total.total);
+    expect(body.window_total_all_classes).toEqual(unfiltered.window_total);
+    expect(body.window_visitors_all_classes).toEqual(unfiltered.window_visitors);
+  });
+
+  it('keeps the other column filters on the all-classes figure', async () => {
+    const body = await feed(`${RANGE}&class=unresolved&country=ID`);
+    // Country ID humans: the product row and /administrators.
+    expect(body.window_total_all_classes).toEqual({ total: 2, excluding_internal: null });
+    expect(body.window_total.total).toBe(1);
+  });
+
+  it('pairs both class figures with their internal-ASN halves when the var is set', async () => {
+    const WITH_ASN: Env = { ...TEST_ENV, ANALYTICS_INTERNAL_ASNS: '23700' };
+    const body = await feed(
+      `${RANGE}&class=browser_with_human_evidence&exclude_internal=1`,
+      WITH_ASN,
+    );
+    expect(paths(body)).toEqual(['/vendors/:slug']);
+    expect(body.window_total).toEqual({ total: 1, excluding_internal: 1 });
+    expect(body.total).toBe(body.window_total.excluding_internal);
+    expect(body.window_total_all_classes).toEqual({ total: 4, excluding_internal: 2 });
+    expect(body.window_visitors_all_classes).toEqual({ total: 3, excluding_internal: 2 });
+  });
+
+  it('always carries the heuristic note, and the seam note only across a version change', async () => {
+    const one = await feed(RANGE);
+    expect(one.notes.map((n) => n.code)).toContain('classification_is_heuristic');
+    expect(one.notes.map((n) => n.code)).not.toContain('classification_version_seam');
+
+    // A second day counted on a later version puts a seam inside a two-day window.
+    await t.db.insert(pageViews).values({
+      path: '/day-two',
+      isBot: false,
+      userAgentHash: HASH_B,
+      cfAsn: 7922,
+      createdAt: '2026-08-11T01:00:00.000Z',
+    });
+    classify('/day-two', 'unresolved', 'v2', '2026-08-12T01:00:00.000Z');
+    const two = await feed('from=2026-08-10&to=2026-08-11');
+    const seam = two.notes.find((n) => n.code === 'classification_version_seam');
+    expect(seam?.params).toMatchObject({
+      from_version: 'v1',
+      to_version: 'v2',
+      changed_on: '2026-08-11',
+    });
+  });
+});
