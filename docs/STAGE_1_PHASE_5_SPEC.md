@@ -34,7 +34,7 @@ Phase 5 is **app code**. The data layer and authorization model shipped in earli
 - **`products`** already carries denormalized `review_count`, `rating_overall_avg`, `rating_onboarding_avg` (app-maintained; AECI-104).
 - **RLS** (AECI-29/87, live on every env): profiles — owner-read + admin-read-all; reviews — public read `status='approved'`, owner-read-own (if `is_active_user()`), admin-read-all. **No INSERT/UPDATE/DELETE grants to anon/authenticated — all writes are Worker-only.** Helpers `public.is_admin()` and `public.is_active_user()` exist.
 - **`workflow_instances` / `workflow_transitions`** (generic FSM tables) exist — used by the Phase 6 moderation orchestration, **not** Phase 5 (§3.2).
-- **`appendAuditLog()`** (`packages/shared/src/audit-log.ts`) — production-ready, used by every state-changing write.
+- **`auditInsert()` / `workflowTransitionInsert()`** (`apps/api/src/lib/audit.ts`) — batch builders used by every state-changing write. Each returns an insert statement that the caller puts in the same `db.batch([...])` as the mutation (ADR 0016). The post-commit forward is `forwardAuditLog` in `packages/shared/src/audit-log.ts`.
 - **Cache-neutrality** (`apps/web/src/server-runtime.ts`): `/auth/*`, `/account*`, `/api/*`, `/search` are **non-cacheable** and pass cookies through unchanged; only the `theme` cookie is stripped on cacheable routes. The Supabase session cookie therefore survives by design.
 - **Forms**: Signal Forms is the standard (ADR 0009, AECI-128); `apps/web/src/app/requests/request-form.ts` is the exemplar (model `signal()` + `form()` + `validateStandardSchema(p, ZodSchema)` against a shared `@aeci/shared` schema). Angular Aria for select/combobox/radio (ADR 0010 **Accepted**; AECI-133 — the first-Aria-form issue — was delivered by the AECI-200 review form, now the reference Aria-in-forms impl). Note: Aria@22 ships no `radio`/`select`, so those are realised via listbox/combobox, and discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)` rather than `[formField]` (native inputs only).
 - **Authorization model**: `AUTH_AND_RLS.md` is **complete** (not a placeholder — CLAUDE.md note corrected). It already specifies the three-layer model and, critically for Phase 5, the **Worker authorization layer** (§4: JWT verify → hard fail; role + ban check before Prisma; audit inside the transaction; endpoint-by-endpoint expectations; GDPR auth→public sync). Phase 5 **implements** AUTH_AND_RLS §4 — it does not redesign it.
@@ -58,7 +58,7 @@ Phase 5 is **app code**. The data layer and authorization model shipped in earli
 
 ### 3.2 Explicitly deferred to Phase 6 (the moderation-orchestration boundary)
 
-Phase 5 ships *functional* moderation driven directly off `review.status` + `appendAuditLog()`. The orchestration layer is Phase 6:
+Phase 5 ships *functional* moderation driven directly off `review.status` + an `auditInsert()` row in the same batch. The orchestration layer is Phase 6:
 
 - **Workflow-FSM formalization** — writing `workflow_instances` / `workflow_transitions` for the `review_moderation` state machine (Phase 5 uses `review.status` transitions + audit rows; the FSM wrapper is Phase 6, alongside `vendor_claim` / `correction_request`).
 - **Slack alerts** on new submissions / moderation items (`#moderation`).
@@ -110,7 +110,7 @@ Implements `AUTH_AND_RLS.md` §4 on `apps/api`:
 - Extract the JWT (cookie or `Authorization: Bearer`); **verify or hard-fail `401 UNAUTHENTICATED`** (§4.1).
 - Load `profiles.role` + `banned_at`; **reject banned** (`403`/`REVIEW_BANNED` for review writes) and enforce role (`403` for admin endpoints) **before** any Prisma write (§4.2).
 - The privileged Prisma/Accelerate connection **bypasses RLS** — so the Worker is the real enforcement point; RLS is defense-in-depth for the PostgREST surface. The Worker sets `reviewer_id = auth.uid()` server-side (the client never supplies it).
-- Audit every state-changing write via `appendAuditLog()` (§4.3).
+- Audit every state-changing write via `auditInsert()` in the same `db.batch([...])` as the write (§4.3).
 - Reuse the existing bearer middleware pattern (`apps/api/src/lib/review-auth.ts`) as the structural model; this is the **user-session** analogue.
 
 ---
@@ -129,7 +129,7 @@ Fields → `SubmitReviewSchema` (`API_CONTRACTS.md` §6.6, shared Zod): overall 
 
 ### 5.2 `POST /api/reviews` (Phase 5.6)
 
-Per `API_CONTRACTS.md` §6.6. Auth-gated (§4.5). Inserts a `reviews` row with `status='pending'`, `reviewer_id = auth.uid()`, `locale`. Errors: `UNAUTHENTICATED`, `REVIEW_BANNED` (banned user), `REVIEW_DUPLICATE` (the partial unique index also enforces this at the DB), `NOT_FOUND` (product), `VALIDATION_FAILED`. `appendAuditLog()` on insert. Recompute/queue the denormalized counts only on **approval** (§5.4), not on submit.
+Per `API_CONTRACTS.md` §6.6. Auth-gated (§4.5). Inserts a `reviews` row with `status='pending'`, `reviewer_id = auth.uid()`, `locale`. Errors: `UNAUTHENTICATED`, `REVIEW_BANNED` (banned user), `REVIEW_DUPLICATE` (the partial unique index also enforces this at the DB), `NOT_FOUND` (product), `VALIDATION_FAILED`. `auditInsert()` in the insert's batch. Recompute/queue the denormalized counts only on **approval** (§5.4), not on submit.
 
 ### 5.3 Toxicity scoring (Phase 5.7)
 
@@ -172,7 +172,7 @@ Non-cacheable, auth-gated. Shows the user's profile (display name, email — rea
 
 ### 6.2 `DELETE /api/account` (Phase 5.11, backend)
 
-Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In one transaction: set `reviewer_id = null` on all of the user's reviews (anonymize, content survives — the `SetNull` FK already supports this), delete the `profiles` row, then delete the `auth.users` row via the Supabase Auth Admin API. `appendAuditLog()` records the erasure (actor = the user; no PII in the log). Errors: `UNAUTHENTICATED`. **The confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`; specced as "Loops", built on Resend) — fire-and-forget and fail-open, captured from the session before erasure; deletion never blocks on it.
+Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In one atomic `db.batch([...])`: set `reviewer_id = null` on all of the user's reviews (anonymize, content survives — the `SetNull` FK already supports this), delete the `profiles` row, then delete the `auth.users` row via the Supabase Auth Admin API. An `auditInsert()` row in the same batch records the erasure (actor = the user; no PII in the log). Errors: `UNAUTHENTICATED`. **The confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`; specced as "Loops", built on Resend) — fire-and-forget and fail-open, captured from the session before erasure; deletion never blocks on it.
 
 ---
 
@@ -186,7 +186,7 @@ Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In on
 
 Per `API_CONTRACTS.md` §6.10:
 - `GET /api/admin/reviews` — `ListPendingReviewsQuerySchema` (status `pending|approved|rejected`, sort `queue_age|created_at`, paginated). `AdminReview` includes `toxicity_score` and `reviewer_email` (admin-only).
-- `PATCH /api/admin/reviews/:id` — `ModerateReviewSchema` (`approve`/`reject` + optional `rejection_reason`). `INVALID_STATE_TRANSITION` if not `pending`. On **approve**: set `status='approved'`, `moderated_by/at`, recompute the product's denormalized `review_count` + rating averages, purge the product Cache-Tag. On **reject**: `status='rejected'` + required reason. `appendAuditLog()` on every transition. (Slack/Linear/FSM → Phase 6.)
+- `PATCH /api/admin/reviews/:id` — `ModerateReviewSchema` (`approve`/`reject` + optional `rejection_reason`). `INVALID_STATE_TRANSITION` if not `pending`. On **approve**: set `status='approved'`, `moderated_by/at`, recompute the product's denormalized `review_count` + rating averages, purge the product Cache-Tag. On **reject**: `status='rejected'` + required reason. `auditInsert()` in the same batch on every transition. (Slack/Linear/FSM → Phase 6.)
 
 > **As built, 2026-10-01 (AECI-1203).** Two moderators could both pass the `pending` check and both
 > commit, and each sent the reviewer a decision email. A `changes() = 0` sentinel after the guarded
