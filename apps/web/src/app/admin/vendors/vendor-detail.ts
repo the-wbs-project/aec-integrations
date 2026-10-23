@@ -38,6 +38,7 @@ import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { GrantLicensesControl } from './grant-licenses-control';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { BillingEmailControl } from './billing-email-control';
 import { BillingLicensesTable } from './billing-licenses-table';
 import { LicenseBulkActions } from './license-bulk-actions';
 import { LicenseRowActions } from './license-row-actions';
@@ -133,6 +134,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     RouterLink,
     AuditTrail,
     GrantLicensesControl,
+    BillingEmailControl,
     BillingLicensesTable,
     LicenseRowActions,
     LicenseBulkActions,
@@ -376,6 +378,23 @@ export class VendorDetail {
    *  audit row and changes the license row, so both reload. */
   protected onLicenseChanged(): void {
     void this.loadBilling();
+    void this.loadAudit();
+  }
+
+  /** AECI-1381: the billing email was set or cleared. Patch the shown value from the
+   *  response, so the tab updates without a refetch, then reload the audit trail for
+   *  the `billing_account.email_changed` row. */
+  protected onBillingEmailChanged(email: string | null): void {
+    this.billing.update((b) =>
+      b?.billing_account
+        ? { ...b, billing_account: { ...b.billing_account, billing_email: email } }
+        : b,
+    );
+    this.liveMessage.set(
+      email === null
+        ? $localize`:@@admin.vendors.billing.email.cleared:Billing email removed.`
+        : $localize`:@@admin.vendors.billing.email.saved:Billing email saved.`,
+    );
     void this.loadAudit();
   }
 

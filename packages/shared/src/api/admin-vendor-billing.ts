@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { AdminAgreementAcceptanceSchema } from './agreements';
 import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
+import { UpdateBillingEmailRequestSchema } from './vendor-billing';
 
 /**
  * The admin Billing view contract (AECI-1372, E4.3; `docs/VENDOR_SIGNUP_PROCESS.md`
@@ -56,7 +57,8 @@ export type AdminBillingOwnerSeat = z.infer<typeof AdminBillingOwnerSeatSchema>;
 export const AdminBillingAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
-  /** Null until an owner sets it (AECI-1389) or checkout does (decision 16). */
+  /** Null until an owner (AECI-1389) or AECi (AECI-1381) sets it, or checkout
+   *  does (decision 16). */
   billing_email: z.string().nullable(),
   stripe_customer_id: z.string().nullable(),
   created_at: z.string(),
@@ -131,3 +133,35 @@ export const AdminVendorBillingResponseSchema = z.object({
   release_requests: z.array(AdminLicenseReleaseRequestSchema),
 });
 export type AdminVendorBillingResponse = z.infer<typeof AdminVendorBillingResponseSchema>;
+
+// ─── PUT /api/admin/vendors/:id/billing/email (AECI-1381) ────────────────────
+
+/**
+ * AECi sets or clears a vendor's billing email from the Billing tab (AECI-1381;
+ * decision 16, with the 2026-10-23 note on decision 17).
+ *
+ *   PUT /api/admin/vendors/:id/billing/email, behind `requireAdmin()` then the
+ *   `write` rate limit.
+ *
+ * ── THE VENDOR ROUTE'S BODY AND WRITE ────────────────────────────────────────────
+ * The body is the vendor route's (`PUT /api/vendor/billing/email`): the seat-invite
+ * address rule, trimmed and lower-cased, `null` clears it, unknown keys are `400`.
+ * The write is the same builder, so the audit action is the same
+ * `billing_account.email_changed`, with `actor_type = 'admin'`. An unchanged value
+ * writes nothing and still answers `200`.
+ *
+ * ── AUDIT ONLY ───────────────────────────────────────────────────────────────────
+ * No email and no cache purge: no public page reads the address. The vendor sees the
+ * change as a receipt in its history.
+ */
+export const AdminUpdateBillingEmailRequestSchema = UpdateBillingEmailRequestSchema;
+export type AdminUpdateBillingEmailRequest = z.infer<typeof AdminUpdateBillingEmailRequestSchema>;
+
+/** `200`: the account's id and the address as stored after the write. */
+export const AdminUpdateBillingEmailResponseSchema = z.object({
+  billing_account: z.object({
+    id: z.string(),
+    billing_email: z.string().nullable(),
+  }),
+});
+export type AdminUpdateBillingEmailResponse = z.infer<typeof AdminUpdateBillingEmailResponseSchema>;

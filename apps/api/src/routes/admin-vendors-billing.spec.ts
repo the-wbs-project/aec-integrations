@@ -1,13 +1,19 @@
 /**
  * `GET /api/admin/vendors/:id/billing` (AECI-1372, E4.3) over the in-memory D1, the
  * handler mounted bare. The `requireAdmin()` cells (401, 403, banned) are in
- * `admin-panel.authz-matrix.spec.ts`. The last describe mounts the REAL Worker to prove
- * no rate limiter sits on the route.
+ * `admin-panel.authz-matrix.spec.ts`. The registration describe mounts the REAL Worker
+ * to prove no rate limiter sits on the route.
+ *
+ * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381) is the last describe, also
+ * mounted bare. Its guard and limiter cells are in
+ * `admin-vendors-billing-email.registration.spec.ts`.
  */
 
 import {
   ADMIN_BILLING_LICENSES_MAX,
+  AdminUpdateBillingEmailResponseSchema,
   AdminVendorBillingResponseSchema,
+  ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   type AdminVendorBillingResponse,
 } from '@aeci/shared';
@@ -33,8 +39,13 @@ import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { seedBillingAccount, seedLicense } from '../test/licenses';
+import { wrappedFactory } from '../test/racing-factory';
+import type { DbFactory } from '../lib/handler-utils';
 import type { FetchAuthEmails } from './admin-vendors';
-import { createAdminVendorBillingHandler } from './admin-vendors-billing';
+import {
+  createAdminUpdateBillingEmailHandler,
+  createAdminVendorBillingHandler,
+} from './admin-vendors-billing';
 
 const ADMIN_USER = '00000000-0000-4000-8000-000000000105';
 
@@ -335,5 +346,164 @@ describe('GET /api/admin/vendors/:id/billing registration', () => {
     expect(res.status).not.toBe(429);
     expect(res.status).not.toBe(404);
     expect(keys).toEqual([]);
+  });
+});
+
+// ─── PUT /api/admin/vendors/:id/billing/email (AECI-1381) ────────────────────
+
+describe('PUT /api/admin/vendors/:id/billing/email', () => {
+  // `audit_log.actor_id` references `profiles`, and a real admin always has a row.
+  beforeEach(async () => {
+    await t.db.insert(profiles).values({ id: ADMIN_USER, role: 'admin' });
+  });
+
+  async function put(vendorId: string, payload: unknown, factory: DbFactory = t.factory) {
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler());
+    app.use('*', async (c, next) => {
+      c.set('auth', {
+        userId: ADMIN_USER,
+        email: 'admin@example.test',
+        role: 'admin',
+      } as AuthzVariables['auth']);
+      await next();
+    });
+    app.put('/api/admin/vendors/:id/billing/email', createAdminUpdateBillingEmailHandler(factory));
+    const res = await app.fetch(
+      new Request(`http://x/api/admin/vendors/${vendorId}/billing/email`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { status: res.status, body: (await res.json()) as any };
+  }
+
+  const stored = async (id: string) =>
+    (await t.db.select().from(billingAccounts).where(eq(billingAccounts.id, id)))[0]!.billingEmail;
+
+  async function setStored(id: string, email: string | null) {
+    await t.db
+      .update(billingAccounts)
+      .set({ billingEmail: email, updatedAt: '2026-01-01T00:00:00.000Z' })
+      .where(eq(billingAccounts.id, id));
+  }
+
+  it('sets the address in one batch: the UPDATE and one admin audit row', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await seedLicense(t.db, VENDOR, { endsAt: '2099-01-01' });
+    const sqls: string[][] = [];
+    const capturing = wrappedFactory(t.factory, (_attempt, run, stmts) => {
+      sqls.push((stmts as unknown as { toSQL(): { sql: string } }[]).map((s) => s.toSQL().sql));
+      return run();
+    });
+
+    const { status, body } = await put(VENDOR, { billing_email: 'ap@acme.example' }, capturing);
+
+    expect(status).toBe(200);
+    expect(AdminUpdateBillingEmailResponseSchema.parse(body)).toEqual({
+      billing_account: { id: account, billing_email: 'ap@acme.example' },
+    });
+    expect(await stored(account)).toBe('ap@acme.example');
+
+    expect(sqls).toHaveLength(1);
+    expect(sqls[0]).toHaveLength(2);
+    expect(sqls[0]![0]).toMatch(/^update "billing_accounts"/);
+    expect(sqls[0]![1]).toMatch(/^insert into "audit_log"/);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: 'billing_account.email_changed',
+      entityType: 'billing_account',
+      entityId: account,
+      actorId: ADMIN_USER,
+      actorType: 'admin',
+      vendorId: VENDOR,
+      vendorTier: 'verified',
+      vendorEntitlementStatus: 'active',
+    });
+    expect(audits[0]!.beforeState).toEqual({ billing_email: null });
+    expect(audits[0]!.afterState).toEqual({ billing_email: 'ap@acme.example' });
+    expect(audits[0]!.metadata).toMatchObject({ source: 'admin-vendors-billing' });
+  });
+
+  it('lower-cases and trims the address', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await put(VENDOR, { billing_email: '  AP@Acme.EXAMPLE ' });
+    expect(status).toBe(200);
+    expect(body.billing_account.billing_email).toBe('ap@acme.example');
+    expect(await stored(account)).toBe('ap@acme.example');
+  });
+
+  it('clears the address on null', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await setStored(account, 'ap@acme.example');
+
+    const { status, body } = await put(VENDOR, { billing_email: null });
+    expect(status).toBe(200);
+    expect(body.billing_account.billing_email).toBeNull();
+    expect(await stored(account)).toBeNull();
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.beforeState).toEqual({ billing_email: 'ap@acme.example' });
+    expect(audits[0]!.afterState).toEqual({ billing_email: null });
+  });
+
+  it('an unchanged address answers 200 and writes nothing', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await setStored(account, 'ap@acme.example');
+    let batches = 0;
+    const counting = wrappedFactory(t.factory, (_attempt, run) => {
+      batches += 1;
+      return run();
+    });
+
+    const { status, body } = await put(VENDOR, { billing_email: 'AP@acme.example' }, counting);
+    expect(status).toBe(200);
+    expect(body.billing_account.billing_email).toBe('ap@acme.example');
+    expect(batches).toBe(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    const [row] = await t.db.select().from(billingAccounts).where(eq(billingAccounts.id, account));
+    expect(row!.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it.each([
+    ['an invalid address', { billing_email: 'not-an-email' }],
+    ['a missing field', {}],
+    ['an unknown key', { billing_email: 'ap@acme.example', extra: true }],
+  ])('rejects %s with 400 VALIDATION_FAILED', async (_label, payload) => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await put(VENDOR, payload);
+    expect(status).toBe(400);
+    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    expect(await stored(account)).toBeNull();
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('404s an unknown vendor', async () => {
+    const { status, body } = await put(uuid(999), { billing_email: 'ap@acme.example' });
+    expect(status).toBe(404);
+    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('404s a vendor with no billing account', async () => {
+    const { status, body } = await put(NO_ACCOUNT_VENDOR, { billing_email: 'ap@acme.example' });
+    expect(status).toBe(404);
+    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    expect(await t.db.select().from(billingAccounts)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('touches only the named vendor’s account', async () => {
+    const ours = await seedBillingAccount(t.db, VENDOR);
+    const theirs = await seedBillingAccount(t.db, OTHER_VENDOR);
+    await put(VENDOR, { billing_email: 'ap@acme.example' });
+    expect(await stored(ours)).toBe('ap@acme.example');
+    expect(await stored(theirs)).toBeNull();
   });
 });

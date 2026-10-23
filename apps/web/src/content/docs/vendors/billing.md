@@ -3,7 +3,7 @@ title: Billing
 description: How Managed licenses work on AEC Integrations. What a license costs, how it renews and how to cancel, refunds, the Billing tab, and what happens when a license ends.
 section: vendors
 order: 12
-last_updated: October 19, 2026
+last_updated: October 23, 2026
 ---
 
 Managed is sold as licenses. One license puts one product on Managed. Your company's licenses are held on its billing account. Owners see them on the **Billing** tab and assign each one to a product.
@@ -35,7 +35,7 @@ We refund a license in full if you ask within 14 days of the first charge. We do
 
 Owners see a **Billing** tab in the vendor portal. Members do not. It has four parts.
 
-- **Billing email.** License grant, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there.
+- **Billing email.** License grant, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there. AEC Integrations can also set or remove it for you, and that change is recorded there too.
 - **At a glance.** A card that counts your live licenses: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many licenses come off at renewal, when either count is above zero.
 - **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**.
 - **Agreements.** The agreements your company accepted, with who accepted each one and when.

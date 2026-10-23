@@ -3027,7 +3027,7 @@ export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
 export const AdminBillingAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
-  billing_email: z.string().nullable(),        // null until an owner or checkout sets it (decision 16)
+  billing_email: z.string().nullable(),        // null until an owner, AECi (AECI-1381) or checkout sets it (decision 16)
   stripe_customer_id: z.string().nullable(),
   created_at: z.string(),
   owner_seats: z.array(z.object({
@@ -3090,6 +3090,46 @@ export const AdminVendorBillingResponseSchema = z.object({
   at most `ADMIN_BILLING_RELEASE_REQUESTS_MAX` (50). A sixth read in the same batch.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
+#### `PUT /api/admin/vendors/:id/billing/email` (AECI-1381)
+
+AECi sets or clears the billing email on a vendor's billing account, from the Billing tab
+(`ADMIN_PANEL_SPEC.md` §5.7 and §2, the sixteenth exception; decision 16 of
+`VENDOR_SIGNUP_PROCESS.md` §2 and the 2026-10-23 note on decision 17). Behind
+`requireAdmin()`, then `rateLimit('write')`. Contract:
+`packages/shared/src/api/admin-vendor-billing.ts`. Handler: `createAdminUpdateBillingEmailHandler`
+in `apps/api/src/routes/admin-vendors-billing.ts`.
+
+```typescript
+// The vendor route's body (§6.14, `PUT /api/vendor/billing/email`), aliased.
+export const AdminUpdateBillingEmailRequestSchema = UpdateBillingEmailRequestSchema;
+// { billing_email: <seat-invite address rule, trimmed, lower-cased> | null }, strict
+
+export const AdminUpdateBillingEmailResponseSchema = z.object({
+  billing_account: z.object({
+    id: z.string(),
+    billing_email: z.string().nullable(),       // as stored after the write
+  }),
+});
+```
+
+- **The write.** `billingEmailStatements` (`lib/billing-account.ts`), the vendor route's
+  builder: one UPDATE of `billing_accounts.billing_email` and `updated_at`, and one
+  `billing_account.email_changed` audit row, in one `db.batch`. The row is filed under the
+  account (`entity_type = 'billing_account'`), with `vendor_id` set, `actor_type = 'admin'`,
+  the old and new address in `before_state` / `after_state`, the vendor's plan snapshot
+  from its licenses, and `metadata.source = 'admin-vendors-billing'`. The audit row is
+  forwarded to PostHog after commit.
+- **`null` clears the address.** The grant, renewal and plan-end emails then go to the
+  seats alone.
+- **Unchanged is a no-op.** A normalised value equal to the stored one writes nothing,
+  no UPDATE and no audit row, and answers `200` with the stored value.
+- **Audit only.** No email to the vendor and no cache purge: no public page reads the
+  address. The vendor sees the change as a receipt in its history.
+
+Errors: `400 VALIDATION_FAILED` on a bad address, a missing field or an unknown key;
+`400 MALFORMED_REQUEST` on a body that is not JSON; `404 NOT_FOUND` on an unknown vendor
+or a vendor with no billing account; `429 RATE_LIMITED`; plus the shared 401/403.
 
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 

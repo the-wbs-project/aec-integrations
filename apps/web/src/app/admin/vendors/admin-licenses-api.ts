@@ -1,6 +1,7 @@
 /**
- * The ONE client for `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1) and
- * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2).
+ * The ONE client for `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1),
+ * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2) and
+ * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381): the admin billing writes.
  *
  * Split out of `AdminVendorsApi` like `SeatProvisionApi`: the admin write that grants
  * Managed licenses gets exactly one caller, so its blast radius is greppable. The
@@ -11,6 +12,8 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminUpdateBillingEmailRequest,
+  AdminUpdateBillingEmailResponse,
   GrantLicensesInput,
   GrantLicensesResponse,
   UpdateLicenseBody,
@@ -36,6 +39,21 @@ export class AdminLicensesApi {
       this.http.patch<UpdateLicenseResponse>(
         `/api/admin/licenses/${encodeURIComponent(licenseId)}`,
         input,
+      ),
+    );
+  }
+
+  /** `PUT /api/admin/vendors/:id/billing/email` (AECI-1381): set or clear the billing
+   *  email. `null` clears it. */
+  updateBillingEmail(
+    vendorId: string,
+    billing_email: string | null,
+  ): Promise<AdminUpdateBillingEmailResponse> {
+    const body: AdminUpdateBillingEmailRequest = { billing_email };
+    return firstValueFrom(
+      this.http.put<AdminUpdateBillingEmailResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/billing/email`,
+        body,
       ),
     );
   }

@@ -69,13 +69,19 @@
     <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.email">
       Billing email
     </dt>
-    <dd class="font-medium text-(--text-primary)">
-      @if (a.billing_email) { {{ a.billing_email }} } @else {
-      <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
-      <span class="sr-only" i18n="@@admin.vendors.billing.account.emailNone"
-        >No billing email set</span
-      >
-      }
+    <dd class="text-(--text-primary)">
+      <!-- AECI-1381: the host projects the edit control here. The static value is the
+           fallback when nothing is projected. -->
+      <ng-content select="[billingEmail]">
+        <span class="font-medium">
+          @if (a.billing_email) { {{ a.billing_email }} } @else {
+          <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+          <span class="sr-only" i18n="@@admin.vendors.billing.account.emailNone"
+            >No billing email set</span
+          >
+          }
+        </span>
+      </ng-content>
     </dd>
 
     <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.stripe">
