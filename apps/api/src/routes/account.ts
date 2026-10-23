@@ -468,7 +468,25 @@ async function planErasureSeatLoss(
  * nothing, so every erasure made before AECI-530 provisioned the key left an
  * orphan that no signal could find (`AUTH_AND_RLS.md` §8 step 4).
  */
-export type AuthDeleteOutcome = 'deleted' | 'already_gone' | 'skipped_no_creds' | 'failed';
+export type AuthDeleteOutcome =
+  | 'deleted'
+  | 'already_gone'
+  | 'skipped_no_creds'
+  | 'failed'
+  | 'skipped_non_production';
+
+/**
+ * Whether this tier may delete the `auth.users` row on erasure (AECI-1468).
+ *
+ * One Supabase auth project backs every tier (ADR 0017). A staging or demo erasure
+ * that deleted the row would delete the sign-in a production `profiles` row still
+ * uses, and a new sign-in mints a new id, so that profile would be stranded. Only
+ * production deletes it. Every other tier, and an unset `ENV`, erases D1 only and
+ * keeps the shared login (`AUTH_AND_RLS.md` §8 step 4).
+ */
+export function erasesSharedAuthIdentity(env: Env): boolean {
+  return env.ENV === 'production';
+}
 
 export function authDeleteOutcome(result: DeleteAuthUserResult): AuthDeleteOutcome {
   if (result.skipped) return 'skipped_no_creds';
@@ -672,18 +690,22 @@ export function createDeleteAccountHandler(
       }
     }
 
-    // Seam #3: delete the auth.users row over the GoTrue Admin API. The D1 data is
-    // already erased, so nothing here is fatal. A skip or a failure leaves the
-    // sign-in identity behind, so both log at error and every outcome is counted
-    // (AECI-531). The log carries the user id, the same id the `account.deleted`
-    // audit row holds: it is the orphan list `RUNBOOKS.md` cleans up from. The
-    // metric carries no id. No email or display name goes to either.
-    const authResult = await deleteAuthUser(c.env, userId);
-    const authOutcome = authDeleteOutcome(authResult);
+    // Seam #3: delete the auth.users row over the GoTrue Admin API, on production
+    // only. The login is shared across tiers (ADR 0017), so staging, demo and local
+    // dev keep it and count `skipped_non_production`, a healthy outcome (AECI-1468).
+    // The D1 data is already erased, so nothing here is fatal. On production a skip
+    // or a failure leaves the sign-in identity behind, so both log at error and
+    // every outcome is counted (AECI-531). The log carries the user id, the same id
+    // the `account.deleted` audit row holds: it is the orphan list `RUNBOOKS.md`
+    // cleans up from. The metric carries no id. No email or display name goes to either.
+    const authResult = erasesSharedAuthIdentity(c.env) ? await deleteAuthUser(c.env, userId) : null;
+    const authOutcome: AuthDeleteOutcome = authResult
+      ? authDeleteOutcome(authResult)
+      : 'skipped_non_production';
     submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.account.erasure.auth_delete', 1, [
       `outcome:${authOutcome}`,
     ]);
-    if (authOutcome === 'skipped_no_creds' || authOutcome === 'failed') {
+    if (authResult && (authOutcome === 'skipped_no_creds' || authOutcome === 'failed')) {
       logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'error',
         message:

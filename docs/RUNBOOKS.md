@@ -2071,8 +2071,12 @@ then could not delete their Supabase `auth.users` row (seam #3, `AUTH_AND_RLS.md
 Their email, provider links and sign-in history are still held, and the sign-in itself still
 works. The erasure is not complete until the row is gone.
 
-- `skipped_no_creds`: the API Worker has no `SUPABASE_SERVICE_ROLE_KEY`. Every erasure on that
-  tier will orphan a row until the key is back.
+Only a production erasure deletes the row (AECI-1468). The login is shared across tiers
+(ADR 0017), so staging, demo and local dev keep it on purpose and count
+`skipped_non_production`. That outcome never fires this alert and is never an orphan.
+
+- `skipped_no_creds`: the production API Worker has no `SUPABASE_SERVICE_ROLE_KEY`. Every
+  production erasure will orphan a row until the key is back.
 - `failed`: GoTrue refused the delete or did not answer within 5 s. Usually one row.
 
 ### Triage
@@ -2125,11 +2129,12 @@ Two windows left orphans that no log or metric recorded. Before AECI-530 no depl
 had the key, so every erasure was skipped. Before AECI-531 a skip logged nothing. That set is
 found only by reconciliation:
 
-1. Read every erasure on every tier. `audit_log` is never pruned
-   (`apps/api/src/lib/retention-prune.ts`), so this list is complete.
+1. Read every production erasure. `audit_log` is never pruned
+   (`apps/api/src/lib/retention-prune.ts`), so this list is complete. Staging and demo
+   erasures are not orphans. Since AECI-1468 those tiers keep the shared login on purpose.
 
 ```bash
-cd /tmp && for DB in aeci-app-production-us aeci-app-demo aeci-app-staging; do npx wrangler d1 execute "$DB" --remote --command "SELECT '$DB' AS db, entity_id, created_at FROM audit_log WHERE action = 'account.deleted' ORDER BY created_at"; done
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT entity_id, created_at FROM audit_log WHERE action = 'account.deleted' ORDER BY created_at"
 ```
 
 2. Drop every id that still has a `profiles` row on **any** tier (step 5 above).
@@ -2144,8 +2149,9 @@ erasure.
 ### Confirming it is fixed
 
 The alert clears on the first hourly check with no skipped or failed deletes. On
-`skipped_no_creds`, also erase one throwaway account on staging after restoring the key, and
-check the series records `outcome:deleted`.
+`skipped_no_creds`, confirm the key is listed with `wrangler secret list --env production`.
+Do not test on staging: since AECI-1468 a staging erasure records `outcome:skipped_non_production`
+and never calls GoTrue.
 
 ---
 
