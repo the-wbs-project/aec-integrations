@@ -728,7 +728,7 @@
       "dashboard": "AECi — What the alerts are watching",
       "dashboardKey": "alert-sources",
       "description": "Fires when someone deleted their account in the last hour and their sign-in record could not be removed with it. Their data on the site is gone, but their email and sign-in history are still held. Each one needs a manual delete.",
-      "notes": "NEW with AECI-531, no Datadog predecessor. Watches aeci.account.erasure.auth_delete outcome:skipped_no_creds and outcome:failed, threshold > 0. Same metric_series shape as alert-profile-ensure-failed. outcome:deleted and outcome:already_gone are the healthy outcomes and are not counted.",
+      "notes": "NEW with AECI-531, no Datadog predecessor. Watches aeci.account.erasure.auth_delete outcome:skipped_no_creds and outcome:failed, threshold > 0. Same metric_series shape as alert-profile-ensure-failed. outcome:deleted, outcome:already_gone and outcome:skipped_non_production (AECI-1468: staging, demo and local dev keep the shared login) are the healthy outcomes and are not counted.",
       "tags": [
         "aeci",
         "alert-source",

@@ -116,3 +116,5 @@ At launch, removing the production Access app makes prod public; the prod `CF_AC
 vars then become a harmless no-op (the verify scripts only attach headers when present).
 
 **Amendment 2026-10-10 (AECI-1268):** The per-PR preview tier is retired. Where this ADR says PR-preview, read staging and local dev. Access now gates staging and production (until launch) only. Test-user pollution comes from staging and local signups. The 2026-08 record below is left as written.
+
+**Amendment 2026-10-23 (AECI-1468):** A shared auth project means a shared `auth.users` row. Since AECI-530 put the service-role key on every deployed API Worker, a staging or demo erasure deleted the login a production `profiles` row still used, and a new sign-in minted a new id. Ruling: only production deletes the `auth.users` row on `DELETE /api/account`. Staging, demo and local dev erase D1 only and count `aeci.account.erasure.auth_delete{outcome:skipped_non_production}`. A production erasure still deletes the login everywhere, which is intended. `AUTH_AND_RLS.md` §8 step 4 holds the detail.

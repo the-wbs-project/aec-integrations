@@ -111,6 +111,7 @@ const runAs = (
   method: 'get' | 'patch' | 'delete',
   role: 'reviewer' | 'admin',
   body?: unknown,
+  env: Env = TEST_ENV,
 ) =>
   appFor(handler, method, role).request(
     '/api/account',
@@ -120,11 +121,15 @@ const runAs = (
         ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }
         : {}),
     },
-    TEST_ENV,
+    env,
     fakeExecutionContext(),
   );
 const run = (handler: Handler, method: 'get' | 'patch' | 'delete', body?: unknown) =>
   runAs(handler, method, 'reviewer', body);
+/** Only production deletes the shared `auth.users` row on erasure (AECI-1468). */
+const PROD_ENV: Env = { ...TEST_ENV, ENV: 'production' };
+const runInProd = (handler: Handler, method: 'get' | 'patch' | 'delete') =>
+  runAs(handler, method, 'reviewer', undefined, PROD_ENV);
 
 /** Seed `n` pending reviews (plus the reviewer + one product each — `reviews` is
  *  UNIQUE on `(product_id, reviewer_id)`) so the admin badge count has something
@@ -390,7 +395,7 @@ describe('DELETE /api/account', () => {
     });
 
     const deleteAuthUser = vi.fn(async () => ({ ok: true }));
-    const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+    const res = await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
     expect(res.status).toBe(200);
 
     // Profile gone; review survives but is anonymized — `reviewer_id` nulled AND
@@ -771,7 +776,7 @@ describe('DELETE /api/account', () => {
   it('still succeeds (data erased) when the auth-user delete fails', async () => {
     await t.db.insert(profiles).values({ id: USER });
     const deleteAuthUser = vi.fn(async () => ({ ok: false, status: 500, error: 'boom' }));
-    const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+    const res = await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
     expect(res.status).toBe(200);
     expect(await t.db.select().from(profiles)).toHaveLength(0);
   });
@@ -792,7 +797,7 @@ describe('DELETE /api/account', () => {
   it('logs an error and counts skipped_no_creds when the service-role key is absent', async () => {
     await t.db.insert(profiles).values({ id: USER });
     const deleteAuthUser = vi.fn(async () => ({ ok: true, skipped: true }));
-    const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+    const res = await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
 
     expect(res.status).toBe(200);
     expect(await t.db.select().from(profiles)).toHaveLength(0);
@@ -812,7 +817,7 @@ describe('DELETE /api/account', () => {
   it('logs an error and counts failed when GoTrue refuses the delete', async () => {
     await t.db.insert(profiles).values({ id: USER });
     const deleteAuthUser = vi.fn(async () => ({ ok: false, status: 500, error: 'boom' }));
-    await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+    await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
 
     expect(authDeleteMetric()).toEqual([{ value: 1, tags: ['outcome:failed'] }]);
     expect(errorLogs()).toEqual([
@@ -826,10 +831,45 @@ describe('DELETE /api/account', () => {
   ] as const)('counts a %i as %s and logs no error', async (status, outcome) => {
     await t.db.insert(profiles).values({ id: USER });
     const deleteAuthUser = vi.fn(async () => ({ ok: true, status }));
-    await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+    await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
 
     expect(authDeleteMetric()).toEqual([{ value: 1, tags: [`outcome:${outcome}`] }]);
     expect(errorLogs()).toEqual([]);
+  });
+
+  // AECI-1468: one Supabase auth project backs every tier (ADR 0017), so only
+  // production may delete the shared login. Every other tier erases D1 only.
+  it.each([['development'], ['staging'], ['demo'], [undefined]] as const)(
+    'keeps the shared login on ENV=%s and counts skipped_non_production',
+    async (tier) => {
+      await t.db.insert(profiles).values({ id: USER });
+      const deleteAuthUser = vi.fn(async () => ({ ok: true, status: 204 }));
+      const res = await runAs(
+        createDeleteAccountHandler(t.factory, deleteAuthUser),
+        'delete',
+        'reviewer',
+        undefined,
+        { ...TEST_ENV, ENV: tier },
+      );
+
+      expect(res.status).toBe(200);
+      expect(await t.db.select().from(profiles)).toHaveLength(0);
+      expect(deleteAuthUser).not.toHaveBeenCalled();
+      expect(authDeleteMetric()).toEqual([{ value: 1, tags: ['outcome:skipped_non_production'] }]);
+      expect(errorLogs()).toEqual([]);
+    },
+  );
+
+  it('deletes the shared login on ENV=production', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const deleteAuthUser = vi.fn(async () => ({ ok: true, status: 204 }));
+    await runInProd(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
+
+    expect(deleteAuthUser).toHaveBeenCalledTimes(1);
+    expect(deleteAuthUser).toHaveBeenCalledWith(
+      expect.objectContaining({ ENV: 'production' }),
+      USER,
+    );
   });
 });
 
