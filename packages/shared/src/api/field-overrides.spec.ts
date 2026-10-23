@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AdminSetFieldOverrideSchema,
+  PRODUCT_FACET_OVERRIDE_FIELDS,
   PRODUCT_OVERRIDE_FIELDS,
   VENDOR_OVERRIDE_FIELDS,
   fieldOverrideFieldsFor,
+  isFacetOverrideField,
   isFieldOverrideField,
   lockedField,
   parseFieldOverrideValue,
@@ -23,14 +25,21 @@ describe('field override allow-list (AECI-1237)', () => {
     }
   });
 
-  it('leaves out the logo, the descriptions, usefulness and the facets', () => {
+  it('leaves out the logo, the descriptions and usefulness', () => {
     for (const field of ['logo_url', 'description']) {
       expect(isFieldOverrideField('vendor', field)).toBe(false);
       expect(isFieldOverrideField('product', field)).toBe(false);
     }
-    for (const field of ['usefulness', 'category_slugs', 'trade_slugs']) {
-      expect(isFieldOverrideField('product', field)).toBe(false);
+    expect(isFieldOverrideField('product', 'usefulness')).toBe(false);
+  });
+
+  it('offers the four taxonomy facets on a product only (AECI-1382)', () => {
+    for (const field of PRODUCT_FACET_OVERRIDE_FIELDS) {
+      expect(isFieldOverrideField('product', field)).toBe(true);
+      expect(isFacetOverrideField(field)).toBe(true);
+      expect(isFieldOverrideField('vendor', field)).toBe(false);
     }
+    expect(isFacetOverrideField('website')).toBe(false);
   });
 
   it('freezes mechanism_kind on a connector-powered row and a pair', () => {
@@ -54,6 +63,25 @@ describe('parseFieldOverrideValue', () => {
       ok: true,
       value: null,
     });
+  });
+
+  it('takes a facet as a sorted, de-duplicated slug set and refuses anything else', () => {
+    expect(parseFieldOverrideValue('product', 'category_slugs', ['mep', 'bim', 'mep'])).toEqual({
+      ok: true,
+      value: ['bim', 'mep'],
+    });
+    expect(parseFieldOverrideValue('product', 'trade_slugs', [])).toEqual({ ok: true, value: [] });
+    expect(parseFieldOverrideValue('product', 'category_slugs', 'bim').ok).toBe(false);
+    expect(parseFieldOverrideValue('product', 'category_slugs', null).ok).toBe(false);
+    expect(parseFieldOverrideValue('product', 'category_slugs', ['Not A Slug']).ok).toBe(false);
+    const eleven = Array.from({ length: 11 }, (_, i) => `term-${i}`);
+    expect(parseFieldOverrideValue('product', 'phase_slugs', eleven).ok).toBe(false);
+  });
+
+  it('refuses an array on a scalar field', () => {
+    expect(parseFieldOverrideValue('product', 'website', ['https://a.example']).ok).toBe(false);
+    expect(parseFieldOverrideValue('vendor', 'phone_number', []).ok).toBe(false);
+    expect(parseFieldOverrideValue('integration', 'name', ['x']).ok).toBe(false);
   });
 
   it('takes direction in the stored frame and keeps the required fields filled', () => {
@@ -82,6 +110,16 @@ describe('AdminSetFieldOverrideSchema', () => {
     const wrong = AdminSetFieldOverrideSchema.safeParse({ ...body, field: 'description' });
     expect(wrong.success).toBe(false);
     expect(wrong.error?.issues[0]?.path).toEqual(['field']);
+  });
+
+  it('accepts a slug array as the value of a facet lock', () => {
+    const parsed = AdminSetFieldOverrideSchema.safeParse({
+      ...body,
+      entityType: 'product',
+      field: 'trade_slugs',
+      value: ['mep'],
+    });
+    expect(parsed.success).toBe(true);
   });
 
   it('drops a blank internal note', () => {

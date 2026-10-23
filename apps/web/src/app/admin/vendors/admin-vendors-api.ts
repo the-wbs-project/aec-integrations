@@ -34,6 +34,7 @@ import type {
   AdminFieldOverridesResponse,
   AdminSetFieldOverrideInput,
   AdminReturnRecordsResponse,
+  TaxonomyResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -147,6 +148,14 @@ export class AdminVendorsApi {
         ...overrideReasonBody(input.reason, input.internalNote ?? ''),
       }),
     );
+  }
+
+  /**
+   * `GET /api/taxonomy`: the four facet vocabularies. The facet correction form
+   * (AECI-1382) lists a facet's terms from it and the lock list names a locked set.
+   */
+  getTaxonomy(): Promise<TaxonomyResponse> {
+    return firstValueFrom(this.http.get<TaxonomyResponse>('/api/taxonomy'));
   }
 
   /** `POST /api/admin/field-overrides/:id/lift` (AECI-1237). Same reason rule. */

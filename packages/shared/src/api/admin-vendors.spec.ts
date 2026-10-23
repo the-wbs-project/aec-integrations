@@ -369,6 +369,10 @@ describe('AdminVendorProductRowSchema', () => {
     review_count: 7,
     rating_overall_avg: 4.2,
     updated_at: '2026-08-20T00:00:00.000Z',
+    category_slugs: ['bim'],
+    audience_slugs: [],
+    phase_slugs: [],
+    trade_slugs: ['mep'],
   };
 
   it('accepts a row and keeps a withheld average as null', () => {

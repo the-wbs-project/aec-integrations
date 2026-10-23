@@ -27,7 +27,8 @@ import {
   type FieldOverrideField,
   type IntegrationEditField,
   type LockedField,
-  type ProductOverrideField,
+  type ProductColumnOverrideField,
+  type ProductFacetOverrideField,
   type VendorOverrideField,
 } from '@aeci/shared';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -67,23 +68,25 @@ export const VENDOR_OVERRIDE_COLUMNS = {
   github_org: 'githubOrg',
 } as const satisfies Record<VendorOverrideField, keyof typeof vendors.$inferSelect>;
 
-/** Wire field → Drizzle column key on `products`. */
+/** Wire field → Drizzle column key on `products`. The four taxonomy facets are not
+ *  here: a facet lock (AECI-1382) is a join rewrite, not a column. */
 export const PRODUCT_OVERRIDE_COLUMNS = {
   website: 'website',
   tool_integrations_url: 'toolIntegrationsUrl',
   api_docs_url: 'apiDocsUrl',
-} as const satisfies Record<ProductOverrideField, keyof typeof products.$inferSelect>;
+} as const satisfies Record<ProductColumnOverrideField, keyof typeof products.$inferSelect>;
 
-/** The Drizzle column key a lockable field writes on its entity's table. */
+/** The Drizzle column key a lockable field writes on its entity's table. Never called
+ *  for a product facet, which has no column (AECI-1382). */
 export function overrideColumn(
   entityType: FieldOverrideEntityType,
-  field: FieldOverrideField,
+  field: Exclude<FieldOverrideField, ProductFacetOverrideField>,
 ): string {
   switch (entityType) {
     case 'vendor':
       return VENDOR_OVERRIDE_COLUMNS[field as VendorOverrideField];
     case 'product':
-      return PRODUCT_OVERRIDE_COLUMNS[field as ProductOverrideField];
+      return PRODUCT_OVERRIDE_COLUMNS[field as ProductColumnOverrideField];
     case 'integration':
     case 'connector_evidenced_pair':
       return EDIT_FIELD_COLUMNS[field as IntegrationEditField];
@@ -249,22 +252,44 @@ export function isSentinelJsonAbort(error: unknown): boolean {
   return false;
 }
 
+/** Whether two slug lists hold the same terms, ignoring order and repeats. */
+function sameTermSet(sent: unknown, stored: readonly string[]): boolean {
+  if (!Array.isArray(sent)) return false;
+  const a = new Set(sent);
+  const b = new Set(stored);
+  if (a.size !== b.size) return false;
+  for (const slug of a) if (!b.has(slug)) return false;
+  return true;
+}
+
 /**
  * Screen a company or product PATCH body against the record's locks. A locked field
  * sent with the value already stored is dropped (it changes nothing, so it is not an
  * attempt to undo the correction); a locked field sent with a different value is
  * refused. Returns the body without the dropped fields, and the refused field names.
+ *
+ * A locked product facet (AECI-1382) compares as a set against `facets`, the stored
+ * slugs keyed by wire field: the same terms in another order are the same value. A
+ * locked field with neither a column nor a stored set is refused, so a caller that
+ * forgot to load the facets fails closed.
  */
 export function screenLockedPatch<T extends Record<string, unknown>>(
   payload: T,
   locks: readonly LockedField[],
   stored: Record<string, unknown>,
   columns: Readonly<Record<string, string>>,
+  facets?: Readonly<Record<string, readonly string[]>>,
 ): { payload: T; refused: string[] } {
   const next: Record<string, unknown> = { ...payload };
   const refused: string[] = [];
   for (const lock of locks) {
     if (!(lock.field in next)) continue;
+    const storedSet = facets?.[lock.field];
+    if (storedSet !== undefined) {
+      if (sameTermSet(next[lock.field], storedSet)) delete next[lock.field];
+      else refused.push(lock.field);
+      continue;
+    }
     const column = columns[lock.field];
     const current = column === undefined ? undefined : (stored[column] ?? null);
     if (current !== undefined && (next[lock.field] ?? null) === current) {

@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: October 22, 2026
+last_updated: October 23, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -94,6 +94,8 @@ Each has its own tab. Tick the terms that describe the product. Each tab explain
 - **Categories** are editable on every plan.
 - **Trades**, **Audiences** and **Phases** need Managed. On a Free product you can read the terms on record, and they stay published.
 
+AEC Integrations can also set a product's terms on one of these tabs and lock them. The terms then show "Set by AEC Integrations" with the reason, and you cannot tick or untick them. On the **Audiences** and **Phases** tabs you can still edit the "How teams use it" points. If AEC Integrations removes an audience or phase, the points you wrote under it are removed too.
+
 ### How teams use it
 
 On Managed, the **Audiences** and **Phases** tabs also let you say how each team uses the product. Under each term you tick, add up to 8 short points of up to 200 characters each. You can reorder and remove points.
@@ -115,7 +117,7 @@ Some company details are not shown on your public pages:
 
 ## Fields AEC Integrations set
 
-A field AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason. You cannot change it while it is locked. To dispute it, email support@aecintegrations.com and quote the reason. If you try to save a change to a field that was locked while you were editing, nothing is saved and the page asks you to reload. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
+A field AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason. This can be a link, a company detail, or the terms on a categories, trades, audiences or phases tab. You cannot change it while it is locked. To dispute it, email support@aecintegrations.com and quote the reason. If you try to save a change to a field that was locked while you were editing, nothing is saved and the page asks you to reload. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
 
 If something is wrong in a field you cannot edit, request a correction and we fix it.
 

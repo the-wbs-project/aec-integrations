@@ -15,6 +15,7 @@
 import {
   AdminFieldOverrideResponseSchema,
   AdminFieldOverridesResponseSchema,
+  AdminVendorProductsResponseSchema,
   ListVendorIntegrationsResponseSchema,
   ListVendorNotificationsResponseSchema,
   VendorMeResponseSchema,
@@ -29,9 +30,15 @@ import {
   fieldOverrides,
   integrationFieldChallenges,
   integrations,
+  productAudiences,
+  productCategories,
+  productTrades,
   productVendors,
   products,
   profiles,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -46,6 +53,7 @@ import {
   createLiftFieldOverrideHandler,
   createSetFieldOverrideHandler,
 } from './admin-field-overrides';
+import { createAdminVendorProductsHandler } from './admin-vendors';
 import {
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
@@ -176,6 +184,7 @@ function app(auth: Auth) {
   a.post('/api/admin/field-overrides', createSetFieldOverrideHandler(factory));
   a.post('/api/admin/field-overrides/:id/lift', createLiftFieldOverrideHandler(factory));
   a.get('/api/admin/vendors/:id/field-overrides', createAdminVendorFieldOverridesHandler(factory));
+  a.get('/api/admin/vendors/:id/products', createAdminVendorProductsHandler(factory));
   a.get('/api/vendor/me', createVendorMeHandler(factory));
   a.patch('/api/vendor/profile', createUpdateVendorProfileHandler(factory));
   a.patch('/api/vendor/products/:id', createUpdateVendorProductHandler(factory));
@@ -656,5 +665,300 @@ describe('GET /api/admin/vendors/:id/field-overrides', () => {
     // Never another vendor's locks.
     const other = await call(ADMIN, `/api/admin/vendors/${VENDOR_A}/field-overrides`, 'GET');
     expect(other.body.overrides).toEqual([]);
+  });
+});
+
+describe('a product facet lock (AECI-1382)', () => {
+  const CAT_BIM = uuid(60);
+  const CAT_STRUCT = uuid(61);
+  const TRADE_MEP = uuid(70);
+  const TRADE_STEEL = uuid(71);
+
+  beforeEach(async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: CAT_BIM, slug: 'bim', name: 'BIM' },
+      { id: CAT_STRUCT, slug: 'structural', name: 'Structural design' },
+    ]);
+    await t.db.insert(taxonomyTrades).values([
+      { id: TRADE_MEP, slug: 'mep', name: 'MEP', description: 'Mechanical, electrical, plumbing' },
+      { id: TRADE_STEEL, slug: 'steel', name: 'Steel', description: 'Structural steel' },
+    ]);
+    await t.db.insert(productCategories).values({ productId: P_REVIT, categoryId: CAT_BIM });
+    await t.db.insert(productTrades).values({ productId: P_REVIT, tradeId: TRADE_MEP });
+    await t.db.update(products).set({ updatedAt: CLAIMED_AT }).where(eq(products.id, P_REVIT));
+  });
+
+  const categoriesOf = async (productId: string) =>
+    (
+      await t.db
+        .select({ id: productCategories.categoryId })
+        .from(productCategories)
+        .where(eq(productCategories.productId, productId))
+    )
+      .map((r) => r.id)
+      .sort();
+  const lockCategories = (value: unknown) =>
+    correct({ entityType: 'product', entityId: P_REVIT, field: 'category_slugs', value });
+
+  it('rewrites the join, audits the sets, names the terms and purges the term pages', async () => {
+    const res = await lockCategories(['structural', 'bim', 'bim']);
+    expect(res.status).toBe(201);
+    expect(() => AdminFieldOverrideResponseSchema.parse(res.body)).not.toThrow();
+    expect(res.body.override).toMatchObject({
+      field: 'category_slugs',
+      value: ['bim', 'structural'],
+    });
+    expect(await categoriesOf(P_REVIT)).toEqual([CAT_BIM, CAT_STRUCT].sort());
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    // The nightly Algolia watermark reads `updated_at`. No maintenance transfer.
+    expect(product!.updatedAt > CLAIMED_AT).toBe(true);
+    expect(product!.maintainedBy).toBe('aeci');
+
+    const [audit] = await auditsFor('product.field_overridden');
+    expect(audit).toMatchObject({
+      productId: P_REVIT,
+      vendorId: VENDOR_A,
+      beforeState: { category_slugs: ['bim'] },
+      afterState: { category_slugs: ['bim', 'structural'] },
+    });
+    const [notice] = await auditsFor(NOTIFICATION_SENT_ACTION);
+    expect(notice!.metadata).toMatchObject({
+      field: 'category_slugs',
+      value: 'BIM, Structural design',
+    });
+    const feed = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+    expect(() => ListVendorNotificationsResponseSchema.parse(feed.body)).not.toThrow();
+    expect(feed.body.notifications[0]).toMatchObject({
+      field: 'category_slugs',
+      value: 'BIM, Structural design',
+    });
+
+    const tags = res.send.mock.calls.flatMap((c) => (c[0] as { tags?: string[] }).tags ?? []);
+    expect(tags).toEqual(
+      expect.arrayContaining([
+        'product:revit',
+        'index:products',
+        'category:bim',
+        'category:structural',
+      ]),
+    );
+    // No trade changed, so the publication-gated surfaces stay cached.
+    expect(tags).not.toContain('sitemap');
+    expect(tags).not.toContain('index:trades');
+  });
+
+  it('clears a facet with [] and a trade change purges the gated surfaces', async () => {
+    const res = await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'trade_slugs',
+      value: [],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.override.value).toEqual([]);
+    const trades = await t.db
+      .select()
+      .from(productTrades)
+      .where(eq(productTrades.productId, P_REVIT));
+    expect(trades).toEqual([]);
+    const [audit] = await auditsFor('product.field_overridden');
+    expect(audit).toMatchObject({
+      beforeState: { trade_slugs: ['mep'] },
+      afterState: { trade_slugs: [] },
+    });
+    const [notice] = await auditsFor(NOTIFICATION_SENT_ACTION);
+    expect((notice!.metadata as { value: unknown }).value).toBeNull();
+    const tags = res.send.mock.calls.flatMap((c) => (c[0] as { tags?: string[] }).tags ?? []);
+    expect(tags).toEqual(
+      expect.arrayContaining(['trade:mep', 'index:trades', 'taxonomy', 'sitemap']),
+    );
+  });
+
+  it('refuses an unknown slug, a scalar on a facet and an array on a link', async () => {
+    const unknown = await lockCategories(['bim', 'no-such-term']);
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error.field).toBe('value');
+    const scalar = await lockCategories('bim');
+    expect(scalar.status).toBe(400);
+    expect(scalar.body.error.field).toBe('value');
+    const arrayOnLink = await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'website',
+      value: ['https://revit.example'],
+    });
+    expect(arrayOnLink.status).toBe(400);
+    expect(arrayOnLink.body.error.field).toBe('value');
+    expect(await activeLocks()).toEqual([]);
+    expect(await categoriesOf(P_REVIT)).toEqual([CAT_BIM]);
+  });
+
+  it('refuses a facet lock on a product no vendor holds', async () => {
+    const res = await correct({
+      entityType: 'product',
+      entityId: P_ORPHAN,
+      field: 'category_slugs',
+      value: ['bim'],
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('FIELD_OVERRIDE_NOT_VENDOR_HELD');
+  });
+
+  it('refuses a vendor PATCH that changes the set, and drops one that resends it', async () => {
+    await lockCategories(['bim', 'structural']);
+    const refused = await call(AUTH_A, `/api/vendor/products/${P_REVIT}`, 'PATCH', {
+      category_slugs: ['bim'],
+      description: 'A new description.',
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('FIELD_LOCKED_BY_AECI');
+    expect(refused.body.error.details).toEqual({ fields: ['category_slugs'] });
+
+    const resent = await call(AUTH_A, `/api/vendor/products/${P_REVIT}`, 'PATCH', {
+      category_slugs: ['structural', 'bim'],
+      description: 'A new description.',
+    });
+    expect(resent.status).toBe(200);
+    expect(resent.body.product.category_slugs).toEqual(['bim', 'structural']);
+    expect(resent.body.product.locked_fields).toEqual([
+      expect.objectContaining({ field: 'category_slugs', reason: REASON }),
+    ]);
+    const [edit] = await auditsFor('product.updated');
+    expect((edit!.metadata as { fields: string[] }).fields).toEqual(['description']);
+    expect(edit!.afterState).not.toHaveProperty('category_slugs');
+  });
+
+  it('aborts a vendor facet save when the lock lands between its read and its batch', async () => {
+    factory = (env) => {
+      const handle = t.factory(env);
+      const batch = handle.db.batch.bind(handle.db);
+      handle.db.batch = (async (stmts: Parameters<typeof batch>[0]) => {
+        await t.db.insert(fieldOverrides).values({
+          entityType: 'product',
+          entityId: P_REVIT,
+          field: 'category_slugs',
+          value: ['bim'],
+          reason: REASON,
+          setAt: CLAIMED_AT,
+        });
+        return batch(stmts);
+      }) as unknown as typeof handle.db.batch;
+      return handle;
+    };
+    const res = await call(AUTH_A, `/api/vendor/products/${P_REVIT}`, 'PATCH', {
+      category_slugs: ['structural'],
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('FIELD_LOCKED_BY_AECI');
+    expect(res.body.error.details).toEqual({ fields: ['category_slugs'] });
+    expect(await categoriesOf(P_REVIT)).toEqual([CAT_BIM]);
+  });
+
+  it('keeps the set on a lift, and the vendor edits the facet again', async () => {
+    const set = await lockCategories(['structural']);
+    const lifted = await lift(set.body.override.id);
+    expect(lifted.status).toBe(200);
+    // A lift purges nothing and the join keeps AECi's set.
+    expect(lifted.send).not.toHaveBeenCalled();
+    expect(await categoriesOf(P_REVIT)).toEqual([CAT_STRUCT]);
+
+    const edit = await call(AUTH_A, `/api/vendor/products/${P_REVIT}`, 'PATCH', {
+      category_slugs: ['bim'],
+    });
+    expect(edit.status).toBe(200);
+    expect(await categoriesOf(P_REVIT)).toEqual([CAT_BIM]);
+  });
+
+  it('drops the "How teams use it" points of a removed audience, and keeps the rest', async () => {
+    const AUD_GC = uuid(80);
+    const AUD_OWNER = uuid(81);
+    await t.db.insert(taxonomyAudiences).values([
+      { id: AUD_GC, slug: 'general-contractors', name: 'General contractors' },
+      { id: AUD_OWNER, slug: 'owners', name: 'Owners' },
+    ]);
+    await t.db.insert(productAudiences).values([
+      { productId: P_REVIT, audienceId: AUD_GC },
+      { productId: P_REVIT, audienceId: AUD_OWNER },
+    ]);
+    const gc = {
+      slug: 'general-contractors',
+      name: 'General contractors',
+      points: ['Clash checks'],
+    };
+    const owner = { slug: 'owners', name: 'Owners', points: ['Handover models'] };
+    const phase = { slug: 'design', name: 'Design', points: ['Early massing'] };
+    await t.db
+      .update(products)
+      .set({ usefulness: { audiences: [gc, owner], phases: [phase] }, usefulnessSource: 'vendor' })
+      .where(eq(products.id, P_REVIT));
+
+    const res = await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'audience_slugs',
+      value: ['owners'],
+    });
+    expect(res.status).toBe(201);
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    expect(product!.usefulness).toEqual({ audiences: [owner], phases: [phase] });
+    // What remains is still the vendor's text.
+    expect(product!.usefulnessSource).toBe('vendor');
+    const [audit] = await auditsFor('product.field_overridden');
+    expect(audit).toMatchObject({
+      beforeState: { usefulness: { audiences: [gc, owner], phases: [phase] } },
+      afterState: { usefulness: { audiences: [owner], phases: [phase] } },
+    });
+  });
+
+  it('clears "How teams use it" to null when the removal empties it', async () => {
+    const AUD_GC = uuid(80);
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: AUD_GC, slug: 'general-contractors', name: 'General contractors' });
+    await t.db.insert(productAudiences).values({ productId: P_REVIT, audienceId: AUD_GC });
+    const gc = {
+      slug: 'general-contractors',
+      name: 'General contractors',
+      points: ['Clash checks'],
+    };
+    await t.db
+      .update(products)
+      .set({ usefulness: { audiences: [gc], phases: [] } })
+      .where(eq(products.id, P_REVIT));
+    const res = await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'audience_slugs',
+      value: [],
+    });
+    expect(res.status).toBe(201);
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    expect(product!.usefulness).toBeNull();
+  });
+
+  it('leaves "How teams use it" alone on a category correction', async () => {
+    const stored = {
+      audiences: [{ slug: 'owners', name: 'Owners', points: ['Handover models'] }],
+      phases: [],
+    };
+    await t.db.update(products).set({ usefulness: stored }).where(eq(products.id, P_REVIT));
+    await lockCategories(['structural']);
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    expect(product!.usefulness).toEqual(stored);
+    const [audit] = await auditsFor('product.field_overridden');
+    expect(audit!.beforeState).not.toHaveProperty('usefulness');
+  });
+
+  it("lists each product's current term slugs on the admin product roster", async () => {
+    const res = await call(ADMIN, `/api/admin/vendors/${VENDOR_A}/products`, 'GET');
+    expect(res.status).toBe(200);
+    expect(() => AdminVendorProductsResponseSchema.parse(res.body)).not.toThrow();
+    expect(res.body.data[0]).toMatchObject({
+      id: P_REVIT,
+      category_slugs: ['bim'],
+      audience_slugs: [],
+      phase_slugs: [],
+      trade_slugs: ['mep'],
+    });
   });
 });

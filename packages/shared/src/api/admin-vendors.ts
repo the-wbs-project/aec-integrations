@@ -376,6 +376,12 @@ export const AdminVendorProductRowSchema = z.object({
    *  statistically misleading sub-5 average is readable. */
   rating_overall_avg: z.number().nullable(),
   updated_at: z.string(),
+  /** The product's current term slugs per facet, sorted, read from the join tables
+   *  (AECI-1382). The facet correction form pre-ticks them. */
+  category_slugs: z.array(z.string()),
+  audience_slugs: z.array(z.string()),
+  phase_slugs: z.array(z.string()),
+  trade_slugs: z.array(z.string()),
 });
 export type AdminVendorProductRow = z.infer<typeof AdminVendorProductRowSchema>;
 

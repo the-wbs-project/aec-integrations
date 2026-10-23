@@ -134,16 +134,25 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
   test('editing the vendor profile saves through /api/vendor/profile', async ({ page }) => {
     await page.goto('/vendor');
     await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
+    // An attached tree is not a hydrated one. A click before hydration is a full
+    // document load of the Profile URL, and a fill during that page's hydration is
+    // reset to the seeded value, leaving Save disabled (PR #1047's CI run).
+    await waitForHydrationSettle(page);
 
     // Switch to the Profile tab and edit the description with a value that differs
     // from the current one every run (so Save is enabled and the PATCH fires).
     await section(page, 'Profile').click();
     const description = page.locator('#vendor-profile-description');
     await expect(description).toBeVisible();
-    await description.fill(`E2E vendor edit ${Date.now()}`);
+    await waitForHydrationSettle(page);
 
+    // Retry the edit, not just the read: a fill that lands before the form seeds is
+    // overwritten, and only a fresh fill recovers.
     const save = page.getByRole('button', { name: 'Save changes' });
-    await expect(save).toBeEnabled();
+    await expect(async () => {
+      await description.fill(`E2E vendor edit ${Date.now()}`);
+      await expect(save).toBeEnabled({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
     await save.click();
 
     // Optimistic + server-confirmed: the status message appears and the button

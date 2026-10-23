@@ -246,8 +246,9 @@ export class VendorDashboardPreview {
 
   /**
    * AECI-1237: `?locked=1` adds AECi field locks to the company (phone number) and to
-   * the first product (website), so the locked rendering of the profile and product
-   * forms can be reviewed and axe-scanned. Any fixture.
+   * the first product (website, and since AECI-1382 its categories), so the locked
+   * rendering of the profile and product forms and the Categories tab can be reviewed
+   * and axe-scanned. Any fixture.
    */
   private readonly locked = inject(ActivatedRoute).snapshot.queryParamMap.get('locked') === '1';
 
@@ -263,7 +264,7 @@ export class VendorDashboardPreview {
       ...me,
       vendor: { ...me.vendor, locked_fields: [lock('phone_number')] },
       products: me.products.map((p, i) =>
-        i === 0 ? { ...p, locked_fields: [lock('website')] } : p,
+        i === 0 ? { ...p, locked_fields: [lock('website'), lock('category_slugs')] } : p,
       ),
     };
   });

@@ -19,6 +19,8 @@ import {
 import {
   UpdateVendorProductSchema,
   VendorUsefulnessSchema,
+  lockedField,
+  type LockedField,
   type ProductUsefulness,
   type TaxonomyResponse,
   type TaxonomyTermWithCount,
@@ -32,6 +34,7 @@ import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { productCan } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
+import { VendorLockedNote } from './vendor-locked-note';
 
 /** The four taxonomy facets, each its own product tab (AECI-994). */
 export type ProductFacetKind = 'categories' | 'trades' | 'audiences' | 'phases';
@@ -148,6 +151,7 @@ interface PendingRemoval {
   selector: 'aec-vendor-product-facet-editor',
   imports: [
     VendorBulletListEditor,
+    VendorLockedNote,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -229,6 +233,14 @@ interface PendingRemoval {
         </p>
       }
 
+      @if (aeciLock(); as lock) {
+        <!--
+          AECI-1382 (section 11d.5): AEC Integrations corrected this facet and locked
+          it. A separate cause from the plan note above; when both apply, both show.
+        -->
+        <aec-vendor-locked-note [lock]="lock" [noteId]="aeciLockId()" />
+      }
+
       @if (taxonomy() === null) {
         <p class="text-sm text-(--text-secondary)" i18n="@@vendor.product.facet.loading">
           Loading options…
@@ -237,10 +249,7 @@ interface PendingRemoval {
         <div
           class="overflow-hidden rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)"
         >
-          <fieldset
-            class="border-0 p-0"
-            [attr.aria-describedby]="tagsEditable() ? null : lockedId()"
-          >
+          <fieldset class="border-0 p-0" [attr.aria-describedby]="termsDescribedBy()">
             <legend class="sr-only">{{ config().legend }}</legend>
             <ul>
               @for (row of rows(); track row.slug) {
@@ -325,6 +334,23 @@ interface PendingRemoval {
         }
         @if (validationMessage(); as msg) {
           <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ msg }}</p>
+        } @else if (saveLocked()) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@vendor.product.facet.saveLocked"
+          >
+            AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+            section to see the locked value.
+          </p>
+          <button
+            type="button"
+            [class]="secondaryButtonClass"
+            (click)="reloadSection()"
+            i18n="@@vendor.product.facet.saveLockedReload"
+          >
+            Reload this section
+          </button>
         } @else if (saved()) {
           <p
             class="text-sm font-medium text-(--accent-primary)"
@@ -428,6 +454,28 @@ export class VendorProductFacetEditor {
   /** The locked reason's id, for `aria-describedby` on the term list. */
   protected readonly lockedId = computed(() => `${this.idBase()}-locked`);
 
+  /**
+   * AECI-1382 (§11d.5): AECi's lock on this facet, when it corrected the term set.
+   * A separate axis from the plan gate: a plan lock says "part of Managed", an AECi
+   * lock says who set the terms and why. Only the terms lock; the "How teams use it"
+   * points stay editable, and `diff()` leaves an unchanged slug set out of the body.
+   */
+  protected readonly aeciLock = computed<LockedField | undefined>(() =>
+    lockedField(this.product().locked_fields, this.config().slugKey),
+  );
+  protected readonly aeciLockId = computed(() => `${this.idBase()}-aeci`);
+
+  /** The terms can be ticked: the plan allows it and AECi has not locked them. */
+  protected readonly termsEditable = computed(() => this.tagsEditable() && !this.aeciLock());
+
+  /** Every reason the term list is read-only, for its `aria-describedby`. */
+  protected readonly termsDescribedBy = computed(() => {
+    const ids: string[] = [];
+    if (!this.tagsEditable()) ids.push(this.lockedId());
+    if (this.aeciLock()) ids.push(this.aeciLockId());
+    return ids.length > 0 ? ids.join(' ') : null;
+  });
+
   /** Why the terms are read-only on this product (AECI-1218, §6.18). */
   protected readonly lockedReason = computed(() => {
     const narrativeLocked = this.config().narrative !== null && !this.narrativeEditable();
@@ -437,7 +485,7 @@ export class VendorProductFacetEditor {
   });
 
   /** Anything on this tab editable: drives Save and the read-only notice. */
-  protected readonly canEdit = computed(() => this.tagsEditable() || this.narrativeEditable());
+  protected readonly canEdit = computed(() => this.termsEditable() || this.narrativeEditable());
 
   /**
    * The facet heading's outline level (AECI-1122). A routed facet tab puts it
@@ -463,6 +511,8 @@ export class VendorProductFacetEditor {
   protected readonly saving = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
+  /** AECI-1382: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
+  protected readonly saveLocked = signal(false);
 
   protected readonly subLabelClass =
     'text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
@@ -628,7 +678,7 @@ export class VendorProductFacetEditor {
   }
 
   protected rowTogglable(row: FacetRow): boolean {
-    if (!this.tagsEditable() || this.taxonomy() === null) return false;
+    if (!this.termsEditable() || this.taxonomy() === null) return false;
     return row.checked || this.draftSlugs().size < MAX_TERMS_PER_FACET;
   }
 
@@ -699,6 +749,7 @@ export class VendorProductFacetEditor {
     if (this.saveDisabled()) return;
     this.saved.set(false);
     this.saveError.set(false);
+    this.saveLocked.set(false);
     const parsed = UpdateVendorProductSchema.safeParse(this.diff());
     if (!parsed.success) return;
     this.saving.set(true);
@@ -716,8 +767,9 @@ export class VendorProductFacetEditor {
         )
         .commit();
       this.saved.set(true);
-    } catch {
-      this.saveError.set(true);
+    } catch (err) {
+      if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
+      else this.saveError.set(true);
     } finally {
       this.saving.set(false);
     }
@@ -735,6 +787,7 @@ export class VendorProductFacetEditor {
   private touched(): void {
     this.saved.set(false);
     this.saveError.set(false);
+    this.saveLocked.set(false);
   }
 
   /** The draft slug set in vocabulary order, then unknown slugs. The server
@@ -751,6 +804,8 @@ export class VendorProductFacetEditor {
   private seed(p: VendorProduct): void {
     const { slugKey, narrative } = this.config();
     this.baseline.set(p);
+    // A reload after a refused save lands here with the lock in place.
+    this.saveLocked.set(false);
     this.draftSlugs.set(new Set(p[slugKey]));
     const groups: ProductUsefulness['audiences'] = narrative
       ? (p.usefulness?.[narrative] ?? [])
@@ -759,6 +814,12 @@ export class VendorProductFacetEditor {
       new Map(groups.map((g) => [g.slug, g.points.map((point) => newBullet(point))])),
     );
   }
+}
+
+/** The `code` from the API's `{ error: { code } }` envelope, read structurally. */
+function apiErrorCode(err: unknown): string | null {
+  const inner = (err as { error?: { error?: { code?: unknown } } } | null)?.error?.error;
+  return typeof inner?.code === 'string' ? inner.code : null;
 }
 
 /** Trimmed, non-empty point text, in order. */

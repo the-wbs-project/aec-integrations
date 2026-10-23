@@ -148,6 +148,10 @@ function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorP
     review_count: 7,
     rating_overall_avg: 4.2,
     updated_at: '2026-08-20T00:00:00.000Z',
+    category_slugs: [],
+    audience_slugs: [],
+    phase_slugs: [],
+    trade_slugs: [],
     ...over,
   };
 }

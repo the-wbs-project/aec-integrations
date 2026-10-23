@@ -1036,7 +1036,8 @@ export const productPhases = sqliteTable(
 // cost databases, templates, takeoff logic, or integrations). Horizontal platforms
 // (Procore, Autodesk Build, Bluebeam) carry ZERO rows here, and most of the catalog
 // will: TRADES_VOCABULARY.md §1.1 is the load-bearing constraint of the whole facet.
-// Rows are written ONLY by the promote flow (AECI-542), never by the taxonomy seed.
+// Rows are written by the promote flow (AECI-542), the vendor product PATCH (AECI-538)
+// and the AECi facet lock (AECI-1382), never by the taxonomy seed.
 export const productTrades = sqliteTable(
   'product_trades',
   {
@@ -2403,7 +2404,9 @@ export const fieldOverrides = sqliteTable(
     entityType: text('entity_type').notNull(),
     entityId: text('entity_id').notNull(),
     field: text('field').notNull(),
-    value: text('value', { mode: 'json' }).$type<string | number | null>(),
+    /** A facet lock (AECI-1382) stores its sorted slug array here. No migration:
+     *  the column was always JSON. */
+    value: text('value', { mode: 'json' }).$type<string | number | null | string[]>(),
     /** Shown to the vendor (AECI-1159's `reasonVisibility: 'vendor'` rule). */
     reason: text('reason').notNull(),
     /** Never shown to a vendor. */

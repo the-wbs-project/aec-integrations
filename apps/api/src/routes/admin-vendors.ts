@@ -148,6 +148,7 @@ import { liveInvitesFor, revokeInviteStatements } from '../lib/vendor-seat-invit
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
+import { NO_TAXONOMY, facetSlugs, loadTaxonomySlugs } from './vendor';
 import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
 import { liveLicenseCountSql, loadVendorLicenses } from '../lib/license';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
@@ -514,6 +515,13 @@ export function createAdminVendorProductsHandler(
       db.select({ value: count() }).from(productVendors).where(where),
     ]);
 
+    // AECI-1382: the facet correction form pre-ticks the product's current terms. Four
+    // reads for the page, from the join tables, never a cached public read.
+    const taxonomy = await loadTaxonomySlugs(
+      db,
+      rows.map((row) => row.id),
+    );
+
     const body: AdminVendorProductsResponse = {
       data: rows.map(
         (row): AdminVendorProductRow => ({
@@ -535,6 +543,7 @@ export function createAdminVendorProductsHandler(
           rating_overall_avg:
             row.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS ? row.ratingOverallAvg : null,
           updated_at: row.updatedAt,
+          ...facetSlugs(taxonomy.get(row.id) ?? NO_TAXONOMY),
         }),
       ),
       page: query.page,

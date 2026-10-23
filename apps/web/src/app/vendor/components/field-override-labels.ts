@@ -43,6 +43,15 @@ export function fieldOverrideLabel(field: string): string {
       return $localize`:@@fieldOverride.field.toolIntegrations:Integrations page`;
     case 'api_docs_url':
       return $localize`:@@fieldOverride.field.apiDocs:API documentation`;
+    // AECI-1382: the four taxonomy facets, under their vendor wire keys.
+    case 'category_slugs':
+      return $localize`:@@fieldOverride.field.categories:Categories`;
+    case 'audience_slugs':
+      return $localize`:@@fieldOverride.field.audiences:Audiences`;
+    case 'phase_slugs':
+      return $localize`:@@fieldOverride.field.phases:Phases`;
+    case 'trade_slugs':
+      return $localize`:@@fieldOverride.field.trades:Trades`;
     case 'name':
     case 'mechanism_kind':
     case 'mechanism_name':

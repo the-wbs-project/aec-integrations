@@ -1103,7 +1103,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.5',
     summary:
       'Tells a vendor that AECi corrected a field on a record it holds and locked it, with the new value and why.',
-    note: 'Goes to the vendor holding the record when the lock was set. None when no vendor holds it, which the route refuses anyway. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+    note: 'Goes to the vendor holding the record when the lock was set. None when no vendor holds it, which the route refuses anyway. Every plan, no tier rule. Carries the reason, never the internal note. On a product taxonomy facet (AECI-1382) the value is the term names joined by commas, and no value when AECi removed every term. Not pausable: a portal row, not email.',
   },
   'portal-field-lock-lifted-by-aeci': {
     channel: 'portal',

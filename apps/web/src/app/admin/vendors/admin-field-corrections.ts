@@ -17,11 +17,14 @@ import {
   AdminReasonSchema,
   OWNER_EDITABLE_MECHANISM_KINDS,
   fieldOverrideFieldsFor,
+  isFacetOverrideField,
   parseFieldOverrideValue,
   type AdminFieldOverride,
   type FieldOverrideEntityType,
   type FieldOverrideField,
   type FieldOverrideValue,
+  type ProductFacetOverrideField,
+  type TaxonomyResponse,
 } from '@aeci/shared';
 
 import { mechanismKindLabel } from '../../search/mechanism-labels';
@@ -41,10 +44,37 @@ export interface CorrectableRecord {
   /** A connector-powered integration or a pair: `mechanism_kind` is frozen there
    *  (AECI-1040 ruling 5), so the server refuses it and the picker leaves it out. */
   readonly connectorPowered?: boolean;
+  /** The product's current term slugs per facet, to pre-tick the terms control
+   *  (AECI-1382). Products only. */
+  readonly facets?: Readonly<Record<ProductFacetOverrideField, readonly string[]>>;
 }
 
-/** How a field's value is entered. */
-type ValueControl = 'text' | 'year' | 'ownership' | 'mechanism' | 'direction' | 'textarea';
+/** How a field's value is entered. `terms` is a facet's checklist (AECI-1382). */
+type ValueControl =
+  | 'text'
+  | 'year'
+  | 'ownership'
+  | 'mechanism'
+  | 'direction'
+  | 'textarea'
+  | 'terms';
+
+/** The largest term set a facet takes: the vendor rule (`termSlugList`). */
+export const MAX_FACET_TERMS = 10;
+
+/** Which `GET /api/taxonomy` list holds a facet's vocabulary. */
+const FACET_VOCABULARY: Readonly<Record<ProductFacetOverrideField, keyof TaxonomyResponse>> = {
+  category_slugs: 'categories',
+  audience_slugs: 'audiences',
+  phase_slugs: 'phases',
+  trade_slugs: 'trades',
+};
+
+/** One row of the terms checklist. */
+interface TermOption {
+  readonly slug: string;
+  readonly name: string;
+}
 
 /**
  * "Field corrections" on `/admin/vendors/:id` (AECI-1237 / `ADMIN_PANEL_SPEC.md` §5.7,
@@ -92,6 +122,14 @@ export class AdminFieldCorrections {
   protected readonly pending = signal(false);
   protected readonly formError = signal<string | null>(null);
   protected readonly reasonError = signal(false);
+  /** The ticked slugs when the field is a facet (AECI-1382). */
+  protected readonly terms = signal<ReadonlySet<string>>(new Set());
+
+  /** The four facet vocabularies, loaded once, on first need. */
+  private readonly taxonomy = signal<TaxonomyResponse | null>(null);
+  protected readonly taxonomyFailed = signal(false);
+  protected readonly taxonomyReady = computed(() => this.taxonomy() !== null);
+  private taxonomyLoad: Promise<void> | null = null;
 
   /** The lock whose lift form is open. */
   protected readonly liftFor = signal<string | null>(null);
@@ -119,6 +157,29 @@ export class AdminFieldCorrections {
 
   protected readonly control = computed<ValueControl>(() => controlFor(this.field()));
 
+  protected readonly maxTerms = MAX_FACET_TERMS;
+
+  /**
+   * The chosen facet's vocabulary, then any slug the product carries that the
+   * vocabulary does not list, labelled with its slug, so a correction never drops a
+   * term the admin cannot see.
+   */
+  protected readonly termOptions = computed<readonly TermOption[]>(() => {
+    const field = this.field();
+    if (!isFacetOverrideField(field)) return [];
+    const known = this.vocabularyFor(field);
+    const seen = new Set(known.map((t) => t.slug));
+    const extra = [...(this.record()?.facets?.[field] ?? []), ...this.terms()]
+      .filter((slug, i, all) => !seen.has(slug) && all.indexOf(slug) === i)
+      .map((slug) => ({ slug, name: slug }));
+    return [...known, ...extra];
+  });
+
+  protected readonly termCounter = computed(
+    () =>
+      $localize`:@@admin.fieldCorrections.terms.counter:${this.terms().size}:COUNT: of ${MAX_FACET_TERMS}:MAX: selected`,
+  );
+
   constructor() {
     afterNextRender(() => void this.loadLocks());
   }
@@ -129,6 +190,8 @@ export class AdminFieldCorrections {
     try {
       const res = await this.api.listFieldOverrides(this.vendorId());
       this.locks.set(res.overrides);
+      // A facet lock's value is a slug set; the vocabulary turns it into names.
+      if (res.overrides.some((lock) => Array.isArray(lock.value))) void this.loadTaxonomy();
     } catch {
       this.failed.set(true);
     } finally {
@@ -156,6 +219,7 @@ export class AdminFieldCorrections {
     this.recordKey.set('');
     this.field.set('');
     this.value.set('');
+    this.terms.set(new Set());
     this.reason.set('');
     this.internalNote.set('');
     this.formError.set(null);
@@ -183,6 +247,12 @@ export class AdminFieldCorrections {
             entityType: 'product',
             id: p.id,
             label: $localize`:@@admin.fieldCorrections.record.product:${p.name}:name: (product)`,
+            facets: {
+              category_slugs: p.category_slugs,
+              audience_slugs: p.audience_slugs,
+              phase_slugs: p.phase_slugs,
+              trade_slugs: p.trade_slugs,
+            },
           }),
         ),
         ...integrations.map((row): CorrectableRecord => {
@@ -212,11 +282,56 @@ export class AdminFieldCorrections {
     this.recordKey.set((event.target as HTMLSelectElement).value);
     this.field.set('');
     this.value.set('');
+    this.terms.set(new Set());
   }
 
   protected onField(event: Event): void {
-    this.field.set((event.target as HTMLSelectElement).value);
+    const field = (event.target as HTMLSelectElement).value;
+    this.field.set(field);
     this.value.set('');
+    // A facet starts from the product's current terms, so the admin unticks or
+    // ticks the difference rather than rebuilding the set.
+    this.terms.set(
+      isFacetOverrideField(field) ? new Set(this.record()?.facets?.[field] ?? []) : new Set(),
+    );
+    if (isFacetOverrideField(field)) void this.loadTaxonomy();
+  }
+
+  protected onTerm(slug: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.terms.update((set) => {
+      const next = new Set(set);
+      if (checked) next.add(slug);
+      else next.delete(slug);
+      return next;
+    });
+  }
+
+  /** At the cap, an unticked term cannot be ticked; a ticked one can always be
+   *  unticked, so a set promote stored over the cap can be brought back under it. */
+  protected termDisabled(slug: string): boolean {
+    return this.pending() || (!this.terms().has(slug) && this.terms().size >= MAX_FACET_TERMS);
+  }
+
+  /** Loads the vocabulary once. A failure leaves the slugs as labels and says so. */
+  protected loadTaxonomy(): Promise<void> {
+    if (this.taxonomy()) return Promise.resolve();
+    this.taxonomyLoad ??= this.api
+      .getTaxonomy()
+      .then((t) => {
+        this.taxonomy.set(t);
+        this.taxonomyFailed.set(false);
+      })
+      .catch(() => {
+        this.taxonomyFailed.set(true);
+        this.taxonomyLoad = null;
+      });
+    return this.taxonomyLoad;
+  }
+
+  private vocabularyFor(field: ProductFacetOverrideField): readonly TermOption[] {
+    const t = this.taxonomy();
+    return t ? t[FACET_VOCABULARY[field]] : [];
   }
 
   protected onValue(event: Event): void {
@@ -244,7 +359,19 @@ export class AdminFieldCorrections {
     }
     const raw = this.value().trim();
     const value: FieldOverrideValue =
-      raw === '' ? null : this.control() === 'year' ? Number(raw) : raw;
+      this.control() === 'terms'
+        ? [...this.terms()]
+        : raw === ''
+          ? null
+          : this.control() === 'year'
+            ? Number(raw)
+            : raw;
+    if (this.control() === 'terms' && this.terms().size > MAX_FACET_TERMS) {
+      this.formError.set(
+        $localize`:@@admin.fieldCorrections.error.tooManyTerms:Too many terms are ticked. Untick some to get back under ${MAX_FACET_TERMS}:MAX:.`,
+      );
+      return;
+    }
     const parsed = parseFieldOverrideValue(record.entityType, field, value);
     if (!parsed.ok) {
       this.formError.set(
@@ -269,6 +396,18 @@ export class AdminFieldCorrections {
         internalNote: this.internalNote(),
       });
       this.locks.update((list) => [res.override, ...list]);
+      // A facet's set is now AECi's: the next correction on this page (after a lift)
+      // pre-ticks it, not the set loaded before this one (AECI-1382).
+      if (isFacetOverrideField(field) && Array.isArray(parsed.value)) {
+        const slugs = parsed.value;
+        this.records.update((list) =>
+          list.map((r) =>
+            r.key === record.key && r.facets
+              ? { ...r, facets: { ...r.facets, [field]: slugs } }
+              : r,
+          ),
+        );
+      }
       this.formOpen.set(false);
       this.resetForm();
       this.announce.emit(
@@ -352,7 +491,15 @@ export class AdminFieldCorrections {
     }
   }
 
-  protected valueLabel(value: FieldOverrideValue): string {
+  protected valueLabel(lock: AdminFieldOverride): string {
+    const { value, field } = lock;
+    if (Array.isArray(value)) {
+      if (value.length === 0) return $localize`:@@admin.fieldCorrections.value.noTerms:No terms`;
+      const names = new Map(
+        isFacetOverrideField(field) ? this.vocabularyFor(field).map((t) => [t.slug, t.name]) : [],
+      );
+      return value.map((slug) => names.get(slug) ?? slug).join(', ');
+    }
     return value === null
       ? $localize`:@@admin.fieldCorrections.value.cleared:Cleared`
       : String(value);
@@ -427,7 +574,7 @@ function controlFor(field: string): ValueControl {
     case 'description':
       return 'textarea';
     default:
-      return 'text';
+      return isFacetOverrideField(field) ? 'terms' : 'text';
   }
 }
 
