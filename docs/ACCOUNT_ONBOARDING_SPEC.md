@@ -220,9 +220,9 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
   filled in from this. You can change any of it on your account page." It works for a vendor and a
   reviewer alike.
 - **Layout (AECI-987).** The 7xl canvas with the form + context rail (`DESIGN.md` §5 → Layout shells).
-  The rail says the role and firm fill in review forms (§8), that the answers stay private (§9), and
-  that any answer can be changed later on `/account`. It has no link: leaving would drop the
-  answers, and Skip is the way out.
+  The rail says the role and firm fill in review forms (§8), that the firm name stays private
+  while the role shows on published reviews (§9), and that any answer can be changed later on
+  `/account`. It has no link: leaving would drop the answers, and Skip is the way out.
 
 ### 7.2 `/account`
 

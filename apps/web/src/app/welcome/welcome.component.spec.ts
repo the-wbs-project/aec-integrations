@@ -280,7 +280,8 @@ describe('WelcomePage canvas and context rail (AECI-987)', () => {
     const { el } = await setup();
     const rail = el.querySelector('[data-testid="context-rail"]')!;
     expect(rail.textContent).toContain('Your role and firm fill in your review forms');
-    expect(rail.textContent).toContain('No public page shows them');
+    expect(rail.textContent).toContain('Your firm name stays private');
+    expect(rail.textContent).toContain('Your role shows on reviews you publish');
     expect(rail.textContent).toContain('on your account page');
     expect(rail.querySelector('a')).toBeNull();
   });

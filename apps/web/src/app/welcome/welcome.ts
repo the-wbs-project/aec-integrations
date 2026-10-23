@@ -128,7 +128,9 @@ export function welcomeNextPath(raw: string | null): string {
               Your role and firm fill in your review forms. You can still change them on each
               review.
             </li>
-            <li i18n="@@welcome.rail.private">They stay private. No public page shows them.</li>
+            <li i18n="@@welcome.rail.private">
+              Your firm name stays private. Your role shows on reviews you publish.
+            </li>
             <li i18n="@@welcome.rail.edit">
               You can change or clear any answer later on your account page.
             </li>
