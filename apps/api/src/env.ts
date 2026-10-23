@@ -187,8 +187,9 @@ export type Env = {
    *
    * Optional + fail-safe: absent → email reads degrade to `null`, claim resolution
    * reports `unavailable`, and the erasure `auth.users` delete is SKIPPED (the D1
-   * erasure still commits, but the auth row survives; the skip is currently
-   * unlogged — see the §8 note in `AUTH_AND_RLS.md`, tracked as AECI-531).
+   * erasure still commits, but the auth row survives). Since AECI-531 the skip
+   * logs at error and counts `aeci.account.erasure.auth_delete`
+   * `outcome:skipped_no_creds` (`AUTH_AND_RLS.md` §8 step 4).
    */
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**

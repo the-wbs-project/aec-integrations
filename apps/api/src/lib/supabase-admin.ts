@@ -169,7 +169,12 @@ export interface DeleteAuthUserResult {
  */
 export async function deleteAuthUser(env: Env, userId: string): Promise<DeleteAuthUserResult> {
   const cfg = adminConfig(env);
-  if (!cfg) return { ok: true, skipped: true };
+  if (!cfg) {
+    // The D1 erasure already committed, so the auth identity is now orphaned.
+    // The route turns this into an error log and a metric (AECI-531).
+    warnSeam('deleteAuthUser', 'no_credentials', 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
+    return { ok: true, skipped: true };
+  }
   try {
     const res = await fetch(`${cfg.url}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
@@ -180,9 +185,13 @@ export async function deleteAuthUser(env: Env, userId: string): Promise<DeleteAu
       discardResponseBody(res); // Nothing to read; release the connection (AECI-666).
       return { ok: true, status: res.status };
     }
-    return { ok: false, status: res.status, error: await res.text().catch(() => '') };
+    const error = await res.text().catch(() => '');
+    warnSeam('deleteAuthUser', `http_${res.status}`, error);
+    return { ok: false, status: res.status, error };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    warnSeam('deleteAuthUser', 'error', message);
+    return { ok: false, error: message };
   }
 }
 

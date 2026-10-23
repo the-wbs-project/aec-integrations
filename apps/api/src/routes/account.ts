@@ -97,7 +97,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { logToPosthog } from '../posthog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -107,7 +107,10 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { sendAccountDeletionEmail } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
-import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
+import {
+  deleteAuthUser as deleteAuthUserDefault,
+  type DeleteAuthUserResult,
+} from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
   planOwnerSeatLapse,
@@ -457,6 +460,22 @@ async function planErasureSeatLoss(
   return { vendorId, outcome, follow };
 }
 
+/**
+ * What happened to the `auth.users` row after an erasure (seam #3, AECI-531).
+ *
+ * `skipped_no_creds` and `failed` both leave the person's sign-in identity behind
+ * after their D1 data is gone. Until AECI-531 a skip reported `ok: true` and logged
+ * nothing, so every erasure made before AECI-530 provisioned the key left an
+ * orphan that no signal could find (`AUTH_AND_RLS.md` §8 step 4).
+ */
+export type AuthDeleteOutcome = 'deleted' | 'already_gone' | 'skipped_no_creds' | 'failed';
+
+export function authDeleteOutcome(result: DeleteAuthUserResult): AuthDeleteOutcome {
+  if (result.skipped) return 'skipped_no_creds';
+  if (!result.ok) return 'failed';
+  return result.status === 404 ? 'already_gone' : 'deleted';
+}
+
 export function createDeleteAccountHandler(
   dbFor: DbFactory = getDb,
   deleteAuthUser: typeof deleteAuthUserDefault = deleteAuthUserDefault,
@@ -654,14 +673,26 @@ export function createDeleteAccountHandler(
     }
 
     // Seam #3: delete the auth.users row over the GoTrue Admin API. The D1 data is
-    // already erased (GDPR-met); a failure here is logged, not fatal.
+    // already erased, so nothing here is fatal. A skip or a failure leaves the
+    // sign-in identity behind, so both log at error and every outcome is counted
+    // (AECI-531). The log carries the user id, the same id the `account.deleted`
+    // audit row holds: it is the orphan list `RUNBOOKS.md` cleans up from. The
+    // metric carries no id. No email or display name goes to either.
     const authResult = await deleteAuthUser(c.env, userId);
-    if (!authResult.ok) {
+    const authOutcome = authDeleteOutcome(authResult);
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.account.erasure.auth_delete', 1, [
+      `outcome:${authOutcome}`,
+    ]);
+    if (authOutcome === 'skipped_no_creds' || authOutcome === 'failed') {
       logToPosthog(c.executionCtx, c.env, c.req.raw, {
-        level: 'warn',
-        message: 'account.deleted: auth.users delete failed (D1 data already erased)',
+        level: 'error',
+        message:
+          authOutcome === 'skipped_no_creds'
+            ? 'account.deleted: auth.users delete skipped, no service-role key (D1 data already erased)'
+            : 'account.deleted: auth.users delete failed (D1 data already erased)',
         source: 'account',
         user_id: userId,
+        outcome: authOutcome,
         status: authResult.status,
         reason: authResult.error,
       });

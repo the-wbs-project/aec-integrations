@@ -111,6 +111,11 @@ inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused
 same reason.** It watches `aeci.auth.profile_ensure` failures, a metric AECI-770 added.
 Runbook: [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in).
 
+**`erasure-auth-delete-orphaned` (AECI-531) sits outside the table for the same reason.** It
+watches `aeci.account.erasure.auth_delete`, a metric AECI-531 added. It is committed and goes live
+on the next `apply.sh` run against production.
+Runbook: [Erasure left an `auth.users` row behind](#erasure-left-an-authusers-row-behind).
+
 **Three email alerts (AECI-1206) sit outside the table too**: `email-failure-rate`,
 `email-volume-spike` and `email-suppressed-in-production`. They watch `aeci.email.send`.
 Thresholds and their basis: `observability/posthog/README.md`. First look:
@@ -2050,6 +2055,97 @@ a failure during a seating as blocking.
 The alert clears on the first hourly check with no failed ensures. A user who was stuck
 recovers on their next `GET /api/account`, with no operator step. If one does not, read their
 row in D1 before touching anything. An erased account is refused on purpose.
+
+---
+
+## Erasure left an `auth.users` row behind
+
+**Signal:** the PostHog alert *"AECi — Account erasure left a sign-in record behind (any, 1 h)"*
+(`observability/posthog/alerts.json` → `erasure-auth-delete-orphaned`, hourly, AECI-531). Its
+label column names the outcome: `skipped_no_creds`, `failed`, or both. Each erasure also writes
+an error log on the API Worker. The message starts `account.deleted: auth.users delete`, and
+its `user_id` field is the id to clean up.
+
+**What it means:** someone deleted their account. `DELETE /api/account` erased their D1 data,
+then could not delete their Supabase `auth.users` row (seam #3, `AUTH_AND_RLS.md` §8 step 4).
+Their email, provider links and sign-in history are still held, and the sign-in itself still
+works. The erasure is not complete until the row is gone.
+
+- `skipped_no_creds`: the API Worker has no `SUPABASE_SERVICE_ROLE_KEY`. Every erasure on that
+  tier will orphan a row until the key is back.
+- `failed`: GoTrue refused the delete or did not answer within 5 s. Usually one row.
+
+### Triage
+
+1. **Collect the ids.** Filter the API Worker's PostHog logs for the message above over the
+   alert window. Note each `user_id` and the time.
+2. **On `skipped_no_creds`, restore the key first.** The key is a single shared GitHub secret
+   pushed to the API Worker by `deploy.yml` and `promote-to-{demo,prod}.yml` (AECI-530). Run
+   `wrangler secret list --env production` from `apps/api` and confirm
+   `SUPABASE_SERVICE_ROLE_KEY` is listed. If it is not, re-run the promote, which re-pushes it.
+3. **Load the service-role key into your shell.** `apps/api/.dev.vars` holds the live key for
+   the one shared auth project (ADR 0017). From the repo root:
+
+```bash
+set -a; . apps/api/.dev.vars; set +a
+```
+
+4. **Check the row still exists.** Set `ORPHAN_ID` to one `user_id`, then run the request below.
+   A `404` means the row is already gone and there is nothing to do for that id.
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' "$SUPABASE_URL/auth/v1/admin/users/$ORPHAN_ID" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+5. **Check no tier still uses the id.** One auth project backs staging, demo and production. An
+   account erased on staging may still be someone's live production login, and deleting the
+   auth row would sign them out everywhere. Run each read from `/tmp`, not the repo, so the
+   bare names resolve to the live databases. Production is `aeci-app-production-us`; the bare
+   `aeci-app-production` is the retired copy and returns nothing.
+
+```bash
+cd /tmp && for DB in aeci-app-production-us aeci-app-demo aeci-app-staging; do npx wrangler d1 execute "$DB" --remote --command "SELECT '$DB' AS db, id FROM profiles WHERE id = '$ORPHAN_ID'"; done
+```
+
+   Any row returned means **stop**: that person still has an account on that tier. Record the
+   id on the issue and leave the auth row alone.
+
+6. **Delete the auth row.** Only when step 4 answered `200` and step 5 returned no rows. A
+   `200` or `204` is success.
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$ORPHAN_ID" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+7. **Prove it.** Re-run step 4. It must answer `404`.
+
+### Orphans from before the signal existed
+
+Two windows left orphans that no log or metric recorded. Before AECI-530 no deployed API Worker
+had the key, so every erasure was skipped. Before AECI-531 a skip logged nothing. That set is
+found only by reconciliation:
+
+1. Read every erasure on every tier. `audit_log` is never pruned
+   (`apps/api/src/lib/retention-prune.ts`), so this list is complete.
+
+```bash
+cd /tmp && for DB in aeci-app-production-us aeci-app-demo aeci-app-staging; do npx wrangler d1 execute "$DB" --remote --command "SELECT '$DB' AS db, entity_id, created_at FROM audit_log WHERE action = 'account.deleted' ORDER BY created_at"; done
+```
+
+2. Drop every id that still has a `profiles` row on **any** tier (step 5 above).
+3. Run step 4 on each id left. A `200` is a confirmed orphan.
+4. Post the confirmed ids and erasure dates on the tracking issue, and get the operator's go-ahead.
+5. Run steps 6 and 7 for each.
+
+Match on the `account.deleted` row, never on a missing profile. An auth user with no `profiles`
+row anywhere is usually a person who signed up and never finished the first sign-in, not an
+erasure.
+
+### Confirming it is fixed
+
+The alert clears on the first hourly check with no skipped or failed deletes. On
+`skipped_no_creds`, also erase one throwaway account on staging after restoring the key, and
+check the series records `outcome:deleted`.
 
 ---
 

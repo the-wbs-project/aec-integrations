@@ -207,7 +207,7 @@ not control that fan-out.
 | `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts), and POST /api/requests/confirm for an anonymous claim (routes/request-confirmations.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email. |
 | `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled and comments the reason. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts) | `any-tier` | None. Each resolve or reject pushes once. | `none` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email. |
 
-## Monitoring alerts (not product notifications, 21)
+## Monitoring alerts (not product notifications, 22)
 
 These PostHog alerts tell the operator about the system, not a person about an event in
 the product, so they are not registry entries. They are defined in
@@ -227,6 +227,7 @@ governs them.
 | `email-failure-rate` | AECi — Emails failing to send (> 20% over 24 h, at least 2 failed) | daily |
 | `email-suppressed-in-production` | AECi — Live site held back an email (any, 1 h) | hourly |
 | `email-volume-spike` | AECi — Far more emails than usual (> 50 in 24 h) | daily |
+| `erasure-auth-delete-orphaned` | AECi — Account erasure left a sign-in record behind (any, 1 h) | hourly |
 | `indexnow-failure-rate` | AECi — Search-engine pings refused (> 90% over 72 h) | daily |
 | `linear-pipeline-failure` | AECi — Linear pipeline failure rate > 50% (1 h) | hourly |
 | `pageviews-raw-unsent` | AECi — Raw page-view store missed a capture (any, 1 h) | hourly |
