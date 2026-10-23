@@ -162,11 +162,14 @@ Each transition is a test:
 
 ### Audit logging
 
-Any change that calls `appendAuditLog()` must include a test asserting:
+Any change that writes domain state builds its audit row with `auditInsert()` (and `workflowTransitionInsert()` for a workflow step) from `apps/api/src/lib/audit.ts`. Both return a statement that goes into the same `db.batch([...])` as the mutation. The test must assert:
 
-- The log entry was created
+- The batch carries both statements. Drive the route against the real D1 harness, then read `audit_log` (and `workflow_transitions`) back alongside the mutated row. `routes/reviews.spec.ts` is the pattern.
 - `action`, `entity_type`, `entity_id`, and `actor_id` are correct
 - For updates: `before_state` and `after_state` contain the changed fields
+- For a guarded write (`auditInsertWhere`, or an `UPDATE … WHERE <expected>`): a request that matches no row writes no audit row
+
+You do not need to re-prove atomicity per route. `apps/api/src/test/d1.spec.ts` pins that a failing batch rolls back both the mutation and its audit row. Do not assert the forward. `forwardAuditLog` runs after commit via `ctx.waitUntil` and fails open, so it is not the audit guarantee.
 
 This is non-negotiable. Audit logging silently failing is one of the worst possible bugs for this product.
 

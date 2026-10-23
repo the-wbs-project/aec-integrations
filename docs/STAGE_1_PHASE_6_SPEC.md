@@ -15,7 +15,7 @@ The forms that *create* requests already shipped (Phase 2 / AECI-128); Phase 6 b
 ## 2. Inputs from earlier phases — what exists (do NOT rebuild)
 
 - **Request forms + write path** (AECI-128): `POST /api/requests/claim` and `/correction` insert `vendor_requests` rows with `status='open'`, `domain_match='pending'`, `linear_issue_id=null` — "for the Phase 6 pipeline to pick up."
-- **Tables**: `vendor_requests`, `workflow_instances`, `workflow_transitions` all exist (baseline migration). `appendAuditLog()` already supports `actorType: 'workflow'`. **Zero migrations in Phase 6.**
+- **Tables**: `vendor_requests`, `workflow_instances`, `workflow_transitions` all exist (baseline migration). `auditInsert()` (`apps/api/src/lib/audit.ts`) already supports `actorType: 'workflow'`. **Zero migrations in Phase 6.**
 - **Phase 5 dependencies**: the user-session authz middleware (`requireAdmin`, AECI-196), the `/admin` route guard + shell (AECI-203), and the review-moderation queue driven off `review.status` (AECI-204). Phase 6 builds **on** the Phase 5 admin surface.
 - **Contracts already specified**: `GET /api/admin/requests` (`API_CONTRACTS.md` §6.10), `POST /api/webhooks/linear` + `LinearWebhookSchema` (§6.11). The workflow tables + types are in `STAGE_1_SPEC.md` §26.2–26.4.
 - **Nothing built yet**: no Linear client, no webhook, **no Slack anywhere**, no n8n wiring, no workflow-tracking code, no domain-match logic, no `/api/admin/*`, no request dedup.
@@ -56,7 +56,7 @@ Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied c
 
 - **`workflow_instances`** — create one per `vendor_request` (`workflow_type` `vendor_claim` | `correction_request`) and per `review` (`review_moderation`). Store `current_state` (mirrors the entity's `status`) + `linear_issue_id` (vendor requests only — `review_moderation` has no Linear issue).
 - **`workflow_transitions`** — append-only history (`from_state`, `to_state`, `actor_id`, `reason`, `metadata`), written on **every** status change and by the inbound Linear webhook (`actor_type: 'workflow'`).
-- **`appendWorkflowTransition()`** helper, mirroring `appendAuditLog()`. **No guarded state machine** — transitions are *recorded*, not *enforced* (Stage-1 relaxation of §26.3). Both tables forward to the log plane (§26.5 — Datadog today, PostHog under ADR 0024; the injected-forwarder seam makes it a wiring change).
+- **`workflowTransitionInsert()`** batch builder, the sibling of `auditInsert()` in `apps/api/src/lib/audit.ts`. **No guarded state machine** — transitions are *recorded*, not *enforced* (Stage-1 relaxation of §26.3). Both rows forward to PostHog Logs after the batch commits (§26.5, ADR 0024).
 
 ---
 
@@ -213,7 +213,7 @@ Per §22.5: a correction request routes to Linear + the admin dashboard; the adm
 
 ### 8.1 `GET /api/admin/requests` + actions
 
-Per `API_CONTRACTS.md` §6.10. `requireAdmin` (Phase 5 / AECI-196). `ListVendorRequestsQuerySchema` (`kind?`, `status` `open|resolved|rejected`, paginated). Plus **resolve/reject actions** → set `status` + `resolved_by`/`resolved_at`, trigger the §6.5 site→Linear sync, write a `workflow_transition` + `appendAuditLog()`.
+Per `API_CONTRACTS.md` §6.10. `requireAdmin` (Phase 5 / AECI-196). `ListVendorRequestsQuerySchema` (`kind?`, `status` `open|resolved|rejected`, paginated). Plus **resolve/reject actions** → set `status` + `resolved_by`/`resolved_at`, trigger the §6.5 site→Linear sync, write a `workflowTransitionInsert()` + `auditInsert()` in the same batch.
 
 ### 8.2 `/admin/requests` UI
 
@@ -235,7 +235,7 @@ Under the Phase 5 admin shell (AECI-203). Lists claims/corrections with: submitt
 
 ## 9. Reviewer ban management
 
-Per §22.3. The admin UI gains an action to set `profiles.banned_at` + `ban_reason` (enforcement — rejecting a banned user's review submit — already lands in Phase 5 / AECI-197). **Repeat-offender prompt:** when a reviewer's **3rd** review is rejected, surface a "consider a ban" prompt to the admin (not automatic). Every ban writes `appendAuditLog()` + a `workflow_transition`.
+Per §22.3. The admin UI gains an action to set `profiles.banned_at` + `ban_reason` (enforcement — rejecting a banned user's review submit — already lands in Phase 5 / AECI-197). **Repeat-offender prompt:** when a reviewer's **3rd** review is rejected, surface a "consider a ban" prompt to the admin (not automatic). Every ban writes an `auditInsert()` row + a `workflowTransitionInsert()` row in the same batch as the ban.
 
 ---
 
@@ -284,7 +284,7 @@ Phase 6 leaves for Phase 7: **Resend** transactional email (the permanent home o
 | # | Issue | Depends on |
 |---|---|---|
 | 6.1 | Write this spec + reconcile §12 / §22.1 / §26.3 / §16 / CLAUDE.md | — |
-| 6.2 | Lean workflow tracking — `appendWorkflowTransition()` + instances on request/review submit | 6.1 |
+| 6.2 | Lean workflow tracking — `workflowTransitionInsert()` + instances on request/review submit | 6.1 |
 | 6.3 | Retrofit `review_moderation` transitions onto Phase-5 review submit + moderation | 6.2, (Phase 5 AECI-197/204) |
 | 6.4 | Linear client + issue creation on submit (templates, labels, assignee, idempotent) + failure handling | 6.2 |
 | 6.5 | `POST /api/webhooks/linear` (HMAC → `workflow_transitions` + status) | 6.2 |

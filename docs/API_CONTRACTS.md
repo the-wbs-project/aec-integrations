@@ -1860,7 +1860,7 @@ That split is exactly what `navigation` records, and each writer states its own 
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
-**No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built — the name survives in older docs only.)
+**No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built. The name survives only in dated ADR text and completion records.)
 
 #### `POST /api/activity/arrival`
 
