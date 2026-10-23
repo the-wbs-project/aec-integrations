@@ -482,4 +482,60 @@ describe('AccountPage', () => {
       'Company size, audiences and firm name were removed from the form. The role list now shows software company roles.',
     );
   });
+
+  // ── AECI-987: the 7xl canvas, the section nav, the section order ──────────
+  it('sits on the 7xl canvas with a sticky section nav of absolute links from lg', async () => {
+    const { el } = await setup();
+    const canvas = el.querySelector('[data-testid="page-canvas"]');
+    expect(canvas?.classList).toContain('max-w-7xl');
+    expect(canvas?.classList).not.toContain('max-w-2xl');
+
+    const nav = el.querySelector('nav[data-testid="account-nav"]')!;
+    expect(nav.getAttribute('aria-label')).toBe('Account sections');
+    // Sticky on the grid child itself, so it travels the full grid row.
+    expect(nav.classList).toContain('lg:sticky');
+    expect(nav.parentElement?.classList).toContain('lg:grid-cols-12');
+    // Absolute hrefs: a bare "#id" resolves against <base href="/"> to the home page.
+    const hrefs = Array.from(nav.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/account#profile',
+      '/account#about-you',
+      '/account#your-reviews',
+      '/account#delete-account',
+    ]);
+    for (const href of hrefs) {
+      const target = el.querySelector(`#${href!.split('#')[1]}`);
+      expect(target, href!).not.toBeNull();
+      expect(target?.classList, href!).toContain('scroll-mt-8');
+    }
+  });
+
+  it('keeps the section order (card, profile, about you, reviews, delete) and caps the inputs', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'pending' });
+    const { el } = await setup(api);
+    const order = [
+      '[data-testid="onboarding-card"]',
+      '#profile',
+      '#about-you',
+      '#your-reviews',
+      '#delete-account',
+    ].map((sel) => el.querySelector(sel)!);
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    // About you sits under the display name, inside the Profile panel.
+    expect(el.querySelector('#profile')?.contains(el.querySelector('#about-you'))).toBe(true);
+    // The controls keep a form measure while the panel takes the column.
+    expect(el.querySelector('#account-display-name')?.closest('.max-w-2xl')).not.toBeNull();
+  });
+
+  it("puts each review row's date beside its status badge", async () => {
+    const { el } = await setup();
+    const date = el.querySelector('[data-testid="account-review-date"]')!;
+    expect(date.nextElementSibling?.tagName).toBe('AEC-REVIEW-STATUS-BADGE');
+    expect(date.textContent).toContain('Submitted');
+  });
 });

@@ -1,6 +1,9 @@
+<!-- AECI-987: the standard 7xl canvas. Reading measure lives on the prose
+     blocks and the form controls, never on the page shell. -->
 <section
-  class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24"
+  class="mx-auto w-full max-w-7xl px-6 py-8 text-(--text-primary) md:px-8 md:py-12"
   aria-labelledby="account-title"
+  data-testid="page-canvas"
 >
   <p class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)" i18n="@@account.eyebrow">
     Account
@@ -58,367 +61,424 @@
     </a>
   </div>
   } @else if (profile(); as p) {
-  <div class="mt-10 space-y-10">
-    @if (showOnboardingCard()) {
-    <!-- ── Onboarding prompt (AECI-1296) ───────────────────────────────────── -->
-    <div
-      class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-6"
-      role="region"
-      aria-labelledby="account-onboarding-heading"
-      data-testid="onboarding-card"
+  <!-- From lg: a sticky section nav in columns 1 to 3, the sections in 4 to 12.
+       The nav is a direct grid child, so its sticky box travels the full height
+       of the grid row. Its links are absolute hrefs: a bare "#id" resolves
+       against <base href="/"> and lands on the home page. -->
+  <div class="mt-10 lg:grid lg:grid-cols-12 lg:gap-x-12">
+    <nav
+      class="hidden lg:sticky lg:top-8 lg:col-span-3 lg:block lg:self-start"
+      i18n-aria-label="@@account.nav.aria"
+      aria-label="Account sections"
+      data-testid="account-nav"
     >
-      <h2
-        id="account-onboarding-heading"
-        class="text-lg font-semibold tracking-tight"
-        i18n="@@account.onboarding.heading"
-      >
-        Tell us about yourself
-      </h2>
-      <p
-        class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@account.onboarding.body"
-      >
-        A few questions about where you work and what you do. Your answers fill in your reviews for
-        you.
-      </p>
-      <div class="mt-5 flex flex-wrap gap-3">
-        <button
-          type="button"
-          (click)="focusAbout()"
-          [class]="primaryClass"
-          i18n="@@account.onboarding.answer"
-        >
-          Answer now
-        </button>
-        <button
-          type="button"
-          (click)="onDismissOnboarding()"
-          data-testid="onboarding-dismiss"
-          [class]="secondaryClass"
-          i18n="@@account.onboarding.dismiss"
-        >
-          Not now
-        </button>
-      </div>
-    </div>
-    }
+      <ul class="space-y-1 border-s border-(--border-default) text-sm">
+        <li>
+          <a href="/account#profile" [class]="navLinkClass" i18n="@@account.nav.profile">Profile</a>
+        </li>
+        <li>
+          <a href="/account#about-you" [class]="navLinkClass" i18n="@@account.nav.about"
+            >About you</a
+          >
+        </li>
+        <li>
+          <a href="/account#your-reviews" [class]="navLinkClass" i18n="@@account.nav.reviews"
+            >Your reviews</a
+          >
+        </li>
+        <li>
+          <a href="/account#delete-account" [class]="navLinkClass" i18n="@@account.nav.delete"
+            >Delete account</a
+          >
+        </li>
+      </ul>
+    </nav>
 
-    <!-- ── Profile ─────────────────────────────────────────────────────────── -->
-    <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6">
-      <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.profile.heading">Profile</h2>
-
-      <!-- Email (read-only, from the session) -->
-      <div class="mt-5 space-y-1.5">
+    <div class="min-w-0 space-y-10 lg:col-span-9">
+      @if (showOnboardingCard()) {
+      <!-- ── Onboarding prompt (AECI-1296) ───────────────────────────────────── -->
+      <div
+        class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-6"
+        role="region"
+        aria-labelledby="account-onboarding-heading"
+        data-testid="onboarding-card"
+      >
+        <h2
+          id="account-onboarding-heading"
+          class="text-lg font-semibold tracking-tight"
+          i18n="@@account.onboarding.heading"
+        >
+          Tell us about yourself
+        </h2>
         <p
-          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@account.email.label"
+          class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@account.onboarding.body"
         >
-          Email
+          A few questions about where you work and what you do. Your answers fill in your reviews
+          for you.
         </p>
-        <p class="text-sm text-(--text-primary)">{{ p.email }}</p>
-      </div>
-
-      <!-- Display name (editable) -->
-      <form class="mt-6 space-y-1.5" novalidate (submit)="$event.preventDefault(); onSaveName()">
-        <label
-          for="account-display-name"
-          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@account.displayName.label"
-        >
-          Display name
-        </label>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
-          <input
-            id="account-display-name"
-            type="text"
-            autocomplete="nickname"
-            [formField]="form.display_name"
-            [attr.aria-invalid]="form.display_name().touched() && form.display_name().invalid() ? 'true' : null"
-            [attr.aria-describedby]="form.display_name().touched() && form.display_name().getError('standardSchema') ? 'account-display-name-error' : null"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          />
+        <div class="mt-5 flex flex-wrap gap-3">
           <button
-            type="submit"
-            [disabled]="form().invalid() || form().submitting()"
-            class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            (click)="focusAbout()"
+            [class]="primaryClass"
+            i18n="@@account.onboarding.answer"
           >
-            @if (form().submitting()) {
-            <span i18n="@@account.displayName.saving">Saving…</span>
-            } @else {
-            <span i18n="@@account.displayName.save">Save</span>
-            }
+            Answer now
+          </button>
+          <button
+            type="button"
+            (click)="onDismissOnboarding()"
+            data-testid="onboarding-dismiss"
+            [class]="secondaryClass"
+            i18n="@@account.onboarding.dismiss"
+          >
+            Not now
           </button>
         </div>
-        @if (form.display_name().touched() && form.display_name().getError('standardSchema')) {
-        <p
-          id="account-display-name-error"
-          class="text-xs font-medium text-(--text-primary)"
-          role="alert"
-          i18n="@@account.displayName.error"
-        >
-          Enter a display name between 1 and 80 characters.
-        </p>
-        } @if (saved()) {
-        <p
-          class="text-xs font-medium text-(--accent-primary)"
-          role="status"
-          i18n="@@account.displayName.saved"
-        >
-          Display name updated.
-        </p>
-        } @if (saveFailed()) {
-        <p
-          class="text-xs font-medium text-(--text-primary)"
-          role="alert"
-          i18n="@@account.displayName.saveFailed"
-        >
-          Something went wrong. Please try again.
-        </p>
-        }
-      </form>
+      </div>
+      }
 
-      <!-- About you (AECI-1296) -->
-      <form
-        class="mt-10 space-y-6 border-t border-(--border-default) pt-8"
-        novalidate
-        (submit)="$event.preventDefault(); onSaveAbout()"
-        data-testid="about-you"
+      <!-- ── Profile ─────────────────────────────────────────────────────────── -->
+      <div
+        id="profile"
+        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
       >
-        <div>
-          <h3
-            id="account-about-heading"
-            tabindex="-1"
-            class="font-display text-lg font-normal text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@account.about.heading"
-          >
-            About you
-          </h3>
-          <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@account.about.help">
-            Private. We use these answers to fill in your reviews and to understand who uses the
-            site.
-          </p>
-        </div>
+        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.profile.heading">
+          Profile
+        </h2>
 
-        <aec-profile-details-form
-          idPrefix="account-about"
-          [(draft)]="draft"
-          (announce)="aboutStatus.set($event)"
-        />
-        <!-- The form's one polite live region: the fields a software company is
-             not asked, and audience count changes. Always rendered, so a screen
-             reader is already watching it when the first message lands. -->
-        <p class="sr-only" role="status" aria-live="polite" data-testid="about-status">
-          {{ aboutStatus() }}
-        </p>
-
-        <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-6">
-          <button type="submit" [disabled]="aboutSaving()" [class]="primaryClass">
-            @if (aboutSaving()) {
-            <span i18n="@@account.about.saving">Saving…</span>
-            } @else {
-            <span i18n="@@account.about.save">Save answers</span>
-            }
-          </button>
-          @if (aboutSaved()) {
-          <p
-            class="text-xs font-medium text-(--accent-primary)"
-            role="status"
-            i18n="@@account.about.saved"
-          >
-            Your answers are saved.
-          </p>
-          } @if (aboutFailed()) {
-          <p
-            class="text-xs font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@account.about.saveFailed"
-          >
-            Something went wrong. Please try again.
-          </p>
-          }
-        </div>
-      </form>
-    </div>
-
-    <!-- ── Your reviews ────────────────────────────────────────────────────── -->
-    <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6">
-      <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.reviews.heading">
-        Your reviews
-      </h2>
-
-      @if (reviewsLoading()) {
-      <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.loading">
-        Loading your reviews…
-      </p>
-      } @else if (reviewsFailed()) {
-      <p
-        class="mt-3 text-sm font-medium text-(--text-primary)"
-        role="alert"
-        i18n="@@account.reviews.failed"
-      >
-        We couldn't load your reviews. Please try again.
-      </p>
-      } @else if (reviewsEmpty()) {
-      <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.empty">
-        You haven't submitted any reviews yet.
-      </p>
-      } @else {
-      <ul class="mt-4 grid gap-3">
-        @for (r of reviews(); track r.id) {
-        <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
-          <div class="flex flex-wrap items-start justify-between gap-2">
-            <div class="min-w-0 space-y-1">
-              <a
-                [routerLink]="['/products', r.product.slug]"
-                class="text-sm font-medium text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ r.product.name }}</a
-              >
-              <p class="text-sm text-(--text-secondary)">{{ r.title }}</p>
-            </div>
-            <aec-review-status-badge [status]="r.status" />
+        <!-- The controls keep a form measure; the panel takes the column. -->
+        <div class="max-w-2xl">
+          <!-- Email (read-only, from the session) -->
+          <div class="mt-5 space-y-1.5">
+            <p
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@account.email.label"
+            >
+              Email
+            </p>
+            <p class="text-sm text-(--text-primary)">{{ p.email }}</p>
           </div>
 
-          <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-            <div class="flex items-center gap-1.5">
-              <dt i18n="@@account.reviews.rating.overall">Overall</dt>
-              <dd class="font-semibold text-(--text-primary)">{{ r.rating_overall }}/5</dd>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <dt i18n="@@account.reviews.rating.onboarding">Onboarding</dt>
-              <dd class="font-semibold text-(--text-primary)">{{ r.rating_onboarding }}/5</dd>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <dt class="sr-only" i18n="@@account.reviews.submitted">Submitted</dt>
-              <dd>{{ r.created_at | date: 'mediumDate' }}</dd>
-            </div>
-          </dl>
-
-          @if (r.status === 'rejected' && r.rejection_reason) {
-          <p
-            class="mt-3 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) p-3 text-xs text-(--text-secondary)"
+          <!-- Display name (editable) -->
+          <form
+            class="mt-6 space-y-1.5"
+            novalidate
+            (submit)="$event.preventDefault(); onSaveName()"
           >
-            <span
-              class="font-semibold text-(--text-primary)"
-              i18n="@@account.reviews.rejectionReason"
-              >Reason:</span
+            <label
+              for="account-display-name"
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@account.displayName.label"
             >
-            {{ r.rejection_reason }}
-          </p>
-          }
-        </li>
-        }
-      </ul>
-
-      @if (hasMoreReviews()) {
-      <div class="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          (click)="loadMoreReviews()"
-          [disabled]="loadingMoreReviews()"
-          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          @if (loadingMoreReviews()) {
-          <span i18n="@@account.reviews.loadingMore">Loading…</span>
-          } @else {
-          <span i18n="@@account.reviews.loadMore">Load more</span>
-          }
-        </button>
-        @if (loadMoreFailed()) {
-        <p
-          class="text-sm font-medium text-(--text-primary)"
-          role="alert"
-          i18n="@@account.reviews.loadMoreFailed"
-        >
-          Couldn't load more. Please try again.
-        </p>
-        }
-      </div>
-      } }
-    </div>
-
-    <!-- ── Delete account ──────────────────────────────────────────────────── -->
-    <div class="rounded-(--radius-md) border border-(--border-strong) p-6">
-      <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.delete.heading">
-        Delete account
-      </h2>
-      <p
-        class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@account.delete.body"
-      >
-        Permanently delete your account. This can't be undone. Reviews you've published stay online
-        but are anonymized — they'll no longer be linked to you.
-      </p>
-      <button
-        brnDialogTrigger
-        [brnDialogTriggerFor]="deleteDialog"
-        type="button"
-        class="mt-5 inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@account.delete.trigger"
-      >
-        Delete account
-      </button>
-
-      <!-- The dialog's accessible name comes from `brnDialogTitle` (wired onto the
-           role="dialog" overlay panel by BrnDialog) — NOT an `aria-labelledby` on
-           this wrapper, which has no role and would trip axe `aria-prohibited-attr`. -->
-      <brn-dialog #deleteDialog="brnDialog">
-        <ng-template brnDialogContent>
-          <div
-            class="w-[min(90vw,30rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
-          >
-            <h2
-              brnDialogTitle
-              id="account-delete-title"
-              class="text-lg font-semibold tracking-tight"
-              i18n="@@account.delete.dialog.title"
-            >
-              Delete your account?
-            </h2>
+              Display name
+            </label>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <input
+                id="account-display-name"
+                type="text"
+                autocomplete="nickname"
+                [formField]="form.display_name"
+                [attr.aria-invalid]="form.display_name().touched() && form.display_name().invalid() ? 'true' : null"
+                [attr.aria-describedby]="form.display_name().touched() && form.display_name().getError('standardSchema') ? 'account-display-name-error' : null"
+                class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              />
+              <button
+                type="submit"
+                [disabled]="form().invalid() || form().submitting()"
+                class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                @if (form().submitting()) {
+                <span i18n="@@account.displayName.saving">Saving…</span>
+                } @else {
+                <span i18n="@@account.displayName.save">Save</span>
+                }
+              </button>
+            </div>
+            @if (form.display_name().touched() && form.display_name().getError('standardSchema')) {
             <p
-              brnDialogDescription
-              class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@account.delete.dialog.description"
-            >
-              This permanently deletes your account and personal data. Your published reviews are
-              kept but anonymized. This can't be undone.
-            </p>
-
-            @if (deleteFailed()) {
-            <p
-              class="mt-4 text-sm font-medium text-(--text-primary)"
+              id="account-display-name-error"
+              class="text-xs font-medium text-(--text-primary)"
               role="alert"
-              i18n="@@account.delete.failed"
+              i18n="@@account.displayName.error"
+            >
+              Enter a display name between 1 and 80 characters.
+            </p>
+            } @if (saved()) {
+            <p
+              class="text-xs font-medium text-(--accent-primary)"
+              role="status"
+              i18n="@@account.displayName.saved"
+            >
+              Display name updated.
+            </p>
+            } @if (saveFailed()) {
+            <p
+              class="text-xs font-medium text-(--text-primary)"
+              role="alert"
+              i18n="@@account.displayName.saveFailed"
             >
               Something went wrong. Please try again.
             </p>
             }
+          </form>
 
-            <div class="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                brnDialogClose
-                type="button"
-                [disabled]="deleting()"
-                class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@account.delete.cancel"
+          <!-- About you (AECI-1296) -->
+          <form
+            id="about-you"
+            class="mt-10 scroll-mt-8 space-y-6 border-t border-(--border-default) pt-8"
+            novalidate
+            (submit)="$event.preventDefault(); onSaveAbout()"
+            data-testid="about-you"
+          >
+            <div>
+              <h3
+                id="account-about-heading"
+                tabindex="-1"
+                class="font-display text-lg font-normal text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@account.about.heading"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                (click)="onConfirmDelete()"
-                [disabled]="deleting()"
-                class="inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (deleting()) {
-                <span i18n="@@account.delete.deleting">Deleting…</span>
+                About you
+              </h3>
+              <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@account.about.help">
+                Private. We use these answers to fill in your reviews and to understand who uses the
+                site.
+              </p>
+            </div>
+
+            <aec-profile-details-form
+              idPrefix="account-about"
+              [(draft)]="draft"
+              (announce)="aboutStatus.set($event)"
+            />
+            <!-- The form's one polite live region: the fields a software company is
+             not asked, and audience count changes. Always rendered, so a screen
+             reader is already watching it when the first message lands. -->
+            <p class="sr-only" role="status" aria-live="polite" data-testid="about-status">
+              {{ aboutStatus() }}
+            </p>
+
+            <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-6">
+              <button type="submit" [disabled]="aboutSaving()" [class]="primaryClass">
+                @if (aboutSaving()) {
+                <span i18n="@@account.about.saving">Saving…</span>
                 } @else {
-                <span i18n="@@account.delete.confirm">Delete my account</span>
+                <span i18n="@@account.about.save">Save answers</span>
                 }
               </button>
+              @if (aboutSaved()) {
+              <p
+                class="text-xs font-medium text-(--accent-primary)"
+                role="status"
+                i18n="@@account.about.saved"
+              >
+                Your answers are saved.
+              </p>
+              } @if (aboutFailed()) {
+              <p
+                class="text-xs font-medium text-(--text-primary)"
+                role="alert"
+                i18n="@@account.about.saveFailed"
+              >
+                Something went wrong. Please try again.
+              </p>
+              }
             </div>
-          </div>
-        </ng-template>
-      </brn-dialog>
+          </form>
+        </div>
+      </div>
+
+      <!-- ── Your reviews ────────────────────────────────────────────────────── -->
+      <div
+        id="your-reviews"
+        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+      >
+        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.reviews.heading">
+          Your reviews
+        </h2>
+
+        @if (reviewsLoading()) {
+        <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.loading">
+          Loading your reviews…
+        </p>
+        } @else if (reviewsFailed()) {
+        <p
+          class="mt-3 text-sm font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@account.reviews.failed"
+        >
+          We couldn't load your reviews. Please try again.
+        </p>
+        } @else if (reviewsEmpty()) {
+        <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.empty">
+          You haven't submitted any reviews yet.
+        </p>
+        } @else {
+        <!-- A divided list, not cards inside the panel card (AECI-987). -->
+        <ul class="mt-4 divide-y divide-(--border-default) border-t border-(--border-default)">
+          @for (r of reviews(); track r.id) {
+          <li class="py-4">
+            <!-- The row takes the full column. The date and the status sit at its end. -->
+            <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+              <div class="min-w-0 space-y-1">
+                <a
+                  [routerLink]="['/products', r.product.slug]"
+                  class="text-sm font-medium text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  >{{ r.product.name }}</a
+                >
+                <p class="max-w-prose text-sm text-(--text-secondary)">{{ r.title }}</p>
+              </div>
+              <div class="flex shrink-0 items-center gap-3">
+                <p class="text-xs text-(--text-secondary)" data-testid="account-review-date">
+                  <span class="sr-only" i18n="@@account.reviews.submitted">Submitted</span>
+                  {{ r.created_at | date: 'mediumDate' }}
+                </p>
+                <aec-review-status-badge [status]="r.status" />
+              </div>
+            </div>
+
+            <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+              <div class="flex items-center gap-1.5">
+                <dt i18n="@@account.reviews.rating.overall">Overall</dt>
+                <dd class="font-semibold text-(--text-primary)">{{ r.rating_overall }}/5</dd>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <dt i18n="@@account.reviews.rating.onboarding">Onboarding</dt>
+                <dd class="font-semibold text-(--text-primary)">{{ r.rating_onboarding }}/5</dd>
+              </div>
+            </dl>
+
+            @if (r.status === 'rejected' && r.rejection_reason) {
+            <p
+              class="mt-3 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) p-3 text-xs text-(--text-secondary)"
+            >
+              <span
+                class="font-semibold text-(--text-primary)"
+                i18n="@@account.reviews.rejectionReason"
+                >Reason:</span
+              >
+              {{ r.rejection_reason }}
+            </p>
+            }
+          </li>
+          }
+        </ul>
+
+        @if (hasMoreReviews()) {
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            (click)="loadMoreReviews()"
+            [disabled]="loadingMoreReviews()"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            @if (loadingMoreReviews()) {
+            <span i18n="@@account.reviews.loadingMore">Loading…</span>
+            } @else {
+            <span i18n="@@account.reviews.loadMore">Load more</span>
+            }
+          </button>
+          @if (loadMoreFailed()) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@account.reviews.loadMoreFailed"
+          >
+            Couldn't load more. Please try again.
+          </p>
+          }
+        </div>
+        } }
+      </div>
+
+      <!-- ── Delete account ──────────────────────────────────────────────────── -->
+      <div
+        id="delete-account"
+        class="scroll-mt-8 rounded-(--radius-md) border border-(--border-strong) p-6"
+      >
+        <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.delete.heading">
+          Delete account
+        </h2>
+        <p
+          class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@account.delete.body"
+        >
+          Permanently delete your account. This can't be undone. Reviews you've published stay
+          online but are anonymized — they'll no longer be linked to you.
+        </p>
+        <button
+          brnDialogTrigger
+          [brnDialogTriggerFor]="deleteDialog"
+          type="button"
+          class="mt-5 inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@account.delete.trigger"
+        >
+          Delete account
+        </button>
+
+        <!-- The dialog's accessible name comes from `brnDialogTitle` (wired onto the
+           role="dialog" overlay panel by BrnDialog) — NOT an `aria-labelledby` on
+           this wrapper, which has no role and would trip axe `aria-prohibited-attr`. -->
+        <brn-dialog #deleteDialog="brnDialog">
+          <ng-template brnDialogContent>
+            <div
+              class="w-[min(90vw,30rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
+            >
+              <h2
+                brnDialogTitle
+                id="account-delete-title"
+                class="text-lg font-semibold tracking-tight"
+                i18n="@@account.delete.dialog.title"
+              >
+                Delete your account?
+              </h2>
+              <p
+                brnDialogDescription
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@account.delete.dialog.description"
+              >
+                This permanently deletes your account and personal data. Your published reviews are
+                kept but anonymized. This can't be undone.
+              </p>
+
+              @if (deleteFailed()) {
+              <p
+                class="mt-4 text-sm font-medium text-(--text-primary)"
+                role="alert"
+                i18n="@@account.delete.failed"
+              >
+                Something went wrong. Please try again.
+              </p>
+              }
+
+              <div class="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  brnDialogClose
+                  type="button"
+                  [disabled]="deleting()"
+                  class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  i18n="@@account.delete.cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  (click)="onConfirmDelete()"
+                  [disabled]="deleting()"
+                  class="inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  @if (deleting()) {
+                  <span i18n="@@account.delete.deleting">Deleting…</span>
+                  } @else {
+                  <span i18n="@@account.delete.confirm">Delete my account</span>
+                  }
+                </button>
+              </div>
+            </div>
+          </ng-template>
+        </brn-dialog>
+      </div>
     </div>
   </div>
   }

@@ -55,9 +55,11 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
   selector: 'app-docs-home',
   imports: [RouterLink],
   template: `
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10">
-      <div class="mx-auto max-w-[42rem]">
-        <header>
+    <!-- AECI-987: the index takes the docs content column. Measure lives on the
+         intro and the summaries. From lg both lists run two columns. -->
+    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+      <div class="mx-auto max-w-6xl">
+        <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)" i18n="@@app.docs.home.heading">
             Help center
           </h1>
@@ -71,9 +73,15 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           <h2 id="docs-audience-heading" class="sr-only" i18n="@@app.docs.home.audience.heading">
             Guides by role
           </h2>
-          <ul class="divide-y divide-(--border-default) border-y border-(--border-default)">
+          <ul
+            class="grid border-t border-(--border-default) lg:grid-cols-2 lg:gap-x-12"
+            data-testid="docs-audiences"
+          >
             @for (group of audiences; track group.audience) {
-              <li class="py-4" [attr.data-audience]="group.audience">
+              <li
+                class="border-b border-(--border-default) py-4"
+                [attr.data-audience]="group.audience"
+              >
                 <h3 class="aec-docs-subhead text-(--text-primary)">{{ group.heading }}</h3>
                 <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
                   {{ group.summary }}
@@ -102,10 +110,13 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           >
             All sections
           </h2>
-          <div class="mt-3 divide-y divide-(--border-default) border-t border-(--border-default)">
+          <div
+            class="mt-3 grid border-t border-(--border-default) lg:grid-cols-2 lg:gap-x-12"
+            data-testid="docs-all-sections"
+          >
             @for (entry of allSections; track entry.section.id) {
               @let section = entry.section;
-              <div class="py-5" [attr.data-section]="section.id">
+              <div class="border-b border-(--border-default) py-5" [attr.data-section]="section.id">
                 <h3 class="aec-docs-subhead">
                   <a
                     [routerLink]="section.path"

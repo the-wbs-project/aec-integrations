@@ -1,7 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { claimPageContext, type ClaimPageContext } from './claim-target.resolver';
 import { RequestFormBody } from './request-form-body';
 
@@ -15,7 +16,7 @@ type Kind = 'claim' | 'correction';
  * addressed by `(entity, slug)` from the route — never a UUID.
  *
  * Thin wrapper: it owns the page chrome (`<title>` + `robots: noindex`, the
- * centered `<section>`), and delegates the form to `RequestFormBody`
+ * 7xl canvas and the context rail, AECI-987), and delegates the form to `RequestFormBody`
  * (`variant="page"`). The same body renders inside `RequestDrawer` for the
  * in-place CTA on detail pages — so this route stays as the no-JS / deep-link /
  * SSR fallback. See `docs/adr/0009-signal-forms.md` and `ANGULAR_STYLE_GUIDE.md`
@@ -23,7 +24,7 @@ type Kind = 'claim' | 'correction';
  */
 @Component({
   selector: 'aec-request-form',
-  imports: [RequestFormBody],
+  imports: [NewTabIcon, RequestFormBody, RouterLink],
   templateUrl: './request-form.html',
 })
 export class RequestForm {
@@ -40,6 +41,14 @@ export class RequestForm {
     this.entity,
     this.route.snapshot.data['target'],
   );
+
+  /** True once the body reports the request sent. The rail then leaves (AECI-987). */
+  protected readonly sent = signal(false);
+  /** The rail's docs link (AECI-987). Opens a new tab so a half-filled form survives. */
+  protected readonly docsLinkClass =
+    'mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-(--accent-primary) ' +
+    'underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 ' +
+    'focus-visible:outline-(--accent-primary)';
 
   constructor() {
     this.titleSvc.setTitle(this.metaTitle());

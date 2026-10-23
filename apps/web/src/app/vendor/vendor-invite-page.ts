@@ -41,7 +41,7 @@ import { readVendorApiError } from './vendor-api-error';
 @Component({
   selector: 'aec-vendor-invite-page',
   template: `
-    <div class="mx-auto w-full max-w-xl px-4 py-16">
+    <div class="mx-auto w-full max-w-xl px-6 py-16">
       <section
         class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
       >

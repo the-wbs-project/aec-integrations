@@ -488,7 +488,7 @@ function writePairViewCookie(mode: PairViewMode): void {
       @let context = v.pair.context_product;
       @let other = v.pair.other_product;
       <div class="bg-(--surface-base) text-(--text-primary)">
-        <div class="mx-auto w-full max-w-6xl px-6 py-8 md:px-8 md:py-12">
+        <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12" data-testid="page-canvas">
           <nav [attr.aria-label]="breadcrumbAria" class="mb-6">
             <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
               <li>
@@ -837,7 +837,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                 }
 
                 @if (m.description) {
-                  <p class="max-w-3xl text-sm leading-relaxed text-(--text-secondary)">
+                  <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
                     {{ m.description }}
                   </p>
                 }

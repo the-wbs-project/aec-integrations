@@ -219,6 +219,10 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
   filled in from this. You can change any of it on your account page." It works for a vendor and a
   reviewer alike.
+- **Layout (AECI-987).** The 7xl canvas with the form + context rail (`DESIGN.md` §5 → Layout shells).
+  The rail says the role and firm fill in review forms (§8), that the firm name stays private
+  while the role shows on published reviews (§9), and that any answer can be changed later on
+  `/account`. It has no link: leaving would drop the answers, and Skip is the way out.
 
 ### 7.2 `/account`
 
@@ -228,6 +232,8 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - While `onboarding` is `pending`, a "Tell us about yourself" card sits above the profile.
   "Answer now" moves focus to the section. "Not now" records a skip, so the card does not return.
 - Existing users are never redirected.
+- **Layout (AECI-987).** The page sits on the 7xl canvas. From `lg` a sticky section nav takes the
+  left columns. The section order above is unchanged.
 
 ### 7.3 Shared form component
 

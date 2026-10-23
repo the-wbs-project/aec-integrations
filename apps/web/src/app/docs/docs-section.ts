@@ -34,24 +34,29 @@ import { pathForcesNoindex } from './docs-indexing';
   selector: 'app-docs-section',
   imports: [RouterLink],
   template: `
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10">
-      <div class="mx-auto max-w-[42rem]">
-        <header>
+    <!-- AECI-987: the index takes the docs content column. The header and the
+         intro prose keep the 42rem measure. From lg the page list runs two columns. -->
+    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+      <div class="mx-auto max-w-6xl">
+        <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)">{{ section.label }}</h1>
           <p class="mt-2 leading-relaxed text-(--text-secondary)">{{ section.summary }}</p>
         </header>
 
         @if (lead.length > 0) {
-          <div class="aec-prose aec-docs-prose mt-6" data-intro="lead">
+          <div class="aec-prose aec-docs-prose mt-6 max-w-[42rem]" data-intro="lead">
             @for (block of lead; track $index) {
               <div class="contents" [innerHTML]="block.html"></div>
             }
           </div>
         }
 
-        <ol class="mt-6 divide-y divide-(--border-default) border-y border-(--border-default)">
+        <ol
+          class="mt-6 grid border-t border-(--border-default) lg:grid-cols-2 lg:gap-x-12"
+          data-testid="docs-section-pages"
+        >
           @for (page of section.pages; track page.slug) {
-            <li class="py-4">
+            <li class="border-b border-(--border-default) py-4">
               <h2 class="aec-docs-subhead">
                 <a
                   [routerLink]="page.path"
@@ -67,7 +72,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </ol>
 
         @if (rest.length > 0) {
-          <div class="aec-prose aec-docs-prose mt-10" data-intro="rest">
+          <div class="aec-prose aec-docs-prose mt-10 max-w-[42rem]" data-intro="rest">
             @for (block of rest; track $index) {
               @if (block.heading; as heading) {
                 @if (heading.level === 2) {
