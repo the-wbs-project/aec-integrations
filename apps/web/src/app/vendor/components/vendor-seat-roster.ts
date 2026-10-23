@@ -137,7 +137,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   } @else {
                     <span i18n="@@vendor.seats.claims.accept">Accept</span>
                   }
-                  <span class="sr-only">{{ claim.submitter_name || claim.submitter_email }}</span>
+                  <span class="sr-only"
+                    >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
+                  >
                 </button>
                 <button
                   type="button"
@@ -150,7 +152,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   } @else {
                     <span i18n="@@vendor.seats.claims.decline">Decline</span>
                   }
-                  <span class="sr-only">{{ claim.submitter_name || claim.submitter_email }}</span>
+                  <span class="sr-only"
+                    >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
+                  >
                 </button>
               </div>
             </li>
@@ -267,9 +271,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                         [class]="dangerClass"
                       >
                         <span i18n="@@vendor.seats.remove">Remove</span>
-                        <span class="sr-only">{{
-                          seat.display_name || seat.email || fallbackName
-                        }}</span>
+                        <span class="sr-only"
+                          >&ngsp;{{ seat.display_name || seat.email || fallbackName }}</span
+                        >
                       </button>
                     }
                   </td>
@@ -323,7 +327,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     } @else {
                       <span i18n="@@vendor.seats.pending.resend">Resend</span>
                     }
-                    <span class="sr-only">{{ invite.email }}{{ resendHintSuffix(invite) }}</span>
+                    <span class="sr-only"
+                      >&ngsp;{{ invite.email }}{{ resendHintSuffix(invite) }}</span
+                    >
                   </button>
                   <button
                     type="button"
@@ -332,7 +338,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     [class]="dangerClass"
                   >
                     <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
-                    <span class="sr-only">{{ invite.email }}</span>
+                    <span class="sr-only">&ngsp;{{ invite.email }}</span>
                   </button>
                 </div>
               }

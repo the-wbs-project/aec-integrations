@@ -56,8 +56,11 @@ import { VendorPortalStore } from '../vendor-portal-store';
             </p>
           }
           <button #changeButton type="button" [class]="secondaryClass" (click)="open()">
-            <span i18n="@@vendor.billing.email.change">Change</span>
-            <span class="sr-only" i18n="@@vendor.billing.email.changeSr">billing email</span>
+            <span i18n="@@vendor.billing.email.change">Change</span>&ngsp;<span
+              class="sr-only"
+              i18n="@@vendor.billing.email.changeSr"
+              >billing email</span
+            >
           </button>
         </div>
       }

@@ -242,6 +242,41 @@ describe('VendorContestsList — withdrawing', () => {
   });
 });
 
+/**
+ * Each action button pairs a visible verb with an sr-only row name. Angular drops the
+ * whitespace-only node between them, so the template carries `&ngsp;` (AECI-1469).
+ */
+const srNamedButtons = (scope: HTMLElement) =>
+  [...scope.querySelectorAll('button')].filter((b) => b.querySelector('.sr-only'));
+
+function expectSpacedName(b: HTMLButtonElement): void {
+  const name = b.querySelector('.sr-only')!.textContent!.trim();
+  expect(name).not.toBe('');
+  expect(b.textContent?.trim().endsWith(` ${name}`)).toBe(true);
+}
+
+describe('VendorContestsList: accessible names (AECI-1469)', () => {
+  it('keeps a space between the verb and the row name on Accept and Decline', async () => {
+    const fixture = await create();
+    const received = row(fixture, RECEIVED.id);
+    expect(button(received, 'Accept').textContent?.trim()).toBe(
+      'Accept Documentation link on Autodesk Build ↔ Summit Field Issues',
+    );
+    const buttons = srNamedButtons(received);
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    buttons.forEach(expectSpacedName);
+  });
+
+  it('keeps the space on both Withdraw buttons', async () => {
+    const fixture = await create();
+    const start = button(row(fixture, OPEN_SUBMITTED.id), 'Withdraw');
+    expectSpacedName(start);
+    start.click();
+    await settle(fixture);
+    expectSpacedName(button(row(fixture, OPEN_SUBMITTED.id), 'Withdraw'));
+  });
+});
+
 describe('VendorContestsList: the guide link (AECI-1253)', () => {
   it('links Requesting changes and appeals under the intro', async () => {
     expectVendorDocsLink(el(await create()), 'requesting-changes-and-appeals');
