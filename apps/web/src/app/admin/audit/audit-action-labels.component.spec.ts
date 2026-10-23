@@ -20,8 +20,7 @@ import { describeAuditAction, isKnownAuditAction } from './audit-action-labels';
 
 /**
  * Every action string emitted by an `auditInsert` call site in `apps/api/src`,
- * with the two TEMPLATED families expanded: `${entity}.created` over
- * category/audience/phase (promote.ts) and `${seatRole}.banned|unbanned` over
+ * with the TEMPLATED family expanded: `${seatRole}.banned|unbanned` over
  * reviewer/vendor_admin (admin-reviewers.ts, role-aware since AECI-524).
  *
  * If a new writer lands in the API, this list and the map both need the entry;
@@ -48,9 +47,6 @@ const EMITTED_ACTIONS = [
   'integration.contest.protest_withdrawn',
   'integration.contest.protest_upheld',
   'integration.contest.protest_rejected',
-  'category.created',
-  'audience.created',
-  'phase.created',
   'promote.blocked',
   'product_proposal.created',
   'product_proposal.accepted',
@@ -148,7 +144,9 @@ describe('describeAuditAction', () => {
     );
   });
 
-  it('covers all three taxonomy terms of the templated create family', () => {
+  it('still describes the taxonomy-mint actions nothing writes any more (AECI-1048)', () => {
+    // Promote minted terms until AECI-1048 and production holds those rows.
+    // `audit_log` is never pruned, so the labels must outlive the writer.
     for (const entity of ['category', 'audience', 'phase']) {
       expect(isKnownAuditAction(`${entity}.created`)).toBe(true);
     }

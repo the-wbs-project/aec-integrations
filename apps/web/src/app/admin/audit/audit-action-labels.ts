@@ -25,11 +25,15 @@
  * richer ("changed 3 fields", "via the vendor portal") needs the handler and the
  * response schema to carry metadata first, which is a separate API change.
  *
- * Two action families are TEMPLATED at their call sites and so are expanded
- * here rather than pattern-matched:
- *   - `${entity}.created` for `category` / `audience` / `phase` (promote.ts)
+ * One action family is TEMPLATED at its call site and so is expanded here
+ * rather than pattern-matched:
  *   - `${seatRole}.banned|unbanned` for `reviewer` / `vendor_admin`
  *     (admin-reviewers.ts, role-aware since AECI-524)
+ *
+ * `category.created` / `audience.created` / `phase.created` were templated in
+ * promote.ts too. Promote stopped minting terms in AECI-1048, so nothing writes
+ * them now. They stay mapped because `audit_log` is never pruned and production
+ * holds rows with them.
  */
 
 /**
@@ -50,6 +54,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.updated': $localize`:@@admin.audit.action.integrationUpdated:Integration updated`,
   'integration.retired': $localize`:@@admin.audit.action.integrationRetired:Integration retired`,
   'integration.restored': $localize`:@@admin.audit.action.integrationRestored:Integration restored`,
+  // Historical since AECI-1048: promote no longer mints taxonomy terms.
   'category.created': $localize`:@@admin.audit.action.categoryCreated:Category term created`,
   'audience.created': $localize`:@@admin.audit.action.audienceCreated:Audience term created`,
   'phase.created': $localize`:@@admin.audit.action.phaseCreated:Phase term created`,

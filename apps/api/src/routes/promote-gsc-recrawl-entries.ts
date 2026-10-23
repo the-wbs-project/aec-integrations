@@ -42,7 +42,7 @@
  * would also burn quota to be told no.
  *
  * Note a published trade is `trade.published` regardless of whether the term was
- * newly minted, because trades are find-only (`PromoteTaxonomyOperation` is
+ * newly minted, because every facet is find-only (AECI-1048) (`PromoteTaxonomyOperation` is
  * `'created' | 'reused'` and a trade is always `'reused'`). What is new is the
  * page's *indexability*, not the row.
  *

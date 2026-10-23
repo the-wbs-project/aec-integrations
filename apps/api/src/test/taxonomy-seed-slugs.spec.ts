@@ -6,15 +6,19 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * **A seeded term's `slug` must equal `slugify(its name)`** — for the three facets
- * promote resolves find-or-create (AECI-925).
+ * promote resolved find-or-create until AECI-1048 (AECI-925).
  *
  * ── WHY ─────────────────────────────────────────────────────────────────────────
- * `resolveTaxonomy` (`routes/promote.ts`) matches an incoming category / audience /
- * phase by `slugify(name)` against the `slug` column, and MINTS the term when that
- * lookup misses. So the moment a seeded term's name stops slugifying to its own
- * slug, the seeded row becomes unreachable and the next promote silently creates a
+ * `resolveTaxonomy` (`routes/promote.ts`) matched an incoming category / audience /
+ * phase by `slugify(name)` against the `slug` column, and MINTED the term when that
+ * lookup missed. So the moment a seeded term's name stopped slugifying to its own
+ * slug, the seeded row became unreachable and the next promote silently created a
  * SECOND term with the same display name — leaving one populated duplicate and one
  * empty original, both with their own public browse URL in the sitemap.
+ *
+ * AECI-970 added a name pass and AECI-1048 removed the mint, so a drifted name now
+ * resolves or is skipped rather than duplicated. The rule is still kept: a seed
+ * whose slug and name agree is what the review app's copy is checked against.
  *
  * That is not a thought experiment. `reality-capture` / `Reality Capture
  * (Scan-to-BIM)` was exactly this, in production: the seeded row held the curated
@@ -24,23 +28,23 @@ import { describe, expect, it } from 'vitest';
  * exception list below is empty. The duplicate row's own removal is a manual data
  * op; `scripts/ops/2026-09-reality-capture-dedup/README.md` is its status of record.
  *
- * Nothing else catches it. The promote returns 200, the term renders, the browse
- * page is valid, and the only visible symptom is a list that is alphabetical apart
- * from one entry.
+ * Before AECI-1048 nothing else caught it. The promote returned 200, the term
+ * rendered, the browse page was valid, and the only visible symptom was a list that
+ * was alphabetical apart from one entry.
  *
  * ── TRADES ARE EXEMPT, BY DESIGN ────────────────────────────────────────────────
- * `taxonomy_trades` is resolved **find-only** (`TRADES_VOCABULARY.md` §3/§4): an
- * unmatched trade is dropped into `skipped[]`, never minted, and matching runs
- * slug → name → alias, so a name that does not slugify to its slug is handled by
- * the name pass rather than by creating a row. Same for `taxonomy_data_objects`.
+ * `taxonomy_trades` was always resolved **find-only** (`TRADES_VOCABULARY.md` §3/§4),
+ * with matching by slug → name → alias, so a name that does not slugify to its slug is
+ * handled by the name pass. Same for `taxonomy_data_objects`. Its slugs are curated
+ * deliberately and do not follow the name, so it stays out of this check.
  *
  * ── THE EXCEPTION LIST ──────────────────────────────────────────────────────────
  * Asserted as an EXACT set, not a subset. Adding an offender fails; fixing the
  * known one also fails, which forces the list to be emptied rather than left to rot.
  */
 
-/** Facets `resolveTaxonomy` will mint into. Trades and data objects are find-only. */
-const MINTABLE_FACETS = ['taxonomy_categories', 'taxonomy_audiences', 'taxonomy_phases'] as const;
+/** The three facets `resolveTaxonomy` reads, all seeded from `seed/taxonomy.sql`. */
+const SEED_SLUG_FACETS = ['taxonomy_categories', 'taxonomy_audiences', 'taxonomy_phases'] as const;
 
 /**
  * Empty, and meant to stay that way. AECI-926 closes the one live offender
@@ -103,7 +107,7 @@ describe('seeded taxonomy slugs round-trip through slugify (AECI-925)', () => {
 
   it('every seeded term slugifies to its own slug, bar the known exceptions', () => {
     const offenders: string[] = [];
-    for (const table of MINTABLE_FACETS) {
+    for (const table of SEED_SLUG_FACETS) {
       for (const { slug, name } of seedRows(table)) {
         if (slugify(name) !== slug) offenders.push(slug);
       }
@@ -129,14 +133,14 @@ describe('seeded taxonomy slugs round-trip through slugify (AECI-925)', () => {
  * is truncated at a word boundary with no warning, so the page ships a sentence that
  * stops mid-thought.
  *
- * This covers the SEED. The live D1 side — a term promote minted at runtime with no
- * description at all — is covered by the `taxonomy_missing_description` data-quality
+ * This covers the SEED. The live D1 side — a hand-inserted term, or one promote minted
+ * before AECI-1048, with no description at all — is covered by the `taxonomy_missing_description` data-quality
  * check in `lib/data-quality.ts`. Neither one subsumes the other.
  */
 describe('seeded taxonomy descriptions (AECI-962)', () => {
   it('every seeded term has a non-blank description', () => {
     const offenders: string[] = [];
-    for (const table of MINTABLE_FACETS) {
+    for (const table of SEED_SLUG_FACETS) {
       for (const { slug, description } of seedRows(table)) {
         if (description === null || description.trim() === '') offenders.push(`${table}/${slug}`);
       }
@@ -147,7 +151,7 @@ describe('seeded taxonomy descriptions (AECI-962)', () => {
 
   it('no seeded description exceeds the meta-description limit', () => {
     const offenders: string[] = [];
-    for (const table of MINTABLE_FACETS) {
+    for (const table of SEED_SLUG_FACETS) {
       for (const { slug, description } of seedRows(table)) {
         if ((description?.length ?? 0) > MAX_DESCRIPTION_LENGTH) {
           offenders.push(`${table}/${slug} (${description?.length})`);

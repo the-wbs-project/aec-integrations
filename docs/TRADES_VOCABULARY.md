@@ -109,17 +109,18 @@ See §7 for the full seam.
 
 ## 3. Governance — the vocabulary is closed and find-only
 
-The list is **closed**. This is a deliberate constraint, and it is a *stronger* constraint than the
-one the original three facets carry:
+The list is **closed**. This is a deliberate constraint, and since AECI-1048 the original three
+facets carry it too:
 
 - **Promote resolves it find-only.** During promotion a free-text trade value is matched
   case-insensitively against the canonical set by **`slug` → `name` → `alias`**. An unmatched value
   is **dropped from the stored set and reported in `skipped[]`** (`kind: "trade"`) — it is **not**
   auto-created, and it is **not** a promote failure (the same shape as `usefulness` groups and
-  claim `dataObject`s — `REVIEW_APP_PROMOTE_API.md` §3.3). This deliberately diverges from
-  `categories` / `audiences` / `phases`, which promote resolves **find-or-create** by slug then
-  name (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`, AECI-970). Trades follow the Stage 1.5 `data_object`
-  model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
+  claim `dataObject`s — `REVIEW_APP_PROMOTE_API.md` §3.3). All four taxonomy
+  facets share this find-only rule since AECI-1048 (`apps/api/src/routes/promote.ts` —
+  `resolveTaxonomy`); `categories` / `audiences` / `phases` match by slug then name, and the
+  **alias pass is trade-only**. The rule follows the Stage 1.5 `data_object`
+  model (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
   `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
   across two permanent URLs and quietly destroy the SEO asset the facet exists to build.
 - **Vendors assign trades; they never mint one (AECI-665).** The vendor portal's product editor

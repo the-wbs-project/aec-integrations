@@ -292,10 +292,10 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `supabaseId` | uuid \| null | — | Present *and still resolvable* → update; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `name` | string | ✅ | |
 | `productRole` | `"application"` \| `"connector"` \| `"hybrid"` | — | Defaults to `"application"`. |
-| `categories` | string[] | — | Category **names or slugs**. Matched by slug, then by name; created only when both miss. See **Taxonomy resolution** below. |
+| `categories` | string[] | — | Category **names or slugs**. Matched by slug, then by name. A miss goes to `skipped[]`; nothing is created (AECI-1048). See **Taxonomy resolution** below. |
 | `audiences` | string[] | — | Audience names or slugs. Same rule as `categories`. |
 | `phases` | string[] | — | Project-phase names or slugs. Same rule as `categories`. |
-| `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
+| `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only, as are the three facets above.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). Omitting it leaves the stored value untouched; `null` clears it. **Not always yours to write (AECI-963)** — see the exception above and **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product is built within. **Must use `supabaseId`** (hosts are promoted separately). Like the other join sets, the stored hosts are **replaced** to match what you send, so omitting it clears them. Since AECI-710 the hosts render publicly ("Built within {host}", and the host's Extensions section, `STAGE_1_5_SPEC.md` §13.3b), and the post-commit purge also invalidates each named host's page. An extension is never an integration: do not also send an `integrations` edge between it and its host (review-side rubric I3). |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
@@ -329,13 +329,15 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 >   yours.** Where this doc says `on_hold` (§3.4a) it means yours; where it says
 >   `promotion_status = 'promoted'` on ingest it means AECi's.
 
-**Taxonomy resolution — `categories` / `audiences` / `phases` (AECI-970).** Each value is normalized with `slugify` and matched against the **existing** terms in two passes: first against each term's stored **`slug`**, then against `slugify` of each term's stored **`name`**. The slug pass always wins, so one term's name can never capture a value that is another term's slug. There is no alias pass, because these three tables have no `aliases` column. A hit is reported as `operation: "reused"` with the **stored** slug, which can differ from `slugify(value)` on a name-pass hit. **Only when both passes miss is a new term created** (`operation: "created"`, a `<kind>.created` audit row). The name pass is what stops the AECI-926 duplicate: a stored `Reality Capture (Scan-to-BIM)` whose slug is `reality-capture` now absorbs an incoming `Reality Capture (Scan-to-BIM)` instead of minting `reality-capture-scan-to-bim`.
+**Taxonomy resolution — `categories` / `audiences` / `phases` (AECI-970, find-only since AECI-1048).** Each value is normalized with `slugify` and matched against the **existing** terms in two passes: first against each term's stored **`slug`**, then against `slugify` of each term's stored **`name`**. The slug pass always wins, so one term's name can never capture a value that is another term's slug. There is no alias pass, because these three tables have no `aliases` column. A hit is reported as `operation: "reused"` with the **stored** slug, which can differ from `slugify(value)` on a name-pass hit. The name pass is what absorbs the AECI-926 duplicate: a stored `Reality Capture (Scan-to-BIM)` whose slug is `reality-capture` takes an incoming `Reality Capture (Scan-to-BIM)`.
 
-> **A created term is still a real public page.** It gets a browse URL and a sitemap entry, but no `description` and no `display_order`. Every creation is therefore logged post-commit as a `warn` log and an `aeci.api.promote.taxonomy_created` count tagged `kind` and `slug` (§6.4). To add a term on purpose, prefer editing `apps/api/seed/taxonomy.sql` over sending it. Making these three facets find-only, with a miss reported in `skipped[]` as trades already are, is a planned contract change (AECI-970 option B). It waits on the review app surfacing `skipped[]` for these kinds, so it is **not** in effect yet.
+**A value that matches neither pass is not created.** It is dropped from the stored set and reported in `skipped[]` (§4) as `{ ref, kind: "category" | "audience" | "phase", reason }`, where `ref` is the product's `ref` and the reason reads `<kind> "<value>" did not resolve to the seeded vocabulary`. Skips are deduped by normalized key. A value that cannot be slugified at all is also a skip, not a `400 VALIDATION_FAILED`. No `<kind>.created` audit row is written, and every result is `operation: "reused"`. Before AECI-1048 a double miss created a term with no `description` and no `display_order`. That is why the shipped vocabulary now lives in one place.
 
-**`usefulness` resolution.** *(This describes what promote does with a block it is still allowed to write. Whether it is allowed at all is the AECI-963 exception above.)* The review app's source field nests `disciplines` and `phases`; it renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, over the same two-pass key map the facet path builds — so a group's `name` matches a stored term's name even when that term's slug differs) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
+> **How to add a term.** Edit `apps/api/seed/taxonomy.sql` in this repo and add the same term to the review app's copy of the vocabulary, in one change to each. `taxonomy.sql` is the only production writer of the three tables. Send the term in a promote only after the seed has been applied to the target environment. A skip of these kinds means the two vocabularies have drifted, and re-sending the same value will not clear it.
 
-**`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so — unlike `categories` / `audiences` / `phases`, which are matched by slug then name and **created on a double miss** (see **Taxonomy resolution** above) — an incoming trade is **resolve-only**, matching the `usefulness` and `dataObject` behaviour. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one by sending it.
+**`usefulness` resolution.** *(This describes what promote does with a block it is still allowed to write. Whether it is allowed at all is the AECI-963 exception above.)* The review app's source field nests `disciplines` and `phases`; it renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Like the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never create a term** (the resolver reads stored terms only since AECI-1048, with no same-promote mints) — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, over the same two-pass key map the facet path builds — so a group's `name` matches a stored term's name even when that term's slug differs) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
+
+**`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so an incoming trade is **resolve-only**, as `categories` / `audiences` / `phases` (since AECI-1048), `usefulness` and `dataObject` are. What remains trade-only is the alias pass. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one by sending it.
 
 Send `trades` only where the product has **trade-specific value** — trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get an empty array.** Most products carry no trades; that is the intended outcome, not missing data (`TRADES_VOCABULARY.md` §1.1). Any `productRole` may carry trades, connectors included. Omit the key entirely (or send `[]`) when there are none.
 
@@ -1019,7 +1021,7 @@ The `result` object in full:
   ],
   "taxonomy": {
     "categories":  [ { "slug": "bim", "id": "d01…", "operation": "reused" } ],
-    "audiences": [ { "slug": "architecture", "id": "e02…", "operation": "created" } ],
+    "audiences":   [ { "slug": "architecture", "id": "e02…", "operation": "reused" } ],
     "phases":      [],
     "trades":      [ { "slug": "electrical", "id": "f03…", "operation": "reused" } ]
   },
@@ -1057,8 +1059,11 @@ The `result` object in full:
 - Map each returned `id` back to your record by its `ref` (or, for taxonomy, by
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
-  `created` | `reused` for taxonomy. **`taxonomy.trades[]` is always `reused`** —
-  the vocabulary is closed, so promote can only ever match an existing term.
+  `created` | `reused` for taxonomy. **Every taxonomy result is `reused`** —
+  since AECI-1048 promote resolves categories, audiences, phases and trades find-only,
+  so it can only ever match an existing term. `created` stays in the type because a
+  replayed job from before AECI-1048 returns its stored response, and prod history
+  holds such results (6 categories, 3 audiences, 2 phases).
   A `created` on an entity you sent a `supabaseId` for means that id no longer
   resolved and AECi created a replacement row (responsibility 4) — the `id` in the
   result is the new one, and it is what you must store.
@@ -1080,9 +1085,13 @@ The `result` object in full:
   (`kind: "usefulness"`), could **not** resolve a claim's `dataObject` against
   the seeded `data_object` vocabulary (`kind: "claim"`, `ref` = the enclosing
   integration's `ref`), or could **not** resolve a trade against the seeded
-  `trade` vocabulary (`kind: "trade"`, `ref` = the product's `ref`). It is not an
+  `trade` vocabulary (`kind: "trade"`, `ref` = the product's `ref`), or could **not** resolve a
+  category, audience or phase against the seeded vocabulary (`kind: "category"`,
+  `"audience"` or `"phase"`, `ref` = the product's `ref`, AECI-1048). It is not an
   error: re-push after promoting the other product, after the referenced taxonomy
-  term exists, or with a recognized `dataObject` / trade value.
+  term exists, or with a recognized `dataObject` / trade value. For the three
+  facet kinds the term exists only once it is in `apps/api/seed/taxonomy.sql` on
+  both sides (§3.3), so re-sending the same value will not clear the skip.
 - **Three `skipped[]` kinds mean something different from all the others.** `vendor`
   and `product` are the claimed-vendor block (§4a); `review-signal` is the
   maintenance fence (§3.6a). All three mean **"policy said no"**, not "could not be
@@ -2282,26 +2291,21 @@ rejected; you don't need to plumb the response body anywhere else.
 
 A `complete` job with a non-empty `result.skipped[]` (§4) is a **partial** promote —
 some entities couldn't be linked (an integration/extension whose far endpoint isn't
-promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
-resolve). Those never fail the promote, so they're easy to miss. They are surfaced
+promoted yet, a usefulness group, a claim `dataObject`, or a trade, category,
+audience or phase that didn't resolve). Those never fail the promote, so they're easy to miss. They are surfaced
 in the logs as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
   detailing every `{ ref, kind, reason }` plus per-kind counts, and
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
-  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for an alert to watch.
+  (`integration` / `extension` / `usefulness` / `claim` / `trade` / `category` / `audience` / `phase`), for an alert to watch.
 
 So a curator's silently-dropped push is visible even though the job
 completed successfully. (You should still inspect `result.skipped[]` and re-push once
 the blocking condition clears — the log is the operator's backstop, not a substitute
 for handling `skipped[]`.)
 
-**A created category / audience / phase is logged too** (AECI-970). It is not a skip:
-the term DID land. But it is a new public browse page with no copy, so each one gets a
-`warn` log `aeci.api.promote.taxonomy_created` listing every `{ kind, slug, id }` and an
-`aeci.api.promote.taxonomy_created` count of 1 per term, tagged `kind`
-(`category` / `audience` / `phase`) and `slug`. The steady state is zero. Production
-minted 11 terms in its whole history, so any non-zero point is worth a look.
+**A skipped category / audience / phase is the vocabulary drifting** (AECI-1048). Promote no longer creates these terms, so the old `aeci.api.promote.taxonomy_created` signal is gone. A skip of `kind:category`, `audience` or `phase` means the review app sent a value that the seed in `apps/api/seed/taxonomy.sql` does not hold. Re-sending will not clear it. Add the term to the seed and to the review app's copy (§3.3).
 
 **`unresolvedLinks[]` is logged separately, and deliberately at a lower severity**
 (AECI-730). It gets an **`info`** log `aeci.api.promote.unresolved_link` (every
@@ -2614,6 +2618,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
 - [ ] Promote a connector **before** any edge naming it as `poweredByProduct`, and inspect `result.unresolvedLinks[]` — an entry there means the edge landed with no connector link (§4). Treat `field: "powered_by"` on a Zapier/Workato edge as expected and permanent, not as a retry signal. To *remove* a connector send `poweredByProduct: null`; omitting the key leaves the stored value untouched.
+- [ ] Send `categories[]` / `audiences[]` / `phases[]` values that already exist in `apps/api/seed/taxonomy.sql` (AECI-1048). They resolve find-only by slug, then name. An unknown value comes back in `skipped[]` as `kind: "category"`, `"audience"` or `"phase"` and is never created. To add a term, change the seed and the review app's copy together.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, **always**, even on a `poweredByProduct` edge, which AECi re-anchors itself (§3.4a), `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.

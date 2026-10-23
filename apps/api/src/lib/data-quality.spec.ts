@@ -159,8 +159,8 @@ describe('checkProductsWithoutVendor', () => {
 describe('checkTaxonomyMissingDescription', () => {
   const stamp = { createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() };
 
-  it('flags a promote-minted term and leaves the seeded ones alone', async () => {
-    // The minted shape, exactly as `resolveTaxonomy` writes it: id, slug and name,
+  it('flags a term with no description and leaves the seeded ones alone', async () => {
+    // The shape `resolveTaxonomy` minted before AECI-1048, and a hand insert's: id, slug and name,
     // with description and display_order left NULL.
     await t.db.insert(taxonomyCategories).values([
       {
@@ -193,7 +193,7 @@ describe('checkTaxonomyMissingDescription', () => {
     expect((await checkTaxonomyMissingDescription(t.db)).lines).toEqual(['Design (phase/design)']);
   });
 
-  it('covers all five taxonomy tables, not just the mintable three', async () => {
+  it('covers all five taxonomy tables, not just the original three', async () => {
     await t.db
       .insert(taxonomyCategories)
       .values({ id: 'c1', slug: 'robotics', name: 'Robotics', ...stamp });
