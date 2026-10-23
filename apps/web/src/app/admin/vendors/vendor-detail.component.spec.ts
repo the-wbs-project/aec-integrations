@@ -925,6 +925,21 @@ describe('VendorDetail', () => {
   });
 
   describe('audit trail', () => {
+    it('links into the global log, and says it is only the vendor record (AECI-653)', async () => {
+      const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
+      const link = [...el.querySelectorAll('a')].find((a) =>
+        a.getAttribute('href')?.startsWith('/admin/audit'),
+      );
+      expect(link?.getAttribute('href')).toBe(
+        `/admin/audit?entity_type=vendor&entity_id=${VENDOR_ID}`,
+      );
+      // The tab ORs four scopes and the global filter is one of them, so the copy
+      // must not promise the same history.
+      expect(link?.textContent?.trim()).toBe(
+        'Rows filed against this vendor record, in the audit log',
+      );
+    });
+
     it('renders the action, actor and entity', async () => {
       const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.textContent).toContain('vendor_entitlement.set');

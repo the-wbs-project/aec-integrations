@@ -169,6 +169,10 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       // case about one person ("did they get our email?"), not a trend.
       { path: '/admin/email', label: $localize`:@@admin.shell.nav.email:Email` },
       { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
+      // AECI-653. The global, filterable read of `audit_log` (`ADMIN_PANEL_SPEC.md`
+      // §5.18). Last in Operations: it is where an operator goes after a queue or a
+      // detail page has raised "who changed this, and when", not a queue itself.
+      { path: '/admin/audit', label: $localize`:@@admin.shell.nav.audit:Audit log` },
     ],
   },
 ];

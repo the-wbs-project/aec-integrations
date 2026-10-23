@@ -45,6 +45,10 @@
       "types": "./src/slug.ts",
       "default": "./src/slug.ts"
     },
+    "./audit-entity-types": {
+      "types": "./src/audit-entity-types.ts",
+      "default": "./src/audit-entity-types.ts"
+    },
     "./audit-log": {
       "types": "./src/audit-log.ts",
       "default": "./src/audit-log.ts"

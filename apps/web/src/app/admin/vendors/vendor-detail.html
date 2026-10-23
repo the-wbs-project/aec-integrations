@@ -912,6 +912,19 @@
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.audit.intro">
       Every recorded change, newest first. This is a read: opening it records nothing.
     </p>
+    <!--
+      AECI-653. Not the same history: this tab ORs four scopes, and the global log
+      filters on the vendor record alone, so the link says it is a subset.
+    -->
+    <p class="mt-1 text-sm">
+      <a
+        routerLink="/admin/audit"
+        [queryParams]="{ entity_type: 'vendor', entity_id: v.id }"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.vendors.audit.globalLink"
+        >Rows filed against this vendor record, in the audit log</a
+      >
+    </p>
 
     <aec-audit-trail
       [rows]="auditRows()"

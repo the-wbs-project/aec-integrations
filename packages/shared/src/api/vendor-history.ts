@@ -33,10 +33,13 @@ const isRealUtcDay = (d: string): boolean => {
   const parsed = new Date(`${d}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === d;
 };
-const utcDate = z
+/** A `YYYY-MM-DD` UTC day that exists on the calendar. Also the `from` / `to`
+ *  of `GET /api/admin/audit` (AECI-653, `admin-audit.ts`). */
+export const UtcCalendarDaySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
   .refine(isRealUtcDay, 'Not a real calendar day');
+const utcDate = UtcCalendarDaySchema;
 
 const filterShape = {
   kind: VendorHistoryKindSchema.default('all'),

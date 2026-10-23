@@ -630,7 +630,7 @@ Full contract in `API_CONTRACTS.md` §6.10; as-built in `STAGE_2_VENDOR_PORTAL_S
 
 - **It does not close the §5.4 lockout.** AECI-955 later adds a logo-only admin exception. Other fields of a lapsed-but-still-seated vendor remain uneditable, and §5.4's escape hatch is still the answer (`apps/datatool`, or a grant the vendor assigns, then revoke, since AECI-1375). §11 keeps that bullet.
 - **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
-- **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
+- **It is not a global audit browser.** The viewer here is vendor-scoped. The general `/admin/audit` shipped as its own issue, AECI-653 (`ADMIN_PANEL_SPEC.md` §5.18). It links in from this tab, and its vendor filter is a subset of this tab's four scopes.
 - **The seat action does not resolve a claim** (AECI-740). Provisioning writes no `vendor_requests` row and moves no workflow: a parked connector claim stayed `open` (parking is retired since AECI-1367, 2026-10-15, and a connector claim is now approved like any other), because `resolved` would read as approved in the Resolved tab with a paid account behind it, and none was opened. The handover is recorded in the claim's operator note (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6).
 - **It still cannot ban, and adding a seat is not verifying a vendor.** Both boundaries are asserted in `vendor-detail.component.spec.ts` now that this section carries two write actions rather than one.
 

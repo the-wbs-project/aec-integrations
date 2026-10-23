@@ -14,6 +14,7 @@
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminAuditRow } from '@aeci/shared';
@@ -43,7 +44,10 @@ function makeRow(over: Partial<AdminAuditRow> = {}): AdminAuditRow {
 
 function setup(rows: AdminAuditRow[], over: Partial<Record<string, unknown>> = {}) {
   TestBed.resetTestingModule();
-  TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+  // A router for `linkEntities`, whose entity cell is a `routerLink`.
+  TestBed.configureTestingModule({
+    providers: [provideZonelessChangeDetection(), provideRouter([])],
+  });
   const fixture = TestBed.createComponent(AuditTrail);
   const inputs: Record<string, unknown> = {
     rows,
@@ -177,6 +181,182 @@ describe('AuditTrail', () => {
     fixture.componentInstance.retry.subscribe(() => seen.push(true));
     buttonByText(el, 'Try again')!.click();
     expect(seen).toHaveLength(1);
+  });
+
+  describe('global-log inputs (AECI-653)', () => {
+    it('keeps the scoped empty line by default, and takes the caller copy when given', () => {
+      expect(setup([]).el.textContent).toContain('Nothing recorded for this scope.');
+      const { el } = setup([], { emptyText: 'No entries match these filters.' });
+      expect(el.textContent).toContain('No entries match these filters.');
+      expect(el.textContent).not.toContain('Nothing recorded for this scope.');
+    });
+
+    it('renders the entity as plain text unless linkEntities is set', () => {
+      expect(setup([makeRow()]).el.querySelector('tbody a')).toBeNull();
+    });
+
+    it('links the entity to its full history with an absolute-path href', () => {
+      const { el } = setup([makeRow()], { linkEntities: true });
+      const link = el.querySelector('tbody a') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe(
+        `/admin/audit?entity_type=vendor_entitlement&entity_id=${makeRow().entity_id}`,
+      );
+      expect(link.textContent).toContain('vendor_entitlement');
+    });
+
+    it('does not link a row that names a type but no id', () => {
+      const { el } = setup([makeRow({ entity_id: null })], { linkEntities: true });
+      expect(el.querySelector('tbody a')).toBeNull();
+      expect(el.querySelector('tbody td:nth-child(4)')?.textContent).toContain(
+        'vendor_entitlement',
+      );
+    });
+  });
+
+  describe('stays mounted while it refetches', () => {
+    it('shows the loading line only when there are no rows to keep', () => {
+      const first = setup([], { loading: true });
+      expect(first.el.textContent).toContain('Loading the audit trail');
+      expect(first.el.querySelector('table')).toBeNull();
+    });
+
+    it('keeps the table, marks it busy, dims it and disables paging during a refetch', () => {
+      const { el } = setup([makeRow()], { loading: true, total: 60 });
+      expect(el.querySelector('table')).not.toBeNull();
+      expect(el.textContent).not.toContain('Loading the audit trail');
+      const body = el.querySelector('[data-testid="audit-trail-body"]')!;
+      expect(body.getAttribute('aria-busy')).toBe('true');
+      expect(body.classList).toContain('opacity-60');
+      expect(buttonByText(el, 'Next')!.disabled).toBe(true);
+    });
+
+    it('is not busy once the fetch lands', () => {
+      const { el } = setup([makeRow()]);
+      const body = el.querySelector('[data-testid="audit-trail-body"]')!;
+      expect(body.getAttribute('aria-busy')).toBe('false');
+      expect(body.classList).not.toContain('opacity-60');
+    });
+  });
+
+  describe('cursor paging (ADR 0046)', () => {
+    const cursor = { paging: 'cursor', hasNext: true, hasPrev: false, canFirst: false };
+
+    it('renders the result line with the total and the order, as a focus target', () => {
+      const { fixture, el } = setup([makeRow()], { ...cursor, total: 60 });
+      const line = el.querySelector('#audit-trail-result') as HTMLElement;
+      expect(line.getAttribute('tabindex')).toBe('-1');
+      expect(line.textContent).toContain('60 entries');
+      expect(line.textContent).toContain('newest first');
+      fixture.componentInstance.focusResultLine();
+      expect(document.activeElement).toBe(line);
+    });
+
+    it('says "Showing n" when the total is unknown, and "oldest first" ascending', () => {
+      const { el } = setup([makeRow()], { ...cursor, total: null, order: 'asc' });
+      const line = el.querySelector('#audit-trail-result')!;
+      expect(line.textContent).toContain('Showing 1 entry');
+      expect(line.textContent).toContain('oldest first');
+      expect(el.querySelector('caption')?.textContent).toContain('oldest first');
+    });
+
+    it('renders no result line and the numbered paginator on a scoped trail', () => {
+      const { el } = setup([makeRow()], { total: 60 });
+      expect(el.querySelector('#audit-trail-result')).toBeNull();
+      expect(el.querySelector('aec-admin-cursor-paginator')).toBeNull();
+      expect(el.textContent).toContain('Page 1 of 3');
+    });
+
+    it('renders the cursor paginator above and below the table, with distinct names', () => {
+      const { el } = setup([makeRow()], { ...cursor, total: 60 });
+      const navs = [...el.querySelectorAll('aec-admin-cursor-paginator nav')];
+      expect(navs).toHaveLength(2);
+      expect(navs[0].getAttribute('aria-label')).not.toBe(navs[1].getAttribute('aria-label'));
+      expect(navs[0].textContent).not.toContain('on this page');
+    });
+
+    it('emits next and prev, and disables the way it cannot go', () => {
+      const { fixture, el } = setup([makeRow()], { ...cursor, total: 60 });
+      const seen: string[] = [];
+      fixture.componentInstance.next.subscribe(() => seen.push('next'));
+      fixture.componentInstance.prev.subscribe(() => seen.push('prev'));
+      const prev = buttonByText(el, 'Previous')!;
+      expect(prev.disabled).toBe(true);
+      buttonByText(el, 'Next')!.click();
+      expect(seen).toEqual(['next']);
+    });
+
+    it('offers First page only when canFirst, and emits first', () => {
+      expect(buttonByText(setup([makeRow()], cursor).el, 'First page')).toBeUndefined();
+      const { fixture, el } = setup([makeRow()], { ...cursor, hasPrev: true, canFirst: true });
+      let firsts = 0;
+      fixture.componentInstance.first.subscribe(() => firsts++);
+      buttonByText(el, 'First page')!.click();
+      expect(firsts).toBe(1);
+    });
+
+    it('keeps First page on an empty page reached by a cursor', () => {
+      const { el } = setup([], {
+        ...cursor,
+        hasNext: false,
+        canFirst: true,
+        total: 60,
+        emptyText: 'No entries on this page.',
+      });
+      expect(el.textContent).toContain('No entries on this page.');
+      expect(buttonByText(el, 'First page')).toBeDefined();
+    });
+
+    it('emits the picked page size from the rows-per-page select', () => {
+      const { fixture, el } = setup([makeRow()], { ...cursor, total: 60 });
+      const sizes: number[] = [];
+      fixture.componentInstance.pageSizeChange.subscribe((n) => sizes.push(n));
+      const select = el.querySelector(
+        'aec-admin-cursor-paginator select',
+      ) as unknown as HTMLSelectElement;
+      expect(select.closest('label')?.textContent).toContain('Rows per page');
+      expect([...select.options].map((o) => o.value)).toEqual(['25', '50', '100']);
+      select.value = '50';
+      select.dispatchEvent(new Event('change'));
+      expect(sizes).toEqual([50]);
+    });
+  });
+
+  describe('actor links, absolute time and the sort header', () => {
+    it('links the Who cell to that actor in the global log when linkActors is on', () => {
+      const row = makeRow();
+      const { el } = setup([row], { linkActors: true });
+      const link = el.querySelector('tbody td:nth-of-type(2) a') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe(`/admin/audit?actor_id=${row.actor!.id}`);
+      expect(link.getAttribute('title')).toBe('Show every entry by this account');
+      expect(link.textContent).toContain('Ada Lovelace');
+      expect(link.textContent).toContain(row.actor!.id);
+    });
+
+    it('keeps a null actor as plain text, and links nothing by default', () => {
+      expect(
+        setup([makeRow({ actor: null, actor_type: 'system' })], {
+          linkActors: true,
+        }).el.querySelector('tbody td:nth-of-type(2) a'),
+      ).toBeNull();
+      expect(setup([makeRow()]).el.querySelector('tbody td:nth-of-type(2) a')).toBeNull();
+    });
+
+    it('renders the absolute UTC minute under the relative stamp when asked', () => {
+      expect(setup([makeRow()]).el.textContent).not.toContain('2026-08-27 12:00 UTC');
+      const { el } = setup([makeRow()], { absoluteTime: true });
+      expect(el.querySelector('tbody td')?.textContent).toContain('2026-08-27 12:00 UTC');
+    });
+
+    it('makes When a sort header that emits the flipped order', () => {
+      expect(setup([makeRow()]).el.querySelector('thead th[aria-sort]')).toBeNull();
+      const { fixture, el } = setup([makeRow()], { sortable: true });
+      const th = el.querySelector('thead th[aria-sort]')!;
+      expect(th.getAttribute('aria-sort')).toBe('descending');
+      const orders: string[] = [];
+      fixture.componentInstance.sortOrderChange.subscribe((o) => orders.push(o));
+      (th.querySelector('button') as HTMLButtonElement).click();
+      expect(orders).toEqual(['asc']);
+    });
   });
 
   describe('accessibility (structural)', () => {

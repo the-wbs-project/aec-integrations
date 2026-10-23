@@ -1,0 +1,370 @@
+<section aria-labelledby="admin-audit-log-heading">
+  <h2
+    id="admin-audit-log-heading"
+    class="text-lg font-bold text-(--text-primary)"
+    i18n="@@admin.auditLog.heading"
+  >
+    Audit log
+  </h2>
+  <p
+    class="mt-1 max-w-3xl text-sm text-pretty text-(--text-secondary)"
+    i18n="@@admin.auditLog.subheading"
+  >
+    Every recorded change across AECi. Filter by entity, action, actor or date. This is a read:
+    opening it records nothing.
+  </p>
+
+  <!-- Polite announcements: filtering and paging replace the table in place. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (ready()) {
+  <!--
+    The form renders browser-side only. The presets and the default window come
+    from the clock, and a clock-derived value baked into SSR HTML is what diverges.
+  -->
+  <form
+    class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    novalidate
+    (submit)="apply($event)"
+    i18n-aria-label="@@admin.auditLog.filter.formLabel"
+    aria-label="Audit log filters"
+  >
+    <div class="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div>
+        <label
+          for="admin-audit-log-entity-type"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.entityType"
+          >Entity type</label
+        >
+        <input
+          id="admin-audit-log-entity-type"
+          type="text"
+          list="admin-audit-log-entity-types"
+          autocomplete="off"
+          spellcheck="false"
+          [value]="entityType()"
+          (input)="entityType.set(inputValue($event))"
+          [attr.aria-invalid]="errors().entity_type ? 'true' : null"
+          [attr.aria-describedby]="
+            describedBy('entity_type', entityTypeUnknown() ? 'admin-audit-log-entity-type-hint' : null)
+          "
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        <datalist id="admin-audit-log-entity-types">
+          @for (t of entityTypeSuggestions; track t) {
+          <option [value]="t"></option>
+          }
+        </datalist>
+        @if (entityTypeUnknown()) {
+        <p
+          id="admin-audit-log-entity-type-hint"
+          class="mt-1 text-xs text-(--text-secondary)"
+          i18n="@@admin.auditLog.filter.unknownValue"
+        >
+          Not a value this list knows. Apply still searches for it exactly.
+        </p>
+        } @if (errors().entity_type; as msg) {
+        <p
+          [id]="errorId('entity_type')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div>
+        <label
+          for="admin-audit-log-entity-id"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.entityId"
+          >Entity id</label
+        >
+        <input
+          id="admin-audit-log-entity-id"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          [value]="entityId()"
+          [disabled]="entityIdDisabled()"
+          (input)="entityId.set(inputValue($event))"
+          [attr.aria-invalid]="errors().entity_id ? 'true' : null"
+          [attr.aria-describedby]="
+            errors().entity_id
+              ? 'admin-audit-log-entity-id-help ' + errorId('entity_id')
+              : 'admin-audit-log-entity-id-help'
+          "
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken)"
+        />
+        <p
+          id="admin-audit-log-entity-id-help"
+          class="mt-1 text-xs text-(--text-secondary)"
+          i18n="@@admin.auditLog.filter.entityId.help"
+        >
+          Needs an entity type first.
+        </p>
+        @if (errors().entity_id; as msg) {
+        <p
+          [id]="errorId('entity_id')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div>
+        <label
+          for="admin-audit-log-action"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.action"
+          >Action</label
+        >
+        <input
+          id="admin-audit-log-action"
+          type="text"
+          list="admin-audit-log-actions"
+          autocomplete="off"
+          spellcheck="false"
+          [value]="action()"
+          (input)="action.set(inputValue($event))"
+          [attr.aria-invalid]="errors().action ? 'true' : null"
+          [attr.aria-describedby]="
+            describedBy('action', actionUnknown() ? 'admin-audit-log-action-hint' : null)
+          "
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        <datalist id="admin-audit-log-actions">
+          @for (a of actionSuggestions; track a) {
+          <option [value]="a"></option>
+          }
+        </datalist>
+        @if (actionUnknown()) {
+        <p
+          id="admin-audit-log-action-hint"
+          class="mt-1 text-xs text-(--text-secondary)"
+          i18n="@@admin.auditLog.filter.unknownValue"
+        >
+          Not a value this list knows. Apply still searches for it exactly.
+        </p>
+        } @if (errors().action; as msg) {
+        <p
+          [id]="errorId('action')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div>
+        <label
+          for="admin-audit-log-actor-id"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.actorId"
+          >Actor id</label
+        >
+        <input
+          id="admin-audit-log-actor-id"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          [value]="actorId()"
+          (input)="actorId.set(inputValue($event))"
+          [attr.aria-invalid]="errors().actor_id ? 'true' : null"
+          [attr.aria-describedby]="describedBy('actor_id')"
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        @if (errors().actor_id; as msg) {
+        <p
+          [id]="errorId('actor_id')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div>
+        <aec-select
+          layout="stacked"
+          idPrefix="admin-audit-log-actor-type"
+          [label]="actorTypeLabel"
+          [options]="actorTypeOptions"
+          [value]="actorType()"
+          [invalid]="!!errors().actor_type"
+          [describedBy]="describedBy('actor_type') ?? ''"
+          (changed)="actorType.set($event)"
+        />
+        @if (errors().actor_type; as msg) {
+        <p
+          [id]="errorId('actor_type')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <!-- Presets. The pressed chip is derived from the draft, never stored. -->
+      <div class="flex flex-wrap items-end gap-2 sm:col-span-full lg:col-span-3">
+        <div>
+          <span
+            id="admin-audit-log-range-label"
+            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+            i18n="@@admin.auditLog.range.label"
+            >Date range</span
+          >
+          <div
+            role="group"
+            aria-labelledby="admin-audit-log-range-label"
+            class="mt-1 inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-1"
+          >
+            @for (chip of rangeChips; track chip.value) {
+            <button
+              type="button"
+              (click)="pickRange(chip.value)"
+              [attr.aria-pressed]="selectedChip() === chip.value"
+              class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base)"
+            >
+              {{ chip.label }}
+            </button>
+            }
+          </div>
+        </div>
+        @if (selectedChip() === 'custom') {
+        <!-- Not a button: Custom is what typed dates mean, not something to press. -->
+        <span
+          class="mb-1 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary)"
+          i18n="@@admin.auditLog.range.custom"
+          >Custom dates</span
+        >
+        }
+      </div>
+
+      <div>
+        <label
+          for="admin-audit-log-from"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.from"
+          >From (UTC)</label
+        >
+        <input
+          id="admin-audit-log-from"
+          type="date"
+          [value]="from()"
+          (input)="setDate('from', inputValue($event))"
+          (change)="setDate('from', inputValue($event))"
+          [attr.aria-invalid]="errors().from ? 'true' : null"
+          [attr.aria-describedby]="describedBy('from')"
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        @if (errors().from; as msg) {
+        <p
+          [id]="errorId('from')"
+          role="alert"
+          class="mt-1 text-sm font-medium text-(--text-primary)"
+        >
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div>
+        <label
+          for="admin-audit-log-to"
+          class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+          i18n="@@admin.auditLog.filter.to"
+          >To (UTC)</label
+        >
+        <input
+          id="admin-audit-log-to"
+          type="date"
+          [value]="to()"
+          (input)="setDate('to', inputValue($event))"
+          (change)="setDate('to', inputValue($event))"
+          [attr.aria-invalid]="errors().to ? 'true' : null"
+          [attr.aria-describedby]="describedBy('to')"
+          class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        @if (errors().to; as msg) {
+        <p [id]="errorId('to')" role="alert" class="mt-1 text-sm font-medium text-(--text-primary)">
+          {{ msg }}
+        </p>
+        }
+      </div>
+
+      <div class="flex items-end gap-2">
+        <button
+          type="submit"
+          class="inline-flex items-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.auditLog.filter.apply"
+        >
+          Apply
+        </button>
+        <button
+          type="button"
+          (click)="clear()"
+          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.auditLog.filter.clear"
+        >
+          Clear filters
+        </button>
+      </div>
+    </div>
+
+    @if (onDefaultWindow()) {
+    <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.auditLog.filter.defaultWindow">
+      With no entity, action or actor filter, the log shows the last 30 days unless you pick another
+      range.
+    </p>
+    } @if (urlNotice(); as notice) {
+    <p class="mt-2 text-xs text-(--text-primary)" data-testid="audit-log-url-notice">
+      {{ notice }}
+    </p>
+    }
+  </form>
+  } @if (rejected()) {
+  <div
+    role="alert"
+    class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.auditLog.rejected">
+      The audit log could not use these filters. Change them and apply again.
+    </p>
+  </div>
+  } @else {
+  <aec-audit-trail
+    paging="cursor"
+    [page]="1"
+    [rows]="rows()"
+    [perPage]="perPage()"
+    [pageSizes]="pageSizes"
+    [total]="total()"
+    [order]="order()"
+    [hasNext]="canNext()"
+    [hasPrev]="canPrev()"
+    [canFirst]="canFirst()"
+    [loading]="loading()"
+    [failed]="failed()"
+    [emailsAvailable]="emailsAvailable()"
+    [emptyText]="emptyText()"
+    [linkEntities]="true"
+    [linkActors]="true"
+    [absoluteTime]="true"
+    [sortable]="true"
+    (next)="next()"
+    (prev)="prev()"
+    (first)="first()"
+    (pageSizeChange)="setPerPage($event)"
+    (sortOrderChange)="setOrder($event)"
+    (retry)="retry()"
+  />
+  }
+</section>

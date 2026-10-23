@@ -519,6 +519,15 @@
       Opening it records nothing. Writes to the vendor itself, such as its seats and licenses, show
       on the vendor's audit trail, not here.
     </p>
+    <p class="mt-1 text-sm">
+      <a
+        routerLink="/admin/audit"
+        [queryParams]="{ entity_type: 'vendor_request', entity_id: c.id }"
+        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.claims.detail.audit.globalLink"
+        >Open this claim's history in the audit log</a
+      >
+    </p>
     @if (c.entitlement_vendor; as v) {
     <p class="mt-1 text-sm">
       <a

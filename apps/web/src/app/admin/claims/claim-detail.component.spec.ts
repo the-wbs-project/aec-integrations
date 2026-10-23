@@ -571,7 +571,18 @@ describe('ClaimDetail', () => {
 
     it('omits the vendor link when no vendor resolved', async () => {
       const { el } = await setup(makeApiMock(makeDetail({ entitlement_vendor: null })));
-      expect(el.querySelectorAll('#admin-claim-audit ~ p a')).toHaveLength(0);
+      const hrefs = [...el.querySelectorAll('#admin-claim-audit ~ p a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(hrefs.filter((h) => h?.startsWith('/admin/vendors'))).toHaveLength(0);
+    });
+
+    it('links into the global audit log on the vendor_request entity (AECI-653)', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ entitlement_vendor: null })));
+      const hrefs = [...el.querySelectorAll('#admin-claim-audit ~ p a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(hrefs).toEqual([`/admin/audit?entity_type=vendor_request&entity_id=${CLAIM_ID}`]);
     });
 
     it('fails soft: the claim, signals and note still render beside the retry', async () => {

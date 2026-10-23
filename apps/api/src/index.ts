@@ -35,6 +35,7 @@ import {
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createActivityArrivalHandler } from './routes/activity-arrival';
+import { createAdminAuditLogHandler } from './routes/admin-audit';
 import {
   createAdminClaimAuditHandler,
   createAdminClaimDetailHandler,
@@ -675,6 +676,14 @@ app.route('/', authActivity);
 //     files under the seat's `profiles.id` — which no longer points at the vendor
 //     by the time anyone reads it — and a seat ban/unban files under the seat's
 //     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
+//   - GET    /api/admin/audit                     (AECI-653) — the
+//     GLOBAL audit-log viewer. Unscoped, filtered by `entity_type`, `entity_id`,
+//     `action`, `actor_id`, `actor_type` and an inclusive UTC `from`/`to`, all
+//     ANDed. Every allowed shape starts from an `audit_log` index; the two that
+//     cannot (`entity_id` alone, `actor_type` alone) are 400s. Paged by keyset
+//     cursor, not `page` (ADR 0046). Shares `readAdminAuditPage` with the
+//     claim and connector trails, which stay on offset paging. The page is
+//     `/admin/audit` (`ADMIN_PANEL_SPEC.md` §5.18).
 //   - POST   /api/admin/vendors/:id/seats        (S2 §8.9(3), AECI-740) — provision
 //     one catalogue-maintenance seat. The only route that writes
 //     `profiles.role = 'vendor_admin'` STANDALONE — the claim grant
@@ -844,6 +853,10 @@ authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler(
 authAdmin.get('/api/admin/claims/:id', requireAdmin(), createAdminClaimDetailHandler());
 // AECI-1276: the claim's audit trail (`vendor_request` rows for this id). Read-only.
 authAdmin.get('/api/admin/claims/:id/audit', requireAdmin(), createAdminClaimAuditHandler());
+// AECI-653: the global audit-log viewer, every `audit_log` row, filtered. Read-only:
+// no audit row, no `rateLimit()`. `entity_id` without `entity_type` and a lone
+// `actor_type` are 400s, because neither shape can start from an index.
+authAdmin.get('/api/admin/audit', requireAdmin(), createAdminAuditLogHandler());
 // Stage 2 / AECI-739: the operator note (§5.2 step 6) — a sub-resource, not a third
 // `ModerateClaimSchema.action`, because a note changes no status and is writable at
 // all four of them. One `db.batch` carrying the UPDATE + its audit row.

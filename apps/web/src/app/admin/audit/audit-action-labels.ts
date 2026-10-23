@@ -36,6 +36,8 @@
  * holds rows with them.
  */
 
+import { compareText } from '@aeci/shared/text-sort';
+
 /**
  * The closed part of an open vocabulary. Keys are exactly the action strings
  * emitted by an `auditInsert` call site in `apps/api/src`; the values are what an
@@ -257,4 +259,13 @@ export function describeAuditAction(action: string): string {
  *  the map and the fallback are exercised separately. */
 export function isKnownAuditAction(action: string): boolean {
   return action in ACTION_LABELS;
+}
+
+/**
+ * Every action this build has a label for, A to Z. The suggestion list behind
+ * the `/admin/audit` action filter (AECI-653). A suggestion only: the filter is
+ * a free string, because the ledger holds actions this map has never heard of.
+ */
+export function knownAuditActions(): readonly string[] {
+  return Object.keys(ACTION_LABELS).sort(compareText);
 }

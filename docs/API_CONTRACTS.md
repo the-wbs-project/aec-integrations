@@ -92,6 +92,8 @@ export const paginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) =>
 
 > **Note:** later endpoint sections (§6.6 Reviews, §6.10 Admin) still describe the older `PaginationQuerySchema` (offset/limit) pending phase-specific realignment. New work uses `PageQuerySchema`.
 
+> **The one exception is `GET /api/admin/audit` (§6.10).** It pages by keyset cursor over `(created_at, id)`, takes no `page`, and returns `next_cursor` / `prev_cursor` with a nullable `total` instead of `paginatedResponseSchema`. ADR 0046 records why. Every other list stays on `PageQuerySchema`.
+
 ### 3.2 Sorting
 
 Each Phase 2 list endpoint exposes a **combined sort key** — a single enum that encodes both the field and (implicitly) the direction. The API Worker resolves the direction per the rule below; the public query carries no separate `order` field.
@@ -2657,6 +2659,129 @@ Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as
 `GET /api/admin/claims/:id`. Without the 404 gate an unknown id would return an empty page,
 which reads as "no history" rather than "no such claim". Plus `VALIDATION_FAILED` (400) on a
 bad page query, and the shared 401/403.
+
+#### `GET /api/admin/audit` (AECI-653)
+
+**The global audit-log viewer.** Every `audit_log` row, filtered. It backs `/admin/audit`.
+Behind `requireAdmin()`. The vendor, claim and connector trails are scoped reads of the
+same table. This one is unscoped. Source of truth: `packages/shared/src/api/admin-audit.ts`,
+`apps/api/src/routes/admin-audit.ts`, and the shared page reader
+`apps/api/src/lib/admin-audit-page.ts`.
+
+```typescript
+export const AUDIT_ACTOR_TYPES = ['user', 'admin', 'system', 'workflow'] as const;
+
+export const AUDIT_PAGE_SIZES = [25, 50, 100] as const;
+
+// Wire cursor "<created_at>|<id>", parsed to { createdAt, id }. Split on the last pipe;
+// id is a uuid; createdAt is non-empty and at most 40 characters.
+export const AuditCursorSchema = z.string().transform(/* decodeAuditCursor, else a 400 */);
+
+export const AdminAuditLogQuerySchema = z.preprocess(dropBlankValues, z.object({
+  perPage: z.coerce.number().int().refine(/* 25, 50 or 100 */).default(25),
+  order: SortOrderSchema.default('desc'),                     // 'asc' | 'desc'
+  after: AuditCursorSchema.optional(),                        // the page after this row
+  before: AuditCursorSchema.optional(),                       // the page before it; not with after
+  count: z.coerce.number().int().min(0).max(1).default(1),    // 0 = skip the count()
+  entity_type: z.string().trim().min(1).max(64).optional(),   // free string, never an enum
+  entity_id: z.string().trim().min(1).max(128).optional(),    // needs entity_type
+  action: z.string().trim().min(1).max(128).optional(),       // exact match
+  actor_id: z.string().trim().uuid().optional(),              // never an email
+  actor_type: z.enum(AUDIT_ACTOR_TYPES).optional(),           // never on its own
+  from: UtcCalendarDaySchema.optional(),                      // YYYY-MM-DD, inclusive
+  to: UtcCalendarDaySchema.optional(),                        // YYYY-MM-DD, inclusive
+}).superRefine(/* the four 400s below */));
+
+export const AdminAuditLogResponseSchema = z.object({
+  data: z.array(AdminAuditRowSchema),
+  perPage: z.number().int().min(1).max(100),
+  total: z.number().int().min(0).nullable(), // null only under count=0
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+  next_cursor: z.string().nullable(),        // send as `after`; null when !has_next
+  prev_cursor: z.string().nullable(),        // send as `before`; null when !has_prev
+  actor_emails_available: z.boolean(),       // false = the email seam failed, not "no email"
+});
+```
+
+`encodeAuditCursor` and `decodeAuditCursor` in the same module build and read the cursor.
+
+
+**Filters AND together, and each one starts from an index** (`DATABASE_SCHEMA.md` §8.4):
+
+| Param | Index | Rule |
+|---|---|---|
+| none | `audit_log_created_at_idx` | The page walks it in `order`. The count walks the whole index. |
+| `entity_type` | `audit_log_entity_idx` | Leading column. |
+| `entity_id` | `audit_log_entity_idx` | Second column. Needs `entity_type`. |
+| `action` | `audit_log_action_idx` | Exact match. No prefix and no LIKE. |
+| `actor_id` | `audit_log_actor_idx` | Partial index (`actor_id IS NOT NULL`). A uuid, never an email (`ADMIN_PANEL_SPEC.md` §13 D23). |
+| `from`, `to` | `audit_log_created_at_idx` | Inclusive UTC days: `created_at >= from` and `created_at < to + 1 day`. |
+| `actor_type` | none | A residual test only. Never the only constraint. |
+| `after` or `before` alone | `audit_log_created_at_idx` | The page seeks a `created_at` range bounded by the cursor. The count is the unfiltered count. |
+| cursor + filter | the filter's index | The cursor adds a `created_at` bound where that index has `created_at` next. |
+| `order` | unchanged | The same range, walked the other way. |
+
+`vendor_id` and `product_id` have indexes too. They are not filters in v1.
+
+**Four refinements, each a 400 `VALIDATION_FAILED`:**
+
+- `entity_id` without `entity_type`. The entity index leads with `entity_type`, so a lone
+  `entity_id` walks the whole index.
+- `actor_type` as the only constraint. No index leads with it. The page is still cheap,
+  because it walks `audit_log_created_at_idx` and stops at `perPage`. The `count()` is not:
+  it reads every row, and D1 bills rows read. With any other filter or a date range it is
+  a test on an indexed range, so it is allowed. `perPage`, `order`, `count` and the cursors
+  are not constraints.
+- `from` after `to`. A malformed or impossible date (`2026-02-31`) is a 400 too.
+- `after` and `before` together. A malformed cursor, a `perPage` other than 25, 50 or 100, an
+  `order` other than `asc` or `desc`, and a `count` other than 0 or 1 are 400s too.
+
+`routes/admin-audit.spec.ts` runs `EXPLAIN QUERY PLAN` on every allowed shape, in both
+orders and with each cursor. A filtered page, and a page with only a cursor, must plan as an
+index `SEARCH`. The `id` tiebreak adds a temp b-tree sort within rows that share a
+`created_at`, because `id` is a uuid and in no index. That is accepted.
+
+**A blank value is an absent value.** A filter form submits `?action=` for an empty field,
+so a blank or whitespace-only value is dropped before parsing.
+
+**Order** is `created_at` then `id`, both `DESC` by default and both `ASC` under
+`order=asc`. Rows from one `db.batch` routinely share a millisecond, so the tiebreak
+matters. It flips with the primary key so the pair is one total order a cursor can point into.
+
+**Paging is by keyset cursor (ADR 0046), not by page number.** Offset paging drifts on an
+append-only ledger: a row written between two fetches repeats a row on the next page.
+
+- The cursor grammar is `"<created_at>|<id>"`, the position of one row.
+- `after=<cursor>` returns the page that follows that row in the current `order`.
+  `before=<cursor>` returns the page that precedes it. Neither means the first page.
+- The reader compares `(created_at, id) < (?, ?)` (`>` when the walk runs ascending), fetches
+  `perPage + 1` rows, and keeps the extra row only to set the flag. A `before` page walks
+  against `order` and reverses its rows, so it always reads in `order`.
+- `has_prev` is `true` on any `after` page and `false` on the first page. `has_next` is
+  `true` on any `before` page. The other flag comes from the extra row.
+- `next_cursor` is the last row shown and `prev_cursor` the first. Each is `null` when its
+  flag is false or the page is empty. An empty page with a cursor means the cursor walked off
+  the end, so the client offers the first page.
+- `total` counts the filtered set and ignores the cursor. `count=0` skips that query and
+  returns `total: null`. A client that already holds the total sends `count=0` on later pages.
+- The UI's date presets (`range`) are resolved to `from` / `to` in the browser. The endpoint
+  never sees `range`.
+
+**The row.** `AdminAuditRowSchema`, the same one the scoped trails return. No `metadata`
+in v1. A null `actor` means "not a person", and `actor_type` says which.
+`actor_emails_available` is the same GoTrue tri-state the scoped trails carry: `false`
+means the lookup failed and a `null` email reads "unavailable".
+
+**A read.** No `audit_log` row, no rate limit, `Cache-Control: private, no-store`.
+
+Errors: `VALIDATION_FAILED` (400) as above, plus the shared 401/403. There is no 404: an
+empty filtered set is an empty page. A `page` param is ignored, not refused.
+
+**The screen** is `/admin/audit` (`ADMIN_PANEL_SPEC.md` §5.18). It mirrors the three filter 400s as
+inline messages, and lands on the last 30 days when the URL carries no entity, action, actor
+or date. That window is the page's choice. The endpoint itself still accepts an unfiltered
+request.
 
 #### `PATCH /api/admin/claims/:id/notes` (Stage 2 — AECI-739)
 

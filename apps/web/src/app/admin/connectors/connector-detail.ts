@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import {
   PAIR_SURFACE_COUNT_KEYS,
@@ -74,6 +74,7 @@ type StubState =
     ManagedByControl,
     MappingEditControl,
     NewTabIcon,
+    RouterLink,
   ],
   templateUrl: './connector-detail.html',
 })

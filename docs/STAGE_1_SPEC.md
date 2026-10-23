@@ -1994,6 +1994,8 @@ create index audit_log_created_at_idx on audit_log(created_at);
 create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
 ```
 
+**These are four of the six indexes.** AECI-1192 (migration `0063`) added `audit_log_vendor_idx` and `audit_log_product_idx`. `DATABASE_SCHEMA.md` §8.4 lists all six and is the truth for them.
+
 **Who and which plan (AECI-1192, AECI-1193).** Every row about a vendor names it in `vendor_id`, and carries the vendor's plan at write time. Meaning, the no-backfill ruling (2026-10-04) and the metadata spelling rule live in `DATABASE_SCHEMA.md` §8.4.
 
 **Naming convention:** dot-separated `entity.action` (e.g. `review.approved`, `product.created`, `vendor.updated`, `claim.submitted`, `claim.approved`).
@@ -2174,7 +2176,7 @@ This decision is intentionally deferred — easier to introduce retention later 
 ### 26.7 Access control
 
 - `audit_log` and workflow tables are read by AECi admins and, for two narrow views, by the vendor the rows are about. Access is enforced by the **Worker request guard** in `apps/api/src/lib/authz.ts`, **not** by RLS. D1 has no PostgREST, no GRANTs and no row-level security, so app-layer authorization is the only layer (ADR 0016; `AUTH_AND_RLS.md` Layer 1, and §14's note to the same effect). No-leakage authz-matrix specs are what hold the line.
-  - **Admin readers** sit behind `requireAdmin()`, for example `GET /api/admin/vendors/:id/audit`.
+  - **Admin readers** sit behind `requireAdmin()`: the scoped trails (`GET /api/admin/vendors/:id/audit`, `GET /api/admin/claims/:id/audit`, `GET /api/admin/connector-catalogs/:id/audit`) and the global viewer `GET /api/admin/audit` (AECI-653), which reads every row behind filters. None of them writes an `audit_log` row. `API_CONTRACTS.md` §6.10 holds the shapes.
   - **Vendor readers** sit behind `requireVendor()` and are scoped by the session's vendor id, never by a request parameter. There are two. `GET /api/vendor/notifications` reads the `notification.sent` ledger rows addressed to the vendor (AECI-302). `GET /api/vendor/history` and its CSV twin read the rows whose `audit_log.vendor_id` is the vendor and whose action is a receipt in `@aeci/shared/audit-vendor-actions` (AECI-1194). Both project rows through an allow-list: no actor id, no email, no raw before/after values, no internal note. `API_CONTRACTS.md` §6.14 holds the shapes.
   - Workflow tables (`workflow_instances`, `workflow_transitions`) stay admin-read only.
 - No public API exposes audit data. The vendor readers are authenticated, per-vendor reads, not public ones
