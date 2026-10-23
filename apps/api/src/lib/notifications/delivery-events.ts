@@ -5,15 +5,17 @@
  *
  * ─── The shared-account trap ──────────────────────────────────────────────────
  *
- * One Resend account serves every tier, and a webhook endpoint receives the events of the
- * whole account. Every send carries a `tier` tag (`resend-tags.ts`). So:
+ * One Resend team serves every tier, and a webhook endpoint receives the events of the
+ * whole team. Every send carries a `tier` tag (`resend-tags.ts`). So:
  *
  *   - An event tagged with this tier is recorded.
  *   - An event tagged with another tier is dropped and counted (`outcome:other_tier`).
  *   - An untagged event is the Supabase sign-in email, or something we cannot place. Every
  *     tier shares one Supabase project, so the sign-in mail is one stream. Production alone
  *     records it, as tier `auth`, when the subject and sender match. Every other untagged
- *     event is dropped and counted (`outcome:untagged`).
+ *     event is dropped and counted (`outcome:untagged`). The sign-in stream reaches this
+ *     handler only while Supabase's SMTP key belongs to the same Resend team as the Worker's
+ *     key (AECI-1438, `docs/email.md` §Magic-link sender).
  *
  * ─── The join ─────────────────────────────────────────────────────────────────
  *
