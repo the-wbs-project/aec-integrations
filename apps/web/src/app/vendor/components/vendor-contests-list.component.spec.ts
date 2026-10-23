@@ -8,6 +8,8 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { VendorContest } from '@aeci/shared';
+
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_CONTESTS_EMPTY_FIXTURE, VENDOR_CONTESTS_FIXTURE } from '../vendor-fixtures';
@@ -85,6 +87,41 @@ describe('VendorContestsList — rendering', () => {
     expect(declinedRow.textContent).toContain(declined.decision_note!);
 
     expect(row(fixture, OPEN_SUBMITTED.id).textContent).toContain('With AEC Integrations');
+  });
+
+  it('dates a silence close as "No answer by", never "Decided" (AECI-1319)', async () => {
+    const declined = VENDOR_CONTESTS_FIXTURE.submitted.find((c) => c.status === 'declined')!;
+    const silent: VendorContest = {
+      ...declined,
+      id: '00000000-0000-4000-8000-0000000013a9',
+      decision_note: null,
+      decided_at: '2026-09-21T14:10:00.000Z',
+      protest: {
+        status: 'withdrawn',
+        basis: 'silence',
+        reason: 'Thirty days passed with no answer.',
+        evidence_urls: [],
+        protested_at: '2026-09-25T10:00:00.000Z',
+        reply_due_at: '2026-10-09T10:00:00.000Z',
+        reply: null,
+        reply_evidence_urls: [],
+        replied_at: null,
+        decision_note: null,
+        decided_at: null,
+      },
+    };
+    api.getContests.mockResolvedValue({
+      ...VENDOR_CONTESTS_FIXTURE,
+      submitted: [...VENDOR_CONTESTS_FIXTURE.submitted, silent],
+    });
+    const fixture = await create();
+
+    const silentRow = row(fixture, silent.id);
+    expect(silentRow.textContent).toContain('No answer in 30 days');
+    expect(silentRow.textContent).toContain('No answer by');
+    expect(silentRow.textContent).not.toContain('Decided');
+    // An owner's real decline keeps its "Decided" date.
+    expect(row(fixture, declined.id).textContent).toContain('Decided');
   });
 
   it('explains both empty states', async () => {

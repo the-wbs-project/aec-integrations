@@ -166,6 +166,48 @@ describe('the Closed list', () => {
   });
 });
 
+describe('a request closed by 30 days of silence (AECI-1319)', () => {
+  const silent: VendorContest = {
+    ...CONTEST_RECEIVED_ON_OWNED,
+    id: '00000000-0000-4000-8000-0000000013a1',
+    status: 'declined',
+    decided_at: '2026-10-22T14:10:00.000Z',
+    updated_at: '2026-10-25T10:00:00.000Z',
+    protest: {
+      status: 'withdrawn',
+      basis: 'silence',
+      reason: 'Thirty days passed with no answer.',
+      evidence_urls: [],
+      protested_at: '2026-10-23T10:00:00.000Z',
+      reply_due_at: '2026-11-06T10:00:00.000Z',
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
+      decision_note: null,
+      decided_at: null,
+    },
+  };
+
+  it('tells the owner nobody answered, never that they declined it', async () => {
+    const contests = { submitted: [], received: [silent] };
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED], contests);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
+    const toggle = el(fixture).querySelector<HTMLButtonElement>(
+      testid(`closed-toggle-${silent.id}`),
+    )!;
+    expect(toggle.textContent).toContain('No answer in 30 days');
+    toggle.click();
+    await settle(fixture);
+    const body = el(fixture).querySelector<HTMLElement>(
+      `#${toggle.getAttribute('aria-controls')}`,
+    )!;
+    expect(body.textContent).toContain('No answer came within 30 days.');
+    expect(body.textContent).toContain('Trimble withdrew its review request.');
+    expect(text(fixture)).not.toContain('You declined it');
+  });
+});
+
 describe('search and filters', () => {
   it('filters both groups by text, and says so when nothing matches', async () => {
     const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
