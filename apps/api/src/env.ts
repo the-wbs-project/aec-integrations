@@ -407,8 +407,9 @@ export type Env = {
    *
    * **No reader since AECI-1460.** The digest's PostHog `$pageview` line and the
    * AECI-870 browser-start read (digest and `/admin/overview`) were its only
-   * consumers, and both are gone. `deploy.yml` still provisions the secret on
-   * staging; retiring it there and in the Worker secrets is a follow-up.
+   * consumers, and both are gone. `deploy.yml`, `promote-to-demo.yml` and
+   * `promote-to-prod.yml` still push it to staging, demo and production; retiring
+   * it there and in the Worker secrets is a follow-up.
    */
   POSTHOG_QUERY_API_KEY?: string;
   /** Numeric PostHog project id the query ran against (e.g. `354071`). Paired
