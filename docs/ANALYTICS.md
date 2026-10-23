@@ -103,9 +103,11 @@ here** — see §7.
 | `$pageview` | automatic (`capture_pageview: 'history_change'`) | PostHog defaults + the two super-properties | Covers SPA navigations, because the Angular Router drives `history.pushState`. Consented visitors only. |
 | `$identify` | automatic, on `identify(user.id)` after consented sign-in (AECI-649) | PostHog defaults | The Supabase user id and nothing else — **never** the email (§2). Consent-gated: a signed-in visitor who declined, or who sends DNT/GPC, stays anonymous. |
 | `$groupidentify` | automatic, on `group('vendor', vendor_id, { name })` at vendor-dashboard entry | `vendor_id`, `name` | The B2B piece — it is what makes "how many **vendors** activated" answerable. One vendor with four seats is one activated vendor. |
-| `app_started` | app bootstrap (AECI-643) | the two dimensions | **Tier 2** — fires for *every* visitor, consented or not. A liveness beacon: it is how you tell "nobody visited" from "the bundle is broken". **Read back by the 05:00 digest and `/admin/overview?recompute=1` since AECI-870** — see the note below. |
+| `app_started` | app bootstrap (AECI-643) | the two dimensions | **Tier 2** — fires for *every* visitor, consented or not. A liveness beacon: it is how you tell "nobody visited" from "the bundle is broken". **Read back by the 05:00 digest and `/admin/overview?recompute=1` from AECI-870 until AECI-1460 removed both reads on 2026-10-23** — see the note below. |
 
-**`app_started` is now read, and what it means is narrower than it looks (AECI-870).**
+**`app_started` was read back, and what it means is narrower than it looks (AECI-870).**
+As-built 2026-10-23 (AECI-1460): neither the digest nor `/admin/overview` reads it any more, and
+`posthog-query.ts` and `posthog-browser-starts.ts` are deleted. Read it in PostHog. What it means, below, still holds.
 `apps/api/src/lib/posthog-query.ts` counts it for the digest's UTC day and this
 environment's `$host`, and both the email and the `/admin/overview` measurement
 envelope print it as **"browser starts"**, beside the `$pageview` figure and never
@@ -354,8 +356,9 @@ retrofitted (§3.10).
   demo all report to `aec-integrations-dev` (525793) and production is
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**
   that change carry mixed tiers — filter by `$host` when reading history.
-- **The digest excludes the operator itself, with a `$identify` retro-join
-  (AECI-870).** The project-level "filter internal and test users" setting above
+- **The digest excluded the operator itself, with a `$identify` retro-join
+  (AECI-870). The read was removed by AECI-1460 on 2026-10-23. The trap below still applies to any
+  HogQL read of `app_started`.** The project-level "filter internal and test users" setting above
   governs the PostHog UI; it does not govern a HogQL read through the query API.
   So `fetchPosthogBrowserStarts` does the exclusion in the query: it resolves the
   PostHog persons behind the Supabase user ids of every `profiles` row with

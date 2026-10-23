@@ -88,23 +88,8 @@
     />
   </div>
 
-  <!-- Stat tiles ------------------------------------------------------- -->
-  <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-    <!-- The residual, demoted to the previous measure by AECI-1346. Its figure,
-         caption and sparkline are unchanged (AECI-745, AECI-869): the raw
-         server-side count it was subtracted from stays in the caption, where the
-         subtraction is legible. A new message id, not an edited string, because
-         the label now says what the tile is. A later issue removes the tile. -->
-    <aec-stat-tile
-      i18n-label="@@admin.overview.tile.unresolvedRequestsPrevious"
-      label="Requests of unresolved origin (previous measure)"
-      [value]="o.traffic.page_views_human.total"
-      [caption]="pageViewsCaption()"
-      [deltas]="pageViewDeltas()"
-      [sparklineValues]="humanSeries()"
-      [sparklineLabel]="pageViewsSparklineLabel"
-    />
-
+  <!-- Stat tiles. AECI-1460 removed the residual tile, so three remain. -->
+  <div class="mt-4 grid gap-4 md:grid-cols-3">
     <aec-stat-tile
       i18n-label="@@admin.overview.tile.visitors"
       label="Unique visitors"

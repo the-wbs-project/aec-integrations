@@ -5,9 +5,13 @@
  * classes through the same functions `/admin/overview` uses. Covers the three
  * states that must never look alike (classified, not classified, read failed),
  * the classifier seam, and both §3d collection-method treatments.
+ *
+ * AECI-1460 removed the residual below the classes, so these cases also pin
+ * that it stays gone, and that a comparable §3d row is flagged without nulling
+ * a class delta.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pageViews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -20,6 +24,37 @@ import {
   type DigestClassification,
 } from './analytics-digest';
 import type { ArrivalCfCoverage } from './arrival-coverage';
+import type { CollectionMethodChange } from './collection-method-changes';
+
+/**
+ * A mocked AECI-1460 §3d row: `arrivalsComparable: true`, on a production date
+ * no other case here reads. The real rows land per tier after each deploy
+ * (AECI-1465), so the constant itself is not edited.
+ */
+const { AECI_1460_ROW } = vi.hoisted(() => ({
+  AECI_1460_ROW: {
+    at: '2026-11-02T09:00:00.000Z',
+    tier: 'production',
+    sha: 'deadbeef0',
+    issue: 'AECI-1460',
+    summary: 'residual and AutomationExclusion retired',
+    arrivalsComparable: true,
+  } satisfies CollectionMethodChange,
+}));
+
+vi.mock('./collection-method-changes', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./collection-method-changes')>();
+  const changes = [...orig.COLLECTION_METHOD_CHANGES, AECI_1460_ROW];
+  return {
+    ...orig,
+    COLLECTION_METHOD_CHANGES: changes,
+    collectionMethodSeam: (
+      env: string | undefined | null,
+      w: { startIso: string; endIso: string },
+      rows: readonly CollectionMethodChange[] = changes,
+    ) => orig.collectionMethodSeam(env, w, rows),
+  };
+});
 
 const HEALTHY: ArrivalCfCoverage = { arrivals: 900, arrivalsWithAsn: 900, coverage: 1 };
 
@@ -89,12 +124,9 @@ const base: AnalyticsMetrics = {
   pendingModeration: 0,
   topProducts: [{ name: 'Revit', slug: 'revit', views: 120 }],
   referrers: [{ source: 'Direct', views: 300 }],
+  tablesUnclassified: false,
   botActivity: [{ name: 'Bingbot', crawls: 9000 }],
-  corroboratedViews: { day: 12, prior: 9 },
-  corroboratedVisitors: 7,
   operatorLeakViews: 3,
-  automation: { flagged: { day: 500, prior: 450 }, note: null },
-  swarm: null,
   arrivalCoverage: HEALTHY,
   priorArrivalCoverage: HEALTHY,
   classification: classification({}),
@@ -118,9 +150,10 @@ describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
   it('prints the class section first, in D19(b) order, with views, visitors and a day delta', () => {
     const { text } = buildAnalyticsDigest(base, opts);
     const classAt = text.indexOf('== Traffic by class (requests) ==');
-    const residualAt = text.indexOf('== Previous measure: requests of unresolved origin ==');
     expect(classAt).toBeGreaterThan(0);
-    expect(residualAt).toBeGreaterThan(classAt);
+    expect(classAt).toBeLessThan(
+      text.indexOf('== Most viewed products (excluding classed automation) =='),
+    );
     expect(text).toContain('Classifier tc-2026.10.2. Counts are requests, not people.');
     const lines = [
       'Identified automation: 9000 views from 30 visitors (+1000 (+13%) vs 8000 prior day)',
@@ -163,21 +196,28 @@ describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
     expect(html).toContain('classified requests are unresolved (300 of 450)');
   });
 
-  it('keeps the residual section, its content and caveats, below the classes', () => {
+  it('prints no residual, no referrer floor and no PostHog line (AECI-1460)', () => {
     const { text, html } = buildAnalyticsDigest(base, opts);
-    expect(text).toContain(
-      'Requests of unresolved origin: 1200 (+50 (+4%) vs 1150 prior day)  [previous measure]',
-    );
-    expect(text).toContain('[supporting evidence]');
-    expect(html.indexOf('Traffic by class (requests)')).toBeLessThan(
-      html.indexOf('Previous measure: requests of unresolved origin'),
-    );
+    for (const body of [text, html]) {
+      expect(body).not.toMatch(/unresolved origin/i);
+      expect(body).not.toMatch(/previous measure/i);
+      expect(body).not.toMatch(/corroborat/i);
+      expect(body).not.toContain('PostHog');
+      expect(body).not.toMatch(/browser start/i);
+      expect(body).not.toContain('after automation');
+      expect(body).not.toContain('upper bound');
+    }
   });
 
   it('says the classifier did not run, and prints no zeros, on an unclassified day', () => {
     const m = { ...base, classification: classification({ version: null, prior: null }) };
     const { subject, text, html } = buildAnalyticsDigest(m, opts);
-    expect(subject).toContain('1200 requests of unresolved origin (1700 raw) · NOT CLASSIFIED');
+    // AECI-1460: no residual fallback. The reason, and no traffic count.
+    expect(subject).toBe(
+      'AECi daily digest (production) — 2026-09-20: NOT CLASSIFIED, 2 new users · top: Revit · 9000 crawls',
+    );
+    expect(subject).not.toContain('unresolved origin');
+    expect(subject).not.toContain(' raw)');
     expect(text).toContain('The classifier did not run for this day. No class counts are shown.');
     expect(text).not.toContain('Identified automation:');
     expect(text).not.toMatch(/: 0 views from 0 visitors/);
@@ -186,7 +226,9 @@ describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
 
   it('says the classes could not be read when the read failed, distinct from unclassified', () => {
     const { subject, text } = buildAnalyticsDigest({ ...base, classification: null }, opts);
-    expect(subject).toContain('· CLASSES UNAVAILABLE');
+    expect(subject).toBe(
+      'AECi daily digest (production) — 2026-09-20: CLASSES UNAVAILABLE, 2 new users · top: Revit · 9000 crawls',
+    );
     expect(text).toContain('The traffic classes could not be read for this day.');
     expect(text).not.toContain('The classifier did not run');
   });
@@ -224,8 +266,8 @@ describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
       'Identified automation: 9000 views from 30 visitors (not comparable with the prior day (classifier changed))',
     );
     expect(text).not.toContain('+8999');
-    // The residual is not a class figure, so a classifier seam leaves its delta alone.
-    expect(text).toContain('Requests of unresolved origin: 1200 (+50 (+4%) vs 1150 prior day)');
+    // The crawler figure is not a class figure, so a classifier seam leaves its delta alone.
+    expect(text).toContain('Bot/crawler page views: 9000 (+1000 (+13%) vs 8000 prior day)');
     expect(html).toContain('Classifier changed from tc-2026.10.1 to tc-2026.10.2');
   });
 
@@ -247,7 +289,7 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
     expect(digestMethodSeams('development', '2026-10-21')).toEqual([]);
   });
 
-  it('a non-comparable row suppresses class AND residual deltas', () => {
+  it('a non-comparable row suppresses class AND crawler deltas', () => {
     const { text } = buildAnalyticsDigest(base, {
       ...opts,
       env: 'staging',
@@ -260,7 +302,7 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
       'Identified automation: 9000 views from 30 visitors (not comparable with the prior day (collection method changed))',
     );
     expect(text).toContain(
-      'Requests of unresolved origin: 1200 (not comparable with the prior day (collection method changed))',
+      'Bot/crawler page views: 9000 (not comparable with the prior day (collection method changed))',
     );
     // Sign-ins read no page_views row, so their delta stands.
     expect(text).toContain('New sign-ins (new accounts): 2 (+1 (+100%) vs 1 prior day)');
@@ -276,8 +318,28 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
       'Collection method changed at 2026-10-22 03:53 UTC: native cache enabled; arrival rows survive a cache hit (AECI-1443). Arrival counts stay comparable, so the changes vs the prior day stand.',
     );
     expect(text).toContain('Identified automation: 9000 views from 30 visitors (+1000 (+13%)');
-    expect(text).toContain('Requests of unresolved origin: 1200 (+50 (+4%) vs 1150 prior day)');
+    expect(text).toContain('Bot/crawler page views: 9000 (+1000 (+13%) vs 8000 prior day)');
     expect(html).toContain('Arrival counts stay comparable');
+  });
+
+  it('flags a comparable AECI-1460 row and leaves every class delta standing', () => {
+    expect(digestMethodSeams('production', '2026-11-02').map((r) => r.issue)).toEqual([
+      'AECI-1460',
+    ]);
+    const { text, html } = buildAnalyticsDigest(base, {
+      ...opts,
+      env: 'production',
+      dayLabel: '2026-11-02',
+    });
+    expect(text).toContain(
+      'Collection method changed at 2026-11-02 09:00 UTC: residual and AutomationExclusion retired (AECI-1460). Arrival counts stay comparable, so the changes vs the prior day stand.',
+    );
+    expect(html).toContain('residual and AutomationExclusion retired (AECI-1460)');
+    expect(text).toContain(
+      'Identified automation: 9000 views from 30 visitors (+1000 (+13%) vs 8000 prior day)',
+    );
+    expect(text).toContain('Unresolved: 1203 views from 300 visitors (+3 (+0%) vs 1200 prior day)');
+    expect(text).not.toContain('collection method changed)');
   });
 
   it('prints the method line even when the day was not classified', () => {
@@ -344,12 +406,5 @@ describe('collectAnalyticsMetrics: the class read (AECI-1346)', () => {
     expect(m.classification?.day.summary.internal_excluded.operator_leak_inferred).toBe(
       m.operatorLeakViews,
     );
-  });
-
-  it('skips the read when asked, for the metrics_daily snapshot', async () => {
-    const m = await collectAnalyticsMetrics(t.db, windowsForDay('2026-09-20'), {
-      classification: false,
-    });
-    expect(m.classification).toBeNull();
   });
 });

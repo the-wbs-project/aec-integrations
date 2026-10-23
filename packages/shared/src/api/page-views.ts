@@ -315,8 +315,7 @@ export function isUntrackedRoute(route: string): boolean {
  * one is an independent SSR invocation that fires its own `POST /api/page-views`.
  * Production held two byte-identical `arrival` rows 83 ms apart for one visit, and
  * those two rows were the whole "Google — 2 views" traffic-source table in that
- * day's digest: the corroborated floor, the one figure a rotating-proxy pool
- * cannot inflate, inflated 2× by us.
+ * day's digest, inflated 2× by us.
  *
  * The API turns this into a deterministic `dedupe_key` (see `routes/page-views.ts`)
  * carrying a floor-divided time bucket, protected by a UNIQUE index. A bucket

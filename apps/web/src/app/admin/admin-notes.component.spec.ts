@@ -21,8 +21,8 @@ import { AdminNotes } from './admin-notes';
  *
  * AECI-752 — this used to be a hand-written list of codes that CLAIMED to be
  * "every code in the shared enum" and was eleven short, so the test below passed
- * while never rendering `automation_filter_applied`, `operator_leak_is_an_inference`,
- * the audience pair or any of the four connector codes. Deriving the list from
+ * while never rendering several codes (two since retired by AECI-1460), the
+ * audience pair or any of the four connector codes. Deriving the list from
  * `AdminNoteCodeSchema.options` makes that impossible: a code added to the enum
  * is rendered here whether or not anyone remembers to add it. `NOTE_PROSE` being
  * an exhaustive `Record` already forces a *string* to exist; this forces it to
@@ -32,10 +32,6 @@ const PARAMS_BY_CODE: Partial<Record<AdminNoteCode, AdminNote['params']>> = {
   partial_day: { day: '2026-08-13' },
   bot_classification_incomplete: { rows: 42, window_from: '2026-08-12', window_to: '2026-08-13' },
   referrer_source_incomplete: { rows: 7 },
-  // AECI-836 — the note is count-gated now, so its presence already means a
-  // non-zero, and it carries the figure for a `curl` reader.
-  operator_leak_is_an_inference: { rows: 22 },
-  automation_filter_applied: { flagged: 163 },
   catalog_series_is_additions_only: { metric: 'catalog.products_created' },
   catalog_series_starts_at: { earliest_day: '2026-05-01' },
   internal_filter_applied: { asns: '23700' },

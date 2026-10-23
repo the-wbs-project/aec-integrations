@@ -23,8 +23,6 @@ import {
   detectUaHashSwarms,
   isCorroboratedByRequestShape,
   NON_BROWSER_VERDICTS,
-  swarmNote,
-  verdictNetworkPhrase,
   SWARM_MAX_CANDIDATES,
   SWARM_MIN_ASN_RATIO,
   SWARM_MIN_VIEWS,
@@ -32,9 +30,7 @@ import {
   SWARM_PRIOR_MIN_FLAGGED_DAYS,
   SWARM_RECURRING_ASN_RATIO,
   SWARM_RECURRING_MIN_VIEWS,
-  type NonBrowserCandidate,
   type SwarmCandidate,
-  type SwarmSummary,
 } from './swarm-detection';
 
 const DAY_START = '2026-08-23T00:00:00.000Z';
@@ -451,21 +447,6 @@ describe('cross-day memory (AECI-742)', () => {
 
     expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
   });
-
-  it('says out loud that a lower bar applied, since the day alone cannot show it', async () => {
-    await t.db
-      .insert(pageViews)
-      .values([
-        ...flaggedHistory('ua-noted', SWARM_PRIOR_MIN_FLAGGED_DAYS),
-        ...dayOfViews({ hash: 'ua-noted', dayOffset: 0, views: 10, asns: 7 }),
-      ]);
-
-    const note = swarmNote(await detectSwarms(t.db, DAY_START, DAY_END));
-    expect(note).toContain(`already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous`);
-    expect(note).toContain(`${SWARM_PRIOR_LOOKBACK_DAYS} days`);
-    // eslint-disable-next-line no-control-regex
-    expect(note).toMatch(/^[\x00-\x7F]*$/);
-  });
 });
 
 describe('detectAsnRotators (the inverse grouping, AECI-683)', () => {
@@ -781,235 +762,6 @@ describe('detectNonBrowserClients (the verdict as sufficient evidence, AECI-744)
   });
 });
 
-describe('swarmNote', () => {
-  const candidate = (views: number, priorFlaggedDays = 0): SwarmCandidate => ({
-    userAgentHash: 'ua',
-    views,
-    distinctAsns: views,
-    distinctCountries: views,
-    distinctPaths: views,
-    nonBrowserViews: views,
-    asnRatio: 1,
-    pathRatio: 1,
-    priorFlaggedDays,
-  });
-
-  /** Fills the two AECI-744 fields for the cases that are not about them. The
-   *  helper exists so a summary literal here cannot silently disagree with the
-   *  one `detectSwarms` actually returns. */
-  const renderNote = (
-    summary: Omit<SwarmSummary, 'verdictCandidates' | 'verdictFlaggedViews'> &
-      Partial<Pick<SwarmSummary, 'verdictCandidates' | 'verdictFlaggedViews'>>,
-  ): string | null => swarmNote({ verdictCandidates: [], verdictFlaggedViews: 0, ...summary });
-
-  it('is null when nothing was flagged, so the digest stays quiet', () => {
-    expect(
-      renderNote({
-        uaCandidates: [],
-        asnCandidates: [],
-        truncated: false,
-        flaggedViews: 0,
-        totalHumanViews: 40,
-      }),
-    ).toBeNull();
-  });
-
-  it('frames the finding as a proportion of the reported number', () => {
-    const note = renderNote({
-      uaCandidates: [candidate(9), candidate(5)],
-      asnCandidates: [],
-      truncated: false,
-      flaggedViews: 14,
-      totalHumanViews: 48,
-    });
-    expect(note).toContain('14 of 48');
-    expect(note).toContain('2 clients');
-  });
-
-  it('singularizes a lone client', () => {
-    const note = renderNote({
-      uaCandidates: [candidate(9)],
-      asnCandidates: [],
-      truncated: false,
-      flaggedViews: 9,
-      totalHumanViews: 48,
-    });
-    expect(note).toContain('1 client');
-  });
-
-  it('hedges rather than asserting, because this is a heuristic', () => {
-    const note = renderNote({
-      uaCandidates: [candidate(9)],
-      asnCandidates: [],
-      truncated: false,
-      flaggedViews: 9,
-      totalHumanViews: 48,
-    });
-    expect(note).toContain('may not be people');
-  });
-
-  it("names the second shape in its own words, not the first shape's", () => {
-    // The two findings must not read alike: one is many networks behind one
-    // fingerprint, the other is many fingerprints behind one network, and an
-    // operator deciding what to do needs to know which they are looking at.
-    const rotator = {
-      cfAsn: 47544,
-      asOrganization: 'Example Hosting',
-      views: 5,
-      distinctUaHashes: 5,
-      distinctCountries: 1,
-      distinctPaths: 5,
-      nonBrowserViews: 5,
-      uaRatio: 1,
-      pathRatio: 1,
-    };
-    const note = renderNote({
-      uaCandidates: [],
-      asnCandidates: [rotator],
-      truncated: false,
-      flaggedViews: 5,
-      totalHumanViews: 40,
-    });
-    expect(note).toContain('5 of 40');
-    expect(note).toContain('1 network');
-    expect(note).toContain('rotating its user-agent');
-    expect(note).not.toContain('rotating proxy pool');
-
-    const both = renderNote({
-      uaCandidates: [candidate(9)],
-      asnCandidates: [rotator],
-      truncated: false,
-      flaggedViews: 13,
-      totalHumanViews: 40,
-    });
-    expect(both).toContain('rotating proxy pool');
-    expect(both).toContain('rotating its user-agent');
-    expect(both).toContain('; and ');
-  });
-
-  it('explains a day whose only flagged views came from the verdict (AECI-744)', () => {
-    // The failure this closes: `note: null` tells `AutomationFilter` "the detector
-    // ran and flagged nothing", while the headline is `raw - flaggedViews`. A
-    // verdict-only day would then subtract 7 views with nothing in the email
-    // saying why. Every subtraction gets a sentence.
-    const verdictOnly = renderNote({
-      uaCandidates: [],
-      asnCandidates: [],
-      verdictCandidates: [
-        {
-          cfAsn: 20115,
-          asOrganization: 'Charter',
-          views: 1,
-          distinctUaHashes: 1,
-          distinctCountries: 1,
-          distinctPaths: 1,
-        },
-        {
-          cfAsn: 199737,
-          asOrganization: 'Rockion LLC',
-          views: 2,
-          distinctUaHashes: 1,
-          distinctCountries: 1,
-          distinctPaths: 2,
-        },
-      ],
-      verdictFlaggedViews: 3,
-      truncated: false,
-      flaggedViews: 3,
-      totalHumanViews: 37,
-    });
-    expect(verdictOnly).toContain('3 of 37');
-    expect(verdictOnly).toContain('3 views');
-    expect(verdictOnly).toContain('2 networks');
-    expect(verdictOnly).toContain('do not look like a browser');
-    // Its own words, like the other two clauses: this is not a cardinality claim.
-    expect(verdictOnly).not.toContain('rotating proxy pool');
-    expect(verdictOnly).not.toContain('rotating its user-agent');
-  });
-
-  it('singularizes a lone verdict-flagged view and network', () => {
-    const one = renderNote({
-      uaCandidates: [],
-      asnCandidates: [],
-      verdictCandidates: [
-        {
-          cfAsn: 23724,
-          asOrganization: 'UCLOUD',
-          views: 1,
-          distinctUaHashes: 1,
-          distinctCountries: 1,
-          distinctPaths: 1,
-        },
-      ],
-      verdictFlaggedViews: 1,
-      truncated: false,
-      flaggedViews: 1,
-      totalHumanViews: 37,
-    });
-    expect(one).toContain('1 view ');
-    expect(one).toContain('1 network');
-  });
-
-  it('says so when a candidate list was capped, rather than capping silently', () => {
-    const note = renderNote({
-      uaCandidates: [candidate(9)],
-      asnCandidates: [],
-      truncated: true,
-      flaggedViews: 9,
-      totalHumanViews: 48,
-    });
-    expect(note).toContain(`Only the ${SWARM_MAX_CANDIDATES} largest`);
-  });
-
-  it('is plain ASCII so it renders in the plain-text email', () => {
-    // Every branch, not just the first: the AECI-683 clause was written with an
-    // em dash and this assertion, scoped to a UA-only summary, would not have
-    // caught it.
-    const rotator = {
-      cfAsn: 47544,
-      asOrganization: 'Example Hosting',
-      views: 5,
-      distinctUaHashes: 5,
-      distinctCountries: 1,
-      distinctPaths: 5,
-      nonBrowserViews: 5,
-      uaRatio: 1,
-      pathRatio: 1,
-    };
-    const verdict = {
-      cfAsn: 199737,
-      asOrganization: 'Rockion LLC',
-      views: 3,
-      distinctUaHashes: 1,
-      distinctCountries: 1,
-      distinctPaths: 3,
-    };
-    for (const summary of [
-      { uaCandidates: [candidate(9)], asnCandidates: [] },
-      { uaCandidates: [], asnCandidates: [rotator] },
-      { uaCandidates: [candidate(9)], asnCandidates: [rotator] },
-      { uaCandidates: [], asnCandidates: [], verdictCandidates: [verdict], verdictFlaggedViews: 3 },
-      {
-        uaCandidates: [candidate(9)],
-        asnCandidates: [rotator],
-        verdictCandidates: [verdict],
-        verdictFlaggedViews: 3,
-      },
-    ]) {
-      for (const truncated of [false, true]) {
-        const note = renderNote({
-          ...summary,
-          truncated,
-          flaggedViews: 9,
-          totalHumanViews: 48,
-        });
-        // eslint-disable-next-line no-control-regex
-        expect(note).toMatch(/^[\x00-\x7F]*$/);
-      }
-    }
-  });
-});
-
 describe('isCorroboratedByRequestShape', () => {
   it('requires a majority of the views to look non-browser', () => {
     const base: SwarmCandidate = {
@@ -1055,70 +807,5 @@ describe('thresholds', () => {
     // vocabulary to build the complement of the flagged predicate, so a value
     // added here without being added there would leak rows back into the tables.
     expect([...NON_BROWSER_VERDICTS]).toEqual(['inconsistent', 'non-browser']);
-  });
-});
-
-describe('verdictNetworkPhrase — a NULL ASN is not a network (AECI-869)', () => {
-  const named = (cfAsn: number, views: number): NonBrowserCandidate => ({
-    cfAsn,
-    asOrganization: `AS${cfAsn}`,
-    views,
-    distinctUaHashes: 1,
-    distinctCountries: 1,
-    distinctPaths: 1,
-  });
-  const unknown = (views: number): NonBrowserCandidate => ({
-    cfAsn: null,
-    asOrganization: null,
-    views,
-    distinctUaHashes: 1,
-    distinctCountries: 1,
-    distinctPaths: 1,
-  });
-
-  it('counts only the groups that carried an ASN', () => {
-    expect(verdictNetworkPhrase([named(20115, 1), named(199737, 2)])).toBe('from 2 networks');
-    expect(verdictNetworkPhrase([named(23724, 1)])).toBe('from 1 network');
-  });
-
-  /**
-   * The 2026-09-10 shape, and the defect this function exists for.
-   *
-   * All 198 request-shape exclusions that day carried a NULL `cf_asn` (AECI-868),
-   * and the note reported them as "from 1 network". One SQL NULL group is not an
-   * observed network — it is the absence of the observation entirely — and
-   * counting it turns missing data into a measurement.
-   */
-  it('reports a lone NULL group as an unknown network, never as one network', () => {
-    expect(verdictNetworkPhrase([unknown(198)])).toBe('from network unknown (198 requests)');
-    expect(verdictNetworkPhrase([unknown(198)])).not.toContain('1 network,');
-    expect(verdictNetworkPhrase([unknown(1)])).toBe('from network unknown (1 request)');
-  });
-
-  it('keeps the NULL group beside the count rather than inside it', () => {
-    // Two real networks and an unknown bucket is "2", not "3": the third group
-    // could be one network or two hundred and nothing on the rows says which.
-    expect(verdictNetworkPhrase([named(20115, 4), named(199737, 2), unknown(198)])).toBe(
-      'from 2 networks, plus network unknown (198 requests)',
-    );
-  });
-
-  it('carries through swarmNote, which is what the email and the panel render', () => {
-    const note = swarmNote({
-      uaCandidates: [],
-      asnCandidates: [],
-      verdictCandidates: [unknown(198)],
-      verdictFlaggedViews: 198,
-      truncated: false,
-      flaggedViews: 198,
-      totalHumanViews: 878,
-    });
-    expect(note).toContain('198 of 878');
-    expect(note).toContain('network unknown (198 requests)');
-    // The panel's `automation_filter_applied` note embeds this string verbatim,
-    // so fixing it here fixes both surfaces — there is no second copy to update.
-    expect(note).not.toContain('from 1 network,');
-    // eslint-disable-next-line no-control-regex
-    expect(note).toMatch(/^[\x00-\x7F]*$/);
   });
 });

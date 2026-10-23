@@ -125,12 +125,6 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   visitor_definition_approximate: () =>
     $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. It over-counts when a browser updates and under-counts behind a shared network.`,
 
-  corroborated_is_a_referrer_floor: () =>
-    $localize`:@@admin.notes.corroboratedIsAReferrerFloor:Corroborated arrivals are those carrying a named external search or social referrer. Read it as a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It also rests on the same unverified claim as the Source column.`,
-
-  operator_leak_is_an_inference: () =>
-    $localize`:@@admin.notes.operatorLeakIsAnInference:Views excluded as operator self-traffic on a lapsed session are matched by browser-and-network pair against a verified operator session nearby in time. That is an inference about who the visitor was, not a verified session.`,
-
   // AECI-827. The same inference's other property: it is not final. Interpolates
   // the two day counts rather than naming a fixed window, because the lookback is
   // a documented launch tunable and a hardcoded "30" here would rot the first time
@@ -138,27 +132,15 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   series_within_operator_lookback: (params) =>
     $localize`:@@admin.notes.seriesWithinOperatorLookback:${num(params, 'days')}:days: of the ${num(params, 'requested')}:requested: day(s) shown are not final. A view counts as operator self-traffic if it shares a browser-and-network pair with a verified operator session within ${num(params, 'lookback_days')}:lookbackDays: days, and such a session may not have happened yet. These figures can still fall. The daily snapshot re-checks and corrects them.`,
 
-  // AECI-745. The API's `message` carries `SWARM_THRESHOLD_NOTE` verbatim, which
-  // is English and interpolates the detector's own numeric thresholds — so it is
-  // a FALLBACK, not the rendered string. Localizing the exact figures would mean
-  // duplicating the constants here and letting them rot; naming the shape of the
-  // rule and pointing at the day's own reading keeps the panel translatable
-  // without asserting a threshold it does not own.
-  automation_filter_applied: () =>
-    $localize`:@@admin.notes.automationFilterApplied:The headline is human page views less those attributed to automated clients: one browser fingerprint appearing across many networks, one network serving a new fingerprint almost every request, or a request whose own headers do not look like a browser. It is an estimate, not a census.`,
-
-  automation_filter_did_not_run: () =>
-    $localize`:@@admin.notes.automationFilterDidNotRun:The automation filter did not run for this window, so the headline figure is unfiltered and is an upper bound only. It is not comparable with a day the filter ran on.`,
-
   // AECI-869. The loudest note this component renders, and the one place the
   // panel says a number had no input rather than that it has a caveat. Phrased
   // around the consequence: an operator does not need to know that a cache
   // gateway replaced `request.cf`, they need to know the exclusions did not run.
   arrival_telemetry_unavailable: (p) =>
-    $localize`:@@admin.notes.arrivalTelemetryUnavailable:Network information was missing from most page loads on this day: ${num(p, 'arrivals_with_asn')}:WITH_NETWORK: of ${num(p, 'arrivals')}:ARRIVALS: carried one. Every check that works by network could not run, so nothing was excluded on those grounds and the headline is too high by an unknown amount. This day cannot be compared with a day that has network information.`,
+    $localize`:@@admin.notes.arrivalTelemetryUnavailable:Network information was missing from most page loads on this day: ${num(p, 'arrivals_with_asn')}:WITH_NETWORK: of ${num(p, 'arrivals')}:ARRIVALS: carried one. Every check that works by network could not run, so nothing was classed as automation on those grounds. This day cannot be compared with a day that has network information.`,
 
   series_spans_degraded_days: (p) =>
-    $localize`:@@admin.notes.seriesSpansDegradedDays:${num(p, 'degraded_days')}:DEGRADED: of the ${num(p, 'requested')}:REQUESTED: days behind the trend line and the 7-day change were missing network information, so their figures are too high by an unknown amount. Do not read a step across those days as a change in traffic.`,
+    $localize`:@@admin.notes.seriesSpansDegradedDays:${num(p, 'degraded_days')}:DEGRADED: of the ${num(p, 'requested')}:REQUESTED: days behind the trend line were missing network information, so their figures are too high by an unknown amount. Do not read a step across those days as a change in traffic.`,
 
   // AECI-684. Both of these are per METRIC, and the split branch is not cosmetic.
   // `catalog.products_created` is §4's exception: the cron and the live fallback
@@ -305,6 +287,9 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     str(p, 'comparable') === 'true'
       ? $localize`:@@admin.notes.collectionMethodSeam:The way page views are recorded changed at ${str(p, 'changed_at')}:CHANGED_AT: (${str(p, 'summary')}:SUMMARY:). Arrival counts stay comparable across the change.`
       : $localize`:@@admin.notes.collectionMethodSeamNotComparable:The way page views are recorded changed at ${str(p, 'changed_at')}:CHANGED_AT: (${str(p, 'summary')}:SUMMARY:). Counts either side of the change are not comparable, so day-over-day changes across it are not shown.`,
+  // AECI-1460. The top products and top sources tables on a day with no classes.
+  tables_unclassified: () =>
+    $localize`:@@admin.notes.tablesUnclassified:This day has no traffic classes, so the product and source tables are not filtered for automation.`,
 };
 
 /**

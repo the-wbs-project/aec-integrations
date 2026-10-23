@@ -20,89 +20,20 @@
  * of them.
  *
  * Everything below moved here VERBATIM. The NULL-safe `NOT EXISTS` form of
- * {@link OPERATOR_PAIR_MATCH}, its `%Y-%m-%dT%H:%M:%fZ` format string, and the
- * "IS NULL OR NOT IN" shape of {@link notFlagged} are each load-bearing and
- * documented as such below — this was a move, not a rewrite, and the same
- * warnings apply.
+ * {@link OPERATOR_PAIR_MATCH} and its `%Y-%m-%dT%H:%M:%fZ` format string are
+ * load-bearing and documented as such below — this was a move, not a rewrite,
+ * and the same warnings apply.
+ *
+ * AECI-1460 removed `AutomationExclusion` and its complement `notFlagged`. The
+ * classification record (`page_view_classifications`) is now the only automation
+ * population on the reporting surface; the detectors feed it as classifier inputs.
  */
 
-import { and, eq, inArray, isNull, not, notLike, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, not, notLike, or, sql } from 'drizzle-orm';
 
 import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
 
 import { pageViews } from '../db/schema';
-
-/**
- * The automated clients a run flagged, as plain data (AECI-747).
- *
- * Still plain primitives rather than a `SwarmSummary`, even though AECI-745
- * removed the import cycle that originally forced it. The reason is now the one
- * that always mattered underneath: this module owns only the COMPLEMENT of
- * "flagged", and `swarm-detection.ts` owns what flagged MEANS. Handing the
- * complement a summary object would invite it to re-derive the decision from the
- * candidate fields, and then there would be two definitions again.
- */
-export interface AutomationExclusion {
-  /** `user_agent_hash` values flagged as rotating-proxy swarms. */
-  uaHashes: readonly string[];
-  /** `cf_asn` values flagged as user-agent rotators. */
-  asns: readonly number[];
-  /**
-   * `client_verdict` values that flag a row ON THEIR OWN, with no view floor
-   * (AECI-744) — `['inconsistent', 'non-browser']`, `NON_BROWSER_VERDICTS` there.
-   *
-   * Unlike the two lists above this is a fixed vocabulary, not a per-run result,
-   * and it is passed rather than hardcoded here for the same reason they are: the
-   * detector owns what "flagged" means, and this module owns only the complement.
-   */
-  verdicts: readonly string[];
-}
-
-/**
- * "This row is NOT attributable to a flagged automated client" — the exact
- * complement of `swarm-detection.ts`'s `countFlaggedViews`, so the headline
- * (`total - flagged`) and the tables (filtered by this) describe the same
- * population. If the two ever drift, the email reports a filtered number over
- * unfiltered rows, which is the inconsistency this exists to close.
- *
- * **NULL-safety is load-bearing and must not be "simplified".** The flagged
- * predicate is `ua IN (…) OR asn IN (…) OR client_verdict IN (…)` (the third term
- * since AECI-744). A row with a NULL hash, a NULL ASN and a NULL verdict makes
- * every `IN` NULL, so `OR` is NULL, so the row is NOT counted as flagged —
- * it stays in the headline. The tempting negation `not(or(inArray…, inArray…))`
- * is NULL for that same row, and a NULL `WHERE` DROPS it — so the row would
- * vanish from the tables while remaining in the count. Writing each half as
- * "IS NULL OR NOT IN" keeps it. Same three-valued-logic trap `OPERATOR_PAIR_MATCH`
- * documents above.
- */
-export function notFlagged(exclusion: AutomationExclusion | undefined) {
-  if (!exclusion) return undefined;
-  const clauses = [];
-  if (exclusion.uaHashes.length > 0) {
-    clauses.push(
-      or(
-        isNull(pageViews.userAgentHash),
-        not(inArray(pageViews.userAgentHash, [...exclusion.uaHashes])),
-      ),
-    );
-  }
-  if (exclusion.asns.length > 0) {
-    clauses.push(or(isNull(pageViews.cfAsn), not(inArray(pageViews.cfAsn, [...exclusion.asns]))));
-  }
-  if (exclusion.verdicts.length > 0) {
-    // Same NULL-safe shape, and load-bearing for the same reason: a row written
-    // before `client_verdict` existed counts in the headline, so it must survive
-    // the tables. `not(inArray(...))` alone is NULL for that row and a NULL
-    // `WHERE` drops it.
-    clauses.push(
-      or(
-        isNull(pageViews.clientVerdict),
-        not(inArray(pageViews.clientVerdict, [...exclusion.verdicts])),
-      ),
-    );
-  }
-  return clauses.length > 0 ? and(...clauses) : undefined;
-}
 
 /**
  * A row is "human" when it isn't flagged as a bot. `is_bot IS NOT 1` (NULL-safe) so
@@ -163,8 +94,8 @@ const LOOKBACK_FWD = `+${OPERATOR_PAIR_LOOKBACK_DAYS} days`;
  * rows, then flagged rows again, and nothing on the unflagged ones distinguishes
  * them from a visitor. On 2026-08-26 that was 22 views in one 105-minute gap
  * (ending on `/auth/login`, which is what a lapse looks like from the outside),
- * inside a 102-view "human" day whose corroborated population was 8 views from
- * 7 visitors.
+ * inside a 102-view "human" day in which only 8 views, from 7 visitors, carried
+ * a named external referrer.
  *
  * ─── Why the PAIR, and not either half ──────────────────────────────────────
  *

@@ -170,7 +170,7 @@ export class TrafficClassesCard {
         fill: TRAFFIC_CLASS_FILLS[cls],
         views: c?.views ?? 0,
         visitors: c?.visitors ?? 0,
-        delta: statDeltaText({ delta: c?.delta_day ?? null, period: 'day', notComparable: reason }),
+        delta: statDeltaText({ delta: c?.delta_day ?? null, notComparable: reason }),
       };
     });
   });

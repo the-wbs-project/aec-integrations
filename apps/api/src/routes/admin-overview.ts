@@ -14,11 +14,12 @@
  * The acceptance criterion is that this endpoint's numbers are **identical** to
  * that day's 05:00 analytics digest email. The only way to make that structurally
  * true rather than periodically re-verified is to run the digest's own
- * collection: `collectAnalyticsMetrics(db, windowsForDay(day))`. Human/bot page
- * views, new sign-ins, total users, moderation depth, top products and traffic
- * sources are therefore not re-queried here — they are the email's numbers,
- * passed through. The panel-only additions (unique visitors, the 30-day series,
- * the 7-day delta, subscribers, catalog totals, the status strip) sit alongside.
+ * collection: `collectAnalyticsMetrics(db, windowsForDay(day))`. Bot page views,
+ * new sign-ins, total users, moderation depth, top products and traffic sources
+ * are therefore not re-queried here — they are the email's numbers, passed
+ * through. The panel-only additions (unique visitors, the 30-day series,
+ * subscribers, catalog totals, the status strip) sit alongside. Since AECI-1460
+ * the classification block is the only population figure; the residual is gone.
  *
  * Deltas are returned structured (`computeDelta`, which `deltaText` also calls)
  * rather than as the email's prose: the semantics must match, but the panel has
@@ -49,7 +50,7 @@ import {
   type AdminNote,
   type AdminOverviewResponse,
 } from '@aeci/shared';
-import { and, count, gte, isNull, lt } from 'drizzle-orm';
+import { isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -59,7 +60,6 @@ import {
   connectorEvidencedPairs,
   integrations,
   mailingList,
-  pageViews,
   products,
   vendors,
 } from '../db/schema';
@@ -82,7 +82,6 @@ import {
   trafficSeries,
   trailingWindow,
   utcDayWindow,
-  type UtcWindow,
 } from '../lib/admin-analytics';
 import {
   classDeltaBlocker,
@@ -104,16 +103,12 @@ import {
 } from '../lib/admin-status';
 import {
   arrivalTelemetryDegraded,
-  automationExclusionFor,
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
-  unresolvedRequests,
+  TABLES_UNCLASSIFIED_NOTE,
   windowsForDay,
 } from '../lib/analytics-digest';
-import { HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from '../lib/page-view-predicates';
-import { readPosthogBrowserStarts, type BrowserStartsWindow } from '../lib/posthog-browser-starts';
-import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
 import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
@@ -126,28 +121,11 @@ type AdminContext = Context<{ Bindings: Env }>;
 /** Trailing window for the overview's traffic chart (§5.1). */
 const CHART_DAYS = 30;
 
-/** Both halves of the 7-day delta. */
-const WEEK_DAYS = 7;
-
 /** Seams the specs replace: the clock, plus the two network seams
  *  (`driftRunnerFor` / `fetchImpl`) that `runExpensiveStatusItems` consumes.
  *  Production defaults are the real ones. */
 export interface AdminOverviewDeps extends ExpensiveStatusDeps {
   now?: () => Date;
-  /**
-   * The AECI-870 browser-start read, injected so specs never reach PostHog.
-   *
-   * A seam of its own rather than a reuse of `ExpensiveStatusDeps.fetchImpl`:
-   * that one is threaded into the data-quality logo probe, and a spec that
-   * stubbed it to assert on logo URLs would silently start answering PostHog
-   * queries too. Production default is the module's own implementation, shared
-   * verbatim with the 05:00 digest so the two surfaces cannot diverge.
-   */
-  readBrowserStarts?: (
-    env: Env,
-    db: Db,
-    window: BrowserStartsWindow,
-  ) => Promise<PosthogBrowserStartsOutcome>;
 }
 
 export function createAdminOverviewHandler(
@@ -171,29 +149,15 @@ export function createAdminOverviewHandler(
     // No prior-day window is built here: the day-over-day baseline comes from
     // `collectAnalyticsMetrics`, which already counts it (`DigestWindow.priorStartIso`).
     const chartW = trailingWindow(day, CHART_DAYS);
-    const weekW = trailingWindow(day, WEEK_DAYS);
-    const priorWeekW = trailingWindow(shiftDay(day, -WEEK_DAYS), WEEK_DAYS);
 
     // The overview always ASKS for the internal split — showing both figures side
     // by side is the screen's job (§13 D10 constraint 2). Whether it runs depends
     // only on the var being set.
     const filter = resolveInternalFilter(c.env, true);
 
-    // `collectAnalyticsMetrics` runs the automation detector (AECI-745), and its
-    // result is an INPUT to the filtered human count below — `excluding_internal`
-    // on the post-automation figure has to exclude the same rows the headline
-    // subtracted. So this one read is awaited first rather than folded into the
-    // fan-out; everything that does not depend on it still runs concurrently.
-    //
-    // Cost, recorded because it is not obvious from the call: the detector adds
-    // roughly 14 D1 reads here (about seven per window, over the reported day and
-    // the prior one) on every request, `?day=` and `?recompute=1` included. It is
-    // bounded — `SWARM_MAX_CANDIDATES` caps the bound-parameter count and the
-    // 14-day recurrence lookback rides `page_views_operator_pair_idx` — and it is
-    // the price of the panel and the 05:00 email leading with one number.
+    // Awaited first: the class summary below reuses the collector's own class
+    // read, and its operator-leak figure. Everything else runs concurrently.
     const metrics = await collectAnalyticsMetrics(db, digestWindow);
-    const exclusion = automationExclusionFor(metrics.swarm);
-    const net = unresolvedRequests(metrics);
     // AECI-869. One `metrics_daily` read covering the chart window, which also
     // contains the 7-day delta's newer half. Awaited here with the metrics rather
     // than in the fan-out because both `trafficSeries` and `trafficNotes` below
@@ -202,29 +166,20 @@ export function createAdminOverviewHandler(
     const degradedDays = await readDegradedArrivalDays(db, chartW);
 
     const [
-      humanExcl,
-      humanExclNet,
       botExcl,
       uniqueVisitors,
       series30d,
-      weekHuman,
-      priorWeekHuman,
       activeSubscribers,
       queueDepths,
       catalog,
       freshness,
       notes,
-      browserStarts,
       classificationDay,
       classificationSeries,
     ] = await Promise.all([
-      countViewsExcludingInternal(db, dayW, 'human', filter),
-      countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
       countViewsExcludingInternal(db, dayW, 'bot', filter),
       countUniqueVisitorsBoth(db, dayW, 'human', filter),
       trafficSeries(db, chartW, degradedDays),
-      countHumanViews(db, weekW),
-      countHumanViews(db, priorWeekW),
       countAll(db, mailingList, isNull(mailingList.unsubscribedAt)),
       // AECI-922: the same three predicates the nav badges use, from the one
       // implementation that owns them. An all-kinds `vendor_requests` count would
@@ -236,31 +191,12 @@ export function createAdminOverviewHandler(
       trafficNotes(db, dayW, {
         unique: true,
         sources: true,
-        corroborated: true,
-        // The COUNT, not a flag (AECI-836). This is the identical value the
-        // response returns as `traffic.operator_leak_excluded` below, so the
-        // note and the figure it qualifies cannot drift apart — and on a day
-        // where nothing leaked, neither one appears.
-        operatorLeakViews: metrics.operatorLeakViews,
-        // Explicitly passed, `null` included: this response's headline IS the
-        // post-automation figure, so it owes the reader either the thresholds
-        // behind it or the warning that the filter did not run.
-        automation: metrics.automation,
         // AECI-869. The reported day's own telemetry, and the trailing window's.
         // Both, because a healthy day can sit on top of a blind month and the two
         // are different statements — see the note codes' own docblocks.
         arrivalCoverage: metrics.arrivalCoverage,
         degradedDays: { degraded: degradedDays.size, requested: chartW.days },
       }),
-      // AECI-870. The ONE network read in this fan-out, and it is gated on
-      // `?recompute=1` alongside the other two network-dependent items (§13 D8) —
-      // a default dashboard load must not query an external vendor. It sits here,
-      // among the D1 reads, rather than beside `runExpensiveStatusItems` below,
-      // so its single connection is released before the logo probe and the
-      // Algolia queries open theirs (AECI-666's ~6-connection budget).
-      query.recompute
-        ? (deps.readBrowserStarts ?? readPosthogBrowserStarts)(c.env, db, digestWindow)
-        : Promise.resolve(null),
       // AECI-1345. The stored D19 classes for the same day. Since AECI-1346 the
       // collector reads them for the email, so the panel takes the same read and
       // the two cannot differ. A failed collector read is soft there, so the panel
@@ -272,16 +208,12 @@ export function createAdminOverviewHandler(
     ]);
 
     // AECI-1346. §3d collection-method changes for this tier (`ENV`; a local run
-    // matches none). Three windows, one per comparison: the chart, the
-    // day-over-day pair, and the two weeks behind `delta_7d`.
+    // matches none). Two windows, one per comparison: the chart, and the
+    // day-over-day pair behind the class deltas.
     const methodChart = collectionMethodSeam(c.env.ENV, chartW);
     const methodDay = collectionMethodSeam(c.env.ENV, {
       startIso: digestWindow.priorStartIso,
       endIso: digestWindow.endIso,
-    });
-    const methodWeek = collectionMethodSeam(c.env.ENV, {
-      startIso: priorWeekW.startIso,
-      endIso: weekW.endIso,
     });
     const classification = withComparisons(
       classificationDay,
@@ -296,6 +228,7 @@ export function createAdminOverviewHandler(
       internalFilterNote(filter),
       ...classificationNotes(classification),
       ...methodSeamNotes(methodChart),
+      ...tablesNotes(metrics.tablesUnclassified),
     ];
     if (isPartial(dayW, now)) {
       allNotes.push(
@@ -330,47 +263,17 @@ export function createAdminOverviewHandler(
         methodChart,
       ),
       traffic: {
-        // The residual, the same figure the 05:00 email prints (AECI-745). Since
-        // AECI-1346 both surfaces lead with the classes and this is the previous measure.
-        // Through `unresolvedRequests` rather than an inline subtraction
-        // so the two surfaces cannot grow separate definitions of it — the same
-        // reason the AECI-683 figures below come straight off the collector.
-        page_views_human: { total: net.day, excluding_internal: humanExclNet },
-        page_views_human_raw: {
-          total: metrics.pageViews.day,
-          excluding_internal: humanExcl,
-        },
-        automation_flagged: metrics.automation?.flagged.day ?? null,
         page_views_bot: { total: metrics.botPageViews.day, excluding_internal: botExcl },
         unique_visitors: uniqueVisitors,
-        // Filtered on BOTH sides — `net` carries the prior day's post-automation
-        // count too, which is why the detector runs over the prior window at all.
-        // Null across a non-comparable §3d row (AECI-1346): the two days count
-        // different rows, so the difference measures nothing.
-        delta_day: anyNotComparable(methodDay) ? null : computeDelta(net),
-        // RAW on both sides, unlike `delta_day`, and the schema says so: a
-        // filtered 7-day pair means running the detector over 14 further days on
-        // every request. Two deltas with different populations side by side is a
-        // real hazard — the answer is that the panel labels it, not that we
-        // fabricate a filtered week out of an unfiltered one.
-        delta_7d: anyNotComparable(methodWeek)
-          ? null
-          : computeDelta({ day: weekHuman, prior: priorWeekHuman }),
         series_30d: series30d,
+        // Straight off the collector, so the tables match the email's. Filtered by
+        // class since AECI-1460; `tables_unclassified` says when they are not.
         top_sources: metrics.referrers.map((r) => ({ source: r.source, views: r.views })),
         top_products: metrics.topProducts.map((p) => ({
           name: p.name,
           slug: p.slug,
           views: p.views,
         })),
-        // Straight off `collectAnalyticsMetrics`, like `top_products` above and
-        // for the same reason: recomputing them here would put a second
-        // definition of "corroborated" in the codebase, and §6.10's parity
-        // guarantee is only structural while the panel reads the digest's own
-        // numbers rather than its own reimplementation of them.
-        corroborated_views: metrics.corroboratedViews.day,
-        corroborated_visitors: metrics.corroboratedVisitors,
-        operator_leak_excluded: metrics.operatorLeakViews,
         // Straight off the collector, like every figure above it. `degraded` is
         // decided server-side so the panel, the email and the nightly
         // data-quality check cannot end up holding three thresholds (AECI-869).
@@ -380,20 +283,6 @@ export function createAdminOverviewHandler(
           coverage: metrics.arrivalCoverage.coverage,
           degraded: arrivalTelemetryDegraded(metrics.arrivalCoverage),
         },
-        // AECI-870. Null in TWO states that the panel renders identically and
-        // that `browser_starts_unavailable` tells apart: the read was not asked
-        // for (the default load, already covered by `requires_recompute`), or it
-        // ran and failed. Never a zero — zero starts is a real and alarming
-        // value, so it must not be the shape a failure takes.
-        browser_starts: browserStarts?.ok
-          ? {
-              starts_all: browserStarts.starts.startsAll,
-              starts: browserStarts.starts.starts,
-              search_referred: browserStarts.starts.searchReferred,
-            }
-          : null,
-        browser_starts_unavailable:
-          browserStarts && !browserStarts.ok ? browserStarts.reason : null,
       },
       audience: {
         new_sign_ins: computeDelta(metrics.newUsers),
@@ -528,6 +417,14 @@ function classificationPoints(
 }
 
 /**
+ * The AECI-1460 table note: gated on the reported day having no classes, when
+ * `top_products` and `top_sources` are unfiltered. Same sentence as the email.
+ */
+function tablesNotes(unclassified: boolean): AdminNote[] {
+  return unclassified ? [note('tables_unclassified', TABLES_UNCLASSIFIED_NOTE)] : [];
+}
+
+/**
  * One `collection_method_seam` note per §3d row in the chart window (AECI-1346).
  * Gated on a row being there, and unconditional once it is, per §3c step 5.
  */
@@ -546,25 +443,6 @@ function methodSeamNotes(rows: readonly CollectionMethodChange[]): AdminNote[] {
       },
     ),
   );
-}
-
-/** Human page views over a multi-day window (the 7-day delta halves), using the
- *  digest's own `HUMAN` predicate and its `/admin`+`/account` route exclusion
- *  (AECI-575) so the weekly and daily figures count the same population as the
- *  digest and the rest of the panel. */
-async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
-  const [row] = await db
-    .select({ value: count() })
-    .from(pageViews)
-    .where(
-      and(
-        gte(pageViews.createdAt, w.startIso),
-        lt(pageViews.createdAt, w.endIso),
-        HUMAN,
-        EXCLUDE_OPERATOR_TRAFFIC,
-      ),
-    );
-  return row?.value ?? 0;
 }
 
 /** Live catalog totals — a snapshot as of the request, not windowed. Counts over

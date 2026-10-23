@@ -10,6 +10,9 @@
  *
  * The `requireAdmin()` gate lives in `index.ts` and is exercised end-to-end by
  * `admin-panel.authz-matrix.spec.ts`; this file mounts the handler alone.
+ *
+ * AECI-1460 removed the residual tile's fields from the wire. The parity cases
+ * now pin the surviving figures and the class-filtered tables.
  */
 
 import {
@@ -34,15 +37,66 @@ import type { Env } from '../env';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
-  unresolvedRequests,
+  TABLES_UNCLASSIFIED_NOTE,
   windowsForDay,
 } from '../lib/analytics-digest';
+import type { CollectionMethodChange } from '../lib/collection-method-changes';
 import { CHECKS } from '../lib/data-quality';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import type { PosthogBrowserStartsOutcome } from '../lib/posthog-query';
 
 import { createAdminOverviewHandler, type AdminOverviewDeps } from './admin-overview';
+
+/**
+ * A mocked AECI-1460 §3d row (`arrivalsComparable: true`) on a production date no
+ * other case here reads. The real rows land per tier after each deploy
+ * (AECI-1465); the constant itself is not edited.
+ */
+const { AECI_1460_ROW } = vi.hoisted(() => ({
+  AECI_1460_ROW: {
+    at: '2026-11-02T09:00:00.000Z',
+    tier: 'production',
+    sha: 'deadbeef0',
+    issue: 'AECI-1460',
+    summary: 'residual and AutomationExclusion retired',
+    arrivalsComparable: true,
+  } satisfies CollectionMethodChange,
+}));
+
+vi.mock('../lib/collection-method-changes', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../lib/collection-method-changes')>();
+  const changes = [...orig.COLLECTION_METHOD_CHANGES, AECI_1460_ROW];
+  return {
+    ...orig,
+    COLLECTION_METHOD_CHANGES: changes,
+    collectionMethodSeam: (
+      env: string | undefined | null,
+      w: { startIso: string; endIso: string },
+      rows: readonly CollectionMethodChange[] = changes,
+    ) => orig.collectionMethodSeam(env, w, rows),
+  };
+});
+
+/** Store one classification for an existing page view (AECI-1460 table filter). */
+function classifyRow(id: number, cls: string, day: string, version = 'v1'): void {
+  t.raw
+    .prepare(
+      `INSERT INTO page_view_classifications
+         (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+          evidence_from, evidence_to, view_day, created_at)
+       VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      cls,
+      version,
+      `${day}T23:59:00.000Z`,
+      `${day}T00:00:00.000Z`,
+      `${day}T00:00:00.000Z`,
+      day,
+      `${day}T23:59:00.000Z`,
+    );
+}
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -183,10 +237,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     const body = await overview();
 
     // Traffic
-    expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
     expect(body.traffic.page_views_bot.total).toBe(metrics.botPageViews.day);
-    expect(body.traffic.delta_day!.current).toBe(metrics.pageViews.day);
-    expect(body.traffic.delta_day!.prior).toBe(metrics.pageViews.prior);
     // Sign-ins + moderation
     expect(body.audience.new_sign_ins.current).toBe(metrics.newUsers.day);
     expect(body.audience.total_users).toBe(metrics.totalUsers);
@@ -198,70 +249,63 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     expect(body.traffic.top_sources).toEqual(
       metrics.referrers.map((r) => ({ source: r.source, views: r.views })),
     );
-    // AECI-683's three figures come off the same collector, so the panel cannot
-    // grow a second definition of "corroborated" or of the operator-pair leak.
-    expect(body.traffic.corroborated_views).toBe(metrics.corroboratedViews.day);
-    expect(body.traffic.corroborated_visitors).toBe(metrics.corroboratedVisitors);
-    expect(body.traffic.operator_leak_excluded).toBe(metrics.operatorLeakViews);
-    // AECI-745. The headline is the POST-AUTOMATION count on both surfaces now.
-    // On this fixture the detector flags nothing, so the filtered and raw figures
-    // coincide — which is why the test below seeds a client it DOES flag. Both
-    // are needed: this one pins the fields to the collector, that one proves the
-    // panel is reading the filtered one.
-    expect(body.traffic.page_views_human.total).toBe(unresolvedRequests(metrics).day);
-    expect(body.traffic.page_views_human_raw.total).toBe(metrics.pageViews.day);
-    expect(body.traffic.automation_flagged).toBe(metrics.automation?.flagged.day ?? null);
-
-    // And the email really does carry those figures — 3 humans (two operator
-    // views + one Google arrival) plus the unclassified row = 4, 1 crawler.
-    expect(metrics.pageViews.day).toBe(4);
-    expect(metrics.botPageViews.day).toBe(1);
-    expect(email.subject).toContain('4 requests of unresolved origin');
-  });
-
-  it('leads with the SAME post-automation figure the email leads with (AECI-745)', async () => {
-    await seedDay();
-    // Four views under one fingerprint from four different networks — over
-    // `SWARM_MIN_VIEWS` at an ASN ratio of 1.0, so the real detector flags them.
-    // Without a client the detector actually flags, the raw and filtered figures
-    // coincide and this assertion would pass on the pre-AECI-745 code too, which
-    // is the trap the relational assertions above quietly sat in.
-    await t.db.insert(pageViews).values(
-      Array.from({ length: 4 }, (_, i) => ({
-        path: '/products/procore',
-        isBot: false,
-        userAgentHash: 'rotating-proxy',
-        cfAsn: 4000 + i,
-        cfCountry: ['PL', 'BR', 'ID', 'VN'][i],
-        createdAt: `${DAY}T1${i}:00:00.000Z`,
-      })),
+    // The D15(b) operator-leak figure lives on the class internal line now, off
+    // the same collector the email's internal line reads.
+    expect(body.classification.internal_excluded.operator_leak_inferred).toBe(
+      metrics.operatorLeakViews,
     );
 
+    // The fixture has no classes, so the email names that and carries no count,
+    // and both surfaces say the tables are unfiltered (AECI-1460).
+    expect(metrics.tablesUnclassified).toBe(true);
+    expect(email.subject).toContain(': NOT CLASSIFIED,');
+    expect(email.subject).not.toContain('unresolved origin');
+    const tablesNote = body.notes.find((n) => n.code === 'tables_unclassified');
+    expect(tablesNote).toMatchObject({ severity: 'info', message: TABLES_UNCLASSIFIED_NOTE });
+  });
+
+  it('serves only the surviving traffic fields (AECI-1460)', async () => {
+    await seedDay();
+    const body = await overview();
+    expect(Object.keys(body.traffic).sort()).toEqual([
+      'arrival_telemetry',
+      'page_views_bot',
+      'series_30d',
+      'top_products',
+      'top_sources',
+      'unique_visitors',
+    ]);
+    const retired = [
+      'automation_filter_applied',
+      'automation_filter_did_not_run',
+      'corroborated_is_a_referrer_floor',
+      'operator_leak_is_an_inference',
+    ];
+    for (const code of retired) expect(codes(body) as string[]).not.toContain(code);
+  });
+
+  it('filters the tables by class, the same rows the email lists (AECI-1460)', async () => {
+    await seedDay();
+    // Classify the reported day: the two Procore views are automation, the Revit
+    // arrival is unresolved. The unclassified-bot row gets no class and is kept.
+    const rows = await t.db
+      .select({ id: pageViews.id, productId: pageViews.productId, createdAt: pageViews.createdAt })
+      .from(pageViews);
+    for (const r of rows) {
+      if (!r.createdAt.startsWith(DAY)) continue;
+      if (r.productId === u(1)) classifyRow(r.id, 'identified_automation', DAY);
+      if (r.productId === u(2)) classifyRow(r.id, 'unresolved', DAY);
+    }
+
     const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
-    const email = buildAnalyticsDigest(metrics, {
-      env: 'staging',
-      dayLabel: DAY,
-      generatedAt: NOW,
-    });
     const body = await overview();
 
-    // The two figures must actually differ, or the rest proves nothing.
-    expect(metrics.pageViews.day).toBe(8);
-    expect(metrics.automation?.flagged.day).toBe(4);
-    expect(body.traffic.page_views_human_raw.total).toBe(8);
-    expect(body.traffic.automation_flagged).toBe(4);
-
-    // …and the panel leads with the filtered one, which is the whole issue.
-    expect(body.traffic.page_views_human.total).toBe(4);
-    expect(email.subject).toContain('4 requests of unresolved origin (8 raw)');
-
-    // The day-over-day delta is filtered on BOTH sides (AECI-741). The prior day
-    // flags nothing, so its filtered count is its raw count of 2.
-    expect(body.traffic.delta_day).toMatchObject({ current: 4, prior: 2 });
-
-    // And the envelope says how the number was reached.
-    expect(codes(body)).toContain('automation_filter_applied');
-    expect(codes(body)).not.toContain('automation_filter_did_not_run');
+    expect(body.traffic.top_products).toEqual([{ name: 'Revit', slug: 'revit', views: 1 }]);
+    expect(body.traffic.top_sources).toEqual([{ source: 'Google', views: 1 }]);
+    expect(body.traffic.top_products).toEqual(
+      metrics.topProducts.map((p) => ({ name: p.name, slug: p.slug, views: p.views })),
+    );
+    expect(codes(body)).not.toContain('tables_unclassified');
   });
 
   it('excludes /admin and /account rows so the panel never measures the console (AECI-575)', async () => {
@@ -280,9 +324,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     const body = await overview();
 
     // Still 4 humans / 2 prior — the console rows are gone from every read path.
-    expect(body.traffic.page_views_human.total).toBe(4);
-    expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
-    expect(body.traffic.delta_day!.prior).toBe(metrics.pageViews.prior);
+    expect(metrics.pageViews).toEqual({ day: 4, prior: 2 });
     expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1, degraded: false });
     expect(body.traffic.series_30d.at(-2)).toEqual({
       day: '2026-08-09',
@@ -295,23 +337,9 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
   });
 
   it('applies the digest deltaText semantics: pct is null when the prior period was 0', async () => {
-    await t.db
-      .insert(pageViews)
-      .values([{ path: '/', isBot: false, createdAt: `${DAY}T01:00:00.000Z` }]);
+    await t.db.insert(profiles).values([{ id: u(11), createdAt: `${DAY}T01:00:00.000Z` }]);
     const body = await overview();
-    expect(body.traffic.delta_day).toEqual({ current: 1, prior: 0, diff: 1, pct: null });
-  });
-
-  it('computes a 7-day delta against the preceding 7 days', async () => {
-    // 3 views inside 2026-08-04..2026-08-10, 1 inside 2026-07-28..2026-08-03.
-    await t.db.insert(pageViews).values([
-      { path: '/', isBot: false, createdAt: '2026-08-04T00:00:00.000Z' },
-      { path: '/', isBot: false, createdAt: '2026-08-07T00:00:00.000Z' },
-      { path: '/', isBot: false, createdAt: `${DAY}T23:59:59.999Z` },
-      { path: '/', isBot: false, createdAt: '2026-08-03T23:59:59.999Z' },
-    ]);
-    const body = await overview();
-    expect(body.traffic.delta_7d).toEqual({ current: 3, prior: 1, diff: 2, pct: 200 });
+    expect(body.audience.new_sign_ins).toEqual({ current: 1, prior: 0, diff: 1, pct: null });
   });
 });
 
@@ -326,7 +354,7 @@ describe('GET /api/admin/overview — window', () => {
       days: 1,
     });
     // The 2026-08-11T00:00:00.000Z row sits exactly on the exclusive bound and is out.
-    expect(body.traffic.page_views_human.total).toBe(4);
+    expect(body.traffic.series_30d.at(-1)?.human).toBe(4);
   });
 
   it('honours ?day= and flags a still-filling current day', async () => {
@@ -393,27 +421,13 @@ describe('GET /api/admin/overview — the honesty envelope', () => {
     expect(codes(body)).toContain('visitor_definition_approximate');
   });
 
-  // AECI-836. The note explains how an exclusion was INFERRED, so it owes the
-  // reader a figure to attach to. These two pin the note to `operator_leak_excluded`
-  // in both directions rather than to a literal count — the invariant is that the
-  // two agree, which is what the emit site can no longer break.
-  it('omits the operator-leak note entirely when nothing was excluded', async () => {
-    // `seedDay()` writes no `is_operator = 1` row, so no pair can match and the
-    // figure is 0. The note used to fire here anyway, with no exclusion anywhere
-    // on the screen and no number beside it.
+  // AECI-1460 retired `operator_leak_is_an_inference` with the residual. The
+  // figure survives on the class section's internal line.
+  it('reports the operator-leak inference on the class internal line only', async () => {
     await seedDay();
-    const body = await overview();
-    expect(body.traffic.operator_leak_excluded).toBe(0);
-    expect(codes(body)).not.toContain('operator_leak_is_an_inference');
-  });
-
-  it('emits the operator-leak note, carrying the count, when a pair matched', async () => {
-    await seedDay();
+    expect((await overview()).classification.internal_excluded.operator_leak_inferred).toBe(0);
     // One verified operator row on the same (user_agent_hash, cf_asn) pair as the
-    // two Procore views above. `is_operator` fails open on an expired token, so
-    // those two are indistinguishable from a visitor on the row itself — only the
-    // pair identifies them, which is the inference the note discloses. The anchor
-    // sits on `/admin`, a path §9.6 already excludes, so it adds no counted view.
+    // two Procore views. It sits on `/admin`, which §9.6 already excludes.
     await t.db.insert(pageViews).values({
       path: '/admin',
       isBot: false,
@@ -423,16 +437,9 @@ describe('GET /api/admin/overview — the honesty envelope', () => {
       isOperator: true,
       createdAt: `${DAY}T00:30:00.000Z`,
     });
-
     const body = await overview();
-    expect(body.traffic.operator_leak_excluded).toBe(2);
-
-    const leak = body.notes.find((n) => n.code === 'operator_leak_is_an_inference');
-    expect(leak).toBeDefined();
-    expect(leak?.severity).toBe('info');
-    // The note's own number IS the reported figure. A future change that gates
-    // the note on one value and reports another trips here.
-    expect(leak?.params?.rows).toBe(body.traffic.operator_leak_excluded);
+    expect(body.classification.internal_excluded.operator_leak_inferred).toBe(2);
+    expect(codes(body) as string[]).not.toContain('operator_leak_is_an_inference');
   });
 });
 
@@ -441,7 +448,7 @@ describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () =>
     await seedDay();
     const body = await overview();
     expect(body.internal_filter).toEqual({ available: false, applied: false, asns: [] });
-    expect(body.traffic.page_views_human.excluding_internal).toBeNull();
+    expect(body.traffic.page_views_bot.excluding_internal).toBeNull();
     expect(body.traffic.unique_visitors.excluding_internal).toBeNull();
     expect(codes(body)).toContain('internal_filter_unavailable');
   });
@@ -486,10 +493,11 @@ describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () =>
       ANALYTICS_INTERNAL_ASNS: 'AS23700',
     });
     expect(body.internal_filter).toEqual({ available: true, applied: true, asns: [23700] });
-    // 4 human views total; the two AS23700 ones are internal. The NULL-ASN row
-    // survives the filter.
-    expect(body.traffic.page_views_human.total).toBe(4);
-    expect(body.traffic.page_views_human.excluding_internal).toBe(2);
+    // 1 bot view, on AS15169, which is not internal. The visitor pairs on AS23700
+    // are: hash-a counts once in the total and not in the filtered figure.
+    expect(body.traffic.page_views_bot).toEqual({ total: 1, excluding_internal: 1 });
+    expect(body.traffic.unique_visitors.total).toBe(3);
+    expect(body.traffic.unique_visitors.excluding_internal).toBe(2);
     expect(codes(body)).toContain('internal_filter_applied');
   });
 
@@ -730,14 +738,14 @@ describe('GET /api/admin/overview — arrival telemetry health (AECI-869)', () =
       coverage: 0.125,
       degraded: true,
     });
-    // The §13 D15 envelope carries it, above the automation notes whose figures
-    // it invalidates — the cause has to sit above the effect.
+    // The §13 D15 envelope carries it, above the classes whose network inputs it
+    // says were empty — the cause has to sit above the effect.
     expect(codes(body)).toContain('arrival_telemetry_unavailable');
     const note = body.notes.find((n) => n.code === 'arrival_telemetry_unavailable');
     expect(note?.severity).toBe('warn');
     expect(note?.params).toEqual({ arrivals: 8, arrivals_with_asn: 1 });
     expect(codes(body).indexOf('arrival_telemetry_unavailable')).toBeLessThan(
-      codes(body).indexOf('automation_filter_applied'),
+      codes(body).indexOf('classification_is_heuristic'),
     );
   });
 
@@ -802,119 +810,6 @@ describe('GET /api/admin/overview — arrival telemetry health (AECI-869)', () =
   });
 });
 
-describe('GET /api/admin/overview — browser starts (AECI-870)', () => {
-  const HEALTHY: PosthogBrowserStartsOutcome = {
-    ok: true,
-    starts: { startsAll: 21, starts: 13, searchReferred: 7 },
-  };
-
-  /** A `readBrowserStarts` seam that records its arguments. Specs never reach
-   *  PostHog; the transport itself is covered in `posthog-query.spec.ts`. */
-  const startsSeam = (outcome: PosthogBrowserStartsOutcome) =>
-    vi.fn<NonNullable<AdminOverviewDeps['readBrowserStarts']>>(async () => outcome);
-
-  /** The two expensive status items, stubbed so `?recompute=1` touches no network. */
-  const noNetwork = {
-    driftRunnerFor: () => undefined,
-    fetchImpl: vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch,
-  };
-
-  it('does NOT query PostHog on a default load, and reports null rather than zero', async () => {
-    // The read costs an external request, so it is gated on `?recompute=1` beside
-    // the other two network-dependent items (§13 D8). A zero here would be a
-    // fabricated number sitting next to a real residual.
-    await seedDay();
-    const seam = startsSeam(HEALTHY);
-    const body = await overview('/api/admin/overview', TEST_ENV, { readBrowserStarts: seam });
-
-    expect(seam).not.toHaveBeenCalled();
-    expect(body.traffic.browser_starts).toBeNull();
-    expect(body.traffic.browser_starts_unavailable).toBeNull();
-    // The existing note already tells the operator an expensive item was skipped.
-    expect(codes(body)).toContain('requires_recompute');
-  });
-
-  it('?recompute=1 returns all three counts, over the digest window', async () => {
-    await seedDay();
-    const seam = startsSeam(HEALTHY);
-    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: seam,
-      ...noNetwork,
-    });
-
-    expect(body.traffic.browser_starts).toEqual({
-      starts_all: 21,
-      starts: 13,
-      search_referred: 7,
-    });
-    expect(body.traffic.browser_starts_unavailable).toBeNull();
-    // The same window the 05:00 email reports, so the two surfaces describe one day.
-    const window = seam.mock.calls[0][2] as unknown as { startIso: string };
-    expect(window.startIso).toBe(`${DAY}T00:00:00.000Z`);
-  });
-
-  it('is exactly ONE extra read per recompute', async () => {
-    await seedDay();
-    const seam = startsSeam(HEALTHY);
-    await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: seam,
-      ...noNetwork,
-    });
-    expect(seam).toHaveBeenCalledTimes(1);
-  });
-
-  it('names the reason when the read ran and failed, and still returns null counts', async () => {
-    await seedDay();
-    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: startsSeam({ ok: false, reason: 'posthog_http_503' }),
-      ...noNetwork,
-    });
-    expect(body.traffic.browser_starts).toBeNull();
-    expect(body.traffic.browser_starts_unavailable).toBe('posthog_http_503');
-  });
-
-  it('reports a real zero as a zero, because zero starts is a finding', async () => {
-    await seedDay();
-    const body = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: startsSeam({
-        ok: true,
-        starts: { startsAll: 0, starts: 0, searchReferred: 0 },
-      }),
-      ...noNetwork,
-    });
-    expect(body.traffic.browser_starts).toEqual({
-      starts_all: 0,
-      starts: 0,
-      search_referred: 0,
-    });
-    expect(body.traffic.browser_starts_unavailable).toBeNull();
-  });
-
-  it('never folds starts into any D1 figure', async () => {
-    // The two populations overlap and one of them is not consent-gated, so the
-    // headline, the raw count and the corroborated floor must all be exactly what
-    // they were before this field existed.
-    await seedDay();
-    const before = await overview();
-    const after = await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: startsSeam(HEALTHY),
-      ...noNetwork,
-    });
-    expect(after.traffic.page_views_human).toEqual(before.traffic.page_views_human);
-    expect(after.traffic.page_views_human_raw).toEqual(before.traffic.page_views_human_raw);
-    expect(after.traffic.corroborated_views).toBe(before.traffic.corroborated_views);
-  });
-
-  it('writes no audit_log row for the extra read', async () => {
-    await seedDay();
-    await overview('/api/admin/overview?recompute=1', TEST_ENV, {
-      readBrowserStarts: startsSeam(HEALTHY),
-      ...noNetwork,
-    });
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
-  });
-});
-
 describe('GET /api/admin/overview — stored traffic classes (AECI-1345)', () => {
   it('returns four zero counts and a null version before the writer has run, and changes no traffic figure', async () => {
     await seedDay();
@@ -924,7 +819,7 @@ describe('GET /api/admin/overview — stored traffic classes (AECI-1345)', () =>
       classifier_version: null,
       basis: 'requests',
       version_seam: null,
-      internal_excluded: { views: 0, operator_leak_inferred: body.traffic.operator_leak_excluded },
+      internal_excluded: { views: 0, operator_leak_inferred: 0 },
     });
     expect(body.classification.counts.map((c) => c.views)).toEqual([0, 0, 0, 0]);
     // The heuristic caveat is unconditional; the two gated notes are absent.
@@ -1078,15 +973,13 @@ describe('GET /api/admin/overview — class deltas, the class series and seams (
     expect(body.classification_series_30d.at(-1)?.counts?.unresolved).toBe(1);
   });
 
-  it('a non-comparable §3d row (staging 2026-10-21) nulls class and residual deltas', async () => {
+  it('a non-comparable §3d row (staging 2026-10-21) nulls the class deltas', async () => {
     const day = '2026-10-21';
     await classified('2026-10-20', 'unresolved', 'v1');
     await classified(day, 'unresolved', 'v1');
     const body = await overview(`/api/admin/overview?day=${day}`, { ...TEST_ENV, ENV: 'staging' });
 
     expect(body.classification.counts.map((c) => c.delta_day)).toEqual([null, null, null, null]);
-    expect(body.traffic.delta_day).toBeNull();
-    expect(body.traffic.delta_7d).toBeNull();
     const n = body.notes.find((x) => x.code === 'collection_method_seam');
     expect(n).toMatchObject({
       severity: 'info',
@@ -1118,8 +1011,6 @@ describe('GET /api/admin/overview — class deltas, the class series and seams (
       ENV: 'production',
     });
     expect(delta(body, 'unresolved')).toEqual({ current: 1, prior: 1, diff: 0, pct: 0 });
-    expect(body.traffic.delta_day).not.toBeNull();
-    expect(body.traffic.delta_7d).not.toBeNull();
     expect(body.notes.find((x) => x.code === 'collection_method_seam')?.params).toMatchObject({
       tier: 'production',
       comparable: 'true',
@@ -1127,19 +1018,58 @@ describe('GET /api/admin/overview — class deltas, the class series and seams (
   });
 
   it('keeps the staging row in the chart window weeks later, with the deltas restored', async () => {
-    const body = await overview('/api/admin/overview?day=2026-11-10', {
+    const day = '2026-11-10';
+    await classified('2026-11-09', 'unresolved', 'v1');
+    await classified(day, 'unresolved', 'v1');
+    const body = await overview(`/api/admin/overview?day=${day}`, {
       ...TEST_ENV,
       ENV: 'staging',
     });
     expect(codes(body)).toContain('collection_method_seam');
-    expect(body.traffic.delta_day).not.toBeNull();
-    expect(body.traffic.delta_7d).not.toBeNull();
+    expect(delta(body, 'unresolved')).not.toBeNull();
+  });
+
+  it('flags a comparable AECI-1460 row and leaves every class delta standing', async () => {
+    const day = '2026-11-02';
+    await classified('2026-11-01', 'unresolved', 'v1');
+    await classified('2026-11-01', 'identified_automation', 'v1');
+    await classified(day, 'unresolved', 'v1');
+    await classified(day, 'identified_automation', 'v1');
+    const body = await overview(`/api/admin/overview?day=${day}`, {
+      ...TEST_ENV,
+      ENV: 'production',
+    });
+    // The chart window also holds the real AECI-1443 production row (2026-10-22).
+    const seam = body.notes.find(
+      (x) => x.code === 'collection_method_seam' && x.params?.changed_at === AECI_1460_ROW.at,
+    );
+    expect(seam).toMatchObject({
+      severity: 'info',
+      params: {
+        changed_at: AECI_1460_ROW.at,
+        tier: 'production',
+        summary: AECI_1460_ROW.summary,
+        comparable: 'true',
+      },
+    });
+    expect(body.classification.method_seams).toContainEqual({
+      changed_at: AECI_1460_ROW.at,
+      summary: AECI_1460_ROW.summary,
+      arrivals_comparable: true,
+    });
+    expect(delta(body, 'unresolved')).toEqual({ current: 1, prior: 1, diff: 0, pct: 0 });
+    expect(delta(body, 'identified_automation')).toEqual({
+      current: 1,
+      prior: 1,
+      diff: 0,
+      pct: 0,
+    });
+    expect(body.classification.counts.every((c) => c.delta_day !== null)).toBe(true);
   });
 
   it('matches no §3d row on a local run', async () => {
     const body = await overview('/api/admin/overview?day=2026-10-21');
     expect(codes(body)).not.toContain('collection_method_seam');
-    expect(body.traffic.delta_day).not.toBeNull();
   });
 
   it('reports the same class figures the digest collector read', async () => {

@@ -3303,8 +3303,8 @@ runs a second, **correction-only** pass — it never inserts a day the primary p
 not cover (one row would clear §7.4's prune to delete that day's `page_views` while
 every unrecoverable stock key was still missing), refuses a day whose raw
 `page_views` are gone, and refuses any *increase*, because the retro-join can only
-remove rows. `traffic.page_views_human_after_automation` is recomputed alongside its
-raw half or not at all. Two consequences for a reader of this table: **`computed_at`
+remove rows. `traffic.page_views_human_after_automation` was recomputed alongside its
+raw half until AECI-1460 froze it on 2026-10-23. It has no writer now. Two consequences for a reader of this table: **`computed_at`
 is no longer ≈ `day` + 15 minutes** on a corrected row, and a `measured` value may be
 overwritten by a later `measured` value — see the precedence note below. What does
 **not** change is `source`: the re-check writes the corrected value back under the
@@ -3369,7 +3369,7 @@ flows are readable through the timeseries endpoint today (the stocks await
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
 | `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, and **all three** `NOT_INTERNAL` clauses of §9.1 — the `/admin`+`/account` path rule, `is_operator`, and the AECI-683 retro-join. This is the **raw** count; the identically-named field on `GET /api/admin/overview` is post-automation (`ADMIN_PANEL_SPEC.md` §7.1). It counts pre-2026-09 duplicate arrivals, deliberately — see §9.1's `dedupe_key` note | measured |
-| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed. Since ADR 0027 the 00:15 re-check recomputes it whenever its raw half moves — the only convergence path it will ever have, and still not a backfill |
+| `traffic.page_views_human_after_automation` | flow | the row above, less the views `detectSwarms` attributed to automated clients (AECI-745) | **not backfilled, and not backfillable** — the detector is a grouping plus a cross-day recurrence lookback plus a three-way union, so a generated SELECT would be a second definition of "flagged". Snapshot-only: uncovered days are OMITTED, not zeroed. **Frozen since 2026-10-23 (AECI-1460):** no writer, and the re-check no longer recomputes it. Stored rows stay readable and are history. Listed in `FROZEN_METRIC_KEYS` (`packages/shared/src/api/admin-panel.ts`) |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
@@ -3406,7 +3406,9 @@ recorded, which is the opposite of what this table is for.
 Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
 rather than approximate. Any day not sampled is simply lost, which is why the
-cron writes all 20 keys rather than only the ones a screen reads today.
+cron writes every live key rather than only the ones a screen reads today. That is 20 of the 21
+in `ADMIN_SNAPSHOT_METRIC_KEYS`: the frozen `traffic.page_views_human_after_automation` is the one
+it skips (AECI-1460, 2026-10-23).
 
 **The three `audience.*` stocks are the exception, and AECI-586 deliberately did
 not read them.** `ADMIN_PANEL_SPEC.md` §7.1 named §5.4 as their reader; the

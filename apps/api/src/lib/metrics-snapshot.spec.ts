@@ -12,11 +12,12 @@
 import {
   ADMIN_SNAPSHOT_METRIC_KEYS,
   ARRIVAL_COVERAGE_METRIC,
+  FROZEN_METRIC_KEYS,
   ADMIN_SNAPSHOT_STOCK_METRIC_KEYS,
   PAGE_VIEWS_RETENTION_DAYS,
 } from '@aeci/shared';
 import { and, eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   auditLog,
@@ -35,7 +36,7 @@ import { enumerateDays, metricSeries, shiftDay, utcDayWindow } from './admin-ana
 import {
   SNAPSHOT_RECHECK_MAX_CORRECTED_DAYS,
   SNAPSHOT_RECHECK_SLACK_DAYS,
-  automationTriggerDays,
+  SNAPSHOT_WRITTEN_METRIC_KEYS,
   diffCorrections,
   emitMetricsRecheckMetrics,
   emitMetricsSnapshotMetrics,
@@ -47,7 +48,6 @@ import {
 } from './metrics-snapshot';
 import { DETAIL_MAX_BYTES } from './job-runs';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
-import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const DAY = '2026-08-10';
@@ -125,16 +125,19 @@ async function seedCatalog(): Promise<void> {
 }
 
 describe('runMetricsSnapshot — coverage and idempotence', () => {
-  it('writes one row per metric in the vocabulary', async () => {
+  it('writes one row per written metric: the vocabulary less the frozen keys', async () => {
+    expect(SNAPSHOT_WRITTEN_METRIC_KEYS).toHaveLength(
+      ADMIN_SNAPSHOT_METRIC_KEYS.length - FROZEN_METRIC_KEYS.length,
+    );
     const result = await runMetricsSnapshot(t.db, DAY, NOW);
 
     expect(result.day).toBe(DAY);
-    expect(result.metrics).toHaveLength(ADMIN_SNAPSHOT_METRIC_KEYS.length);
+    expect(result.metrics).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
     expect(result.metrics.every((m) => m.status === 'written')).toBe(true);
 
     const rows = await stored();
-    expect(rows.size).toBe(ADMIN_SNAPSHOT_METRIC_KEYS.length);
-    for (const key of ADMIN_SNAPSHOT_METRIC_KEYS) expect(rows.has(key)).toBe(true);
+    expect(rows.size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
+    for (const key of SNAPSHOT_WRITTEN_METRIC_KEYS) expect(rows.has(key)).toBe(true);
   });
 
   it('records an empty database as zeros, not as missing rows', async () => {
@@ -158,7 +161,7 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
     await runMetricsSnapshot(t.db, DAY, later);
 
     const rows = await t.db.select().from(metricsDaily).where(eq(metricsDaily.day, DAY));
-    expect(rows).toHaveLength(ADMIN_SNAPSHOT_METRIC_KEYS.length);
+    expect(rows).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
     expect(rows.every((r) => r.computedAt === later.toISOString())).toBe(true);
   });
 
@@ -170,7 +173,7 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
     await runMetricsSnapshot(t.db, DAY, NOW);
 
     const rows = await stored();
-    expect(rows.size).toBe(ADMIN_SNAPSHOT_METRIC_KEYS.length);
+    expect(rows.size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
     expect(rows.get('catalog.products_promoted')).toBe(2);
   });
 
@@ -242,8 +245,7 @@ describe('runMetricsSnapshot — the flow metrics agree with the live endpoint',
   const FLOW_KEYS = [
     'traffic.page_views_human',
     // NOTE: `traffic.page_views_human_after_automation` is deliberately absent —
-    // it has no live `metricSeries` form to agree with (that is what
-    // `metricIsSnapshotOnly` means), so it is covered by its own test below.
+    // it is frozen (AECI-1460) and has no live `metricSeries` form either.
     'traffic.page_views_bot',
     'traffic.unique_visitors',
     'catalog.products_created',
@@ -268,10 +270,9 @@ describe('runMetricsSnapshot — the flow metrics agree with the live endpoint',
     expect(rows.get('traffic.page_views_bot')).toBe(1);
   });
 
-  it('stores the post-automation count, net of what the detector flagged (AECI-745)', async () => {
-    // Four views under one fingerprint across four networks — the shape the real
-    // detector flags. The stored filtered figure must be the RAW human count less
-    // those four, not the raw count and not zero.
+  it('never writes a frozen key, even on a day the detector would flag (AECI-1460)', async () => {
+    // The shape the swarm detector flags: four views, one fingerprint, four networks.
+    // Before AECI-1460 this stored `traffic.page_views_human_after_automation` = 2.
     await t.db.insert(pageViews).values(
       Array.from({ length: 4 }, (_, i) => ({
         path: '/products/x',
@@ -283,38 +284,38 @@ describe('runMetricsSnapshot — the flow metrics agree with the live endpoint',
       })),
     );
 
-    await runMetricsSnapshot(t.db, DAY, NOW);
+    const result = await runMetricsSnapshot(t.db, DAY, NOW);
     const rows = await stored();
 
+    for (const key of FROZEN_METRIC_KEYS) {
+      expect(rows.has(key)).toBe(false);
+      expect(result.metrics.map((m) => m.metric as string)).not.toContain(key);
+    }
+    // The raw human count is still written.
     expect(rows.get('traffic.page_views_human')).toBe(6);
-    expect(rows.get('traffic.page_views_human_after_automation')).toBe(2);
   });
 
-  it('SKIPS the filtered key rather than storing a raw count when the detector fails', async () => {
-    // A stored row is never re-derived, so an unfiltered figure written under the
-    // filtered key would be a permanent lie in the long memory — worse than a gap,
-    // which the read path already reports honestly as "not measured".
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.resetModules();
-    vi.doMock('./swarm-detection', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./swarm-detection')>()),
-      detectSwarms: () => {
-        throw new Error('detector exploded');
-      },
-    }));
-    try {
-      const mod = await import('./metrics-snapshot');
-      await mod.runMetricsSnapshot(t.db, DAY, NOW);
-      const rows = await stored();
+  it('leaves a stored frozen row exactly as it was', async () => {
+    // History written before the cut-over. A re-run of the day must not touch it.
+    await t.db.insert(metricsDaily).values({
+      day: DAY,
+      metric: 'traffic.page_views_human_after_automation',
+      value: 7,
+      source: 'measured',
+      computedAt: '2026-08-11T00:15:00.000Z',
+    });
+    const [before] = await t.db
+      .select()
+      .from(metricsDaily)
+      .where(eq(metricsDaily.metric, 'traffic.page_views_human_after_automation'));
 
-      expect(rows.has('traffic.page_views_human_after_automation')).toBe(false);
-      // …and the rest of the run is unaffected: failure isolation is per key.
-      expect(rows.get('traffic.page_views_human')).toBe(2);
-    } finally {
-      vi.doUnmock('./swarm-detection');
-      vi.resetModules();
-      warn.mockRestore();
-    }
+    await runMetricsSnapshot(t.db, DAY, new Date('2026-08-12T00:15:00.000Z'));
+
+    const [after] = await t.db
+      .select()
+      .from(metricsDaily)
+      .where(eq(metricsDaily.metric, 'traffic.page_views_human_after_automation'));
+    expect(after).toEqual(before);
   });
 });
 
@@ -355,7 +356,7 @@ describe('runMetricsSnapshot — failure isolation', () => {
     const failed = result.metrics.filter((m) => m.status === 'failed');
     expect(failed.map((m) => m.metric)).toEqual(['audience.feedback_total']);
     expect(failed[0]?.error).toBeTruthy();
-    expect((await stored()).size).toBe(ADMIN_SNAPSHOT_METRIC_KEYS.length - 1);
+    expect((await stored()).size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length - 1);
   });
 
   it('never throws', async () => {
@@ -382,7 +383,7 @@ describe('emitMetricsSnapshotMetrics', () => {
     emitMetricsSnapshotMetrics(s, result, 1234);
 
     const perMetric = s.counts.filter((c) => c.metric === 'aeci.metrics_snapshot.metric');
-    expect(perMetric).toHaveLength(ADMIN_SNAPSHOT_METRIC_KEYS.length);
+    expect(perMetric).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
     expect(perMetric[0]?.tags).toContain('outcome:written');
 
     const run = s.counts.find((c) => c.metric === 'aeci.metrics_snapshot.run');
@@ -531,45 +532,25 @@ describe('runMetricsSnapshotRecheck', () => {
     expect((await storedRow(TARGET, 'traffic.unique_visitors'))?.value).toBe(1);
   });
 
-  it('keeps the filtered series at or below the raw one (AECI-745 pairing)', async () => {
-    // Correcting the raw count alone would render "222 humans, 224 humans after
-    // automation" on /admin/traffic — a defect produced BY the fix.
+  it('corrects the raw half and leaves the frozen series as written (AECI-1460)', async () => {
+    // Before AECI-1460 the pass recomputed the filtered key beside a moved raw
+    // count. It is frozen now: its stored rows are history, not a figure to keep
+    // converging, so a moved raw count must not reach it.
     await seedTargetDay();
     await runMetricsSnapshot(t.db, TARGET, new Date(`${TARGET}T23:59:00.000Z`));
-    await seedLateOperatorAnchor();
-    await runMetricsSnapshotRecheck(t.db, TODAY, RECHECK_NOW, RETENTION);
-
-    const raw = await storedRow(TARGET, 'traffic.page_views_human');
-    const filtered = await storedRow(TARGET, 'traffic.page_views_human_after_automation');
-    expect(filtered?.value).toBeLessThanOrEqual(raw!.value);
-    expect(filtered?.value).toBe(2);
-  });
-
-  it('writes NEITHER half of the pair when the detector cannot run', async () => {
-    // A day left consistently stale beats one left inconsistently fresh.
-    await seedTargetDay();
-    await runMetricsSnapshot(t.db, TARGET, new Date(`${TARGET}T23:59:00.000Z`));
+    await seedStored(TARGET, 'traffic.page_views_human_after_automation', 5);
+    const frozenBefore = await storedRow(TARGET, 'traffic.page_views_human_after_automation');
     await seedLateOperatorAnchor();
 
-    vi.resetModules();
-    vi.doMock('./swarm-detection', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./swarm-detection')>()),
-      detectSwarms: () => {
-        throw new Error('detector exploded');
-      },
-    }));
-    try {
-      const mod = await import('./metrics-snapshot');
-      const result = await mod.runMetricsSnapshotRecheck(t.db, TODAY, RECHECK_NOW, RETENTION);
+    const result = await runMetricsSnapshotRecheck(t.db, TODAY, RECHECK_NOW, RETENTION);
 
-      expect((await storedRow(TARGET, 'traffic.page_views_human'))?.value).toBe(5);
-      expect((await storedRow(TARGET, 'traffic.page_views_human_after_automation'))?.value).toBe(5);
-      expect(mod.recheckFailureCount(result)).toBeGreaterThan(0);
-      // …and the keys that carry no pairing obligation still landed.
-      expect((await storedRow(TARGET, 'traffic.unique_visitors'))?.value).toBe(1);
-    } finally {
-      vi.doUnmock('./swarm-detection');
-      vi.resetModules();
+    expect((await storedRow(TARGET, 'traffic.page_views_human'))?.value).toBe(2);
+    expect(await storedRow(TARGET, 'traffic.page_views_human_after_automation')).toEqual(
+      frozenBefore,
+    );
+    for (const key of FROZEN_METRIC_KEYS) {
+      expect(result.corrections.map((c) => c.metric as string)).not.toContain(key);
+      expect(result.metrics.map((m) => m.metric as string)).not.toContain(key);
     }
   });
 
@@ -770,25 +751,6 @@ describe('diffCorrections', () => {
   });
 });
 
-describe('automationTriggerDays', () => {
-  it('reaches forward over the detector recurrence lookback, never backward', () => {
-    // flagged(X) reads day X plus the 14 days BEFORE it, so a day that moved can
-    // only change the filtered figure of days at or after it.
-    const days = enumerateDays(recheckWindow(TODAY, PAGE_VIEWS_RETENTION_DAYS)!);
-    const moved = '2026-08-20';
-    const out = automationTriggerDays(days, new Set([moved]));
-    expect(out[0]).toBe(moved);
-    expect(out).toContain(shiftDay(moved, SWARM_PRIOR_LOOKBACK_DAYS));
-    expect(out).not.toContain(shiftDay(moved, -1));
-    expect(out).not.toContain(shiftDay(moved, SWARM_PRIOR_LOOKBACK_DAYS + 1));
-  });
-
-  it('clips to the window rather than naming days it did not examine', () => {
-    const days = ['2026-09-12', '2026-09-13'];
-    expect(automationTriggerDays(days, new Set(['2026-09-12']))).toEqual(days);
-  });
-});
-
 describe('emitMetricsRecheckMetrics', () => {
   function sink() {
     const counts: Array<{ metric: string; tags: string[] }> = [];
@@ -920,9 +882,9 @@ describe('summarizeRecheck — bounded, because capDetail is all-or-nothing', ()
       job: 'metrics-snapshot' as const,
       day: TARGET,
       durationMs: 1,
-      written: ADMIN_SNAPSHOT_METRIC_KEYS.length,
+      written: SNAPSHOT_WRITTEN_METRIC_KEYS.length,
       failed: 0,
-      metrics: ADMIN_SNAPSHOT_METRIC_KEYS.map((metric) => ({
+      metrics: SNAPSHOT_WRITTEN_METRIC_KEYS.map((metric) => ({
         metric,
         status: 'written' as const,
         value: 1,

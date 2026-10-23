@@ -5,14 +5,13 @@ import type { AdminDelta } from '@aeci/shared';
 
 import { Sparkline } from '../charts/sparkline';
 
-/** A delta plus the period it covers. The period picks the localized phrasing;
- *  the arithmetic is entirely the API's (`computeDelta`, shared with the digest
- *  email's `deltaText` — §6 P1.1 note 1). Nothing is re-derived here. */
+/** A day-over-day delta. The arithmetic is entirely the API's (`computeDelta`,
+ *  shared with the digest email's `deltaText` — §6 P1.1 note 1). Nothing is
+ *  re-derived here. Day only: AECI-1460 removed the one 7-day delta. */
 export interface StatTileDelta {
   /** Null when the API declined to compare the two periods (AECI-1346). Rendered
    *  as a "Not comparable" line, never dropped and never drawn as no change. */
   delta: AdminDelta | null;
-  period: 'day' | 'week';
   /** Why `delta` is null, when the page can tell. Absent = say only that the two
    *  periods are not comparable. Ignored when `delta` is present. */
   notComparable?: NotComparableReason;
@@ -71,7 +70,7 @@ export type NotComparableReason = 'classifier_changed' | 'method_changed' | 'pri
 
       @if (deltaLines().length > 0) {
         <ul role="list" class="space-y-0.5">
-          @for (d of deltaLines(); track d.period) {
+          @for (d of deltaLines(); track $index) {
             <li class="text-sm text-pretty tabular-nums text-(--text-secondary)">{{ d.text }}</li>
           }
         </ul>
@@ -97,7 +96,7 @@ export class StatTile {
   readonly sparklineLabel = input('');
 
   protected readonly deltaLines = computed(() =>
-    this.deltas().map((d) => ({ period: d.period, text: statDeltaText(d) })),
+    this.deltas().map((d) => ({ text: statDeltaText(d) })),
   );
 }
 
@@ -110,13 +109,9 @@ export class StatTile {
  * The interpolated `change` fragment is symbols and digits only (`+8 (+18%)`), so
  * composing it into the sentence carries no untranslated words.
  */
-export function statDeltaText({ delta, period, notComparable }: StatTileDelta): string {
-  if (delta === null) return notComparableText(period, notComparable);
-  if (delta.diff === 0) {
-    return period === 'day'
-      ? $localize`:@@admin.stat.delta.none.day:No change vs the prior day`
-      : $localize`:@@admin.stat.delta.none.week:No change vs the prior 7 days`;
-  }
+export function statDeltaText({ delta, notComparable }: StatTileDelta): string {
+  if (delta === null) return notComparableText(notComparable);
+  if (delta.diff === 0) return $localize`:@@admin.stat.delta.none.day:No change vs the prior day`;
 
   const sign = delta.diff > 0 ? '+' : '−';
   const magnitude = Math.abs(delta.diff);
@@ -125,23 +120,14 @@ export function statDeltaText({ delta, period, notComparable }: StatTileDelta): 
       ? `${sign}${magnitude}`
       : `${sign}${magnitude} (${sign}${Math.abs(delta.pct)}%)`;
 
-  return period === 'day'
-    ? $localize`:@@admin.stat.delta.day:${change}:CHANGE: vs ${delta.prior}:PRIOR: the prior day`
-    : $localize`:@@admin.stat.delta.week:${change}:CHANGE: vs ${delta.prior}:PRIOR: the prior 7 days`;
+  return $localize`:@@admin.stat.delta.day:${change}:CHANGE: vs ${delta.prior}:PRIOR: the prior day`;
 }
 
 /**
  * The "Not comparable" line for a null delta (AECI-1346). One message per reason
- * and period rather than an interpolated reason, so a translator sees whole
- * sentences. Only the reasons that can occur for a period have a variant: a
- * 7-day delta is only ever suppressed by a collection-method change.
+ * rather than an interpolated reason, so a translator sees whole sentences.
  */
-function notComparableText(period: 'day' | 'week', reason?: NotComparableReason): string {
-  if (period === 'week') {
-    return reason === 'method_changed'
-      ? $localize`:@@admin.stat.delta.notComparable.week.method:Not comparable with the prior 7 days (collection method changed)`
-      : $localize`:@@admin.stat.delta.notComparable.week:Not comparable with the prior 7 days`;
-  }
+function notComparableText(reason?: NotComparableReason): string {
   switch (reason) {
     case 'classifier_changed':
       return $localize`:@@admin.stat.delta.notComparable.day.classifier:Not comparable with the prior day (classifier changed)`;

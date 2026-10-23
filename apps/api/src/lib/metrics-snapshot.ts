@@ -4,7 +4,8 @@
  *
  * A scheduled job (`../scheduled.ts`, cron `15 0 * * *`) captures the prior
  * COMPLETE UTC day: one row per `(day, metric)` for every key in
- * `ADMIN_SNAPSHOT_METRIC_KEYS`. This module is the only writer.
+ * {@link SNAPSHOT_WRITTEN_METRIC_KEYS}, which is `ADMIN_SNAPSHOT_METRIC_KEYS` less
+ * `FROZEN_METRIC_KEYS` (AECI-1460). This module is the only writer.
  *
  * ─── Why the table exists at all ─────────────────────────────────────────────
  *
@@ -52,9 +53,12 @@
 import {
   ADMIN_RETROACTIVE_METRIC_KEYS,
   ADMIN_SNAPSHOT_METRIC_KEYS,
+  FROZEN_METRIC_KEYS,
   type AdminMetricKey,
+  type AdminRetroactiveMetricKey,
   type AdminSnapshotMetricKey,
   type AdminSnapshotSource,
+  type FrozenMetricKey,
 } from '@aeci/shared';
 import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
@@ -86,11 +90,9 @@ import {
   type SnapshotPoint,
   type UtcWindow,
 } from './admin-analytics';
-import { collectAnalyticsMetrics, unresolvedRequests, windowsForDay } from './analytics-digest';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
-import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
 
 /** Error text, however the throw was shaped. */
 function messageOf(error: unknown): string {
@@ -133,32 +135,6 @@ export async function computeFlowMetric(
 }
 
 /**
- * The post-automation human count for `day` (AECI-745) — the same subtraction the
- * digest's headline and `/admin/overview`'s tile perform, stored so the chart can
- * plot the filtered series.
- *
- * Written through `collectAnalyticsMetrics` + `unresolvedRequests` rather
- * than as its own `humanViews − detectSwarms(...)` expression, because an
- * open-coded subtraction here would be a third definition of the headline and the
- * whole point of AECI-745 was to get to one.
- *
- * **Throws when the detector did not run**, which `snapshotOneMetric` catches per
- * key: the row is skipped and the day stays uncovered. Storing the raw count
- * under this key would silently freeze an unfiltered figure into the long memory
- * as if it had been filtered, and unlike a live read a stored row is never
- * re-derived — that is exactly the corruption `--force` exists to prevent in the
- * backfill.
- */
-export async function computeHumanViewsAfterAutomation(db: Db, day: string): Promise<number> {
-  // No class read (AECI-1346): the snapshot stores no class figure.
-  const metrics = await collectAnalyticsMetrics(db, windowsForDay(day), { classification: false });
-  if (!metrics.automation) {
-    throw new Error(`automation detector did not run for ${day}; refusing to store a raw count`);
-  }
-  return unresolvedRequests(metrics).day;
-}
-
-/**
  * The share of `day`'s full-document arrivals that carried a `cf_asn` (AECI-869),
  * stored so a later reader can tell which past days were blind.
  *
@@ -169,8 +145,7 @@ export async function computeHumanViewsAfterAutomation(db: Db, day: string): Pro
  * tuning could not re-decide, and there is no backfill for a judgement. The ratio
  * is the measurement; "degraded" is a reading of it, taken fresh every time.
  *
- * Unlike `computeHumanViewsAfterAutomation` this never throws and never skips a
- * day. `readArrivalCfCoverage` returns `1` for a window with no arrivals, which
+ * It never throws and never skips a day. `readArrivalCfCoverage` returns `1` for a window with no arrivals, which
  * is the honest answer — an empty night is not a telemetry defect — so a quiet
  * day writes a passing row rather than a gap. The one state that must not be
  * confused with a measurement is "not measured at all", and that is an ABSENT
@@ -201,15 +176,30 @@ const OPEN_REQUESTS = eq(vendorRequests.status, 'open');
 
 type Producer = (db: Db, day: string) => Promise<number>;
 
+/** A key the snapshot writes: every snapshot key except the frozen ones. */
+export type SnapshotWrittenMetricKey = Exclude<AdminSnapshotMetricKey, FrozenMetricKey>;
+
 /**
- * One producer per key, typed `Record<AdminSnapshotMetricKey, …>` so a key added
- * to the shared vocabulary without a producer (or vice versa) is a compile error.
- * `ADMIN_SNAPSHOT_METRIC_KEYS` drives the deterministic write order.
+ * The keys the snapshot writes, in `ADMIN_SNAPSHOT_METRIC_KEYS` order, which is
+ * the deterministic write order.
+ *
+ * `FROZEN_METRIC_KEYS` are left out (AECI-1460): they have no writer, and their
+ * stored rows are history that `GET /api/admin/metrics` still serves.
  */
-const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
+export const SNAPSHOT_WRITTEN_METRIC_KEYS: readonly SnapshotWrittenMetricKey[] =
+  ADMIN_SNAPSHOT_METRIC_KEYS.filter(
+    (key): key is SnapshotWrittenMetricKey =>
+      !(FROZEN_METRIC_KEYS as readonly string[]).includes(key),
+  );
+
+/**
+ * One producer per written key, typed `Record<SnapshotWrittenMetricKey, …>` so a
+ * key added to the shared vocabulary without a producer (or vice versa) is a
+ * compile error, and so is a producer for a frozen key.
+ */
+const PRODUCERS: Record<SnapshotWrittenMetricKey, Producer> = {
   // ── Flows ────────────────────────────────────────────────────────────────
   'traffic.page_views_human': (db, day) => computeFlowMetric(db, 'traffic.page_views_human', day),
-  'traffic.page_views_human_after_automation': computeHumanViewsAfterAutomation,
   'traffic.page_views_bot': (db, day) => computeFlowMetric(db, 'traffic.page_views_bot', day),
   'traffic.unique_visitors': (db, day) => computeFlowMetric(db, 'traffic.unique_visitors', day),
   'catalog.products_created': (db, day) => computeFlowMetric(db, 'catalog.products_created', day),
@@ -270,7 +260,7 @@ const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
 export type SnapshotKeyStatus = 'written' | 'failed';
 
 export type SnapshotKeyOutcome = {
-  metric: AdminSnapshotMetricKey;
+  metric: SnapshotWrittenMetricKey;
   status: SnapshotKeyStatus;
   /** The value written. Absent on `failed`. */
   value?: number;
@@ -307,7 +297,7 @@ export type MetricsSnapshotResult = {
 async function upsertMetric(
   db: Db,
   day: string,
-  metric: AdminSnapshotMetricKey,
+  metric: SnapshotWrittenMetricKey,
   value: number,
   now: Date,
   source: AdminSnapshotSource = 'measured',
@@ -327,7 +317,7 @@ async function upsertMetric(
 async function snapshotOneMetric(
   db: Db,
   day: string,
-  metric: AdminSnapshotMetricKey,
+  metric: SnapshotWrittenMetricKey,
   now: Date,
 ): Promise<Pick<SnapshotKeyOutcome, 'status' | 'value' | 'error'>> {
   try {
@@ -357,7 +347,7 @@ export async function runMetricsSnapshot(
   now: Date,
 ): Promise<MetricsSnapshotResult> {
   const metrics: SnapshotKeyOutcome[] = [];
-  for (const metric of ADMIN_SNAPSHOT_METRIC_KEYS) {
+  for (const metric of SNAPSHOT_WRITTEN_METRIC_KEYS) {
     const startedAt = Date.now();
     const outcome = await snapshotOneMetric(db, day, metric, now);
     metrics.push({ metric, durationMs: Date.now() - startedAt, ...outcome });
@@ -454,7 +444,7 @@ export const SNAPSHOT_RECHECK_MAX_CORRECTED_DAYS = 10;
  *  read without a second query. */
 export type SnapshotCorrection = {
   day: string;
-  metric: AdminMetricKey;
+  metric: AdminRetroactiveMetricKey;
   /** The value that was stored before this run. */
   stored: number;
   /** The value this run wrote. */
@@ -469,7 +459,7 @@ export type SnapshotCorrection = {
  *  dropped: a refusal is evidence about the data, not an absence of news. */
 export type SnapshotRefusal = {
   day: string;
-  metric: AdminMetricKey;
+  metric: AdminRetroactiveMetricKey;
   stored: number;
   recomputed: number;
   reason: 'increase' | 'raw_rows_absent';
@@ -591,7 +581,7 @@ async function daysWithRawPageViews(db: Db, w: UtcWindow): Promise<Set<string>> 
  *     reported, never written.
  */
 export function diffCorrections(
-  metric: AdminMetricKey,
+  metric: AdminRetroactiveMetricKey,
   days: readonly string[],
   recomputed: ReadonlyMap<string, number>,
   stored: ReadonlyMap<string, SnapshotPoint>,
@@ -628,51 +618,6 @@ export function diffCorrections(
   }
   return { corrections, refusals };
 }
-
-/**
- * The days whose stored `traffic.page_views_human_after_automation` must be
- * recomputed because a day feeding its detector moved.
- *
- * `flagged(X)` is a pure function of the populations of days `[X-14, X]`:
- * `detectSwarms` reads `humanWindow` (the same `HUMAN + NOT_INTERNAL`
- * population this pass just diffed) over day `X`, plus `countPriorFlaggedDays`
- * over a window that **ends** at `X`'s start — backward-only. It imports no
- * configuration outside its own module, and `client_verdict` has exactly one
- * writer, at ingest. So a moved raw human count is the only signal that can
- * reach it from this side.
- *
- * **The blind spot, stated rather than assumed away.** A day in the window with
- * no stored `traffic.page_views_human` row cannot enter the moved set — there is
- * nothing to compare against — so a population change on it is invisible here.
- * Those days are reported as `uncoveredDays` and fixed by filling coverage with
- * `ops:backfill-metrics-daily`, which is the same tool the 03:00 prune's own
- * snapshot-gap abort points at.
- *
- * **What no automatic pass can reach**, and therefore an operational obligation
- * rather than a gap in this function: tuning `SWARM_MIN_VIEWS`,
- * `SWARM_MIN_ASN_RATIO` or the `ASN_ROTATOR_*` constants changes `flagged(X)`
- * for every stored day with **no** change to any raw count, so this set is empty
- * and the stored series silently mixes two definitions. That key is
- * `NOT_BACKFILLABLE`, so there is no repair tool at all. See
- * `POST_LAUNCH_MONITORING.md` §3.
- */
-export function automationTriggerDays(
-  days: readonly string[],
-  movedDays: ReadonlySet<string>,
-): string[] {
-  const inWindow = new Set(days);
-  const out = new Set<string>();
-  for (const moved of movedDays) {
-    for (let i = 0; i <= SWARM_PRIOR_LOOKBACK_DAYS; i += 1) {
-      const affected = shiftDay(moved, i);
-      if (inWindow.has(affected)) out.add(affected);
-    }
-  }
-  return [...out].sort();
-}
-
-/** The one key with no live series, handled separately by the pass. */
-const AFTER_AUTOMATION: AdminMetricKey = 'traffic.page_views_human_after_automation';
 
 /**
  * Re-check the trailing retro-join window and correct the days that moved
@@ -790,77 +735,11 @@ export async function runMetricsSnapshotRecheck(
     };
   }
 
-  // ─── The pair, computed before either half is written ──────────────────────
-  //
-  // Correcting the raw human count while leaving the filtered one stale renders
-  // a filtered series ABOVE the unfiltered one on `/admin/traffic` — a defect
-  // produced BY the fix. So the filtered value is computed first and the two are
-  // written together or not at all: a day left consistently stale beats one left
-  // inconsistently fresh.
-  const humanMoved = new Set(
-    corrections.filter((c) => c.metric === 'traffic.page_views_human').map((c) => c.day),
-  );
-  const blocked = new Set<string>();
-  if (humanMoved.size > 0 && humanStored) {
-    const startedAt = Date.now();
-    try {
-      const storedAuto = await snapshotSeries(db, AFTER_AUTOMATION, w);
-      const failures: string[] = [];
-      for (const day of automationTriggerDays(days, humanMoved)) {
-        const captured = storedAuto.get(day);
-        // Never insert — same reason as every other key.
-        if (!captured) continue;
-        if (!present.has(day)) {
-          refusals.push({
-            day,
-            metric: AFTER_AUTOMATION,
-            stored: captured.value,
-            recomputed: 0,
-            reason: 'raw_rows_absent',
-          });
-          if (humanMoved.has(day)) blocked.add(day);
-          continue;
-        }
-        try {
-          const value = await computeHumanViewsAfterAutomation(db, day);
-          if (value !== captured.value) {
-            corrections.push({
-              day,
-              metric: AFTER_AUTOMATION,
-              stored: captured.value,
-              value,
-              reconstructed: captured.reconstructed,
-            });
-          }
-        } catch (error) {
-          // The detector did not run for this day. Hold the pair together.
-          failures.push(`${day}: ${messageOf(error)}`);
-          if (humanMoved.has(day)) blocked.add(day);
-        }
-      }
-      metrics.push({
-        metric: AFTER_AUTOMATION,
-        status: failures.length === 0 ? 'written' : 'failed',
-        durationMs: Date.now() - startedAt,
-        ...(failures.length > 0 ? { error: failures.join('; ') } : {}),
-      });
-    } catch (error) {
-      metrics.push({
-        metric: AFTER_AUTOMATION,
-        status: 'failed',
-        durationMs: Date.now() - startedAt,
-        error: messageOf(error),
-      });
-      for (const day of humanMoved) blocked.add(day);
-    }
-  }
-
-  const writable = corrections.filter(
-    (c) => !(blocked.has(c.day) && c.metric === 'traffic.page_views_human'),
-  );
-
+  // AECI-1460 froze `traffic.page_views_human_after_automation`, so the pass no
+  // longer recomputes it beside a moved raw human count. Its stored rows stay as
+  // written: a frozen series is history, not a figure to keep converging.
   const written: SnapshotCorrection[] = [];
-  for (const c of writable) {
+  for (const c of corrections) {
     try {
       await upsertMetric(
         db,

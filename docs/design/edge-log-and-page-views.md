@@ -264,7 +264,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | D4 | Shadow classifier for 2 to 4 weeks on AECI-872's machinery, cross-checked against Logpush | AECI-1299 |
 | D5 | Daily rollup: enrichment, edge-only table, beacon coverage, AI-assistant fetches. Retire the GraphQL pulls and the WAF poll. **Deferred to a later epic** (ADR 0045). The WAF poll stays until a reader exists | later epic |
 | D6 | Cutover with one published method-change date | both |
-| D7 | Retire swarm detection, `client_verdict`, `DATACENTER_ASNS`, the referrer floor and the PostHog second-opinion lines, one per PR | AECI-1299 |
+| D7 | Retire swarm detection, `client_verdict`, `DATACENTER_ASNS`, the referrer floor and the PostHog second-opinion lines, one per PR. The referrer floor and the PostHog lines were retired from the digest and `/admin/overview` by AECI-1460 (2026-10-23). The three detectors still run as D19 classifier inputs, and their retirement stays here | AECI-1299 |
 | D8 | Consent-tiered storage. **Not adopted by ADR 0045; deferred** | later epic |
 
 D3 also removes the `page_views` objection to edge caching. The caching ruling (AECI-1240) stays a separate decision.
