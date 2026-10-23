@@ -243,6 +243,14 @@ describe('runPromoteIngest', () => {
   it('creates a product with vendor and taxonomy', async () => {
     const existingProd = uuid(1);
     await seedProduct(existingProd, 'navisworks', 'Navisworks');
+    // Promote is find-only (AECI-1048): the terms must already be seeded.
+    await t.db.insert(taxonomyCategories).values([
+      { id: uuid(6), slug: 'bim', name: 'BIM' },
+      { id: uuid(7), slug: 'design', name: 'Design' },
+    ]);
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: uuid(8), slug: 'architecture', name: 'Architecture' });
 
     const res = await promote({
       vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
@@ -291,13 +299,9 @@ describe('runPromoteIngest', () => {
 
     const audits = await t.db.select().from(auditLog);
     expect(audits.map((e) => e.action)).toEqual(
-      expect.arrayContaining([
-        'vendor.created',
-        'category.created',
-        'product.created',
-        'integration.created',
-      ]),
+      expect.arrayContaining(['vendor.created', 'product.created', 'integration.created']),
     );
+    expect(audits.map((e) => e.action)).not.toContain('category.created');
     expect(
       audits.every((e) => (e.metadata as { source?: string }).source === 'review-app-promote'),
     ).toBe(true);
@@ -1129,19 +1133,73 @@ describe('runPromoteIngest', () => {
       expect(b.taxonomy.phases).toEqual([expect.objectContaining({ id: uuid(6) })]);
     });
 
-    it('still mints a value that matches no slug and no name', async () => {
+    it('skips a value that matches no slug and no name, and creates nothing (AECI-1048)', async () => {
       await t.db.insert(taxonomyCategories).values({ id: uuid(6), slug: 'bim', name: 'BIM' });
       const res = await promote({
-        product: { ref: 'p1', name: 'Revit', categories: ['Digital Twins'] },
+        product: { ref: 'p1', name: 'Revit', categories: ['BIM', 'Digital Twins'] },
       });
+      expect(res.status).toBe(200);
       const b = (await res.json()) as {
         taxonomy: { categories: { slug: string; operation: string }[] };
+        skipped: { ref: string; kind: string; reason: string }[];
       };
+      // The matched term still lands; only the miss is dropped.
       expect(b.taxonomy.categories).toEqual([
-        expect.objectContaining({ slug: 'digital-twins', operation: 'created' }),
+        expect.objectContaining({ slug: 'bim', operation: 'reused' }),
       ]);
-      expect(await t.db.select().from(taxonomyCategories)).toHaveLength(2);
-      expect(await auditActions()).toContain('category.created');
+      expect(b.skipped).toEqual([
+        {
+          ref: 'p1',
+          kind: 'category',
+          reason: 'category "Digital Twins" did not resolve to the seeded vocabulary',
+        },
+      ]);
+      expect(await t.db.select().from(taxonomyCategories)).toHaveLength(1);
+      expect(await t.db.select().from(productCategories)).toHaveLength(1);
+      expect(await auditActions()).not.toContain('category.created');
+    });
+
+    it.each([
+      ['audience', 'audiences', taxonomyAudiences],
+      ['phase', 'phases', taxonomyPhases],
+    ] as const)('skips an unknown %s the same way (AECI-1048)', async (kind, key, table) => {
+      const res = await promote({ product: { ref: 'p1', name: 'Revit', [key]: ['Astronauts'] } });
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as {
+        taxonomy: Record<string, unknown[]>;
+        skipped: { ref: string; kind: string }[];
+      };
+      expect(b.taxonomy[key]).toEqual([]);
+      expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind })]);
+      expect(await t.db.select().from(table)).toHaveLength(0);
+      expect(await auditActions()).not.toContain(`${kind}.created`);
+    });
+
+    it('reports two values that normalize to the same missing key as one skip', async () => {
+      const res = await promote({
+        product: { ref: 'p1', name: 'Revit', categories: ['Digital Twins', 'digital-twins'] },
+      });
+      const b = (await res.json()) as { skipped: { kind: string }[] };
+      expect(b.skipped).toEqual([expect.objectContaining({ kind: 'category' })]);
+    });
+
+    it('skips a value that cannot be slugified rather than failing the promote', async () => {
+      // `slugify('!!!')` throws on its empty result. Before AECI-1048 that surfaced as a
+      // 400 VALIDATION_FAILED for the whole promote; now it is one more unresolved value.
+      const res = await promote({ product: { ref: 'p1', name: 'Revit', phases: ['!!!'] } });
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as {
+        product: { slug: string };
+        skipped: { kind: string; reason: string }[];
+      };
+      expect(b.product.slug).toBe('revit');
+      expect(b.skipped).toEqual([
+        {
+          ref: 'p1',
+          kind: 'phase',
+          reason: 'phase "!!!" did not resolve to the seeded vocabulary',
+        },
+      ]);
     });
   });
 
@@ -1307,7 +1365,9 @@ describe('usefulness resolution on promote (AECI-172)', () => {
     });
   });
 
-  it('resolves usefulness against a term created in the same promote (runs after taxonomy)', async () => {
+  it('skips both the facet and the usefulness group for an unknown audience (AECI-1048)', async () => {
+    // Before AECI-1048 the facet minted the term and usefulness resolved against it in
+    // the same promote. Now nothing is minted, so both halves report the miss.
     const res = await promote({
       product: {
         ref: 'p1',
@@ -1318,11 +1378,10 @@ describe('usefulness resolution on promote (AECI-172)', () => {
     });
 
     expect(res.status).toBe(200);
-    const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
-    expect(b.skipped).toHaveLength(0);
-    expect((await storedUsefulness(b.product.id)) as Stored).toMatchObject({
-      audiences: [{ slug: 'architecture', name: 'Architecture', points: ['x'] }],
-    });
+    const b = (await res.json()) as { product: { id: string }; skipped: { kind: string }[] };
+    expect(b.skipped.map((s) => s.kind).sort()).toEqual(['audience', 'usefulness']);
+    expect(((await storedUsefulness(b.product.id)) as Stored).audiences).toEqual([]);
+    expect(await t.db.select().from(taxonomyAudiences)).toHaveLength(0);
   });
 
   it('merges same-term groups, concatenating points in source order', async () => {
@@ -3643,6 +3702,10 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     return (sendBatch.mock.calls[0][0] as { body: CachePurgeMessage }[])[0].body;
   }
   it('enqueues the expected tag set (source:promote) for a representative create', async () => {
+    await t.db.insert(taxonomyCategories).values({ id: uuid(6), slug: 'bim', name: 'BIM' });
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: uuid(7), slug: 'architecture', name: 'Architecture' });
     const { res, execCtx, sendBatch } = await promoteWithPurge({
       vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
       product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
@@ -3663,7 +3726,7 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
         'vendor:autodesk',
         'category:bim',
         'audience:architecture',
-        'taxonomy',
+        // No `taxonomy` tag: both terms were reused, so the nav did not change.
         'sitemap',
       ]),
     );
@@ -4718,8 +4781,8 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(row?.description).toBe('Vendor-owned copy');
     expect(row?.promotionStatus).toBe('promoted'); // seeded value, not re-set
 
-    // Taxonomy resolution is gated too: no orphan term is minted for a product
-    // that was never written, and the response reports no taxonomy work.
+    // Taxonomy resolution is gated too: nothing is resolved (or reported skipped)
+    // for a product that was never written, and the response reports no taxonomy work.
     expect(await t.db.select().from(taxonomyCategories)).toHaveLength(0);
     expect(body.taxonomy.categories).toEqual([]);
     expect(await auditActions()).not.toContain('product.updated');

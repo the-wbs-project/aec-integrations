@@ -6,9 +6,9 @@
  * FIRST under a plain `ASC`.** So a term with no curated position does not land at
  * the end of the list — it lands at the very top, ahead of every seeded term.
  *
- * That is not hypothetical. `resolveTaxonomy` in `routes/promote.ts` mints a
- * missing category / audience / phase from `{ id, slug, name }` alone, leaving
- * `display_order` and `description` NULL. Production picked up exactly one such
+ * That is not hypothetical. Until AECI-1048, `resolveTaxonomy` in `routes/promote.ts`
+ * minted a missing category / audience / phase from `{ id, slug, name }` alone,
+ * leaving `display_order` and `description` NULL. Production picked up exactly one such
  * row — a DUPLICATE of a seeded term, which is AECI-926's problem, not this
  * module's — and it opened the category list:
  *
@@ -21,8 +21,8 @@
  * from the same missing metadata, and the ordering half is fixable here.
  *
  * AECI-926 is removing that row; `scripts/ops/2026-09-reality-capture-dedup/README.md`
- * is the status of record for the data op. Either way the RULE stands — promote can
- * still mint, so the next uncurated term opens the list exactly the same way. The
+ * is the status of record for the data op. Promote no longer mints, but the RULE stands:
+ * a hand-inserted row with no `display_order` would open the list the same way. The
  * description half is watched at runtime by the `taxonomy_missing_description`
  * data-quality check (`lib/data-quality.ts`).
  *

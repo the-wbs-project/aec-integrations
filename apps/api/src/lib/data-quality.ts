@@ -215,18 +215,16 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
  * #13 — a LIVE taxonomy term with no description (AECI-962).
  *
  * ── WHY THIS IS NOT DEAD CODE ───────────────────────────────────────────────────
- * AECI-592 retired two checks for being structurally unreachable, and the obvious
- * reading of this one is that `seed/taxonomy.sql` populates all 73 terms so it can
- * only ever return zero. That reading is wrong, and the distinction is the whole
- * point: the seed is not the only writer. `resolveTaxonomy` (`routes/promote.ts`)
- * resolves categories, audiences and phases FIND-OR-CREATE, and its mint writes
- * `{ id, slug, name }` alone — no `description`, no `display_order`. So a promote
- * whose incoming label does not slugify to a seeded slug silently creates a real
- * term, with a real public browse URL, and no description.
+ * AECI-592 retired two checks for being structurally unreachable. Since AECI-1048
+ * this one is close to that line, and it is a candidate for the same retirement.
+ * `resolveTaxonomy` (`routes/promote.ts`) used to resolve categories, audiences and
+ * phases FIND-OR-CREATE, and its mint wrote `{ id, slug, name }` alone, with no
+ * `description`. That is how production held a duplicate `Reality Capture
+ * (Scan-to-BIM)` category for weeks (AECI-926). Promote is now find-only, so the
+ * seed is the only writer, and the seed is guarded at build time.
  *
- * That is not hypothetical either. It is exactly how production came to hold a
- * duplicate `Reality Capture (Scan-to-BIM)` category for weeks (AECI-926), found by
- * eye in a screenshot rather than by any check.
+ * What it still catches: a term inserted by hand (`wrangler d1 execute`, the
+ * datatool) and any term promote minted before AECI-1048 that is still live.
  *
  * `severity: 'error'` because the string is not decoration: it is the paragraph on
  * the browse page AND that page's meta description, so a null one puts an indexable

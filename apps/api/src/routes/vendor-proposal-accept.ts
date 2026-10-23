@@ -7,8 +7,8 @@
  *   - {@link resolveProposalTerms}: the proposal's taxonomy, find-only (ruling Q6). Each
  *     category, audience, phase and trade value is looked up against the stored terms,
  *     exactly as promote looks it up (slug pass, then name pass; trades add an alias
- *     pass). A value that names no term is DROPPED and listed. Promote mints a missing
- *     category, audience or phase; an owner click never does. "How teams use it" groups
+ *     pass). A value that names no term is DROPPED and listed, as promote reports it in
+ *     `skipped[]` (AECI-1048). Neither path ever mints a term. "How teams use it" groups
  *     resolve against every stored audience and phase, as in promote, and an unresolved
  *     group is dropped and listed too. An `extensionOf` host must be a live product.
  *   - {@link planProposalAccept}: the one batch. The guarded decision UPDATE and the
@@ -20,12 +20,12 @@
  *
  * ── WHY NOT promote's create block ──────────────────────────────────────────────
  * `runPromoteIngest` plans the product inside a 2,000-line plan that also resolves
- * vendors by payload ref, mints terms, plans integrations and claims, and fences
+ * vendors by payload ref, resolves terms, plans integrations and claims, and fences
  * ownership. Lifting its create branch out would mean threading that state through a
  * new seam, and promote's behaviour must not move. So accept is a narrow builder over
  * the same helpers. What it shares with promote: the slug rule, the column projection,
  * the term-matching keys, the join tables and their order. What it does differently, by
- * ruling: no term is minted, every vendor link is the stored `vendorId` from the
+ * ruling: every vendor link is the stored `vendorId` from the
  * proposal payload (ruling B), and the product is vendor-maintained from birth.
  *
  * ── THE MAINTENANCE MARKERS ─────────────────────────────────────────────────────

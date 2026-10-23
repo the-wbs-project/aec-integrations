@@ -162,7 +162,8 @@ export function cacheTagsForPromote(
     }
   }
   // Global taxonomy nav (home / `/categories` / footer) only changes when a new
-  // term was minted — a reused term is already in the nav.
+  // term was minted — a reused term is already in the nav. Promote is find-only
+  // since AECI-1048, so only a replay of an older job (AECI-571) reports `created`.
   if (taxonomyCreated) tags.add('taxonomy');
 
   // Trades (AECI-542) — their own block, NOT folded into the loop above, because

@@ -1604,8 +1604,8 @@ export function createApp(options: {
   // stays, and a NEW category retirement goes here beside it rather than into the
   // table.
   //
-  // `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) resolves a category
-  // find-or-CREATE by `slugify(name)`. The upstream term was named
+  // `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) then resolved a category
+  // find-or-CREATE by `slugify(name)` (find-only since AECI-1048). The upstream term was named
   // `Reality Capture (Scan-to-BIM)`, which slugifies to
   // `reality-capture-scan-to-bim` and so never matched the seeded
   // `reality-capture`. Every promote re-missed and minted the same duplicate, which

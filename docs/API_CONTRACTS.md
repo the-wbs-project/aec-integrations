@@ -163,15 +163,15 @@ Two consequences worth knowing before touching a sort:
 
 **`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` that orders by curated position therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Audiences do not order by position at all: they read A to Z by name (AECI-1242, AECI-1243). Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
 
-This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a category / audience / phase that matches no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* minted term out of the top slot.
+This is not hypothetical. Until AECI-1048 (2026-10-23), `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) minted a category / audience / phase that matched no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invented outranked the whole seeded vocabulary until a curator gave it an order. Promote now resolves these facets find-only and creates nothing, so the guards below protect against a seed or manual row that lacks `display_order` or `description`, not against a promote mint. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* uncurated term out of the top slot.
 
 Three guards now cover the two halves of that defect, and none of them subsumes another:
 
 | Guard | Catches |
 | -- | -- |
-| `apps/api/src/test/taxonomy-seed-slugs.spec.ts` | a seeded term whose `slug` stops matching `slugify(name)`, which is what makes promote mint a duplicate; and, since AECI-962, a seed row with a blank or over-long `description` |
-| `taxonomy_missing_description` in `apps/api/src/lib/data-quality.ts` (severity `error`) | a **live** term in D1 with no description — the minted-row shape the seed test structurally cannot see |
-| `displayOrderAsc` + `display-order.spec.ts` | the ordering half, so a minted term never opens the list |
+| `apps/api/src/test/taxonomy-seed-slugs.spec.ts` | a seeded term whose `slug` stops matching `slugify(name)`, which is what made promote mint a duplicate before AECI-1048, and still makes a name-pass lookup miss; and, since AECI-962, a seed row with a blank or over-long `description` |
+| `taxonomy_missing_description` in `apps/api/src/lib/data-quality.ts` (severity `error`) | a **live** term in D1 with no description — a manually inserted or edited row the seed test structurally cannot see |
+| `displayOrderAsc` + `display-order.spec.ts` | the ordering half, so an uncurated term never opens the list |
 
 **One place the rule does not reach: the browser.** `toTaxonomyTermWithCount` serialises `display_order` as `raw.displayOrder ?? 0`, because the wire schema types it `z.number().int()` — a client cannot tell "unordered" from "order 0". Consumers that re-sort in memory (`byDisplayOrder`, `apps/web/src/app/core/taxonomy/taxonomy-rank.ts`) therefore still float an uncurated term to the front. That path is used for `phases` only, which has no NULL rows; every other surface renders the wire order. Closing the gap means making `display_order` nullable on the wire, which is a contract change.
 
@@ -6329,6 +6329,9 @@ export interface PromoteResponse {
     movedFromSlugs?: [string, string];
   }[];
   taxonomy: {
+    // Find-only since AECI-1048: new responses are always `reused`. `created` stays in the
+    // type because a replayed pre-AECI-1048 job returns its stored response. A miss is a
+    // `skipped[]` entry with kind 'category' | 'audience' | 'phase'.
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
@@ -6337,7 +6340,10 @@ export interface PromoteResponse {
   };
   skipped: {
     ref: string;
-    kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
+    kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade'
+      | 'category' | 'audience' | 'phase' // AECI-1048: find-only facets; ref = the product's ref
+      | 'vendor' | 'product' | 'connector-catalog' | 'connector-stub' | 'connector-mapping'
+      | 'connector-pair' | 'review-signal';
     reason: string;
     existingId?: string; // AECI-1011: the vendor-held twin, on `VENDOR_OWNED_TWIN` only
     // AECI-1416: on `kind: 'product'` only. The `product_proposals` row a new product for an
@@ -6534,8 +6540,8 @@ inserting it would collide on the `attestations_slot_key` partial unique index a
 back the whole batch. What survived is reported in `preserved[]`.
 
 **Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
-names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
-`categories` / `audiences` / `phases`, which are find-**or-create**d by canonical slug,
+names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Like
+`categories` / `audiences` / `phases` (find-only since AECI-1048, by slug then name),
 a trade resolves **find-only** against the seeded closed vocabulary by `slug` → `name`
 → `alias`, case-insensitively. An unmatched value is dropped and reported in `skipped[]`
 with `kind: 'trade'` and `ref` = the product's `ref` — never auto-created (a typo minting
@@ -6548,8 +6554,8 @@ product's trades, like every other join set. Trades are sparse by design: only p
 with trade-*specific* value carry them.
 
 **Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
-names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
-`categories` / `audiences` / `phases`, which are find-**or-create**d by canonical slug,
+names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Like
+`categories` / `audiences` / `phases` (find-only since AECI-1048, by slug then name),
 a trade resolves **find-only** against the seeded closed vocabulary by `slug` → `name`
 → `alias`, case-insensitively. An unmatched value is dropped and reported in `skipped[]`
 with `kind: 'trade'` and `ref` = the product's `ref` — never auto-created (a typo minting

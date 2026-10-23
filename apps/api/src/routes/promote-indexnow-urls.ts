@@ -170,7 +170,8 @@ export function affectedUrlsForPromote(
   }
 
   // Global taxonomy nav (home + the three taxonomy index pages) only changes when
-  // a new term was minted — a reused term is already in the nav. Home is the
+  // a new term was minted — a reused term is already in the nav. Promote is
+  // find-only since AECI-1048, so only a replay of an older job reports `created`. Home is the
   // canonical `${origin}/` form (trailing slash; see `meta.helpers.ts`).
   if (taxonomyCreated) {
     urls.add(`${base}/`);

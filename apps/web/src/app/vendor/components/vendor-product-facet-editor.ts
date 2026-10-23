@@ -482,7 +482,7 @@ export class VendorProductFacetEditor {
   /**
    * Every vocabulary term, then any slug the vocabulary does not know but the
    * product carries (as a tag or as points), labelled with its slug. The taxonomy
-   * read is a cached snapshot and promote can mint a term inside that window, so
+   * read is a cached snapshot and a seed deploy can add a term inside that window, so
    * dropping unknown rows would understate what is published and delete it on save.
    */
   protected readonly rows = computed<readonly FacetRow[]>(() => {

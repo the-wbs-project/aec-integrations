@@ -266,9 +266,10 @@ export const PromoteUsefulnessSchema = z.object({
 export type PromoteUsefulness = z.infer<typeof PromoteUsefulnessSchema>;
 
 /**
- * The product being promoted. Taxonomy is sent as names or slugs (matched by
- * stored slug, then stored name, and created only when both miss — AECI-970;
- * trades never create). `extensionOf` lists host products this product
+ * The product being promoted. Taxonomy is sent as names or slugs, matched
+ * find-only by stored slug, then stored name (AECI-970). A value that matches
+ * nothing is reported in `skipped[]` and never created (AECI-1048; trades
+ * always were find-only). `extensionOf` lists host products this product
  * extends — host products must already be promoted (use `supabaseId`).
  */
 export const PromoteProductSchema = z.object({
@@ -292,18 +293,22 @@ export const PromoteProductSchema = z.object({
   redditMentions24mo: z.number().int().nullish(),
   adminNotes: z.string().nullish(),
   // Per-audience / per-phase narrative value. Resolved server-side against
-  // existing terms (never find-or-created) and stored as slug-based jsonb;
+  // existing terms (find-only) and stored as slug-based jsonb;
   // `null` clears the column, absent leaves it untouched. See the route's
   // `resolveUsefulnessFacet` and `REVIEW_APP_PROMOTE_API.md` §3.3.
   usefulness: PromoteUsefulnessSchema.nullish(),
+  // Closed vocabularies, resolved server-side **find-only** by stored slug, then
+  // stored name (AECI-970, AECI-1048). An unmatched value is dropped and reported
+  // in `skipped[]` with `kind: 'category' | 'audience' | 'phase'`; it is never
+  // created. Adding a term is a PR to `apps/api/seed/taxonomy.sql`.
   categories: z.array(z.string().min(1)).default([]),
   audiences: z.array(z.string().min(1)).default([]),
   phases: z.array(z.string().min(1)).default([]),
   // The fourth taxonomy facet — "what work does the buyer's company sell?"
   // (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Values are trade
   // slugs, names, OR aliases, resolved server-side **find-only** against the
-  // seeded closed vocabulary by slug → name → alias, case-insensitively. Unlike
-  // the three facets above, an unmatched value is NEVER find-or-created: it is
+  // seeded closed vocabulary by slug → name → alias, case-insensitively. As with
+  // the three facets above, an unmatched value is never created: it is
   // dropped and reported in `skipped[]` with `kind: 'trade'` (a typo minting
   // `paving-contractors` alongside `paving-asphalt` would split a trade page's
   // products across two permanent URLs). Sparse by design — send trades only for
@@ -545,6 +550,12 @@ export type PromotePayload = z.infer<typeof PromotePayloadSchema>;
 
 // ─── Response shapes ─────────────────────────────────────────────────────────
 export type PromoteOperation = 'created' | 'updated';
+/**
+ * `'created'` is historical. Since AECI-1048 promote resolves every taxonomy facet
+ * find-only, so a new job only ever reports `'reused'`. The value stays because a
+ * replayed job (AECI-571) returns its stored response verbatim, and jobs from before
+ * AECI-1048 recorded `'created'` for a minted term.
+ */
 export type PromoteTaxonomyOperation = 'created' | 'reused';
 
 export interface PromoteEntityResult {
@@ -618,6 +629,9 @@ export interface PromoteTaxonomyResult {
  * vendor-owned and the review app may not overwrite them. Those two and
  * `review-signal` (AECI-981) mean "this WOULD have been written but policy said
  * no"; the connector-lane four mean "this could not be resolved".
+ * `category` / `audience` / `phase` (AECI-1048) and `trade` mean the value did
+ * not resolve to the seeded closed vocabulary. Re-sending will not clear them:
+ * the sender's vocabulary has drifted from `apps/api/seed/taxonomy.sql`.
  */
 export interface PromoteSkipped {
   ref: string;
@@ -627,6 +641,11 @@ export interface PromoteSkipped {
     | 'usefulness'
     | 'claim'
     | 'trade'
+    // ── Find-only taxonomy facets (AECI-1048) ─────────────────────────────
+    // `ref` is the product's `ref`; `reason` quotes the value that missed.
+    | 'category'
+    | 'audience'
+    | 'phase'
     | 'vendor'
     | 'product'
     // ── Connector lane (AECI-714) ──────────────────────────────────────────
@@ -782,9 +801,9 @@ export interface PromoteUnresolvedLink {
  * endpoint wasn't resolvable (e.g. the other product isn't promoted yet),
  * usefulness groups that didn't resolve to an existing audience/phase term,
  * claims whose `dataObject` failed find-only resolution against the seeded
- * vocabulary (`kind: 'claim'`), and trades that failed find-only resolution
- * against the seeded `trade` vocabulary (`kind: 'trade'`) — surfaced rather than
- * silently dropped.
+ * vocabulary (`kind: 'claim'`), and categories / audiences / phases / trades that
+ * failed find-only resolution against their seeded vocabulary (`kind: 'category'`,
+ * `'audience'`, `'phase'`, `'trade'`) — surfaced rather than silently dropped.
  *
  * `preserved` is the mirror image, added by AECI-604: rows that were NOT in the
  * payload and were kept anyway because a vendor owns them — extended by AECI-963
@@ -802,7 +821,8 @@ export interface PromoteResponse {
     /**
      * Trades the product resolved to. Always `operation: 'reused'` — the `trade`
      * vocabulary is closed and resolves find-only (`STAGE_1_SPEC.md` §5.5a), so
-     * promote can only ever match an existing term, never mint one. Always
+     * promote can only ever match an existing term, never mint one. Since
+     * AECI-1048 the three facets above behave the same way. Always
      * present; empty for a push with no product or no resolvable trades.
      */
     trades: PromoteTaxonomyResult[];

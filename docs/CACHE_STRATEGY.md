@@ -340,7 +340,7 @@ what a promote create purges, from the same deriver: `cacheTagsForPromote`
 `index:products`, `sitemap`, `vendor:{slug}` for every linked vendor, one
 `category|audience|phase:{slug}` per linked term, `trade:{slug}` + `index:trades` +
 `taxonomy` + `sitemap` when it has a trade, and `product:{host}` per extension host. Never
-`taxonomy` for the three minted facets, because an accept mints nothing. `afterVendorWrite`
+`taxonomy` for the three original facets, because an accept creates no term. `afterVendorWrite`
 enqueues them with `source: 'vendor'`. Two promote hooks are left out on purpose: no
 home-stats refresh (`index:home` waits for the daily cron, as for every vendor write) and no
 re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
@@ -381,7 +381,8 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   reloads the category they just joined and their product isn't there. Purging
   the page it left *and* the page it joined fixes both directions. This mirrors
   the promote deriver, which tags created **and** reused terms for the same
-  reason (`promote-cache-tags.ts`). The `taxonomy` tag is deliberately **not**
+  reason (`promote-cache-tags.ts`). Since AECI-1048 promote creates no term, so the
+  deriver's `taxonomy` tag for a created term now fires only on a replayed pre-change job. The `taxonomy` tag is deliberately **not**
   emitted: that one is for a change to the term *set*, and a vendor can only
   assign existing terms, never mint one.
 - **Product-version write** (`POST`/`PATCH`/`DELETE

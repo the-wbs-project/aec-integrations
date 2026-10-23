@@ -19,9 +19,9 @@
  *
  * D1 has no interactive transactions, so the ingest is **plan-then-batch**:
  *   1. **Plan (reads + id generation, NO writes).** Preload slugs; read the
- *      slugs of any rows being updated; resolve taxonomy (find-or-create for
- *      categories/audiences/phases, find-ONLY for trades — AECI-542) and
- *      usefulness against existing+to-be-created terms; resolve every
+ *      slugs of any rows being updated; resolve taxonomy find-only (a miss is a
+ *      `skipped[]` entry, never a new term — AECI-542, AECI-1048) and
+ *      usefulness against the stored terms; resolve every
  *      integration/extension endpoint (refs → planned ids, supabaseIds →
  *      existence reads); read an updated integration's OLD endpoints for the
  *      recompute. All new ids are app-generated `crypto.randomUUID()` up front,
@@ -43,10 +43,10 @@
  *     `UPDATE … WHERE id = <gone>` that silently writes nothing and reports an
  *     empty slug (AECI-568). The fallback is reported on
  *     `PromoteIngestResult.staleSupabaseIds` → `aeci.api.promote.stale_id`.
- *   - **Taxonomy resolves slug → name → mint (AECI-970).** A category / audience /
- *     phase that matches no stored slug and no stored name is still created, and
- *     every mint is reported as `aeci.api.promote.taxonomy_created`. Trades are
- *     find-only and never mint.
+ *   - **Taxonomy is find-only (AECI-1048).** A category / audience / phase /
+ *     trade resolves by stored slug, then stored name (trades add an alias pass).
+ *     A value that matches nothing is reported in `skipped[]` with its facet as
+ *     the `kind` and is never created. The seed is the only writer of the terms.
  *   - **Slugs are server-owned.** Generated on create via `@aeci/shared/slug`;
  *     kept stable on update.
  *   - **Joins are replaced, not merged.** On update, the product's
@@ -1745,52 +1745,6 @@ function logPromoteUnresolvedLinks(
   }
 }
 
-/** The response key each mintable taxonomy kind reports under. */
-const FACET_KEY = { category: 'categories', audience: 'audiences', phase: 'phases' } as const;
-
-/**
- * Surface every taxonomy term a promote MINTED (AECI-970). `categories` / `audiences` /
- * `phases` are closed vocabularies that promote can still grow: a value that matches no
- * stored slug and no stored name creates a row with a public browse URL, no
- * `description` and no `display_order`. That used to be visible only as an
- * `operation: 'created'` in the response and a `<kind>.created` audit row, which is how
- * `reality-capture-scan-to-bim` carried 10 products for a month before anyone saw it
- * (AECI-926).
- *
- * One `warn` log listing every `{ kind, slug, id }`, plus one
- * `aeci.api.promote.taxonomy_created` count per term tagged `kind` and `slug`. `slug`
- * is a tag on purpose: mints are rare (11 in production's whole history), so the
- * cardinality is negligible and the series alone names the term to go and look at.
- * Read off `response`, so an AECI-571 replay reports the same mints again, exactly as
- * {@link logPromoteSkips} does. Fire-and-forget over the same self-gating transport.
- * No-op when nothing was minted, which is the steady state.
- */
-function logPromoteTaxonomyCreates(rc: PromoteRunCtx, response: PromoteResponse): void {
-  const created = (['category', 'audience', 'phase'] as const).flatMap((kind) =>
-    (response.taxonomy[FACET_KEY[kind]] ?? [])
-      .filter((r) => r.operation === 'created')
-      .map((r) => ({ kind, slug: r.slug, id: r.id })),
-  );
-  if (created.length === 0) return;
-
-  logToPosthog(rc, rc.env, rc.request, {
-    level: 'warn',
-    message: 'aeci.api.promote.taxonomy_created',
-    source: 'review-app-promote',
-    outcome: 'minted',
-    created_count: created.length,
-    created,
-  });
-
-  for (const term of created) {
-    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.taxonomy_created', 1, [
-      'source:promote',
-      `kind:${term.kind}`,
-      `slug:${term.slug}`,
-    ]);
-  }
-}
-
 /**
  * Surface an absorbed commit replay (AECI-571) in Datadog.
  *
@@ -2128,7 +2082,7 @@ async function replayPromoteJob(
   };
 }
 
-/** A taxonomy facet model (table + the columns the find-or-create reads). The
+/** A taxonomy facet model (table + the columns the find-only resolver reads). The
  *  generic `Table` type doesn't expose columns, so they're passed explicitly. */
 interface TaxonomyTable {
   table: Table;
@@ -2263,8 +2217,8 @@ export async function runPromoteIngest(
   // surface for claimed rows is the follow-up if that bites.
   //
   // Both reads run BEFORE the first `stmts.push`, because the decision has to be
-  // available to the taxonomy resolution below — that step mints terms and would
-  // otherwise leave orphans behind for a product we never write.
+  // available to the taxonomy resolution below, which must not run (or report
+  // skips) for a product we never write.
   const existingProductVendorIds = payload.product?.supabaseId
     ? (
         await db.query.productVendors.findMany({
@@ -2412,27 +2366,29 @@ export async function runPromoteIngest(
     }
   }
 
-  // ── Taxonomy (find-or-create: slug pass, then name pass, then mint) ────────
+  // ── Taxonomy (find-only: slug pass, then name pass) ───────────────────────
   // Each facet returns the resolved ids + the public results, AND records a
-  // `{key → {slug,name}}` map (existing + just-created) for usefulness to
-  // resolve against. New-term inserts are appended to the batch.
+  // `{key → {slug,name}}` map of the stored terms for usefulness to resolve against.
   //
-  // AECI-970 (option A): an incoming value is normalized with `slugify` and looked
-  // up against every stored row twice — by its `slug` first, then by
-  // `slugify(name)` — before the mint path may run. The slug pass alone is what
-  // minted `reality-capture-scan-to-bim` beside the seeded `reality-capture`
-  // (AECI-926): the seeded row's NAME was `Reality Capture (Scan-to-BIM)`, which
-  // slugified to the incoming key, but nothing looked at names. Two separate
-  // passes (as in `resolveTrades`) make the precedence structural: a row's name
-  // can never shadow another row's slug. There is no alias pass because these
-  // tables have no `aliases` column. The mint itself is unchanged — making these
-  // facets find-only is option B, which waits on the review app surfacing
-  // `skipped[]` for them — but every mint is now reported post-commit as
-  // `aeci.api.promote.taxonomy_created` (`logPromoteTaxonomyCreates`).
+  // An incoming value is normalized with `safeSlugify` and looked up against every
+  // stored row twice — by its `slug` first, then by `slugify(name)` (AECI-970). The
+  // slug pass alone is what minted `reality-capture-scan-to-bim` beside the seeded
+  // `reality-capture` (AECI-926): the seeded row's NAME slugified to the incoming key,
+  // but nothing looked at names. Two separate passes (as in `resolveTrades`) make the
+  // precedence structural: a row's name can never shadow another row's slug. There is
+  // no alias pass because these tables have no `aliases` column.
+  //
+  // **Find-only since AECI-1048.** A value that matches neither pass is never created.
+  // It is dropped and reported in `skipped[]` with `kind: 'category' | 'audience' |
+  // 'phase'`, exactly as an unmatched trade is. These are closed vocabularies whose
+  // only writer is `apps/api/seed/taxonomy.sql`; adding a term is a PR to that file
+  // (and the review app's copy), never a promote. So every result is
+  // `operation: 'reused'` and no `<kind>.created` audit row is written here.
   const resolveTaxonomy = async (
     names: string[],
     model: TaxonomyTable,
     entity: 'category' | 'audience' | 'phase',
+    productRef: string,
   ): Promise<{
     ids: string[];
     results: PromoteTaxonomyResult[];
@@ -2450,49 +2406,44 @@ export async function runPromoteIngest(
     const termByKey = new Map(
       [...byKey].map(([key, r]) => [key, { slug: r.slug, name: r.name }] as const),
     );
-    const slugSet = new Set(existing.map((r) => r.slug));
     const ids: string[] = [];
     const results: PromoteTaxonomyResult[] = [];
     const seen = new Set<string>();
+    const missed = new Set<string>();
     for (const name of names) {
-      const canonical = slugify(name);
-      const found = byKey.get(canonical);
-      if (found) {
-        if (!seen.has(found.id)) {
-          ids.push(found.id);
-          // The STORED slug, not `canonical`: they differ on a name-pass hit, and
-          // the cache purge and IndexNow read this slug to build `category:{slug}`.
-          results.push({ slug: found.slug, id: found.id, operation: 'reused' });
-          seen.add(found.id);
-        }
+      // `safeSlugify`, not `slugify`: a value that normalizes to nothing (or to a
+      // reserved slug) is unresolvable, so it is a skip like any other miss rather
+      // than a `VALIDATION_FAILED` for the whole promote.
+      const key = safeSlugify(name);
+      const found = key ? byKey.get(key) : undefined;
+      if (!found) {
+        // Two payload values that normalize to the same key are one miss, not two.
+        const missKey = key ?? name;
+        if (missed.has(missKey)) continue;
+        missed.add(missKey);
+        skipped.push({
+          ref: productRef,
+          kind: entity,
+          reason: `${entity} "${name}" did not resolve to the seeded vocabulary`,
+        });
         continue;
       }
-      const slug = disambiguateSlug(canonical, [...slugSet]);
-      slugSet.add(slug);
-      const id = crypto.randomUUID();
-      stmts.push(db.insert(model.table).values({ id, slug, name } as Record<string, unknown>));
-      byKey.set(canonical, { id, slug, name });
-      termByKey.set(canonical, { slug, name });
-      termByKey.set(slug, { slug, name });
-      ids.push(id);
-      results.push({ slug, id, operation: 'created' });
-      seen.add(id);
-      audit({
-        actorType: 'system',
-        action: `${entity}.created`,
-        entityType: entity,
-        entityId: id,
-      });
+      if (!seen.has(found.id)) {
+        ids.push(found.id);
+        // The STORED slug, not the key: they differ on a name-pass hit, and the
+        // cache purge and IndexNow read this slug to build `category:{slug}`.
+        results.push({ slug: found.slug, id: found.id, operation: 'reused' });
+        seen.add(found.id);
+      }
     }
     return { ids, results, termByKey };
   };
 
   const p = payload.product;
   // `writesProduct` gates every step that plans a write for the payload's product
-  // (AECI-520). It has to gate taxonomy resolution too, not just the product block
-  // below: `resolveTaxonomy` MINTS missing terms, so a blocked promote would
-  // otherwise create orphan terms in the nav and purge every browse page it merely
-  // mentioned.
+  // (AECI-520). It gates taxonomy resolution too, not just the product block below:
+  // a blocked promote must not report `skipped[]` entries for facets it never
+  // planned to write, nor purge every browse page it merely mentioned.
   const writesProduct = Boolean(p) && !productSkipped;
   const emptyTax = {
     ids: [] as string[],
@@ -2510,6 +2461,7 @@ export async function runPromoteIngest(
             nameCol: taxonomyCategories.name,
           },
           'category',
+          p.ref,
         )
       : emptyTax;
   const audiences =
@@ -2523,6 +2475,7 @@ export async function runPromoteIngest(
             nameCol: taxonomyAudiences.name,
           },
           'audience',
+          p.ref,
         )
       : emptyTax;
   const phases =
@@ -2536,20 +2489,20 @@ export async function runPromoteIngest(
             nameCol: taxonomyPhases.name,
           },
           'phase',
+          p.ref,
         )
       : emptyTax;
 
   // ── Trades (find-only resolution against the seeded closed vocabulary) ─────
-  // The fourth facet (§5.5a / AECI-542) deliberately diverges from the three
-  // above: `taxonomy_trades` is a GOVERNED closed vocabulary (ADR 0008 /
-  // `docs/TRADES_VOCABULARY.md` §3), so a trade is resolved **find-only** —
-  // never find-or-create. A curator minting `paving-contractors` alongside
+  // The fourth facet (§5.5a / AECI-542). `taxonomy_trades` is a GOVERNED closed
+  // vocabulary (ADR 0008 / `docs/TRADES_VOCABULARY.md` §3), resolved **find-only**
+  // like the three above. A curator minting `paving-contractors` alongside
   // `paving-asphalt` would split a trade page's products across two permanent
   // URLs and destroy the SEO asset the facet exists to build, so an unmatched
   // value is dropped and reported in `skipped[]` (`kind: 'trade'`), exactly like
   // an unresolvable usefulness group or claim `dataObject`. No term is ever
   // created here, so no `trade.created` audit row is possible and every result
-  // is `operation: 'reused'`.
+  // is `operation: 'reused'`. What is trade-only is the third, alias pass.
   //
   // Matching is by `slug` → `name` → `alias`, case-insensitively
   // (`TRADES_VOCABULARY.md` §4). The three passes below make that precedence
@@ -2629,7 +2582,7 @@ export async function runPromoteIngest(
     removedTradeSlugs = prior.map((r) => r.slug).filter((slug) => !kept.has(slug));
   }
 
-  // ── Usefulness (find-only resolution against existing+new terms) ───────────
+  // ── Usefulness (find-only resolution against the stored terms) ─────────────
   const resolveUsefulnessFacet = (
     groups: PromoteUsefulnessGroup[],
     termByKey: Map<string, { slug: string; name: string }>,
@@ -2971,7 +2924,7 @@ export async function runPromoteIngest(
       metadata: { ref: p.ref, cause: 'product-already-proposed', state },
     });
   } else if (p && newProductBlocked && proposalVendorId) {
-    // The product is stored as sent, frozen: no taxonomy resolved or minted, no slug,
+    // The product is stored as sent, frozen: no taxonomy resolved, no slug,
     // no joins. The owner accepts or declines it (AECI-1417), and an accept creates
     // exactly this, linked to every vendor below (ruled 2026-10-19). Every vendor ref
     // is resolved to its AECi id here, after the vendor loop registered each one: the
@@ -4253,8 +4206,4 @@ export function dispatchPromoteHooks(
   // response wholesale. `?? []` because a ledger row written before AECI-730 has no
   // such key, and this runs post-commit where a throw has nothing to roll back.
   logPromoteUnresolvedLinks(rc, response.unresolvedLinks ?? []);
-
-  // Surface any category / audience / phase term this promote minted (AECI-970). A
-  // mint is a new public browse URL with no copy, so it must never be silent.
-  logPromoteTaxonomyCreates(rc, response);
 }

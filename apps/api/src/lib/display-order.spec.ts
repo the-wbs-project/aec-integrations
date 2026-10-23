@@ -17,8 +17,8 @@ import { displayOrderAsc } from './display-order';
  *
  * The source-scan half is the one that keeps it fixed. `asc(x.displayOrder)` is
  * the obvious thing to write, reads correctly, and is silent when wrong: the list
- * still returns 200 and still looks ordered, right up until a promote mints a term
- * with no curated position and that term jumps to the top of the category nav. The
+ * still returns 200 and still looks ordered, right up until a row lands (by hand, or
+ * from a promote before AECI-1048 stopped minting) with no curated position and that term jumps to the top of the category nav. The
  * scan is over source rather than over behaviour because a behavioural test only
  * covers the query it happens to seed, and there are fifteen of these.
  */
@@ -43,7 +43,7 @@ describe('displayOrderAsc — NULLs last (AECI-925)', () => {
     const { db } = testDb;
     await db.insert(taxonomyCategories).values([
       { id: 'c-late', slug: 'zzz-last', name: 'Zzz Last', displayOrder: 900 },
-      // The promote-minted shape: name + slug only.
+      // The shape promote minted before AECI-1048: name + slug only.
       { id: 'c-null', slug: 'minted-by-promote', name: 'Aaa Minted' },
       { id: 'c-early', slug: 'aaa-first', name: 'Aaa First', displayOrder: 10 },
     ]);

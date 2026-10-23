@@ -43,10 +43,11 @@
 --      which is how 73 indexable pages came to share one meta description before this.
 --   2. TAGGING GUIDANCE. It tells whoever is tagging a product which of two ADJACENT terms
 --      to pick. Where a near-neighbour exists, the description names it explicitly
---      ("Clash detection and federation belong under BIM Coordination"). This matters more
---      here than on trades or data objects, which resolve find-only: categories, audiences
---      and phases resolve FIND-OR-CREATE in promote (routes/promote.ts), so a near-miss
---      label does not fail -- it mints a real term with a permanent public URL.
+--      ("Clash detection and federation belong under BIM Coordination"). Promote resolves
+--      every facet FIND-ONLY (routes/promote.ts, AECI-1048): a label that matches no slug
+--      and no name here is dropped and reported in skipped[], never created. This file is
+--      the only writer of these three tables, so adding a term is a PR here (and to the
+--      review app's copy, under exactly the same slug).
 --
 -- Style follows seed/trades.sql: one sentence naming what belongs, then an optional second
 -- sentence pointing at the neighbour. Keep it at or under 155 characters so it survives as
@@ -58,7 +59,7 @@
 -- and fails the build on any row whose description is NULL, blank, or over 155 characters.
 -- The live side is covered too: the 'taxonomy_missing_description' data-quality check
 -- (lib/data-quality.ts, severity error) reports any term in D1 with no description, which is
--- what a promote-minted term looks like.
+-- what a hand-inserted row, or a term promote minted before AECI-1048, looks like.
 
 INSERT INTO "taxonomy_categories" ("id","slug","name","description","display_order","created_at","updated_at") VALUES
   ('42ac2106-9994-5fad-8298-f82bbb85bc14', 'accounting-erp', 'Accounting & ERP', 'General ledger, AP/AR, payroll, and job-cost accounting for construction businesses. Pay applications and lien waivers belong under Payment Management.', 10, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
