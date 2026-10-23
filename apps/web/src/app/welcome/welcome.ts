@@ -74,145 +74,182 @@ export function welcomeNextPath(raw: string | null): string {
   selector: 'aec-welcome-page',
   imports: [ProfileDetailsForm],
   template: `
+    <!-- AECI-987: the 7xl canvas with the form + context rail. From lg the header
+         and the form sit in columns 1 to 7 and the rail docks in 9 to 12. Below lg
+         the source order (header, rail, form) is the reading order. -->
     <section
-      class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24"
+      class="mx-auto w-full max-w-7xl px-6 py-8 text-(--text-primary) md:px-8 md:py-12"
       aria-labelledby="welcome-title"
+      data-testid="page-canvas"
     >
-      <p
-        class="text-xs tracking-[0.14em] text-(--text-secondary) uppercase"
-        i18n="@@welcome.eyebrow"
-      >
-        Welcome
-      </p>
-      <h1
-        #title
-        id="welcome-title"
-        tabindex="-1"
-        class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
-        i18n="@@welcome.title"
-      >
-        Tell us about yourself
-      </h1>
-      <p
-        class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@welcome.lede"
-      >
-        A few questions about where you work. Reviewers get their review forms filled in from this.
-        You can change any of it on your account page.
-      </p>
-
-      <!-- The page's one polite live region. Rendered by SSR and never removed,
-           so a screen reader is already watching it when the first message lands. -->
-      <p class="sr-only" role="status" aria-live="polite" data-testid="welcome-status">
-        {{ status() }}
-      </p>
-
-      @if (loading()) {
-        <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@welcome.loading">Loading…</p>
-      } @else if (loadFailed()) {
-        <div class="mt-8 space-y-3">
+      <div class="lg:grid lg:grid-cols-12 lg:gap-x-12">
+        <div class="min-w-0 lg:col-span-7 lg:col-start-1 lg:row-start-1">
           <p
-            class="text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@welcome.loadFailed"
+            class="text-xs tracking-[0.14em] text-(--text-secondary) uppercase"
+            i18n="@@welcome.eyebrow"
           >
-            We couldn't load your account. You can fill this in later from your account page.
+            Welcome
           </p>
-          <button
-            type="button"
-            (click)="leave()"
-            [class]="secondaryClass"
-            i18n="@@welcome.continue"
+          <h1
+            #title
+            id="welcome-title"
+            tabindex="-1"
+            class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
+            i18n="@@welcome.title"
           >
-            Continue
-          </button>
+            Tell us about yourself
+          </h1>
+          <p
+            class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@welcome.lede"
+          >
+            A few questions about where you work. Reviewers get their review forms filled in from
+            this. You can change any of it on your account page.
+          </p>
         </div>
-      } @else {
-        <form
-          class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-          novalidate
-          (submit)="$event.preventDefault(); onSave()"
+
+        <!-- Static copy only. Sticky on the grid child, whose area spans both rows. -->
+        <aside
+          class="mt-8 min-w-0 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          aria-labelledby="welcome-rail-heading"
+          data-testid="context-rail"
         >
-          <div class="space-y-6 p-6 sm:p-8">
-            <div class="space-y-1.5">
-              <label
-                for="welcome-display-name"
-                [class]="labelClass"
-                i18n="@@welcome.displayName.label"
-              >
-                Display name
-              </label>
-              <input
-                #nameInput
-                id="welcome-display-name"
-                type="text"
-                autocomplete="nickname"
-                required
-                [attr.maxlength]="displayNameMax"
-                [value]="displayName()"
-                (input)="onDisplayName($event)"
-                (blur)="nameTouched.set(true)"
-                [attr.aria-invalid]="showNameError() ? 'true' : null"
-                [attr.aria-describedby]="showNameError() ? 'welcome-display-name-error' : null"
-                [class]="inputClass"
-              />
-              @if (showNameError()) {
-                <p
-                  id="welcome-display-name-error"
-                  [class]="errorClass"
-                  role="alert"
-                  i18n="@@welcome.displayName.error"
-                >
-                  Enter a display name between 1 and 80 characters.
-                </p>
-              }
-            </div>
+          <h2
+            id="welcome-rail-heading"
+            class="aec-overline text-(--text-secondary)"
+            i18n="@@welcome.rail.heading"
+          >
+            Where your answers go
+          </h2>
+          <ul
+            class="mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)"
+          >
+            <li i18n="@@welcome.rail.prefill">
+              Your role and firm fill in your review forms. You can still change them on each
+              review.
+            </li>
+            <li i18n="@@welcome.rail.private">They stay private. No public page shows them.</li>
+            <li i18n="@@welcome.rail.edit">
+              You can change or clear any answer later on your account page.
+            </li>
+          </ul>
+        </aside>
 
-            <aec-profile-details-form
-              idPrefix="welcome"
-              [(draft)]="draft"
-              (announce)="status.set($event)"
-            />
+        <div class="min-w-0 max-w-2xl lg:col-span-7 lg:col-start-1 lg:row-start-2">
+          <!-- The page's one polite live region. Rendered by SSR and never removed,
+           so a screen reader is already watching it when the first message lands. -->
+          <p class="sr-only" role="status" aria-live="polite" data-testid="welcome-status">
+            {{ status() }}
+          </p>
 
-            @if (saveFailed()) {
+          @if (loading()) {
+            <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@welcome.loading">Loading…</p>
+          } @else if (loadFailed()) {
+            <div class="mt-8 space-y-3">
               <p
                 class="text-sm font-medium text-(--text-primary)"
                 role="alert"
-                i18n="@@welcome.saveFailed"
+                i18n="@@welcome.loadFailed"
               >
-                Something went wrong. Please try again.
+                We couldn't load your account. You can fill this in later from your account page.
               </p>
-            }
-          </div>
+              <button
+                type="button"
+                (click)="leave()"
+                [class]="secondaryClass"
+                i18n="@@welcome.continue"
+              >
+                Continue
+              </button>
+            </div>
+          } @else {
+            <form
+              class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
+              novalidate
+              (submit)="$event.preventDefault(); onSave()"
+            >
+              <div class="space-y-6 p-6 sm:p-8">
+                <div class="space-y-1.5">
+                  <label
+                    for="welcome-display-name"
+                    [class]="labelClass"
+                    i18n="@@welcome.displayName.label"
+                  >
+                    Display name
+                  </label>
+                  <input
+                    #nameInput
+                    id="welcome-display-name"
+                    type="text"
+                    autocomplete="nickname"
+                    required
+                    [attr.maxlength]="displayNameMax"
+                    [value]="displayName()"
+                    (input)="onDisplayName($event)"
+                    (blur)="nameTouched.set(true)"
+                    [attr.aria-invalid]="showNameError() ? 'true' : null"
+                    [attr.aria-describedby]="showNameError() ? 'welcome-display-name-error' : null"
+                    [class]="inputClass"
+                  />
+                  @if (showNameError()) {
+                    <p
+                      id="welcome-display-name-error"
+                      [class]="errorClass"
+                      role="alert"
+                      i18n="@@welcome.displayName.error"
+                    >
+                      Enter a display name between 1 and 80 characters.
+                    </p>
+                  }
+                </div>
 
-          <div class="px-6 py-4 sm:px-8" [class]="footerClass">
-            <button
-              type="button"
-              (click)="onSkip()"
-              [disabled]="saving()"
-              data-testid="welcome-skip"
-              [class]="
-                secondaryClass + ' sm:me-auto disabled:cursor-not-allowed disabled:opacity-50'
-              "
-              i18n="@@welcome.skip"
-            >
-              Skip for now
-            </button>
-            <button
-              type="submit"
-              [disabled]="saving()"
-              data-testid="welcome-save"
-              [class]="primaryClass"
-            >
-              @if (saving()) {
-                <span i18n="@@welcome.saving">Saving…</span>
-              } @else {
-                <span i18n="@@welcome.save">Save and continue</span>
-              }
-            </button>
-          </div>
-        </form>
-      }
+                <aec-profile-details-form
+                  idPrefix="welcome"
+                  [(draft)]="draft"
+                  (announce)="status.set($event)"
+                />
+
+                @if (saveFailed()) {
+                  <p
+                    class="text-sm font-medium text-(--text-primary)"
+                    role="alert"
+                    i18n="@@welcome.saveFailed"
+                  >
+                    Something went wrong. Please try again.
+                  </p>
+                }
+              </div>
+
+              <div class="px-6 py-4 sm:px-8" [class]="footerClass">
+                <button
+                  type="button"
+                  (click)="onSkip()"
+                  [disabled]="saving()"
+                  data-testid="welcome-skip"
+                  [class]="
+                    secondaryClass + ' sm:me-auto disabled:cursor-not-allowed disabled:opacity-50'
+                  "
+                  i18n="@@welcome.skip"
+                >
+                  Skip for now
+                </button>
+                <button
+                  type="submit"
+                  [disabled]="saving()"
+                  data-testid="welcome-save"
+                  [class]="primaryClass"
+                >
+                  @if (saving()) {
+                    <span i18n="@@welcome.saving">Saving…</span>
+                  } @else {
+                    <span i18n="@@welcome.save">Save and continue</span>
+                  }
+                </button>
+              </div>
+            </form>
+          }
+        </div>
+      </div>
     </section>
   `,
 })

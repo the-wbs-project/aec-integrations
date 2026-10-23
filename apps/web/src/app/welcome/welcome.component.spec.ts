@@ -260,3 +260,45 @@ describe('welcomeNextPath', () => {
     expect(welcomeNextPath(null)).toBe('/');
   });
 });
+
+// AECI-987: the 7xl canvas with the form + context rail.
+describe('WelcomePage canvas and context rail (AECI-987)', () => {
+  it('sits on the 7xl canvas with the form capped and the rail docked from lg', async () => {
+    const { el } = await setup();
+    const canvas = el.querySelector('[data-testid="page-canvas"]');
+    expect(canvas?.classList).toContain('max-w-7xl');
+    expect(canvas?.classList).not.toContain('max-w-2xl');
+    expect(el.querySelector('form')?.parentElement?.classList).toContain('max-w-2xl');
+    const rail = el.querySelector('aside[data-testid="context-rail"]')!;
+    expect(rail.classList).toContain('lg:col-start-9');
+    expect(rail.classList).toContain('lg:sticky');
+    expect(rail.parentElement?.classList).toContain('lg:grid-cols-12');
+  });
+
+  // No link: leaving mid-form would drop the answers, and Skip is the way out.
+  it('says where the answers go and that they can be changed on the account page', async () => {
+    const { el } = await setup();
+    const rail = el.querySelector('[data-testid="context-rail"]')!;
+    expect(rail.textContent).toContain('Your role and firm fill in your review forms');
+    expect(rail.textContent).toContain('No public page shows them');
+    expect(rail.textContent).toContain('on your account page');
+    expect(rail.querySelector('a')).toBeNull();
+  });
+
+  it('keeps the footer row: Skip for now, then Save and continue', async () => {
+    const { el } = await setup();
+    const skip = el.querySelector('[data-testid="welcome-skip"]')!;
+    const save = el.querySelector('[data-testid="welcome-save"]')!;
+    expect(skip.parentElement).toBe(save.parentElement);
+    expect(skip.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('sits between the header and the form in source order', async () => {
+    const { el } = await setup();
+    const h1 = el.querySelector('h1')!;
+    const rail = el.querySelector('[data-testid="context-rail"]')!;
+    const form = el.querySelector('form')!;
+    expect(h1.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rail.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

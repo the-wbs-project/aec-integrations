@@ -543,6 +543,58 @@ describe('RequestForm', () => {
  * query param, and free text in the URL would join the SSR cache key and the
  * request logs. The drawer is the only caller.
  */
+// AECI-987: the routed page sits on the 7xl canvas with a context rail. The
+// rail lives in RequestForm only, so the drawer (RequestFormBody) has none.
+describe('RequestForm canvas and context rail (AECI-987)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('uses the 7xl canvas, keeps the form at a form measure, and docks the rail from lg', () => {
+    const { el, httpMock } = setup('vendor', 'claim', 'acme-software', null, {
+      company_name: 'Acme Software',
+    });
+    const canvas = el.querySelector('[data-testid="page-canvas"]');
+    expect(canvas?.classList).toContain('max-w-7xl');
+    expect(canvas?.classList).not.toContain('max-w-2xl');
+    const formColumn = el.querySelector('aec-request-form-body')?.parentElement;
+    expect(formColumn?.classList).toContain('max-w-2xl');
+    expect(formColumn?.classList).toContain('lg:col-span-7');
+    const rail = el.querySelector('aside[data-testid="context-rail"]');
+    expect(rail?.classList).toContain('lg:col-start-9');
+    expect(rail?.classList).toContain('lg:sticky');
+    // Sticky sits on the grid child itself, so it travels the full grid row.
+    expect(rail?.parentElement?.classList).toContain('lg:grid-cols-12');
+    httpMock.verify();
+  });
+
+  it('names the company and the product page on a product claim, with the claim steps', () => {
+    const { el, httpMock } = setup('product', 'claim', 'acme-takeoff', null, {
+      name: 'Acme Takeoff',
+      vendor: { id: 'v1', name: 'Acme Software', slug: 'acme-software', logo_url: null },
+    });
+    const rail = el.querySelector('[data-testid="context-rail"]')!;
+    expect(rail.querySelector('[data-testid="request-rail-company"]')?.textContent?.trim()).toBe(
+      'Acme Software',
+    );
+    expect(rail.textContent).toContain('Acme Takeoff');
+    expect(rail.textContent).toContain('Nothing is granted until your claim is approved.');
+    const link = rail.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/docs/vendors/claiming-your-listing');
+    expect(link?.getAttribute('target')).toBe('_blank');
+    httpMock.verify();
+  });
+
+  it('shows the correction steps and no target block on a correction page', () => {
+    const { el, httpMock } = setup('product', 'correction');
+    const rail = el.querySelector('[data-testid="context-rail"]')!;
+    expect(rail.querySelector('[data-testid="request-rail-company"]')).toBeNull();
+    expect(rail.textContent).toContain('We check your correction against the source.');
+    expect(rail.querySelector('a')?.getAttribute('href')).toBe(
+      '/docs/reviewers/requests-and-corrections',
+    );
+    httpMock.verify();
+  });
+});
+
 describe('RequestFormBody bodyPrefill (AECI-967)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -575,6 +627,14 @@ describe('RequestFormBody bodyPrefill (AECI-967)', () => {
   }
 
   const SEED = 'The recorded Budget flow with Procore is wrong. What is actually correct: ';
+
+  // AECI-987: the context rail belongs to the routed page. The drawer has none.
+  it('renders no context rail in the drawer variant', () => {
+    const { el, httpMock } = setupBody(null);
+    expect(el.querySelector('[data-testid="context-rail"]')).toBeNull();
+    expect(el.querySelector('aside')).toBeNull();
+    httpMock.verify();
+  });
 
   it('seeds the body textarea with the supplied text', () => {
     const { el, httpMock } = setupBody(SEED);

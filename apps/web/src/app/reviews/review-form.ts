@@ -36,6 +36,8 @@ import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { NotFound } from '../not-found/not-found';
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ReviewsApi } from './reviews-api';
 
@@ -110,6 +112,8 @@ interface ReviewModel {
     OverlayModule,
     RouterLink,
     NotFound,
+    LogoOrInitial,
+    NewTabIcon,
     BrnDialog,
     BrnDialogClose,
     BrnDialogContent,

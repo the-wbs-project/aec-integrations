@@ -642,4 +642,64 @@ describe('ReviewForm', () => {
     expect((el.querySelector('#reviewer-firm') as HTMLInputElement).value).toBe('');
     expect(el.querySelector('form')).not.toBeNull();
   });
+
+  // AECI-987: the page sits on the 7xl canvas. The form keeps a form measure in
+  // columns 1 to 7 and the context rail docks in 9 to 12, from data already loaded.
+  describe('canvas and context rail (AECI-987)', () => {
+    function withVendor(): ProductDetail {
+      return {
+        ...product(),
+        logo_url: null,
+        vendor: { id: 'v1', name: 'Acme Software', slug: 'acme-software', logo_url: null },
+      } as unknown as ProductDetail;
+    }
+
+    it('uses the 7xl canvas with the form capped and the rail docked from lg', async () => {
+      const { fixture, el, httpMock } = setup(withVendor());
+      await showForm(fixture);
+      const canvas = el.querySelector('[data-testid="page-canvas"]');
+      expect(canvas?.classList).toContain('max-w-7xl');
+      expect(canvas?.classList).not.toContain('max-w-2xl');
+      expect(el.querySelector('form')?.classList).toContain('max-w-2xl');
+      const rail = el.querySelector('aside[data-testid="context-rail"]');
+      expect(rail?.classList).toContain('lg:col-start-9');
+      expect(rail?.classList).toContain('lg:sticky');
+      expect(rail?.parentElement?.classList).toContain('lg:grid-cols-12');
+      httpMock.verify();
+    });
+
+    it('names the product and vendor, says what happens next, and links the guide', async () => {
+      const { fixture, el } = setup(withVendor());
+      await showForm(fixture);
+      const rail = el.querySelector('[data-testid="context-rail"]')!;
+      expect(rail.textContent).toContain('Acme Build');
+      expect(rail.textContent).toContain('By Acme Software');
+      expect(rail.textContent).toContain('A person checks every review');
+      const link = rail.querySelector('a');
+      expect(link?.getAttribute('href')).toBe('/docs/reviewers/writing-a-review');
+      expect(link?.getAttribute('target')).toBe('_blank');
+    });
+
+    it('sits between the header and the form in source order (the single-column order)', async () => {
+      const { fixture, el } = setup(withVendor());
+      await showForm(fixture);
+      const h1 = el.querySelector('h1')!;
+      const rail = el.querySelector('[data-testid="context-rail"]')!;
+      const form = el.querySelector('form')!;
+      expect(h1.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(rail.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('keeps the rail on the sign-in notice state', async () => {
+      const { fixture, el } = setup(
+        withVendor(),
+        makeApiMock(),
+        makeAccountMock(null),
+        makeAuthMock({ configured: true, hasCookie: false }),
+      );
+      await showForm(fixture);
+      expect(el.querySelector('form')).toBeNull();
+      expect(el.querySelector('[data-testid="context-rail"]')).not.toBeNull();
+    });
+  });
 });

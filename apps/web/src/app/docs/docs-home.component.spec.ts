@@ -37,11 +37,13 @@ describe('DocsHomeComponent', () => {
   });
 
   // AECI-1259: DeepWiki restraint. Divided lists, no bordered cards.
+  // AECI-987: each row carries its own hairline, so the list can run two columns.
   it('renders the audience split as a divided list, not cards', () => {
     const { host } = render();
     const groups = Array.from(host.querySelectorAll('[data-audience]'));
-    expect(groups[0].parentElement?.classList).toContain('divide-y');
+    expect(groups[0].parentElement?.classList).toContain('border-t');
     for (const group of groups) {
+      expect(group.classList).toContain('border-b');
       expect(group.classList, group.getAttribute('data-audience') ?? '').not.toContain(
         'rounded-lg',
       );
@@ -103,5 +105,20 @@ describe('DocsHomeComponent', () => {
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
       /\/docs$/,
     );
+  });
+
+  // AECI-987: the index widens past the 42rem reading measure. The intro keeps it.
+  it('takes the docs column, keeps the intro at reading measure, and runs two columns from lg', () => {
+    const { host } = render();
+    const canvas = host.querySelector('[data-testid="page-canvas"]');
+    const inner = canvas?.firstElementChild;
+    expect(inner?.classList).not.toContain('max-w-[42rem]');
+    expect(inner?.classList).toContain('max-w-6xl');
+    expect(host.querySelector('header')?.classList).toContain('max-w-[42rem]');
+    for (const id of ['docs-audiences', 'docs-all-sections']) {
+      const list = host.querySelector(`[data-testid="${id}"]`);
+      expect(list?.classList, id).toContain('grid');
+      expect(list?.classList, id).toContain('lg:grid-cols-2');
+    }
   });
 });

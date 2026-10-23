@@ -93,4 +93,18 @@ describe('DocsSectionComponent', () => {
       /\/docs\/reviewers$/,
     );
   });
+
+  // AECI-987: the index widens past the 42rem reading measure. The header and
+  // the intro prose keep it; the page list runs two columns from lg.
+  it('takes the docs column, keeps prose at reading measure, and lists pages in two columns', () => {
+    const { host } = render('vendors');
+    const inner = host.querySelector('[data-testid="page-canvas"]')?.firstElementChild;
+    expect(inner?.classList).not.toContain('max-w-[42rem]');
+    expect(inner?.classList).toContain('max-w-6xl');
+    expect(host.querySelector('header')?.classList).toContain('max-w-[42rem]');
+    expect(host.querySelector('[data-intro="lead"]')?.classList).toContain('max-w-[42rem]');
+    expect(host.querySelector('[data-intro="rest"]')?.classList).toContain('max-w-[42rem]');
+    const list = host.querySelector('[data-testid="docs-section-pages"]');
+    expect(list?.classList).toContain('lg:grid-cols-2');
+  });
 });
