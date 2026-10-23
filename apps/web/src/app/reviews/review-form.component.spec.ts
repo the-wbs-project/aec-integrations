@@ -108,6 +108,14 @@ function duplicate409(): HttpErrorResponse {
   });
 }
 
+/** A `HttpErrorResponse` matching the API's `RATE_LIMITED` 429 envelope. */
+function rateLimited429(): HttpErrorResponse {
+  return new HttpErrorResponse({
+    status: 429,
+    error: { error: { code: 'RATE_LIMITED', message: 'slow down' }, trace_id: 't' },
+  });
+}
+
 function setup(
   p: ProductDetail | null = product(),
   api: ApiMock = makeApiMock(),
@@ -224,7 +232,9 @@ describe('ReviewForm', () => {
     expect(el.querySelector('#review-title-hint')?.textContent).toContain(
       'Between 5 and 100 characters',
     );
-    expect(el.querySelector('#review-body-hint')?.textContent).toContain('Minimum 50 characters');
+    expect(el.querySelector('#review-body-hint')?.textContent).toContain(
+      'Between 50 and 2,000 characters',
+    );
     expect(el.querySelector('#review-title-input')?.getAttribute('aria-describedby')).toBe(
       'review-title-hint',
     );
@@ -245,6 +255,19 @@ describe('ReviewForm', () => {
     const error = el.querySelector('#review-body-error');
     expect(error).not.toBeNull();
     expect(error?.getAttribute('role')).toBe('alert');
+    httpMock.verify();
+  });
+
+  it('names the 2,000-character ceiling when the body is too long (AECI-1256)', async () => {
+    const { fixture, el, httpMock } = setup();
+    await showForm(fixture);
+    setValue(fixture, '#review-body', 'x'.repeat(2001));
+    (el.querySelector('#review-body') as HTMLTextAreaElement).dispatchEvent(new Event('blur'));
+    await settle();
+    fixture.detectChanges();
+
+    const error = el.querySelector('#review-body-error');
+    expect(error?.textContent).toContain('Use between 50 and 2,000 characters');
     httpMock.verify();
   });
 
@@ -406,6 +429,38 @@ describe('ReviewForm', () => {
     // It links the user to their existing review on /account.
     const link = [...el.querySelectorAll('a')].find((a) => a.getAttribute('href') === '/account');
     expect(link).toBeTruthy();
+    httpMock.verify();
+  });
+
+  it('tells the user to wait on a RATE_LIMITED 429 (AECI-1256)', async () => {
+    const api = makeApiMock(async () => {
+      throw rateLimited429();
+    });
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 4);
+    setValue(fixture, '#review-title-input', 'Fourth review this hour');
+    setValue(
+      fixture,
+      '#review-body',
+      'This is my fourth review in an hour, so the API refuses it with a rate limit.',
+    );
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).toHaveBeenCalledTimes(1);
+    expect(el.textContent).toContain('Wait a while, then submit again');
+    // Not the generic retry notice, and not the duplicate notice.
+    expect(el.textContent).not.toContain('Please try again');
+    expect(el.textContent).not.toContain("You've already reviewed this product");
+    // A notice, not a ValidationError: the submit button stays enabled.
+    const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
     httpMock.verify();
   });
 
