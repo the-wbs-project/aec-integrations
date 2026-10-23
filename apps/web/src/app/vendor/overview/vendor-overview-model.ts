@@ -17,12 +17,13 @@ import {
   type IntegrationStatusKey,
 } from '../integration-detail/integration-detail-model';
 import { integrationCanAuthor } from '../vendor-capabilities';
-import type {
-  VendorAccount,
-  VendorIntegration,
-  VendorMeResponse,
-  VendorProduct,
-  VendorRequestSummary,
+import {
+  isAwaitingCounterpartAnswer,
+  type VendorAccount,
+  type VendorIntegration,
+  type VendorMeResponse,
+  type VendorProduct,
+  type VendorRequestSummary,
 } from '@aeci/shared';
 
 /** One product with a count of distinct claims that meet a rule. */
@@ -587,10 +588,7 @@ function pageOrTab(
  *  product's tab (filtered when that matches exactly), or the product list. */
 function addedRowsLink(integrations: readonly VendorIntegration[]): NeedsItemLink {
   const counted = integrations.filter(
-    (i) =>
-      i.attestable &&
-      !i.retired_at &&
-      i.claims.some((c) => c.added_by === 'counterpart' && c.mine.length === 0),
+    (i) => i.attestable && !i.retired_at && i.claims.some(isAwaitingCounterpartAnswer),
   );
   return pageOrTab(counted, 'needs_decision', 'change-requests') ?? { kind: 'products' };
 }

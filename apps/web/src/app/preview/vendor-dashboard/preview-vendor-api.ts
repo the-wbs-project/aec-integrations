@@ -86,6 +86,7 @@ import {
   contestFieldsFor,
   contestValueProblem,
   integrationEditValueProblem,
+  isAwaitingCounterpartAnswer,
   type ContestableFields,
   type ContextDirection,
   type IntegrationEditField,
@@ -345,13 +346,14 @@ function setEditValue(
 }
 
 /** `counterpart_added_unanswered` as the server counts it (§7.6): distinct claim
- *  ids another company added, unanswered, on attestable live rows. */
+ *  ids another company added and still says Yes to, unanswered, on attestable live
+ *  rows (AECI-1315). */
 function countCounterpartAdded(list: ListVendorIntegrationsResponse): number {
   const ids = new Set<string>();
   for (const entry of list.integrations) {
     if (!entry.attestable || entry.retired_at !== null) continue;
     for (const claim of entry.claims) {
-      if (claim.added_by === 'counterpart' && claim.mine.length === 0) ids.add(claim.id);
+      if (isAwaitingCounterpartAnswer(claim)) ids.add(claim.id);
     }
   }
   return ids.size;

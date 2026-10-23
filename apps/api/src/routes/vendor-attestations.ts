@@ -105,6 +105,7 @@ import {
   attestationNoteProblem,
   computeAgreement,
   conflictSince,
+  isAwaitingCounterpartAnswer,
   claimDirectionForContext,
   claimDirectionFromContext,
   CreateVendorClaimSchema,
@@ -1291,7 +1292,8 @@ function endpointVendorsFor(row: {
 
 /**
  * AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6: distinct claim ids another
- * vendor added and the caller has not answered, on attestable, live rows. Counted
+ * vendor added, still says Yes to, and the caller has not answered, on attestable,
+ * live rows (`isAwaitingCounterpartAnswer`, narrowed by AECI-1315). Counted
  * from the very entries the response carries, so it can never disagree with them,
  * and by claim id, so an owns-both integration (listed twice) counts once.
  */
@@ -1300,7 +1302,7 @@ function counterpartAddedUnanswered(surface: readonly VendorIntegration[]): numb
   for (const entry of surface) {
     if (!entry.attestable || entry.retired_at !== null) continue;
     for (const claim of entry.claims) {
-      if (claim.added_by === 'counterpart' && claim.mine.length === 0) ids.add(claim.id);
+      if (isAwaitingCounterpartAnswer(claim)) ids.add(claim.id);
     }
   }
   return ids.size;

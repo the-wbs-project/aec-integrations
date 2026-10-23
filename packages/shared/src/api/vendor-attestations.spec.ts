@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attestationNoteProblem,
   CreateVendorClaimSchema,
+  isAwaitingCounterpartAnswer,
   DataObjectOptionSchema,
   ListDataObjectsResponseSchema,
   ListVendorIntegrationsResponseSchema,
@@ -410,6 +411,41 @@ describe('attestationNoteProblem (AECI-1151: a deny needs a reason)', () => {
 
   it('leaves the shape schema alone, so a deny without a note still parses', () => {
     expect(UpsertVendorAttestationSchema.safeParse({ asserted: false }).success).toBe(true);
+  });
+});
+
+describe('isAwaitingCounterpartAnswer (AECI-1315: only while the adder says Yes)', () => {
+  const added = {
+    ...CLAIM,
+    added_by: 'counterpart' as const,
+    mine: [],
+    counterparty: { asserted: true, note: null },
+  };
+
+  it('holds for a row the other company added, still says Yes to, and the caller has not answered', () => {
+    expect(isAwaitingCounterpartAnswer(added)).toBe(true);
+  });
+
+  it('drops the row once the adder cancels or clears its answer', () => {
+    expect(isAwaitingCounterpartAnswer({ ...added, counterparty: null })).toBe(false);
+  });
+
+  it('drops the row once the adder says No to it (a direction change)', () => {
+    expect(
+      isAwaitingCounterpartAnswer({
+        ...added,
+        counterparty: { asserted: false, note: 'Wrong way' },
+      }),
+    ).toBe(false);
+  });
+
+  it('drops the row once the caller has answered', () => {
+    expect(isAwaitingCounterpartAnswer({ ...added, mine: [OWN_ATTESTATION] })).toBe(false);
+  });
+
+  it('never holds for a row the caller or AEC Integrations added', () => {
+    expect(isAwaitingCounterpartAnswer({ ...added, added_by: 'you' })).toBe(false);
+    expect(isAwaitingCounterpartAnswer({ ...added, added_by: null })).toBe(false);
   });
 });
 

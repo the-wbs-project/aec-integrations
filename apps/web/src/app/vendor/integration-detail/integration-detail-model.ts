@@ -8,6 +8,7 @@ import type {
   VendorContest,
   VendorIntegration,
 } from '@aeci/shared';
+import { isAwaitingCounterpartAnswer } from '@aeci/shared';
 
 import { noteAudienceHint } from '../components/vendor-attestation-labels';
 
@@ -177,18 +178,15 @@ export function isLive(integration: Pick<VendorIntegration, 'retired_at'>): bool
   return !integration.retired_at;
 }
 
-/** A row the other company added that the caller has not answered, on an
- *  attestable, live row (`API_CONTRACTS.md` §6.14). */
+/** A row the other company added and still says Yes to, that the caller has not
+ *  answered, on an attestable, live row (`API_CONTRACTS.md` §6.14). Once the adder
+ *  cancels, clears its answer or says No, no "Confirmed by {Company}" badge stands
+ *  behind the row, so nothing asks about it (AECI-1315). */
 export function isCounterpartAddedUnanswered(
   integration: VendorIntegration,
   claim: VendorClaim,
 ): boolean {
-  return (
-    claim.added_by === 'counterpart' &&
-    claim.mine.length === 0 &&
-    integration.attestable &&
-    isLive(integration)
-  );
+  return isAwaitingCounterpartAnswer(claim) && integration.attestable && isLive(integration);
 }
 
 /** A row the caller added that the other company has not answered. Never on an
@@ -656,6 +654,15 @@ export function rowPill(
   }
   const mine = myAnswer(claim);
   const theirs = theirAnswer(claim);
+  // The other company added the row and no longer says Yes: nothing asks the caller
+  // about it, so the pill does not either (§6.17.8, AECI-1315).
+  if (mine === null && claim.added_by === 'counterpart' && theirs !== 'yes') {
+    const who = companyMidSentence(company);
+    return {
+      label: $localize`:@@vendor.im.row.withdrawnBy:Withdrawn by ${who}:company:`,
+      tone: 'neutral',
+    };
+  }
   if (mine === null) return { label: needsAnswerLabel(), tone: 'attention' };
   // A No with nobody else's answer, and a submitted change under it (§6.17.4).
   const saidWrong = (): RowPill =>

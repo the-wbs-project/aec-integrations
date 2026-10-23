@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 22, 2026
+last_updated: October 23, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -50,7 +50,7 @@ A list of what is outstanding, in two groups. When nothing is, it reads "Nothing
 - a correction someone suggested to your listing,
 - a change request on an integration you own, waiting for your decision,
 - a request to AEC Integrations to review one of your decisions, waiting for your reply,
-- a row another company added to one of your integrations, waiting for your answer.
+- a row another company added to one of your integrations, waiting for your answer. It leaves the list if that company withdraws it.
 
 **Worth doing** holds the items that would make your listings more complete:
 

@@ -70,6 +70,21 @@ describe('the Open list', () => {
     expect(text(fixture)).not.toContain('reviews it on');
   });
 
+  it('drops the added row, and its badge promise, once the other company withdraws its Yes (AECI-1315)', async () => {
+    const withdrawn = {
+      ...INTEGRATION_PROCORE_DETAIL,
+      claims: INTEGRATION_PROCORE_DETAIL.claims.map((c) =>
+        c.added_by === 'counterpart' ? { ...c, counterparty: null } : c,
+      ),
+    };
+    const api = makeApi([withdrawn], PROCORE_CONTESTS);
+    await setup(api, withdrawn);
+    const fixture = await mount(IntegrationChangeRequests, withdrawn);
+    expect(el(fixture).querySelector(testid('request-item-added-them'))).toBeNull();
+    expect(text(fixture)).not.toContain('Procore Technologies added Documents. Is this right?');
+    expect(text(fixture)).not.toContain('Confirmed by Procore Technologies');
+  });
+
   it('answers an added row Yes from the item', async () => {
     const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
     const documents = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.added_by === 'counterpart')!;
