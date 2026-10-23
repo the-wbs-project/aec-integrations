@@ -742,8 +742,8 @@ once and verifies it before parsing (`lib/resend-webhook-auth.ts`, WebCrypto, no
   secret is a 401 for every request plus a `warn` log, once per isolate. Each 401 counts
   `aeci.webhooks.resend.signature_failure{reason}`.
 
-**The shared-account trap.** One Resend account and one key serve every tier, and a webhook
-endpoint receives the events of the whole account. Staging's events reach production's
+**The shared-account trap.** One Resend team and one key serve every tier, and a webhook
+endpoint receives the events of the whole team. Staging's events reach production's
 endpoint. So each tier keeps only its own:
 
 | The event's `tier` tag | Production | Staging, demo |
@@ -752,6 +752,18 @@ endpoint. So each tier keeps only its own:
 | Another tier | Dropped, `outcome:other_tier` | Dropped, `outcome:other_tier` |
 | Absent, and subject `Sign in to AEC Integrations` from `aecintegrations.com` or a subdomain | Recorded as tier `auth`, `supabase-sign-in` | Dropped, `outcome:untagged` |
 | Absent, anything else | Dropped, `outcome:untagged` | Dropped, `outcome:untagged` |
+
+**Two Resend teams exist (AECI-1438, 2026-10-23).** A webhook sees only the team it is
+registered on, and an endpoint on the wrong team records nothing.
+
+| Team | How to recognise it | What sends through it |
+|---|---|---|
+| **Worker team** | Owns the `aecintegrations.com` domain with id `a5c5c0cd-1517-42ec-8cfe-b62f4970437d` (us-east-1) | `RESEND_API_KEY`, every transactional send and digest. Since AECI-1438, Supabase sign-in SMTP too |
+| **Auth team** | The dashboard that showed only "Sign in to AEC Integrations" mail before AECI-1438 | Nothing, once Supabase SMTP is moved. Do not register webhooks here |
+
+Every delivery webhook is registered on the **Worker team**. The `auth` row in the table above
+depends on Supabase SMTP using a Worker-team key (§Magic-link sender). If sign-in mail goes
+back to another team, production stops recording it, with no error.
 
 The sign-in stream is matched by subject and sender because Supabase sends it and cannot tag
 it. Every tier shares one Supabase project, so it is one stream, and production alone records
@@ -824,15 +836,22 @@ only for what our tables do not hold: the rendered message and Resend's own supp
 
 **Operator steps per tier** (`environments.md` has the per-tier table):
 
-1. In the Resend dashboard, add a webhook endpoint `https://<host>/api/webhooks/resend` with
-   the five events above. Production is `www.aecintegrations.com`, demo
-   `demo.aecintegrations.com`, staging `staging.aecintegrations.com`.
+1. In the Resend dashboard of the **Worker team** (the one owning domain `a5c5c0cd…`), add a
+   webhook endpoint `https://<host>/api/webhooks/resend` with the five events above.
+   Production is `www.aecintegrations.com`, demo `demo.aecintegrations.com`, staging
+   `staging.aecintegrations.com`.
 2. Copy that endpoint's signing secret into the GH secret `RESEND_WEBHOOK_SECRET_PRODUCTION`,
-   `_DEMO` or `_STAGING`. The next deploy or promote pushes it.
+   `_DEMO` or `_STAGING`. The next deploy or promote pushes it. On production the secret is
+   required (AECI-1438): a promote without it fails preflight. If you replace the production
+   endpoint, update the GH secret before the next promote.
 3. Staging sits behind Cloudflare Access, which would refuse Resend's request. See
    `access.md` §Resend delivery webhook before registering staging.
 4. Send a test event from the Resend dashboard and look for `outcome:recorded` or
    `outcome:other_tier` on `aeci.email.delivery`.
+5. After the next real send, check that `notification_delivery_events` holds a row for it.
+   Zero rows while sends carry a Resend id means the secret is missing or the endpoint is on
+   the wrong team. A steady `aeci.webhooks.resend.signature_failure{reason:missing_secret}`
+   is the first; silence on both metrics is the second.
 
 ## Sending switches (AECI-1224)
 
@@ -884,7 +903,7 @@ a seat's own choice about the attestation digest.
 | Name | Kind | Where | Notes |
 |---|---|---|---|
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
-| `RESEND_WEBHOOK_SECRET` | Wrangler **secret** | API Worker, staging + demo + production | The Svix signing secret of that tier's Resend webhook endpoint (§Delivery webhooks). **Per tier, not shared**: each endpoint has its own, so CI pushes `RESEND_WEBHOOK_SECRET_STAGING` (`deploy.yml`), `_DEMO` (`promote-to-demo.yml`) and `_PRODUCTION` (`promote-to-prod.yml`) under this one name. Warn-and-skip. Absent → every event 401s. Never in local dev or on the web Worker. |
+| `RESEND_WEBHOOK_SECRET` | Wrangler **secret** | API Worker, staging + demo + production | The Svix signing secret of that tier's Resend webhook endpoint (§Delivery webhooks). **Per tier, not shared**: each endpoint has its own, so CI pushes `RESEND_WEBHOOK_SECRET_STAGING` (`deploy.yml`), `_DEMO` (`promote-to-demo.yml`) and `_PRODUCTION` (`promote-to-prod.yml`) under this one name. **Required on production since AECI-1438**: preflight fails without it and the post-deploy Worker check asserts it. Staging and demo are warn-and-skip. Absent → every event 401s. Never in local dev or on the web Worker. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
 | `EMAIL_BCC` | plain `var` | API Worker, per env (`wrangler.jsonc`) | **Unset on every tier since AECI-1220.** When set, it is a Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. **Why it is off:** the send ledger `notification_sends` records each send, and the copies kept personal data in Microsoft 365 after an account deletion. **To turn it back on:** add one plain `EMAIL_BCC` var line per tier in `apps/api/wrangler.jsonc` and deploy. The code path, the operator `COPY:`, the support-copy switch on `/admin/email` and the delivery-events BCC handling all stay in place. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
@@ -932,7 +951,11 @@ is now **one** shared auth project across all environments, so custom SMTP is
 configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 
 - **Host:** `smtp.resend.com`  **Port:** `465` (TLS; `587` STARTTLS also works)
-- **Username:** `resend`  **Password:** a Resend API key (`re_…`)
+- **Username:** `resend`  **Password:** a **sending-only** Resend API key (`re_…`) created on
+  the **Worker team** (§Delivery webhooks, "Two Resend teams exist"). Use its own key, not
+  `RESEND_API_KEY`, so either can be rotated alone. It must be on the Worker team because the
+  production delivery webhook sees only that team's events. A key from any other team still
+  sends, but the sign-in stream disappears from `/admin/email` (AECI-1438).
 - **Sender:** the `EMAIL_FROM` address/name on the verified domain — use a
   **dedicated subdomain** (e.g. `mail.aecintegrations.com`) so its SPF/MX records
   don't conflict with the apex's Microsoft 365 mail.

@@ -92,8 +92,10 @@
   //                 `aeci.webhooks.resend.signature_failure` counts it. Each tier's
   //                 Resend endpoint has its own secret, so CI pushes
   //                 RESEND_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION} (deploy.yml /
-  //                 promote-to-demo.yml / promote-to-prod.yml, warn-and-skip) under
-  //                 this one name. Never on local dev or the web Worker.
+  //                 promote-to-demo.yml / promote-to-prod.yml) under this one name.
+  //                 REQUIRED on production since AECI-1438 (preflight + postflight);
+  //                 warn-and-skip on staging and demo. Never on local dev or the web
+  //                 Worker.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the
