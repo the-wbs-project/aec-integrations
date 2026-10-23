@@ -26,7 +26,6 @@ import {
   BUTTON_PRIMARY_CLASS,
   BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
-  FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
   FORM_FOOTER_CLASS,
@@ -154,20 +153,9 @@ export function welcomeNextPath(raw: string | null): string {
                 (input)="onDisplayName($event)"
                 (blur)="nameTouched.set(true)"
                 [attr.aria-invalid]="showNameError() ? 'true' : null"
-                [attr.aria-describedby]="
-                  showNameError()
-                    ? 'welcome-display-name-hint welcome-display-name-error'
-                    : 'welcome-display-name-hint'
-                "
+                [attr.aria-describedby]="showNameError() ? 'welcome-display-name-error' : null"
                 [class]="inputClass"
               />
-              <p
-                id="welcome-display-name-hint"
-                [class]="hintClass"
-                i18n="@@welcome.displayName.hint"
-              >
-                Shown on the reviews you publish.
-              </p>
               @if (showNameError()) {
                 <p
                   id="welcome-display-name-error"
@@ -248,7 +236,6 @@ export class WelcomePage {
   // The claim dialog's field and button recipe (`shared/form-field/form-field-classes.ts`).
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
-  protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
   protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
