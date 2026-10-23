@@ -85,6 +85,20 @@ describe('the Open list', () => {
     expect(text(fixture)).not.toContain('Confirmed by Procore Technologies');
   });
 
+  it('drops the caller’s added row once its own Yes is withdrawn (AECI-1467)', async () => {
+    const cancelled = {
+      ...INTEGRATION_PROCORE_DETAIL,
+      claims: INTEGRATION_PROCORE_DETAIL.claims.map((c) =>
+        c.added_by === 'you' ? { ...c, mine: [] } : c,
+      ),
+    };
+    const api = makeApi([cancelled], PROCORE_CONTESTS);
+    await setup(api, cancelled);
+    const fixture = await mount(IntegrationChangeRequests, cancelled);
+    expect(el(fixture).querySelector(testid('request-item-added-you'))).toBeNull();
+    expect(text(fixture)).not.toContain('You added RFIs. Waiting for');
+  });
+
   it('answers an added row Yes from the item', async () => {
     const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
     const documents = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.added_by === 'counterpart')!;

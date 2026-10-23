@@ -24,11 +24,13 @@ import {
   disagreementItemId,
   howYouGetIt,
   integrationStatus,
+  isAddedByYouWaiting,
   isCounterpartAddedUnanswered,
   needsItems,
   noteAudience,
   receivedOutcome,
   rowPill,
+  rowsNeedingAnswer,
   sharedSummary,
   stampsToKeep,
   statusFromParam,
@@ -122,6 +124,39 @@ describe('a row the other company added, only while it still says Yes (AECI-1315
     const i = withClaims(INTEGRATION_PROCORE_DETAIL, [seeded]);
     expect(rowPill(i, seeded, 'Procore Technologies').label).toBe('Needs your answer');
     expect(integrationStatus(i, ctx())).toBe('needs_answer');
+  });
+});
+
+describe('a row the caller added, only while it still says Yes (AECI-1467)', () => {
+  const added = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.added_by === 'you')!;
+  const cleared: VendorClaim = { ...added, mine: [] };
+  const saidNo: VendorClaim = {
+    ...added,
+    mine: added.mine.map((m) => ({ ...m, asserted: false })),
+  };
+  const opts = { ...ctx(), company: 'Procore Technologies' };
+  const waiting = (i: VendorIntegration) => needsItems(i, opts).waiting.map((n) => n.key);
+
+  it('the caller says Yes: it waits on the other company', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [added]);
+    expect(isAddedByYouWaiting(i, added)).toBe(true);
+    expect(needsItems(i, opts).waiting.map((n) => n.text)).toContain(
+      'You added RFIs. Waiting for Procore Technologies',
+    );
+  });
+
+  it('the caller cancelled or cleared its answer: nothing waits, the row needs an answer', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [cleared]);
+    expect(isAddedByYouWaiting(i, cleared)).toBe(false);
+    expect(waiting(i)).not.toContain(`added-you-${added.id}`);
+    // The AECI-1245 gap: the row stays on record, unanswered.
+    expect(rowsNeedingAnswer(i)).toEqual([cleared]);
+  });
+
+  it('the caller says No to its own row: nothing waits', () => {
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [saidNo]);
+    expect(isAddedByYouWaiting(i, saidNo)).toBe(false);
+    expect(waiting(i)).not.toContain(`added-you-${added.id}`);
   });
 });
 
