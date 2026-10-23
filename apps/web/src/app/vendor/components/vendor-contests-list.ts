@@ -228,7 +228,13 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                         {{ contest.created_at | date: 'mediumDate' }}
                         @if (contest.decided_at; as decided) {
                           <span aria-hidden="true"> · </span>
-                          <ng-container i18n="@@vendor.contests.decided">Decided</ng-container>
+                          @if (isSilenceClose(contest)) {
+                            <ng-container i18n="@@vendor.contests.noAnswerBy"
+                              >No answer by</ng-container
+                            >
+                          } @else {
+                            <ng-container i18n="@@vendor.contests.decided">Decided</ng-container>
+                          }
                           {{ decided | date: 'mediumDate' }}
                         }
                       </p>
@@ -520,10 +526,16 @@ export class VendorContestsList {
     return contestRouteLabel(contest.routed_to);
   }
 
+  /** Closed by 30 days of silence (§11b.12.3): `decided_at` is the day the owner's
+   *  time ran out, not a decision, so the date reads "No answer by" (AECI-1319). */
+  protected isSilenceClose(contest: VendorContest): boolean {
+    return contest.status === 'declined' && contest.protest?.basis === 'silence';
+  }
+
   /** The contest's own state. A decline by 30 days of silence (AECI-1009) is not
    *  the owner's act, so it reads as what happened rather than "Declined". */
   protected statusLabelFor(contest: VendorContest): string {
-    if (contest.status === 'declined' && contest.protest?.basis === 'silence') {
+    if (this.isSilenceClose(contest)) {
       return $localize`:@@vendor.contests.status.noAnswer:No answer in 30 days`;
     }
     return contestStatusLabel(contest.status);

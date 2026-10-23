@@ -27,6 +27,7 @@ import {
   isCounterpartAddedUnanswered,
   needsItems,
   noteAudience,
+  receivedOutcome,
   rowPill,
   sharedSummary,
   stampsToKeep,
@@ -556,5 +557,79 @@ describe('submittedChange — a denied row and its correction (§6.17.4, AECI-12
     expect(alone.yours.find((y) => y.key === 'disagreement-c')!.target).toBe(
       disagreementItemId('c'),
     );
+  });
+});
+
+describe('receivedOutcome (AECI-1319)', () => {
+  const protest = (
+    status: NonNullable<VendorContest['protest']>['status'],
+    basis: NonNullable<VendorContest['protest']>['basis'],
+  ): VendorContest['protest'] => ({
+    status,
+    basis,
+    reason: 'Please review.',
+    evidence_urls: [],
+    protested_at: '2026-10-23T10:00:00.000Z',
+    reply_due_at: '2026-11-06T10:00:00.000Z',
+    reply: null,
+    reply_evidence_urls: [],
+    replied_at: null,
+    decision_note: null,
+    decided_at: null,
+  });
+  const contest = (overrides: Partial<VendorContest>): VendorContest => ({
+    ...CONTEST_RECEIVED_ON_OWNED,
+    ...overrides,
+  });
+  const declinedBy = (
+    basis: 'declined' | 'silence',
+    status: NonNullable<VendorContest['protest']>['status'],
+  ) => contest({ status: 'declined', protest: protest(status, basis) });
+
+  it('reads the plain states with no protest', () => {
+    expect(receivedOutcome(contest({ status: 'open' })).label).toBe('Waiting for your decision');
+    expect(receivedOutcome(contest({ status: 'accepted' })).label).toBe('You accepted it');
+    expect(receivedOutcome(contest({ status: 'declined' })).label).toBe('You declined it');
+    expect(receivedOutcome(contest({ status: 'withdrawn' })).label).toBe('Withdrawn by Trimble');
+  });
+
+  it('never says "You declined it" on a silence close, in any protest state', () => {
+    for (const status of ['open', 'upheld', 'rejected', 'withdrawn'] as const) {
+      const outcome = receivedOutcome(declinedBy('silence', status));
+      expect(outcome.label).not.toBe('You declined it');
+      expect(outcome.explain).not.toContain('your decision');
+    }
+  });
+
+  it('reads "No answer in 30 days" once the submitter withdraws a silence review request', () => {
+    const outcome = receivedOutcome(declinedBy('silence', 'withdrawn'));
+    expect(outcome.label).toBe('No answer in 30 days');
+    expect(outcome.explain).toBe(
+      'Trimble withdrew its review request. The public page stays as it is.',
+    );
+  });
+
+  it('keeps "You declined it" when the submitter withdraws a review of a real decline', () => {
+    expect(receivedOutcome(declinedBy('declined', 'withdrawn')).label).toBe('You declined it');
+  });
+
+  it('names the silence in an open review request', () => {
+    const silent = receivedOutcome(declinedBy('silence', 'open'));
+    expect(silent.label).toBe('With AEC Integrations for review');
+    expect(silent.explain).toContain('because you did not answer within 30 days');
+    expect(receivedOutcome(declinedBy('declined', 'open')).explain).toContain(
+      'review your decision',
+    );
+  });
+
+  it('reads AEC Integrations’ ruling the same on either basis', () => {
+    for (const basis of ['declined', 'silence'] as const) {
+      expect(receivedOutcome(declinedBy(basis, 'upheld')).label).toBe(
+        'AEC Integrations agreed with Trimble',
+      );
+      expect(receivedOutcome(declinedBy(basis, 'rejected')).label).toBe(
+        'AEC Integrations agreed with you',
+      );
+    }
   });
 });

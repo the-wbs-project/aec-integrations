@@ -1001,16 +1001,26 @@ export function submittedOutcome(contest: VendorContest): Outcome {
   }
 }
 
-/** A request another company sent the caller, as owner. */
+/**
+ * A request another company sent the caller, as owner.
+ *
+ * A close by 30 days of silence (§11b.12.3) is not the owner's act, so it never
+ * reads "You declined it" (AECI-1319). Silence only ever closes a contest inside
+ * the protest batch, so every silence close carries a protest, and each of the
+ * four protest states returns before the status switch.
+ */
 export function receivedOutcome(contest: VendorContest): Outcome {
   const who = contest.submitter_vendor.name;
+  const silence = contest.status === 'declined' && contest.protest?.basis === 'silence';
   if (contest.protest) {
     const protest = contest.protest;
     if (protest.status === 'open') {
       return {
         label: $localize`:@@vendor.im.received.protestOpen:With AEC Integrations for review`,
         tone: 'attention',
-        explain: $localize`:@@vendor.im.received.protestOpen.explain:${who}:company: asked AEC Integrations to review your decision. You can reply once.`,
+        explain: silence
+          ? $localize`:@@vendor.im.received.protestOpen.silence:${who}:company: asked AEC Integrations to review it because you did not answer within 30 days. You can reply once.`
+          : $localize`:@@vendor.im.received.protestOpen.explain:${who}:company: asked AEC Integrations to review your decision. You can reply once.`,
       };
     }
     if (protest.status === 'upheld') {
@@ -1025,6 +1035,15 @@ export function receivedOutcome(contest: VendorContest): Outcome {
         label: $localize`:@@vendor.im.received.rejected:AEC Integrations agreed with you`,
         tone: 'ok',
         explain: $localize`:@@vendor.im.received.rejected.explain:The public page stays as it is.`,
+      };
+    }
+    if (protest.status === 'withdrawn') {
+      return {
+        label: silence
+          ? $localize`:@@vendor.im.received.noAnswer:No answer in 30 days`
+          : $localize`:@@vendor.im.received.declined:You declined it`,
+        tone: 'neutral',
+        explain: $localize`:@@vendor.im.received.protestWithdrawn.explain:${who}:company: withdrew its review request. The public page stays as it is.`,
       };
     }
   }

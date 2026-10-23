@@ -2563,7 +2563,7 @@ One list of everything open between the two companies and AEC Integrations about
 
 **"Replies coming soon"** is a plain line of secondary text where a reply would go: on received requests, added rows (both kinds) and disagreements. It is not a control. AECI-1145 holds the conversation feature (Stage 2.5).
 
-**Closed**, headed "Closed ({N})". Closed contests only, received and submitted, newest decision first. Each row is a disclosure button (`aria-expanded`, `aria-controls`) showing the field, "{current} → {proposed}", the outcome pill and the date. It starts collapsed. Open, it shows one sentence on what the outcome means and a dated rail of events built from the contest's own fields: sent, decided (with the decision note), protested, replied, decided by AEC Integrations, withdrawn. Resolved disagreements and answered added rows do not appear in Closed in v1. They leave the list when they resolve. The public pair page's history is where the attestation record lives.
+**Closed**, headed "Closed ({N})". Closed contests only, received and submitted, newest decision first. Each row is a disclosure button (`aria-expanded`, `aria-controls`) showing the field, "{current} → {proposed}", the outcome pill and the date. It starts collapsed. Open, it shows one sentence on what the outcome means and a dated rail of events built from the contest's own fields: sent, decided (with the decision note), protested, replied, decided by AEC Integrations, withdrawn. A contest closed by 30 days of silence names the silence in both its pill and its rail ("No answer came within 30 days."), never an owner's decision (§11b.12.12). Resolved disagreements and answered added rows do not appear in Closed in v1. They leave the list when they resolve. The public pair page's history is where the attestation record lives.
 
 **Filters.** Open hides the Closed group. Closed hides the Open group. All shows both.
 
@@ -3785,13 +3785,14 @@ The two decision events carry `metadata.recipientRole` (`submitter` or `owner`),
 - A row before day 30 shows "You can ask AEC Integrations to review this from {date} if the owner has not answered."
 - A protested row shows the record, headed "Review by AEC Integrations", with a status pill ("With AEC Integrations", "AEC Integrations agreed with the contest", "AEC Integrations agreed with the owner", "Review request withdrawn"). An open one has **Withdraw review request** behind an inline confirmation, never `confirm()`, with focus moved to the confirm button and back.
 - A decided protest shows what it means from this seat and AECi's note. A lost one shows the cooldown end.
-- A contest declined by silence shows the pill "No answer in 30 days" rather than "Declined".
+- A contest declined by silence shows the pill "No answer in 30 days" rather than "Declined", and its date reads "No answer by {date}" rather than "Decided {date}" (AECI-1319). Its `decided_at` is the silence-decline date, not a decision.
 - Errors map to plain copy (`protestErrorMessage`). A refusal that means the row moved reloads the list so it shows the state that won.
 
 **Owner: Change requests → Received.**
 
 - A row with an open protest shows the whole protest and a one-time reply form (a reply and up to three links) with the due date. Past the due date, or once a reply exists, the form is gone and the reply, or "No reply", shows.
 - A decided protest shows what it means from the owner's seat and AECi's note. An upheld one links "Edit the integration under {product}" to that product's Integrations tab, where the ordinary owner edit lives. It is not a new write.
+- **A silence close never says the owner decided** (AECI-1319). The owner made no decision, so a contest closed by silence never reads "You declined it", whatever state its protest is in. An open protest says the submitter asked for a review "because you did not answer within 30 days", not to review "your decision". A withdrawn one reads "No answer in 30 days" with "{company} withdrew its review request." A withdrawn protest on a real decline still reads "You declined it". `receivedOutcome` in `integration-detail-model.ts` is the one implementation.
 - **Overview.** "What needs you" gains one Needs-you-now row for open protests with no reply and the due date still ahead, linked to Messages.
 
 **The contest form.** A field with an open protest is a disabled option reading "(with AEC Integrations for review)". A field inside a cooldown is disabled with its end date. `CONTEST_PROTEST_OPEN` and `CONTEST_COOLDOWN` map to plain copy for a race the form could not see.
