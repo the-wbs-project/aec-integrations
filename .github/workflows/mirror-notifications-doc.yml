@@ -56,9 +56,12 @@ jobs:
           # The job never pushes. Do not leave the GITHUB_TOKEN in .git/config.
           persist-credentials: false
 
+      # No pnpm in this job: `@v5` turns package-manager caching on by default
+      # from the `packageManager` field, and that lookup needs pnpm on PATH.
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
 
       - name: Update the Linear Document
         env:

@@ -385,9 +385,14 @@ jobs:
           ref: ${{ needs.resolve.outputs.sha }}
           # The job never pushes. Do not leave the GITHUB_TOKEN in .git/config.
           persist-credentials: false
+      # `actions/setup-node@v5` turns package-manager caching on by default when
+      # package.json declares `packageManager`, and its cache lookup runs `pnpm`
+      # from PATH. This job installs no pnpm and needs no `pnpm install`, so the
+      # lookup failed and took the job red before any alert step could run.
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
       # Missing on a run that failed before `lhci assert`. The script then
       # files the alert with "no assertion results" instead of a table.
       - name: Fetch the assertion results
