@@ -23,10 +23,13 @@ import { UpdateVendorProductSchema, UpdateVendorProfileSchema } from './vendor';
  * 1. **Factual fields only.** The allow-list is cut from what the vendor PATCH
  *    routes accept. Left out: the logo (its own admin path, ADR 0032), "How teams
  *    use it" (ADR 0033), the company and product descriptions (marketing copy, not a
- *    fact; a takedown is AECI-1238), the four taxonomy facets (join rewrites over
- *    AECi's own vocabulary) and the company and product names (a rename is a
+ *    fact; a takedown is AECI-1238) and the company and product names (a rename is a
  *    correction request). An integration's `name` IS offered: it is one of the
- *    owner-edit fields, and a wrong integration name is a factual error.
+ *    owner-edit fields, and a wrong integration name is a factual error. The four
+ *    taxonomy facets ARE offered on a product since AECI-1382, under their vendor
+ *    wire keys (`category_slugs` …). A facet lock's value is the whole term set, a
+ *    sorted de-duplicated slug array; `[]` removes every term. The correction is a
+ *    join rewrite, so the API writes it, not a column.
  * 2. **The value passes the vendor's own rule for the field.** The vendor PATCH
  *    schema for a company or product field, `integrationEditValueProblem` for an
  *    integration field. AECi cannot store a value the vendor could not.
@@ -70,13 +73,37 @@ export const VENDOR_OVERRIDE_FIELDS = [
 ] as const;
 export type VendorOverrideField = (typeof VENDOR_OVERRIDE_FIELDS)[number];
 
-/** The product fields AECi may correct: the three links. */
-export const PRODUCT_OVERRIDE_FIELDS = [
+/** The product columns AECi may correct: the three links. */
+export const PRODUCT_COLUMN_OVERRIDE_FIELDS = [
   'website',
   'tool_integrations_url',
   'api_docs_url',
 ] as const;
-export type ProductOverrideField = (typeof PRODUCT_OVERRIDE_FIELDS)[number];
+export type ProductColumnOverrideField = (typeof PRODUCT_COLUMN_OVERRIDE_FIELDS)[number];
+
+/**
+ * The product taxonomy facets AECi may lock (AECI-1382), under the vendor PATCH wire
+ * keys. Each is a join table, not a column, and its locked value is a slug array.
+ */
+export const PRODUCT_FACET_OVERRIDE_FIELDS = [
+  'category_slugs',
+  'audience_slugs',
+  'phase_slugs',
+  'trade_slugs',
+] as const;
+export type ProductFacetOverrideField = (typeof PRODUCT_FACET_OVERRIDE_FIELDS)[number];
+
+/** Every product field AECi may correct: the three links, then the four facets. */
+export const PRODUCT_OVERRIDE_FIELDS = [
+  ...PRODUCT_COLUMN_OVERRIDE_FIELDS,
+  ...PRODUCT_FACET_OVERRIDE_FIELDS,
+] as const;
+export type ProductOverrideField = ProductColumnOverrideField | ProductFacetOverrideField;
+
+/** Whether `field` is one of the four product taxonomy facets (AECI-1382). */
+export function isFacetOverrideField(field: string): field is ProductFacetOverrideField {
+  return (PRODUCT_FACET_OVERRIDE_FIELDS as readonly string[]).includes(field);
+}
 
 /** Every field name that can carry a lock, across the four entity types. */
 export type FieldOverrideField = VendorOverrideField | ProductOverrideField | IntegrationEditField;
@@ -115,9 +142,18 @@ export function isFieldOverrideField(
   return (fieldOverrideFieldsFor(entityType, opts) as readonly string[]).includes(field);
 }
 
-/** A locked value: text, the founded year, or `null` for a cleared field. */
-export type FieldOverrideValue = string | number | null;
-export const FieldOverrideValueSchema = z.union([z.string().max(2048), z.number(), z.null()]);
+/**
+ * A locked value: text, the founded year, `null` for a cleared field, or a facet's
+ * slug array (AECI-1382). The array bound here is loose; the vendor rule
+ * ({@link parseFieldOverrideValue}) applies the real cap.
+ */
+export type FieldOverrideValue = string | number | null | string[];
+export const FieldOverrideValueSchema = z.union([
+  z.string().max(2048),
+  z.number(),
+  z.null(),
+  z.array(z.string().max(100)).max(50),
+]);
 
 /**
  * The value as it will be stored, or the reason it cannot be (rules 2 and 3). The
@@ -128,11 +164,20 @@ export function parseFieldOverrideValue(
   field: FieldOverrideField,
   value: FieldOverrideValue,
 ): { ok: true; value: FieldOverrideValue } | { ok: false; problem: string } {
+  if (entityType === 'product' && isFacetOverrideField(field)) {
+    if (!Array.isArray(value)) return { ok: false, problem: 'This field takes a list of terms' };
+    const parsed = UpdateVendorProductSchema.shape[field].safeParse(value);
+    if (!parsed.success || parsed.data === undefined) {
+      return { ok: false, problem: 'This value is not valid for this field' };
+    }
+    return { ok: true, value: [...new Set(parsed.data)].sort() };
+  }
+  if (Array.isArray(value)) return { ok: false, problem: 'This field takes a single value' };
   if (entityType === 'vendor' || entityType === 'product') {
     const schema =
       entityType === 'vendor'
         ? UpdateVendorProfileSchema.shape[field as VendorOverrideField]
-        : UpdateVendorProductSchema.shape[field as ProductOverrideField];
+        : UpdateVendorProductSchema.shape[field as ProductColumnOverrideField];
     const normalized = typeof value === 'string' && value.trim() === '' ? null : value;
     const parsed = schema.safeParse(normalized);
     if (!parsed.success) return { ok: false, problem: 'This value is not valid for this field' };

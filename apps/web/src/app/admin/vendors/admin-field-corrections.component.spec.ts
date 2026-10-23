@@ -15,7 +15,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AdminFieldOverride } from '@aeci/shared';
+import type { AdminFieldOverride, TaxonomyResponse } from '@aeci/shared';
 
 import { AdminFieldCorrections, fieldCorrectionErrorMessage } from './admin-field-corrections';
 import { AdminVendorsApi } from './admin-vendors-api';
@@ -24,6 +24,25 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const VENDOR_ID = '00000000-0000-4000-8000-000000000010';
 const PRODUCT_ID = '00000000-0000-4000-8000-000000000020';
 const REASON = 'The number on file reaches a different company.';
+
+const term = (slug: string, name: string, order: number) => ({
+  id: `00000000-0000-4000-8000-${String(700 + order).padStart(12, '0')}`,
+  slug,
+  name,
+  description: null,
+  display_order: order,
+  product_count: 0,
+});
+const TAXONOMY: TaxonomyResponse = {
+  categories: [
+    term('bim-authoring', 'BIM Authoring', 1),
+    term('estimating', 'Estimating', 2),
+    term('project-management', 'Project Management', 3),
+  ],
+  audiences: [term('architects', 'Architects', 11)],
+  phases: [term('design', 'Design', 21)],
+  trades: [term('electrical', 'Electrical', 31)],
+};
 
 function makeLock(over: Partial<AdminFieldOverride> = {}): AdminFieldOverride {
   return {
@@ -51,6 +70,7 @@ let api: {
   listIntegrations: ReturnType<typeof vi.fn>;
   setFieldOverride: ReturnType<typeof vi.fn>;
   liftFieldOverride: ReturnType<typeof vi.fn>;
+  getTaxonomy: ReturnType<typeof vi.fn>;
 };
 
 function apiError(status: number, code: string): HttpErrorResponse {
@@ -62,7 +82,16 @@ beforeEach(() => {
   api = {
     listFieldOverrides: vi.fn(),
     listProducts: vi.fn().mockResolvedValue({
-      data: [{ id: PRODUCT_ID, name: 'Revit' }],
+      data: [
+        {
+          id: PRODUCT_ID,
+          name: 'Revit',
+          category_slugs: ['bim-authoring', 'estimating'],
+          audience_slugs: [],
+          phase_slugs: [],
+          trade_slugs: [],
+        },
+      ],
       page: 1,
       perPage: 100,
       total: 1,
@@ -70,6 +99,7 @@ beforeEach(() => {
     listIntegrations: vi.fn().mockResolvedValue({ data: [], page: 1, perPage: 100, total: 0 }),
     setFieldOverride: vi.fn(),
     liftFieldOverride: vi.fn(),
+    getTaxonomy: vi.fn().mockResolvedValue(TAXONOMY),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -305,6 +335,178 @@ describe('AdminFieldCorrections (AECI-1237)', () => {
     );
     expect(el.textContent).toContain("No field is locked on this vendor's records.");
     expect(announced[0]).toContain('Lock lifted');
+  });
+});
+
+describe('AdminFieldCorrections facet locks (AECI-1382)', () => {
+  const termBoxes = (el: HTMLElement) =>
+    Array.from(
+      el.querySelectorAll(`#admin-field-corrections-${VENDOR_ID}-terms input[type="checkbox"]`),
+    ) as HTMLInputElement[];
+
+  async function chooseCategories(
+    fixture: ComponentFixture<AdminFieldCorrections>,
+    el: HTMLElement,
+  ) {
+    await openForm(fixture, el);
+    choose(el, 'record', `product:${PRODUCT_ID}`);
+    await settle(fixture);
+    choose(el, 'field', 'category_slugs');
+    await settle(fixture);
+  }
+
+  it('offers the four facets on a product, after the links', async () => {
+    const { fixture, el } = await create();
+    await openForm(fixture, el);
+    choose(el, 'record', `product:${PRODUCT_ID}`);
+    await settle(fixture);
+    const labels = Array.from((byId(el, 'field') as HTMLSelectElement).options).map((o) =>
+      o.textContent?.trim(),
+    );
+    expect(labels.slice(-4)).toEqual(['Categories', 'Audiences', 'Phases', 'Trades']);
+  });
+
+  it('shows the facet as a terms checklist, pre-ticked from the product', async () => {
+    const { fixture, el } = await create();
+    await chooseCategories(fixture, el);
+
+    const fieldset = el.querySelector('form fieldset') as HTMLFieldSetElement;
+    expect(fieldset.querySelector('legend')?.textContent?.trim()).toBe('Correct terms');
+    // No text input for a facet.
+    expect(byId(el, 'value')).toBeNull();
+    const boxes = termBoxes(el);
+    expect(boxes.map((b) => b.closest('label')?.textContent?.trim())).toEqual([
+      'BIM Authoring',
+      'Estimating',
+      'Project Management',
+    ]);
+    expect(boxes.map((b) => b.checked)).toEqual([true, true, false]);
+    expect(el.textContent).toContain('2 of 10 selected');
+    expect(api.getTaxonomy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the ticked set as an array, sorted', async () => {
+    api.setFieldOverride.mockResolvedValue({
+      override: makeLock({
+        entity_type: 'product',
+        entity_id: PRODUCT_ID,
+        entity_name: 'Revit',
+        field: 'category_slugs',
+        value: ['bim-authoring', 'project-management'],
+      }),
+    });
+    const { fixture, el } = await create();
+    await chooseCategories(fixture, el);
+    const [, estimating, pm] = termBoxes(el);
+    estimating!.click();
+    pm!.click();
+    await settle(fixture);
+    expect(el.textContent).toContain('2 of 10 selected');
+    type(el, 'reason', REASON);
+    (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(api.setFieldOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'product',
+        entityId: PRODUCT_ID,
+        field: 'category_slugs',
+        value: ['bim-authoring', 'project-management'],
+      }),
+    );
+    // The new lock names its terms.
+    expect(el.textContent).toContain('BIM Authoring, Project Management');
+  });
+
+  it('pre-ticks the corrected set when the form opens again on the same page', async () => {
+    api.setFieldOverride.mockResolvedValue({
+      override: makeLock({
+        entity_type: 'product',
+        entity_id: PRODUCT_ID,
+        entity_name: 'Revit',
+        field: 'category_slugs',
+        value: ['project-management'],
+      }),
+    });
+    const { fixture, el } = await create();
+    await chooseCategories(fixture, el);
+    const [bim, estimating, pm] = termBoxes(el);
+    bim!.click();
+    estimating!.click();
+    pm!.click();
+    await settle(fixture);
+    type(el, 'reason', REASON);
+    (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    // Reopen without a page load (as after a lift): the set is AECi's, not the one
+    // the products list returned before the correction.
+    await chooseCategories(fixture, el);
+    expect(termBoxes(el).map((b) => b.checked)).toEqual([false, false, true]);
+    expect(api.listProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends an empty array when every term is unticked', async () => {
+    api.setFieldOverride.mockResolvedValue({ override: makeLock() });
+    const { fixture, el } = await create();
+    await chooseCategories(fixture, el);
+    for (const box of termBoxes(el).filter((b) => b.checked)) box.click();
+    await settle(fixture);
+    type(el, 'reason', REASON);
+    (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(api.setFieldOverride).toHaveBeenCalledWith(expect.objectContaining({ value: [] }));
+  });
+
+  it('stops offering new ticks at the 10-term cap', async () => {
+    const many = Array.from({ length: 11 }, (_, i) => term(`c-${i}`, `Category ${i}`, 100 + i));
+    api.getTaxonomy.mockResolvedValue({ ...TAXONOMY, categories: many });
+    api.listProducts.mockResolvedValue({
+      data: [
+        {
+          id: PRODUCT_ID,
+          name: 'Revit',
+          category_slugs: many.slice(0, 10).map((t) => t.slug),
+          audience_slugs: [],
+          phase_slugs: [],
+          trade_slugs: [],
+        },
+      ],
+      page: 1,
+      perPage: 100,
+      total: 1,
+    });
+    const { fixture, el } = await create();
+    await chooseCategories(fixture, el);
+    const boxes = termBoxes(el);
+    expect(el.textContent).toContain('10 of 10 selected');
+    expect(boxes[10]!.disabled).toBe(true);
+    expect(boxes[0]!.disabled).toBe(false);
+  });
+
+  it('names a locked set in the list, and says "No terms" for an empty one', async () => {
+    const { el } = await create([
+      makeLock({
+        id: '00000000-0000-4000-8000-000000000201',
+        entity_type: 'product',
+        entity_name: 'Revit',
+        field: 'category_slugs',
+        value: ['estimating', 'bim-authoring'],
+      }),
+      makeLock({
+        id: '00000000-0000-4000-8000-000000000202',
+        entity_type: 'product',
+        entity_name: 'Revit',
+        field: 'trade_slugs',
+        value: [],
+      }),
+    ]);
+    const text = el.textContent ?? '';
+    expect(text).toContain('Categories');
+    expect(text).toContain('Estimating, BIM Authoring');
+    expect(text).toContain('Trades');
+    expect(text).toContain('No terms');
+    expect(api.getTaxonomy).toHaveBeenCalledTimes(1);
   });
 });
 

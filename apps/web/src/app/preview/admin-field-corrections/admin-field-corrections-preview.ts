@@ -7,6 +7,8 @@ import type {
   AdminSetFieldOverrideInput,
   AdminVendorIntegrationsResponse,
   AdminVendorProductsResponse,
+  TaxonomyResponse,
+  TaxonomyTermWithCount,
 } from '@aeci/shared';
 
 import { AdminFieldCorrections } from '../../admin/vendors/admin-field-corrections';
@@ -59,7 +61,47 @@ const LOCKS: readonly AdminFieldOverride[] = [
     lifted_at: null,
     lift_reason: null,
   },
+  // AECI-1382: a facet lock. The value is the whole term set, named in the list.
+  {
+    id: uuid(603),
+    entity_type: 'product',
+    entity_id: uuid(20),
+    entity_name: 'Agave ERP Sync',
+    field: 'category_slugs',
+    value: ['erp-accounting', 'project-management'],
+    reason: 'Agave connects other tools. The categories on file described the tools it connects.',
+    internal_note: null,
+    vendor_id: VENDOR_ID,
+    set_by: uuid(90),
+    set_at: TS,
+    lifted_by: null,
+    lifted_at: null,
+    lift_reason: null,
+  },
 ];
+
+const term = (slug: string, name: string, order: number): TaxonomyTermWithCount => ({
+  id: uuid(700 + order),
+  slug,
+  name,
+  description: null,
+  display_order: order,
+  product_count: 0,
+});
+
+/** A short slice of each facet vocabulary: enough to review the terms control. */
+const TAXONOMY: TaxonomyResponse = {
+  categories: [
+    term('bim-authoring', 'BIM Authoring', 1),
+    term('erp-accounting', 'ERP & Accounting', 2),
+    term('estimating', 'Estimating', 3),
+    term('field-management', 'Field Management', 4),
+    term('project-management', 'Project Management', 5),
+  ],
+  audiences: [term('general-contractors', 'General Contractors', 11), term('owners', 'Owners', 12)],
+  phases: [term('construction', 'Construction', 21), term('closeout', 'Closeout', 22)],
+  trades: [term('electrical', 'Electrical', 31), term('mechanical', 'Mechanical', 32)],
+};
 
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
 @Injectable()
@@ -85,12 +127,20 @@ class PreviewAdminVendorsApi extends AdminVendorsApi {
           review_count: 0,
           rating_overall_avg: null,
           updated_at: TS,
+          category_slugs: ['erp-accounting', 'project-management'],
+          audience_slugs: ['general-contractors'],
+          phase_slugs: [],
+          trade_slugs: [],
         },
       ],
       page: 1,
       perPage: 100,
       total: 1,
     };
+  }
+
+  override async getTaxonomy(): Promise<TaxonomyResponse> {
+    return TAXONOMY;
   }
 
   override async listIntegrations(): Promise<AdminVendorIntegrationsResponse> {

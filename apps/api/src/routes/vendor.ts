@@ -80,8 +80,9 @@ import {
   type ProductUsefulness,
   type UsefulnessGroup,
   type LockedField,
-  PRODUCT_OVERRIDE_FIELDS,
   VENDOR_OVERRIDE_FIELDS,
+  isFacetOverrideField,
+  isFieldOverrideField,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -388,7 +389,7 @@ function toVendorProduct(
  * rather than 4×N. Returns a per-product bucket so both the dashboard list and a
  * single-product PATCH response can use it.
  */
-async function loadTaxonomySlugs(
+export async function loadTaxonomySlugs(
   db: Db,
   productIds: readonly string[],
 ): Promise<Map<string, TaxonomySlugs>> {
@@ -435,7 +436,9 @@ async function loadTaxonomySlugs(
 export const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
 
 /**
- * The four taxonomy facets, as data.
+ * The four taxonomy facets, as data. Exported as {@link PRODUCT_FACETS} for the
+ * AECi facet lock (AECI-1382, `admin-field-overrides.ts`), which rewrites the same
+ * joins.
  *
  * Each facet has to be handled in four places on a product edit — term
  * resolution, the before/after audit state, and the batch's delete+reinsert.
@@ -493,6 +496,19 @@ const FACETS = [
     | typeof productTrades;
   row: (productId: string, termId: string) => Record<string, string>;
 }>;
+export const PRODUCT_FACETS = FACETS;
+
+/** A product's stored facet sets keyed by wire field (AECI-1382): what
+ *  `screenLockedPatch` compares a locked facet against, and the admin product row. */
+export function facetSlugs(tax: TaxonomySlugs): Record<FacetField, string[]> {
+  return {
+    category_slugs: [...tax.categories],
+    audience_slugs: [...tax.audiences],
+    phase_slugs: [...tax.phases],
+    trade_slugs: [...tax.trades],
+  };
+}
+type FacetField = (typeof FACETS)[number]['field'];
 
 /** Narrow a Drizzle row to the given property names — the `beforeState` shape. */
 function pickColumns(row: object, keys: readonly string[]): Record<string, unknown> {
@@ -1175,13 +1191,28 @@ export function createUpdateVendorProductHandler(
     // AECI-1237 (§11d.5): the profile handler's lock rule, after ownership and the
     // field gate, before the resolution wave. Ownership has settled, so the 409
     // discloses nothing.
+    //
+    // AECI-1382: a locked facet compares as a set against the stored terms, so
+    // those are read before the screen, and only when a facet lock stands. The
+    // resolution wave below reuses the read.
     const locks = await activeLocksOn(db, 'product', productId);
-    const screened = screenLockedPatch(sent, locks, before, PRODUCT_OVERRIDE_COLUMNS);
+    const preloadedTaxonomy = locks.some((lock) => isFacetOverrideField(lock.field))
+      ? ((await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY)
+      : null;
+    const screened = screenLockedPatch(
+      sent,
+      locks,
+      before,
+      PRODUCT_OVERRIDE_COLUMNS,
+      preloadedTaxonomy ? facetSlugs(preloadedTaxonomy) : undefined,
+    );
     if (screened.refused.length > 0) throw fieldLockedError(screened.refused);
     const payload = screened.payload;
     if (Object.keys(payload).length === 0) {
       const unchangedTaxonomy =
-        (await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY;
+        preloadedTaxonomy ??
+        (await loadTaxonomySlugs(db, [productId])).get(productId) ??
+        NO_TAXONOMY;
       const body: UpdateVendorProductResponse = {
         product: toVendorProduct(
           before,
@@ -1194,16 +1225,16 @@ export function createUpdateVendorProductHandler(
       validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
       return json(body);
     }
-    const guarded = Object.keys(payload).filter((field) =>
-      (PRODUCT_OVERRIDE_FIELDS as readonly string[]).includes(field),
-    );
+    // Every lockable key sent, the four facets included (AECI-1382).
+    const guarded = Object.keys(payload).filter((field) => isFieldOverrideField('product', field));
     const lockSentinel = fieldsUnlockedSentinel(db, 'product', productId, guarded);
 
     // Now that the caller is known to own the row, the rest goes in one wave.
     // Term resolution happens BEFORE the batch opens, so an unknown slug is a
     // 400 rather than a half-applied edit.
     const [beforeTaxonomy, usefulness, ...facetIds] = await Promise.all([
-      loadTaxonomySlugs(db, [productId]).then((m) => m.get(productId) ?? NO_TAXONOMY),
+      preloadedTaxonomy ??
+        loadTaxonomySlugs(db, [productId]).then((m) => m.get(productId) ?? NO_TAXONOMY),
       // AECI-963. Resolved here, in the SAME pre-batch wave and for the same
       // reason as the facets below: an unknown term slug must be a flat 400, not
       // a batch that half-applies. Unlike the facets this is NOT a join-table

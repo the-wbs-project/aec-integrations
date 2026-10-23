@@ -87,7 +87,75 @@
       }
     </select>
   </div>
-  @if (field()) {
+  @if (field() && control() === 'terms') {
+  <!--
+    AECI-1382: a facet's value is its whole term set. A label around a real checkbox
+    per term, in a fieldset that never scrolls (STAGE_2_VENDOR_PORTAL_SPEC.md
+    section 6.1, rules 3 and 4).
+  -->
+  <fieldset
+    class="border-0 p-0"
+    [attr.aria-describedby]="id('terms-help') + ' ' + id('terms-count')"
+  >
+    <legend
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldCorrections.terms.legend"
+    >
+      Correct terms
+    </legend>
+    <p
+      [id]="id('terms-help')"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.fieldCorrections.terms.help"
+    >
+      The product's current terms are ticked. Tick every term it should carry. Untick them all to
+      remove every term.
+    </p>
+    @if (taxonomyFailed()) {
+    <p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">
+      <span i18n="@@admin.fieldCorrections.terms.loadError"
+        >Could not load the terms. Only the product's current terms are listed.</span
+      >
+      <button
+        type="button"
+        (click)="loadTaxonomy()"
+        class="ms-2 text-sm font-medium text-(--text-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.fieldCorrections.terms.retry"
+      >
+        Try again
+      </button>
+    </p>
+    } @if (taxonomyReady() || (taxonomyFailed() && termOptions().length > 0)) {
+    <ul
+      [id]="id('terms')"
+      class="mt-2 grid gap-x-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-2 sm:grid-cols-2"
+    >
+      @for (term of termOptions(); track term.slug) {
+      <li>
+        <label
+          class="flex cursor-pointer items-start gap-2 rounded-(--radius-sm) px-2 py-1.5 text-sm text-(--text-primary) hover:bg-(--surface-sunken)"
+        >
+          <input
+            type="checkbox"
+            class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [value]="term.slug"
+            [checked]="terms().has(term.slug)"
+            [disabled]="termDisabled(term.slug)"
+            (change)="onTerm(term.slug, $event)"
+          />
+          <span>{{ term.name }}</span>
+        </label>
+      </li>
+      }
+    </ul>
+    } @else if (!taxonomyFailed()) {
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.fieldCorrections.terms.loading">
+      Loading the terms…
+    </p>
+    }
+    <p [id]="id('terms-count')" class="mt-2 text-xs text-(--text-secondary)">{{ termCounter() }}</p>
+  </fieldset>
+  } @else if (field()) {
   <div>
     <label
       [attr.for]="id('value')"
@@ -325,7 +393,7 @@
         <td class="py-2.5 pe-4">
           <span class="block font-medium text-(--text-primary)">{{ fieldLabel(lock.field) }}</span>
           <span class="mt-0.5 block break-all text-xs text-(--text-secondary)"
-            >{{ valueLabel(lock.value) }}</span
+            >{{ valueLabel(lock) }}</span
           >
         </td>
         <td class="py-2.5 pe-4 text-(--text-secondary)">

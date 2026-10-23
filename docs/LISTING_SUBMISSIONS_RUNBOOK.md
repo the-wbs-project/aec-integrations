@@ -241,12 +241,13 @@ ourselves.
 An admin may reset a vendor's placement where no evidence supports it. Ask the vendor for evidence
 first. Reset only when none is given.
 
-**The lock does not cover taxonomy yet.** The AECI-1237 field lock (`STAGE_2_VENDOR_PORTAL_SPEC.md`
-§11d.5) does not cover taxonomy facets. So a vendor can undo a reset from the portal until
-AECI-1382 ships. Until then:
-
-- Log each reset on the Linear issue, with the terms removed and the reason.
-- Watch the vendor's next audit row on that product's facets. An undo shows there.
+**Reset with the lock (2026-10-23, AECI-1382).** Make the reset through "Correct a field" on
+`/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7). Pick the product and the facet, tick the terms
+it should keep, and give the reason the vendor reads. Untick every term to remove them all. The
+correction is locked (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5), so the vendor cannot undo it from
+the portal. The vendor is told in Messages, and the audit row records the terms before and after.
+Lift the lock if the vendor later sends evidence. Lifting keeps our terms, and the vendor can then
+change them.
 
 ## 7. History
 

@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fieldOverrides } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { lockedFieldsByEntity } from './field-overrides';
+import {
+  PRODUCT_OVERRIDE_COLUMNS,
+  lockedFieldsByEntity,
+  screenLockedPatch,
+} from './field-overrides';
 
 const D1_MAX_BOUND_PARAMS = 100;
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -90,5 +94,67 @@ describe('lockedFieldsByEntity', () => {
 
   it('reads nothing for an empty id list', async () => {
     expect((await lockedFieldsByEntity(t.db, 'integration', [])).size).toBe(0);
+  });
+});
+
+describe('screenLockedPatch on a product facet (AECI-1382)', () => {
+  const lock = (field: string) => ({ field, reason: 'r', set_at: '2026-10-04T00:00:00.000Z' });
+  const stored = { website: 'https://a.example' };
+  const facets = { category_slugs: ['bim', 'structural'] };
+
+  it('drops the same set in any order, repeats included', () => {
+    const out = screenLockedPatch(
+      { category_slugs: ['structural', 'bim', 'bim'], description: 'x' },
+      [lock('category_slugs')],
+      stored,
+      PRODUCT_OVERRIDE_COLUMNS,
+      facets,
+    );
+    expect(out).toEqual({ payload: { description: 'x' }, refused: [] });
+  });
+
+  it('refuses a different set, a subset and an empty set', () => {
+    for (const sent of [['bim'], ['bim', 'structural', 'mep'], [], ['bim', 'mep']]) {
+      const out = screenLockedPatch(
+        { category_slugs: sent },
+        [lock('category_slugs')],
+        stored,
+        PRODUCT_OVERRIDE_COLUMNS,
+        facets,
+      );
+      expect(out.refused).toEqual(['category_slugs']);
+    }
+  });
+
+  it('drops [] against a stored empty set', () => {
+    const out = screenLockedPatch(
+      { trade_slugs: [] },
+      [lock('trade_slugs')],
+      stored,
+      PRODUCT_OVERRIDE_COLUMNS,
+      { trade_slugs: [] },
+    );
+    expect(out).toEqual({ payload: {}, refused: [] });
+  });
+
+  it('fails closed when the caller did not load the stored set', () => {
+    const out = screenLockedPatch(
+      { category_slugs: ['bim', 'structural'] },
+      [lock('category_slugs')],
+      stored,
+      PRODUCT_OVERRIDE_COLUMNS,
+    );
+    expect(out.refused).toEqual(['category_slugs']);
+  });
+
+  it('still compares a column lock by value beside a facet lock', () => {
+    const out = screenLockedPatch(
+      { website: 'https://a.example', category_slugs: ['bim', 'structural'] },
+      [lock('website'), lock('category_slugs')],
+      stored,
+      PRODUCT_OVERRIDE_COLUMNS,
+      facets,
+    );
+    expect(out).toEqual({ payload: {}, refused: [] });
   });
 });

@@ -528,6 +528,41 @@ describe('VendorNotificationsList', () => {
     expect(body).not.toContain('Free plan');
   });
 
+  it.each([
+    ['BIM Authoring, Estimating', 'The terms are now BIM Authoring, Estimating.'],
+    [null, 'AEC Integrations removed every term.'],
+  ] as const)(
+    'names a corrected facet and its terms (AECI-1382), value %s',
+    async (value, note) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'aeci_override',
+            id: '00000000-0000-4000-8000-00000000c2fa',
+            event: 'field_corrected',
+            reason: 'The product is not an estimating tool.',
+            integration_id: null,
+            integration_name: null,
+            field: 'category_slugs',
+            pair_path: null,
+            logo_subject: null,
+            seat_name: null,
+            record_subject: { type: 'product', slug: 'summit', name: 'Summit Coordination' },
+            value,
+            created_at: '2026-10-04T12:00:00.000Z',
+          },
+        ],
+      });
+      const body = text(await create());
+      expect(body).toContain('AEC Integrations corrected a detail and locked it');
+      expect(body).toContain('Categories');
+      expect(body).toContain('Summit Coordination');
+      expect(body).toContain(note);
+      expect(body).not.toContain('(cleared)');
+      expect(body).not.toContain('The new value');
+    },
+  );
+
   it('names the overwritten field in the note (AECI-1159)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

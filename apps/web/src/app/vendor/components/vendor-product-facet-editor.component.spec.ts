@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -454,5 +454,95 @@ describe('VendorProductFacetEditor', () => {
     const caps: Capability[] = ['product.categories.edit'];
     expect(save(create('categories', { capabilities: caps }))).not.toBeNull();
     expect(save(create('trades', { capabilities: caps }))).toBeNull();
+  });
+
+  // ── AECi facet lock (AECI-1382, §11d.5) ──────────────────────────────────
+
+  const LOCK_REASON = 'The product is used by contractors, not by design teams.';
+  const aeciLocked = (field: string, product: VendorProduct = PRODUCT): VendorProduct => ({
+    ...product,
+    locked_fields: [{ field, reason: LOCK_REASON, set_at: '2026-10-20T00:00:00.000Z' }],
+  });
+
+  it('makes the terms read-only and says who locked them and why', () => {
+    const f = create('categories', { product: aeciLocked('category_slugs') });
+    const boxes = Array.from(
+      el(f).querySelectorAll('fieldset input[type="checkbox"]'),
+    ) as HTMLInputElement[];
+    expect(boxes.length).toBeGreaterThan(0);
+    expect(boxes.every((b) => b.disabled)).toBe(true);
+
+    const note = el(f).querySelector('[data-testid="locked-note"]') as HTMLElement;
+    expect(note.textContent).toContain('Set by AEC Integrations.');
+    expect(note.textContent).toContain(LOCK_REASON);
+    expect(note.id).toBe(`vendor-product-${PRODUCT.id}-categories-aeci`);
+    expect(el(f).querySelector('fieldset')?.getAttribute('aria-describedby')).toBe(note.id);
+    // Not the plan's "part of Managed" reason: the plan allows this edit.
+    expect(el(f).querySelector('[data-testid="locked-reason"]')).toBeNull();
+    // Nothing on the tab is editable, so there is no Save.
+    expect(save(f)).toBeNull();
+  });
+
+  it('ignores a lock on another facet', () => {
+    const f = create('categories', { product: aeciLocked('trade_slugs') });
+    expect(el(f).querySelector('[data-testid="locked-note"]')).toBeNull();
+    expect(checkbox(f, 'Estimating').disabled).toBe(false);
+  });
+
+  it('shows both reasons, both described, when the plan and AECi both lock the facet', () => {
+    const f = create('audiences', {
+      product: aeciLocked('audience_slugs'),
+      capabilities: capabilitiesFor('unclaimed'),
+    });
+    const reason = el(f).querySelector('[data-testid="locked-reason"]') as HTMLElement;
+    const note = el(f).querySelector('[data-testid="locked-note"]') as HTMLElement;
+    expect(reason).not.toBeNull();
+    expect(note).not.toBeNull();
+    expect(el(f).querySelector('fieldset')?.getAttribute('aria-describedby')).toBe(
+      `${reason.id} ${note.id}`,
+    );
+  });
+
+  it('keeps the points editable on a locked Audiences tab and leaves the slugs out', async () => {
+    updateProduct.mockResolvedValue({
+      product: aeciLocked('audience_slugs'),
+    } as UpdateVendorProductResponse);
+    const f = create('audiences', { product: aeciLocked('audience_slugs') });
+    expect(checkbox(f, 'Architects').disabled).toBe(true);
+    expect(pointInputs(f, 'Architects').some((i) => i.readOnly)).toBe(false);
+
+    type(f, pointInputs(f, 'Architects')[0]!, 'Rewritten point');
+    expect(save(f)?.disabled).toBe(false);
+    save(f)!.click();
+    await settle(f);
+
+    const [, body] = updateProduct.mock.calls[0]!;
+    expect(body.audience_slugs).toBeUndefined();
+    expect(body.usefulness.audiences[0].points[0]).toBe('Rewritten point');
+  });
+
+  it('says the field is locked and offers a reload on 409 FIELD_LOCKED_BY_AECI', async () => {
+    updateProduct.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'FIELD_LOCKED_BY_AECI', message: 'locked' } },
+      }),
+    );
+    const reload = vi.spyOn(TestBed.inject(VendorPortalStore), 'reload').mockResolvedValue();
+    const f = create('categories');
+    toggle(f, 'Estimating');
+    save(f)!.click();
+    await settle(f);
+
+    const alert = el(f).querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain(
+      'AEC Integrations has locked a field you changed, so nothing was saved.',
+    );
+    expect(el(f).textContent).not.toContain('Something went wrong');
+    const button = Array.from(el(f).querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Reload this section'),
+    ) as HTMLButtonElement;
+    button.click();
+    expect(reload).toHaveBeenCalledWith('products');
   });
 });

@@ -1007,7 +1007,7 @@ create index product_trades_trade_idx on product_trades(trade_id);
 ```
 
 - Shipped in migration `apps/api/migrations/0009_watery_tinkerer.sql`, alongside `taxonomy_trades`.
-- Rows are written **only** by the promote flow (`POST /api/promote`, AECI-542), which replaces a product's full trade set on each promote — never by the taxonomy seed (ADR 0008).
+- Rows are written by the promote flow (`POST /api/promote`, AECI-542), which replaces a product's full trade set on each promote, never by the taxonomy seed (ADR 0008). Since AECI-665 the vendor product PATCH (`trade_slugs`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3) replaces the set too, and since AECI-1382 so does an AECi facet lock (§8.9). Corrected 2026-10-23: this line said "only" promote.
 - **Any `product_role` may carry trade tags**, connectors included — a connector purpose-built to sync a trade ERP is exactly as trade-specific as an app. In practice tags concentrate on `application`-role products.
 
 ### 6.4 `product_vendors`
@@ -2900,8 +2900,8 @@ AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` 
 | `id` | text PK | uuid |
 | `entity_type` | text NOT NULL | `vendor`, `product`, `integration` or `connector_evidenced_pair` (promote's vocabulary) |
 | `entity_id` | text NOT NULL | the record's id. No FK |
-| `field` | text NOT NULL | the record's wire name: `phone_number`, `docs_url` |
-| `value` | text (JSON) | what AECi wrote: text, a year or `null` |
+| `field` | text NOT NULL | the record's wire name: `phone_number`, `docs_url`, or a product facet such as `trade_slugs` (AECI-1382) |
+| `value` | text (JSON) | what AECi wrote: text, a year or `null`. For a product facet (AECI-1382), the sorted, de-duplicated slug array; `[]` when AECi removed every term. The column was always JSON, so this needed no migration |
 | `reason` | text NOT NULL | shown to the vendor |
 | `internal_note` | text | never shown to a vendor |
 | `vendor_id` | text | the vendor holding the record at set time, which was told. No FK |
@@ -2912,7 +2912,7 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 **Deliberately no FK and no CHECK.** No FK into the four entity tables: a lock row is history, and an FK would either cascade it away with a retraction or block the retraction, and the retract scripts' FK-coverage specs would have to own it. A retraction leaves the row behind; nothing reads it except by entity id. No FK from `set_by` or `lifted_by` to `profiles`, so the account erasure (`AUTH_AND_RLS.md` §8, sixteen inbound FKs) is unchanged and an erased admin's id stays here as it does in audit metadata. No CHECK, because a CHECK change forces a D1 table recreate (`docs/migrations.md` §0); `AdminSetFieldOverrideSchema` holds the vocabulary.
 
-**Writers.** `POST /api/admin/field-overrides` inserts, in the batch that writes the column and the audit row. `POST /api/admin/field-overrides/:id/lift` stamps the lift. Nothing else writes it. Readers: the vendor writers' lock check and sentinel (`apps/api/src/lib/field-overrides.ts`), the vendor reads' `locked_fields`, and `GET /api/admin/vendors/:id/field-overrides`. The list read for `GET /api/vendor/integrations` (`lockedFieldsByEntity`) chunks its id list at 90, because D1 caps a query at 100 bound parameters and a vendor's integration list is unbounded.
+**Writers.** `POST /api/admin/field-overrides` inserts, in the batch that writes the column and the audit row. For a facet that batch rewrites the product's join rows instead of a column (AECI-1382). `POST /api/admin/field-overrides/:id/lift` stamps the lift. Nothing else writes it. Readers: the vendor writers' lock check and sentinel (`apps/api/src/lib/field-overrides.ts`), the vendor reads' `locked_fields`, and `GET /api/admin/vendors/:id/field-overrides`. The list read for `GET /api/vendor/integrations` (`lockedFieldsByEntity`) chunks its id list at 90, because D1 caps a query at 100 bound parameters and a vendor's integration list is unbounded.
 
 **Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
 

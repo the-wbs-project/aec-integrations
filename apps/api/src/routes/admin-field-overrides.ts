@@ -37,6 +37,14 @@
  * 6. **After commit, as every catalog write.** Purge the record's cache tags through
  *    the queue, sync its Algolia record by id behind promote's watchdog, and forward
  *    the audit rows. A lift changes no public value, so it purges and syncs nothing.
+ *
+ * A product facet lock (AECI-1382) is a join rewrite, not a column write. The value is
+ * the whole slug set; every slug must name an existing term. The batch is the lock row,
+ * the `products.updated_at` stamp the nightly Algolia watermark reads, the facet's
+ * DELETE and re-INSERT, the audit row (before and after as slug arrays) and the
+ * notice (the term names). The purge is the vendor PATCH's own `productEditTags`, so a
+ * trade change also purges `index:trades`, `taxonomy` and `sitemap`. No recrawl, as
+ * for every correction.
  */
 
 import {
@@ -45,6 +53,7 @@ import {
   AdminLiftFieldOverrideSchema,
   AdminSetFieldOverrideSchema,
   ApiErrorCode,
+  isFacetOverrideField,
   isFieldOverrideField,
   parseFieldOverrideValue,
   vendorVisibleReasonMetadata,
@@ -55,8 +64,11 @@ import {
   type FieldOverrideEntityType,
   type FieldOverrideField,
   type FieldOverrideValue,
+  type ProductFacetOverrideField,
+  type ProductUsefulness,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
@@ -74,6 +86,7 @@ import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notification
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType } from '../lib/authz';
+import { toUsefulness } from '../lib/drizzle-helpers';
 import { loadOwnedVendorIds } from '../lib/claimed-vendors';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { overrideColumn, overrideTable } from '../lib/field-overrides';
@@ -82,6 +95,14 @@ import { isVendorHeld, ONE_ROW } from '../lib/integration-claims';
 import { retireSlugs, type LocatedRetireRow } from '../lib/retire-target';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { pairCacheTag } from './promote-pair';
+import {
+  NO_TAXONOMY,
+  PRODUCT_FACETS,
+  loadTaxonomySlugs,
+  productEditTags,
+  resolveTerms,
+  type TaxonomySlugs,
+} from './vendor';
 import { afterVendorWrite, parseJsonBody, type VendorContext } from './vendor-shared';
 
 /** `metadata.source` on the audit rows and the forward, as every admin moderation write. */
@@ -245,10 +266,83 @@ function overrideActiveError(): ApiError {
   );
 }
 
-/** The cache tags a corrected record's pages carry, and its Algolia ids. */
+/**
+ * The statements that write the correction itself. A column field is one `UPDATE`. A
+ * product facet (AECI-1382) stamps `products.updated_at`, so the nightly Algolia
+ * watermark sees the change, then replaces the facet's join rows. `[]` leaves none.
+ */
+function correctionWrites(
+  db: Db,
+  entityType: FieldOverrideEntityType,
+  entityId: string,
+  field: FieldOverrideField,
+  value: FieldOverrideValue,
+  now: string,
+  facet: (typeof PRODUCT_FACETS)[number] | null,
+  facetWrite: { termIds: string[]; usefulness?: ProductUsefulness | null } | null,
+): BatchStmt[] {
+  if (facet && facetWrite) {
+    const stmts: BatchStmt[] = [
+      db
+        .update(products)
+        .set({
+          updatedAt: now,
+          ...(facetWrite.usefulness !== undefined ? { usefulness: facetWrite.usefulness } : {}),
+        })
+        .where(eq(products.id, entityId)),
+      db.delete(facet.join).where(eq(facet.join.productId, entityId)),
+    ];
+    if (facetWrite.termIds.length > 0) {
+      stmts.push(
+        db.insert(facet.join).values(facetWrite.termIds.map((id) => facet.row(entityId, id))),
+      );
+    }
+    return stmts;
+  }
+  const table = overrideTable(entityType);
+  const column = overrideColumn(
+    entityType,
+    field as Exclude<FieldOverrideField, ProductFacetOverrideField>,
+  );
+  return [
+    db
+      .update(table)
+      .set({ [column]: value, updatedAt: now } as never)
+      .where(eq(table.id, entityId)),
+  ];
+}
+
+/**
+ * The product's "How teams use it" with the groups for terms no longer in `kept`
+ * removed (AECI-1382), or `null` when nothing changes: a category or trade has no
+ * narrative, and a group whose term stays is kept as written. An emptied value is
+ * `null`, the one encoding of "cleared" (`resolveUsefulness`). `usefulness_source`
+ * is untouched: what remains is still the author's text.
+ */
+function trimUsefulness(
+  raw: unknown,
+  bucket: keyof TaxonomySlugs,
+  kept: readonly string[],
+): { before: ProductUsefulness; after: ProductUsefulness | null } | null {
+  if (bucket !== 'audiences' && bucket !== 'phases') return null;
+  const before = toUsefulness(raw);
+  if (!before) return null;
+  const keep = new Set(kept);
+  const groups = before[bucket].filter((group) => keep.has(group.slug));
+  if (groups.length === before[bucket].length) return null;
+  const next = { ...before, [bucket]: groups };
+  return {
+    before,
+    after: next.audiences.length === 0 && next.phases.length === 0 ? null : next,
+  };
+}
+
+/** The cache tags a corrected record's pages carry, and its Algolia ids. A product
+ *  facet correction takes the vendor PATCH's `productEditTags` (AECI-1382). */
 async function afterCommitTargets(
   db: Db,
   target: OverrideTarget,
+  facetWrite: { beforeTaxonomy: TaxonomySlugs; afterTaxonomy: TaxonomySlugs } | null,
 ): Promise<{
   tags: string[];
   search: { products: string[]; vendors: string[]; integrations: string[] };
@@ -263,7 +357,9 @@ async function afterCommitTargets(
       };
     case 'product':
       return {
-        tags: [`product:${row.slug}`, 'index:products'],
+        tags: facetWrite
+          ? productEditTags(row.slug!, facetWrite.beforeTaxonomy, facetWrite.afterTaxonomy)
+          : [`product:${row.slug}`, 'index:products'],
         search: { products: [target.id], vendors: [], integrations: [] },
       };
     case 'integration':
@@ -324,8 +420,13 @@ export function createSetFieldOverrideHandler(
     if (!parsed.ok) {
       throw new ApiError(400, 'VALIDATION_FAILED', parsed.problem, { field: 'value' });
     }
+    // AECI-1382: a product facet. `parseFieldOverrideValue` returned the sorted slug set.
+    const facet =
+      body.entityType === 'product' && isFacetOverrideField(field)
+        ? PRODUCT_FACETS.find((f) => f.field === field)!
+        : null;
 
-    const [existing, stamp, pairSlugs] = await Promise.all([
+    const [existing, stamp, pairSlugs, facetRead] = await Promise.all([
       db.query.fieldOverrides.findFirst({
         columns: { id: true },
         where: and(
@@ -339,12 +440,51 @@ export function createSetFieldOverrideHandler(
       target.located
         ? retireSlugs(db, target.located).then((s) => s.pairSlugs)
         : Promise.resolve(null),
+      // An unknown slug is a 400 naming `value`, the vendor PATCH's own rule.
+      facet
+        ? Promise.all([
+            resolveTerms(db, facet.terms, parsed.value as string[], 'value'),
+            loadTaxonomySlugs(db, [body.entityId]).then((m) => m.get(body.entityId) ?? NO_TAXONOMY),
+          ])
+        : Promise.resolve(null),
     ]);
     if (existing) throw overrideActiveError();
 
-    const column = overrideColumn(body.entityType, field);
-    const before = (target.row[column] ?? null) as FieldOverrideValue;
     const value = parsed.value;
+    let before: FieldOverrideValue;
+    let facetWrite: {
+      termIds: string[];
+      beforeTaxonomy: TaxonomySlugs;
+      afterTaxonomy: TaxonomySlugs;
+      usefulness?: ProductUsefulness | null;
+    } | null = null;
+    let usefulnessTrim: { before: ProductUsefulness; after: ProductUsefulness | null } | null =
+      null;
+    let noticeValue: string | null;
+    if (facet && facetRead) {
+      const [terms, beforeTaxonomy] = facetRead;
+      before = beforeTaxonomy[facet.bucket];
+      facetWrite = {
+        termIds: terms.map((term) => term.id),
+        beforeTaxonomy,
+        afterTaxonomy: { ...beforeTaxonomy, [facet.bucket]: value as string[] },
+      };
+      // A removed audience or phase takes its "How teams use it" points with it, as
+      // the vendor editor's removal does. The public section renders every group with
+      // points, so a group left behind would describe a term the product lost.
+      usefulnessTrim = trimUsefulness(target.row.usefulness, facet.bucket, value as string[]);
+      if (usefulnessTrim) facetWrite.usefulness = usefulnessTrim.after;
+      // The notice and the portal feed carry a string: the term names, in reading order.
+      const names = terms.map((term) => term.name).sort(compareText);
+      noticeValue = names.length > 0 ? names.join(', ') : null;
+    } else {
+      const column = overrideColumn(
+        body.entityType,
+        field as Exclude<FieldOverrideField, ProductFacetOverrideField>,
+      );
+      before = (target.row[column] ?? null) as FieldOverrideValue;
+      noticeValue = value === null ? null : String(value);
+    }
     const now = new Date().toISOString();
     const overrideId = crypto.randomUUID();
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
@@ -358,8 +498,14 @@ export function createSetFieldOverrideHandler(
         entityId: body.entityId,
         ...stamp,
         ...(body.entityType === 'product' ? { productId: body.entityId } : {}),
-        beforeState: { [field]: before },
-        afterState: { [field]: value },
+        beforeState: {
+          [field]: before,
+          ...(usefulnessTrim ? { usefulness: usefulnessTrim.before } : {}),
+        },
+        afterState: {
+          [field]: value,
+          ...(usefulnessTrim ? { usefulness: usefulnessTrim.after } : {}),
+        },
         metadata: {
           source: FIELD_OVERRIDE_AUDIT_SOURCE,
           field,
@@ -380,7 +526,7 @@ export function createSetFieldOverrideHandler(
           reason: body.reason,
           overrideId,
           field,
-          value: value === null ? null : String(value),
+          value: noticeValue,
           ...(target.recordSubject
             ? {
                 entityType: body.entityType as 'vendor' | 'product',
@@ -397,7 +543,6 @@ export function createSetFieldOverrideHandler(
       );
     }
 
-    const table = overrideTable(body.entityType);
     const stmts: BatchStmt[] = [
       // The lock row FIRST: a racing second correction trips the partial unique
       // index here and the whole batch, column write included, rolls back.
@@ -413,10 +558,7 @@ export function createSetFieldOverrideHandler(
         setBy: session.userId,
         setAt: now,
       }),
-      db
-        .update(table)
-        .set({ [column]: value, updatedAt: now } as never)
-        .where(eq(table.id, body.entityId)),
+      ...correctionWrites(db, body.entityType, body.entityId, field, value, now, facet, facetWrite),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
     try {
@@ -426,7 +568,7 @@ export function createSetFieldOverrideHandler(
       throw error;
     }
 
-    const after = await afterCommitTargets(db, target);
+    const after = await afterCommitTargets(db, target, facetWrite);
     dispatchOwnerWriteSearch(
       c,
       'admin-field-override-algolia',

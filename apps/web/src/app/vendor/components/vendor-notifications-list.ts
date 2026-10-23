@@ -14,6 +14,7 @@ import { RouterLink } from '@angular/router';
 
 import {
   isAttestationNotification,
+  isFacetOverrideField,
   type VendorAeciOverrideNotification,
   type VendorNotification,
   type VendorProductRequestNotification,
@@ -651,6 +652,14 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
       meaning = $localize`:@@vendor.override.notify.note.seat:That person no longer has access to your vendor portal.`;
       break;
     case 'field_corrected': {
+      // AECI-1382: a facet's value is its term names joined by ", ", so it gets its
+      // own sentence. A list inside "The new value, …, is live" reads as clauses.
+      if (notification.field && isFacetOverrideField(notification.field)) {
+        meaning = notification.value
+          ? $localize`:@@vendor.override.notify.note.correctedTerms:The terms are now ${notification.value}:terms:. You cannot change them until AEC Integrations lifts the lock.`
+          : $localize`:@@vendor.override.notify.note.correctedNoTerms:AEC Integrations removed every term. You cannot add one until AEC Integrations lifts the lock.`;
+        break;
+      }
       const value =
         notification.value ?? $localize`:@@vendor.override.notify.note.cleared:(cleared)`;
       meaning = $localize`:@@vendor.override.notify.note.corrected:The new value, ${value}:value:, is live. You cannot change this field until AEC Integrations lifts the lock.`;
