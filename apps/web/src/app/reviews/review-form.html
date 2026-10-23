@@ -268,7 +268,7 @@
       ></textarea>
       <p id="review-body-hint" class="text-xs text-(--text-secondary)" i18n="@@reviews.body.hint">
         What worked, what didn't, and who you'd recommend it to.
-        <strong class="text-(--text-primary)">Minimum 50 characters.</strong>
+        <strong class="text-(--text-primary)">Between 50 and 2,000 characters.</strong>
       </p>
       @if (form.body().touched() && form.body().getError('standardSchema')) {
       <p
@@ -277,7 +277,7 @@
         role="alert"
         i18n="@@reviews.body.error"
       >
-        Add at least 50 characters.
+        Use between 50 and 2,000 characters.
       </p>
       }
     </div>
@@ -480,6 +480,15 @@
         >View your review</a
       >
     </div>
+    } @else if (submitRateLimited()) {
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@reviews.submitRateLimited"
+    >
+      You've sent too many submissions for now. Wait a while, then submit again. Your answers are
+      still here.
+    </p>
     } @else if (submitFailed()) {
     <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@reviews.submitFailed">
       Something went wrong submitting your review. Please try again.

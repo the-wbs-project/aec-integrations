@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: October 13, 2026
+last_updated: October 23, 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -34,7 +34,7 @@ Four more are optional:
 
 If you answered the About you questions on your account, your role and firm are filled in for you. You can change them before you submit. To leave your firm off a review, clear the field.
 
-Choose **Submit review** when you are done. You can send at most three reviews in any hour. If a submission fails after that, wait an hour and try again.
+Choose **Submit review** when you are done. You can send at most three reviews in any hour. If you reach that limit, the form asks you to wait and keeps your answers. Submit again later.
 
 Before you write, read the [Review Guidelines](/legal/review-guidelines). They say what a review must and must not contain.
 

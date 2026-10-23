@@ -141,6 +141,11 @@ export class ReviewForm {
    *  disable submit) — so it mirrors `submitFailed` (AECI-260). */
   protected readonly submitDuplicate = signal(false);
 
+  /** True when the last submit hit a rate limit (`RATE_LIMITED`, 429): the
+   *  three-an-hour review cap or the per-minute write burst cap. Retrying at
+   *  once fails again, so it gets its own "wait" notice (AECI-1256). */
+  protected readonly submitRateLimited = signal(false);
+
   // ── Already-reviewed guard (AECI-260, defense in depth) ───────────────────
   /** True while the browser-side post-hydration access probe runs (auth, then
    *  the "have I already reviewed this?" check). Starts `true` so SSR/pre-
@@ -341,6 +346,7 @@ export class ReviewForm {
   protected async onSubmit(): Promise<void> {
     this.submitFailed.set(false);
     this.submitDuplicate.set(false);
+    this.submitRateLimited.set(false);
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
@@ -350,9 +356,11 @@ export class ReviewForm {
         // Surface as a retryable notice, not a form error — a `ValidationError`
         // here would mark the form invalid and disable submit (mirrors
         // request-form). A `REVIEW_DUPLICATE` (409) gets its own specific copy
-        // (AECI-260); everything else (network, 401 expired session, 5xx) is the
-        // generic retry notice. Both keep the form enabled.
+        // (AECI-260), as does a `RATE_LIMITED` (429), which says to wait
+        // (AECI-1256); everything else (network, 401 expired session, 5xx) is
+        // the generic retry notice. All keep the form enabled.
         if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
+        else if (isRateLimited(err)) this.submitRateLimited.set(true);
         else this.submitFailed.set(true);
       }
       return undefined;
@@ -402,4 +410,13 @@ function isReviewDuplicate(err: unknown): boolean {
   if (!(err instanceof HttpErrorResponse)) return false;
   const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
   return code === ApiErrorCode.REVIEW_DUPLICATE || err.status === 409;
+}
+
+/** True when `err` is the API's `RATE_LIMITED` 429. Both the hourly review cap
+ *  and the per-minute write limiter emit it. Leads with the structured error
+ *  code and falls back to the bare 429 status. */
+function isRateLimited(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse)) return false;
+  const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
+  return code === ApiErrorCode.RATE_LIMITED || err.status === 429;
 }
