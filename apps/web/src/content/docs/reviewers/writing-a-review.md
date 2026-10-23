@@ -34,7 +34,7 @@ Four more are optional:
 
 If you answered the About you questions on your account, your role and firm are filled in for you. You can change them before you submit. To leave your firm off a review, clear the field.
 
-Choose **Submit review** when you are done. You can send at most three reviews in any hour. If you reach that limit, the form tells you so and keeps your answers. Wait, then submit again.
+Choose **Submit review** when you are done. You can send at most three reviews in any hour. If you reach that limit, the form asks you to wait and keeps your answers. Submit again later.
 
 Before you write, read the [Review Guidelines](/legal/review-guidelines). They say what a review must and must not contain.
 
