@@ -11,6 +11,10 @@ import { attachConsoleCapture } from './console-capture';
 // assert the SSR shell, the non-cacheable + noindex contract, accessibility,
 // and clean hydration — but NOT a live magic-link send. The structural
 // assertions hold in both the configured and degraded states.
+//
+// The one exception is the AECI-829 focus test, which plants a stub config with
+// `addInitScript` and fulfils the Supabase OTP call with `page.route`, so the
+// submit and the "Check your email" swap run without sending a real email.
 
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -55,6 +59,43 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     await expect(page.locator('#login-email')).toBeVisible();
     expect(capture.errors, 'no console errors on hydrate').toEqual([]);
     expect(capture.pageErrors, 'no uncaught page errors on hydrate').toEqual([]);
+  });
+
+  // AECI-829 (WCAG 4.1.3): the swap destroys the focused submit button. The
+  // confirmation heading must take focus, or a screen reader announces nothing.
+  test('a sent link moves focus to "Check your email", and back to the field on reset', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __AECI_SUPABASE__: unknown }).__AECI_SUPABASE__ = {
+        url: 'https://stub.supabase.test',
+        anonKey: 'e2e-anon-key',
+      };
+    });
+    // Any host: CI has no config and uses the stub above, but a local run with a
+    // configured `.dev.vars` injects the real one after the init script.
+    await page.route('**/auth/v1/otp**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+
+    await page.goto('/auth/login');
+    const email = page.locator('#login-email');
+    const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
+    // `goto` resolves on the SSR HTML. A fill before hydration never reaches the
+    // form model, so the button stays disabled: retry the fill until it enables.
+    await expect(async () => {
+      await email.fill('pm@example.com');
+      await expect(submit).toBeEnabled({ timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+    await submit.click();
+
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeFocused();
+    // The separate axe test only sees the default render; scan the sent state too.
+    const violations = await aaViolations(page);
+    expect(violations, formatViolations(violations)).toEqual([]);
+
+    await page.getByRole('button', { name: 'Use a different email' }).click();
+    await expect(email).toBeFocused();
   });
 
   test('has zero axe AA violations', async ({ page }) => {

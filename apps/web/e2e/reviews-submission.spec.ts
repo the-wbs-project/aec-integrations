@@ -167,5 +167,11 @@ test.describe('/products/:slug/review — authenticated form (AECI-200)', () => 
     await page.locator('button[type="submit"]').click();
 
     await expect(page.getByText(/once moderated/i)).toBeVisible();
+    // AECI-829 (WCAG 4.1.3): the focused submit button went with the form, so
+    // the confirmation heading must take focus to be announced.
+    await expect(page.getByRole('heading', { name: 'Review received' })).toBeFocused();
+    // The separate axe test only sees the default render; scan the confirmation too.
+    const violations = await aaViolations(page);
+    expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
   });
 });

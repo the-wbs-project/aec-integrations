@@ -224,6 +224,40 @@ describe('AccountPage', () => {
     expect(el.textContent).toContain('Rolled out across two studios');
   });
 
+  // AECI-829 (WCAG 4.1.3): the loading line is replaced by the loaded account,
+  // so one persistent status region carries the transition.
+  it('announces loading, then loaded, in a status region that is always rendered', async () => {
+    const api = makeApiMock();
+    let resolveProfile!: (value: typeof PROFILE) => void;
+    api.getProfile.mockReturnValueOnce(
+      new Promise<typeof PROFILE>((resolve) => (resolveProfile = resolve)),
+    );
+    const { fixture, el } = await setup(api);
+    const status = () => el.querySelector('[data-testid="account-load-status"]');
+
+    expect(status()?.getAttribute('role')).toBe('status');
+    expect(status()?.getAttribute('aria-live')).toBe('polite');
+    expect(status()?.textContent?.trim()).toBe('Loading your account…');
+    const region = status();
+
+    resolveProfile({ ...PROFILE });
+    await fixture.whenStable();
+    await settle();
+    fixture.detectChanges();
+
+    // Same node: a region created alongside its text is not announced.
+    expect(status()).toBe(region);
+    expect(status()?.textContent?.trim()).toBe('Your account has loaded.');
+  });
+
+  it('leaves the status region empty on a failed load, which has its own alert', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockRejectedValueOnce(new Error('401'));
+    const { el } = await setup(api);
+    expect(el.querySelector('[data-testid="account-load-status"]')?.textContent?.trim()).toBe('');
+    expect(el.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it('saves a new display name via PATCH and confirms success', async () => {
     const { fixture, el, api } = await setup();
     typeName(fixture, '  New Name  ');
@@ -234,7 +268,9 @@ describe('AccountPage', () => {
     expect(api.updateProfile).toHaveBeenCalledTimes(1);
     // The value is trimmed before it reaches the API.
     expect(api.updateProfile).toHaveBeenCalledWith({ display_name: 'New Name' });
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('Display name updated');
+    // The page-level load status region (AECI-829) comes first in the DOM.
+    const notices = [...el.querySelectorAll('[role="status"]')].map((n) => n.textContent ?? '');
+    expect(notices.some((t) => t.includes('Display name updated'))).toBe(true);
   });
 
   it('surfaces a retryable notice when the save fails and keeps the button enabled', async () => {

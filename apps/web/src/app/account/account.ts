@@ -103,6 +103,18 @@ export class AccountPage {
   protected readonly loadFailed = signal(false);
 
   /**
+   * Text of the page's persistent `role="status"` region (AECI-829, WCAG 4.1.3).
+   * The region sits outside every `@if`, so a screen reader is already watching
+   * it when the loading text gives way to "loaded". The failure branches carry
+   * their own `role="alert"`, so this stays empty for them.
+   */
+  protected readonly loadStatus = computed(() => {
+    if (this.loading()) return $localize`:@@account.loadStatus.loading:Loading your account…`;
+    if (this.profile()) return $localize`:@@account.loadStatus.loaded:Your account has loaded.`;
+    return '';
+  });
+
+  /**
    * True when the API answered 503 `PROFILE_UNAVAILABLE` (AECI-770): the session
    * is fine but its profile could not be created yet. The page offers a retry,
    * not "sign in again", because signing in again does not help.

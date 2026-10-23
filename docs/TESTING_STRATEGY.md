@@ -654,12 +654,16 @@ zero vendor seats. It needs a seated vendor session or a local run.
 Status Messages (AA)** failures on `/auth/login`, `/products/:slug/review` and `/account`: each
 replaces the view on a state change with no live region and no focus move. **No axe run can catch this
 class**, for a reason worth stating plainly here — the defect exists only *after* a form submission,
-and **every axe spec we have measures the default render**. `auth-login.spec.ts` never submits at all.
-`reviews-submission.spec.ts` does submit, in its "a filled form submits and shows the moderation
-confirmation" test, but its axe scan is a *separate* test on the default render and the submit test
-asserts only that the confirmation copy is visible — so neither suite catches the class either way.
-When those defects are fixed, the regression assertion belongs in the e2e spec (submit, then assert
-focus or the announcement), not in a new axe rule.
+and at the time of that pass **every axe spec we had measured the default render**. `auth-login.spec.ts`
+never submitted at all. `reviews-submission.spec.ts` did submit, in its "a filled form submits and shows the moderation
+confirmation" test, but its axe scan was a *separate* test on the default render and the submit test
+asserted only that the confirmation copy was visible, so neither suite caught the class either way.
+The regression assertion belongs in the e2e spec (submit, then assert focus or the announcement), not
+in a new axe rule. AECI-829 fixed all three and added it: `auth-login.spec.ts` now submits against a
+stubbed Supabase config (`addInitScript` plus `page.route`) and asserts the "Check your email" heading
+`toBeFocused()`; `reviews-submission.spec.ts` asserts the same on "Review received". Both tests also
+run axe on the swapped-in state, the first axe scans of a post-submit view. `/account` needs a
+real session, so its persistent load-status region is asserted in `account.component.spec.ts`.
 
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav, for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 

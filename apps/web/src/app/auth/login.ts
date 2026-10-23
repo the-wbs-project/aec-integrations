@@ -1,4 +1,12 @@
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -91,6 +99,15 @@ export class LoginPage {
   private readonly router = inject(Router);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+  private readonly injector = inject(Injector);
+
+  /**
+   * Focus targets for the two view swaps (AECI-829, WCAG 4.1.3). Each swap
+   * destroys the button that held focus, so focus moves to the new view's
+   * heading or field instead of falling back to `<body>`.
+   */
+  private readonly sentHeading = viewChild<ElementRef<HTMLElement>>('sentHeading');
+  private readonly emailInput = viewChild<ElementRef<HTMLInputElement>>('emailInput');
 
   /** Validated same-origin return path threaded into both auth flows. */
   protected readonly returnPath = safeReturnPath(this.route.snapshot.queryParamMap.get('return'));
@@ -182,6 +199,7 @@ export class LoginPage {
       try {
         await this.auth.sendMagicLink(email, this.returnPath);
         this.emailSent.set(email);
+        this.focusAfterRender(this.sentHeading);
       } catch {
         // Notice, not a form error — a `ValidationError` would mark the form
         // invalid and disable the button, blocking the retry the copy invites.
@@ -208,5 +226,11 @@ export class LoginPage {
   protected useDifferentEmail(): void {
     this.submitFailed.set(false);
     this.emailSent.set(null);
+    this.focusAfterRender(this.emailInput);
+  }
+
+  /** Focus an element of the branch the next render swaps in. */
+  private focusAfterRender(target: () => ElementRef<HTMLElement> | undefined): void {
+    afterNextRender(() => target()?.nativeElement.focus(), { injector: this.injector });
   }
 }

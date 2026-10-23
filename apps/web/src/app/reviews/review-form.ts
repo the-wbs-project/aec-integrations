@@ -1,5 +1,14 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
@@ -117,6 +126,7 @@ export class ReviewForm {
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
   private readonly analytics = inject(Analytics);
+  private readonly injector = inject(Injector);
 
   /** The resolved product (or `null` → render the shared 404 shell). The
    *  resolver ran before this component, so the snapshot is populated. */
@@ -165,6 +175,10 @@ export class ReviewForm {
    *  method, never an `effect`) so `BrnDialog.open()`'s internal effect is legal
    *  (NG0602). Always present in the not-submitted template so this resolves. */
   private readonly signInDialog = viewChild(BrnDialog);
+  /** The confirmation heading. A successful submit destroys the focused submit
+   *  button with the form, so focus moves here and the confirmation is read
+   *  out (AECI-829, WCAG 4.1.3). */
+  private readonly successHeading = viewChild<ElementRef<HTMLElement>>('successHeading');
 
   // ── Aria control bridge / state signals (value is always an array) ────────
   /** Selected overall-rating star (bridged into the form). */
@@ -350,6 +364,9 @@ export class ReviewForm {
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
+        afterNextRender(() => this.successHeading()?.nativeElement.focus(), {
+          injector: this.injector,
+        });
         // Analytics is consent-gated + fire-and-forget; never blocks the flow.
         if (this.product) this.analytics.reviewSubmitted(this.product.id);
       } catch (err) {

@@ -85,6 +85,8 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 **The correct pattern already exists in the repo.** `/admin/reviews` and `/admin/overview` render `<p class="sr-only" role="status" aria-live="polite">` **outside** any `@if`, so the region is present before the text arrives. Measured live on both.
 
+**Fixed 2026-10-23 (AECI-829).** A1 and A2 now move focus to the swapped-in heading. The "Check your email" and "Review received" `<h1>` carry `tabindex="-1"` and are focused in `afterNextRender` after the signal flips. A1 also returns focus to the email field after "Use a different email", which destroyed its own button in the same way. A3 now has one persistent `sr-only` `role="status"` region under the `<h1>`. It reads "Loading your account…", then "Your account has loaded."; the failure branches keep their own `role="alert"`. Regression assertions: `apps/web/e2e/auth-login.spec.ts` submits against a stubbed Supabase config and asserts `toBeFocused()` on the heading. `apps/web/e2e/reviews-submission.spec.ts` asserts the same on its existing submit test. Both tests also run axe on the swapped-in state. `/account` needs a real session, so its region is covered by `account.component.spec.ts`. Not yet fixed, same class: the "Your reviews" list load on `/account`, and the "Display name updated." notice, which is a `role="status"` created together with its text.
+
 **What to do.** For a whole-view swap, moving focus is better than announcing, because it fixes the lost reading position too: give the success heading `tabindex="-1"` and focus it after the swap. A persistent `role="status"` region is the alternative, and is the right choice for A3's loading transition.
 
 **Regression test each fix must add.** The two specs are in different starting positions, so the work differs. `apps/web/e2e/auth-login.spec.ts` never submits at all — every one of its four tests measures the default render, so A1's fix has to add a submit step first. `apps/web/e2e/reviews-submission.spec.ts` **does** submit: its "a filled form submits and shows the moderation confirmation" test stubs `POST /api/reviews`, fills the form and clicks submit, then asserts only that the confirmation copy is *visible*. A2's fix therefore extends an existing test rather than adding one. In both cases the new assertion is the same: `document.activeElement` is the success heading, or a pre-existing `role="status"` received the text. Note that the axe scan in each file is a **separate** test on the default render, so neither suite would catch this class even where a submit already happens. The assertion style already exists in `apps/web/e2e/nav-menu.spec.ts`, which asserts Escape-closes-and-returns-focus.
@@ -170,9 +172,9 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 |---|---|---|---|---|---|
 | Home `/` | ✅ | ✅ clean | ✅ | ⚠️ A4, A5 | n/a |
 | Product detail `/products/microsoft-fabric` | ✅ | ✅ clean | ⚠️ A8 | ⚠️ A7, A9 | n/a |
-| Login `/auth/login` | ✅ | not walked | ✅ | ✅ | ❌ **A1** |
-| Review submission `/products/:slug/review` | ✅ | ⚠️ partial (§6) | ⚠️ single `h1`, no `h2` | ✅ | ❌ **A2** |
-| Account `/account` | ✅ | not walked | ✅ | ✅ | ❌ **A3** |
+| Login `/auth/login` | ✅ | not walked | ✅ | ✅ | ✅ A1 fixed (AECI-829) |
+| Review submission `/products/:slug/review` | ✅ | ⚠️ partial (§6) | ⚠️ single `h1`, no `h2` | ✅ | ✅ A2 fixed (AECI-829) |
+| Account `/account` | ✅ | not walked | ✅ | ✅ | ✅ A3 fixed (AECI-829) |
 | Admin queue `/admin/reviews` | ✅ | not walked | ✅ | ✅ | ✅ reference-good |
 | Admin overview `/admin/overview` | ✅ (bonus) | not walked | ✅ | ✅ | ✅ reference-good |
 | Onboarding `/welcome` (local, 2026-10-13, AECI-1296 working tree) | ✅ | DOM order only (harness dropped keys) | ✅ | ✅ | ✅ one persistent `role=status` |
@@ -230,7 +232,7 @@ Stated plainly so nobody reads a gap as a pass.
 
 | Item | Severity | Filed as |
 |---|---|---|
-| A1 / A2 / A3 — status messages on view swap | **Serious (WCAG 4.1.3 AA)** | [AECI-829](https://linear.app/aec-integrations/issue/AECI-829) |
+| A1 / A2 / A3 — status messages on view swap | **Serious (WCAG 4.1.3 AA)** | [AECI-829](https://linear.app/aec-integrations/issue/AECI-829), fixed 2026-10-23 |
 | A4 — three identical "Source" links · A5 — two unnamed search landmarks | Serious | [AECI-830](https://linear.app/aec-integrations/issue/AECI-830) |
 | A6–A10 — minor set | Minor | [AECI-831](https://linear.app/aec-integrations/issue/AECI-831) |
 | Dialog focus management, review-form `Tab` walk, mobile viewport | Coverage — needs a **local seeded** run | [AECI-832](https://linear.app/aec-integrations/issue/AECI-832) |

@@ -140,12 +140,12 @@ questions the machine pass could not answer.
 | V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
 | V6 | `/` | Submit the mailing-list signup | Is the "thanks" message spoken? *(H2 — the region is inserted already populated.)* | ☐ |
 | V7 | `/auth/login` | `VO+A` | "YOUR EMAIL" — read as words, or spelled out letter by letter? *(H3.)* | ☐ |
-| V8 | `/auth/login` | Enter an email, submit | **The critical one.** Is "Check your email" announced? Where does the cursor land? *(A1 — expected to fail.)* | ☐ |
+| V8 | `/auth/login` | Enter an email, submit | **The critical one.** Is "Check your email" announced? Where does the cursor land? *(A1. Fixed by AECI-829: focus should land on the heading.)* | ☐ |
 | V9 | `/products/microsoft-fabric` | `VO+U`, choose **Tables** | Two unnamed tables with identical headers. *(Confirms A7.)* | ☐ |
 | V10 | `/products/:slug/review` | `VO+U`, choose **Headings** | Only one heading, the product name. Is the page's purpose discoverable? | ☐ |
 | V11 | `/products/:slug/review` | `Tab` through the whole form | Is the **Submit review** button ever reached? Is it clear what is blocking it? *(A6 — expected: never reached.)* | ☐ |
-| V12 | `/products/:slug/review` | Complete and submit a review *(local only)* | Is "Review received" announced? Where does the cursor land? *(A2 — expected to fail.)* | ☐ |
-| V13 | `/account` | Load the page | Is the loading-to-loaded transition announced? *(A3 — expected to fail.)* | ☐ |
+| V12 | `/products/:slug/review` | Complete and submit a review *(local only)* | Is "Review received" announced? Where does the cursor land? *(A2. Fixed by AECI-829: focus should land on the heading.)* | ☐ |
+| V13 | `/account` | Load the page | Is the loading-to-loaded transition announced? *(A3. Fixed by AECI-829: expect "Your account has loaded.")* | ☐ |
 | V14 | `/account` | `Return` on "Delete account", then `Escape` | Does VoiceOver enter the dialog and read its title? Does `Escape` return you to the button? *(Untested by machine — do this **locally**.)* | ☐ |
 | V15 | `/admin/reviews` | Moderate one review *(local only)* | Is the outcome announced **once**? This region is the reference-good pattern. | ☐ |
 
