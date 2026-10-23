@@ -5,7 +5,7 @@
  * connector-powered row's frozen field; "Claim to edit" and Claim for the recorded
  * owner; "Request a change" for anyone else; the open-request flag in its place
  * (AECI-1143); no Direction row; the Owner row's action; the tooltip's text in the
- * DOM for assistive tech.
+ * DOM for assistive tech; the Added by row never naming the current owner (AECI-1320).
  */
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +20,7 @@ import {
 } from '../vendor-fixtures';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
+import { formatDay } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
 import {
   apiError,
@@ -232,6 +233,32 @@ describe('anyone else', () => {
     expect(desc.textContent).toContain('Shows as "Offered by" on the public page.');
     expect(desc.textContent).toContain(
       'A request about the owner always goes to AEC Integrations.',
+    );
+  });
+});
+
+describe('the Added by row (AECI-1320)', () => {
+  const addedRow = (fixture: Awaited<ReturnType<typeof mount>>) =>
+    el(fixture).querySelector(testid('overview-row-added'))!.textContent ?? '';
+
+  it('never names the current owner on a vendor-created row', async () => {
+    // An AECi owner reassignment (§11b.6) leaves Procore as owner of a row another
+    // company created, so the owner's name would credit the wrong company.
+    const created = { ...INTEGRATION_PROCORE_DETAIL, origin: 'vendor' as const };
+    const api = makeApi([created]);
+    await setup(api, created);
+    const fixture = await mount(IntegrationOverview, created);
+    const row = addedRow(fixture);
+    expect(row).toContain(`A company, ${formatDay(created.created_at)}`);
+    expect(row).not.toContain(created.owner!.name);
+  });
+
+  it('names AEC Integrations on a curated row', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL]);
+    await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationOverview, INTEGRATION_PROCORE_DETAIL);
+    expect(addedRow(fixture)).toContain(
+      `AEC Integrations, ${formatDay(INTEGRATION_PROCORE_DETAIL.created_at)}`,
     );
   });
 });
