@@ -82,6 +82,11 @@ describe('VendorBillingEmailForm', () => {
     );
   });
 
+  it('names the Change button "Change billing email", with the space kept (AECI-1469)', () => {
+    const button = el(render('ap@acme.example')).querySelector('button') as HTMLButtonElement;
+    expect(button.textContent).toBe('Change billing email');
+  });
+
   it('saves, re-reads billing, announces and closes', async () => {
     const fixture = render(null);
     const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');

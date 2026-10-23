@@ -191,6 +191,26 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     expect(fixture.nativeElement.querySelector('form')).toBeNull();
   });
 
+  it('keeps a space before the sr-only name on Remove, Resend and Revoke (AECI-1469)', async () => {
+    setup({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+    const buttons = [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[];
+    const revoke = buttons.find((b) => b.textContent?.trim().startsWith('Revoke'))!;
+    expect(revoke.textContent?.trim()).toBe('Revoke jordan@summitbim.example.com');
+    const named = buttons.filter((b) => b.querySelector('.sr-only'));
+    for (const verb of ['Remove', 'Resend', 'Revoke']) {
+      expect(named.some((b) => b.textContent?.trim().startsWith(verb))).toBe(true);
+    }
+    for (const b of named) {
+      const name = b.querySelector('.sr-only')!.textContent!.trim();
+      expect(b.textContent?.trim().endsWith(` ${name}`)).toBe(true);
+    }
+  });
+
   it('never offers Remove on the caller’s OWN row', async () => {
     setup({
       seats: VENDOR_SEATS_FIXTURE,
@@ -488,6 +508,13 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     expect(linkedin?.rel).toContain('noopener');
     expect(button(fixture, 'Accept')).toBeDefined();
     expect(button(fixture, 'Decline')).toBeDefined();
+  });
+
+  it('names Accept and Decline with a space before the claimant (AECI-1469)', async () => {
+    setup(true);
+    const fixture = await render();
+    expect(button(fixture, 'Accept')!.textContent?.trim()).toBe('Accept Riley Chen');
+    expect(button(fixture, 'Decline')!.textContent?.trim()).toBe('Decline Riley Chen');
   });
 
   it('shows nothing to a member seat', async () => {

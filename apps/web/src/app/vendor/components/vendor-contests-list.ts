@@ -157,7 +157,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               } @else {
                                 <span i18n="@@vendor.contests.accept">Accept</span>
                               }
-                              <span class="sr-only">{{ rowName(contest) }}</span>
+                              <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                             <button
                               type="button"
@@ -170,7 +170,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               } @else {
                                 <span i18n="@@vendor.contests.decline">Decline</span>
                               }
-                              <span class="sr-only">{{ rowName(contest) }}</span>
+                              <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                           </div>
                           <p
@@ -259,7 +259,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               } @else {
                                 <span i18n="@@vendor.contests.withdraw.yes">Withdraw</span>
                               }
-                              <span class="sr-only">{{ rowName(contest) }}</span>
+                              <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                             <button
                               type="button"
@@ -280,7 +280,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                             (click)="startWithdraw(contest)"
                           >
                             <span i18n="@@vendor.contests.withdraw">Withdraw</span>
-                            <span class="sr-only">{{ rowName(contest) }}</span>
+                            <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                           </button>
                         }
                       }
