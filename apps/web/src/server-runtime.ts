@@ -80,6 +80,7 @@
 import {
   defaultIntegrationContext,
   encodeCfRaw,
+  hasPrivacySignal,
   isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
@@ -90,6 +91,7 @@ import {
   PAGE_VIEW_RAW_HEADERS,
   PAGE_VIEW_WRITER_HEADER,
   PAGE_VIEW_WRITERS,
+  PRIVACY_SIGNAL_HEADERS,
 } from '@aeci/shared';
 import type { IntegrationDetailResponse, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
@@ -978,6 +980,11 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
  * …). The API requires those *alongside* the provenance header before it will issue
  * `browser` for an in-app hop, so this function silently losing them would downgrade
  * every SPA row to `unknown`. `server.spec.ts` pins that.
+ *
+ * AECI-1386: a request with a privacy signal (`Sec-GPC: 1` / `DNT: 1`) gets no
+ * raw-store headers. The API writes no envelope for it, so the full `request.cf`
+ * and the client IP would only be carried for nothing. The client-supplied copies
+ * are still stripped.
  */
 export function withForwardedCfContext(request: Request): Request {
   const headers = new Headers(request.headers);
@@ -987,7 +994,9 @@ export function withForwardedCfContext(request: Request): Request {
   // client-supplied copy of any of them is dropped before ours are set.
   for (const name of Object.values(PAGE_VIEW_RAW_HEADERS)) headers.delete(name);
   applyCfContextHeaders(headers, request);
-  applyRawStoreHeaders(headers, request, { includeEyeballUrl: false });
+  if (!hasPrivacySignal(request.headers)) {
+    applyRawStoreHeaders(headers, request, { includeEyeballUrl: false });
+  }
   headers.set(PAGE_VIEW_WRITER_HEADER, PAGE_VIEW_WRITERS.browserSpa);
   return new Request(request, { headers });
 }
@@ -1080,6 +1089,9 @@ export function withForwardedLandingCf(request: Request): Request {
   return new Request(request, { headers });
 }
 
+/** The arrival forward headers a privacy-signal request still sends (AECI-1386). */
+const PRIVACY_SIGNAL_FORWARD: ReadonlySet<string> = new Set<string>(PRIVACY_SIGNAL_HEADERS);
+
 /**
  * Schedule a fire-and-forget `POST /api/page-views` against the API Worker via
  * the service binding: the arrival write for one full-document load (§14.2).
@@ -1109,6 +1121,13 @@ export function withForwardedLandingCf(request: Request): Request {
  * `'arrival'` is a property of the function, not of its caller. The request URL
  * is the authority on where the visitor actually is, so both overwrite whatever
  * the caller passed.
+ *
+ * AECI-1386: on a request with a privacy signal the write still fires, but it
+ * carries no raw-store headers and, from the arrival forward list, only `dnt` and
+ * `sec-gpc`. The API needs those two to see the signal. The UA, referer, cookie,
+ * client-signal and `x-aeci-cf-*` headers still travel: the API computes its
+ * verdicts from them in memory and stores none of the raw values. This touches
+ * only the `waitUntil` side request, never the rendered response or its cache key.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -1163,11 +1182,16 @@ function firePageView(
   // AECI-1384 — the rest of the eyeball's request, for the raw store only. A closed
   // allow-list with no IP-bearing header in it. Same no-trust footing as the loop
   // above: none of these feeds a `page_views` column.
+  //
+  // AECI-1386 — a privacy request writes no raw envelope, so it forwards only the
+  // two signal headers from this list, and none of the raw-store headers.
+  const privacy = hasPrivacySignal(sourceRequest.headers);
   for (const name of PAGE_VIEW_ARRIVAL_FORWARD_HEADERS) {
+    if (privacy && !PRIVACY_SIGNAL_FORWARD.has(name)) continue;
     const value = sourceRequest.headers.get(name);
     if (value) headers.set(name, value);
   }
-  applyRawStoreHeaders(headers, sourceRequest, { includeEyeballUrl: true });
+  if (!privacy) applyRawStoreHeaders(headers, sourceRequest, { includeEyeballUrl: true });
   // Forward the eyeball's `Cookie` so the API can decide whether this arrival is
   // the operator checking their own work (`is_operator`, ADMIN_PANEL_SPEC §13 D13).
   // The API verifies the session token itself — this header is transport, and

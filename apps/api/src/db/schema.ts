@@ -2638,6 +2638,19 @@ export const pageViews = sqliteTable(
     // implies a session. New rows always store true or false.
     isOwnerVisit: integer('is_owner_visit', { mode: 'boolean' }),
 
+    // Whether the request carried a privacy signal, `Sec-GPC: 1` or `DNT: 1`
+    // (AECI-1386, `hasPrivacySignal` in `@aeci/shared`). A true row is an anonymous
+    // counter: it keeps the page, the coarse verdicts and the country. It never
+    // stores the UA hash, the network, the colo, the Ray ID, the referrer host, the
+    // link token, the request-shape facts or a dedupe key. Its `created_at` is cut
+    // to the UTC hour, and it writes no raw R2 envelope.
+    //
+    // `is_owner_visit`'s shape: NULL = unknown, and reads as false. Every row
+    // written before migration 0089 is NULL and is never backfilled. New rows
+    // always store true or false. No CHECK and no index: nothing filters on it
+    // yet except the AECI-868 coverage read, which already scans the window.
+    privacySignal: integer('privacy_signal', { mode: 'boolean' }),
+
     // ─── Request-shape signals (AECI-658, `lib/client-signals.ts`) ───────────
     //
     // How browser-shaped the request was. These exist because the two levers we

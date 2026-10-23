@@ -495,6 +495,7 @@ export const CLASSIFIER_COLUMNS = {
   referrerSource: pageViews.referrerSource,
   isOperator: pageViews.isOperator,
   userAgentHash: pageViews.userAgentHash,
+  privacySignal: pageViews.privacySignal,
 } satisfies Record<keyof ClassifierRow, unknown>;
 
 /** One UTC day's rows and the context `classifyPageView` needs for them. */

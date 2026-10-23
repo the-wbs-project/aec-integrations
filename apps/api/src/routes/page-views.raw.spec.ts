@@ -1,7 +1,8 @@
 /**
  * The raw page-view store (AECI-1384, ADR 0041): every capture that reaches
  * `capturePageView` sends exactly one envelope to `PAGE_VIEW_RAW`, whatever the D1
- * outcome, and the raw write can never change that outcome.
+ * outcome, and the raw write can never change that outcome. A capture with a
+ * privacy signal sends none, on any outcome (AECI-1386).
  */
 
 import {
@@ -239,6 +240,70 @@ describe('raw page-view store (AECI-1384)', () => {
       .mocked(submitCount)
       .mock.calls.filter((call) => call[3] === 'aeci.pageviews.write')
       .map((call) => call[5]);
-    expect(writeTags).toEqual([['outcome:ok', 'bot:false']]);
+    expect(writeTags).toEqual([['outcome:ok', 'bot:false', 'privacy:false']]);
+  });
+});
+
+describe('raw page-view store: privacy signal (AECI-1386)', () => {
+  const PRIVACY_HEADERS = {
+    [PAGE_VIEW_WRITER_HEADER]: 'ssr-arrival',
+    [PAGE_VIEW_RAW_HEADERS.cfRaw]: encodeCfRaw({ city: 'Lyon', asn: 3215 }) as string,
+    [PAGE_VIEW_RAW_HEADERS.clientIp]: IP,
+  };
+
+  it.each([
+    ['sec-gpc', '1'],
+    ['dnt', '1'],
+  ])('%s: %s writes the row but sends no envelope', async (name, value) => {
+    const { stream, send } = fakeStream();
+    const { res, settle } = post(ARRIVAL, {
+      env: { PAGE_VIEW_RAW: stream, PAGE_VIEW_IP_HASH_SECRET: 's3cret' },
+      headers: { ...PRIVACY_HEADERS, [name]: value },
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(rawTags()).toEqual([['outcome:privacy_signal']]);
+  });
+
+  it('failed: a D1 error on a privacy request still sends no envelope', async () => {
+    const { stream, send } = fakeStream();
+    const broken: DbFactory = () => {
+      throw new Error('D1 unavailable');
+    };
+    const { res, settle } = post(ARRIVAL, {
+      env: { PAGE_VIEW_RAW: stream },
+      headers: { ...PRIVACY_HEADERS, 'sec-gpc': '1' },
+      factory: broken,
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    expect(send).not.toHaveBeenCalled();
+    expect(rawTags()).toEqual([['outcome:privacy_signal']]);
+  });
+
+  it('sampled_out: a privacy request below the floor sends no envelope', async () => {
+    const { stream, send } = fakeStream();
+    const { res, settle } = post(ARRIVAL, {
+      env: { PAGE_VIEW_RAW: stream, PAGE_VIEWS_MIN_BOT_SCORE: '30' },
+      headers: { ...PRIVACY_HEADERS, dnt: '1', 'x-aeci-cf-bot-score': '5' },
+    });
+    await res;
+    await settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(0);
+    expect(send).not.toHaveBeenCalled();
+    expect(rawTags()).toEqual([['outcome:privacy_signal']]);
+  });
+
+  it('binding absent: a privacy request never counts as skipped', async () => {
+    const { res, settle } = post(ARRIVAL, { headers: { 'sec-gpc': '1' } });
+    await res;
+    await settle();
+
+    expect(rawTags()).toEqual([['outcome:privacy_signal']]);
   });
 });

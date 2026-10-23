@@ -10,7 +10,7 @@
 
 Cloudflare keeps the zone's per-request record for 90 days and its firewall events for 31 days (verified 2026-10-13, AECI-1302). After that the detail is gone. Until now the only history beyond that window is a set of manual GraphQL pulls in the temporary bucket `aeci-views-temp` (`scripts/ops/2026-10-traffic-history/`, `scripts/ops/2026-10-ai-assistant-fetch-history/`). Each pull has a deadline, and a missed one loses days for good.
 
-`page_views` and the ADR 0041 raw store see only the requests that reach `capturePageView`. Since AECI-1297 the gateway writes every arrival, cache hit or not, so cached pages are counted. They still miss assets, API calls, redirects, errors and everything the WAF blocked. Cloudflare's own record is the only consent-independent source for AI-assistant fetches and AI referrals (`docs/VENDOR_PLAN_DATA_READINESS.md` G0).
+`page_views` and the ADR 0041 raw store see only the requests that reach `capturePageView`. Since AECI-1297 the gateway writes every arrival, cache hit or not, so cached pages are counted. They still miss assets, API calls, redirects, errors and everything the WAF blocked. Cloudflare's own record is the only consent-independent source for AI-assistant fetches and AI referrals (`docs/VENDOR_PLAN_DATA_READINESS.md` G0). Since AECI-1386 it is also the only record of request detail for a visit that sends DNT or GPC (see the amendment of 2026-10-23).
 
 The first version of epic AECI-1196 proposed Logpush into Basin Pipelines and the R2 Data Catalog, a daily D1 rollup, a Ray ID join to `page_views` and consent-tiered storage (`docs/design/edge-log-and-page-views.md` §4 to §6). Nothing reads that output yet. Bot Management is not licensed (AECI-1300, ruled 2026-10-21), so the Logpush bot fields carry no usable value. The v2 epic, ruled 2026-10-21, keeps only the store.
 
@@ -53,3 +53,7 @@ The first version of epic AECI-1196 proposed Logpush into Basin Pipelines and th
 - The zone's Logpush field list offers none of the item 2 Bot Management fields while Bot Management is unlicensed. The jobs use an explicit field list, every offered field except `ClientIP`, so buying Bot Management cannot add them silently.
 - The one-off token in item 8 needs account Notifications Edit as well as zone Logs Edit. The item 10 notification is an account alerting policy. Zone Logs Edit covered the `http_log_custom_fields` ruleset.
 - Item 1's host list is incomplete. The first delivered files also hold `review.aecintegrations.com`, the review app, and `us.i.posthog.com`, the PostHog ingest proxy on the zone. Filtering on `ClientRequestHost` still separates them.
+
+## Amendment 2026-10-23 (AECI-1386)
+
+`page_views` now stores a DNT/GPC visit as an anonymous counter row, and ADR 0041's raw store writes no envelope for it. This log does not change. It still holds every request, signal or not, because it is the security record. That makes it the only store with request detail for those visits. The privacy policy says so in its "Edge request log" entry. A privacy row has no `cf_ray`, so the parked Ray ID join (AECI-1304) can never reach it.

@@ -230,6 +230,10 @@ export const PAGE_VIEW_RAW_HEADERS = {
  *
  * IP-bearing headers are deliberately absent. The IP travels only as
  * `PAGE_VIEW_RAW_HEADERS.clientIp` and is hashed at the API.
+ *
+ * On a request with a privacy signal ({@link hasPrivacySignal}, AECI-1386) the SSR
+ * Worker forwards only `dnt` and `sec-gpc` from this list. The API needs those two
+ * to see the signal. The rest fed only the raw store, which such a request skips.
  */
 export const PAGE_VIEW_ARRIVAL_FORWARD_HEADERS = [
   'accept-encoding',
@@ -284,8 +288,9 @@ export const PAGE_VIEW_IP_HEADERS = [
  * written before the write-side fix shipped are otherwise indistinguishable from
  * real traffic.
  *
- * This is an exclusion list, not a consent concept — `page_views` ingest stays
- * consent-independent by design (`ADMIN_PANEL_SPEC.md` §1).
+ * This is an exclusion list, not a consent concept. `page_views` ingest needs no
+ * consent banner (`ADMIN_PANEL_SPEC.md` §1), but it does honour a browser privacy
+ * signal: see {@link hasPrivacySignal} (AECI-1386).
  */
 export const UNTRACKED_ROUTE_PREFIXES = ['/admin', '/account'] as const;
 
@@ -372,4 +377,24 @@ export function isSpeculativeRequest(headers: Headers): boolean {
     const value = headers.get(name);
     return value !== null && SPECULATIVE_VALUE_RE.test(value);
   });
+}
+
+/**
+ * Request headers that carry a browser privacy signal (AECI-1386): Global Privacy
+ * Control (`Sec-GPC`) and the older Do Not Track (`DNT`). Either one set to `1`
+ * turns a page view into an anonymous counter row. The API stores no UA hash,
+ * network, Ray ID, referrer host, link token or request-shape facts for it, writes
+ * no raw envelope, and cuts its timestamp to the hour. The privacy policy promises
+ * this (`apps/web/src/content/legal/privacy-policy.md`).
+ */
+export const PRIVACY_SIGNAL_HEADERS = ['sec-gpc', 'dnt'] as const;
+
+/**
+ * Whether a request carries a privacy signal: `Sec-GPC: 1` or `DNT: 1`, after
+ * trimming. Any other value, including `0`, is no signal. Both writers' requests
+ * reach the API with these headers intact, so the API decides, and the SSR Worker
+ * uses the same check to stop forwarding raw-store inputs.
+ */
+export function hasPrivacySignal(headers: Headers): boolean {
+  return PRIVACY_SIGNAL_HEADERS.some((name) => headers.get(name)?.trim() === '1');
 }

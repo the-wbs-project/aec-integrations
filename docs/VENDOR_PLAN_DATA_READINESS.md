@@ -18,7 +18,8 @@ not re-run those pulls. Its figures are quoted from that session's handoff. Four
 report:
 
 - **Cloudflare is the only consent-independent, user-agent-level record we have.** `page_views`
-  keeps only a user-agent hash and only successful renders. PostHog custom events cover about 1 in 8
+  keeps only a user-agent hash and only successful renders. Since AECI-1386 a DNT/GPC visit keeps
+  not even the hash: its row is an anonymous counter (`privacy_signal = true`). PostHog custom events cover about 1 in 8
   visitors. Cloudflare's per-request dataset has path, user agent, verified-bot flag, referrer and
   query string for every request. Cloudflare Web Analytics page loads are already on our pages, keep
   paths for 184 days, and need no consent. They are a candidate source for Insights view counts.

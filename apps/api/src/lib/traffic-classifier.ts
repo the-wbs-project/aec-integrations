@@ -26,7 +26,10 @@
  *      {@link SUSPECTED_MIN_SIGNAL_FAMILIES} DIFFERENT families. Network ownership
  *      is one family however many network facts agree (D19(b)).
  *   3. browser_with_human_evidence — our app was observed executing, and no
- *      automation signal or stored bot verdict contradicts it.
+ *      automation signal or stored bot verdict contradicts it. Never a row with
+ *      `privacy_signal` (AECI-1386): that row keeps no UA hash or network, so
+ *      nothing on it could be checked. Its human evidence reads as
+ *      `no_corroboration`.
  *   4. unresolved — everything else, always with at least one reason code.
  *
  * Internal traffic is a FLAG beside the class, never a class (D19(b)). The class
@@ -71,7 +74,7 @@ import {
  * `swarm-detection.ts`, a `DATACENTER_ASNS` entry or a `NAMED_BOTS` pattern. The
  * spec's pin tells you when.
  */
-export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.10.2';
+export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.10.3';
 
 /** The four D19(b) reporting classes, in precedence order. Stable: stored later. */
 export const TRAFFIC_CLASSES = [
@@ -124,6 +127,9 @@ export const REASON_CODES = [
   'evidence_no_asn',
   'evidence_no_tls',
   'evidence_pre_provenance',
+  // AECI-1386. A DNT/GPC counter row: the raw inputs were never stored. Replaces
+  // `evidence_no_asn` and `evidence_no_tls`, which would misstate why they are gone.
+  'evidence_privacy_signal',
 ] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
 
@@ -237,7 +243,10 @@ export const CLASS_PRECEDENCE = [
     'verified_edge (cf_verified_bot = true, or any non-null cf_verified_bot_category) | ua_self_declared (not when the ASN rule could have written the label) | ua_generic_token',
   ],
   ['suspected_automation', `signal families >= ${SUSPECTED_MIN_SIGNAL_FAMILIES}`],
-  ['browser_with_human_evidence', 'app_executed and no automation signal or stored bot verdict'],
+  [
+    'browser_with_human_evidence',
+    'app_executed and no automation signal or stored bot verdict, and privacy_signal is not true',
+  ],
   ['unresolved', 'otherwise; always carries a code'],
 ] as const;
 
@@ -263,6 +272,8 @@ export interface ClassifierRow {
   referrerSource: string | null;
   isOperator: boolean | null;
   userAgentHash: string | null;
+  /** AECI-1386. NULL on history, read as false. */
+  privacySignal: boolean | null;
 }
 
 /**
@@ -298,6 +309,7 @@ export interface PageViewClassification {
 const NAMED_BOT_LABELS: ReadonlySet<string> = new Set(namedBotEntries().map(([, , l]) => l));
 const DATACENTER_ASN_SET: ReadonlySet<number> = new Set(datacenterAsnEntries().map(([a]) => a));
 const DATACENTER_LABEL_BY_ASN: ReadonlyMap<number, string> = new Map(datacenterAsnEntries());
+const DATACENTER_LABELS: ReadonlySet<string> = new Set(DATACENTER_LABEL_BY_ASN.values());
 const SEARCH_SOURCES: ReadonlySet<string> = new Set(SEARCH_REFERRER_SOURCES);
 const REASON_ORDER: ReadonlyMap<ReasonCode, number> = new Map(REASON_CODES.map((c, i) => [c, i]));
 
@@ -306,9 +318,15 @@ const REASON_ORDER: ReadonlyMap<ReasonCode, number> = new Map(REASON_CODES.map((
  * `Censys (scanner)` is both a `NAMED_BOTS` label and a `DATACENTER_ASNS` label, so
  * on a Censys ASN the label alone cannot say the client declared itself. Such a
  * row is judged on its network signal instead, never as self-declared.
+ *
+ * A privacy-signal row (AECI-1386) stores no ASN, so the check cannot run. Any
+ * label the ASN rule can write is then treated as possibly ASN-derived.
  */
 function labelCouldBeFromAsn(row: ClassifierRow): boolean {
-  return row.cfAsn !== null && DATACENTER_LABEL_BY_ASN.get(row.cfAsn) === row.botName;
+  if (row.cfAsn === null) {
+    return row.privacySignal === true && row.botName !== null && DATACENTER_LABELS.has(row.botName);
+  }
+  return DATACENTER_LABEL_BY_ASN.get(row.cfAsn) === row.botName;
 }
 
 /** Whether a stored `bot_name` is one a `NAMED_BOTS` pattern writes. */
@@ -341,6 +359,8 @@ function purposeOf(row: ClassifierRow): CrawlerPurpose {
 }
 
 function evidenceGaps(row: ClassifierRow): ReasonCode[] {
+  // A privacy row lacks the ASN and TLS facts by design, not by a capture gap.
+  if (row.privacySignal === true) return ['evidence_privacy_signal'];
   const gaps: ReasonCode[] = [];
   if (isArrival(row) && row.cfAsn === null) gaps.push('evidence_no_asn');
   if (isArrival(row) && !row.tlsVersion) gaps.push('evidence_no_tls');
@@ -434,16 +454,20 @@ export function classifyPageView(
   const unmappedBot = row.isBot === true && !signals.includes('asn_datacenter');
   const human = humanEvidence(row, ctx);
   const referral = referralCodes(row);
+  // AECI-1386. A privacy row's evidence cannot be corroborated, so it never earns
+  // the class. Nothing CONTRADICTS that evidence either, so it is not a conflict:
+  // with no signal it falls through to `no_corroboration` below.
+  const privacy = row.privacySignal === true;
 
   // 3. Browser with human evidence: the app ran and nothing contradicts it.
-  if (human.length > 0 && signals.length === 0 && !unmappedBot) {
+  if (human.length > 0 && signals.length === 0 && !unmappedBot && !privacy) {
     return finish('browser_with_human_evidence', [...human, ...referral], row, ctx, gaps);
   }
 
   // 4. Unresolved, always with a reason.
   const why: ReasonCode[] = [...signals, ...human, ...referral];
   if (unmappedBot) why.push('bot_label_unmapped');
-  if (human.length > 0) {
+  if (human.length > 0 && (signals.length > 0 || unmappedBot)) {
     why.push('conflicting_signals');
   } else if (families.length === 1) {
     why.push(SINGLE_SIGNAL_CODE[families[0] as SignalFamily]);

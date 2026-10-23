@@ -2050,6 +2050,14 @@ export const AdminPageViewRowSchema = z.object({
    * ran, or on a day it did not run), never a class and never "human".
    */
   classification: AdminPageViewClassificationSchema.nullable(),
+
+  /**
+   * Whether the request carried `Sec-GPC: 1` or `DNT: 1` (AECI-1386). A true row is
+   * an anonymous counter: its `visitor_hash`, `cf_asn`, `cf_colo` and `referrer`
+   * are null by design, and the UI says so instead of showing an unknown visitor.
+   * A NULL stored value (every row before migration 0089) is served as `false`.
+   */
+  privacy_signal: z.boolean(),
 });
 export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
 

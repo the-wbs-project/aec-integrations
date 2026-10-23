@@ -40,10 +40,14 @@ The fix is a copy of what the API received, kept outside D1, so a future change 
 - A raw write failure never shows in `aeci.pageviews.write`. That metric is unchanged.
 - Pipelines needs Workers Paid. Expected cost is under $1 a month.
 - The privacy policy discloses the log and the 400-day period (`apps/web/src/content/legal/privacy-policy.md`).
-- Visitors who send DNT or Sec-GPC are still captured. That gap is AECI-1386.
+- Visitors who send DNT or Sec-GPC were still captured until AECI-1386. See the amendment of 2026-10-23.
 - Q3 of the edge-log design is answered for this store only. It is still open for the Logpush raw buckets.
 - Re-open trigger: AECI-1385's review, or the consent-tiered design being built.
 
 ## Amendment 2026-10-22 (AECI-1446)
 
 The Logpush side of this ADR's context is decided in ADR 0045. Epic AECI-1196 keeps a plain store: Logpush to an R2 bucket with no IP, kept 400 days. So the consent-tiered design in `edge-log-and-page-views.md` §6 is not adopted for either store. Q3 is now answered for the Logpush bucket too. The Ray ID join named in item 5 is parked (AECI-1304). The Ray ID stays on the row so that join can be built later.
+
+## Amendment 2026-10-23 (AECI-1386)
+
+A capture whose request carries `Sec-GPC: 1` or `DNT: 1` now writes no envelope. This holds on every D1 outcome, `failed` and `sampled_out` included. The route emits `aeci.pageviews.raw{outcome:privacy_signal}` instead. It never emits `skipped` for such a capture, because `skipped` fires `pageviews-raw-unsent`. The SSR Worker no longer sends `x-aeci-cf-raw`, `x-aeci-client-ip` or `x-aeci-eyeball-url` on those requests. The D1 row is still written, as an anonymous counter with `privacy_signal = true` (`DATABASE_SCHEMA.md` §9.1). So the store can no longer rebuild every row. Privacy rows are the known, counted exception. The edge request log (ADR 0045) still holds those requests.

@@ -1193,3 +1193,149 @@ describe('arrival entity from the path (AECI-1297)', () => {
     expect(row.navigation).toBe('spa');
   });
 });
+
+describe('privacy signal (AECI-1386)', () => {
+  /** Every header that feeds a column a privacy row must leave NULL, plus the ones
+   *  whose verdict it keeps. A real arrival shape, so `client_verdict` is `browser`. */
+  const FULL_ARRIVAL = {
+    'user-agent': CHROME_UA,
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'accept-language': 'en-US,en;q=0.9',
+    accept: 'text/html,application/xhtml+xml',
+    'sec-ch-ua': '"Chromium";v="128"',
+    referer: 'https://www.google.com/search?q=revit',
+    'x-aeci-cf-country': 'FR',
+    'x-aeci-cf-colo': 'CDG',
+    'x-aeci-cf-asn': '3215',
+    'x-aeci-cf-as-organization': 'Orange',
+    'x-aeci-cf-bot-score': '88',
+    'x-aeci-cf-tls-version': 'TLSv1.3',
+    'x-aeci-cf-http-protocol': 'HTTP/2',
+    'x-aeci-cf-ray': '8f1e2d3c4b5a6978-CDG',
+    'x-aeci-cf-verified-bot': '0',
+    [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.ssrArrival,
+  };
+  const ARRIVAL_BODY = {
+    route: '/products/:slug',
+    path: '/products/revit',
+    navigation: 'arrival',
+    ref_source: 'waitlist',
+    ref_token: 'tok-123',
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  async function rows() {
+    return t.db.select().from(pageViews);
+  }
+
+  it('GPC: writes an anonymous counter row with the raw inputs NULL', async () => {
+    // 14:37:12.345 UTC, so the hour cut is visible.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-23T14:37:12.345Z'));
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    const { res, settle } = post(ARRIVAL_BODY, { ...FULL_ARRIVAL, 'sec-gpc': '1' });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const [row] = await rows();
+    expect(row).toMatchObject({
+      privacySignal: true,
+      // Kept: the page, the coarse verdicts, the country.
+      path: '/products/:slug',
+      concretePath: '/products/revit',
+      productId: u(1),
+      navigation: 'arrival',
+      writerProvenance: 'ssr-arrival',
+      locale: 'en-US',
+      cfCountry: 'FR',
+      cfBotScore: 88,
+      cfVerifiedBot: false,
+      referrerSource: 'Google',
+      refSource: 'waitlist',
+      isBot: false,
+      clientVerdict: 'browser',
+      isOperator: false,
+      isOwnerVisit: false,
+      // Never stored.
+      userAgentHash: null,
+      cfAsn: null,
+      cfAsOrganization: null,
+      cfColo: null,
+      cfRay: null,
+      referrer: null,
+      refToken: null,
+      secFetchDest: null,
+      hasAcceptLanguage: null,
+      hasSecChUa: null,
+      tlsVersion: null,
+      httpProtocol: null,
+      dedupeKey: null,
+      // Cut to the UTC hour.
+      createdAt: '2026-10-23T14:00:00.000Z',
+    });
+  });
+
+  it('DNT: a padded value still counts as the signal', async () => {
+    const { res, settle } = post(ARRIVAL_BODY, { ...FULL_ARRIVAL, dnt: ' 1 ' });
+    await res;
+    await settle();
+
+    const [row] = await rows();
+    expect(row!.privacySignal).toBe(true);
+    expect(row!.userAgentHash).toBeNull();
+  });
+
+  it('an ordinary view stores false and keeps every column', async () => {
+    const { res, settle } = post(ARRIVAL_BODY, { ...FULL_ARRIVAL, dnt: '0' });
+    await res;
+    await settle();
+
+    const [row] = await rows();
+    expect(row!.privacySignal).toBe(false);
+    expect(row!.userAgentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(row!.cfAsn).toBe(3215);
+    expect(row!.referrer).toBe('www.google.com');
+    expect(row!.dedupeKey).not.toBeNull();
+  });
+
+  it('still classifies a crawler from the UA it then discards', async () => {
+    const { res, settle } = post(
+      { route: '/' },
+      { 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)', 'sec-gpc': '1' },
+    );
+    await res;
+    await settle();
+
+    const [row] = await rows();
+    expect(row!.isBot).toBe(true);
+    expect(row!.botName).not.toBeNull();
+    expect(row!.userAgentHash).toBeNull();
+  });
+
+  it('still classifies a datacenter ASN it then discards', async () => {
+    const { res, settle } = post(
+      { route: '/' },
+      { 'user-agent': CHROME_UA, 'x-aeci-cf-asn': '16509', 'sec-gpc': '1' },
+    );
+    await res;
+    await settle();
+
+    const [row] = await rows();
+    expect(row!.isBot).toBe(true);
+    expect(row!.cfAsn).toBeNull();
+  });
+
+  it('is never deduplicated: no UA hash means no key', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    for (let i = 0; i < 2; i++) {
+      const { res, settle } = post(ARRIVAL_BODY, { ...FULL_ARRIVAL, 'sec-gpc': '1' });
+      await res;
+      await settle();
+    }
+    expect(await rows()).toHaveLength(2);
+  });
+});

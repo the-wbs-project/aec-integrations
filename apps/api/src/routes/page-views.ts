@@ -6,6 +6,7 @@ import {
   buildRawEnvelope,
   canonicalPairIds,
   emptyRawPageViewDerived,
+  hasPrivacySignal,
   parseLandingPath,
   parsePairPagePath,
   type LandingEntity,
@@ -65,6 +66,10 @@ import { resolveOwnerVisit } from '../lib/owner-visit';
  * recoverable later, from `concrete_path`, which is why they are derived here from
  * the path rather than sent by the writer, and why a one-time backfill exists
  * (`scripts/ops/2026-10-pair-page-view-backfill/`).
+ *
+ * AECI-1386 added `privacy_signal`. A request with `Sec-GPC: 1` or `DNT: 1` becomes
+ * an anonymous counter row: see `PRIVACY_NULLED` below for what it never stores,
+ * and `capturePageView` for why it writes no raw envelope.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -400,6 +405,43 @@ async function findDuplicate(
   return rows.length > 0;
 }
 
+const HOUR_MS = 3_600_000;
+
+/**
+ * The `created_at` of a privacy-signal row: now, cut down to the start of the UTC
+ * hour (AECI-1386). Same ISO-8601 text shape `createdAt()` in the schema writes, so
+ * every `created_at` range read treats the row the same way. Minute-level time is
+ * one of the facts that would let a counter row be matched to a person.
+ */
+export function privacyCreatedAt(now: number): string {
+  return new Date(Math.floor(now / HOUR_MS) * HOUR_MS).toISOString();
+}
+
+/**
+ * The columns a privacy-signal row always stores as NULL (AECI-1386). The verdicts
+ * computed from them still run in memory, so the row keeps `is_bot`,
+ * `referrer_source`, `client_verdict` and the rest. What goes is every raw input
+ * that could tie the row to a browser, a network or a link: the UA hash (never
+ * computed), ASN and holder name, colo, Ray ID, referrer host, link token, the
+ * request-shape facts and the dedupe key. Spread last into the insert so no field
+ * above it can win.
+ */
+const PRIVACY_NULLED = {
+  userAgentHash: null,
+  cfAsn: null,
+  cfAsOrganization: null,
+  cfColo: null,
+  cfRay: null,
+  referrer: null,
+  refToken: null,
+  secFetchDest: null,
+  hasAcceptLanguage: null,
+  hasSecChUa: null,
+  tlsVersion: null,
+  httpProtocol: null,
+  dedupeKey: null,
+} as const;
+
 /** What the D1 half of a capture ended as, for the raw envelope (AECI-1384). */
 type RecordResult = { outcome: RawPageViewOutcome; pageViewId: number | null };
 
@@ -414,6 +456,7 @@ async function recordPageView(
   dbFor: DbFactory,
   deps: PageViewsDeps,
   derived: RawPageViewDerived,
+  privacy: boolean,
 ): Promise<RecordResult> {
   const req = c.req.raw;
   const cf = readCfContext(req);
@@ -423,7 +466,9 @@ async function recordPageView(
   if (botScoreSampledOut(c.env, cf.botScore)) return { outcome: 'sampled_out', pageViewId: null };
 
   const ua = req.headers.get('user-agent');
-  const userAgentHash = ua ? await sha256Hex(ua) : null;
+  // A privacy-signal row never computes the hash (AECI-1386). With no hash,
+  // `dedupeKeys` below returns null, so the row also takes no dedupe key.
+  const userAgentHash = ua && !privacy ? await sha256Hex(ua) : null;
   // Classify human vs. bot NOW, while the raw UA is still available (only its hash
   // is persisted). ASN unmasks headless scrapers that spoof a browser UA. AECI-526.
   const { isBot, botName } = classifyTraffic(ua, cf.asn);
@@ -574,6 +619,9 @@ async function recordPageView(
       refToken: payload.ref_token ?? null,
       // AECI-743. Null for bots and for rows with no UA hash — see `dedupeKeys`.
       dedupeKey: keys?.current ?? null,
+      // AECI-1386. Always true or false on a new row; NULL only on history.
+      privacySignal: privacy,
+      ...(privacy ? { ...PRIVACY_NULLED, createdAt: privacyCreatedAt(Date.now()) } : {}),
     })
     // The race-proof half of the guard. The probe above catches the ordinary
     // duplicate (and is what makes the suppression measurable), but the failure
@@ -591,6 +639,7 @@ async function recordPageView(
   submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
     'outcome:ok',
     `bot:${isBot}`,
+    `privacy:${privacy}`,
   ]);
   const pageViewId = inserted[0]?.id ?? null;
   return pageViewId === null
@@ -607,6 +656,13 @@ async function recordPageView(
  * (AECI-1384, ADR 0041), whatever the D1 outcome. The raw write runs after the D1
  * outcome is known and in its own `try`, so it can neither change that outcome nor
  * throw out of `waitUntil`.
+ *
+ * The one exception is a request with a privacy signal (AECI-1386). It writes no
+ * envelope on any outcome, `failed` and `sampled_out` included. The envelope holds
+ * the full header set and a monthly IP hash, which is exactly what the visitor
+ * asked us not to keep. It emits `aeci.pageviews.raw{outcome:privacy_signal}`
+ * instead, so the gap in the R2 backup is counted. Never `skipped`: that tag means
+ * a missing binding and fires `pageviews-raw-unsent`.
  */
 async function capturePageView(
   c: Context<{ Bindings: Env }>,
@@ -617,10 +673,13 @@ async function capturePageView(
   const req = c.req.raw;
   const capturedAt = new Date();
   const derived = emptyRawPageViewDerived();
+  // Decided first, before anything can sample the capture out or throw, so no
+  // path below can reach the envelope for a privacy request.
+  const privacy = hasPrivacySignal(req.headers);
   let result: RecordResult;
   let outcomeDetail: string | null = null;
   try {
-    result = await recordPageView(c, payload, dbFor, deps, derived);
+    result = await recordPageView(c, payload, dbFor, deps, derived, privacy);
   } catch (error) {
     outcomeDetail = error instanceof Error ? error.message : String(error);
     result = { outcome: 'failed', pageViewId: null };
@@ -631,6 +690,11 @@ async function capturePageView(
       source: 'page-views',
       reason: outcomeDetail,
     });
+  }
+
+  if (privacy) {
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.raw', 1, ['outcome:privacy_signal']);
+    return;
   }
 
   try {

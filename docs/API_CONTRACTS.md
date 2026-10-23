@@ -1800,7 +1800,8 @@ They are, however, **load-bearing on the proxy path since AECI-871**: an in-app 
 - **IP handling.** `PAGE_VIEW_IP_HEADERS` names every IP-bearing header. The API drops all of them, plus `cookie`, `authorization`, every `cf-access-*` header (Access session JWT, user email and service token on staging) and the three above, from the envelope's `headers`. It stores the IP only as `ip_hash` (`monthlyIpHash`: HMAC under a key derived per UTC month from `PAGE_VIEW_IP_HASH_SECRET`). No secret or no IP gives a null hash, never an unkeyed one.
 - **Secret query parameters.** `eyeball_url` and `headers.referer` pass through `stripSecretQueryParams` (`code`, `token`, `access_token`, `refresh_token`, `state`, `key`, `api_key`, `session`, and any name matching `secret`, `password` or `auth`).
 - **Envelope timing and outcome.** One envelope is sent per capture that reaches `capturePageView`, after the D1 outcome is known and in its own `try`. It never changes the D1 outcome or the `204`. Outcomes are `inserted` (carries `page_view_id`), `conflict`, `deduped`, `sampled_out` and `failed`. A body that fails validation is a `400` before the deferred work and produces no envelope. The shape is `RawPageViewEnvelope` (`packages/shared/src/api/page-view-raw.ts`, `schema_version` 1).
-- **Metric.** `aeci.pageviews.raw`, tags `outcome:ok|failed|skipped` and `ip_hash:present|no_secret|no_ip`. `aeci.pageviews.write` is unchanged. `docs/OBSERVABILITY.md`.
+- **Metric.** `aeci.pageviews.raw`, tags `outcome:ok|failed|skipped|privacy_signal` and `ip_hash:present|no_secret|no_ip`. `privacy_signal` carries no `ip_hash` tag. `docs/OBSERVABILITY.md`.
+- **Privacy signal.** A capture with `Sec-GPC: 1` or `DNT: 1` sends no envelope, on any outcome. See "Privacy signal" below.
 
 **Writer provenance (AECI-871 / `ADMIN_PANEL_SPEC.md` §13 D18).** `x-aeci-writer` is the one trusted header here that does **not** come from `request.cf`. The SSR Worker stamps which of its two writers originated the write — `ssr-arrival` on its own post-render `firePageView`, `browser-spa` on the proxied browser POST — and it is stripped-then-set on the proxy path exactly like the CF set. Values are the closed vocabulary `PAGE_VIEW_WRITERS` in `@aeci/shared`; anything else reads as absent.
 
@@ -1842,6 +1843,17 @@ That split is exactly what `navigation` records, and each writer states its own 
 **Public routes only (AECI-575).** Both writers skip the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` — `/admin` and `/account`, matched on an exact prefix boundary via `isUntrackedRoute()`, so nested admin routes are covered without enumeration and `/administrators` is not. Recording them would mean the admin console writes a row into the table it reads, from the operator's own ISP (`ADMIN_PANEL_SPEC.md` §9.6; on 2026-08-10 that was 67 of 92 "human" views). The exclusion is enforced at the **writers**, not at this endpoint — a `route` of `/admin/reviews` posted directly is still accepted and inserted — because the rule belongs where nothing is sent at all; the read side (the daily digest) applies the same prefix list, which is also what neutralizes rows written before this shipped and anything a stale client emits. This is an exclusion list, not a consent concept: `page_views` ingest stays consent-independent by design.
 
 `is_operator` is the complement and works the opposite way round: it is resolved **at this endpoint** (only the API Worker can verify a session) and the row is written either way, with the read side excluding it. Between them the two rules cover the operator on every path — the prefix list while they are in the console, the session flag while they are on the public site.
+
+**Privacy signal (AECI-1386, 2026-10-23).** A request whose `Sec-GPC` or `DNT` header is `1`, after trimming, is a privacy request (`hasPrivacySignal` in `@aeci/shared`). Any other value is no signal. The privacy policy promises what follows, so each rule is contractual:
+
+- **The row is still written**, with `privacy_signal = true`. Every other row stores `false`. It keeps the page, the entity and pair ids, `navigation`, `writer_provenance`, `locale`, `cf_country`, `cf_bot_score`, the verified-bot pair, `referrer_source`, `ref_source`, `is_bot`, `bot_name`, `client_verdict`, `is_operator` and `is_owner_visit`.
+- **Raw inputs are read in memory and dropped.** The verdicts run as usual. The row then stores NULL for `user_agent_hash` (never computed), `cf_asn`, `cf_as_organization`, `cf_colo`, `cf_ray`, `referrer`, `ref_token`, `sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol` and `dedupe_key`.
+- **`created_at` is cut to the start of the UTC hour.** Same ISO text shape as every other row.
+- **No de-duplication.** With no UA hash there is no key, so the duplicate probe is skipped.
+- **No raw envelope.** The signal is checked before the bot-score sample-out, so no path reaches the envelope. That holds on `failed` and `sampled_out` too. The handler emits `aeci.pageviews.raw{outcome:privacy_signal}` instead, never `skipped`.
+- **Write metric.** `aeci.pageviews.write{outcome:ok}` carries `privacy:true|false` beside `bot:`.
+- **SSR header suppression.** On a privacy request the SSR Worker sets none of the three raw-store headers, on either path. On the arrival path it forwards only `dnt` and `sec-gpc` from `PAGE_VIEW_ARRIVAL_FORWARD_HEADERS`. It still sends the UA, `referer`, `cookie`, the client-signal set and the `x-aeci-cf-*` set, because the verdicts need them. On the proxy path it still strips client copies of the raw-store headers. Only the `waitUntil` side request changes. The rendered HTML, the cache key and `Vary` do not.
+- **Read side.** `GET /api/admin/page-views` returns `privacy_signal` on each row (§6.10). The coverage tripwire leaves these rows out (`DATABASE_SCHEMA.md` §9.1).
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
@@ -5436,6 +5448,7 @@ export const AdminPageViewRowSchema = z.object({
   client_verdict: z.string().nullable(),   // AECI-658, served since AECI-877 — 'browser' | 'inconsistent' | 'non-browser' | 'unknown' | null
   asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
   classification: AdminPageViewClassificationSchema.nullable(),  // AECI-1345; null = not classified
+  privacy_signal: z.boolean(),             // AECI-1386 — DNT/GPC counter row; stored NULL is served as false
 });
 
 /** What the §7.6 ASN registry says about one network (AECI-624). `info_type` is

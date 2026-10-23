@@ -36,6 +36,10 @@
  *   count. This is a question about the *pipeline*, not about the audience: an
  *   outage that spared humans and blinded the bot half would still be an outage,
  *   and filtering would shrink the denominator enough to hide a partial one.
+ * - **Except privacy-signal rows (AECI-1386).** A DNT/GPC arrival stores a NULL
+ *   `cf_asn` on purpose. Counting it would read a 5% GPC share as a 5% telemetry
+ *   hole and fire this check falsely. It leaves the numerator and the denominator
+ *   alike. `privacy_signal IS NOT 1` keeps the NULL history rows in.
  * - **`cf_asn` is the probe field.** It is the one the six columns fail together
  *   with, it is an integer (so "present" is unambiguous), and it is the input the
  *   most downstream readers depend on.
@@ -75,7 +79,7 @@ export const ARRIVAL_CF_COVERAGE_MIN = 0.95;
 
 /** One window's arrival-metadata coverage. `coverage` is `arrivalsWithAsn / arrivals`. */
 export interface ArrivalCfCoverage {
-  /** Full-document (`navigation = 'arrival'`) rows in the window. */
+  /** Full-document (`navigation = 'arrival'`) rows in the window, privacy rows excluded. */
   arrivals: number;
   /** How many of those carry a non-null `cf_asn`. */
   arrivalsWithAsn: number;
@@ -115,6 +119,7 @@ export async function readArrivalCfCoverage(
     .where(
       and(
         eq(pageViews.navigation, ARRIVAL_NAVIGATION),
+        sql`${pageViews.privacySignal} is not 1`,
         gte(pageViews.createdAt, startIso),
         lt(pageViews.createdAt, endIso),
       ),
