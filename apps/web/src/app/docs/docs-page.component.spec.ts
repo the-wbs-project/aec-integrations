@@ -167,14 +167,11 @@ describe('DocsPageComponent', () => {
     // Exactly one claim dialog host for every claim control on the page.
     expect(host.querySelectorAll('aec-claim-dialog-host')).toHaveLength(1);
     // The closing panel shows the annual price beside the monthly one, then the
-    // monthly term and the 14-day refund (E8.2, 2026-10-19). The Markdown does not
-    // repeat the price or the term line. Its cancel answer opens with the same
-    // "no commitment" clause, so the check is on the price and the refund sentence.
+    // short monthly term and the 14-day refund (E8.2, 2026-10-19; shortened
+    // 2026-10-24). The Markdown does not repeat the price or the term line.
     const panelText = host.querySelector('aec-plan-cta-panel')?.textContent?.replace(/\s+/g, ' ');
     expect(panelText).toContain('$25 USD a month or $250 USD a year per product.');
-    expect(panelText).toContain(
-      'Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.',
-    );
+    expect(panelText).toContain('Monthly, cancel any time. Full refund within 14 days.');
     expect(panelText).not.toContain('invoice');
     expect(panelText).not.toContain('one-year term');
     const prose = [...host.querySelectorAll('.aec-prose')].map((el) => el.textContent).join(' ');

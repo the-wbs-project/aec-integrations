@@ -138,17 +138,14 @@ describe('Plans calls to action', () => {
       'Tell the full story of your product',
     );
     expect(text).toContain(
-      '$25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge. If a plan ends, nothing you entered is removed.',
+      '$25 USD a month or $250 USD a year per product. Monthly, cancel any time. Full refund within 14 days. If a plan ends, nothing you entered is removed.',
     );
     // Ruled 2026-10-12 (spec §4.1): the steps describe the claim dialog.
     expect(
       [...host.querySelectorAll('ol li span:last-child')].map((step) =>
         step.textContent?.replace(/\s+/g, ' ').trim(),
       ),
-    ).toEqual([
-      'Find your listing and send your claim.',
-      'A person reviews every claim and emails you the result.',
-    ]);
+    ).toEqual(['Find your listing and send your claim.', 'We review it and email you the result.']);
     // E8.1: "Questions? Contact us" beside the claim button, a plain link to /contact.
     expect(linkTexts(host)).toEqual(['Claim your listing', 'Contact us']);
     expect(text).toContain('Questions? Contact us');

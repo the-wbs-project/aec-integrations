@@ -49,9 +49,8 @@ import { PORTAL_PATH } from './plan-cta';
           Keep your listing accurate.
         </p>
         <p class="mt-4 flex items-baseline gap-1.5">
-          <span class="aec-plan-price text-(--text-primary)">{{ freePrice }}</span>
           <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.unit"
-            >for every company with a seat</span
+            >Available for all products</span
           >
         </p>
         @if (portal()) {
@@ -174,7 +173,6 @@ export class PlanCardsComponent {
 
   protected readonly freeName = planLabel('free');
   protected readonly managedName = planLabel('managed');
-  protected readonly freePrice = formatPlanPrice(0, this.locale);
   protected readonly managedPrice = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, this.locale);
 
   protected readonly freeHighlights: readonly string[] = [
@@ -187,9 +185,9 @@ export class PlanCardsComponent {
   protected readonly managedHighlights: readonly string[] = [
     $localize`:@@app.docs.plans.managed.h1:"How teams use it", in your own words`,
     $localize`:@@app.docs.plans.managed.h2:The trades, audiences and phases you serve`,
-    $localize`:@@app.docs.plans.managed.integrationDetail:More detailed information about integrations (additional URLs, data flow, etc.).`,
+    $localize`:@@app.docs.plans.managed.integrationDetail:Integration detail: extra links and the data each integration moves.`,
     $localize`:@@app.docs.plans.managed.h6:Public answers to reviews`,
-    $localize`:@@app.docs.plans.managed.h7:Search engines told when you update a page`,
+    $localize`:@@app.docs.plans.managed.h7:Search engines notified when you update a page`,
   ];
 
   protected track(plan: 'free' | 'managed'): void {

@@ -40,7 +40,7 @@ describe('PlanCardsComponent', () => {
       'Managed',
     ]);
     expect(cards[1].classList).toContain('aec-plan-card-featured');
-    expect(cards[0].textContent).toContain('$0');
+    expect(cards[0].textContent).toContain('Available for all products');
     expect(cards[1].textContent).toContain('$25');
     // E8.1: the inquiry's reply promise went with the inquiry.
     expect(cards[1].textContent).not.toContain('We reply to most messages');

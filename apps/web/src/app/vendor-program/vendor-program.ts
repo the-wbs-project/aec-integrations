@@ -73,6 +73,7 @@
  */
 import {
   Component,
+  DestroyRef,
   LOCALE_ID,
   PLATFORM_ID,
   TransferState,
@@ -83,8 +84,12 @@ import {
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet, isPlatformBrowser } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import type { VendorDetail } from '@aeci/shared';
+
+import { httpGetOrNull } from '../core/api/http-get-or-null';
 import { canonicalUrl } from '../core/canonical';
 import { VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
@@ -102,11 +107,18 @@ import {
   managedTermsLine,
 } from '../shared/plan-cta/plan-cta';
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
+import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorProgramBenefit } from './vendor-program-benefit';
 
 /** The Plans page, for the Managed lines with no page of their own. */
 const PLANS_PATH = '/docs/vendors/plans';
+
+/**
+ * The query parameter naming the company a visitor came to claim, set by the product
+ * page's "Learn more about claiming" link (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4).
+ */
+export const VENDOR_PROGRAM_VENDOR_PARAM = 'vendor';
 
 /** The server's "today" for the example maintenance label (see `exampleUpdatedAt`). */
 const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example-updated-at');
@@ -171,7 +183,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.find.body"
                   >
-                    Start your claim, then search for your product or your company.
+                    Start your claim here, or press Claim on any of your product pages, then search
+                    for your product or your company.
                   </p>
                 </div>
               </li>
@@ -310,11 +323,10 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.integrations">
                 <ng-container i18n="@@vendorProgram.free.integrations.body">
-                  The person setting up your integration on a project gets your guide from the
-                  integration page, not a support ticket. Claim the integrations your company
-                  builds, and add your setup guide to any integration with your product. Buyers see
-                  who maintains each one. If a partner's listing describes your integration wrongly,
-                  you can request a change.
+                  Claim the integrations your company builds and keep them accurate. Add a link to
+                  your setup instructions, so the person connecting the two products on a project
+                  finds them on the integration page. Buyers see who maintains each integration. If
+                  a partner's listing describes your integration wrongly, you can request a change.
                 </ng-container>
               </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.complete">
@@ -350,8 +362,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               >
                 <ng-container i18n="@@vendorProgram.managed.usefulness.body">
                   Describe, in your own words, the work your product does on a real project. Buyers
-                  judge fit by the job it does, not a feature list, and the people who will use it
-                  can picture it on their own project.
+                  judge fit by the work a product does, not by a feature list. Show them the job,
+                  and they can picture it on their own project.
                 </ng-container>
               </li>
               <li
@@ -360,10 +372,10 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 link="/docs/getting-started/taxonomy"
               >
                 <ng-container i18n="@@vendorProgram.managed.taxonomy.body">
-                  Set who each product is for and when in a project it is used, rather than leave it
-                  to our reading of public sources. Buyers browsing a trade, audience or phase page,
-                  or filtering a search by one, find the products tagged with it. An MEP contractor
-                  filtering by trade sees the tools built for that trade.
+                  Set who each product is for and when in a project it is used, rather than leaving
+                  it to our reading of public sources. Buyers browsing a trade, audience or phase
+                  page, or filtering a search by one, find the products tagged with it. An MEP
+                  contractor filtering by trade sees the tools built for that trade.
                 </ng-container>
               </li>
               <li
@@ -375,14 +387,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 <ng-container i18n="@@vendorProgram.managed.integrationDetail.body">
                   Link evaluators to your integrations page and API docs. Confirm which data each
                   integration moves, and your answer counts the same as your partner's. Buyers can
-                  check what an integration syncs before they rely on it for a project. See
-                  <a
-                    routerLink="/docs/vendors/confirming-integration-data"
-                    target="_blank"
-                    rel="noopener"
-                    [class]="inTextLink"
-                    >Confirming integration data<aec-new-tab-icon /></a
-                  >.
+                  check what an integration syncs before they rely on it for a project.
                 </ng-container>
               </li>
               <li
@@ -492,7 +497,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
               <details class="group border-t border-(--border-default)">
                 <summary [class]="summaryClass">
                   <span i18n="@@vendorProgram.faq.approval.q"
-                    >What happens after we send a claim?</span
+                    >What happens after I send a claim?</span
                   >
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
@@ -528,9 +533,9 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.cancel.a">
-                  Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run
-                  to the end of the month you paid for. An annual license runs to its renewal date.
-                  If you opt out of renewal, it ends on that date.
+                  Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your
+                  licenses run to the end of the month you paid for. An annual license runs to its
+                  renewal date. If you opt out of renewal, it ends on that date.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -542,8 +547,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.ends.a">
                   Each product whose license ends moves to Free. Your seats, sign-in and portal
-                  stay. Nothing you entered is removed, and your listings stay published. What
-                  Managed adds becomes read-only. See
+                  stay. Nothing you entered is removed, and your listings stay published. The
+                  Managed fields become read-only. See
                   <a
                     [routerLink]="plansPath"
                     fragment="when-a-managed-plan-ends"
@@ -618,6 +623,11 @@ export class VendorProgramPage {
   private readonly meta = inject(MetaService);
   private readonly planStatus = inject(VendorPlanStatus);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly route = inject(ActivatedRoute);
+  private readonly http = inject(HttpClient);
+  private readonly claimDialog = inject(ClaimDialogService);
+  private readonly destroyRef = inject(DestroyRef);
+  private destroyed = false;
 
   protected readonly plansPath = PLANS_PATH;
 
@@ -708,8 +718,41 @@ export class VendorProgramPage {
 
     // Browser only: the signed-in variants never touch the SSR HTML.
     afterNextRender(() => {
-      if (this.isBrowser) this.hydrated.set(true);
+      if (!this.isBrowser) return;
+      this.hydrated.set(true);
+      void this.seedClaimDialog();
     });
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.claimDialog.setSeed(null);
+    });
+  }
+
+  /**
+   * `?vendor=<slug>`: every "Claim your listing" opens the dialog on that company
+   * instead of Find it (§2.4). The cache key drops the query string, so this runs in
+   * the browser only. An unknown slug or a failed read leaves the dialog as it was.
+   */
+  private async seedClaimDialog(): Promise<void> {
+    const slug = this.route.snapshot.queryParamMap.get(VENDOR_PROGRAM_VENDOR_PARAM)?.trim();
+    if (!slug) return;
+    try {
+      const vendor = await httpGetOrNull<VendorDetail>(
+        this.http,
+        `/api/vendors/${encodeURIComponent(slug)}`,
+      );
+      // A reply after the page is gone must not seed the dialog on another page.
+      if (!vendor || this.destroyed) return;
+      this.claimDialog.setSeed({
+        targetType: 'vendor',
+        slug: vendor.slug,
+        name: vendor.company_name,
+        company: vendor.company_name,
+        product: null,
+      });
+    } catch {
+      // The seed is a shortcut. Without it the dialog starts on Find it.
+    }
   }
 
   private resolveExampleUpdatedAt(): string {
