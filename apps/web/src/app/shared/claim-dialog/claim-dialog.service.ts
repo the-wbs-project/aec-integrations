@@ -62,6 +62,7 @@ export class ClaimDialogService {
   private readonly active = signal<ClaimDialogOpening | null>(null);
   private readonly hosts = signal(0);
   private readonly companyName = signal<string | null>(null);
+  private readonly seeded = signal<ClaimListing | null>(null);
   private opener: (() => void) | null = null;
 
   /** How the open dialog was opened, or `null` when it is closed. */
@@ -75,6 +76,13 @@ export class ClaimDialogService {
    * "Claim your company". The flow sets it; the shell reads it.
    */
   readonly company = this.companyName.asReadonly();
+  /**
+   * The listing the page already knows the visitor means (`/vendor-program?vendor=`,
+   * `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4), or `null`. With one, every open starts on the
+   * You step with that company chosen, and "Change" goes back to Find it. Set in the
+   * browser after hydration only, so the SSR HTML stays visitor-neutral.
+   */
+  readonly seed = this.seeded.asReadonly();
 
   open(opening: ClaimDialogOpening): void {
     this.companyName.set(null);
@@ -93,12 +101,18 @@ export class ClaimDialogService {
     this.companyName.set(name);
   }
 
+  /** The page names the listing every open starts from, or clears it with `null`. */
+  setSeed(listing: ClaimListing | null): void {
+    this.seeded.set(listing);
+  }
+
   /** A host mounts. Returns its unmount. */
   attachHost(): () => void {
     this.hosts.update((n) => n + 1);
     return () => {
       this.hosts.update((n) => n - 1);
       this.active.set(null);
+      this.seeded.set(null);
     };
   }
 

@@ -20,7 +20,11 @@ import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
 import { ClaimDialogFlow } from './claim-dialog-flow';
-import { ClaimDialogService, type ClaimDialogOpening } from './claim-dialog.service';
+import {
+  ClaimDialogService,
+  type ClaimDialogOpening,
+  type ClaimListing,
+} from './claim-dialog.service';
 
 const PRODUCT: AutocompleteSuggestion = {
   kind: 'product',
@@ -37,6 +41,8 @@ function setup(
     hasSeats?: boolean | 'error';
     confirm?: boolean;
     embedded?: boolean;
+    /** A listing the page seeded (`/vendor-program?vendor=`). */
+    seed?: ClaimListing;
   } = {},
 ) {
   const analytics = {
@@ -70,6 +76,7 @@ function setup(
       { provide: SessionStatus, useValue: { email: signal(opts.email ?? null) } },
     ],
   });
+  if (opts.seed) TestBed.inject(ClaimDialogService).setSeed(opts.seed);
   const fixture = TestBed.createComponent(ClaimDialogFlow);
   fixture.componentRef.setInput('opening', opening);
   if (opts.embedded) fixture.componentRef.setInput('embedded', true);
@@ -318,6 +325,65 @@ describe('ClaimDialogFlow', () => {
     change.click();
     t.fixture.detectChanges();
     expect(t.heading()).toBe('Find your listing');
+  });
+
+  // `/vendor-program?vendor=` (VENDOR_PROGRAM_PAGE_SPEC.md §2.4): the page seeds the
+  // company, so the dialog opens on You and Change still reaches the search.
+  it('opens on step 2 with a seeded company, and Change returns to search', async () => {
+    const t = setup(
+      { page: 'vendor_program', entry: 'top' },
+      {
+        seed: {
+          targetType: 'vendor',
+          slug: 'acme-software',
+          name: 'Acme Software',
+          company: 'Acme Software',
+          product: null,
+        },
+      },
+    );
+    expect(t.heading()).toBe('About you');
+    expect(t.progress()).toBe('Step 2 of 3 · You');
+    expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toMatch(/^Claiming\s*Acme Software/);
+    expect(TestBed.inject(ClaimDialogService).company()).toBe('Acme Software');
+    expect(t.api.getClaimTarget).toHaveBeenCalledWith({
+      targetType: 'vendor',
+      slug: 'acme-software',
+    });
+    expect(t.analytics.claimDialogStep).toHaveBeenCalledWith({
+      step: 'you',
+      page: 'vendor_program',
+      entry: 'top',
+      path: 'found',
+    });
+
+    t.fillYou();
+    await t.primary();
+    await t.primary();
+    expect(t.api.submitClaim).toHaveBeenCalledWith(
+      { targetType: 'vendor', slug: 'acme-software' },
+      expect.objectContaining({ submitter_email: 'dana@acme.example' }),
+    );
+  });
+
+  it('a seeded dialog still lets the visitor change the company', () => {
+    const t = setup(
+      { page: 'vendor_program', entry: 'top' },
+      {
+        seed: {
+          targetType: 'vendor',
+          slug: 'acme-software',
+          name: 'Acme Software',
+          company: 'Acme Software',
+          product: null,
+        },
+      },
+    );
+    const change = [...t.host.querySelectorAll('button')].find((b) => text(b) === 'Change')!;
+    change.click();
+    t.fixture.detectChanges();
+    expect(t.heading()).toBe('Find your listing');
+    expect(TestBed.inject(ClaimDialogService).company()).toBeNull();
   });
 
   it('types in a listing and sends a listing request, with the typed-in receipt', async () => {

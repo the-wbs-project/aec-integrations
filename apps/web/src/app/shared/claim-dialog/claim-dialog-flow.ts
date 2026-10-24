@@ -746,7 +746,15 @@ export class ClaimDialogFlow implements OnInit {
       );
       return;
     }
-    this.show('find', false);
+    // A page that already knows the company (`/vendor-program?vendor=`) skips Find it.
+    // "Change" still goes back to it. Focus goes to the You heading, so the step is
+    // announced instead of a search box the visitor never saw.
+    const seed = this.dialog.seed();
+    if (seed) {
+      this.select(seed);
+    } else {
+      this.show('find', false);
+    }
   }
 
   /** A suggestion chosen in step 1: that listing, then step 2. */
@@ -756,7 +764,7 @@ export class ClaimDialogFlow implements OnInit {
     // AECI-1364: a claim is on the company. A vendor hit IS the company. A product
     // hit names its vendor in `subtitle` (the record's `vendor_name`); the API
     // resolves that vendor's id from the product slug, so no vendor slug is needed.
-    this.listing.set(
+    this.select(
       hit.kind === 'vendor'
         ? { targetType: 'vendor', slug, name: hit.title, company: hit.title, product: null }
         : {
@@ -767,10 +775,15 @@ export class ClaimDialogFlow implements OnInit {
             product: hit.title,
           },
     );
+  }
+
+  /** A found listing, chosen in step 1 or seeded by the page: step 2. */
+  private select(listing: ClaimListing): void {
+    this.listing.set(listing);
     this.path.set('found');
     this.submitError.set(null);
     this.routed.set(false);
-    void this.loadClaimTarget(this.listing()!);
+    void this.loadClaimTarget(listing);
     this.show('you');
   }
 

@@ -134,7 +134,10 @@ GROUP BY ALL ORDER BY requests DESC;
 
 R2 serves these objects with `Content-Encoding: gzip`. `wrangler r2 object get` hands back plain NDJSON
 despite the `.log.gz` name. If DuckDB reports a gzip error, add `compression = 'none'` to `read_json`.
-This recipe is untested until the day-two check.
+The DuckDB recipe is still untested. The day-two check ran on 2026-10-24 with a read-only Node count over
+the S3 API instead, because DuckDB was not installed. Result on AECI-1447: 101,781 `http_requests` rows
+against Cloudflare's 101,965 (−0.18%). Firewall events were +4.85%, because Cloudflare's figure is sampled.
+`ClientRequestHost` keeps a non-default port, so group on the host with the port stripped.
 
 Check that the columns hold no `ClientIP` and no `BotScore`:
 

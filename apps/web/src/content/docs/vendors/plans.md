@@ -82,7 +82,7 @@ The portal shows your plan's status, and the end date where there is one. Thirty
 
 ### Can we cancel a Managed plan early?
 
-Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.
+Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.
 
 ## Related
 

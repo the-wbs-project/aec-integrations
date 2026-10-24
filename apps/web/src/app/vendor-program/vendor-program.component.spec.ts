@@ -5,9 +5,12 @@ import {
   provideZonelessChangeDetection,
   signal,
 } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Title } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Analytics } from '../analytics/analytics';
@@ -15,6 +18,7 @@ import { SessionStatus } from '../auth/session-status';
 import { VendorApi } from '../vendor/vendor-api';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
 import { VendorStatus } from '../vendor/vendor-status';
+import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { VendorProgramPage } from './vendor-program';
 
 /**
@@ -155,7 +159,7 @@ describe('VendorProgramPage', () => {
       expect(host.querySelector('aec-search-autocomplete')).toBeNull();
       // Step 1 of "How claiming works" no longer says "on this page".
       expect(text(host.querySelector('[data-testid="vp-how"] li'))).toContain(
-        'Find your product Start your claim, then search for your product or your company.',
+        'Find your product Start your claim here, or press Claim on any of your product pages, then search for your product or your company.',
       );
     });
 
@@ -228,11 +232,11 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/plans#what-managed-adds',
         '/docs/vendors/replying-to-reviews',
       ]);
-      // Ruling 2026-10-12: the links line and the data flows line are one entry,
-      // which keeps both docs links.
+      // Ruling 2026-10-12: the links line and the data flows line are one entry.
+      // Copy pass 2026-10-24: the in-text "Confirming integration data" link is gone,
+      // and "Learn more" is the entry's one link.
       const detail = items[2]!;
       expect([...detail.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-        '/docs/vendors/confirming-integration-data',
         '/docs/vendors/plans#what-managed-adds',
       ]);
       // Copy pass 2026-10-12: the section's own lede, then the shared terms line.
@@ -292,7 +296,7 @@ describe('VendorProgramPage', () => {
     it('opens every docs link in a new tab with the new-tab cue', async () => {
       const { host } = await setup({ plan: stub() });
       const docs = [...host.querySelectorAll<HTMLAnchorElement>('a[href^="/docs/"]')];
-      expect(docs.length).toBe(12);
+      expect(docs.length).toBe(11);
       for (const a of docs) {
         const href = a.getAttribute('href');
         expect(a.getAttribute('target'), href!).toBe('_blank');
@@ -323,7 +327,7 @@ describe('VendorProgramPage', () => {
       const faq = [...host.querySelectorAll('#vp-faq details')];
       expect(faq.map((d) => text(d.querySelector('summary')))).toEqual([
         'Who can claim a listing?',
-        'What happens after we send a claim?',
+        'What happens after I send a claim?',
         'We make several products. Do we claim each one?',
         'What does Managed cost?',
         'Can we cancel a Managed plan early?',
@@ -342,10 +346,10 @@ describe('VendorProgramPage', () => {
         'Managed costs $25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.',
       );
       expect(answer(faq[4])).toBe(
-        'Yes, on monthly. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.',
+        'Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.',
       );
       expect(answer(faq[5])).toBe(
-        'Each product whose license ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. What Managed adds becomes read-only. See when a Managed plan ends.',
+        'Each product whose license ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. The Managed fields become read-only. See when a Managed plan ends.',
       );
     });
 
@@ -521,6 +525,67 @@ describe('VendorProgramPage', () => {
       TestBed.resetTestingModule();
       const signedOut = await setup({ plan: stub('signed-out'), platform: 'server' });
       expect(signedOut.host.innerHTML).toBe(managedHtml);
+    });
+  });
+
+  // §2.4: the product page's "Learn more about claiming" link carries `?vendor=`, so
+  // the claim dialog opens on that company. Browser only, after hydration.
+  describe('?vendor= seeds the claim dialog', () => {
+    async function routed(url: string) {
+      TestBed.configureTestingModule({
+        providers: [
+          provideZonelessChangeDetection(),
+          provideRouter([{ path: 'vendor-program', component: VendorProgramPage }]),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          { provide: Analytics, useValue: { planCtaClicked: vi.fn() } },
+          { provide: VendorPlanStatus, useValue: stub() },
+        ],
+      });
+      const harness = await RouterTestingHarness.create(url);
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      return { harness, http: TestBed.inject(HttpTestingController) };
+    }
+
+    it('reads the vendor and seeds the dialog with its company', async () => {
+      const { harness, http } = await routed('/vendor-program?vendor=acme');
+      http.expectOne('/api/vendors/acme').flush({ slug: 'acme', company_name: 'Acme Software' });
+      await new Promise((r) => setTimeout(r));
+      await harness.fixture.whenStable();
+      expect(TestBed.inject(ClaimDialogService).seed()).toEqual({
+        targetType: 'vendor',
+        slug: 'acme',
+        name: 'Acme Software',
+        company: 'Acme Software',
+        product: null,
+      });
+      http.verify();
+    });
+
+    it('an unknown vendor seeds nothing', async () => {
+      const { harness, http } = await routed('/vendor-program?vendor=nope');
+      http
+        .expectOne('/api/vendors/nope')
+        .flush({ error: { code: 'NOT_FOUND' } }, { status: 404, statusText: 'Not Found' });
+      await new Promise((r) => setTimeout(r));
+      await harness.fixture.whenStable();
+      expect(TestBed.inject(ClaimDialogService).seed()).toBeNull();
+    });
+
+    it('a reply after the page is gone seeds nothing', async () => {
+      const { harness, http } = await routed('/vendor-program?vendor=acme');
+      const req = http.expectOne('/api/vendors/acme');
+      harness.fixture.destroy();
+      req.flush({ slug: 'acme', company_name: 'Acme Software' });
+      await new Promise((r) => setTimeout(r));
+      expect(TestBed.inject(ClaimDialogService).seed()).toBeNull();
+    });
+
+    it('no param, no read', async () => {
+      const { http } = await routed('/vendor-program');
+      http.expectNone(() => true);
+      expect(TestBed.inject(ClaimDialogService).seed()).toBeNull();
     });
   });
 });

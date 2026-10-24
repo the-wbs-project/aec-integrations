@@ -146,7 +146,7 @@ summed with it.
 | `onboarding_skipped` | "Skip for now" on `/welcome`, and "Not now" on the `/account` onboarding card (AECI-1296) | Same keys as `onboarding_completed` | The answers are `null` and `audience_count` is 0, because a skip stores none. `profile_details.onboarding_skipped_at` is the full count. |
 | `claim_requested` | `requests/request-form-body.ts` (the claim page and drawer) and `shared/claim-dialog/claim-dialog-flow.ts` (the claim dialog, AECI-1293), on submit success | `target_type`, `slug`, `request_id`, `confirmation_required` | See the deviation note below. From AECI-1293 to AECI-1365 (2026-10-12 to 2026-10-15) the event also carried `plan_interest` (`free`, `managed`, `not_sure` or `none`). AECI-1365 removed the plan question, so events after it carry no key. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`. `true` means the claim waits on the emailed link, so the event counts a submit, not a sent claim, and `request_id` is the pending id the claim takes on confirm. `claim_confirmed` counts the clicks. Events before 2026-10-21 carry no key and were all sent claims. |
 | `claim_confirmed` | `claims/claim-confirm.ts`, when the "Confirm and send" button on `/claims/confirm` gets an answer (AECI-1435) | `kind`, `outcome` | `kind` is `claim`, `listing`, or `null` when the link resolved to nothing. `outcome` is `confirmed`, `already_confirmed`, `rejected`, `expired`, `not_found`, `gone` or `error`. `rejected` (2026-10-21) is a claim the AECI-1420 account check refused at confirm. Never the token, the email, or the other company's name (§2). The URL's `token` is stripped by the `before_send` sanitizer. Funnel: `claim_requested` with `confirmation_required: true` → `claim_confirmed` with `outcome: confirmed`. `request_confirmations` and `vendor_requests` are the full count. |
-| `claim_dialog_step` | `shared/claim-dialog/claim-dialog-flow.ts`, once each time a step is shown, including the first (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7) | `step`, `page`, `entry`, `path` (optional) | `step` is `find`, `you`, `comments` or `done`. AECI-1365 (2026-10-15) removed the `plan` step, so read events before and after it apart. `page` is `vendor_program`, `docs_plans` or, since AECI-1474 (2026-10-24), `list_your_product` (`/vendor-program/list-your-product`). `entry` is the control that opened the dialog: a `plan_cta_clicked` placement, or `list_page` for the listing request page, which embeds the flow and opens it on the typed-in You step. There the first event is `step: you`, `path: typed`, with no `find` before it. `path` is `found` (a catalog listing) or `typed` ("Not listed? Type it in"), absent on `find`. Never the search text, a typed name, a website or an email (§2). Funnel: `find` → `you` → `comments` → `done`, split by `entry` and `path`. |
+| `claim_dialog_step` | `shared/claim-dialog/claim-dialog-flow.ts`, once each time a step is shown, including the first (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7) | `step`, `page`, `entry`, `path` (optional) | `step` is `find`, `you`, `comments` or `done`. AECI-1365 (2026-10-15) removed the `plan` step, so read events before and after it apart. `page` is `vendor_program`, `docs_plans` or, since AECI-1474 (2026-10-24), `list_your_product` (`/vendor-program/list-your-product`). `entry` is the control that opened the dialog: a `plan_cta_clicked` placement, or `list_page` for the listing request page, which embeds the flow and opens it on the typed-in You step. There the first event is `step: you`, `path: typed`, with no `find` before it. `path` is `found` (a catalog listing) or `typed` ("Not listed? Type it in"), absent on `find`. Never the search text, a typed name, a website or an email (§2). Funnel: `find` → `you` → `comments` → `done`, split by `entry` and `path`. Since 2026-10-24 an open on `/vendor-program?vendor=` starts at `you` with `path: 'found'` and emits no `find` (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4), so count opens with `plan_cta_clicked`, not with `find`. |
 | `listing_requested` | `shared/claim-dialog/claim-dialog-flow.ts`, when `POST /api/requests/listing` answers 201 (AECI-1293) | `page`, `confirmation_required` | A typed-in listing request. `page` is `list_your_product` when it came from the listing request page (AECI-1474), so those submits split from the dialog's. Only the page: the name, website and email never leave the form (§2). It carried `plan_interest` too until AECI-1365 (2026-10-15) removed the plan question. The `listing_requests` table is the full count. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`, as `claim_requested` does. |
 | `correction_requested` | `requests/request-form-body.ts` on submit success | `target_type`, `slug`, `request_id` | Same. |
 | `mailing_list_signup` | the shared signup band + `/updates`, on `created` only | `source` | `home_closing_cta` / `mailing_list_band` / `updates_page`. Re-submitting an existing email is not tracked. |
@@ -637,12 +637,14 @@ privacy rows.
 **Answer first.** Cloudflare's per-request record for the whole zone is copied to R2 by two Logpush
 jobs and kept 400 days. Nothing reads it automatically. Read it by hand with DuckDB. ADR 0045 is the
 decision. AECI-1447 created the bucket and the jobs on 2026-10-22. The first full day is `20261023`.
+Its row count matched Cloudflare's own count within 0.2% (day-two check of 2026-10-23, run 2026-10-24).
 
 **What it is.** One bucket, `aeci-edge-log-prod-us`, on The WBS Project account. Gzip NDJSON, one
 JSON object per line, under `http_requests/{DATE}/` and `firewall_events/{DATE}/`, with `{DATE}` as
 `YYYYMMDD`. A job covers the whole zone, so `www.`, the apex, `demo.`, `staging.`, the review app on `review.` and
 the PostHog ingest proxy (`ClientRequestHost` `us.i.posthog.com`) are all in it.
-Filter on `ClientRequestHost`.
+Filter on `ClientRequestHost`. It keeps a non-default port (`www.aecintegrations.com:2082`), so strip
+the port or match with `LIKE 'www.aecintegrations.com%'`.
 
 **How it differs from §11.** §11 holds only captures that reach `capturePageView`, with a monthly IP
 hash and secret query parameters removed. This log holds every request: pages, assets, API calls,
@@ -666,6 +668,12 @@ WHERE ClientRequestHost = 'www.aecintegrations.com'
 GROUP BY ALL
 ORDER BY requests DESC;
 ```
+
+**Days before 2026-10-22.** They are under `graphql-backfill/` in the same bucket: Cloudflare GraphQL
+pulls as CSV, most of it gzip. A row is one GraphQL group (an hour or a day) with a sample-adjusted
+count, not one request (AECI-1448). Read them with `read_csv` instead of `read_json`. Columns and caveats
+are in `scripts/ops/2026-10-traffic-history/README.md` and, for the AI-assistant fetches,
+`scripts/ops/2026-10-ai-assistant-fetch-history/README.md`.
 
 **Joins.** `RayID` equals `page_views.cf_ray` and the §11 envelope's `cf.ray`. No join is built
 (AECI-1304). A privacy-signal row stores no `cf_ray`, so it never joins.

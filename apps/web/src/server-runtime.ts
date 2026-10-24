@@ -455,7 +455,8 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // signed-in variant is applied after hydration), so the /about TTL with no
   // `...RESILIENCE`. No `cacheKeyParams`: LinkedIn and outreach links carry UTM,
   // which PostHog reads from the browser URL, so the query string stays out of the
-  // cache key. Indexable and in `sitemap.xml`.
+  // cache key. `?vendor=` (§2.4) is read in the browser after hydration only, so
+  // it does not change the HTML either. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/vendor-program', ttl: { edge: 86_400, browser: 3_600 } },
   // AECI-1474 — /vendor-program/list-your-product, the listing request form on a
   // page of its own (§2.5). The same rules as /vendor-program: the form renders

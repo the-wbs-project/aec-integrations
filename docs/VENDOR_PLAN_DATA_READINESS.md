@@ -30,12 +30,12 @@ report:
   2026-10-13 (AECI-1302). Logpush runs on any plan, is about 1 to 2 GB a month for us, and
   captures only from the day it starts. *2026-10-22:* the edge request log is decided (ADR 0045):
   both datasets to R2 bucket `aeci-edge-log-prod-us`, kept 400 days. AECI-1447 started the jobs on 2026-10-22.
-- **A one-off backup exists.** Thirty-one days of hourly requests, daily rollups since 2026-04-08
-  and six months of Web Analytics page loads are in R2 bucket `aeci-views-temp` on The WBS Project
-  account, prefix `cloudflare-backfill-2026-10-01/`. A 2026-10-13 refresh under
-  `cloudflare-backfill-2026-10-13/` closes the gap to the zone move, with query string and network
-  lost for 2026-10-01 to 2026-10-04. It is the only copy of the days before the first Logpush day.
-  AECI-1448 copies it to `graphql-backfill/` in the edge-log bucket. The pull scripts are in
+- **The days before Logpush are backed up.** Thirty-one days of hourly requests, daily rollups since
+  2026-04-08 and six months of Web Analytics page loads are in R2 bucket `aeci-edge-log-prod-us` on
+  The WBS Project account, under `graphql-backfill/`. Three pulls: 2026-10-01, a 2026-10-13 refresh
+  across the zone move (query string and network lost for 2026-10-01 to 2026-10-04), and a final pull
+  on 2026-10-24 that overlaps the first Logpush day by about 43 hours (AECI-1448). It is the only copy
+  of the days before 2026-10-22, kept 400 days from upload. The pull scripts and row counts are in
   `scripts/ops/2026-10-traffic-history/` and `scripts/ops/2026-10-ai-assistant-fetch-history/`.
 - **AI assistants are a real, measurable audience.** September had about 790 verified on-demand
   assistant fetches and 51 ChatGPT-referred visits. Our own data shows almost none of it (items 13
@@ -161,7 +161,7 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 
 | #   | Gap                                                                                                                  | Why now                                                                                          | Size         | Issue                          |
 | --- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------ | ------------------------------ |
-| G0  | **Done 2026-10-22 (AECI-1447).** Start Logpush of zone `http_requests` and `firewall_events` to R2 bucket `aeci-edge-log-prod-us` on The WBS Project account (account decided 2026-10-13, AECI-1300; store decided 2026-10-22, ADR 0045). AECI-1447 started the jobs on 2026-10-22. Until AECI-1448 closes the gap to that day, re-run the backfill pull before the oldest unsaved day ages out (next: firewall events by 2026-11-12, requests by 2027-01-01) | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1196 (epic), AECI-1447, AECI-1448 |
+| G0  | **Done 2026-10-22 (AECI-1447).** Start Logpush of zone `http_requests` and `firewall_events` to R2 bucket `aeci-edge-log-prod-us` on The WBS Project account (account decided 2026-10-13, AECI-1300; store decided 2026-10-22, ADR 0045). AECI-1447 started the jobs on 2026-10-22. AECI-1448 closed the gap to that day on 2026-10-24 with a final GraphQL pull, and copied every pull into `graphql-backfill/` in the same bucket. No re-pull is due | Cloudflare's per-request record is the only consent-independent source for assistant fetches and AI referrals. Each lapsed day is gone | Small to start, medium for the store | AECI-1196 (epic), AECI-1447, AECI-1448 |
 | G1  | Flag a vendor's own visits on `page_views` (`is_owner_visit`)                                                        | Shipped 2026-10-12, forward only: pilot vendors' views before migration `0068` stay counted and cannot be backfilled | Small to medium | AECI-934 (shipped)              |
 | G2  | Once-a-day vendor portal visit row in D1 (user, vendor, day, utm)                                                    | Only way to count return visits for vendors who decline analytics                                | Small        | New                            |
 | G3  | "Confirm, nothing to change" action on vendor, product and integration, with an audit row and `last_reviewed_at`    | Pilot steps 1 to 3 are invisible when the data was already right                                 | Small        | New                            |

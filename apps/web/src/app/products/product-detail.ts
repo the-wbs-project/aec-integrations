@@ -546,16 +546,25 @@ import { RoleBadge } from './role-badge';
             </div>
             <!-- AECI-1283: the vendor landing page, beside the claim button
                  (VENDOR_PROGRAM_PAGE_SPEC.md §2.4). Visitor-neutral, so it stays in
-                 the cached HTML. -->
+                 the cached HTML. It explains claiming, so it must not read like a
+                 second claim button, and it opens a new tab so the visitor can come
+                 back here to claim. ?vendor= lets the page's claim dialog skip the
+                 search for this company. -->
             <a
               routerLink="/vendor-program"
-              class="inline-block text-sm font-medium text-(--accent-primary) underline-offset-4
-                hover:text-(--accent-primary-hover) hover:underline focus-visible:outline-none
-                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-              i18n="@@products.detail.metadata.vendorProgram"
-              >Is this your product?</a
-            >
+              [queryParams]="p.vendor ? { vendor: p.vendor.slug } : {}"
+              target="_blank"
+              rel="noopener"
+              data-testid="product-vendor-program-link"
+              class="inline-flex items-center gap-1 text-sm font-medium text-(--accent-primary)
+                underline-offset-4 hover:text-(--accent-primary-hover) hover:underline
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
+                focus-visible:ring-offset-(--surface-base)"
+              ><ng-container i18n="@@products.detail.metadata.vendorProgram"
+                >Learn more about claiming</ng-container
+              ><aec-new-tab-icon
+            /></a>
           </section>
         </div>
 

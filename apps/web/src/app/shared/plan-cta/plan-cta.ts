@@ -91,9 +91,10 @@ export function managedTermsLine(locale: string): string {
 }
 
 /**
- * The term, beside the price on both pages (closing panel, spec §4.1, E8.2 2026-10-19):
- * monthly is month to month with no commitment, and the first charge carries a 14-day
- * full refund.
+ * The term, beside the price in What Managed adds on `/vendor-program` (E8.2
+ * 2026-10-19): monthly is month to month with no commitment, and the first charge
+ * carries a 14-day full refund. The closing panel says it shorter in its own string
+ * since 2026-10-24 (spec §4.1).
  */
 export function managedTermLine(): string {
   return $localize`:@@planCta.term:Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.`;
@@ -250,7 +251,9 @@ export class PlanCtaActionsComponent extends PlanCta {}
         <p class="mt-2 max-w-[34rem] leading-relaxed">
           <span>{{ terms }}</span>
           {{ ' ' }}
-          <span>{{ term }}</span>
+          <span i18n="@@app.docs.plans.cta.term"
+            >Monthly, cancel any time. Full refund within 14 days.</span
+          >
           {{ ' ' }}
           <span i18n="@@app.docs.plans.cta.safety"
             >If a plan ends, nothing you entered is removed.</span
@@ -293,9 +296,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
             </li>
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">2.</span>
-              <span i18n="@@planCta.step.review"
-                >A person reviews every claim and emails you the result.</span
-              >
+              <span i18n="@@planCta.step.review">We review it and email you the result.</span>
             </li>
           </ol>
         }
@@ -305,7 +306,6 @@ export class PlanCtaActionsComponent extends PlanCta {}
 })
 export class PlanCtaPanelComponent extends PlanCta {
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
-  protected readonly term = managedTermLine();
   protected readonly panelButtonClass =
     'inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto';
   /** `h3` under a page section (the docs page), `h2` as its own section. */

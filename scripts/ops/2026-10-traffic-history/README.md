@@ -1,16 +1,17 @@
 # 2026-10 traffic history backfill (AECI-1169)
 
-> **The data files are in R2 only.** They were removed from the tree on 2026-10-01, after every file
-> in R2 was downloaded and matched by SHA-256. They remain in this branch's git history up to commit
-> `fe0055a6`. See "Copy in R2" below for the bucket and a download command.
+> **The data files are in R2 only.** Every pull is in the edge request log bucket
+> `aeci-edge-log-prod-us`, under `graphql-backfill/` (AECI-1448, 2026-10-24). The first pull's files
+> also remain in git history up to commit `fe0055a6`. See "Copy in R2" below.
 
 Everything Cloudflare still held about traffic to the `aecintegrations.com` zone on
 2026-10-01, saved before its retention window drops it. A second pull on 2026-10-13 covers the
-days after it, across the zone move; see "Refresh 2026-10-13" below. Logpush only captures traffic from the
-day it is switched on, so these files are the only source for anything earlier.
+days after it, across the zone move; see "Refresh 2026-10-13" below. A final pull on 2026-10-24 overlaps the
+first Logpush day; see "Final pull 2026-10-24" below. Logpush only captures traffic from the day it is switched
+on (2026-10-22, ADR 0045), so these files are the only source for anything earlier.
 
-**This is staging, not a home.** The plan is to parse these files into the R2 Iceberg table
-AECI-1169 builds, then delete the temporary bucket.
+**No more pulls are due.** The edge request log covers every day from 2026-10-22. Run `pull.mjs` again only
+to fill a Logpush outage (`docs/RUNBOOKS.md` "Logpush job disabled").
 
 No client IP addresses were requested. User agents, networks (ASN) and countries are kept.
 
@@ -119,19 +120,70 @@ What was pulled, under `cloudflare-backfill-2026-10-13/`:
 | `new-zone-2246ff6d/2026-10-ai-assistant-fetch-history/fetches-new-zone.csv` | 571 rows, 1,487 requests, 222 verified |
 | `old-zone-32f7aec2/2026-10-ai-assistant-fetch-history/` | Empty. The AI query needs fields the old zone refuses. Filter the old-zone `http-requests` on user agent instead |
 
-**Next deadlines, until Logpush runs (AECI-1196):**
+The re-pull deadlines this refresh set are retired. The final pull below closes the gap to Logpush.
 
-- Firewall events keep 31 days. Re-run `pull.mjs firewall-events` before 2026-11-12.
-- Requests keep 90 days. Re-run `pull.mjs` and the AI pull before 2027-01-01.
+## Final pull 2026-10-24 (AECI-1448)
+
+Pulled 2026-10-24 about 02:30 UTC from the new zone, with `pull.mjs` and the AI pull. It went straight to
+`graphql-backfill/cloudflare-backfill-2026-10-24/new-zone-2246ff6d/` in the edge request log bucket.
+
+| Dataset | Covers |
+|---|---|
+| `http-requests`, `firewall-events` | 2026-10-04T04:00Z to 2026-10-24T02:00Z |
+| `daily-rollup` | 2026-10-04 to 2026-10-23 |
+| `rum-*` | 2026-04 to 2026-10 (184 days) |
+| AI-assistant fetches | 2026-10-04 to 2026-10-24: 1,555 rows, 3,285 requests, 799 verified |
+
+Logpush starts at 2026-10-22T07:24Z, so the pull and the log overlap by about 43 hours. No day is
+missing. Logpush has no Web Analytics feed, so `rum-*` history after this pull lives only in Cloudflare's
+own 184 days.
+
+Every backfill file, with its CSV data rows (a row is one GraphQL group, not one request). The
+per-object list with SHA-256 is `../2026-10-graphql-backfill-copy/manifest.csv`. `copy.mjs verify`
+matched every object in R2 on 2026-10-24: 117 objects, 0 failures. The four `README.md` and `pull.mjs`
+copies in the 2026-10-01 pull are left out of this table.
+
+| Pull | Zone | Dataset | Files | Rows |
+|---|---|---|---|---|
+| 2026-10-01 | old | AI-assistant fetches | 1 | 2,281 |
+| 2026-10-01 | old | `daily-rollup` | 6 | 176 |
+| 2026-10-01 | old | `firewall-events` | 2 | 1,267 |
+| 2026-10-01 | old | `http-requests` | 3 | 294,651 |
+| 2026-10-01 | old | `rum-pageloads` | 7 | 977 |
+| 2026-10-01 | old | `rum-performance` | 7 | 510 |
+| 2026-10-01 | old | `rum-web-vitals` | 7 | 561 |
+| 2026-10-13 | new | AI-assistant fetches | 1 | 571 |
+| 2026-10-13 | new | `daily-rollup` | 1 | 9 |
+| 2026-10-13 | new | `firewall-events` | 1 | 7,211 |
+| 2026-10-13 | new | `http-requests` | 1 | 122,319 |
+| 2026-10-13 | new | `rum-pageloads` | 7 | 41 |
+| 2026-10-13 | new | `rum-performance` | 7 | 21 |
+| 2026-10-13 | new | `rum-web-vitals` | 7 | 14 |
+| 2026-10-13 | old | `daily-rollup` | 7 | 180 |
+| 2026-10-13 | old | `http-requests` | 2 | 48,710 |
+| 2026-10-13 | old | `rum-pageloads` | 7 | 711 |
+| 2026-10-13 | old | `rum-performance` | 7 | 392 |
+| 2026-10-13 | old | `rum-web-vitals` | 7 | 401 |
+| 2026-10-24 | new | AI-assistant fetches | 1 | 1,555 |
+| 2026-10-24 | new | `daily-rollup` | 1 | 20 |
+| 2026-10-24 | new | `firewall-events` | 1 | 24,105 |
+| 2026-10-24 | new | `http-requests` | 1 | 382,071 |
+| 2026-10-24 | new | `rum-pageloads` | 7 | 535 |
+| 2026-10-24 | new | `rum-performance` | 7 | 349 |
+| 2026-10-24 | new | `rum-web-vitals` | 7 | 276 |
 
 ## Copy in R2
 
-The 2026-10-13 refresh sits under `cloudflare-backfill-2026-10-13/`, same bucket. Uploaded on
-2026-10-01 to the temporary bucket `aeci-views-temp` on **The WBS Project** account
-(`004dc1af737b22a8aa83b3550fa9b9d3`), under the prefix `cloudflare-backfill-2026-10-01/<this directory>/`.
+R2 bucket `aeci-edge-log-prod-us` on **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`), under
+`graphql-backfill/cloudflare-backfill-<pull date>/`. The three pulls are `2026-10-01`, `2026-10-13` and
+`2026-10-24`. AECI-1448 copied the first two there from the temporary bucket `aeci-views-temp` on
+2026-10-24. The bucket's lifecycle rule deletes each object 400 days after it was written there (ADR 0045).
 Download with your wrangler OAuth login and the target account set, run from a directory with no
 `wrangler.jsonc` (the repo's configs pin the AEC Integrations account and override the variable):
 
 ```bash
-cd /tmp && env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx wrangler r2 object get aeci-views-temp/cloudflare-backfill-2026-10-01/2026-10-traffic-history/daily-rollup/2026-09.csv.gz --remote --file daily-rollup-2026-09.csv.gz
+cd /tmp && env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx wrangler r2 object get aeci-edge-log-prod-us/graphql-backfill/cloudflare-backfill-2026-10-01/2026-10-traffic-history/daily-rollup/2026-09.csv.gz --remote --file daily-rollup-2026-09.csv.gz
 ```
+
+The source copies in `aeci-views-temp` are pruned on or after 2026-10-31 (AECI-1475). That bucket stays,
+because it also holds the AECI-1167 old-account export (AECI-1464).

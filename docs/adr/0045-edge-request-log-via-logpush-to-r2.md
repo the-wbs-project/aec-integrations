@@ -57,3 +57,12 @@ The first version of epic AECI-1196 proposed Logpush into Basin Pipelines and th
 ## Amendment 2026-10-23 (AECI-1386)
 
 `page_views` now stores a DNT/GPC visit as an anonymous counter row, and ADR 0041's raw store writes no envelope for it. This log does not change. It still holds every request, signal or not, because it is the security record. That makes it the only store with request detail for those visits. The privacy policy says so in its "Edge request log" entry. A privacy row has no `cf_ray`, so the parked Ray ID join (AECI-1304) can never reach it.
+
+## Amendment 2026-10-24 (AECI-1448)
+
+The backfill is in the bucket. The decision is unchanged.
+
+- A final GraphQL pull on 2026-10-24 overlaps the first Logpush day by about 43 hours. The manual pulls and their deadlines are retired.
+- Every pull is under `graphql-backfill/`: 117 objects, verified by SHA-256 and row count. It falls under item 5's 400-day rule, counted from the copy date.
+- `aeci-views-temp` is not deleted. It also holds the AECI-1167 old-account export, which is not edge-log data (AECI-1464). Its backfill copies are pruned on or after 2026-10-31 (AECI-1475).
+- The day-two check of 2026-10-23, run on 2026-10-24, matched Cloudflare's count within 0.2%. `ClientRequestHost` keeps a non-default port, so a host filter must strip it.

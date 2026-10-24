@@ -1538,6 +1538,7 @@ these resources on 2026-10-22 on The WBS Project account. Both jobs were created
 | Zone | `aecintegrations.com` (`2246ff6d…`) |
 | R2 bucket | `aeci-edge-log-prod-us`, location ENAM |
 | Bucket lifecycle rule | `delete-after-400-days`, all prefixes, expire after 400 days |
+| Prefix `graphql-backfill/` | The GraphQL pulls from before Logpush, 117 objects, copied 2026-10-24 by AECI-1448. CSV, not NDJSON. Under the same 400-day rule |
 | Logpush job `http_requests` | id `1978506`, name `aeci-edge-log-http-requests`. Destination `http_requests/{DATE}/`, ndjson, gzip, RFC 3339 timestamps, sample rate 1. An explicit list of 107 fields: every field the zone offers except `ClientIP` |
 | Logpush job `firewall_events` | id `1978507`, name `aeci-edge-log-firewall-events`. Destination `firewall_events/{DATE}/`, same format. An explicit list of 43 fields: every field the zone offers except `ClientIP` |
 | Custom-fields ruleset | id `437f997da91246078372afa02ceccadb`, phase `http_log_custom_fields`, one rule (`19c08c0d…`), expression `true`, request headers `sec-gpc`, `dnt`, `sec-fetch-mode`, `sec-fetch-site`, `sec-fetch-dest`, `accept-language`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform` |
@@ -1559,7 +1560,11 @@ these resources on 2026-10-22 on The WBS Project account. Both jobs were created
   was created without a hint and landed in APAC. Deleting it and recreating it with `--location enam`
   kept APAC, so the bucket was renamed. Pass `--location` the first time you create any bucket name.
 - **Logpush never back-fills.** A job captures from the moment it starts. History before that is in the
-  GraphQL pulls (`scripts/ops/2026-10-traffic-history/`), which AECI-1448 copies to `graphql-backfill/`.
+  GraphQL pulls (`scripts/ops/2026-10-traffic-history/`), under `graphql-backfill/`. AECI-1448 copied them there on
+  2026-10-24 with `scripts/ops/2026-10-graphql-backfill-copy/`. Its final pull overlaps the first job day by
+  about 43 hours.
+- **`ClientRequestHost` keeps a non-default port.** Rows such as `www.aecintegrations.com:2082` are separate
+  values. Strip the port before grouping by host. Found in the day-two check of 2026-10-23, run 2026-10-24 (AECI-1447).
 - **Read recipe:** `ANALYTICS.md` §11a. **Runbook:** `RUNBOOKS.md` "Logpush job disabled".
 
 ## What lives where

@@ -1,8 +1,8 @@
 # 2026-10 AI-assistant fetch history (AECI-1169)
 
-> **The data files are in R2 only.** They were removed from the tree on 2026-10-01, after every file
-> in R2 was downloaded and matched by SHA-256. They remain in this branch's git history up to commit
-> `fe0055a6`. See "Copy in R2" below for the bucket and a download command.
+> **The data files are in R2 only.** Every pull is in the edge request log bucket
+> `aeci-edge-log-prod-us`, under `graphql-backfill/` (AECI-1448, 2026-10-24). The first file also
+> remains in git history up to commit `fe0055a6`. See "Copy in R2" below.
 
 Saved history of on-demand AI-assistant requests to the `aecintegrations.com` zone, pulled from
 Cloudflare. An on-demand fetch (`ChatGPT-User`, `Claude-User`, `Perplexity-User` and similar)
@@ -11,15 +11,22 @@ means a person asked an assistant a question and the assistant fetched one of ou
 Cloudflare kept this data for **31 days** on the Pro plan. Since the zone moved to The WBS
 Project account on 2026-10-04 it keeps **90 days**. These files are the only copy older than
 that. `page_views` cannot replace them: it discards the raw user agent, merges assistant
-fetches into crawler labels, and does not record Cloudflare's verified-bot flag. AECI-1169 builds
-the daily job that makes this directory obsolete. Until it ships, re-run the pull by hand before
-the oldest unsaved day ages out (next: 2027-01-01) and upload the new file, or the history gets a
-gap. The 2026-10-13 refresh and the zone split are in `../2026-10-traffic-history/README.md`.
+fetches into crawler labels, and does not record Cloudflare's verified-bot flag. Since 2026-10-22
+the edge request log keeps every request with `VerifiedBotCategory` for 400 days (ADR 0045), so no
+more pulls are due. The final pull on 2026-10-24 overlaps it by about 43 hours. The refreshes and
+the zone split are in `../2026-10-traffic-history/README.md`.
 
 | File | What it is | Touches Cloudflare? |
 |---|---|---|
 | `pull.mjs` | Pulls everything the zone still holds into a CSV, one day per query. Reach comes from the zone's `notOlderThan` setting | Read only |
-| `fetches-2026-08-31_2026-10-01.csv` | First snapshot: 2,281 rows, 5,222 requests, 1,059 verified | No |
+| `fetches-2026-08-31_2026-10-01.csv` | First snapshot: 2,281 rows, 5,222 requests, 1,059 verified. In R2 only | No |
+
+Later files, new zone only, in R2:
+
+| Pull | Covers | Rows | Requests | Verified |
+|---|---|---|---|---|
+| 2026-10-13 | 2026-10-04 to 2026-10-13 | 571 | 1,487 | 222 |
+| 2026-10-24 | 2026-10-04 to 2026-10-24 | 1,555 | 3,285 | 799 |
 
 ## Re-run
 
@@ -70,11 +77,18 @@ integration pair pages 142. No genuine `Perplexity-User` or `MistralAI-User` req
 
 ## Copy in R2
 
-Uploaded on 2026-10-01 to the temporary bucket `aeci-views-temp` on **The WBS Project** account
-(`004dc1af737b22a8aa83b3550fa9b9d3`), under the prefix `cloudflare-backfill-2026-10-01/<this directory>/`.
-Download with your wrangler OAuth login and the target account set, run from a directory with no
-`wrangler.jsonc` (the repo's configs pin the AEC Integrations account and override the variable):
+R2 bucket `aeci-edge-log-prod-us` on **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`):
+
+| Pull | Key under `graphql-backfill/` |
+|---|---|
+| 2026-10-01 | `cloudflare-backfill-2026-10-01/2026-10-ai-assistant-fetch-history/fetches-2026-08-31_2026-10-01.csv` |
+| 2026-10-13 | `cloudflare-backfill-2026-10-13/new-zone-2246ff6d/2026-10-ai-assistant-fetch-history/fetches-new-zone.csv` |
+| 2026-10-24 | `cloudflare-backfill-2026-10-24/new-zone-2246ff6d/2026-10-ai-assistant-fetch-history/fetches-new-zone.csv` |
+
+Each object is deleted 400 days after it was written there (ADR 0045). Download with your wrangler
+OAuth login and the target account set, run from a directory with no `wrangler.jsonc` (the repo's
+configs pin the AEC Integrations account and override the variable):
 
 ```bash
-cd /tmp && env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx wrangler r2 object get aeci-views-temp/cloudflare-backfill-2026-10-01/2026-10-traffic-history/daily-rollup/2026-09.csv.gz --remote --file daily-rollup-2026-09.csv.gz
+cd /tmp && env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx wrangler r2 object get aeci-edge-log-prod-us/graphql-backfill/cloudflare-backfill-2026-10-24/new-zone-2246ff6d/2026-10-ai-assistant-fetch-history/fetches-new-zone.csv --remote --file fetches-new-zone.csv
 ```
