@@ -217,6 +217,9 @@ export async function resolveSitemapEntries(
     // §2.3). Listed on purpose: vendors searching "list my software" are meant
     // to find it. Same weight as /methodology, the other static page listed.
     { loc: `${base}/vendor-program`, changefreq: 'monthly', priority: 0.5 },
+    // AECI-1474 — the listing request page (§2.5). Listed for the same reason:
+    // "list my software" and "AEC software directory listing" searches.
+    { loc: `${base}/vendor-program/list-your-product`, changefreq: 'monthly', priority: 0.5 },
     // AECI-1248 — the product docs, from the manifest: `/docs`, each indexable
     // section index and page. No `<lastmod>`, the `/legal/*` rule: the page's
     // `last_updated` is a display string, not a date. The vendor guide

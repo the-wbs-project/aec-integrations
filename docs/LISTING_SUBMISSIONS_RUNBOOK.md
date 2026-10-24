@@ -31,7 +31,7 @@ submissions.
 
 | Arrives as | Record | What the operator does |
 |---|---|---|
-| The claim dialog's "Not listed? Type it in" path | A `listing_requests` row, its `listing_request.created` audit row, and the `listing-request-alert` email to support (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) | Work it from the "Listing requests" section of `/admin/requests` (§15.5). Resolve or reject it there. The claimant already has an automatic `claim-received` receipt. |
+| The listing request page (`/vendor-program/list-your-product`, AECI-1474) or the claim dialog's "Not listed? Type it in" path. Both are the same form | A `listing_requests` row, its `listing_request.created` audit row, and the `listing-request-alert` email to support (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4) | Work it from the "Listing requests" section of `/admin/requests` (§15.5). Resolve or reject it there. The claimant already has an automatic `claim-received` receipt. |
 | A cold email | Nothing until you file it | File a Linear issue (below). |
 
 **As built, AECI-1435 (2026-10-21): a request in the queue is from a confirmed address.** An

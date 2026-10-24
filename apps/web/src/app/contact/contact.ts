@@ -22,11 +22,13 @@
  * **`?topic=add-product`** (`VENDOR_PROGRAM_PAGE_SPEC.md` §6; its in-app link,
  * Find your product, was removed on 2026-10-12, and the topic keeps working for
  * outside links). A vendor whose product is not in the
- * directory asks us to add it. The in-app path is the claim dialog's typed-in step
- * (a listing request, §15.4). This topic is the fallback for outside links: the
- * page shows a panel whose button is the same support `mailto:` with the subject
- * and a prompt filled in: product name, website, and the products it integrates
- * with. The message reaches the same mailbox as every other email.
+ * directory asks us to add it. The in-app path is a listing request (§15.4), on
+ * `/vendor-program/list-your-product` or the claim dialog's typed-in step. This
+ * topic is the fallback for outside links: the page shows a panel whose primary
+ * button, "Request a listing", goes to that page (AECI-1474, §2.4). Its second
+ * button is the same support `mailto:` with the subject and a prompt filled in:
+ * product name, website, and the products it integrates with. The message reaches
+ * the same mailbox as every other email.
  * Topic values live in `contact-topics.ts`. Any other topic value is ignored, including
  * `managed`, whose inline inquiry form was removed on 2026-10-19 (E8.1). `/contact` is
  * not cached, so reading the query in SSR is safe, and the canonical URL stays `/contact`.
@@ -80,16 +82,29 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
               class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
               i18n="@@app.contact.addProduct.body"
             >
-              Email us the product name, its website, and the products it integrates with. The email
-              opens with these questions filled in.
+              Send us a listing request, and a person on our team reviews it. Or email us the
+              product name, its website, and the products it integrates with. The email opens with
+              these questions filled in.
             </p>
-            <a
-              [href]="addProductHref"
-              class="mt-6 inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@app.contact.addProduct.cta"
-            >
-              Email us about your product
-            </a>
+            <!-- AECI-1474: the request form first, the email second. -->
+            <div class="mt-6 flex flex-wrap gap-3">
+              <a
+                routerLink="/vendor-program/list-your-product"
+                class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                data-testid="contact-add-product-request"
+                i18n="@@app.contact.addProduct.request"
+              >
+                Request a listing
+              </a>
+              <a
+                [href]="addProductHref"
+                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-3 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                data-testid="contact-add-product-email"
+                i18n="@@app.contact.addProduct.cta"
+              >
+                Email us about your product
+              </a>
+            </div>
           </section>
         }
         <div class="grid max-w-5xl gap-6 md:grid-cols-2">

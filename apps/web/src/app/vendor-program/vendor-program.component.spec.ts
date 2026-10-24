@@ -424,6 +424,17 @@ describe('VendorProgramPage', () => {
       expect(host.querySelector('#vp-faq aec-plan-contact-link')).not.toBeNull();
     });
 
+    // AECI-1474: under the FAQ, beside the contact link, the listing request page.
+    it('links "Not listed yet?" under the FAQ to the listing request page', async () => {
+      const { host } = await setup({ plan: stub() });
+      const line = host.querySelector('#vp-faq [data-testid="vp-faq-list-your-product"]');
+      expect(text(line)).toBe('Not listed yet? Ask us to list your product');
+      const link = links(host, 'Ask us to list your product');
+      expect(link).toHaveLength(1);
+      expect(link[0]!.getAttribute('href')).toBe('/vendor-program/list-your-product');
+      expect(link[0]!.hasAttribute('target')).toBe(false);
+    });
+
     // Full width at desktop (spec section 11, 2026-10-12): no rail, so no column is
     // reserved beside the sections, and the closing panel splits across the width.
     it('mounts no rail and reserves no rail column', async () => {

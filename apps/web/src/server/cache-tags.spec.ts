@@ -132,6 +132,8 @@ describe('cacheTagInputsForPath', () => {
     ['/methodology', { route: 'index' }],
     // AECI-1283 — the vendor landing page, same shape.
     ['/vendor-program', { route: 'index' }],
+    // AECI-1474 — the listing request page, same shape.
+    ['/vendor-program/list-your-product', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     // AECI-1104, AECI-1248 — the product docs: static content, route tag only,
@@ -223,6 +225,7 @@ describe('cacheTagInputsForPath', () => {
       '/about',
       '/methodology',
       '/vendor-program',
+      '/vendor-program/list-your-product',
       '/updates',
       '/roadmap',
       '/legal/terms',

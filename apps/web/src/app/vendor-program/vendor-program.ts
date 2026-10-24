@@ -44,7 +44,8 @@
  * (`CLAIM_DIALOG_FALLBACK_HREF`), where the visitor finds the listing and its own
  * claim form. Claim is the only plan action. "Questions? Contact us" (`aec-plan-contact-link`, a plain link to
  * `/contact`) sits in the closing panel and under the FAQ, not on the hero (E8.1,
- * 2026-10-19). The plan cards carry `data-plans-cta`, so the phone bar also hides
+ * 2026-10-19). Under the FAQ it has a second line, "Not listed yet? Ask us to list
+ * your product", a plain link to `/vendor-program/list-your-product` (AECI-1474). The plan cards carry `data-plans-cta`, so the phone bar also hides
  * while they are on screen. Exactly one `aec-claim-dialog-host`.
  *
  * **Static + edge-cached + SSR-safe.** No data fetch and no per-visitor state in the
@@ -575,7 +576,21 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </p>
               </details>
             </div>
-            <aec-plan-contact-link class="lg:col-span-7 lg:col-start-6" />
+            <div class="flex flex-col gap-2 lg:col-span-7 lg:col-start-6">
+              <aec-plan-contact-link />
+              <!-- AECI-1474: the listing request page, for a product not listed yet. Not
+                   tracked, like the contact link. -->
+              <p class="text-sm text-(--text-secondary)" data-testid="vp-faq-list-your-product">
+                <span i18n="@@vendorProgram.faq.notListed.lead">Not listed yet?</span>
+                {{ ' ' }}
+                <a
+                  routerLink="/vendor-program/list-your-product"
+                  class="font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@vendorProgram.faq.notListed.link"
+                  >Ask us to list your product</a
+                >
+              </p>
+            </div>
           </section>
 
           <!-- 8. The closing panel, its own section (h2). -->

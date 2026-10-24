@@ -143,9 +143,18 @@ export type PlanCtaPage = 'docs_plans' | 'vendor_program';
 
 /**
  * What opened the claim dialog (`claim_dialog_step.entry`, AECI-1293,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement.
+ * `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7): a plan call to action's placement, or
+ * `list_page`, the listing request page that embeds the flow (AECI-1474, §2.5).
  */
-export type ClaimDialogEntry = PlanCtaPlacement;
+export type ClaimDialogEntry = PlanCtaPlacement | 'list_page';
+
+/**
+ * Which page the claim flow ran on (`claim_dialog_step.page`,
+ * `listing_requested.page`): a plan call to action's page, or
+ * `list_your_product`, `/vendor-program/list-your-product` (AECI-1474). Kept apart
+ * from `PlanCtaPage` so `plan_cta_clicked` never reads the list page.
+ */
+export type ClaimDialogPage = PlanCtaPage | 'list_your_product';
 
 /** A claim dialog step (`claim_dialog_step.step`). */
 export type ClaimDialogStep = 'find' | 'you' | 'comments' | 'done';
@@ -340,7 +349,7 @@ export class Analytics {
    */
   claimDialogStep(input: {
     step: ClaimDialogStep;
-    page: PlanCtaPage;
+    page: ClaimDialogPage;
     entry: ClaimDialogEntry;
     path?: 'found' | 'typed';
   }): void {
@@ -357,7 +366,7 @@ export class Analytics {
    * AECI-1293). Only the page: the name, website and email the visitor typed never
    * leave the form. The `listing_requests` table stays the authoritative count.
    */
-  listingRequested(input: { page: PlanCtaPage; confirmation_required: boolean }): void {
+  listingRequested(input: { page: ClaimDialogPage; confirmation_required: boolean }): void {
     this.capture('listing_requested', {
       page: input.page,
       confirmation_required: input.confirmation_required,
