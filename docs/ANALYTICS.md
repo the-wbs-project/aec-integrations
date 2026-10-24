@@ -637,12 +637,14 @@ privacy rows.
 **Answer first.** Cloudflare's per-request record for the whole zone is copied to R2 by two Logpush
 jobs and kept 400 days. Nothing reads it automatically. Read it by hand with DuckDB. ADR 0045 is the
 decision. AECI-1447 created the bucket and the jobs on 2026-10-22. The first full day is `20261023`.
+Its row count matched Cloudflare's own count within 0.2% (day-two check of 2026-10-23, run 2026-10-24).
 
 **What it is.** One bucket, `aeci-edge-log-prod-us`, on The WBS Project account. Gzip NDJSON, one
 JSON object per line, under `http_requests/{DATE}/` and `firewall_events/{DATE}/`, with `{DATE}` as
 `YYYYMMDD`. A job covers the whole zone, so `www.`, the apex, `demo.`, `staging.`, the review app on `review.` and
 the PostHog ingest proxy (`ClientRequestHost` `us.i.posthog.com`) are all in it.
-Filter on `ClientRequestHost`.
+Filter on `ClientRequestHost`. It keeps a non-default port (`www.aecintegrations.com:2082`), so strip
+the port or match with `LIKE 'www.aecintegrations.com%'`.
 
 **How it differs from §11.** §11 holds only captures that reach `capturePageView`, with a monthly IP
 hash and secret query parameters removed. This log holds every request: pages, assets, API calls,
@@ -666,6 +668,12 @@ WHERE ClientRequestHost = 'www.aecintegrations.com'
 GROUP BY ALL
 ORDER BY requests DESC;
 ```
+
+**Days before 2026-10-22.** They are under `graphql-backfill/` in the same bucket: Cloudflare GraphQL
+pulls as CSV, most of it gzip. A row is one GraphQL group (an hour or a day) with a sample-adjusted
+count, not one request (AECI-1448). Read them with `read_csv` instead of `read_json`. Columns and caveats
+are in `scripts/ops/2026-10-traffic-history/README.md` and, for the AI-assistant fetches,
+`scripts/ops/2026-10-ai-assistant-fetch-history/README.md`.
 
 **Joins.** `RayID` equals `page_views.cf_ray` and the §11 envelope's `cf.ray`. No join is built
 (AECI-1304). A privacy-signal row stores no `cf_ray`, so it never joins.

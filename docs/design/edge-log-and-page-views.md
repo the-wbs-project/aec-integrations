@@ -260,7 +260,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 
 | Id | Step | Epic |
 |---|---|---|
-| D1 | Logpush production capture and lifecycle rule (AECI-1447, done 2026-10-22). Backfill copy into `graphql-backfill/` (AECI-1448) | AECI-1196 |
+| D1 | Logpush production capture and lifecycle rule (AECI-1447, done 2026-10-22). Backfill copy into `graphql-backfill/` (AECI-1448, done 2026-10-24) | AECI-1196 |
 | D2 | Bot classifier and path-to-entity parser move to `@aeci/shared` | AECI-1299 |
 | D3 | Arrival writer move to the gateway (AECI-1297, built). The arrival row carries the page-load Ray ID itself | AECI-1196 |
 | D4 | Shadow classifier for 2 to 4 weeks on AECI-872's machinery, cross-checked against Logpush | AECI-1299 |
