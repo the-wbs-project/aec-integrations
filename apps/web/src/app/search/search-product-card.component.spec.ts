@@ -44,54 +44,35 @@ function setup(initial: AlgoliaProductRecord = baseRecord) {
 }
 
 describe('SearchProductCard', () => {
-  it('links the product name to /products/:slug', () => {
+  it('links the whole card to /products/:slug', () => {
     const el = setup();
     const link = el.querySelector('a[href="/products/procore"]');
     expect(link?.textContent).toContain('Procore');
   });
 
-  it('shows the vendor name and description', () => {
+  it('shows the vendor name and the integration badge', () => {
     const el = setup();
     expect(el.textContent).toContain('Procore Technologies');
-    expect(el.textContent).toContain('Construction management platform.');
+    expect(el.textContent).toContain('12');
+    expect(el.textContent).toContain('integrations');
   });
 
-  it('shows the integration count', () => {
-    const el = setup();
-    expect(el.textContent).toContain('12 integrations');
-  });
-
-  it('renders taxonomy names as non-link chips (capped at four)', () => {
-    const el = setup();
-    const chips = el.querySelectorAll('ul li');
-    expect(chips.length).toBe(4);
-    expect(el.textContent).toContain('Project Management');
-    // Chips are not links (records carry names, not slugs).
-    expect(el.querySelector('a[href^="/categories/"]')).toBeNull();
-  });
-
-  it('omits the vendor line when vendor_name is null', () => {
+  it('says "Independent" when vendor_name is null, as the /products tile does', () => {
     const el = setup({ ...baseRecord, vendor_name: null });
     expect(el.textContent).not.toContain('Procore Technologies');
+    expect(el.textContent).toContain('Independent');
   });
 
-  it('leads the chip row with trades (AECI-545)', () => {
+  it('carries only the /products tile fields: no description, no taxonomy chips', () => {
     const el = setup({ ...baseRecord, trades: ['Roofing'] });
-    const chips = [...el.querySelectorAll('ul li')].map((li) => li.textContent?.trim());
-    // Sparse + specific, so it must survive the cap ahead of the categories.
-    expect(chips[0]).toBe('Roofing');
-    expect(chips.length).toBe(4);
+    expect(el.textContent).not.toContain('Construction management platform.');
+    expect(el.textContent).not.toContain('Project Management');
+    expect(el.textContent).not.toContain('Roofing');
+    expect(el.querySelectorAll('li')).toHaveLength(0);
   });
 
-  it('renders a trade that duplicates a category name only once (NG0955 guard)', () => {
-    const el = setup({ ...baseRecord, trades: ['Project Management'] });
-    const chips = [...el.querySelectorAll('ul li')].map((li) => li.textContent?.trim());
-    expect(chips.filter((c) => c === 'Project Management')).toHaveLength(1);
-  });
-
-  it('tolerates a record indexed before AECI-545 (no trades key)', () => {
-    const { trades: _omit, ...stale } = baseRecord;
-    const el = setup(stale as AlgoliaProductRecord);
-    expect(el.textContent).toContain('Project Management');
+  it('uses the singular noun for one integration', () => {
+    const el = setup({ ...baseRecord, integration_count: 1 });
+    expect(el.textContent).toMatch(/1\s*integration(?!s)/);
   });
 });

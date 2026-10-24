@@ -34,8 +34,11 @@ import { Component } from '@angular/core';
         </header>
 
         <div class="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] md:gap-12">
+          <!-- min-w-0 on both columns: a grid item defaults to min-width:auto,
+               so one long facet label or card title would otherwise widen its
+               track past the minmax(0, …) cap and clip against the viewport. -->
           <aside
-            class="md:self-start"
+            class="min-w-0 md:self-start"
             i18n-aria-label="@@app.layouts.browse.filters.aria"
             aria-label="Filters"
           >

@@ -171,7 +171,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   1. `company_name`
   2. `unordered(description)`
   3. `headquarters`
-- **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
+- **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`. `/search` renders no filter for `headquarters` since 2026-10-24: the values are free text and one city appeared under several spellings. The index setting stays, so restoring the filter needs no settings push.
 - **Custom ranking:** `desc(listing_tier)` alone (AECI-636 PR-B, 2026-09-22)
   - *Rationale:* a complete vendor profile breaks textual ties. `listing_tier` is content only and unrelated to plans (§3.1). There is no second signal.
   - **Previously `desc(integration_count)`, then `desc(product_count)`.** Both counts stay on the record and stay facets. They only left `customRanking`.

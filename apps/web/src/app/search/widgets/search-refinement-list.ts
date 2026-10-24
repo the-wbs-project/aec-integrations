@@ -13,12 +13,16 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
  * a11y: `<fieldset>` + `<legend>` names the group; each `<input type="checkbox">`
  * is wrapped in its `<label>` so it has an accessible name. Renders nothing when
  * there are no values (keeps the facet rail clean for an empty index).
+ *
+ * `min-w-0` on the fieldset: a fieldset defaults to `min-inline-size:
+ * min-content`, so a long facet value pushed the rail wider than its column
+ * instead of truncating. The numeric-menu and range widgets carry it too.
  */
 @Component({
   selector: 'aec-search-refinement-list',
   template: `
     @if (items().length) {
-      <fieldset class="border-0 p-0">
+      <fieldset class="min-w-0 border-0 p-0">
         <legend
           class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
         >
