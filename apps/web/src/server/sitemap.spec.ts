@@ -349,6 +349,18 @@ describe('resolveSitemapEntries', () => {
     expect(entry?.lastmod).toBeUndefined();
   });
 
+  it('includes the listing request page right after /vendor-program (AECI-1474)', async () => {
+    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const locs = entries.map((e) => e.loc);
+    const at = locs.indexOf('https://aecintegrations.com/vendor-program/list-your-product');
+    expect(at).toBeGreaterThan(-1);
+    expect(locs[at - 1]).toBe('https://aecintegrations.com/vendor-program');
+    const entry = entries[at];
+    expect(entry?.changefreq).toBe('monthly');
+    expect(entry?.priority).toBe(0.5);
+    expect(entry?.lastmod).toBeUndefined();
+  });
+
   it('lists the indexable docs from the manifest, vendor guide included, with no lastmod (AECI-1248, AECI-1253)', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const docs = entries.filter((e) => e.loc.startsWith('https://aecintegrations.com/docs'));

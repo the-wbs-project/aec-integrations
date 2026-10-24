@@ -3,8 +3,9 @@
  * `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): each of the three steps (AECI-1365
  * removed the plan step), Back, both submit paths, the 404 fallback and the
  * analytics payloads. AECI-1366 adds the vendor terms box, the routed notice and
- * receipt, and the stale-bundle `accepted_terms` 400. The BrnDialog shell and the triggers are pinned in
- * `claim-dialog.component.spec.ts`.
+ * receipt, and the stale-bundle `accepted_terms` 400. AECI-1474 adds the embedded
+ * flow that starts on the typed-in step, for the listing request page. The BrnDialog
+ * shell and the triggers are pinned in `claim-dialog.component.spec.ts`.
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
@@ -39,6 +40,7 @@ function setup(
     email?: string | null;
     hasSeats?: boolean | 'error';
     confirm?: boolean;
+    embedded?: boolean;
     /** A listing the page seeded (`/vendor-program?vendor=`). */
     seed?: ClaimListing;
   } = {},
@@ -77,13 +79,18 @@ function setup(
   if (opts.seed) TestBed.inject(ClaimDialogService).setSeed(opts.seed);
   const fixture = TestBed.createComponent(ClaimDialogFlow);
   fixture.componentRef.setInput('opening', opening);
-  fixture.detectChanges();
+  if (opts.embedded) fixture.componentRef.setInput('embedded', true);
   const host = fixture.nativeElement as HTMLElement;
+  // Attached before the first render, so a focus moved on it lands (AECI-1474).
   document.body.appendChild(host);
+  fixture.detectChanges();
 
   const $ = <T extends Element = HTMLElement>(selector: string) => host.querySelector<T>(selector);
   const heading = () => text($('h3'));
   const progress = () => text($('[data-testid="claim-dialog-progress"] p'));
+  /** The progress bar's fill, as its inline width (`"50%"`). */
+  const progressWidth = () =>
+    $<HTMLElement>('[data-testid="claim-dialog-progress"] div div')?.style.width ?? null;
   const fill = (id: string, value: string) => {
     const el = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${id}`)!;
     el.value = value;
@@ -122,6 +129,7 @@ function setup(
     $,
     heading,
     progress,
+    progressWidth,
     fill,
     primary,
     back,
@@ -628,5 +636,116 @@ describe('ClaimDialogFlow', () => {
     expect(t.host.querySelector<HTMLInputElement>('#claim-dialog-email')!.value).toBe(
       'me@acme.example',
     );
+  });
+
+  describe('embedded, from the typed-in step (AECI-1474)', () => {
+    const LIST_PAGE: ClaimDialogOpening = {
+      page: 'list_your_product',
+      entry: 'list_page',
+      start: 'typed',
+    };
+
+    it('opens on the typed-in You step with focus in the first field, and one step event', async () => {
+      const t = setup(LIST_PAGE, { embedded: true });
+      await t.fixture.whenStable();
+      expect(t.heading()).toBe('About you');
+      expect(t.progress()).toBe('Step 1 of 2 · You');
+      expect(t.progressWidth()).toBe('50%');
+      expect(t.$('#claim-dialog-search')).toBeNull();
+      expect(t.$('#claim-dialog-listing-name')).not.toBeNull();
+      expect(t.$('#claim-dialog-website')).not.toBeNull();
+      expect(document.activeElement?.id).toBe('claim-dialog-listing-name');
+      expect(t.analytics.claimDialogStep).toHaveBeenCalledTimes(1);
+      expect(t.analytics.claimDialogStep).toHaveBeenCalledWith({
+        step: 'you',
+        page: 'list_your_product',
+        entry: 'list_page',
+        path: 'typed',
+      });
+    });
+
+    it('counts two steps on the typed-in path: You 1 of 2, Comments 2 of 2', async () => {
+      const t = setup(LIST_PAGE, { embedded: true });
+      t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+      t.fill('claim-dialog-website', 'https://sitediary.example.com');
+      t.fillYou();
+      await t.primary();
+      expect(t.heading()).toBe('Anything to add?');
+      expect(t.progress()).toBe('Step 2 of 2 · Comments');
+      expect(t.progressWidth()).toBe('100%');
+    });
+
+    it('Back goes to the Find step, which searches as in the dialog and shows no progress', async () => {
+      const t = setup(LIST_PAGE, { embedded: true });
+      t.back();
+      expect(t.heading()).toBe('Find your listing');
+      expect(t.$('#claim-dialog-search')).not.toBeNull();
+      // Find is a detour here, not step 1.
+      expect(t.$('[data-testid="claim-dialog-progress"]')).toBeNull();
+      expect(t.analytics.claimDialogStep).toHaveBeenLastCalledWith({
+        step: 'find',
+        page: 'list_your_product',
+        entry: 'list_page',
+      });
+      t.choose(PRODUCT);
+      expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Acme Takeoff');
+      // A found listing keeps the two-step count.
+      expect(t.progress()).toBe('Step 1 of 2 · You');
+      expect(t.progressWidth()).toBe('50%');
+      t.fillYou();
+      await t.primary();
+      expect(t.progress()).toBe('Step 2 of 2 · Comments');
+      expect(t.progressWidth()).toBe('100%');
+    });
+
+    it('the dialog without a start still counts three steps, Find first', async () => {
+      const t = setup({ page: 'vendor_program', entry: 'top' });
+      expect(t.progress()).toBe('Step 1 of 3 · Find it');
+      expect(parseFloat(t.progressWidth()!)).toBeCloseTo(100 / 3, 1);
+      t.choose(PRODUCT);
+      expect(t.progress()).toBe('Step 2 of 3 · You');
+      t.fillYou();
+      await t.primary();
+      expect(t.progress()).toBe('Step 3 of 3 · Comments');
+      expect(t.progressWidth()).toBe('100%');
+      t.back();
+      t.back();
+      expect(t.progress()).toBe('Step 1 of 3 · Find it');
+    });
+
+    it('drops the dialog scroll classes', () => {
+      const t = setup(LIST_PAGE, { embedded: true });
+      const host = t.fixture.nativeElement as HTMLElement;
+      expect(host.className).not.toContain('min-h-0');
+      expect(t.$('[data-testid="claim-dialog-body"]')!.className).not.toContain('overflow-y-auto');
+    });
+
+    it('sends a listing request with the page, and the receipt has no Done', async () => {
+      const t = setup(LIST_PAGE, { embedded: true });
+      t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+      t.fill('claim-dialog-website', 'https://sitediary.example.com');
+      t.fillYou();
+      await t.primary();
+      await t.primary();
+      expect(t.api.submitListing).toHaveBeenCalledTimes(1);
+      expect(t.heading()).toBe('Request sent');
+      expect(t.$('[data-testid="claim-dialog-footer"]')).toBeNull();
+      expect(text(t.host)).not.toContain('Done');
+      expect(t.analytics.listingRequested).toHaveBeenCalledWith({
+        page: 'list_your_product',
+        confirmation_required: false,
+      });
+    });
+
+    it('the dialog receipt keeps its Done', async () => {
+      const t = setup({ page: 'vendor_program', entry: 'top', start: 'typed' });
+      t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+      t.fill('claim-dialog-website', 'https://sitediary.example.com');
+      t.fillYou();
+      await t.primary();
+      await t.primary();
+      expect(t.heading()).toBe('Request sent');
+      expect(text(t.$('[data-testid="claim-dialog-footer"]'))).toBe('Done');
+    });
   });
 });

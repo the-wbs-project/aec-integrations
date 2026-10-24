@@ -2,7 +2,7 @@ import { Injectable, computed, signal } from '@angular/core';
 
 import type { RequestTargetType } from '@aeci/shared';
 
-import type { ClaimDialogEntry, PlanCtaPage } from '../../analytics/analytics';
+import type { ClaimDialogEntry, ClaimDialogPage } from '../../analytics/analytics';
 
 /**
  * Where every claim dialog trigger points without JS, before hydration, on a page
@@ -34,8 +34,14 @@ export interface ClaimListing {
 
 /** How the dialog was opened. */
 export interface ClaimDialogOpening {
-  readonly page: PlanCtaPage;
+  readonly page: ClaimDialogPage;
   readonly entry: ClaimDialogEntry;
+  /**
+   * Where the flow starts. Absent: the Find step. `typed`: the typed-in You step,
+   * for the listing request page (AECI-1474, `VENDOR_PROGRAM_PAGE_SPEC.md` §2.5).
+   * Back from there still reaches Find.
+   */
+  readonly start?: 'typed';
 }
 
 /**

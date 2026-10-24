@@ -530,6 +530,16 @@ export const routes: Routes = [
   // resolver: the body needs no API data at SSR time, and every signed-in variant
   // (§5) is applied after hydration. Not `/vendors`, which stays a 301 to
   // `/products` (AECI-165).
+  //
+  // AECI-1474 — `/vendor-program/list-your-product`, the listing request form on
+  // a page of its own (§2.5). The same rules as `/vendor-program`: static,
+  // indexable, cacheable, in `sitemap.xml`, no resolver. Listed first so the more
+  // specific path reads before its parent.
+  {
+    path: 'vendor-program/list-your-product',
+    loadComponent: () =>
+      import('./vendor-program/list-your-product').then((m) => m.ListYourProductPage),
+  },
   {
     path: 'vendor-program',
     loadComponent: () => import('./vendor-program/vendor-program').then((m) => m.VendorProgramPage),

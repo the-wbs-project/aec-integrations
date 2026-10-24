@@ -1399,7 +1399,7 @@ Both return `RequestSubmitResponse` (`{ request_id: string; message: string; con
 
 #### `POST /api/requests/listing` (AECI-1293)
 
-"Not listed? Type it in" in the claim dialog (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.4): a product or company the catalog does not list, so AECi can add it and then invite the submitter to claim it. Public, no session.
+"Not listed? Type it in" in the claim dialog, and the same form on `/vendor-program/list-your-product` (AECI-1474, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.4 and §2.5): a product or company the catalog does not list, so AECi can add it and then invite the submitter to claim it. Public, no session.
 
 ```typescript
 export const ListingRequestSchema = ClaimFormSchema.extend({
