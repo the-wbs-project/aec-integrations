@@ -152,8 +152,7 @@ describe('SearchController wiring', () => {
       'trades',
       'vendor_name',
       'has_api_docs',
-      // vendors
-      'headquarters',
+      // vendors: none. headquarters is free text and was removed (2026-10-24).
       // integrations intentionally excluded from /search (see search-controller.ts)
     ]);
     expect(calls.numericMenu.map((c) => c.params['attribute'])).toEqual([

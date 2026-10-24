@@ -13,7 +13,7 @@ import { Component, input, output } from '@angular/core';
 @Component({
   selector: 'aec-search-range-input',
   template: `
-    <fieldset class="border-0 p-0">
+    <fieldset class="min-w-0 border-0 p-0">
       <legend
         class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
       >

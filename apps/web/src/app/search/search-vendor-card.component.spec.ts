@@ -43,21 +43,17 @@ describe('SearchVendorCard', () => {
     expect(link?.textContent).toContain('Procore Technologies');
   });
 
-  it('shows headquarters, product and integration counts', () => {
+  it('shows headquarters and the integration badge', () => {
     const el = setup();
     expect(el.textContent).toContain('Carpinteria, CA');
-    expect(el.textContent).toContain('8');
     expect(el.textContent).toContain('412');
   });
 
-  it('shows the founded year when present', () => {
+  it('carries only the /products tile fields: no description, product count or founded year', () => {
     const el = setup();
-    expect(el.textContent).toContain('2002');
-  });
-
-  it('omits the founded year when null', () => {
-    const el = setup({ ...baseRecord, founded_year: null });
     expect(el.textContent).not.toContain('2002');
+    expect(el.textContent).not.toContain('Products');
+    expect(el.querySelector('dl')).toBeNull();
   });
 
   it('never renders the account label (AECI-1131)', () => {

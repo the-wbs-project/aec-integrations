@@ -1,3 +1,4 @@
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Meta, Title } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
@@ -310,5 +311,122 @@ describe('SearchPage shell', () => {
     await tick();
     expect(router.url).toContain('tab=vendors');
     expect(router.url).not.toContain('sort=');
+  });
+
+  // ── Browse-layout parity with /products ───────────────────────────────────
+
+  it('renders in the shared browse layout with the mobile Filters disclosure', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-browse-layout')).not.toBeNull();
+    const trigger = el.querySelector(
+      'button[aria-controls="search-facet-panel"]',
+    ) as HTMLButtonElement;
+    const panel = el.querySelector('#search-facet-panel') as HTMLElement;
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.classList.contains('hidden')).toBe(true);
+
+    trigger.click();
+    fixture.detectChanges();
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.classList.contains('hidden')).toBe(false);
+  });
+
+  it('tabs carry the aec-nav-tab class that colours the active underline', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]');
+    expect([...tabs].every((tab) => tab.classList.contains('aec-nav-tab'))).toBe(true);
+  });
+
+  it('counts active refinements and clears them through each connector', () => {
+    setConfigPresent();
+    setup();
+    const fixture = TestBed.createComponent(SearchPage);
+
+    const listRefine = vi.fn();
+    const menuRefine = vi.fn();
+    const rangeRefine = vi.fn();
+    const view = {
+      refinementLists: [
+        {
+          attribute: 'categories',
+          items: signal([
+            { value: 'a', label: 'A', count: 1, isRefined: true },
+            { value: 'b', label: 'B', count: 1, isRefined: false },
+            { value: 'c', label: 'C', count: 1, isRefined: true },
+          ]),
+          canRefine: signal(true),
+          refine: listRefine,
+        },
+      ],
+      numericMenus: [
+        {
+          attribute: 'integration_count',
+          items: signal([
+            { value: 'all', label: '', isRefined: false },
+            { value: 'lots', label: '51+', isRefined: true },
+          ]),
+          refine: menuRefine,
+        },
+      ],
+      ranges: [
+        {
+          attribute: 'founded_year',
+          bounds: signal({}),
+          start: signal<[number | undefined, number | undefined]>([2000, Infinity]),
+          canRefine: signal(true),
+          refine: rangeRefine,
+        },
+      ],
+    };
+    const page = fixture.componentInstance as unknown as {
+      controller: WritableSignal<unknown>;
+      activeFilterCount: () => number;
+      clearFilters(): void;
+    };
+    page.controller.set({ products: view, vendors: view, dispose: () => {} });
+
+    // Two checked values + one bucket + one range bound.
+    expect(page.activeFilterCount()).toBe(4);
+
+    page.clearFilters();
+    expect(listRefine.mock.calls).toEqual([['a'], ['c']]);
+    expect(menuRefine).toHaveBeenCalledWith('all');
+    expect(rangeRefine).toHaveBeenCalledWith([undefined, undefined]);
+  });
+
+  it('treats an infinite range bound as unset', () => {
+    setConfigPresent();
+    setup();
+    const fixture = TestBed.createComponent(SearchPage);
+    const view = {
+      refinementLists: [],
+      numericMenus: [],
+      ranges: [
+        {
+          attribute: 'founded_year',
+          bounds: signal({}),
+          start: signal<[number | undefined, number | undefined]>([-Infinity, Infinity]),
+          canRefine: signal(true),
+          refine: vi.fn(),
+        },
+      ],
+    };
+    const page = fixture.componentInstance as unknown as {
+      controller: WritableSignal<unknown>;
+      activeFilterCount: () => number;
+    };
+    page.controller.set({ products: view, vendors: view, dispose: () => {} });
+    expect(page.activeFilterCount()).toBe(0);
   });
 });

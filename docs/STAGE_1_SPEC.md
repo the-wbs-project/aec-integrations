@@ -677,7 +677,10 @@ Three indexes, each denormalized for zero-join search:
 
 - `products`: categories, audiences, phases, trades, vendor_name, has_api_docs, integration_count (range buckets: 0, 1–10, 11–50, 51+)
   (`trade_aliases` is deliberately **not** faceted — see §7.1)
-- `vendors`: headquarters, founded_year (range), product_count (range)
+- `vendors`: founded_year (range), product_count (range), integration_count (range buckets)
+  (`headquarters` is still faceted in the index, but `/search` shows no filter for it since
+  2026-10-24. The values are free text, so one city appeared under several spellings. Restore
+  the filter once headquarters is normalized upstream.)
 - `integrations`: mechanism_kind, direction, source_product_name, target_product_name
 
 **Multi-select semantics (AECI-223).** The four taxonomy facets (categories, audiences, phases, trades) are **multi-select**: **OR within a dimension, AND across dimensions** — e.g. *(category A OR B) AND (audience X)*. This holds for both faceting surfaces: the Algolia `/search` refinement lists (natively multi-select), and the **API-backed listing sidebar** on `/products` and the taxonomy browse pages (`aec-facet-sidebar`, originally single-select). On the API path each dimension takes a **comma-separated UUID list** in its existing `{kind}_id` param (`category_id` / `audience_id` / `phase_id` / `trade_id`), matched as `{ some: { <fk>: { in: ids } } }`; the param names are unchanged so a single id (a detail-page chip link, a browse page's locked `{kind}_id`) is just a one-element list. Disjunctive facet counts still exclude a dimension's *own* selections from its own term counts. The sidebar emits the ids **sorted** so click order never forks the edge cache key or breaks SSR↔client hydration parity — see `docs/CACHE_STRATEGY.md` §4a "Value-level normalization for multi-select facets". (This supersedes the prior single-select behavior documented only in code; the original constraint was that the API took one id per dimension.)

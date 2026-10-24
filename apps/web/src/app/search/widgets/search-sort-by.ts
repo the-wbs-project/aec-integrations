@@ -38,6 +38,7 @@ let nextSortById = 0;
         >Sort</span
       >
       <div #origin class="relative">
+        <!-- py-2.5 matches the 42px sort select in aec-listing-toolbar on /products. -->
         <button
           ngCombobox
           #cb="ngCombobox"
@@ -46,7 +47,7 @@ let nextSortById = 0;
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId + ' ' + triggerId"
           class="flex items-center justify-between gap-2 rounded-(--radius-md) border border-(--border-default)
-            bg-(--surface-base) py-1.5 ps-3 pe-2 text-sm text-(--text-primary)
+            bg-(--surface-base) py-2.5 ps-3 pe-3 text-sm text-(--text-primary)
             focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>

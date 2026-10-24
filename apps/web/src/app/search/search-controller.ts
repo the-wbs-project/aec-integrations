@@ -298,7 +298,11 @@ interface FacetConfig {
 
 /**
  * Per-entity facets, matching `INDEX_SETTINGS.attributesForFaceting` in
- * `packages/shared/src/algolia.ts` exactly (§7.2). `has_api_docs` is faceted as
+ * `packages/shared/src/algolia.ts` (§7.2), with one deliberate omission:
+ * vendor `headquarters` stays faceted in the index but has no filter here
+ * (removed 2026-10-24). The values are free text, so one city appeared as
+ * "San Francisco, CA", "San Francisco, USA" and "San Francisco, United States".
+ * Restore it once headquarters is normalized upstream. `has_api_docs` is faceted as
  * a boolean refinement list; the page maps its `true`/`false` values to a
  * localized yes/no.
  *
@@ -318,7 +322,7 @@ const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
     ranges: [],
   },
   vendors: {
-    refinementLists: ['headquarters'],
+    refinementLists: [],
     numericMenus: [
       { attribute: 'product_count', items: COUNT_BUCKETS },
       { attribute: 'integration_count', items: COUNT_BUCKETS },
