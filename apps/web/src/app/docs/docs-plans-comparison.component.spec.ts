@@ -86,7 +86,7 @@ describe('DocsPlansComparisonComponent', () => {
       'Managed',
     ]);
     expect(cards[1].classList).toContain('aec-plan-card-featured');
-    expect(cards[0].textContent).toContain('$0');
+    expect(cards[0].textContent).toContain('Available for all products');
     expect(cards[1].textContent).toContain('$25');
     // AECI-1293: both cards open the claim dialog; no-JS lands on the search page.
     expect(cards[1].querySelector('a')?.textContent?.trim()).toBe('Claim your listing');

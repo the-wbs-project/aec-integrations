@@ -954,11 +954,28 @@ describe('ProductDetailPage claim CTA', () => {
   // AECI-1283 (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4): the vendor landing page sits
   // beside the claim CTA. It is the same for every visitor and every plan, so it
   // stays in the cached HTML.
-  it('links "Is this your product?" to /vendor-program beside the claim CTA', () => {
+  // It explains claiming rather than claiming, so it must not read like a second
+  // claim button. It opens a new tab so the visitor can come back to claim, and it
+  // names the vendor so the page's claim dialog skips the search.
+  it('links "Learn more about claiming" to /vendor-program?vendor= in a new tab', () => {
     const { el } = setup(buildProduct());
-    const link = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendor-program"]');
+    const link = actions(el).querySelector<HTMLAnchorElement>(
+      '[data-testid="product-vendor-program-link"]',
+    );
     expect(link).toBeTruthy();
-    expect(link!.textContent?.trim()).toBe('Is this your product?');
+    expect(link!.getAttribute('href')).toBe('/vendor-program?vendor=procore');
+    expect(link!.getAttribute('target')).toBe('_blank');
+    expect(link!.getAttribute('rel')).toBe('noopener');
+    expect(link!.textContent).toContain('Learn more about claiming');
+    expect(link!.textContent).toContain('opens in a new tab');
+  });
+
+  it('links to /vendor-program with no vendor param when the product has no vendor', () => {
+    const { el } = setup(buildProduct({ vendor: null }));
+    const link = actions(el).querySelector<HTMLAnchorElement>(
+      '[data-testid="product-vendor-program-link"]',
+    );
+    expect(link!.getAttribute('href')).toBe('/vendor-program');
   });
 });
 

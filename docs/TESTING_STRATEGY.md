@@ -428,7 +428,7 @@ Critical user journeys:
 - **Browse and view product** — home → category → product page → all four tabs
 - **Search and filter** — search bar → results → faceted filter → result click
 - **Review submission** — product page → login (mock auth) → review form → submit → confirmation
-- **Vendor request submission** — product page → "Is this your product" → form → submit
+- **Vendor request submission** — product page → "Claim <Company>" → form → submit
 - **Account deletion** — login → account → delete → confirmation → verify reviews anonymized
 - **Theme switching** — toggle → verify CSS variables change → reload → persistence
 
