@@ -77,6 +77,23 @@ reproduction, and it is why the defect survived for months.
 > `main` is now the only branch. `stage-2` merged 2026-09-03 and `admin-panel` merged 2026-08-14,
 > and both are retired, so there is no longer an ungated long-lived base to worry about.
 
+### 2.1 Type-checking `apps/web` by hand
+
+`pnpm typecheck` skips `apps/web`: the package has no `typecheck` script, so web types are checked
+only by `ng build` in CI. To check them directly, run from `apps/web`:
+
+```bash
+./node_modules/.bin/tsc -p tsconfig.app.json
+```
+
+Use the package's own `tsc`. A bare `npx tsc` at the repo root resolves a decoy package that prints
+a message and exits 0. `tsconfig.app.json` sets `noEmit: true` (AECI-1394), so the command writes
+nothing. Without it, TypeScript 6 stops with TS5011 (no `rootDir`) and leaves an `out-tsc/` tree.
+`out-tsc/` is in the ESLint and Prettier ignores in case a spec tsconfig run still writes one.
+`tsconfig.spec.json` is not clean under bare `tsc`. It carries a pre-existing error baseline (56
+errors on 2026-10-26, mostly TS2307 on `.md` content imports), and nothing in CI runs it. Compare
+error counts against `main` there rather than reading the output as your regression.
+
 ---
 
 ## 3. Unit testing — Vitest

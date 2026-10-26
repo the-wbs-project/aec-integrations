@@ -15,6 +15,7 @@ export const ignores = {
   ignores: [
     '**/node_modules/**',
     '**/dist/**',
+    '**/out-tsc/**',
     '**/.angular/**',
     '**/.wrangler/**',
     '**/.agents/**',
