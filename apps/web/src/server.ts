@@ -22,6 +22,7 @@ import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
+import { stripProxyHeaders } from './server-proxy-headers';
 import { logToPosthog } from './server-posthog';
 import { shouldEmitRenderLog } from './server-render-log';
 import { injectHtmlLangDir } from './server-html-dir-inject';
@@ -58,8 +59,10 @@ const angularApp = new AngularAppEngine();
 // `@angular/ssr` v21 wires that arg into DI as `REQUEST_CONTEXT` whenever
 // `RenderMode.Server` is in effect (see `@angular/ssr/fesm2022/ssr.mjs:1270`).
 // Resolvers retrieve it with `inject(REQUEST_CONTEXT)`.
+// Proxy headers are stripped first so Angular has none to drop and warn about
+// on every render (AECI-1477, `server-proxy-headers.ts`).
 const angularRenderer: SsrRenderer = async (request, ctx) => {
-  const res = await angularApp.handle(request, ctx);
+  const res = await angularApp.handle(stripProxyHeaders(request), ctx);
   return res ?? new Response('Page not found.', { status: 404 });
 };
 
