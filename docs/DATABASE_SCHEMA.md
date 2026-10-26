@@ -2033,9 +2033,13 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `loadBillingAccount`. A vendor that already has one gets no statement and no audit row,
   so a second seat writes nothing here. `name` is the vendor's `company_name`;
   `billing_email` starts NULL; `created_by` is the approving admin. No statement names
-  `vendors`, so `vendors.updated_at` never moves for it. Two first approvals racing on one
-  vendor both see no account; the second trips `billing_accounts_vendor_key` and its whole
-  batch, seat included, rolls back. The entitlement activate's license dual-write (AECI-1353,
+  `vendors`, so `vendors.updated_at` never moves for it. Two first seats racing on one
+  vendor both see no account. The second batch trips `billing_accounts_vendor_key` and rolls
+  back whole, seat included. Both callers then re-read the account and re-plan once on the
+  no-op path (AECI-1380, `isBillingAccountRaceError`), so the claimant still lands and
+  `billing_account.created` is written once. The re-plan also re-reads `vendors.owned_at`, because the rival seat stamped it, so the grant row carries no `ownership_stamped`. The re-plan is not a SQL `NOT EXISTS` guard,
+  because the rest of the batch names the account: the acceptance link's
+  `billing_account_id` (a foreign key) and the grant and link audit rows. The entitlement activate's license dual-write (AECI-1353,
   §8.6c) composes the same builder, so `PATCH /api/admin/vendors/:id/entitlement` on a vendor
   with no seat created the account too, until AECI-1375 retired that route on 2026-10-17. On a Managed claim the dual-write creates it first
   and the route treats it as existing, so the batch carries one INSERT.

@@ -39,7 +39,8 @@
  *     owner seat only when the vendor has no unbanned owner yet, decided in SQL.
  *  2. `ensureBillingAccountStatements` (`lib/billing-account.ts`, AECI-1351): the
  *     vendor's billing account and its `billing_account.created` row, or nothing
- *     when the vendor already has one.
+ *     when the vendor already has one. A batch that loses the first-account race is
+ *     re-planned once against the committed account (AECI-1380).
  *  3. `linkClaimAcceptanceStatements` (`lib/agreement-acceptances.ts`): fills the
  *     seat, vendor and billing account on the claim's terms acceptances, or nothing
  *     when the claim has none.
@@ -109,13 +110,19 @@ import {
   loadClaimAcceptanceIds,
 } from '../lib/agreement-acceptances';
 import {
+  BILLING_ACCOUNT_ATTEMPTS,
   ensureBillingAccountStatements,
+  isBillingAccountRaceError,
   loadBillingAccount,
   type BillingAccountBefore,
 } from '../lib/billing-account';
 import { blankLast, textAsc } from '../lib/collation';
 import { classifyClaimantConflict, resolveClaimantIdentity } from '../lib/claimant-identity';
-import { stampOwnershipStatement, VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import {
+  loadVendorOwnedAt,
+  stampOwnershipStatement,
+  VENDOR_ADMIN_ROLE,
+} from '../lib/claimed-vendors';
 import { dispatchOwnershipSync } from '../lib/ownership-sync';
 import {
   adminVendorRequestConfig,
@@ -503,81 +510,101 @@ async function approveClaim(
     loadClaimAcceptanceIds(db, existing.id),
   ]);
 
-  // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2). A vendor
-  // that already has one gets the frozen no-op: no statement, no audit row, and
-  // nothing that names `vendors`, so a second seat leaves `vendors.updated_at` alone.
-  const account = ensureBillingAccountStatements(db, {
-    vendorId: vendor.id,
-    name: vendor.companyName,
-    createdBy: actorId,
-    actorType,
-    existing: billingAccount,
-    now: resolvedAt,
-    vendorPlan,
-    source: CLAIM_AUDIT_SOURCE,
-    sourceRequestId: existing.id,
-  });
-  // Exactly one of the two is set: the account the vendor had, or the one this batch
-  // creates. The acceptance link names it.
-  const billingAccountId = billingAccount?.id ?? account.billingAccountId;
-
-  const grant = grantSeatStatements(db, {
-    userId,
-    vendorId: vendor.id,
-    vendorPlan,
-    requestId: existing.id,
-    actorId,
-    actorType,
-    resolvedAt,
-    fromStatus: existing.status,
-    vendorWasVerified: vendor.verified,
-    workflowId,
-    existingWf,
-    identityOutcome,
-    seatCreated,
-    profileBefore,
-    submitterName: existing.submitterName,
-    billingAccountCreated: account.billingAccountId !== null,
-    ownershipStamped: vendor.ownedAt === null,
-    reason,
-    targetType: existing.targetType,
-    targetId: existing.targetId,
-  });
-
-  // The claim's terms acceptances (E3.3 writes them at claim time) now name the seat,
-  // the vendor and the billing account (AECI-1367, `DATABASE_SCHEMA.md` §8.6d). No
-  // acceptances → no statement and no audit row.
-  const acceptances = billingAccountId
-    ? linkClaimAcceptanceStatements(db, {
-        vendorRequestId: existing.id,
-        acceptanceIds,
-        profileId: userId,
-        vendorId: vendor.id,
-        billingAccountId,
-        actorId,
-        actorType,
-        vendorPlan,
-        source: CLAIM_AUDIT_SOURCE,
-      })
-    : null;
-
-  // AECI-989: a new active seat returns the contests a ban moved to AECi. The claim
-  // writes no license, so the return reads the vendor's real licenses, the
-  // same as the provision-seat route: a contest on a connector-powered row only
-  // returns to an owner that already holds an active plan.
-  const returned = await planSeatGrantReturn(
-    db,
-    {
+  // Every statement of the grant, planned against one read of the vendor's billing
+  // account and `owned_at`. Called again, with both re-read, when the batch loses the
+  // first-account race (AECI-1380).
+  const planGrant = async (
+    billingAccountBefore: BillingAccountBefore | null,
+    ownedAtBefore: string | null,
+  ) => {
+    // The billing account (AECI-1351, `VENDOR_SIGNUP_PROCESS.md` §3 step 2). A vendor
+    // that already has one gets the frozen no-op: no statement, no audit row, and
+    // nothing that names `vendors`, so a second seat leaves `vendors.updated_at` alone.
+    const account = ensureBillingAccountStatements(db, {
       vendorId: vendor.id,
+      name: vendor.companyName,
+      createdBy: actorId,
+      actorType,
+      existing: billingAccountBefore,
+      now: resolvedAt,
+      vendorPlan,
+      source: CLAIM_AUDIT_SOURCE,
+      sourceRequestId: existing.id,
+    });
+    // Exactly one of the two is set: the account the vendor had, or the one this batch
+    // creates. The acceptance link names it.
+    const billingAccountId = billingAccountBefore?.id ?? account.billingAccountId;
+
+    const grant = grantSeatStatements(db, {
+      userId,
+      vendorId: vendor.id,
+      vendorPlan,
+      requestId: existing.id,
       actorId,
       actorType,
-      now: resolvedAt,
-      source: CLAIM_AUDIT_SOURCE,
-      vendorPlan,
-    },
-    userId,
-    { entitledAfterBatch: false },
-  );
+      resolvedAt,
+      fromStatus: existing.status,
+      vendorWasVerified: vendor.verified,
+      workflowId,
+      existingWf,
+      identityOutcome,
+      seatCreated,
+      profileBefore,
+      submitterName: existing.submitterName,
+      billingAccountCreated: account.billingAccountId !== null,
+      ownershipStamped: ownedAtBefore === null,
+      reason,
+      targetType: existing.targetType,
+      targetId: existing.targetId,
+    });
+
+    // The claim's terms acceptances (E3.3 writes them at claim time) now name the seat,
+    // the vendor and the billing account (AECI-1367, `DATABASE_SCHEMA.md` §8.6d). No
+    // acceptances → no statement and no audit row.
+    const acceptances = billingAccountId
+      ? linkClaimAcceptanceStatements(db, {
+          vendorRequestId: existing.id,
+          acceptanceIds,
+          profileId: userId,
+          vendorId: vendor.id,
+          billingAccountId,
+          actorId,
+          actorType,
+          vendorPlan,
+          source: CLAIM_AUDIT_SOURCE,
+        })
+      : null;
+
+    // AECI-989: a new active seat returns the contests a ban moved to AECi. The claim
+    // writes no license, so the return reads the vendor's real licenses, the
+    // same as the provision-seat route: a contest on a connector-powered row only
+    // returns to an owner that already holds an active plan.
+    const returned = await planSeatGrantReturn(
+      db,
+      {
+        vendorId: vendor.id,
+        actorId,
+        actorType,
+        now: resolvedAt,
+        source: CLAIM_AUDIT_SOURCE,
+        vendorPlan,
+      },
+      userId,
+      { entitledAfterBatch: false },
+    );
+
+    const stmts: BatchStmt[] = [
+      ...grant.stmts,
+      // AECI-1415 (ADR 0042): approval flips ownership to the vendor, in this batch.
+      // Guarded on `owned_at IS NULL`, so a second claimant changes nothing here.
+      stampOwnershipStatement(db, vendor.id, resolvedAt),
+      ...account.stmts,
+      ...(acceptances?.stmts ?? []),
+      ...(returned?.stmts ?? []),
+      vendorBannedFlagsRaceSentinel(db, vendor.id, userId),
+    ];
+    return { account, grant, acceptances, returned, stmts };
+  };
 
   // ONE batch. The seat, the request resolve, the workflow, the billing account, the
   // acceptance link and every audit row commit or roll back together (§26.1).
@@ -591,31 +618,42 @@ async function approveClaim(
   // `vendor-banned` flags the return did not plan to clear. `vendorBannedFlagsRaceSentinel`
   // goes LAST, after the seat write and the planned clears, and aborts the same way
   // when any such flag is left beside this unbanned seat.
-  try {
-    const stmts: BatchStmt[] = [
-      ...grant.stmts,
-      // AECI-1415 (ADR 0042): approval flips ownership to the vendor, in this batch.
-      // Guarded on `owned_at IS NULL`, so a second claimant changes nothing here.
-      stampOwnershipStatement(db, vendor.id, resolvedAt),
-      ...account.stmts,
-      ...(acceptances?.stmts ?? []),
-      ...(returned?.stmts ?? []),
-      vendorBannedFlagsRaceSentinel(db, vendor.id, userId),
-    ];
-    await db.batch(stmts as BatchTuple);
-  } catch (error) {
-    // AECI-1333: the batch opens with `claimUndecidedSentinel`. Both it and the
-    // seat-return sentinels raise "malformed JSON", so a re-read says which fired.
-    if (isClaimDecidedAbort(error)) {
-      const decided = await claimDecisionRaceError(db, existing.id);
-      if (decided) {
-        emitClaimModeration(c, 'approve', 'conflict');
-        throw decided;
+  //
+  // AECI-1380: another first seat on this vendor that committed after the account
+  // read above created the account. This batch trips `billing_accounts_vendor_key` and
+  // rolls back whole. It is re-planned once against the committed account, so the
+  // claimant still lands, and nothing records a creation that did not happen. The
+  // rival also stamped `owned_at`, so the re-plan re-reads it too.
+  let planned: Awaited<ReturnType<typeof planGrant>>;
+  let accountBefore = billingAccount;
+  let ownedAtBefore = vendor.ownedAt;
+  for (let attempt = 1; ; attempt += 1) {
+    planned = await planGrant(accountBefore, ownedAtBefore);
+    try {
+      await db.batch(planned.stmts as BatchTuple);
+      break;
+    } catch (error) {
+      if (attempt < BILLING_ACCOUNT_ATTEMPTS && isBillingAccountRaceError(error)) {
+        [accountBefore, ownedAtBefore] = await Promise.all([
+          loadBillingAccount(db, vendor.id),
+          loadVendorOwnedAt(db, vendor.id),
+        ]);
+        continue;
       }
+      // AECI-1333: the batch opens with `claimUndecidedSentinel`. Both it and the
+      // seat-return sentinels raise "malformed JSON", so a re-read says which fired.
+      if (isClaimDecidedAbort(error)) {
+        const decided = await claimDecisionRaceError(db, existing.id);
+        if (decided) {
+          emitClaimModeration(c, 'approve', 'conflict');
+          throw decided;
+        }
+      }
+      if (isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
     }
-    if (isSeatsChangedError(error)) throw seatsChangedError();
-    throw error;
   }
+  const { account, grant, acceptances, returned } = planned;
   emitClaimModeration(c, 'approve', 'ok');
   // AECI-1418: tell the review app the vendor owns its records. Post-commit, in
   // `waitUntil`. Every committed approval leaves the vendor owned (stamped here or

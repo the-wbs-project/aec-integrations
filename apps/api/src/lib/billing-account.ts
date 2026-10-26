@@ -18,10 +18,17 @@
  * ── WHY A PRELOAD, NOT `ON CONFLICT DO NOTHING` ────────────────────────────────
  * The caller reads the account first (`loadBillingAccount`) and the builder branches
  * in TS. `ON CONFLICT DO NOTHING` would still emit the audit row, which would then
- * record a creation that did not happen. Two first approvals racing on one vendor
- * both see no account. The second batch then trips the unique index and rolls back
- * whole, seat included, and the operator's retry re-plans against the committed row.
- * That is the race the entitlement INSERT already has.
+ * record a creation that did not happen. Two first seats racing on one vendor both
+ * see no account. The second batch trips the unique index and rolls back whole, seat
+ * included. The caller then re-reads the account and re-plans once on the no-op path
+ * (AECI-1380): `isBillingAccountRaceError` says which failure it was, and
+ * `BILLING_ACCOUNT_ATTEMPTS` bounds the loop.
+ *
+ * A `NOT EXISTS` guard in SQL would not be enough. The rest of the loser's batch
+ * names the account it planned: the claim's acceptance link sets
+ * `agreement_acceptances.billing_account_id` (a foreign key), and the
+ * `vendor_claim.granted` and `agreement.linked` audit rows record it. Re-planning
+ * against the committed row keeps every one of them true.
  *
  * ── WHAT IT NEVER TOUCHES ──────────────────────────────────────────────────────
  * No statement here names `vendors`, so a second seat cannot move
@@ -114,6 +121,32 @@ export async function loadBillingAccount(
     where: eq(billingAccounts.vendorId, vendorId),
   });
   return row ?? null;
+}
+
+/** How many times a seat batch is planned when it may create the account (AECI-1380).
+ *  The second attempt reads the account the race committed and plans the no-op. */
+export const BILLING_ACCOUNT_ATTEMPTS = 2;
+
+/**
+ * True when a batch lost the first-account race on `billing_accounts_vendor_key`
+ * (AECI-1380). Walks the `cause` chain, because D1 and Drizzle wrap the SQLite text.
+ */
+export function isBillingAccountRaceError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (
+      /billing_accounts_vendor_key|UNIQUE constraint failed: billing_accounts\.vendor_id/i.test(
+        text,
+      )
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /**

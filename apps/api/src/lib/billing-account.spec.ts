@@ -19,6 +19,7 @@ import {
   BILLING_ACCOUNT_ENTITY_TYPE,
   billingEmailStatements,
   ensureBillingAccountStatements,
+  isBillingAccountRaceError,
   loadBillingAccount,
   loadBillingAccountEmail,
   type BillingEmailParams,
@@ -159,9 +160,31 @@ describe('ensureBillingAccountStatements', () => {
     await t.db.batch(ensureBillingAccountStatements(t.db, args()).stmts as BatchTuple);
     // Both racers saw `existing: null`; the loser's batch must fail whole.
     const loser = ensureBillingAccountStatements(t.db, args());
-    await expect(t.db.batch(loser.stmts as BatchTuple)).rejects.toThrow();
+    const error = await t.db.batch(loser.stmts as BatchTuple).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    // AECI-1380: the callers re-plan on exactly this failure.
+    expect(isBillingAccountRaceError(error)).toBe(true);
     expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
     expect(await t.db.select().from(auditLog)).toHaveLength(1);
+  });
+});
+
+describe('isBillingAccountRaceError (AECI-1380)', () => {
+  it('matches the vendor unique key through a wrapped cause', () => {
+    const inner = new Error('D1_ERROR: UNIQUE constraint failed: billing_accounts.vendor_id');
+    expect(isBillingAccountRaceError(new Error('Failed query', { cause: inner }))).toBe(true);
+  });
+
+  it('does not match another unique violation, or a non-error', () => {
+    expect(
+      isBillingAccountRaceError(new Error('UNIQUE constraint failed: billing_accounts.id')),
+    ).toBe(false);
+    expect(isBillingAccountRaceError(new Error('UNIQUE constraint failed: licenses.id'))).toBe(
+      false,
+    );
+    expect(isBillingAccountRaceError(null)).toBe(false);
   });
 });
 
