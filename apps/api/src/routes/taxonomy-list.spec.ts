@@ -151,6 +151,61 @@ describe('integration_count', () => {
     expect(body.data.find((c) => c.slug === 'alpha')?.integration_count).toBe(0);
     expect(body.data.find((c) => c.slug === 'beta')?.integration_count).toBe(1);
   });
+  // AECI-1483 moved the OR out of a correlated EXISTS into two top-level `IN`
+  // arms so SQLite can use the endpoint indexes. This pins the new count to the
+  // old shape on one fixture with every tricky row: both endpoints tagged, a
+  // product tagged with BOTH terms, source-only, target-only, retired, and an
+  // integration touching no tagged product.
+  it('agrees with the pre-AECI-1483 EXISTS form on a mixed fixture', async () => {
+    await seedCategoryFixture();
+    await t.db.insert(products).values([
+      { id: u(14), slug: 'bluebeam', name: 'Bluebeam', promotionStatus: 'promoted' },
+      { id: u(15), slug: 'untagged', name: 'Untagged', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(productCategories).values([
+      { productId: u(14), categoryId: u(2) },
+      // Procore carries both terms.
+      { productId: u(12), categoryId: u(2) },
+    ]);
+    await t.db.insert(integrations).values([
+      { id: u(21), sourceProductId: u(11), targetProductId: u(12) },
+      { id: u(22), sourceProductId: u(11), targetProductId: u(13) },
+      { id: u(23), sourceProductId: u(13), targetProductId: u(12) },
+      { id: u(24), sourceProductId: u(12), targetProductId: u(14) },
+      {
+        id: u(25),
+        sourceProductId: u(14),
+        targetProductId: u(11),
+        retiredAt: '2026-10-01T00:00:00.000Z',
+      },
+      { id: u(26), sourceProductId: u(13), targetProductId: u(15) },
+    ]);
+
+    const legacy = t.raw
+      .prepare(
+        `SELECT tc.slug, (SELECT count(*) FROM integrations i WHERE EXISTS (
+           SELECT 1 FROM product_categories j
+           WHERE j.category_id = tc.id
+             AND (j.product_id = i.source_product_id OR j.product_id = i.target_product_id)
+         ) AND i.retired_at IS NULL) AS n
+         FROM taxonomy_categories tc`,
+      )
+      .all() as { slug: string; n: number }[];
+
+    const res = await app('categories', '/api/categories').request(
+      '/api/categories',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    const current = Object.fromEntries(body.data.map((c) => [c.slug, c.integration_count]));
+
+    expect(current).toEqual(Object.fromEntries(legacy.map((r) => [r.slug, r.n])));
+    // Spelled out so a shared regression in both shapes still fails:
+    // alpha = 21 (both ends, once), 22, 23, 24; beta = 21, 23, 24 via Procore.
+    expect(current).toEqual({ alpha: 4, beta: 3 });
+  });
 });
 
 describe('GET /api/audiences (list)', () => {

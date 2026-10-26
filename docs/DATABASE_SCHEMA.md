@@ -852,10 +852,19 @@ create table claims (
             + (connector_pair_id is not null)) = 1)
 );
 
--- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
--- lookups ride the leftmost prefix of this unique index, so no separate index is needed.
+-- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Its leftmost prefix
+-- serves only anchor_id lookups. SQLite does not map integration_id = ? onto the generated
+-- column, and every relation joins on a raw FK column, so each FK gets its own index.
 create unique index claims_identity_key on claims(anchor_id, data_object_id, direction);
 create index claims_data_object_idx on claims(data_object_id);
+-- AECI-1482: one partial index per raw anchor FK. Partial because exactly one is set per row.
+-- integrations -> claims relation (product detail, pair page, vendor integrations list) and
+-- the admin NOT EXISTS claims coverage sample:
+create index claims_integration_idx on claims(integration_id) where integration_id is not null;
+-- connector_evidenced_pairs -> claims relation and promote's cross-table move:
+create index claims_evidenced_pair_idx on claims(connector_evidenced_pair_id) where connector_evidenced_pair_id is not null;
+-- connector_pairs -> claims relation (reach-anchored claims, AECI-891):
+create index claims_connector_pair_idx on claims(connector_pair_id) where connector_pair_id is not null;
 ```
 
 - **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other. **On a reach anchor, A and B are the pair's own two ends** — `connector_pairs.stub_a_id` and `stub_b_id`, resolved to products through `connector_stub_mappings` — and that ordering is stable only because §9a.5 requires `stub_a_id < stub_b_id` canonically. It is not the alphabetical order of the two product names, and it is not the direction the connector's own page happens to be written in.
@@ -902,6 +911,11 @@ create unique index attestations_slot_key on attestations(claim_id, source) wher
 -- attestation vanish from the read path (AECI-303's timeline reads it, and its own read
 -- config is the ONE in the system that omits the predicate entirely).
 create index attestations_active_idx on attestations(claim_id) where retracted_at is null;
+
+-- AECI-1482: NON-partial, for the reads that must see retracted rows. A partial index cannot
+-- serve them. Serves the vendor poll's MAX(updated_at) join (/api/vendor/updates), the pair
+-- timeline and the conflict replay. updated_at makes the poll's MAX covering.
+create index attestations_claim_idx on attestations(claim_id, updated_at);
 ```
 
 - **Two lifecycle columns that must not be conflated.** `introduced_at` / `deprecated_at` are **version stamps** ("this flow existed from v4 until v6", §3.3); `retracted_at` is **supersession** (the vendor withdrew or replaced its assertion). Only `retracted_at` may gate a read. Migration 1 moved `attestations_active_idx` off `deprecated_at` for exactly this reason — the original predicate and its comment were wrong (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
@@ -3221,7 +3235,11 @@ create table page_views (
 );
 
 create index page_views_path_idx on page_views(path, created_at);
+-- AECI-1482: window-only reads (arrival coverage, traffic=all, traffic_classify cron).
+create index page_views_created_at_idx on page_views(created_at);
 create index page_views_product_idx on page_views(product_id, created_at) where product_id is not null;
+-- AECI-1482: retract-vendor footprint read and its UPDATE. Mirrors page_views_product_idx.
+create index page_views_vendor_idx on page_views(vendor_id, created_at) where vendor_id is not null;
 -- AECI-929: one partial index per pair side. A per-product read must find the product on
 -- EITHER side, and a composite leading on _a cannot serve the _b probe. Partial, so only
 -- pair-page rows pay an index write on this hot path.
@@ -3229,6 +3247,9 @@ create index page_views_pair_a_idx on page_views(pair_product_a_id, created_at) 
 create index page_views_pair_b_idx on page_views(pair_product_b_id, created_at) where pair_product_b_id is not null;
 create index page_views_country_idx on page_views(cf_country, created_at);
 create index page_views_bot_idx on page_views(is_bot, created_at); -- digest human/bot split + crawler grouping
+-- AECI-1482: DISTINCT cf_asn as a covering-index read, for asnRegistryFreshness (every
+-- /api/admin/system load) and distinctPageViewAsns (weekly ASN registry refresh).
+create index page_views_asn_idx on page_views(cf_asn);
 -- page_views_user_idx is gone with its column (AECI-585). No index was added for the
 -- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
 -- write path in the app (D1 bills rows written, index rows included). Add one with the
@@ -3777,6 +3798,8 @@ create table recrawl_queue_causes (
   constraint recrawl_queue_causes_source_check check (source in ('vendor', 'promote', 'admin'))
 );
 create index recrawl_queue_causes_channel_url_idx on recrawl_queue_causes(channel, url);
+-- AECI-1482: the vendor history page's per-chunk follow-up read (lib/vendor-history-follow-up.ts).
+create index recrawl_queue_causes_vendor_audit_idx on recrawl_queue_causes(vendor_id, audit_log_id);
 
 -- Permanent, append-only. One row per (submission, cause).
 create table recrawl_submission_causes (

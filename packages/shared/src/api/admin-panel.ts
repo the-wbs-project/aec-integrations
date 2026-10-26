@@ -1563,9 +1563,16 @@ export const AdminAlgoliaStatusSchema = z.object({
 });
 export type AdminAlgoliaStatus = z.infer<typeof AdminAlgoliaStatusSchema>;
 
+/**
+ * `estimated: true` marks a `rows` figure read from the table's rowid range rather
+ * than counted (AECI-1484): `page_views` and `audit_log` on the default load. It
+ * is an upper bound, exact unless rows were deleted from the middle. Absent means
+ * counted. `?recompute=1` counts every table, so no row carries it there.
+ */
 export const AdminTableCountSchema = z.object({
   table: z.string().min(1),
   rows: z.number().int().nonnegative(),
+  estimated: z.literal(true).optional(),
 });
 export type AdminTableCount = z.infer<typeof AdminTableCountSchema>;
 

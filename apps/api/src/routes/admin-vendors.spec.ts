@@ -1206,6 +1206,103 @@ describe('GET /api/admin/vendors/:id/audit', () => {
     expect((await idsFor('all')).sort()).toEqual([u(81), u(82)].sort());
   });
 
+  it('drops a seat-actor row from BOTH halves of leg 3, and keeps a NULL actor on both (AECI-1484)', async () => {
+    // AECI-1484 split leg 3 into two flat OR terms (the `vendor_id` column, 3a, and
+    // the legacy `metadata.vendor_id` probe, 3b) so SQLite can plan a MULTI-INDEX OR.
+    // Each half now carries its own copy of the seat exclusion. This pins that: a
+    // seat-written row reaches neither half, an admin row and a system (NULL actor)
+    // row reach both, and a `notification.sent` row stays off 3a.
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, displayName: 'Ada' });
+    await t.db.insert(auditLog).values([
+      // 3a, seat actor: excluded.
+      audit({
+        action: 'product.updated',
+        actorId: SEAT_A,
+        actorType: 'user',
+        entityType: 'product',
+        entityId: u(81),
+        vendorId: VENDOR,
+      }),
+      // 3b, seat actor: excluded.
+      audit({
+        action: 'vendor_seat.invited',
+        actorId: SEAT_A,
+        actorType: 'user',
+        entityType: 'vendor_invite',
+        entityId: u(82),
+        metadata: { vendor_id: VENDOR },
+      }),
+      // 3a, admin actor: kept.
+      audit({
+        action: 'product.updated',
+        actorId: ADMIN,
+        entityType: 'product',
+        entityId: u(83),
+        vendorId: VENDOR,
+      }),
+      // 3b, NULL actor: kept.
+      audit({
+        action: 'vendor_seat.invite_accepted',
+        actorId: null,
+        actorType: 'system',
+        entityType: 'vendor_invite',
+        entityId: u(84),
+        metadata: { vendor_id: VENDOR },
+      }),
+      // 3a, NULL actor: kept.
+      audit({
+        action: 'product.updated',
+        actorId: null,
+        actorType: 'system',
+        entityType: 'product',
+        entityId: u(85),
+        vendorId: VENDOR,
+      }),
+      // 3a never reaches the Messages ledger.
+      audit({
+        action: 'notification.sent',
+        actorId: null,
+        actorType: 'system',
+        entityType: 'notification',
+        entityId: u(86),
+        vendorId: VENDOR,
+      }),
+      // 3b on another vendor: not ours.
+      audit({
+        action: 'vendor_seat.invited',
+        actorId: ADMIN,
+        entityType: 'vendor_invite',
+        entityId: u(87),
+        metadata: { vendor_id: OTHER_VENDOR },
+      }),
+    ]);
+    const handler = createAdminVendorAuditHandler(t.factory, emailSeam());
+    const page = async (scope: string) => {
+      const res = await send(
+        mount('get', '/api/admin/vendors/:id/audit', handler),
+        `/api/admin/vendors/${VENDOR}/audit?scope=${scope}`,
+      );
+      const b = await body(res);
+      return {
+        ids: b.data.map((r: { entity_id: string }) => r.entity_id).sort(),
+        total: b.total as number,
+      };
+    };
+
+    const entity = await page('entity');
+    expect(entity.ids).toEqual([u(83), u(84), u(85)].sort());
+    const actor = await page('actor');
+    expect(actor.ids).toEqual([u(81), u(82)].sort());
+    const all = await page('all');
+    expect(all.ids).toEqual([u(81), u(82), u(83), u(84), u(85)].sort());
+    // The count runs the same predicate as the page.
+    expect(entity.total).toBe(3);
+    expect(actor.total).toBe(2);
+    expect(all.total).toBe(5);
+  });
+
   it('reaches a LEGACY seat ban/unban, which files under the profile with no vendor_id', async () => {
     // Before AECI-1192 `admin-reviewers.ts` wrote `vendor_admin.banned` under
     // `entity_type='profile'` with the seat's id and metadata `{ source, reason? }`.

@@ -408,6 +408,34 @@ describe('returning the records to AECi hands them back (AECI-1415)', () => {
     expect((await product(P_SHARED)).maintainedBy).toBe('vendor');
   });
 
+  it('does not count a vendor attestation on an evidenced pair that reuses the row id (AECI-1484)', async () => {
+    // A cross-table move reuses the integration id as the pair id, so `claims.anchor_id`
+    // matches the pair's claim too. The handback read filters `anchor_id` with
+    // `integration_id IS NOT NULL` (and selects `integration_id`), which is exactly the
+    // old `integration_id IN (…)`: I_OWNED has no attestation of its own, so it flips.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: I_OWNED,
+      connectorProductId: P_THEIRS,
+      productAId: P_MINE,
+      productBId: P_SHARED,
+      builtByVendorId: OTHER,
+    });
+    await t.db.insert(claims).values({
+      id: u(65),
+      connectorEvidencedPairId: I_OWNED,
+      dataObjectId: DATA_OBJECT,
+      direction: 'b_to_a',
+    });
+    await t.db
+      .insert(attestations)
+      .values({ id: u(66), claimId: u(65), source: 'vendor_a', asserted: true });
+
+    await handBack();
+
+    expect((await integration(I_OWNED)).maintainedBy).toBe('aeci');
+    expect((await integration(I_ATTESTED)).maintainedBy).toBe('vendor');
+  });
+
   it('un-claims every live owned integration, and flips the marker only where no vendor attestation survives', async () => {
     await handBack();
 

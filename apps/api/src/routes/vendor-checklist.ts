@@ -55,6 +55,7 @@ import {
   count,
   eq,
   inArray,
+  isNotNull,
   isNull,
   notExists,
   or,
@@ -245,6 +246,13 @@ function loadChecklistFacts(
 
   // One row per claim the vendor has not answered. Endpoints only: attestation
   // authority is endpoint ownership, so the connector arm has no slot to fill.
+  //
+  // Driven from `integrations` (the scope's endpoint indexes), joined on
+  // `claims.anchor_id` so `claims_identity_key` serves the probe (AECI-1484).
+  // `integration_id IS NOT NULL` pins the anchor to the integrations arm, which
+  // makes the join exactly `claims.integration_id = integrations.id`: a moved
+  // edge's evidenced pair reuses the integration's id, so `anchor_id` alone could
+  // match a pair's claim.
   const unattestedClaims = db
     .select({
       sourceProductId: integrations.sourceProductId,
@@ -252,8 +260,8 @@ function loadChecklistFacts(
       poweredByProductId: integrations.poweredByProductId,
       mechanismKind: integrations.mechanismKind,
     })
-    .from(claims)
-    .innerJoin(integrations, eq(claims.integrationId, integrations.id))
+    .from(integrations)
+    .innerJoin(claims, and(eq(claims.anchorId, integrations.id), isNotNull(claims.integrationId)))
     .where(
       and(
         liveIntegrationOn(integrations),

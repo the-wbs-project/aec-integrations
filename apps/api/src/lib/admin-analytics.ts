@@ -1253,10 +1253,15 @@ async function countMissingReferrerSource(db: Db, w: UtcWindow): Promise<number>
 }
 
 /** The earliest `audit_log` row, or null on an empty log. A `catalog.*` window
- *  reaching back past this reads zero for want of data, not for want of activity. */
+ *  reaching back past this reads zero for want of data, not for want of activity.
+ *
+ *  `substr(min(…))`, never `min(substr(…))` (AECI-1484): a bare `min()` on an
+ *  indexed column is one index probe, and wrapping the column first walks every
+ *  entry. The two agree because the day prefix of an ISO string is monotonic
+ *  under BINARY ordering. {@link earliestCatalogRowDay} has the same shape. */
 export async function earliestAuditDay(db: Db): Promise<string | null> {
   const [row] = await db
-    .select({ day: sql<string | null>`min(substr(${auditLog.createdAt}, 1, 10))` })
+    .select({ day: sql<string | null>`substr(min(${auditLog.createdAt}), 1, 10)` })
     .from(auditLog);
   return row?.day ?? null;
 }
@@ -1321,7 +1326,7 @@ export async function earliestCatalogRowDay(
   const days = await Promise.all(
     source.map(async ({ table, createdAt, live }) => {
       const [row] = await db
-        .select({ day: sql<string | null>`min(substr(${createdAt}, 1, 10))` })
+        .select({ day: sql<string | null>`substr(min(${createdAt}), 1, 10)` })
         .from(table)
         .where(live);
       return row?.day ?? null;

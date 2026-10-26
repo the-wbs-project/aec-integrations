@@ -646,12 +646,13 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  *     reuses `vendorRequestsWhere`, which already handles the vendor-arm /
  *     product-arm split — a product claim's `target_id` is a PRODUCT id, so a
  *     naive `target_type='vendor'` test would miss it.
- *  3. `vendor_id = :vendorId` (any action but `notification.sent`), OR the legacy
- *     `action IN (...) AND json_extract(metadata,'$.vendor_id') = :vendorId` — for
+ *  3. (3a) `vendor_id = :vendorId` (any action but `notification.sent`), and (3b)
+ *     the legacy `action IN (...) AND json_extract(metadata,'$.vendor_id') =
+ *     :vendorId`. Two top-level OR terms, for
  *     the rows that file under a profile, an invite, a contest or a product. The
  *     column (AECI-1192, `DATABASE_SCHEMA.md` §8.4) is set on every new row about a
  *     vendor; the JSON leg reaches rows written before it. See
- *     {@link VENDOR_METADATA_ACTIONS}. Both halves then drop any row whose
+ *     {@link VENDOR_METADATA_ACTIONS}. Each half then drops any row whose
  *     `actor_id` is one of the vendor's current seats. The column names the ACTING
  *     vendor on a seat write, so without this the entity scope ("done to this
  *     vendor") would list the vendor's own edits. Those rows are the actor scope's.
@@ -665,8 +666,19 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  * `SEAT_LOOKUP_CHUNK` exist elsewhere because D1 caps BOUND PARAMETERS per query
  * — not statements — so an id set that SQL can derive belongs in SQL. As a
  * subquery there is no cap to hit, no chunking (which would break a single
- * `ORDER BY … LIMIT/OFFSET` anyway), and no extra round trip. Both partial
- * indexes still apply: SQLite proves `actor_id IS NOT NULL` from the `IN`.
+ * `ORDER BY … LIMIT/OFFSET` anyway), and no extra round trip. SQLite proves
+ * `actor_id IS NOT NULL` from the `IN`, so the partial `audit_log_actor_idx`
+ * serves that leg.
+ *
+ * **Every leg is a flat, top-level OR term (AECI-1484).** SQLite plans an OR of
+ * indexable terms as a MULTI-INDEX OR: one index search per leg, then a rowid
+ * union. That only works when each OR term is itself an AND of an indexable test
+ * plus residual filters. Until AECI-1484 leg 3 was `AND(OR(column leg, JSON
+ * leg), OR(seat exclusion))`, a term no single index can serve, so the planner
+ * gave up on the whole OR: the page walked `audit_log_created_at_idx` end to end
+ * and the `count(*)` did a plain `SCAN audit_log`, twice per load. Leg 3 is now
+ * two legs (3a, 3b), each carrying its own copy of the seat exclusion as a
+ * residual filter. Do not re-factor the exclusion out of them.
  *
  * Cost note for whoever reads this next: leg 3 walks every row carrying one of
  * those five actions before the JSON test filters it. That scales with
@@ -674,9 +686,10 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  * `audit_log` is hard-excluded from the retention prune and only ever grows.
  */
 function auditScopeWhere(db: Db, vendorId: string, scope: AdminVendorAuditScope): SQL | undefined {
-  // The vendor's current seats. One uncorrelated subquery, shared by leg 3's seat
-  // exclusion, leg 4's roster match and the actor scope, so the three cannot drift.
+  // The vendor's current seats. One uncorrelated subquery, shared by legs 3a/3b's seat
+  // exclusion, leg 4's roster match and the actor scope, so they cannot drift.
   const seatIds = () => db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId));
+  const notASeatActor = () => or(isNull(auditLog.actorId), notInArray(auditLog.actorId, seatIds()));
 
   const entity = or(
     and(inArray(auditLog.entityType, [...VENDOR_ENTITY_TYPES]), eq(auditLog.entityId, vendorId)),
@@ -699,19 +712,22 @@ function auditScopeWhere(db: Db, vendorId: string, scope: AdminVendorAuditScope)
     //
     // Seat exclusion (AECI-1192 review): `vendorAuditEntry` stamps the ACTING vendor on
     // every seat write, so without it "done to this vendor" would list the vendor's own
-    // edits. A row a current seat wrote belongs to the actor scope. The exclusion is a
-    // residual filter: `audit_log_vendor_idx` (or the action index on the legacy leg)
-    // still drives the scan, and the uncorrelated subquery is evaluated once. A NULL
-    // actor (system, promote, cron) is kept explicitly, because `NULL NOT IN (…)` is NULL.
+    // edits. A row a current seat wrote belongs to the actor scope. A NULL actor
+    // (system, promote, cron) is kept explicitly, because `NULL NOT IN (…)` is NULL.
+    //
+    // 3a and 3b each carry the exclusion as a residual filter rather than sharing one
+    // `AND(OR(3a, 3b), exclusion)`: that nested shape defeats the MULTI-INDEX OR and
+    // full-scans `audit_log` (AECI-1484, see the header). `audit_log_vendor_idx` drives
+    // 3a and `audit_log_action_idx` drives 3b.
     and(
-      or(
-        and(eq(auditLog.vendorId, vendorId), ne(auditLog.action, NOTIFICATION_SENT_ACTION)),
-        and(
-          inArray(auditLog.action, [...VENDOR_METADATA_ACTIONS]),
-          sql`json_extract(${auditLog.metadata}, '$.vendor_id') = ${vendorId}`,
-        ),
-      ),
-      or(isNull(auditLog.actorId), notInArray(auditLog.actorId, seatIds())),
+      eq(auditLog.vendorId, vendorId),
+      ne(auditLog.action, NOTIFICATION_SENT_ACTION),
+      notASeatActor(),
+    ),
+    and(
+      inArray(auditLog.action, [...VENDOR_METADATA_ACTIONS]),
+      sql`json_extract(${auditLog.metadata}, '$.vendor_id') = ${vendorId}`,
+      notASeatActor(),
     ),
     and(
       inArray(auditLog.action, [...VENDOR_SEAT_PROFILE_ACTIONS]),

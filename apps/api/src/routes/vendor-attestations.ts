@@ -130,7 +130,7 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
-import { and, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
@@ -870,7 +870,10 @@ async function hasLiveVendorAttestation(
     .innerJoin(claims, eq(claims.id, attestations.claimId))
     .where(
       and(
-        eq(claims.integrationId, integrationId),
+        // `anchor_id` leads `claims_identity_key` (AECI-1484). The NOT NULL pins it
+        // to the integrations arm, so this is exactly `integration_id = ?`.
+        eq(claims.anchorId, integrationId),
+        isNotNull(claims.integrationId),
         liveVendorAttestationWhere,
         excludeIds.length ? notInArray(attestations.id, [...excludeIds]) : undefined,
       ),
@@ -1376,8 +1379,12 @@ export function createVendorClaimHandler(
     // `assertLabelFree` on the version CRUD.
     const clash = await db.query.claims.findFirst({
       columns: { id: true },
+      // The identity key's own columns, so the read is one exact probe of
+      // `claims_identity_key` (AECI-1484). The NOT NULL pins the anchor to the
+      // integrations arm, keeping this exactly `integration_id = ?`.
       where: and(
-        eq(claims.integrationId, authority.integrationId),
+        eq(claims.anchorId, authority.integrationId),
+        isNotNull(claims.integrationId),
         eq(claims.dataObjectId, dataObject.id),
         eq(claims.direction, direction),
       ),

@@ -13,9 +13,9 @@
  * three readers cannot disagree on what "a view of this product" means.
  *
  * A pair row counts once for EACH endpoint, and never twice for one product: the
- * parser refuses `a = b`, and the two pair arms require `product_id IS NULL`, so
- * a row that somehow carried both kinds of attribution still counts once per
- * product.
+ * parser refuses `a = b`, and a pair column is read only when `product_id` is
+ * NULL, so a row that somehow carried both kinds of attribution still counts once
+ * per product.
  *
  * ─── Why a CTE under the UNION ALL, not the caller's predicate in every arm ──
  *
@@ -32,9 +32,26 @@
  *
  * So the caller's predicate runs ONCE, inside a CTE over unaliased `page_views`
  * (which keeps the correlated subqueries in `NOT_INTERNAL` and the class filter
- * correlating exactly as every other reader applies them), and the three arms
- * only pick a column out of the CTE. Three compound terms, inside D1's five-term
- * ceiling.
+ * correlating exactly as every other reader applies them).
+ *
+ * ─── Why the CTE is read once, through a two-row fan-out (AECI-1484) ────────
+ *
+ * Until AECI-1484 three `UNION ALL` arms each picked one column out of the CTE.
+ * SQLite does not materialize a CTE that sits under a compound SELECT: it
+ * flattened the CTE into each arm, so every call walked the `page_views` window
+ * three times. The `/admin` product breakdown calls this up to three times per
+ * request, so six to nine walks, over all time when traffic is "all". Drizzle's
+ * `$with` cannot emit `AS MATERIALIZED`.
+ *
+ * So the CTE is read once and `CROSS JOIN`ed to a two-row constant (`arm` 0 and
+ * 1). Arm 0 yields `coalesce(product_id, pair_product_a_id)`: the product page's
+ * product, else the pair page's first endpoint. Arm 1 yields `pair_product_b_id`
+ * when `product_id` is NULL. Rows where the arm yields NULL are dropped. That is
+ * the same multiset the three arms produced: arm 0 is the old first two arms
+ * (disjoint on `product_id IS NULL`), arm 1 is the old third. `CROSS JOIN` is
+ * load-bearing: SQLite keeps its left side as the outer loop, so `page_views` is
+ * walked once and the constant is re-read per row. The fan-out is a two-term
+ * compound SELECT, inside D1's five-term ceiling.
  *
  * Usage, because the CTE has to be attached to the OUTER statement:
  *
@@ -45,8 +62,7 @@
  * `page_views` is log-class, so nothing here writes an audit row.
  */
 
-import { and, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { unionAll, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { and, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViews } from '../db/schema';
@@ -71,16 +87,16 @@ export function productAttributedViews(db: Db, where: SQL | undefined) {
         ),
       ),
   );
-  const arm = (column: SQLiteColumn, extra?: SQL) =>
-    db
-      .select({ productId: sql<string>`${column}`.as('attributed_product_id') })
-      .from(cte)
-      .where(and(isNotNull(column), extra));
-  const views = unionAll(
-    arm(cte.productId),
-    arm(cte.pairProductAId, isNull(cte.productId)),
-    arm(cte.pairProductBId, isNull(cte.productId)),
-  ).as('attributed_views');
+  const arm = sql<number>`"fanout"."arm"`;
+  const attributed = sql<
+    string | null
+  >`case ${arm} when 0 then coalesce(${cte.productId}, ${cte.pairProductAId}) else case when ${cte.productId} is null then ${cte.pairProductBId} end end`;
+  const views = db
+    .select({ productId: sql<string>`${attributed}`.as('attributed_product_id') })
+    .from(cte)
+    .crossJoin(sql`(select 0 as "arm" union all select 1 as "arm") as "fanout"`)
+    .where(isNotNull(attributed))
+    .as('attributed_views');
   // The same column as a plain `SQL`, because `groupBy` takes no aliased field.
   const productId = sql<string>`${views.productId}`;
   return { cte, views, productId };

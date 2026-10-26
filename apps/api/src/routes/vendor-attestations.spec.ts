@@ -35,6 +35,7 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrationVendorLinks,
   integrations,
   productVendors,
@@ -1432,6 +1433,38 @@ describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {
     // The date SURVIVES. Withdrawing an assertion does not un-happen the review, and
     // blanking it would make a record that HAS been checked read as one that never was.
     expect(row?.lastReviewedAt).toBe(reviewed);
+  });
+
+  it('hands back to AECi even when an evidenced pair reusing the row id holds a live vendor attestation (AECI-1484)', async () => {
+    // A cross-table move reuses the integration id as the pair id, so `claims.anchor_id`
+    // alone would read the pair's attestation as this integration's. The survival test
+    // pins `anchor_id` with `integration_id IS NOT NULL`, exactly the old
+    // `integration_id = ?`, so the pair's attestation does not keep I_MAIN vendor-held.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: I_MAIN,
+      connectorProductId: P_CONNECTOR,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+    });
+    await t.db.insert(claims).values({
+      id: uuid(43),
+      connectorEvidencedPairId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+    });
+    await t.db.insert(attestations).values({
+      id: uuid(91),
+      claimId: uuid(43),
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
+    });
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+
+    const { status } = await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+    expect(status).toBe(204);
+
+    expect((await integrationRow())?.maintainedBy).toBe('aeci');
   });
 
   it('stays vendor-maintained while another live vendor attestation remains on the SAME integration', async () => {
