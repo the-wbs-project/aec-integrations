@@ -353,12 +353,15 @@ h3 {
 
    `aria-current` is the state, in both spellings the row uses: `page` on the
    four routed links (from `routerLinkActive`) and `true` on the Products
-   disclosure button, which has no `routerLink` to hang the directive on. */
+   disclosure button, which has no `routerLink` to hang the directive on.
+   The `/search` entity tabs (`search-page.ts`) reuse the class; there the state
+   is `aria-selected="true"` on the `role="tab"` button. */
 .aec-nav-tab {
   border-bottom-color: transparent;
 }
 
-.aec-nav-tab[aria-current] {
+.aec-nav-tab[aria-current],
+.aec-nav-tab[aria-selected='true'] {
   border-bottom-color: var(--accent-primary);
 }
 

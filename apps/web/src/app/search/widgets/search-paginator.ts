@@ -12,7 +12,7 @@ import { Component, input, output } from '@angular/core';
   template: `
     @if (nbPages() > 1) {
       <nav
-        class="mt-8 flex items-center justify-center gap-4"
+        class="mt-6 flex items-center justify-center gap-4 border-t border-(--border-default) pt-6"
         i18n-aria-label="@@search.pagination.aria"
         aria-label="Pagination"
       >

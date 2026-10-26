@@ -1,81 +1,48 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
+import { IntegrationStat } from '../products/integration-stat';
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
 /**
- * Grid hit card for a `vendors` search result (AECI-142). `<article>` tile bound
- * to the denormalized §7.1 vendor record. The company name is the single
- * stretched link to `/vendors/:slug`; headquarters / founded year / counts
- * render as supporting text with em-dash empty states (the record nullable
- * fields mirror the `/vendors` table card). Both themes via tokens; strings
- * `$localize`-wrapped. The card carries no account-status label: AECI-1131
- * limited that label to the vendor detail hero, and AECI-1264 removed it there too
- * (2026-10-09). The record carries no plan mirror at all since AECI-1266.
+ * Grid hit card for a `vendors` search result (AECI-142), bound to the
+ * denormalized §7.1 vendor record.
+ *
+ * Built on the `/products` card-grid tile so the two tabs read the same: logo or
+ * initial with the integration badge, then the company name and headquarters
+ * where the product tile has its vendor. The whole card is one link. No
+ * description, product count or founded year: the product tile carries none of
+ * its equivalents. No account-status label either: AECI-1131 limited it to the
+ * vendor detail hero and AECI-1264 removed it there too (2026-10-09).
  */
 @Component({
   selector: 'aec-search-vendor-card',
-  imports: [RouterLink],
+  imports: [RouterLink, IntegrationStat, LogoOrInitial],
   host: { class: 'block h-full' },
   template: `
-    <article
-      class="group relative flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 transition-colors hover:border-(--border-strong)"
+    <a
+      [routerLink]="['/vendors', record().slug]"
+      class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
+        bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
+        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     >
-      <div class="flex items-start gap-3">
-        <span
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) font-display text-sm font-semibold text-(--text-secondary)"
-          aria-hidden="true"
-          >{{ initial() }}</span
-        >
-        <div class="min-w-0 flex-1">
-          <h3 class="font-display text-base font-semibold tracking-tight text-(--text-primary)">
-            <a
-              [routerLink]="['/vendors', record().slug]"
-              class="rounded-sm transition-colors after:absolute after:inset-0 group-hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >{{ record().company_name }}</a
-            >
-          </h3>
-          @if (record().headquarters; as hq) {
-            <p class="mt-0.5 truncate text-sm text-(--text-secondary)">{{ hq }}</p>
-          }
-        </div>
+      <div class="flex items-start justify-between gap-3">
+        <aec-logo-or-initial [src]="record().logo_url" [name]="record().company_name" size="sm" />
+        <aec-integration-stat [count]="record().integration_count" variant="badge" />
       </div>
-
-      @if (record().description; as description) {
-        <p class="mt-3 line-clamp-2 text-sm leading-relaxed text-(--text-secondary)">
-          {{ description }}
+      <div class="min-w-0 flex-1">
+        <p class="truncate font-display text-lg font-semibold text-(--text-primary)">
+          {{ record().company_name }}
         </p>
-      }
-
-      <dl class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-(--text-secondary)">
-        <div class="flex items-center gap-1.5">
-          <dt i18n="@@search.vendor.products">Products</dt>
-          <dd class="font-medium tabular-nums text-(--text-primary)">
-            {{ record().product_count }}
-          </dd>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <dt i18n="@@search.vendor.integrations">Integrations</dt>
-          <dd class="font-medium tabular-nums text-(--text-primary)">
-            {{ record().integration_count }}
-          </dd>
-        </div>
-        @if (record().founded_year !== null) {
-          <div class="flex items-center gap-1.5">
-            <dt i18n="@@search.vendor.founded">Founded</dt>
-            <dd class="font-medium tabular-nums text-(--text-primary)">
-              {{ record().founded_year }}
-            </dd>
-          </div>
+        @if (record().headquarters; as hq) {
+          <p class="mt-0.5 truncate text-sm text-(--text-secondary)">{{ hq }}</p>
         }
-      </dl>
-    </article>
+      </div>
+    </a>
   `,
 })
 export class SearchVendorCard {
   readonly record = input.required<AlgoliaVendorRecord>();
-
-  protected readonly initial = computed(
-    () => [...this.record().company_name][0]?.toUpperCase() ?? '',
-  );
 }

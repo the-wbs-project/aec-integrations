@@ -21,6 +21,12 @@
  * default — and `MetaService.setSearchMeta` adds `robots: noindex` (§4.6: search
  * results aren't canonical content).
  *
+ * Layout: the page renders inside the shared `BrowseLayout` with the filter rail
+ * in the shared `aec-facet-panel`, the same shell, rail width, mobile "Filters"
+ * disclosure and card-grid breakpoints as `/products`. It used to hand-roll its
+ * own grid, which missed the browse-page fixes (min-width-0 columns, the mobile
+ * disclosure) and overflowed at tablet widths.
+ *
  * The deliberate §7.5 deviation (`angular-instantsearch` → `instantsearch.js` +
  * connectors → signals) is documented in `search-controller.ts` and ADR 0014.
  * The per-tab sort dropdown (AECI-175 / §4.6) is the `aec-search-sort-by` control
@@ -44,6 +50,9 @@ import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
 import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { BrowseLayout } from '../layouts/browse-layout';
+import { FacetPanel } from '../shared/facets/facet-panel';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { readAlgoliaConfig } from './algolia-config';
@@ -66,6 +75,14 @@ type EntityTab = 'products' | 'vendors';
 
 const TABS: readonly EntityTab[] = ['products', 'vendors'];
 
+/**
+ * True when either side of a range refinement is set. `connectRange` reports an
+ * open bound as `undefined` or as `±Infinity`, so both count as unset.
+ */
+function isRangeSet([min, max]: readonly [number | undefined, number | undefined]): boolean {
+  return Number.isFinite(min) || Number.isFinite(max);
+}
+
 /** Debounce for mirroring `?q=` into the URL (separate from the search debounce). */
 const URL_SYNC_DEBOUNCE_MS = 350;
 
@@ -74,6 +91,9 @@ const URL_SYNC_DEBOUNCE_MS = 350;
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    BrowseLayout,
+    FacetPanel,
+    MailingListSignup,
     SearchProductCard,
     SearchVendorCard,
     SearchRefinementList,
@@ -83,58 +103,67 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     SearchSortBy,
   ],
   template: `
-    <section class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
-        <header class="border-b border-(--border-default) pb-6">
-          <h1
-            class="font-display text-3xl font-semibold tracking-tight md:text-4xl"
-            i18n="@@search.title"
-          >
-            Search
-          </h1>
-          <form
-            class="mt-5 max-w-2xl"
-            role="search"
-            action="/search"
-            method="get"
-            (submit)="onSubmit($event)"
-          >
-            <label class="sr-only" for="search-input" i18n="@@search.input.label"
-              >Search the directory</label
+    <aec-browse-layout>
+      <div slot="header" class="space-y-3">
+        <nav i18n-aria-label="@@search.breadcrumbs.aria" aria-label="Breadcrumb">
+          <ol class="flex items-center gap-2 text-sm text-(--text-secondary)">
+            <li>
+              <a
+                routerLink="/"
+                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@search.breadcrumbs.home"
+                >Home</a
+              >
+            </li>
+            <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
+            <li
+              class="text-(--text-primary)"
+              aria-current="page"
+              i18n="@@search.breadcrumbs.current"
             >
-            <input
-              id="search-input"
-              name="q"
-              type="search"
-              autocomplete="off"
-              [value]="inputValue()"
-              (input)="onQueryInput($event)"
-              i18n-placeholder="@@search.input.placeholder"
-              placeholder="Search products and vendors"
-              class="h-12 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 text-base text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            />
-          </form>
-        </header>
+              Search
+            </li>
+          </ol>
+        </nav>
+        <h1
+          class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
+          i18n="@@search.title"
+        >
+          Search
+        </h1>
+        <form
+          class="max-w-2xl pt-2"
+          role="search"
+          action="/search"
+          method="get"
+          (submit)="onSubmit($event)"
+        >
+          <label class="sr-only" for="search-input" i18n="@@search.input.label"
+            >Search the directory</label
+          >
+          <input
+            id="search-input"
+            name="q"
+            type="search"
+            autocomplete="off"
+            [value]="inputValue()"
+            (input)="onQueryInput($event)"
+            i18n-placeholder="@@search.input.placeholder"
+            placeholder="Search products and vendors"
+            class="h-12 w-full min-w-0 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 text-base text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          />
+        </form>
 
-        @if (degraded()) {
-          <div
-            class="mt-10 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) px-6 py-10 text-center"
-            role="status"
-          >
-            <p
-              class="text-base font-medium text-(--text-primary)"
-              i18n="@@search.unavailable.title"
-            >
-              Search is temporarily unavailable.
-            </p>
-            <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@search.unavailable.body">
-              Please try again later, or browse the directory by category.
-            </p>
-          </div>
-        } @else {
+        @if (!degraded()) {
+          <!-- The tablist sits on the header's bottom rule (negative margin = the
+               header's bottom padding), so the active tab's underline lands on
+               it instead of drawing a second rule. It scrolls sideways rather
+               than overflowing the viewport if the labels ever outgrow it. The
+               underline colour comes from .aec-nav-tab in styles.css, because
+               border-colour utilities lose to the unlayered * rule there. -->
           <div
             role="tablist"
-            class="mt-8 flex gap-1 border-b border-(--border-default)"
+            class="-mb-6 flex gap-1 overflow-x-auto pt-3 md:-mb-8"
             aria-label="Search results by type"
             i18n-aria-label="@@search.tablist.aria"
           >
@@ -149,10 +178,8 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                 [tabindex]="activeTab() === tab ? 0 : -1"
                 (click)="selectTab(tab)"
                 (keydown)="onTabKeydown($event)"
-                class="-mb-px cursor-pointer border-b-2 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                [class.border-transparent]="activeTab() !== tab"
+                class="aec-nav-tab shrink-0 cursor-pointer border-b-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
                 [class.text-(--text-secondary)]="activeTab() !== tab"
-                [class.border-(--accent-primary)]="activeTab() === tab"
                 [class.text-(--text-primary)]="activeTab() === tab"
               >
                 {{ tabLabel(tab) }}
@@ -162,136 +189,175 @@ const URL_SYNC_DEBOUNCE_MS = 350;
               </button>
             }
           </div>
+        }
+      </div>
 
+      @if (!degraded()) {
+        <aec-facet-panel
+          slot="filters"
+          panelId="search-facet-panel"
+          [activeCount]="activeFilterCount()"
+        >
+          @if (showSkeleton()) {
+            <ng-container [ngTemplateOutlet]="facetsSkeleton" />
+          } @else if (currentFacets(); as facets) {
+            @for (rl of facets.refinementLists; track rl.attribute) {
+              <aec-search-refinement-list
+                [label]="facetLabel(rl.attribute)"
+                [items]="rl.items()"
+                [booleanLabels]="booleanLabelsFor(rl.attribute)"
+                (refine)="rl.refine($event)"
+              />
+            }
+            @for (nm of facets.numericMenus; track nm.attribute) {
+              <aec-search-numeric-menu
+                [label]="facetLabel(nm.attribute)"
+                [name]="activeTab() + ':' + nm.attribute"
+                [allLabel]="allLabel"
+                [items]="nm.items()"
+                (refine)="nm.refine($event)"
+              />
+            }
+            @for (rg of facets.ranges; track rg.attribute) {
+              <aec-search-range-input
+                [label]="facetLabel(rg.attribute)"
+                [name]="activeTab() + ':' + rg.attribute"
+                [bounds]="rg.bounds()"
+                [start]="rg.start()"
+                (refine)="rg.refine($event)"
+              />
+            }
+            @if (activeFilterCount() > 0) {
+              <button
+                type="button"
+                class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                (click)="clearFilters()"
+                i18n="@@listing.filters.clear"
+              >
+                Clear filters
+              </button>
+            }
+          }
+        </aec-facet-panel>
+      }
+
+      <div slot="grid">
+        @if (degraded()) {
+          <div
+            class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) px-6 py-10 text-center"
+            role="status"
+          >
+            <p
+              class="text-base font-medium text-(--text-primary)"
+              i18n="@@search.unavailable.title"
+            >
+              Search is temporarily unavailable.
+            </p>
+            <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@search.unavailable.body">
+              Please try again later, or browse the directory by category.
+            </p>
+          </div>
+        } @else {
           <div
             role="tabpanel"
             [id]="panelId"
             [attr.aria-labelledby]="tabId(activeTab())"
             tabindex="0"
-            class="mt-6 focus-visible:outline-none"
+            class="space-y-6 focus-visible:outline-none"
           >
-            @if (controller(); as ctrl) {
-              <div class="mb-4 flex items-center justify-end">
+            <!-- Toolbar row, same placement and 42px height as aec-listing-toolbar
+                 on /products. min-h reserves it before the controller mounts so
+                 the grid does not jump when the sort control appears. -->
+            <div class="flex min-h-[2.625rem] flex-wrap items-center justify-between gap-3">
+              @if (controller(); as ctrl) {
                 <aec-search-sort-by
                   [options]="sortUiOptions()"
                   [value]="ctrl[activeTab()].sortBy()"
                   (sort)="onSortChange($event)"
                 />
-              </div>
-            }
-            <div class="grid gap-8 md:grid-cols-[16rem_1fr]">
-              <aside
-                i18n-aria-label="@@search.filters.aria"
-                aria-label="Filters"
-                class="flex flex-col gap-6"
-              >
-                @if (showSkeleton()) {
-                  <ng-container [ngTemplateOutlet]="facetsSkeleton" />
-                } @else if (currentFacets(); as facets) {
-                  @for (rl of facets.refinementLists; track rl.attribute) {
-                    <aec-search-refinement-list
-                      [label]="facetLabel(rl.attribute)"
-                      [items]="rl.items()"
-                      [booleanLabels]="booleanLabelsFor(rl.attribute)"
-                      (refine)="rl.refine($event)"
-                    />
-                  }
-                  @for (nm of facets.numericMenus; track nm.attribute) {
-                    <aec-search-numeric-menu
-                      [label]="facetLabel(nm.attribute)"
-                      [name]="activeTab() + ':' + nm.attribute"
-                      [allLabel]="allLabel"
-                      [items]="nm.items()"
-                      (refine)="nm.refine($event)"
-                    />
-                  }
-                  @for (rg of facets.ranges; track rg.attribute) {
-                    <aec-search-range-input
-                      [label]="facetLabel(rg.attribute)"
-                      [name]="activeTab() + ':' + rg.attribute"
-                      [bounds]="rg.bounds()"
-                      [start]="rg.start()"
-                      (refine)="rg.refine($event)"
-                    />
-                  }
-                }
-              </aside>
+              }
+            </div>
 
-              <div>
-                @if (controller(); as ctrl) {
-                  <p class="sr-only" role="status" aria-live="polite">
-                    {{ resultsStatus() }}
-                  </p>
-                  @if (ctrl.ready()) {
-                    @switch (activeTab()) {
-                      @case ('products') {
-                        @if (ctrl.products.hits(); as hits) {
-                          @if (hits.length) {
-                            <ul
-                              class="grid gap-4 transition-opacity sm:grid-cols-2 xl:grid-cols-3"
-                              [class.opacity-60]="ctrl.stalled()"
-                              [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
-                            >
-                              @for (hit of hits; track hit.objectID) {
-                                <li><aec-search-product-card [record]="hit" /></li>
-                              }
-                            </ul>
-                            <aec-search-paginator
-                              [page]="ctrl.products.page()"
-                              [nbPages]="ctrl.products.nbPages()"
-                              (pageChange)="ctrl.products.refinePage($event)"
-                            />
-                          } @else {
-                            <ng-container [ngTemplateOutlet]="emptyState" />
-                          }
-                        }
-                      }
-                      @case ('vendors') {
-                        @if (ctrl.vendors.hits(); as hits) {
-                          @if (hits.length) {
-                            <ul
-                              class="grid gap-4 transition-opacity sm:grid-cols-2 xl:grid-cols-3"
-                              [class.opacity-60]="ctrl.stalled()"
-                              [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
-                            >
-                              @for (hit of hits; track hit.objectID) {
-                                <li><aec-search-vendor-card [record]="hit" /></li>
-                              }
-                            </ul>
-                            <aec-search-paginator
-                              [page]="ctrl.vendors.page()"
-                              [nbPages]="ctrl.vendors.nbPages()"
-                              (pageChange)="ctrl.vendors.refinePage($event)"
-                            />
-                          } @else {
-                            <ng-container [ngTemplateOutlet]="emptyState" />
-                          }
+            <div>
+              @if (controller(); as ctrl) {
+                <p class="sr-only" role="status" aria-live="polite">
+                  {{ resultsStatus() }}
+                </p>
+                @if (ctrl.ready()) {
+                  @switch (activeTab()) {
+                    @case ('products') {
+                      @if (ctrl.products.hits(); as hits) {
+                        @if (hits.length) {
+                          <ul
+                            role="list"
+                            class="grid gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3"
+                            [class.opacity-60]="ctrl.stalled()"
+                            [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                          >
+                            @for (hit of hits; track hit.objectID) {
+                              <li class="min-w-0"><aec-search-product-card [record]="hit" /></li>
+                            }
+                          </ul>
+                          <aec-search-paginator
+                            [page]="ctrl.products.page()"
+                            [nbPages]="ctrl.products.nbPages()"
+                            (pageChange)="ctrl.products.refinePage($event)"
+                          />
+                        } @else {
+                          <ng-container [ngTemplateOutlet]="emptyState" />
                         }
                       }
                     }
-                  } @else {
-                    <!-- Mounted, first response pending: reserve space (no aria-busy;
-                         the controller-null branch below owns the live-region). -->
-                    <ng-container [ngTemplateOutlet]="resultsSkeleton" />
+                    @case ('vendors') {
+                      @if (ctrl.vendors.hits(); as hits) {
+                        @if (hits.length) {
+                          <ul
+                            role="list"
+                            class="grid gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3"
+                            [class.opacity-60]="ctrl.stalled()"
+                            [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                          >
+                            @for (hit of hits; track hit.objectID) {
+                              <li class="min-w-0"><aec-search-vendor-card [record]="hit" /></li>
+                            }
+                          </ul>
+                          <aec-search-paginator
+                            [page]="ctrl.vendors.page()"
+                            [nbPages]="ctrl.vendors.nbPages()"
+                            (pageChange)="ctrl.vendors.refinePage($event)"
+                          />
+                        } @else {
+                          <ng-container [ngTemplateOutlet]="emptyState" />
+                        }
+                      }
+                    }
                   }
                 } @else {
-                  <!-- SSR + pre-mount. Ships the skeleton in the initial HTML so the
-                       height is reserved from first paint and the page is already
-                       scrollable. sr-only status carries the busy state for AT. -->
-                  <p class="sr-only" role="status" aria-busy="true" i18n="@@search.loading">
-                    Loading search…
-                  </p>
+                  <!-- Mounted, first response pending: reserve space (no aria-busy;
+                       the controller-null branch below owns the live-region). -->
                   <ng-container [ngTemplateOutlet]="resultsSkeleton" />
                 }
-              </div>
+              } @else {
+                <!-- SSR + pre-mount. Ships the skeleton in the initial HTML so the
+                     height is reserved from first paint and the page is already
+                     scrollable. sr-only status carries the busy state for AT. -->
+                <p class="sr-only" role="status" aria-busy="true" i18n="@@search.loading">
+                  Loading search…
+                </p>
+                <ng-container [ngTemplateOutlet]="resultsSkeleton" />
+              }
             </div>
           </div>
         }
       </div>
-    </section>
+    </aec-browse-layout>
+
+    <aec-mailing-list-signup />
 
     <ng-template #emptyState>
-      <div class="px-4 py-12 text-center">
+      <div
+        class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-center"
+      >
         <p class="text-sm text-(--text-secondary)" i18n="@@search.empty">
           No results. Try a broader search or
           <a
@@ -314,36 +380,27 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     -->
     <ng-template #resultsSkeleton>
       <div aria-hidden="true">
-        <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           @for (card of skeletonCards; track card) {
             <li>
               <div
-                class="flex min-h-40 flex-col gap-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+                class="flex min-h-32 flex-col gap-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
               >
-                <div class="flex items-center gap-3">
+                <div class="flex items-start justify-between gap-3">
                   <div
                     class="h-9 w-9 shrink-0 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"
                   ></div>
-                  <div class="h-4 w-1/2 animate-pulse rounded bg-(--surface-sunken)"></div>
-                </div>
-                <div class="h-3 w-full animate-pulse rounded bg-(--surface-sunken)"></div>
-                <div class="h-3 w-4/5 animate-pulse rounded bg-(--surface-sunken)"></div>
-                <div class="mt-auto flex gap-1.5 pt-1">
                   <div
-                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
-                  ></div>
-                  <div
-                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
-                  ></div>
-                  <div
-                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
+                    class="h-6 w-24 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
                   ></div>
                 </div>
+                <div class="h-6 w-2/3 animate-pulse rounded bg-(--surface-sunken)"></div>
+                <div class="h-4 w-1/2 animate-pulse rounded bg-(--surface-sunken)"></div>
               </div>
             </li>
           }
         </ul>
-        <div class="mt-8 flex justify-center">
+        <div class="mt-6 flex justify-center border-t border-(--border-default) pt-6">
           <div class="h-9 w-48 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"></div>
         </div>
       </div>
@@ -419,6 +476,26 @@ export class SearchPage implements OnDestroy {
   protected readonly showSkeleton = computed(() => {
     const ctrl = this.controller();
     return !ctrl || !ctrl.ready();
+  });
+
+  /**
+   * Selected refinements on the active tab: checked list values, a non-"All"
+   * numeric bucket, and each bound of a range. Drives the mobile "Filters"
+   * badge and the "Clear filters" action, as `aec-facet-sidebar` does on
+   * `/products`.
+   */
+  protected readonly activeFilterCount = computed(() => {
+    const view = this.currentFacets();
+    if (!view) return 0;
+    let count = 0;
+    for (const rl of view.refinementLists) count += rl.items().filter((i) => i.isRefined).length;
+    for (const nm of view.numericMenus) {
+      if (nm.items().some((i) => i.isRefined && i.label !== '')) count += 1;
+    }
+    for (const rg of view.ranges) {
+      if (isRangeSet(rg.start())) count += 1;
+    }
+    return count;
   });
 
   /** Fixed-length arrays driving the skeleton `@for` loops (index = track key). */
@@ -522,6 +599,27 @@ export class SearchPage implements OnDestroy {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  /**
+   * Drop every refinement on the active tab. Each connector's own `refine` does
+   * the work: toggling a checked value unchecks it, the empty-label bucket is
+   * the numeric menu's "All", and an open range clears it. InstantSearch
+   * batches the resulting state changes into one search.
+   */
+  protected clearFilters(): void {
+    const view = this.currentFacets();
+    if (!view) return;
+    for (const rl of view.refinementLists) {
+      for (const item of rl.items()) if (item.isRefined) rl.refine(item.value);
+    }
+    for (const nm of view.numericMenus) {
+      const all = nm.items().find((i) => i.label === '');
+      if (all && !all.isRefined) nm.refine(all.value);
+    }
+    for (const rg of view.ranges) {
+      if (isRangeSet(rg.start())) rg.refine([undefined, undefined]);
+    }
   }
 
   /** Apply a sort to the active tab and mirror it to `?sort=` (AECI-175). */
@@ -633,8 +731,6 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.facet.vendor:Vendor`;
       case 'has_api_docs':
         return $localize`:@@search.facet.apiDocs:API documentation`;
-      case 'headquarters':
-        return $localize`:@@search.facet.headquarters:Headquarters`;
       case 'founded_year':
         return $localize`:@@search.facet.founded:Founded`;
       case 'product_count':
