@@ -1189,6 +1189,14 @@ prod heartbeat. No committed dashboard widget or monitor queries the `ssr.render
 change skews nothing — the only log-shaped monitor query targets `status:error` logs, which the
 gate keeps at full fidelity.
 
+**Angular's proxy-header warning is stripped at the source (AECI-1477).** Until AECI-1477 every
+render wrote two Workers Logs `cf-worker` rows. The Cloudflare edge adds `x-forwarded-proto` and
+`x-forwarded-for`, and `AngularAppEngine.handle()` drops each untrusted proxy header with a
+`console.warn`. The renderer now strips `forwarded` and `x-forwarded-*` before Angular sees the
+request (`apps/web/src/server-proxy-headers.ts`). Nothing in SSR read them. If a
+`Received "x-forwarded-…" header but "trustProxyHeaders" was not set up to allow it` warning
+reappears in Workers Logs, the strip has regressed. Do not fix it by setting `trustProxyHeaders`.
+
 ## Front-of-Worker cache: HIT observability (WC-8 / AECI-322)
 
 Native Workers Cache (WC-3) serves cacheable HITs **without running the SSR Worker**, so
