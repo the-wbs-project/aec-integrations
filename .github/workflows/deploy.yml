@@ -6,8 +6,6 @@
 #                       packages only, no E2E (scripts/ci/lane-plan.mjs;
 #                       procedure in docs/CICD_PLAN.md §10a)
 #   push to main       → …same… → deploy-staging
-#   push to stage-2 / admin-panel → …same… (no deploy — deploy-staging is
-#                       gated on refs/heads/main)
 #
 # There is no per-PR preview tier. It retired on 2026-10-10 (AECI-1268): the
 # `pr-preview.yml` workflow, its `migrate-preview` job here, and the two parked
@@ -149,7 +147,7 @@ on:
     # Keep this trigger filter-free so those PRs run at all.
     #
     # NO workflow-level `paths-ignore` on `pull_request` — DELIBERATELY REMOVED.
-    # Both `main` AND `stage-2` require the three status checks `Lint & typecheck`
+    # `main` requires the three status checks `Lint & typecheck`
     # / `Unit tests` / `Build SSR Worker`. A workflow skipped by a path filter
     # never CREATES those check runs, so on a docs-only PR they sit `Pending`
     # forever and the required-check gate BLOCKS the merge with no way to clear it
@@ -169,7 +167,7 @@ on:
     # are already covered by their PR run; adding them here would only double-bill.
     # Add a branch here when a new long-lived integration branch is opened, and
     # remove it when that branch merges up and is retired.
-    branches: [main, stage-2, admin-panel]
+    branches: [main]
     # An ordered `paths` list, not `paths-ignore` (AECI-1270). Later patterns
     # override earlier ones, so the ORDER IS LOAD-BEARING: everything, minus
     # Markdown and docs/, plus the help-center content back in. The help center
@@ -247,7 +245,7 @@ jobs:
           # On `push`, point `base` at the pushed branch so paths-filter diffs
           # against `github.event.before` — the commits this push actually
           # added. Its default base is the repo DEFAULT branch, which on a
-          # long-lived integration branch (`stage-2`, `admin-panel`) would diff
+          # long-lived integration branch would diff
           # the whole branch against `main` and report `code: true` forever.
           # Empty on `pull_request`, where the action ignores `base` and uses
           # the API.

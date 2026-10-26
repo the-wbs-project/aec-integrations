@@ -21,7 +21,7 @@ Then:
 
 Severity is binary: blocker or major. Anything else does not get reported. Style nits, formatting, micro-optimizations, naming preferences — skip them. The CI gate handles formatting; the unit testing guide handles coverage. Reviewers handle correctness, security, and intent.
 
-**Items tagged `Lint: ✅` are enforced mechanically — do not hand-check them.** They fail `pnpm lint` (the `lint-and-types` CI job, a required check on `main` and `stage-2`), so a PR that reaches review cannot be violating them. Spending review attention there is wasted; spend it on the untagged items, which are the ones a machine cannot decide. The tag mirrors the `Lint: ✅` / `Lint: 🟡 review-only` convention in `ANGULAR_STYLE_GUIDE.md` §24, which holds the full rule-to-constraint matrix. If you believe a tagged item is genuinely violated in a diff, the lint rule has a gap — that's a defect in the rule, so report it as such rather than as a one-off review finding.
+**Items tagged `Lint: ✅` are enforced mechanically — do not hand-check them.** They fail `pnpm lint` (the `lint-and-types` CI job, a required check on `main`), so a PR that reaches review cannot be violating them. Spending review attention there is wasted; spend it on the untagged items, which are the ones a machine cannot decide. The tag mirrors the `Lint: ✅` / `Lint: 🟡 review-only` convention in `ANGULAR_STYLE_GUIDE.md` §24, which holds the full rule-to-constraint matrix. If you believe a tagged item is genuinely violated in a diff, the lint rule has a gap — that's a defect in the rule, so report it as such rather than as a one-off review finding.
 
 ---
 
