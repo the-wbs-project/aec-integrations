@@ -1335,17 +1335,20 @@ Either way the note fires for every 30-day chart window that contains the row. S
 | 2026-10-21 10:38 (`faa81a01f`) | staging | AECI-1297: the SSR gateway writes the arrival row on a native-cache HIT and on a MISS. Before this, `Renderer` wrote it on a MISS only. | Arrival rows on staging rise from this deploy. Every landing served from cache was missing before it. Demo and production run uncached today, so their series does not move at this deploy. | no |
 | 2026-10-22 02:40 (`957951a08`) | demo | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Demo arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. | yes |
 | 2026-10-22 03:53 (`88cedfbc3`) | production | Native cache enabled (AECI-1443). Arrival rows survive a HIT. | Production arrival counts are comparable across the seam, because the gateway already wrote every arrival. Render counts and the render-duration metric now count misses only. | yes |
+| 2026-10-23 04:02 (`fedd6e1e7`) | staging | AECI-1460: residual and AutomationExclusion retired; `traffic.page_views_human_after_automation` frozen. | Class counts unchanged. The residual series ends. | yes |
+| 2026-10-26 01:30 (`08033ebd6`) | demo | AECI-1460: residual and AutomationExclusion retired; `traffic.page_views_human_after_automation` frozen. | Class counts unchanged. The residual series ends. | yes |
+| 2026-10-26 08:15 (`0cb6f1203`) | production | AECI-1460: residual and AutomationExclusion retired; `traffic.page_views_human_after_automation` frozen. | Class counts unchanged. The residual series ends. | yes |
 
 The writer itself does not change at a cache flip. A HIT skips the render, so from each tier's
 flip the render counts and the AECI-839 p95 measure misses only.
 
 **The AECI-1460 cut-over is recorded here as a reporting method change (decided 2026-10-23).** The
-residual and `AutomationExclusion` leave the digest and `/admin/overview`, and
-`traffic.page_views_human_after_automation` stops being written. The writer of `page_views` does not
-change, so each tier gets one informational row with arrivals comparable: **yes**. Class counts are
-unchanged. The residual series ends. A row carries the deploy SHA, so each tier's row is added after
-that tier deploys, in this table and in `COLLECTION_METHOD_CHANGES` in one PR. AECI-1465 tracks the
-three rows.
+residual and `AutomationExclusion` left the digest and `/admin/overview`, and
+`traffic.page_views_human_after_automation` stopped being written. The writer of `page_views` did not
+change, so each tier has one informational row with arrivals comparable: **yes**. Class counts are
+unchanged. The residual series ends. A row carries the deploy SHA, so the three rows above were added
+after the last tier deployed (AECI-1465). Each of those three times is the `DEPLOYED_AT` the deploy
+passed to `wrangler deploy`, cut to the minute. Production's row shows on the overview until 2026-11-25.
 
 ---
 

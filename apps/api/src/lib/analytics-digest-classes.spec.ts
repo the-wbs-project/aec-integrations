@@ -11,7 +11,7 @@
  * a class delta.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { pageViews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -24,37 +24,12 @@ import {
   type DigestClassification,
 } from './analytics-digest';
 import type { ArrivalCfCoverage } from './arrival-coverage';
-import type { CollectionMethodChange } from './collection-method-changes';
+import { COLLECTION_METHOD_CHANGES } from './collection-method-changes';
 
-/**
- * A mocked AECI-1460 §3d row: `arrivalsComparable: true`, on a production date
- * no other case here reads. The real rows land per tier after each deploy
- * (AECI-1465), so the constant itself is not edited.
- */
-const { AECI_1460_ROW } = vi.hoisted(() => ({
-  AECI_1460_ROW: {
-    at: '2026-11-02T09:00:00.000Z',
-    tier: 'production',
-    sha: 'deadbeef0',
-    issue: 'AECI-1460',
-    summary: 'residual and AutomationExclusion retired',
-    arrivalsComparable: true,
-  } satisfies CollectionMethodChange,
-}));
-
-vi.mock('./collection-method-changes', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('./collection-method-changes')>();
-  const changes = [...orig.COLLECTION_METHOD_CHANGES, AECI_1460_ROW];
-  return {
-    ...orig,
-    COLLECTION_METHOD_CHANGES: changes,
-    collectionMethodSeam: (
-      env: string | undefined | null,
-      w: { startIso: string; endIso: string },
-      rows: readonly CollectionMethodChange[] = changes,
-    ) => orig.collectionMethodSeam(env, w, rows),
-  };
-});
+/** The real production AECI-1460 §3d row (AECI-1465). */
+const AECI_1460_ROW = COLLECTION_METHOD_CHANGES.find(
+  (r) => r.issue === 'AECI-1460' && r.tier === 'production',
+)!;
 
 const HEALTHY: ArrivalCfCoverage = { arrivals: 900, arrivalsWithAsn: 900, coverage: 1 };
 
@@ -284,7 +259,10 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
     expect(digestMethodSeams('staging', '2026-10-21').map((r) => r.issue)).toEqual(['AECI-1297']);
     // The prior day of 10-22 is 10-21, so the staging row still spans the pair.
     expect(digestMethodSeams('staging', '2026-10-22').map((r) => r.issue)).toEqual(['AECI-1297']);
-    expect(digestMethodSeams('staging', '2026-10-23')).toEqual([]);
+    // AECI-1460's staging row (10-23 04:02) spans the 10-23 and 10-24 pairs.
+    expect(digestMethodSeams('staging', '2026-10-23').map((r) => r.issue)).toEqual(['AECI-1460']);
+    expect(digestMethodSeams('staging', '2026-10-24').map((r) => r.issue)).toEqual(['AECI-1460']);
+    expect(digestMethodSeams('staging', '2026-10-25')).toEqual([]);
     expect(digestMethodSeams('production', '2026-10-21')).toEqual([]);
     expect(digestMethodSeams('development', '2026-10-21')).toEqual([]);
   });
@@ -323,18 +301,18 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
   });
 
   it('flags a comparable AECI-1460 row and leaves every class delta standing', () => {
-    expect(digestMethodSeams('production', '2026-11-02').map((r) => r.issue)).toEqual([
+    expect(digestMethodSeams('production', '2026-10-26').map((r) => r.issue)).toEqual([
       'AECI-1460',
     ]);
     const { text, html } = buildAnalyticsDigest(base, {
       ...opts,
       env: 'production',
-      dayLabel: '2026-11-02',
+      dayLabel: '2026-10-26',
     });
     expect(text).toContain(
-      'Collection method changed at 2026-11-02 09:00 UTC: residual and AutomationExclusion retired (AECI-1460). Arrival counts stay comparable, so the changes vs the prior day stand.',
+      'Collection method changed at 2026-10-26 08:15 UTC: residual and AutomationExclusion retired; traffic.page_views_human_after_automation frozen (AECI-1460). Arrival counts stay comparable, so the changes vs the prior day stand.',
     );
-    expect(html).toContain('residual and AutomationExclusion retired (AECI-1460)');
+    expect(html).toContain(`${AECI_1460_ROW.summary} (AECI-1460)`);
     expect(text).toContain(
       'Identified automation: 9000 views from 30 visitors (+1000 (+13%) vs 8000 prior day)',
     );
