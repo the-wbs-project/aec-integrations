@@ -1,10 +1,17 @@
 /**
- * SEO/security header set for cacheable SSR responses (AECI-89 /
+ * SEO/security header set for SSR responses (AECI-89, AECI-1478 /
  * `docs/CACHE_STRATEGY.md` §7, `docs/STAGE_1_PHASE_2_SPEC.md` §8.6).
  *
- * Every cacheable response (the only caller is `withCacheHeaders` in
- * `server-runtime.ts`, which already short-circuits non-cacheable statuses)
- * carries three additional headers on top of `Cache-Control` / `Cache-Tag`:
+ * Two layers:
+ *
+ *   - `applySecurityHeaders` sets the static security headers
+ *     (`Content-Security-Policy`, `Referrer-Policy`, `Permissions-Policy`).
+ *     It runs on every SSR render, cacheable or not, so a signed-in `/admin` or
+ *     `/vendor` 200 carries the same policy as a public page (AECI-1478).
+ *   - `applySeoHeaders` runs on cacheable responses only (the caller is
+ *     `withCacheHeaders` in `server-runtime.ts`, which short-circuits
+ *     non-cacheable statuses). It adds the security set plus two SEO headers on
+ *     top of `Cache-Control` / `Cache-Tag`:
  *
  *   - `Vary: Accept-Language` — locale variance is already segmented at the
  *     URL-prefix layer, so this just advertises the dimension to well-behaved
@@ -12,7 +19,9 @@
  *     delete-then-set so any upstream `Vary: Cookie` / `Vary: User-Agent`
  *     (which DO fragment the cache, with no purge handle) is stripped first.
  *   - `Link: </sitemap.xml>; rel=sitemap` — sitemap discovery hint.
- *   - `Content-Security-Policy` — see `CONTENT_SECURITY_POLICY` below.
+ *
+ * Every security header is a static string, so it stays byte-identical across
+ * cache hits and is safe on the edge-cached payload.
  */
 
 /**
@@ -85,7 +94,32 @@ const CSP_DIRECTIVES: readonly string[] = [
 
 export const CONTENT_SECURITY_POLICY: string = CSP_DIRECTIVES.join('; ');
 
+/**
+ * States the browser default explicitly (AECI-1478). Cross-origin requests get
+ * the origin only, so a path or query never leaks to a third party on an
+ * outbound click. Same-origin requests keep the full URL.
+ */
+export const REFERRER_POLICY = 'strict-origin-when-cross-origin';
+
+/**
+ * Denies powerful browser features the app never uses (AECI-1478), so no
+ * script allowlisted in the CSP can request them. `interest-cohort` (FLoC) is
+ * left out on purpose: Chrome retired FLoC and reports the token as an
+ * unrecognized feature in DevTools.
+ */
+export const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+
 const SITEMAP_LINK = '</sitemap.xml>; rel=sitemap';
+
+/**
+ * Applies the static security headers, mutating the passed `Headers` in place.
+ * Safe on every SSR response: none of them depends on the visitor.
+ */
+export function applySecurityHeaders(headers: Headers): void {
+  headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  headers.set('Referrer-Policy', REFERRER_POLICY);
+  headers.set('Permissions-Policy', PERMISSIONS_POLICY);
+}
 
 /**
  * Applies the SEO/security header set to a cacheable response's headers,
@@ -99,5 +133,5 @@ export function applySeoHeaders(headers: Headers): void {
   headers.set('Vary', 'Accept-Language');
   // Append (not set) so any upstream preload `Link` survives.
   headers.append('Link', SITEMAP_LINK);
-  headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  applySecurityHeaders(headers);
 }

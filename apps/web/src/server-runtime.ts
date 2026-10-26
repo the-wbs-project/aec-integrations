@@ -107,7 +107,7 @@ import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './se
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
 import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
-import { applySeoHeaders } from './server/seo-headers';
+import { applySecurityHeaders, applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { createAuthCallbackHandler, signInReturnPath } from './server/routes/auth-callback';
 import { refreshSessionCookies, withRefreshedCookies } from './server/auth/session-refresh';
@@ -817,6 +817,23 @@ function ensureNoStore(response: Response): Response {
 }
 
 /**
+ * Stamps the static security headers (CSP, `Referrer-Policy`,
+ * `Permissions-Policy`) on an SSR response that does not go through
+ * `applySeoHeaders`: the non-cacheable branch (signed-in `/admin` and
+ * `/vendor` renders) and the 3xx/5xx exits of `withCacheHeaders` (AECI-1478).
+ * The response is rebuilt because its headers may be immutable.
+ */
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  applySecurityHeaders(headers);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+/**
  * Wraps a rendered SSR response with the cache headers for a cacheable route.
  * 404s receive `NOT_FOUND_TTL` (§9.1b); 2xx receive the route's TTL. Other
  * statuses (5xx, redirects) are returned non-cacheable.
@@ -844,15 +861,17 @@ function withCacheHeaders(
     // and are preserved — `ensureNoStore` only fills in a missing directive, so a
     // redirect that set none still degrades to `private, no-store`.
     if (response.status >= 300 && response.status < 400) {
-      return ensureNoStore(
-        new Response(null, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        }),
+      return withSecurityHeaders(
+        ensureNoStore(
+          new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          }),
+        ),
       );
     }
-    return ensureNoStore(response);
+    return withSecurityHeaders(ensureNoStore(response));
   }
 
   const ttl = is404 ? NOT_FOUND_TTL : routeTtl;
@@ -864,11 +883,11 @@ function withCacheHeaders(
   if (is404) {
     headers.set('Cache-Tag', CACHE_TAG_NOT_FOUND);
   }
-  // SEO/security header set (AECI-89 / §7, §8.6): `Vary: Accept-Language`,
-  // `Link: </sitemap.xml>; rel=sitemap`, and the Content-Security-Policy. The
-  // Vary handling is delete-then-set — any upstream `Cookie`/`User-Agent` Vary
-  // is stripped (those fragment the edge cache with no purge handle) while the
-  // URL-segmented locale dimension is advertised.
+  // SEO/security header set (AECI-89, AECI-1478 / §7, §8.6): `Vary: Accept-Language`,
+  // `Link: </sitemap.xml>; rel=sitemap`, the CSP, `Referrer-Policy` and
+  // `Permissions-Policy`. The Vary handling is delete-then-set — any upstream
+  // `Cookie`/`User-Agent` Vary is stripped (those fragment the edge cache with no
+  // purge handle) while the URL-segmented locale dimension is advertised.
   applySeoHeaders(headers);
   return new Response(response.body, {
     status: response.status,
@@ -1311,10 +1330,12 @@ async function handleSsr(
     // AECI-1442 — never on a never-cacheable path (`isNeverCacheablePath`). A
     // 404 under `/vendor/*` or `/admin/*` can be a per-visitor "no access"
     // answer, and caching it publicly would serve it to everyone for 60 s.
+    // AECI-1478 — the no-store exit still carries the security headers, so a
+    // signed-in `/admin` or `/vendor` page has the same CSP as a public one.
     const finalResponse =
       transformed.status === 404 && !isNeverCacheablePath(stripLocalePrefix(url.pathname).path)
         ? withCacheHeaders(transformed, NOT_FOUND_TTL, null)
-        : ensureNoStore(transformed);
+        : withSecurityHeaders(ensureNoStore(transformed));
     emitRenderCount('non_cacheable', finalResponse.status);
     return finalResponse;
   }
