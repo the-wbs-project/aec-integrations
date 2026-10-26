@@ -251,7 +251,7 @@ CLAUDE.md size gate, the NOTIFICATIONS.md drift check and the whole-repo Prettie
 Step 5 runs `typecheck` for the affected packages. apps/web has no `typecheck` script in either
 lane. Its type errors surface in `ng build` and `ng test`.
 
-This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main` and `stage-2`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
+This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
 **Jobs: `unit-api`, `unit-web`, and the `unit-tests` gate** (split 2026-10)
 
@@ -347,8 +347,9 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 > list`), so every merge to `main` deploys staging.
 
 > **Which branches get a post-merge run.** Unlike the PR lane (§3.1, base-branch-agnostic), the
-> `push` trigger *does* keep an explicit branch list — `[main, stage-2, admin-panel]`: the
-> production line plus the long-lived integration branches of §10. A post-merge run only earns
+> `push` trigger *does* keep an explicit branch list — `[main]` today (AECI-1073 dropped the
+> retired `stage-2` and `admin-panel` entries): the production line plus any long-lived
+> integration branch of §10. A post-merge run only earns
 > its cost on branches that accumulate merges, where it catches what PR-time gating structurally
 > cannot — a squash-merge whose result differs from every PR head (a semantic conflict between
 > two PRs that landed in sequence). Feature and epic branches are already covered by their own PR
@@ -356,7 +357,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 > `deploy.yml`'s `push.branches` when a new long-lived integration branch is opened, and remove
 > it once that branch merges up and is retired. Only the `main` entry deploys anything —
 > `deploy-staging` is separately gated on `github.ref == 'refs/heads/main'`, so a push to
-> `stage-2` / `admin-panel` runs the test jobs and stops.
+> any other listed branch runs the test jobs and stops.
 
 **Job: `deploy-staging`** — the actual step order in `deploy.yml`, verified 2026-08-14:
 1. All PR checks repeat (lint, types, tests, build) — via `needs:` (explicit `needs: [lint-and-types, unit-tests, build-web, e2e-and-integration]` since AECI-917; previously lint/unit were inherited through `build-web`)
@@ -1109,8 +1110,8 @@ wrangler deploy --env staging \
   lane and skips the preview and integration-DB workflows (§10a). `main` additionally gets a
   post-merge `push` run (§3.2) and is the only branch that deploys. `main` is branch-protected on
   three required contexts and required linear history, with `strict: false` (§8). So merge commits
-  are rejected there and PRs land by squash, but a PR need not be up to date with `main`. (`deploy.yml`'s `push.branches` still lists `stage-2` and `admin-panel`. Both entries are
-  inert now the branches are retired and can be dropped on the next touch of the file.) **Opening a new long-lived
+  are rejected there and PRs land by squash, but a PR need not be up to date with `main`. (`deploy.yml`'s `push.branches` is `[main]`. AECI-1073 dropped the retired `stage-2` and
+  `admin-panel` entries.) **Opening a new long-lived
   integration branch is a two-line change:** add it to `deploy.yml`'s `push.branches`, and remove
   it when the branch merges up. Nothing needs touching for a short-lived feature or epic branch.
   *(Historical note: until 2026-08-14 `deploy.yml` and `integration-db-tests.yml` pinned

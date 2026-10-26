@@ -4,7 +4,7 @@ How we write Angular and TypeScript in this codebase. Source of truth for "how i
 
 **Audience:** humans and AI agents (Claude Code, Conductor) authoring or reviewing code in `apps/web/` and any future Angular app in this monorepo.
 
-**Lint enforcement:** rules tagged `Lint: ✅` are enforced by `pnpm lint` and gated in CI (`.github/workflows/deploy.yml` — the `lint-and-types` job fails the build, and it is a required check on `main` and `stage-2`). Enforcement means ESLint *or* the `check-source-constraints.mjs` line scanner that runs in the same `lint` script — see §24 for which does what and why some constraints can only be caught by the latter. Rules tagged `Lint: 🟡 review-only` are the reviewer's job — see `docs/CODE_REVIEW_CHECKLIST.md`. The full mapping is in §24.
+**Lint enforcement:** rules tagged `Lint: ✅` are enforced by `pnpm lint` and gated in CI (`.github/workflows/deploy.yml` — the `lint-and-types` job fails the build, and it is a required check on `main`). Enforcement means ESLint *or* the `check-source-constraints.mjs` line scanner that runs in the same `lint` script — see §24 for which does what and why some constraints can only be caught by the latter. Rules tagged `Lint: 🟡 review-only` are the reviewer's job — see `docs/CODE_REVIEW_CHECKLIST.md`. The full mapping is in §24.
 
 ---
 
