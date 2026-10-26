@@ -466,9 +466,9 @@ const DEFAULT_RANKING_TAIL = [
 /**
  * One non-relevance sort exposed on a `/search` tab, realized as a **standard
  * Algolia replica** of the entity's primary index. The replica returns the same
- * records as its primary, re-ordered by `ranking` (sort attribute first). The
- * default `relevance` sort is **not** listed here — it is the primary index
- * itself.
+ * records as its primary, re-ordered by `ranking` (sort attribute first). Every
+ * `/search` sort is a replica: the primary's relevance order is not an option
+ * (ruled 2026-10-26, AECI-1486), and each tab opens on its first entry here.
  */
 export type ReplicaSort = {
   /** Stable token used in the `?sort=` URL param and the i18n label key. */

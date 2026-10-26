@@ -77,7 +77,7 @@ export class HomeTrustPillars {
     {
       id: 'rankings',
       title: $localize`:@@home.trust.rankings.title:Never sell rankings`,
-      body: $localize`:@@home.trust.rankings.body:Search results and listings are ordered by relevance and reviews. Payment never influences position. Ever.`,
+      body: $localize`:@@home.trust.rankings.body:Search results and listings are earned, not bought. Payment never influences position. Ever.`,
     },
     {
       id: 'transparent',

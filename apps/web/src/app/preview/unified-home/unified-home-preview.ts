@@ -621,13 +621,13 @@ export class UnifiedHomePreview {
       {
         n: '3',
         title: 'Nothing is for sale',
-        body: 'Position is earned by relevance and reviews. Payment never moves it.',
+        body: 'Position is earned. Payment never moves it.',
       },
     ] satisfies Numbered[],
   };
 
   protected readonly mergedHowLine =
-    'How it works: integrations are documented, practitioners review the product and the onboarding separately, and position is earned by relevance and reviews, never bought.';
+    'How it works: integrations are documented, practitioners review the product and the onboarding separately, and position is earned, never bought.';
 
   protected readonly cta = {
     eyebrow: 'Stay in the loop',

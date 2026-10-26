@@ -4,7 +4,8 @@
  * sole consumer of the full suite — but the structure is kept generic.
  *
  * AECI-190 redesigned the products index: it defaults to a card grid (not a
- * table), sort moved from clickable column headers to a toolbar `<select>`, and
+ * table), sort moved from clickable column headers to a toolbar control (a native
+ * `<select>` until 2026-10-26, now the shared `aec-listing-sort-select`), and
  * the error / empty / loading states are paragraphs, not table rows. The cases
  * below assert against that structure (DOM-agnostic text checks + the sort
  * dropdown) rather than `tbody`/`th[aria-sort]`.
@@ -27,9 +28,12 @@
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import type { Type } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
+
+import { ListingSortSelect } from '../../shared/listing-toolbar/listing-sort-select';
 
 export interface IndexPageScenario {
   /** Describe-block name, e.g. `ProductsIndex`. */
@@ -172,6 +176,16 @@ function registerCommonCases(s: IndexPageScenario): void {
   });
 }
 
+/**
+ * The toolbar's sort control. Its listbox only exists while the popup is open,
+ * so the cases read the active sort from its `value` input and choose one by
+ * emitting `sortChange`, the same output a pick in the listbox fires.
+ */
+export function sortControl(fixture: ComponentFixture<unknown>): ListingSortSelect {
+  return fixture.debugElement.query(By.directive(ListingSortSelect))
+    .componentInstance as ListingSortSelect;
+}
+
 /** The three sort/nav cases shared by the `created`-default lists. */
 function registerSortNavCases(s: IndexPageScenario): void {
   it('reads ?sort=name from the URL and reflects it in the sort dropdown', async () => {
@@ -185,11 +199,8 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    // AECI-190: sort state is reflected by the toolbar <select>, not a th[aria-sort].
-    const select = (fixture.nativeElement as HTMLElement).querySelector(
-      'select',
-    ) as HTMLSelectElement;
-    expect(select.value).toBe('name');
+    // AECI-190: sort state is reflected by the toolbar control, not a th[aria-sort].
+    expect(sortControl(fixture).value()).toBe('name');
     drainFacets(httpMock, s);
     httpMock.verify();
   });
@@ -204,11 +215,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    const select = (fixture.nativeElement as HTMLElement).querySelector(
-      'select',
-    ) as HTMLSelectElement;
-    select.value = 'name';
-    select.dispatchEvent(new Event('change'));
+    sortControl(fixture).sortChange.emit('name');
     await settle();
 
     // Append mode: a sort change resets the buffer internally and keeps the page
@@ -238,11 +245,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     // Change the sort. In append mode this RESETS the buffer (a fresh page-1
     // fetch), unlike a "load more" (which retains items on failure). The reset
     // refetch then fails, so stale rows clear and the error surfaces.
-    const select = (fixture.nativeElement as HTMLElement).querySelector(
-      'select',
-    ) as HTMLSelectElement;
-    select.value = 'name';
-    select.dispatchEvent(new Event('change'));
+    sortControl(fixture).sortChange.emit('name');
     await settle();
     fixture.detectChanges();
 

@@ -1,4 +1,4 @@
-import type { ListingSortOption } from './listing-toolbar';
+import type { ListingSortOption } from './listing-sort-select';
 
 /**
  * The localized half of the product sort vocabulary. The KEYS live in

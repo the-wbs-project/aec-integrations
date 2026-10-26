@@ -6,6 +6,7 @@ import {
   createIndexSetup,
   registerIndexPageSuite,
   settle,
+  sortControl,
 } from '../core/testing/index-page.harness';
 
 import { ProductsIndex } from './products-index';
@@ -68,11 +69,9 @@ describe('ProductsIndex review-driven sort options', () => {
     await settle();
     fixture.detectChanges();
 
-    const select = (fixture.nativeElement as HTMLElement).querySelector('select');
-    const options = Array.from(select?.querySelectorAll('option') ?? []).map((o) => ({
-      value: o.value,
-      label: o.textContent?.trim(),
-    }));
+    const options = sortControl(fixture)
+      .options()
+      .map((o) => ({ value: o.value, label: o.label }));
     expect(options).toEqual(
       expect.arrayContaining([
         { value: 'rating', label: 'Highest rated' },

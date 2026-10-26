@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ProductsListResponse } from '@aeci/shared';
 
-import { settle } from '../core/testing/index-page.harness';
+import { settle, sortControl } from '../core/testing/index-page.harness';
 
 import { TaxonomyBrowsePage } from './taxonomy-browse';
 
@@ -68,7 +68,9 @@ const el = (fixture: ComponentFixture<OutletHost>) => fixture.nativeElement as H
 /** The toolbar's own view buttons. Scoped, because the facet sidebar renders
  *  buttons of its own ("Filters" disclosure, "Clear filters") into the page. */
 const viewButtons = (fixture: ComponentFixture<OutletHost>) =>
-  [...el(fixture).querySelectorAll('aec-listing-toolbar button')] as HTMLButtonElement[];
+  [
+    ...el(fixture).querySelectorAll('aec-listing-toolbar button[aria-pressed]'),
+  ] as HTMLButtonElement[];
 
 /** Drain the facet sidebar's scoped-count request so `verify()` stays clean. */
 function drainFacets(httpMock: HttpTestingController): void {
@@ -121,9 +123,10 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
 
   it('renders the sort control the page previously lacked entirely', async () => {
     const fixture = await render('/categories/project-management');
-    const select = el(fixture).querySelector('select');
-    expect(select).not.toBeNull();
-    expect(select!.value).toBe('created');
+    expect(
+      el(fixture).querySelector('aec-listing-sort-select button[role="combobox"]'),
+    ).not.toBeNull();
+    expect(sortControl(fixture).value()).toBe('created');
     drainFacets(httpMock);
   });
 
@@ -159,7 +162,7 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
     await settle();
 
     fixture.detectChanges();
-    expect(el(fixture).querySelector('select')!.value).toBe('reviews');
+    expect(sortControl(fixture).value()).toBe('reviews');
     drainFacets(httpMock);
   });
 
@@ -180,7 +183,7 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
     await settle();
 
     fixture.detectChanges();
-    expect(el(fixture).querySelector('select')!.value).toBe('created');
+    expect(sortControl(fixture).value()).toBe('created');
     expect(el(fixture).querySelector('aec-product-card-grid')).not.toBeNull();
     drainFacets(httpMock);
   });

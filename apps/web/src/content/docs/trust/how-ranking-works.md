@@ -10,7 +10,11 @@ The order of every list on AEC Integrations comes from fixed rules, applied the 
 
 ## Search
 
-[Search](/search) has a Products tab and a Vendors tab. Results start in the order called **Relevance**. Relevance works in two steps.
+[Search](/search) has a Products tab and a Vendors tab. The words you type decide which listings appear. The sort you choose decides their order.
+
+The Products tab offers the same sorts as the products list below, and starts in the same order, **Newest**. The Vendors tab sorts by **Name (A–Z)**, which ignores capital letters. In search, **Highest rated** puts products with too few reviews to show a rating last, as the list does.
+
+When two listings are level on the sort you chose, two more steps decide between them.
 
 **First, how well a listing matches what you typed.** This counts most. A listing ranks higher when it matches more of your words, with fewer typos, and with the words closer together. Where the match is found matters too.
 
@@ -26,7 +30,7 @@ Complete listings come first. Listings with a description that are missing some 
 
 For products only, one more thing breaks a tie after completeness: the number of published reviews. More reviews come first. After that, listings that are still level have no set order.
 
-You can also sort either tab by **Name (A–Z)**. That order ignores capital letters. The Products tab also offers the other sorts of the products list below: **Newest**, **Recently updated**, **Highest rated** and **Most reviewed**. In search, **Highest rated** puts products with too few reviews to show a rating last, as the list does.
+The same two steps order the suggestions that appear under the search box as you type.
 
 A change to a listing can take up to a day to show in search.
 

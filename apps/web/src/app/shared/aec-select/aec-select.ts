@@ -40,7 +40,7 @@ let nextAecSelectId = 0;
  * The app's discrete-choice "select" control.
  *
  * A non-editable Angular Aria combobox + listbox-in-overlay — the project's
- * standard for this pattern (ADR 0010), following `search/widgets/search-sort-by.ts`
+ * standard for this pattern (ADR 0010), following `shared/listing-toolbar/listing-sort-select.ts`
  * exactly: Aria supplies keyboard and ARIA semantics, and a `cdkConnectedOverlay`
  * (`usePopover:'inline'` → browser top layer) supplies positioning and
  * overflow-escape, because `ComboboxPopup` renders its listbox in-flow.
@@ -108,7 +108,7 @@ let nextAecSelectId = 0;
         <!--
           ComboboxPopup renders the listbox in-flow (DeferredContent.createEmbeddedView),
           so an outer cdkConnectedOverlay (usePopover:'inline' → top layer) supplies the
-          floating layer + flip/overflow-escape, per ADR 0010. See search-sort-by.ts.
+          floating layer + flip/overflow-escape, per ADR 0010. See listing-sort-select.ts.
         -->
         <ng-template
           [cdkConnectedOverlay]="{

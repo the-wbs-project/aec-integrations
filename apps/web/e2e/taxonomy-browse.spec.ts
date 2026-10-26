@@ -85,7 +85,7 @@ for (const { kind, segment, listKey } of KINDS) {
       expect(html, 'breadcrumb must mention Home').toMatch(/Home/);
       // AECI-657 — the toolbar SSRs regardless of data, and the default view is
       // the card grid (matching /products), not the table.
-      expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-listing-sort-/);
+      expect(html, 'sort dropdown must render').toMatch(/<button[^>]+id="aec-listing-sort-0"/);
       expect(html, 'view toggle must render (aria-pressed)').toMatch(/aria-pressed/);
       expect(html, 'card grid is the default view').toMatch(/<aec-product-card-grid/);
     });

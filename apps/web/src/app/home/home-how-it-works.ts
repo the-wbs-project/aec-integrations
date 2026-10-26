@@ -81,7 +81,7 @@ export class HomeHowItWorks {
     {
       n: '3',
       title: $localize`:@@home.how.step3.title:Nothing is for sale`,
-      body: $localize`:@@home.how.step3.body:Position is earned by relevance and reviews. Payment never moves it.`,
+      body: $localize`:@@home.how.step3.body:Position is earned. Payment never moves it.`,
     },
   ];
 }

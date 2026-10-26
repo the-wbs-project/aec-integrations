@@ -1,7 +1,9 @@
 import { Component, signal } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { ListingSortSelect } from './listing-sort-select';
 import { ListingToolbar, type ListingView } from './listing-toolbar';
 import { PRODUCT_SORT_KEYS, productSortOptions } from './product-sort-options';
 
@@ -36,42 +38,65 @@ describe('ListingToolbar (AECI-657)', () => {
     fixture.detectChanges();
   });
 
-  it('renders one option per shared sort key, in order', () => {
-    const options = [...el(fixture).querySelectorAll('option')].map((o) => o.value);
-    expect(options).toEqual([...PRODUCT_SORT_KEYS]);
+  // The listbox only exists while the popup is open (see
+  // listing-sort-select.component.spec.ts), so the option set is asserted on the
+  // input the toolbar hands the shared sort control.
+  const sortSelect = () =>
+    fixture.debugElement.query(By.directive(ListingSortSelect))
+      .componentInstance as ListingSortSelect;
+  const trigger = () => el(fixture).querySelector('button[role="combobox"]') as HTMLButtonElement;
+
+  it('renders the shared sort control, not a native select (2026-10-26)', () => {
+    expect(el(fixture).querySelector('aec-listing-sort-select')).not.toBeNull();
+    expect(el(fixture).querySelector('select')).toBeNull();
+  });
+
+  it('hands the sort control one option per shared sort key, in order', () => {
+    expect(
+      sortSelect()
+        .options()
+        .map((o) => o.value),
+    ).toEqual([...PRODUCT_SORT_KEYS]);
   });
 
   // §4.5 named alphabetical, most integrations and most reviewed. AECI-636 PR-B
   // retired "Most integrations", so exactly the other two remain from that list.
   it('offers alphabetical and most reviewed, and no longer "Most integrations"', () => {
-    const labels = [...el(fixture).querySelectorAll('option')].map((o) => o.textContent?.trim());
+    const labels = sortSelect()
+      .options()
+      .map((o) => o.label);
     expect(labels).toEqual(expect.arrayContaining(['Name (A–Z)', 'Most reviewed']));
     expect(labels).not.toContain('Most integrations');
-    const values = [...el(fixture).querySelectorAll('option')].map((o) => o.value);
-    expect(values).not.toContain('integrations');
+    expect(
+      sortSelect()
+        .options()
+        .map((o) => o.value),
+    ).not.toContain('integrations');
   });
 
-  it('marks the active sort selected rather than holding its own state', () => {
+  it('shows the active sort in the trigger rather than holding its own state', () => {
+    expect(trigger().textContent).toContain('Newest');
     fixture.componentInstance.sort.set('reviews');
     fixture.detectChanges();
-    expect(el(fixture).querySelector('select')!.value).toBe('reviews');
+    expect(trigger().textContent).toContain('Most reviewed');
   });
 
   it('emits the chosen sort key and does NOT move on its own', () => {
-    const select = el(fixture).querySelector('select')!;
-    select.value = 'rating';
-    select.dispatchEvent(new Event('change'));
+    sortSelect().sortChange.emit('rating');
     fixture.detectChanges();
 
     expect(fixture.componentInstance.lastSort).toBe('rating');
     // Presentation-only: the host owns the truth, so the input is unchanged and
-    // the rendered value follows the input, not the click.
+    // the rendered value follows the input, not the choice.
     expect(fixture.componentInstance.sort()).toBe('created');
+    expect(trigger().textContent).toContain('Newest');
   });
 
   it('exposes the active view through aria-pressed on both buttons', () => {
     const pressed = () =>
-      [...el(fixture).querySelectorAll('button')].map((b) => b.getAttribute('aria-pressed'));
+      [...el(fixture).querySelectorAll('button[aria-pressed]')].map((b) =>
+        b.getAttribute('aria-pressed'),
+      );
     expect(pressed()).toEqual(['true', 'false']);
 
     fixture.componentInstance.view.set('table');
@@ -80,14 +105,12 @@ describe('ListingToolbar (AECI-657)', () => {
   });
 
   it('emits the requested view on toggle click', () => {
-    el(fixture).querySelectorAll('button')[1]!.click();
+    el(fixture).querySelectorAll<HTMLButtonElement>('button[aria-pressed]')[1]!.click();
     expect(fixture.componentInstance.lastView).toBe('table');
   });
 
-  it('associates the label with the select, so the control has an accessible name', () => {
-    const label = el(fixture).querySelector('label')!;
-    const select = el(fixture).querySelector('select')!;
-    expect(label.getAttribute('for')).toBe(select.id);
-    expect(select.id).toBeTruthy();
+  it('names the sort trigger by its "Sort" label, so the control has an accessible name', () => {
+    const labelId = trigger().getAttribute('aria-labelledby')!.split(' ')[0]!;
+    expect(el(fixture).querySelector(`#${labelId}`)?.textContent?.trim()).toBe('Sort');
   });
 });

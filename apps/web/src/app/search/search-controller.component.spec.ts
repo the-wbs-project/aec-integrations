@@ -213,7 +213,8 @@ describe('SearchController wiring', () => {
   it('nests products and vendors as SIBLINGS so neither inherits the other filters', () => {
     const { calls } = build();
     // Two queries total (integrations excluded).
-    expect(calls.index.map((i) => i.indexName)).toEqual(['p_idx', 'v_idx']);
+    // Each starts on its default sort replica (Newest, Name A–Z).
+    expect(calls.index.map((i) => i.indexName)).toEqual(['p_idx_created_desc', 'v_idx_name_asc']);
     // A nested index inherits its parent's refinements. Both index widgets hang
     // off the root, and no facet widget sits on the root itself, so a products
     // category filter can never reach the vendors query.
@@ -291,50 +292,46 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
     expect(calls.sortBy).toHaveLength(2);
   });
 
-  it('builds the per-tab sort options: relevance (primary) + each replica', () => {
+  // Relevance (the primary) was dropped on 2026-10-26: the options are the
+  // replicas alone, so /search offers exactly the /products sorts.
+  it('builds the per-tab sort options from the replicas alone, no primary', () => {
     const { controller } = build();
     // Products: the five /products sorts, same tokens and order.
     expect(controller.products.sortOptions).toEqual([
-      { value: 'p_idx', key: 'relevance' },
       { value: 'p_idx_created_desc', key: 'created' },
       { value: 'p_idx_name_asc', key: 'name' },
       { value: 'p_idx_updated_desc', key: 'updated' },
       { value: 'p_idx_rating_desc', key: 'rating' },
       { value: 'p_idx_reviews_desc', key: 'reviews' },
     ]);
-    expect(controller.vendors.sortOptions).toEqual([
-      { value: 'v_idx', key: 'relevance' },
-      { value: 'v_idx_name_asc', key: 'name' },
-    ]);
+    expect(controller.vendors.sortOptions).toEqual([{ value: 'v_idx_name_asc', key: 'name' }]);
   });
 
   it('passes the replica index names as connectSortBy items', () => {
     const { calls } = build();
-    expect(calls.sortBy[1].params['items']).toEqual([
-      { label: 'relevance', value: 'v_idx' },
-      { label: 'name', value: 'v_idx_name_asc' },
-    ]);
+    expect(calls.sortBy[1].params['items']).toEqual([{ label: 'name', value: 'v_idx_name_asc' }]);
     expect(calls.sortBy[0].params['items']).toContainEqual({
       label: 'rating',
       value: 'p_idx_rating_desc',
     });
   });
 
-  it('defaults sortBy to the primary index and maps currentRefinement on render', () => {
+  it('defaults sortBy to the first replica and maps currentRefinement on render', () => {
     const { calls, controller } = build();
-    expect(controller.products.sortBy()).toBe('p_idx');
+    expect(controller.products.sortBy()).toBe('p_idx_created_desc');
+    expect(controller.vendors.sortBy()).toBe('v_idx_name_asc');
     const refine = vi.fn();
     calls.sortBy[0].renderFn({ currentRefinement: 'p_idx_name_asc', options: [], refine }, true);
     expect(controller.products.sortBy()).toBe('p_idx_name_asc');
-    controller.products.refineSort('p_idx');
-    expect(refine).toHaveBeenCalledWith('p_idx');
+    controller.products.refineSort('p_idx_created_desc');
+    expect(refine).toHaveBeenCalledWith('p_idx_created_desc');
   });
 
   it('seeds the index widgets + sortBy signal from initialSort (inbound ?sort=)', () => {
     const { calls, controller } = build('', { vendors: 'v_idx_name_asc' });
-    // The products index starts on its primary…
-    expect(calls.index[0].indexName).toBe('p_idx');
-    expect(controller.products.sortBy()).toBe('p_idx');
+    // The products index starts on its default replica, never the primary…
+    expect(calls.index[0].indexName).toBe('p_idx_created_desc');
+    expect(controller.products.sortBy()).toBe('p_idx_created_desc');
     // …while the vendors index starts on the seeded replica.
     expect(calls.index[1].indexName).toBe('v_idx_name_asc');
     expect(controller.vendors.sortBy()).toBe('v_idx_name_asc');
