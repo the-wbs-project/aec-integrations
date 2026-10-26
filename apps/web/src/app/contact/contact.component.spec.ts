@@ -75,8 +75,9 @@ describe('ContactPage', () => {
   });
 
   // ?topic=add-product (VENDOR_PROGRAM_PAGE_SPEC.md section 6, kept for outside links):
-  // the support mailto with the subject and the prompt filled in. No form.
-  it('offers a prefilled email on ?topic=add-product', () => {
+  // a link to the listing request page (AECI-1474), then the support mailto with the
+  // subject and the prompt filled in. No form.
+  it('offers the request page, then a prefilled email, on ?topic=add-product', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
@@ -93,7 +94,12 @@ describe('ContactPage', () => {
     const panel = host.querySelector('[data-testid="contact-add-product"]')!;
     expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Ask us to add your product');
     expect(panel.querySelector('form')).toBeNull();
-    const href = panel.querySelector('a')?.getAttribute('href') ?? '';
+    // AECI-1474: the request form leads, the email follows.
+    const [first, second] = [...panel.querySelectorAll('a')];
+    expect(first?.textContent?.trim()).toBe('Request a listing');
+    expect(first?.getAttribute('href')).toBe('/vendor-program/list-your-product');
+    expect(second?.textContent?.trim()).toBe('Email us about your product');
+    const href = second?.getAttribute('href') ?? '';
     const url = new URL(href);
     expect(url.protocol).toBe('mailto:');
     expect(url.pathname).toBe('support@aecintegrations.com');

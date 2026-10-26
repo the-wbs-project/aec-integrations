@@ -83,6 +83,35 @@ The header row gets no link (§1.2).
 
 **`?vendor=<slug>` (2026-10-24).** When the page loads with a `vendor` parameter, it reads `GET /api/vendors/:slug` in the browser after hydration and seeds the claim dialog with that company (`ClaimDialogService.setSeed`). Every "Claim your listing" then opens the dialog on the You step with "Claiming <Company>" and the "Claim <Company>" title (§15.2). "Change" still goes back to Find it. An unknown slug or a failed read seeds nothing, so the dialog starts on Find it as before. The cache key drops the query string (§2.2), so the SSR HTML is the same with or without the parameter. The seed clears when the page is left.
 
+**Links to the listing request page (AECI-1474, §2.5).**
+
+| From | Link | Note |
+|---|---|---|
+| `/vendor-program`, under the FAQ, beside "Questions? Contact us" | "Not listed yet?" then "Ask us to list your product" | A plain `routerLink`, same tab. Not tracked, like the contact link. |
+| `/contact?topic=add-product`, the "Ask us to add your product" panel | "Request a listing", the primary button | The support `mailto:` becomes the second, bordered button. The topic keeps working. |
+| The help pages `/docs/trust/listing-submissions` and `/docs/vendors/claiming-your-listing` | "listing request form" | They named only the dialog's "Not listed? Type it in" before. |
+
+### 2.5 The listing request page (AECI-1474)
+
+**Ruling 2026-10-24 (Chris).** Outreach needs one link that lands on a form to ask us to list a product. It is a simple page that shows the existing form inline. It is not the vendor program page with the dialog open.
+
+- **Route.** `/vendor-program/list-your-product`, a `loadComponent` with no resolver, listed before `vendor-program` in `app.routes.ts`. Component: `apps/web/src/app/vendor-program/list-your-product.ts`.
+- **The form.** The page embeds `ClaimDialogFlow`, the dialog's step component, with `embedded` set and the opening `{ page: 'list_your_product', entry: 'list_page', start: 'typed' }`. No BrnDialog and no `aec-claim-dialog-host`. It opens on the typed-in You step, with focus in "Product or company name". Opened on the typed-in step, the indicator counts two steps: You reads "Step 1 of 2" and Comments "Step 2 of 2" (ruling 2026-10-24). The submit, the receipt and the events are the typed-in path of §15.4 and §15.7. Embedded, the receipt has no "Done", because there is no dialog to close.
+- **Back.** Back from the first step goes to the Find step, inline. Find is a detour here, so it shows no step indicator. A vendor whose product is listed after all can search, choose it and send a claim (`POST /api/requests/claim`) from the page. You and Comments still read "Step 1 of 2" and "Step 2 of 2" on that path. This is a ruled exception to §15.2's "after the first one the visitor saw".
+- **Copy** (§8). The `h1` "Ask us to list your product", then the lede "Listing is free. Tell us the product and its website, and we take it from there." The lede does not repeat the list below it.
+- **What happens next** (ruling 2026-10-24). Under the lede, an `h2` "What happens next" and a four-item ordered list. Each item has a bold title and one line of body:
+  1. "Confirm your email." / "We email you a link. Your request is sent when you click it."
+  2. "We review it." / "A person on our team checks the product's public pages."
+  3. "We add the listing." / "We write it from those pages and add it to the directory."
+  4. "You claim it." / "We email you so you can claim the listing and keep it current."
+
+  It is styled as §3's "How claiming works" list: an accent number badge, `aria-hidden`, beside each item, and the `<ol>` carries the order. The ids are `@@listYourProduct.next.*`.
+- **Headings.** The `h1`, then the "What happens next" `h2`, then the form panel's `h2` "Request a listing", so the flow's `h3` step headings keep a correct outline.
+- **Layout** (§11). The standard canvas. From `lg` a 12-column grid: the explainer and the "What happens next" list in columns 1 to 5, sticky, and the form panel in 6 to 12. The list fills the left column beside the tall form, so it is not blank. Below `lg` they stack: explainer, list, then the form.
+- **Caching.** An exact row in `ROUTE_CACHE_PATTERNS` with the `/vendor-program` TTLs, and `{ route: 'index' }` in `cacheTagInputsForPath`. Both matchers are exact, so without the rows the page would fall to `private, no-store`. The HTML is visitor-neutral. The form renders empty in SSR, because the signed-in email prefill reads `SessionStatus.email()`, which is null on the server.
+- **SEO.** `setStaticPageMeta`, indexable, with `canonicalUrl('/vendor-program/list-your-product')`, its own title ("Ask us to list your product · AEC Integrations") and description, and the §2.3 share card. In `sitemap.xml` right after `/vendor-program`, with the same `changefreq` and `priority`.
+- **Tests.** `list-your-product.component.spec.ts`, the embedded cases in `claim-dialog-flow.component.spec.ts`, the cache, tag, sitemap and robots tables, and `e2e/list-your-product.spec.ts`.
+
 ---
 
 ## 3. Page sections, in order
@@ -300,6 +329,7 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | **AECI-1289** `/docs/vendors/plans` deltas | §10 |
 | **AECI-1290** Publication-day fact check | §12 |
 | **AECI-1293** Single claim dialog: find or type in, plan, comments | §15 |
+| **AECI-1474** Listing request page, the form inline | §2.5, §15.4 |
 
 ---
 
@@ -318,6 +348,7 @@ The epic and its children live in the Linear project **Stage 2.5 Hardening**. AE
 | Beside the closing panel's claim button (both pages), and under the FAQ on `/vendor-program` (E8.1, ruled 2026-10-19) | "Questions?" then a link "Contact us" (`aec-plan-contact-link`) | `/contact`, a plain `routerLink` with no topic and no form. Not on the hero. Not tracked. A Managed company (§5) does not see the panel's copy. |
 | ~~Find your product, a chosen result (`search_result`)~~ | ~~"Claim this listing"~~ | Removed 2026-10-12 with the section (§6). The dialog no longer opens at step 2. |
 | ~~Find your product, "Ask us to add it"~~ | | Removed 2026-10-12 with the section. `/contact?topic=add-product` keeps working for links from outside the app. |
+| `/vendor-program/list-your-product` (`list_page`, AECI-1474) | The page itself | The flow inline, not a dialog, on the typed-in You step (§2.5). |
 
 "Talk to us about Managed" no longer appears on either page, as a button or a link. "Claim your listing free" is retired. Never "Get Managed", "Buy" or "Start now".
 
@@ -353,6 +384,8 @@ One BrnDialog: `BrnDialogContent` with a `BrnDialogTitle` and a `BrnDialogDescri
 
 **As built, AECI-1364 (2026-10-15): a claim is on the company** (`docs/VENDOR_SIGNUP_PROCESS.md` decision 1). Choosing a product suggestion pre-fills the company from the search record's `vendor_name`. The record carries no vendor slug, so the dialog shows the name only and posts the product slug as before. The server resolves the company (§15.3). `ClaimDialogService.company` holds the name for the title. The flow sets it on every step change and clears it on the Find step. A product with no vendor row answers `404`, so the visitor gets the "Type it in instead" path above.
 
+**As built, AECI-1474 (2026-10-24): the flow can start on typed-in You and render embedded** (§2.5). `ClaimDialogOpening.start: 'typed'` opens on the typed-in You step and focuses its first field. One `claim_dialog_step` fires (`you`, `typed`), and no `find`. The `embedded` input drops the dialog's inner scroll and the receipt's "Done". Back from there goes to Find, a ruled exception to "after the first one the visitor saw". Numbering (ruling 2026-10-24): with `start: 'typed'` the indicator counts two steps, You "Step 1 of 2" and Comments "Step 2 of 2", and the bar fills to match. Find after Back is a detour and shows no indicator. Choosing a found listing there keeps the two-step count. The count derives from `opening().start`, not from `embedded`. The dialog with no `start` is unchanged: three steps, Find is step 1.
+
 **As built, AECI-1435 (2026-10-21): the receipt says "Check your inbox" when the claim waits on its link** (ADR 0043). When the API answers `confirmation_required: true`, the Done step reads "Check your inbox", then "We've sent a link to {address}. Your claim is not sent until you click it." (typed-in: "Your request is not sent until you click it."), then "The link works for 7 days. If it does not arrive, check your spam folder, or start again with the same email." An envelope icon replaces the tick, and there is no "What happens next" list. Focus moves to the heading as on every step. A signed-in visitor whose verified email is the typed address gets the "Claim sent" receipt above, unchanged.
 
 ### 15.3 A found listing: `POST /api/requests/claim`
@@ -387,6 +420,8 @@ The existing endpoint and `ClaimRequestSchema`. ~~Plus one field, `plan_interest
 ### 15.4 A typed-in listing: `POST /api/requests/listing`
 
 A new request kind, `listing_request`, in its **own table**, `listing_requests`.
+
+**Since AECI-1474 (2026-10-24)** the same form also sits inline on `/vendor-program/list-your-product` (§2.5). It is the same call, the same row and the same receipt. Only `page` and `entry` on the events differ (§15.7).
 
 **Why not a row in `vendor_requests`.** A typed-in listing has no target. `vendor_requests` has `target_type` and `target_id` `NOT NULL`, and CHECKs on `kind` (`claim`, `correction`) and `target_type` (`product`, `vendor`). Admitting the new kind means changing two CHECKs and a `NOT NULL`. On D1 each of those is a drizzle-kit table recreate, and `vendor_requests` has FK children, so the recreate's `DROP` fires the cascade path `docs/migrations.md` §0 forbids without its controls. The workflow side is the same: `workflow_instances.workflow_type` has a CHECK, and `workflow_transitions` is its FK child. A separate table is a plain `CREATE TABLE`, with nothing to cascade.
 
@@ -443,6 +478,8 @@ It returns `RequestSubmitResponse` with `201` and the message "Your request has 
 | ~~`plan_inquiry_submitted`~~ | ~~unchanged. It now counts inquiries from the "Questions about Managed or pricing? Talk to us" link and `/contact`.~~ **Removed 2026-10-19 (E8.1, AECI-1398):** the event no longer fires. | |
 
 **As built, AECI-1365 (2026-10-15).** `claim_dialog_step.step` is `find`, `you`, `comments` or `done`, never `plan`. `claim_requested` and `listing_requested` no longer carry `plan_interest`. `listing_requested` carries `page` only. `docs/ANALYTICS.md` §4 is the event truth.
+
+**As built, AECI-1474 (2026-10-24).** `claim_dialog_step.page` and `listing_requested.page` gain `list_your_product`, and `claim_dialog_step.entry` gains `list_page`, both from the listing request page (§2.5). On that page the first event is `step: you`, `path: typed`, with no `find` before it. They are new `ClaimDialogPage` and `ClaimDialogEntry` types. `PlanCtaPage` and `plan_cta_clicked` are unchanged.
 
 **As built, 2026-10-24 (§2.4).** A dialog opened on `/vendor-program?vendor=` with a seeded company shows `you` first, with `path: 'found'`, and fires no `find`. Count dialog opens with `plan_cta_clicked`, not with `find`.
 

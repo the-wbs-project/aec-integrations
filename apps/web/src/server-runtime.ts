@@ -40,7 +40,8 @@
  *     /phases/*, /trades/*                  → 5min  edge / 0     browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
- *   /about, /vendor-program, /legal/*       → 24hr edge / 1hr  browser
+ *   /about, /vendor-program, /legal/*,
+ *     /vendor-program/list-your-product     → 24hr edge / 1hr  browser
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
  *   /api/*       — forwarded raw to `env.API.fetch` (AECI-30 service binding);
@@ -457,6 +458,14 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // cache key. `?vendor=` (§2.4) is read in the browser after hydration only, so
   // it does not change the HTML either. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/vendor-program', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-1474 — /vendor-program/list-your-product, the listing request form on a
+  // page of its own (§2.5). The same rules as /vendor-program: the form renders
+  // empty on the server (cookies are stripped, so no email prefill), the /about
+  // TTL, no `...RESILIENCE`, no `cacheKeyParams`. Indexable and in `sitemap.xml`.
+  {
+    match: (p) => p === '/vendor-program/list-your-product',
+    ttl: { edge: 86_400, browser: 3_600 },
+  },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },

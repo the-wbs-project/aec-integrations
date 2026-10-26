@@ -54,6 +54,8 @@ import {
 /** The three numbered steps, in order. `done` is the receipt, outside the count. The
  *  plan step was removed by AECI-1365. */
 const STEPS: readonly ClaimDialogStep[] = ['find', 'you', 'comments'];
+/** The counted steps when the flow opens on the typed-in step: Find is a detour. */
+const TYPED_START_STEPS: readonly ClaimDialogStep[] = ['you', 'comments'];
 
 /** A step's field: its model key, the control to focus on error, and the field tree. */
 type StepField = [keyof ClaimDialogModel, string, FieldTree<string> | FieldTree<boolean>];
@@ -85,8 +87,17 @@ interface ClaimDialogModel {
  * every other rule match the API exactly.
  *
  * **Steps.** "Continue" checks only the fields on screen. Back returns one step, and
- * never appears on the first step the visitor saw or on the receipt. Focus moves to
- * the step heading on every change, so a screen reader hears where it is.
+ * never appears on Find or on the receipt. Focus moves to the step heading on every
+ * change, so a screen reader hears where it is.
+ *
+ * **Embedded, from the typed-in step** (AECI-1474, `VENDOR_PROGRAM_PAGE_SPEC.md`
+ * §2.5). The listing request page renders this flow inline with `embedded` set and
+ * opens it with `start: 'typed'`. It starts on the typed-in You step, focuses the
+ * first field, and fires one `claim_dialog_step` (`you`, `typed`), never `find`.
+ * The indicator counts two steps, You "Step 1 of 2" and Comments "Step 2 of 2", on
+ * either path. Back still goes to Find, which shows no indicator: there it is a
+ * detour. Embedded drops the dialog's scroll classes, so the form flows in the page,
+ * and the receipt has no "Done": there is no dialog to close.
  *
  * **Analytics** (§15.7). `claim_dialog_step` once per step shown, with the page, the
  * control that opened it and the path. `claim_requested` or `listing_requested` on a
@@ -109,25 +120,25 @@ interface ClaimDialogModel {
 @Component({
   selector: 'aec-claim-dialog-flow',
   imports: [ClaimantFields, ClaimRoutedNotice, FormField, SearchAutocomplete, VendorTermsBox],
-  host: { class: 'flex min-h-0 flex-1 flex-col' },
+  host: { '[class]': 'hostClass()' },
   template: `
-    @if (step() !== 'done') {
+    @if (showProgress()) {
       <div class="border-b border-(--border-default) px-6 pb-4" data-testid="claim-dialog-progress">
         <p class="text-xs font-semibold text-(--text-secondary)">
-          <span i18n="@@claimDialog.progress">Step {{ stepNumber() }} of {{ stepCount }}</span>
+          <span i18n="@@claimDialog.progress">Step {{ stepNumber() }} of {{ stepCount() }}</span>
           <span aria-hidden="true"> · </span>
           <span>{{ stepName() }}</span>
         </p>
         <div class="mt-2 h-1 overflow-hidden rounded-full bg-(--surface-sunken)" aria-hidden="true">
           <div
             class="h-full rounded-full bg-(--accent-primary) transition-[width] duration-200 motion-reduce:transition-none"
-            [style.width.%]="(stepNumber() / stepCount) * 100"
+            [style.width.%]="(stepNumber() / stepCount()) * 100"
           ></div>
         </div>
       </div>
     }
 
-    <div class="min-h-0 flex-1 overflow-y-auto px-6 py-6" data-testid="claim-dialog-body">
+    <div [class]="bodyClass()" data-testid="claim-dialog-body">
       @switch (step()) {
         @case ('find') {
           <h3 #stepHeading tabindex="-1" [class]="headingClass" i18n="@@claimDialog.find.heading">
@@ -551,7 +562,7 @@ interface ClaimDialogModel {
       }
     </div>
 
-    @if (step() !== 'find') {
+    @if (step() !== 'find' && !(step() === 'done' && embedded())) {
       <div
         class="flex flex-wrap items-center justify-end gap-3 border-t border-(--border-default) px-6 py-4"
         data-testid="claim-dialog-footer"
@@ -607,12 +618,25 @@ export class ClaimDialogFlow implements OnInit {
   private readonly document = inject(DOCUMENT);
   private readonly dialog = inject(ClaimDialogService);
 
-  /** How the dialog was opened. Read once, in `ngOnInit`. */
+  /** How the dialog was opened. Read in `ngOnInit`, and by the step count. */
   readonly opening = input.required<ClaimDialogOpening>();
+  /**
+   * Rendered inline in a page, not in the dialog (AECI-1474): no inner scroll and no
+   * "Done" on the receipt.
+   */
+  readonly embedded = input(false);
   /** "Done" on the receipt. The shell closes the dialog. */
   readonly done = output<void>();
 
-  protected readonly stepCount = STEPS.length;
+  /**
+   * The steps the indicator counts. Opened on the typed-in step (AECI-1474), Find is a
+   * detour, not step 1: You is "Step 1 of 2", Comments "Step 2 of 2", and Find shows
+   * no progress at all. The dialog counts all three.
+   */
+  private readonly countedSteps = computed<readonly ClaimDialogStep[]>(() =>
+    this.opening().start === 'typed' ? TYPED_START_STEPS : STEPS,
+  );
+  protected readonly stepCount = computed(() => this.countedSteps().length);
   protected readonly step = signal<ClaimDialogStep>('find');
   protected readonly path = signal<'found' | 'typed' | null>(null);
   protected readonly listing = signal<ClaimListing | null>(null);
@@ -656,7 +680,11 @@ export class ClaimDialogFlow implements OnInit {
     );
   });
 
-  protected readonly stepNumber = computed(() => Math.max(1, STEPS.indexOf(this.step()) + 1));
+  protected readonly stepNumber = computed(() =>
+    Math.max(1, this.countedSteps().indexOf(this.step()) + 1),
+  );
+  /** Only on a counted step: never on the receipt, nor on Find after a typed start. */
+  protected readonly showProgress = computed(() => this.countedSteps().includes(this.step()));
   protected readonly stepName = computed(() => {
     switch (this.step()) {
       case 'find':
@@ -668,6 +696,13 @@ export class ClaimDialogFlow implements OnInit {
     }
   });
   protected readonly canGoBack = computed(() => this.step() !== 'done' && this.step() !== 'find');
+  /** The dialog fills its panel and scrolls inside it. Embedded, the page scrolls. */
+  protected readonly hostClass = computed(() =>
+    this.embedded() ? 'flex flex-col' : 'flex min-h-0 flex-1 flex-col',
+  );
+  protected readonly bodyClass = computed(() =>
+    this.embedded() ? 'px-6 py-6' : 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
+  );
 
   protected readonly searchLabel = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly searchPlaceholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
@@ -697,6 +732,20 @@ export class ClaimDialogFlow implements OnInit {
   }
 
   ngOnInit(): void {
+    if (this.opening().start === 'typed') {
+      // AECI-1474: the listing request page opens on the typed-in You step, with
+      // focus in its first field rather than on the step heading. No scroll, so the
+      // page's heading and explainer stay in view. Below `lg` they stack above the
+      // form, so the focused field can start below the fold (§2.5, ruling 2026-10-24).
+      this.path.set('typed');
+      this.show('you', false);
+      afterNextRender(
+        () =>
+          this.document.getElementById('claim-dialog-listing-name')?.focus({ preventScroll: true }),
+        { injector: this.injector },
+      );
+      return;
+    }
     // A page that already knows the company (`/vendor-program?vendor=`) skips Find it.
     // "Change" still goes back to it. Focus goes to the You heading, so the step is
     // announced instead of a search box the visitor never saw.

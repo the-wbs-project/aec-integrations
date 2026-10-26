@@ -6,7 +6,9 @@
  *   for a product that is not in the directory (`VENDOR_PROGRAM_PAGE_SPEC.md` §6,
  *   settled 2026-10-12). Its in-app link, Find your product on `/vendor-program`,
  *   was removed on 2026-10-12 (the claim dialog's typed-in step replaces it). The
- *   topic keeps working for links from outside the app.
+ *   topic keeps working for links from outside the app. Since AECI-1474 its panel
+ *   leads with "Request a listing", a link to `/vendor-program/list-your-product`,
+ *   and the email becomes the second button.
  *
  * Any other value is ignored. That includes `managed`: its inline plan inquiry form
  * was removed on 2026-10-19 (E8.1), so that value renders the plain page. Only

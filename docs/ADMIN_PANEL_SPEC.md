@@ -1724,7 +1724,8 @@ This section does not own its contract. `VENDOR_PROGRAM_PAGE_SPEC.md` §15.5 doe
 badge.
 
 - **What it is.** A product or company a visitor typed into the claim dialog ("Not listed?
-  Type it in"), so AECi can add it and then invite them to claim it. Rows live in
+  Type it in") or into the same form on `/vendor-program/list-your-product` (AECI-1474), so
+  AECi can add it and then invite them to claim it. Rows live in
   `listing_requests`, not `vendor_requests`.
 - **Where.** The second section of `/admin/requests` (`admin/requests/listing-request-queue.ts`),
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /

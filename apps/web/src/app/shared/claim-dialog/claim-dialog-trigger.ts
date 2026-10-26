@@ -1,7 +1,7 @@
 import { isPlatformBrowser } from '@angular/common';
 import { Directive, PLATFORM_ID, inject, input } from '@angular/core';
 
-import type { ClaimDialogEntry, PlanCtaPage } from '../../analytics/analytics';
+import type { PlanCtaPage, PlanCtaPlacement } from '../../analytics/analytics';
 
 import { ClaimDialogService } from './claim-dialog.service';
 
@@ -25,7 +25,7 @@ export class ClaimDialogTrigger {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   /** Which control this is, for `claim_dialog_step.entry`. */
-  readonly entry = input.required<ClaimDialogEntry>({ alias: 'aecClaimDialogTrigger' });
+  readonly entry = input.required<PlanCtaPlacement>({ alias: 'aecClaimDialogTrigger' });
   /** Which page it sits on. */
   readonly aecClaimDialogPage = input.required<PlanCtaPage>();
 
