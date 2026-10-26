@@ -1342,7 +1342,7 @@ reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
-> **Applied 2026-10-22 (AECI-1439).** `apply.sh` ran against production, and none of the live alerts is `Errored` after it. The same day, an orphan alert was deleted by hand: "AECi — Search-engine pings refused (> 90% in 24 h)", the pre-AECI-1136 name of `indexnow-failure-rate`. The applier matches alerts by name, so the 2026-09-28 rename had created a second alert instead of renaming the first, and both emailed. **Rename an alert in `alerts.json` only after AECI-1456 lands**, or delete the old live alert by hand after the apply.
+> **Applied 2026-10-22 (AECI-1439).** `apply.sh` ran against production, and none of the live alerts is `Errored` after it. The same day, an orphan alert was deleted by hand: "AECi — Search-engine pings refused (> 90% in 24 h)", the pre-AECI-1136 name of `indexnow-failure-rate`. The applier then matched alerts by name, so the 2026-09-28 rename had created a second alert instead of renaming the first, and both emailed. Since AECI-1456 an alert is found by the insight it reads, so a rename updates it in place.
 >
 > **12 of the 14 live production alerts were `Errored` on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every query that read `m.attributes` failed validation. AECI-1115 rewrote all 36 affected insights in `observability/posthog/insights.json` to join the series table. Each rewritten query was run read-only against production and compiles. The live alerts leave `Errored` only when `apply.sh` runs against production. See "Gotchas when querying" item 12 for the join.
 
@@ -1703,14 +1703,17 @@ export POSTHOG_PERSONAL_API_KEY=phx_...       # or POSTHOG_CLI_API_KEY
 ```
 
 Dashboards + insights go to **both** projects; alerts go to **production only**.
-The applier is idempotent by name, preflights every optional scope and reports all
+The applier is idempotent by stable key, preflights every optional scope and reports all
 misses at once, completes the run before reporting failures (with a per-project
-summary), and runs on stock macOS bash 3.2.
+summary), and runs on stock macOS bash 3.2. An alert has no tag in PostHog, so it is found
+by the insight it reads (AECI-1456). Apply and `--verify` report a second alert on one
+insight as `DUPLICATE`, and a live `AECi —` alert that matches no entry as `ORPHAN`.
+Neither is deleted. Delete it by hand.
 
 **Fix drift in the JSON and re-run — never in the UI**, because the next run will
 not know. `--verify` reports a live query that no longer matches the committed one.
-The one exception is an alert threshold. An existing alert has its subscribers, cadence
-and on/off state reconciled, but not its threshold. Change a threshold in `alerts.json`
+The one exception is an alert threshold. An existing alert has its name, subscribers,
+cadence and on/off state reconciled, but not its threshold. Change a threshold in `alerts.json`
 and in the PostHog UI together.
 That is the opposite of the Datadog convention below, and the inversion is
 deliberate: Datadog's objects were authored in the UI and exported for record, which

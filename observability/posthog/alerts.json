@@ -6,7 +6,11 @@
     "",
     "`insightKey` names the source insight by its STABLE KEY in insights.json, never by its",
     "display name. Names are written for a reader and get rewritten; keys do not. Pointing an",
-    "alert at a name meant that renaming a tile silently detached its alert."
+    "alert at a name meant that renaming a tile silently detached its alert.",
+    "",
+    "AECI-1456: PostHog alerts have no tags, so apply.sh finds a live alert by the insight it",
+    "reads. One alert per insightKey, and preflight rejects a duplicate. The name is a fallback",
+    "only, then an optional append-only `previousNames` array, as in insights.json."
   ],
   "managedBy": "AECI-647",
   "appliesTo": ["prod"],
