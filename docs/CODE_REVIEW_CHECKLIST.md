@@ -249,7 +249,7 @@ looks sorted, so nothing but review or a test catches them.
 - State mutations that propagate incorrect data downstream
 - Missing cleanup of subscriptions, timers, observers, or event listeners
 - API request payload that doesn't match the documented contract
-- Promote mappings (review app → D1) that overwrite curator-preserve fields (`website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`). Note these columns are **not** special-cased in code today — what actually governs overwrite is `REVIEW_APP_PROMOTE_API.md` §3.1 plus the per-field rule (omitted key → untouched, explicit `null` → cleared), and the wholesale AECI-520 claimed-vendor block. The `DATABASE_SCHEMA.md` §13.4 "curator-preserve" list is unreconciled intent, tracked as AECI-903.
+- Promote mappings (review app → D1) that break the overwrite rules in `DATABASE_SCHEMA.md` §13.4. No column is protected by name. A push overwrites a field it sends, leaves an omitted key untouched, and clears on an explicit `null` (`REVIEW_APP_PROMOTE_API.md` §3.1, §5). What protects a value set in D1 is the per-record fences: owned vendors (§4a), claimed and vendor-created integrations (§4b, §4c). Two columns also carry their own fence: `logo_source` and `usefulness_source` (§3.2, §3.3). Flag a change that weakens any of them.
 
 ### AI-authored code red flags
 

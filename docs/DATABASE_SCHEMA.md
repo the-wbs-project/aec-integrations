@@ -5373,16 +5373,30 @@ After the initial load, the ongoing review app → D1 push is curator-triggered:
 
 Updates to already-promoted records are handled the same way — the review app is the editorial canvas, D1 mirrors the promoted state. **Three exceptions stop the mirror:** an owned vendor (`vendors.owned_at` set, AECI-1415) and its products (AECI-520, `REVIEW_APP_PROMOTE_API.md` §4a), and a claimed integration (AECI-1005, §4b). Since AECI-1415 an integration with an owned source or target product is refused too. Once a vendor has taken a row, D1 is its source of truth and promote writes nothing to it.
 
-### 13.4 Curator-preserve fields
+### 13.4 What a push may overwrite
 
-> **Unverified against today's contract — tracked as AECI-903.** This subsection predates the `ref` / `supabaseId` rule in `REVIEW_APP_PROMOTE_API.md` §3.1, which is what actually governs what a push overwrites, and no `admin_notes` discrepancy-flagging exists in the promote path. Treat the list below as intent, not as a description of shipped behaviour, until it is reconciled.
+No column is special-cased by name. The curator edits a record in the review app, so the
+review app's value is the one D1 should hold. An earlier draft of this subsection listed nine
+vendor columns as "curator-preserve" and said conflicts were journalled to `admin_notes`. That
+was never built and was deleted by AECI-903.
 
-When a promote push arrives, certain fields on D1 records must not be overwritten by automated processes:
+What a push writes is decided by these rules, all in `docs/REVIEW_APP_PROMOTE_API.md`:
 
-- `website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, `youtube_url` (vendor)
-- Any field a human curator has manually corrected
+| Rule | Where |
+|---|---|
+| `supabaseId` present and resolvable updates the row. Absent creates one. | §3.1 |
+| An update merges by field. An omitted key leaves the column untouched. An explicit `null` clears it. Join sets are replaced. | §5 |
+| `verified` is accepted and ignored. | §3.2 |
+| `logoUrl` applies only while `logo_source IS NULL` (AECI-955). | §3.2 |
+| `usefulness` is not written once a vendor has authored it (AECI-963). | §3.3 |
+| `lastReviewedAt` is refused on a vendor-maintained record. | §3.6a |
+| An owned vendor and its products are skipped whole. So is an integration whose source or target product is owned. A new product for an owned vendor is stored as a proposal, not created. | §4a |
+| A claimed integration is skipped whole. | §4b |
+| A vendor-created integration is never replaced by an AECi twin. | §4c |
 
-The sync process flags discrepancies in `admin_notes` rather than overwriting curator-edited values.
+The protection for a value a human set in D1 is the ownership fence, not a column list. It is
+per record, not per column. The two exceptions are `logo_source` and `usefulness_source`. Each
+fences one column, and only after a vendor or admin has set it.
 
 ---
 
