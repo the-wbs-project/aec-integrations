@@ -67,13 +67,32 @@ interface Box {
   readonly height: number;
 }
 
+/**
+ * `boundingBox()` does not wait, and hydration can replace a node that was just
+ * visible, so a single read can return null. Retry the read until it lands.
+ */
 async function box(page: Page, selector: string): Promise<Box> {
-  // `boundingBox()` does not wait, so a page still rendering reads null.
   const target = page.locator(selector).first();
-  await expect(target).toBeVisible();
-  const b = await target.boundingBox();
-  expect(b, `${selector} has a box`).not.toBeNull();
+  let b: Box | null = null;
+  await expect(async () => {
+    b = await target.boundingBox();
+    expect(b, `${selector} has a box`).not.toBeNull();
+  }).toPass();
   return b!;
+}
+
+/** The first two items of a docs list, read together after hydration settles. */
+async function firstTwo(page: Page, list: string): Promise<[Box, Box]> {
+  const items = page.locator(`[data-testid="${list}"] > *`);
+  let pair: [Box, Box] | null = null;
+  await expect(async () => {
+    const first = await items.nth(0).boundingBox();
+    const second = await items.nth(1).boundingBox();
+    expect(first, `${list} has a first item`).not.toBeNull();
+    expect(second, `${list} has a second item`).not.toBeNull();
+    pair = [first!, second!];
+  }).toPass();
+  return pair!;
 }
 
 async function noHorizontalScroll(page: Page): Promise<void> {
@@ -173,10 +192,7 @@ function docsIndexSuite(path: string, list: string): void {
     test('runs the list two columns at 1280px', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(path);
-      const items = page.locator(`[data-testid="${list}"] > *`);
-      await expect(items.nth(1)).toBeVisible();
-      const first = (await items.nth(0).boundingBox())!;
-      const second = (await items.nth(1).boundingBox())!;
+      const [first, second] = await firstTwo(page, list);
       expect(Math.abs(first.y - second.y), 'first two items share a row').toBeLessThan(2);
       expect(second.x).toBeGreaterThan(first.x + first.width);
     });
@@ -185,10 +201,7 @@ function docsIndexSuite(path: string, list: string): void {
       test(`stacks into one column at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
-        const items = page.locator(`[data-testid="${list}"] > *`);
-        await expect(items.nth(1)).toBeVisible();
-        const first = (await items.nth(0).boundingBox())!;
-        const second = (await items.nth(1).boundingBox())!;
+        const [first, second] = await firstTwo(page, list);
         expect(second.y).toBeGreaterThanOrEqual(first.y + first.height - 1);
         await noHorizontalScroll(page);
         await proseWithinMeasure(page, '[data-testid="page-canvas"] header p');
