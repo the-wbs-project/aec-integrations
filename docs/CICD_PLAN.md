@@ -1325,6 +1325,16 @@ deliberate, reviewed human action.
 
 ---
 
+## 11a-bis. One-shot IndexNow probe (temporary, AECI-1476)
+
+| Workflow | Trigger | What it does | On red |
+|---|---|---|---|
+| [`indexnow-probe.yml`](../.github/workflows/indexnow-probe.yml) | `workflow_dispatch` only | Runs `ops:submit-trade-urls --env production --apply --allow-production` from a GitHub-hosted runner with `INDEXNOW_KEY_PRODUCTION`. One production IndexNow submission of about 35 `/trades/*` URLs. It tests whether the drain's daily 429 comes from the Worker's shared Cloudflare egress IPs. | A 429 is inconclusive. Do not re-run it. A "verification file" error means the web Worker's `INDEXNOW_KEY` does not match the GitHub secret, and nothing was submitted. Record the result on AECI-1476. |
+
+The file is deleted when the runner send leg (`indexnow-send.yml`) ships.
+
+---
+
 ## 11b. Post-merge doc mirror
 
 | Workflow | Trigger | What it does | On red |
