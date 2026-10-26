@@ -172,7 +172,7 @@ export class MetaService {
     this.clearJsonLd();
 
     const title = $localize`:@@meta.searchTitle:Search · AEC Integrations`;
-    const description = $localize`:@@meta.searchDescription:Search the AEC software integration directory by product, vendor, or integration.`;
+    const description = $localize`:@@meta.searchDescription:Search the AEC software integration directory by product or vendor.`;
 
     this.title.setTitle(title);
     this.meta.updateTag({ name: 'description', content: description });

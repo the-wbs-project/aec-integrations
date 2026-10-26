@@ -442,6 +442,17 @@ describe('MetaService JSON-LD lifecycle (AECI-518)', () => {
 
     expect(ldKinds(doc)).toEqual([]);
   });
+
+  // `/search` queries products and vendors only, so the description must not
+  // promise integration results (AECI-985).
+  it('setSearchMeta describes the products-and-vendors scope', () => {
+    const { service, doc } = setup();
+
+    service.setSearchMeta({ canonical: 'https://aecintegrations.com/search' });
+
+    const description = doc.head.querySelector('meta[name="description"]')?.getAttribute('content');
+    expect(description).toBe('Search the AEC software integration directory by product or vendor.');
+  });
 });
 
 describe('MetaService.setPairJsonLd', () => {

@@ -98,7 +98,10 @@ test.describe('primary navigation menu (375px)', () => {
 
     // The search box is the `aec-search-autocomplete` combobox (AECI-144); Angular
     // Aria sets role="combobox" on the input (was a plain searchbox placeholder).
-    await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
+    const search = overlay(page).getByRole('combobox', { name: 'Search' });
+    await expect(search).toBeVisible();
+    // The results are products and vendors, so the box names the directory (AECI-985).
+    await expect(search).toHaveAttribute('placeholder', 'Search directory');
     await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
@@ -263,6 +266,11 @@ test.describe('primary navigation menu (1280px)', () => {
 
     const header = page.locator('aec-site-header');
     await expect(header.getByRole('link', { name: 'Sign in' })).toBeVisible();
+
+    // The inline search box shares the mobile copy: one i18n source (AECI-985).
+    const search = header.getByRole('combobox', { name: 'Search' });
+    await expect(search).toBeVisible();
+    await expect(search).toHaveAttribute('placeholder', 'Search directory');
   });
 
   test('the overflow panel is gone, and its links stayed crawlable in the footer', async ({
