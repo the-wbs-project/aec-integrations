@@ -47,8 +47,7 @@ import {
   waitForHydrationSettle,
 } from './console-capture';
 import { mintSessionCookies } from './auth-session';
-
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 /**
  * The portal's single polite announcement region (AECI-631 /

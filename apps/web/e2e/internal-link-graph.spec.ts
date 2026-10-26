@@ -83,11 +83,11 @@ import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { chromium, expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
-// Mirrors `playwright.config.ts`'s BASE_URL default. `beforeAll` hooks don't
-// receive the test-scoped fixtures, so we recompute it from the same env var
-// the config reads and launch our own browser.
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+// `beforeAll` hooks don't receive the test-scoped fixtures, so the crawl takes
+// the origin from `./base-url` (the same source as the config) and launches its
+// own browser.
 
 // "≤ 3 hops": `/` is depth 0, header-nav indexes depth 1, details depth 2,
 // product-detail `TaxonomyBadge` links depth 3. We visit nodes up to depth 3

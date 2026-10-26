@@ -24,8 +24,8 @@
  *   3. **axe-clean**, because this surface is gaining its first combobox.
  *
  * Paths are `baseURL`-relative on purpose: `playwright.config.ts` honours
- * `AECI_WEB_PORT`, and the nine specs that hardcode `localhost:8788` silently break
- * in a Conductor workspace on a non-default port pair. Don't add a tenth.
+ * `AECI_WEB_PORT`. A spec that needs an absolute origin imports it from
+ * `./base-url`; never write a `localhost:8788` literal (AECI-1449).
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';

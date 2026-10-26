@@ -17,8 +17,8 @@
  * stays green pre-seed.
  */
 import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const PRODUCT_SLUG = 'fixture-procore';
 const PRODUCT_PATH = `/products/${PRODUCT_SLUG}`;
 

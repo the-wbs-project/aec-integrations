@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_BASE_URL, E2E_WEB_PORT } from './e2e/base-url';
 
 // AECI-235: the Playwright runner process doesn't inherit the Workers' `.dev.vars`,
 // but `authed-console.spec.ts` mints a real Supabase session from `process.env`. For
@@ -46,8 +47,10 @@ loadDevVarsAuthEnv();
 // script (defaults to 8788). Lets a Conductor workspace run dev + e2e on its
 // own port pair without colliding with sibling workspaces. A `PLAYWRIGHT_BASE_URL`
 // (a deployed tier such as staging) still takes precedence and skips the local webServer.
-const WEB_PORT = process.env['AECI_WEB_PORT'] ?? '8788';
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? `http://localhost:${WEB_PORT}`;
+// The derivation lives in `e2e/base-url.ts` so specs that need the origin
+// outside a test share it (AECI-1449).
+const WEB_PORT = E2E_WEB_PORT;
+const BASE_URL = E2E_BASE_URL;
 const IS_CI = !!process.env['CI'];
 
 export default defineConfig({
