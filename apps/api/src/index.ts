@@ -994,7 +994,15 @@ authAdmin.post(
   rateLimit('write'),
   createAdminRestoreIntegrationHandler(),
 );
-authAdmin.post('/api/admin/vendors/:id/seats', requireAdmin(), createProvisionSeatHandler());
+// AECI-1479: the admin seat provision. It writes the profile and an audit row, and a
+// first seat stamps ownership and dispatches the review-app sync. A write, so
+// `rateLimit('write')` after the guard.
+authAdmin.post(
+  '/api/admin/vendors/:id/seats',
+  requireAdmin(),
+  rateLimit('write'),
+  createProvisionSeatHandler(),
+);
 // AECI-1370 (E4.1): grant N complimentary or invoice licenses on the vendor's billing
 // account, through `grantLicensesStatements` (`lib/license.ts`). Idempotent on the
 // body's `grant_id`. A write, so `rateLimit('write')` after the guard.
@@ -1022,9 +1030,12 @@ authAdmin.patch(
   rateLimit('write'),
   createUpdateLicenseHandler(),
 );
+// AECI-1234: the admin seat revoke. It writes the profile, an audit row and one portal
+// notice on the vendor feed. A write, so `rateLimit('write')` after the guard.
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),
+  rateLimit('write'),
   createAdminRevokeSeatHandler(),
 );
 authAdmin.post(
