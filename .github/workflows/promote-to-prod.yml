@@ -251,11 +251,6 @@ jobs:
           REVIEW_APP_OWNERSHIP_URL_PRODUCTION: ${{ secrets.REVIEW_APP_OWNERSHIP_URL_PRODUCTION }}
           REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION: ${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION }}
           INDEXNOW_KEY_PRODUCTION: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
-          # AECI-660/661 read-side cron creds. Mapped here for the same reason as the
-          # four above — require-secrets.sh checks the VALUE, so an unmapped name
-          # false-warns "not set" on every promote even when the GH secret exists.
-          POSTHOG_QUERY_API_KEY_PRODUCTION: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
-          POSTHOG_PROJECT_ID_PRODUCTION: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
           # AECI-1236 URL Inspection key. Recommended, not required: without it the
           # daily run skips and emits aeci.gsc_inspect.run{outcome:skipped}.
           GSC_SA_KEY_JSON_PRODUCTION: ${{ secrets.GSC_SA_KEY_JSON_PRODUCTION }}
@@ -325,7 +320,7 @@ jobs:
           # emits aeci.webhooks.linear.hmac_failure, so its absence is loud rather
           # than silent — and a prod webhook may not be registered in Linear at all,
           # in which case the secret is moot and must not block a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET GSC_SA_KEY_JSON_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET GSC_SA_KEY_JSON_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -773,40 +768,18 @@ jobs:
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env production
 
-      # AECI-660 / AECI-661. Three read-side credentials the API Worker's cron jobs
-      # use, all OPTIONAL + FAIL-OPEN, so warn-and-skip and never in
-      # REQUIRED_WORKER_SECRETS. They had no CI step at all until now: the
-      # environments.md rows described them as "CI-pushed" from the day they shipped,
-      # but the wiring was never written, so a value set in GH secrets reached no
-      # Worker and prod ran with the features inert.
-      #
-      # POSTHOG_QUERY_API_KEY is a PostHog PERSONAL key (`phx_…`, scope `query:read`)
-      # and is NOT the publishable `POSTHOG_KEY` (`phc_…`) pushed to the web Worker —
-      # this one grants account-wide read and must never reach apps/web.
-      # POSTHOG_PROJECT_ID is env-suffixed like POSTHOG_KEY because the tiers do NOT
-      # share one PostHog project: an un-suffixed id would point this tier's digest at
-      # the production project filtered to this tier's host, and `count()` over an
-      # empty set returns a real row of zeros — so the digest would print a confident
-      # "0 PostHog pageviews", the fabricated zero the whole join exists to avoid.
-      # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
-      - name: Push analytics read credentials to API Worker (production)
+      # AECI-661. PEERINGDB_API_KEY is OPTIONAL + FAIL-OPEN, so warn-and-skip and never
+      # in REQUIRED_WORKER_SECRETS. It is env-independent (the upstream is a public
+      # registry). This step also pushed the AECI-660 PostHog query pair until
+      # AECI-1466 retired it.
+      - name: Push PeeringDB key to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
-          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
           PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
-          if [ -n "$POSTHOG_QUERY_API_KEY_VALUE" ] && [ -n "$POSTHOG_PROJECT_ID_VALUE" ]; then
-            printf '%s' "$POSTHOG_QUERY_API_KEY_VALUE" \
-              | pnpm exec wrangler secret put POSTHOG_QUERY_API_KEY --env production
-            printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
-              | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env production
-          else
-            echo "::warning::POSTHOG_QUERY_API_KEY_PRODUCTION / POSTHOG_PROJECT_ID_PRODUCTION not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
-          fi
           if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
             printf '%s' "$PEERINGDB_API_KEY_VALUE" \
               | pnpm exec wrangler secret put PEERINGDB_API_KEY --env production

@@ -395,30 +395,6 @@ export type Env = {
    */
   PEERINGDB_API_KEY?: string;
   /**
-   * PostHog **personal** API key scoped to `query:read`. It fed the daily digest's
-   * PostHog line (AECI-660, completing the AECI-239 join). Set as a Wrangler
-   * secret on the API Worker.
-   *
-   * NOT the same credential as the browser's `POSTHOG_KEY` (`phc_…`), which is
-   * publishable and inlined into public HTML. This one is `phx_…` and grants
-   * account-wide read: it must never reach `apps/web`, and the `phx_` key that
-   * was once mis-provisioned as `POSTHOG_KEY` (and therefore served publicly)
-   * must be revoked rather than reused here. See `docs/email.md`-adjacent notes
-   * in `docs/OBSERVABILITY.md`.
-   *
-   * **No reader since AECI-1460.** The digest's PostHog `$pageview` line and the
-   * AECI-870 browser-start read (digest and `/admin/overview`) were its only
-   * consumers, and both are gone. `deploy.yml`, `promote-to-demo.yml` and
-   * `promote-to-prod.yml` still push it to staging, demo and production; retiring
-   * it there and in the Worker secrets is a follow-up.
-   */
-  POSTHOG_QUERY_API_KEY?: string;
-  /** Numeric PostHog project id the query ran against (e.g. `354071`). Paired
-   *  with `POSTHOG_QUERY_API_KEY`, and unread since AECI-1460 for the same reason. */
-  POSTHOG_PROJECT_ID?: string;
-  /** PostHog API host for the same retired query. Unread since AECI-1460. */
-  POSTHOG_API_HOST?: string;
-  /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the
    * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
