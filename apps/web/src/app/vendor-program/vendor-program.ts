@@ -440,8 +440,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 How listings are sorted
               </h2>
               <p class="mt-4 max-w-[52ch] text-lg leading-relaxed" i18n="@@app.docs.plans.sortRule">
-                Every listing is sorted the same way: how well it matches the search, then how
-                complete it is. Your plan is not part of that.
+                Every listing is sorted by the same published rules. Your plan is not part of that.
               </p>
             </div>
             <div class="lg:col-span-6 lg:pt-1">

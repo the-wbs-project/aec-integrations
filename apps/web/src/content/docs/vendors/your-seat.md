@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: October 22, 2026
+last_updated: October 26, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -78,7 +78,7 @@ On a product with Managed, you can also:
 - claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide change requests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
 - reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
 
-Where your company and products appear in search is worked out from how well each listing matches the search and how complete it is. See [How ranking works](/docs/trust/how-ranking-works).
+Where your company and products appear in search follows the same published rules as every other listing. No plan changes it. See [How ranking works](/docs/trust/how-ranking-works).
 
 ## If a Managed plan ends
 

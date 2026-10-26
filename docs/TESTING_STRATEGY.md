@@ -910,6 +910,8 @@ default `goto` resolves.
   actions; for a toggle (a facet checkbox, where a second click *removes* the
   term) widen the inner timeout so a landed click is not mistaken for a dropped
   one — the loop still converges, since every attempt ends on the same assertion.
+  `chooseSort` shows the other fix: it clicks the combobox only when `aria-expanded`
+  is not `true`, so a retried attempt cannot toggle an open popup shut.
 
 **(b) A response is not a render.** `page.waitForResponse(...)` resolves when the
 response arrives, not when Angular has applied it, and `httpResource` keeps

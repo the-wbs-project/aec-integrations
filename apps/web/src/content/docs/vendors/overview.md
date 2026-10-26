@@ -3,7 +3,7 @@ title: For vendors
 description: What claiming your listing means, what the Free and Managed plans include, and where this guide goes next.
 section: vendors
 order: 1
-last_updated: October 19, 2026
+last_updated: October 26, 2026
 ---
 
 AEC Integrations lists software products, the companies that make them, and the integrations between them. We compile every listing from public sources. If your company is listed, someone who works there can claim the listing and keep it accurate.
@@ -27,7 +27,7 @@ Confirming data flows means answering Yes or No for each type of data an integra
 
 ## What no plan changes
 
-No plan changes where you rank or appear, or whether a review is published. Search order is worked out the same way for every listing: first how well it matches the search, then how complete it is. Every detail that counts toward completeness is editable on Free. [How ranking works](/docs/trust/how-ranking-works) sets out the rule.
+No plan changes where you rank or appear, or whether a review is published. Search order follows the same published rules for every listing. Completeness breaks ties, and every detail that counts toward it is editable on Free. [How ranking works](/docs/trust/how-ranking-works) sets out the rule.
 
 ## Where to go next
 

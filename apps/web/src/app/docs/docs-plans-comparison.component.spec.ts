@@ -123,7 +123,7 @@ describe('DocsPlansComparisonComponent', () => {
   // The trust point is the sort rule, never a promise that Managed ranks higher.
   it('states the sort rule under the cards', () => {
     expect(render().querySelector('.aec-plan-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that.',
+      'Every listing is sorted by the same published rules. Your plan is not part of that.',
     );
   });
 

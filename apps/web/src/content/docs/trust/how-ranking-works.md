@@ -56,7 +56,7 @@ Filters change which products you see, not their order.
 None of these changes where a listing appears in search:
 
 - How many integrations a product has, or how many products a vendor has. You can still filter by those counts in search.
-- Ratings. They decide the "Highest rated" sort, but not the Relevance order.
+- Ratings. They decide the "Highest rated" sort, and nothing else.
 - How many people view a page.
 - Trades, beyond matching your words. A trade helps a product be found when you search for that trade or filter by it. It gives no boost of its own.
 - Which plan a vendor is on.

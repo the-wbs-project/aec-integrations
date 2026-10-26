@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: October 19, 2026
+last_updated: October 26, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -46,7 +46,7 @@ On a Free product, the Managed fields stay visible in the portal. They are read-
 
 ## Why buyers trust the order
 
-Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that. Neither is anything else you pay for.
+Every listing is sorted by the same published rules. Your plan is not part of that. Neither is anything else you pay for.
 
 Your plan also never decides:
 

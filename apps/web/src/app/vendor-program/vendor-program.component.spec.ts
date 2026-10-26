@@ -314,7 +314,7 @@ describe('VendorProgramPage', () => {
       const { host } = await setup({ plan: stub() });
       const sorting = host.querySelector('#vp-sorting');
       expect(text(sorting)).toContain(
-        'Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that.',
+        'Every listing is sorted by the same published rules. Your plan is not part of that.',
       );
       expect(text(sorting)).toContain('That is why buyers trust what they find here');
       expect(sorting?.querySelector('a')?.getAttribute('href')).toBe(

@@ -331,8 +331,8 @@ reference form therefore realises those patterns with the directives that _did_ 
 - **Role-at-company** → a non-editable **`ngCombobox`** trigger + **`ngListbox`/`ngOption`** popup, in place
   of a `select`. The popup is positioned by `cdkConnectedOverlay` (`usePopover: 'inline'`) driven by the
   `[(expanded)]` signal, because `ComboboxPopup` content renders in-flow rather than in a CDK overlay (the
-  inline-render finding from AECI-232; the same `cdkConnectedOverlay` pattern is reused by the `/search`
-  sort dropdown, `search/widgets/search-sort-by.ts`).
+  inline-render finding from AECI-232; the same `cdkConnectedOverlay` pattern is reused by the shared listing
+  sort dropdown, `shared/listing-toolbar/listing-sort-select.ts`).
 
 So when this ADR or its companions say "select / radio → Angular Aria", read it as **"realised via
 combobox / listbox"** until Aria ships first-class `select`/`radio` directives.
