@@ -2616,6 +2616,45 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     expect(moved?.lastReviewedAt).toBe(held);
   });
 
+  it('carries created_at ACROSS the move in both directions (AECI-1076)', async () => {
+    // A move is an INSERT, so without the carry the destination row takes the
+    // column default and is dated to the move. The admin net-integrations series
+    // buckets by `created_at`, so the edge would jump to the day it moved.
+    const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
+    const { pairId } = await seedRoutedEdge(ids);
+    const born = '2026-01-02T03:04:05.000Z';
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ createdAt: born })
+      .where(eq(connectorEvidencedPairs.id, pairId));
+
+    const edge = (poweredByProduct: { supabaseId: string } | null) => ({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: ids.target },
+          poweredByProduct,
+          direction: 'one-way',
+        },
+      ],
+    });
+
+    // Out of the evidenced tier…
+    expect((await promote(edge(null))).status).toBe(200);
+    const out = await t.db.query.integrations.findFirst({ where: eq(integrations.id, pairId) });
+    expect(out?.createdAt).toBe(born);
+
+    // …and back in.
+    expect((await promote(edge({ supabaseId: ids.connector }))).status).toBe(200);
+    const back = await t.db.query.connectorEvidencedPairs.findFirst({
+      where: eq(connectorEvidencedPairs.id, pairId),
+    });
+    expect(back?.createdAt).toBe(born);
+  });
+
   it('does NOT report a stale supabaseId when the id resolves in the other anchor table (AECI-888 narrows AECI-568)', async () => {
     const ids = { target: uuid(1), connector: uuid(2), vendor: uuid(4) };
     const { pairId, claim } = await seedRoutedEdge(ids);
@@ -2795,6 +2834,10 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     // 1. Born in `integrations`. The connector counts nothing yet.
     const a = await promote(edge({ mechanismKind: 'native', direction: 'one-way' }));
     const id = ((await a.json()) as PromoteResponse).integrations[0]!.id;
+    // Backdated so a move that re-stamps `created_at` cannot pass by landing in the
+    // same millisecond (AECI-1076).
+    const born = '2026-01-02T03:04:05.000Z';
+    await t.db.update(integrations).set({ createdAt: born }).where(eq(integrations.id, id));
     expect(await totals()).toEqual({
       products: 3,
       rows: 1,
@@ -2812,7 +2855,10 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
       rows: 1,
       counts: { revit: 1, navisworks: 1, 'agave-erp-sync': 1 },
     });
-    expect((await t.db.select().from(connectorEvidencedPairs))[0]).toMatchObject({ id });
+    expect((await t.db.select().from(connectorEvidencedPairs))[0]).toMatchObject({
+      id,
+      createdAt: born,
+    });
 
     // 3. Connector cleared → moves back, still one row, and the connector's count drops
     //    to zero. That drop is the AECI-888 recompute: before it, the old connector's
@@ -2829,7 +2875,12 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
       counts: { revit: 1, navisworks: 1, 'agave-erp-sync': 0 },
     });
     const [back] = await t.db.select().from(integrations);
-    expect(back).toMatchObject({ id, poweredByProductId: null, mechanismKind: null });
+    expect(back).toMatchObject({
+      id,
+      poweredByProductId: null,
+      mechanismKind: null,
+      createdAt: born,
+    });
 
     // 4. Restating it puts the value back. Nothing else has to be replayed.
     await promote(

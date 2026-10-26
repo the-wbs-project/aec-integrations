@@ -645,6 +645,8 @@ function planEvidencedPairWrite(args: {
           ...carriedMaintenance(existing.row, intg.lastReviewedAt),
           // AECI-1154: owner-written, never promote-written; the move keeps it.
           pricingUrl: existing.row.pricingUrl,
+          // AECI-1076: the edge keeps the date it arrived, not the date it moved.
+          createdAt: existing.row.createdAt,
         }),
         db
           .update(claims)
@@ -709,6 +711,12 @@ type LocatedMaintenance = {
    * claimed and later un-claimed. The move therefore carries it across.
    */
   pricingUrl: string | null;
+  /**
+   * AECI-1076. When the edge first arrived. A move is an INSERT in the other table,
+   * which would take the column default (the move time) and re-date the row in every
+   * reader that buckets by `created_at`. The move therefore carries it across.
+   */
+  createdAt: string;
 };
 
 type LocatedIntegrationRow = LocatedMaintenance & {
@@ -763,6 +771,7 @@ async function locateEdge(
       maintainedBy: integrations.maintainedBy,
       lastReviewedAt: integrations.lastReviewedAt,
       pricingUrl: integrations.pricingUrl,
+      createdAt: integrations.createdAt,
       claimedAt: integrations.claimedAt,
       origin: integrations.origin,
       builtByVendorId: integrations.builtByVendorId,
@@ -794,6 +803,7 @@ async function locateEdge(
       maintainedBy: true,
       lastReviewedAt: true,
       pricingUrl: true,
+      createdAt: true,
       claimedAt: true,
       origin: true,
     },
@@ -903,6 +913,8 @@ function planIntegrationWrite(args: {
           ...carriedMaintenance(existing.row, intg.lastReviewedAt),
           // AECI-1154: owner-written, never promote-written; the move keeps it.
           pricingUrl: existing.row.pricingUrl,
+          // AECI-1076: the edge keeps the date it arrived, not the date it moved.
+          createdAt: existing.row.createdAt,
         }),
         db
           .update(claims)

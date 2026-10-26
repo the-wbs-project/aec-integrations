@@ -554,8 +554,8 @@ Four consequences worth knowing:
   evidenced row in place (it does not mint a duplicate and collide on the `(connector, a, b)` unique
   index). And an edge you promoted earlier as an accountable-party integration that now names a
   third-party `poweredByProduct` is **moved** by that push — inserted into `connector_evidenced_pairs`
-  under its existing id, its claims and their vendor attestations re-homed with it, and the old
-  `integrations` row dropped. No payload change and no separate call is needed for either.
+  under its existing id and its original `created_at` (AECI-1076), its claims and their vendor
+  attestations re-homed with it, and the old `integrations` row dropped. No payload change and no separate call is needed for either.
 - **Contests move with the edge too (AECI-1110).** A vendor's field contest
   (`integration_field_challenges`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) is a cascade child of
   both tables. In both directions the move re-anchors every contest on the edge onto the
@@ -1358,7 +1358,7 @@ owner's pricing page link, on `integrations` and `connector_evidenced_pairs`, wr
 by the owner edit and the vendor create (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11). The
 payload has no field for it, so an ordinary UPDATE leaves it alone. A §3.4a cross-table
 move is an INSERT in the other table, so the move **carries** the stored value across,
-beside the maintenance pair. Otherwise a value set while the row was claimed, then left
+beside the maintenance pair and `created_at` (AECI-1076). Otherwise a value set while the row was claimed, then left
 in place by an un-claim, would be lost when a later promote moved the row.
 
 The fence reads `claimed_at IS NOT NULL OR origin = 'vendor'`, never `maintained_by`.

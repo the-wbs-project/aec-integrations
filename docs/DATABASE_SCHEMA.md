@@ -4430,7 +4430,8 @@ Three rules decided which rows moved:
 - **It is a TRANSITION rule, not just a placement rule (AECI-888).** The key is mutable and
   identity is table-scoped, so a re-promote that flips it has to **move** the row rather than
   write a second one: insert under the preserved id, re-home the claims, drop the source, one
-  batch. Both directions do this. **Order is the only protection** — `claims` cascades from
+  batch. Both directions do this. The insert carries `created_at`, `maintained_by`,
+  `last_reviewed_at` and `pricing_url` from the source row (AECI-1076, AECI-981, AECI-1154). **Order is the only protection** — `claims` cascades from
   both anchors and `attestations` cascades from `claims`, and ADR 0018 is explicit that
   `claims_anchor_check` cannot make a delete fail, so dropping the source first destroys the
   claims and every vendor attestation on them, silently. Only an **explicit** `poweredByProduct:
