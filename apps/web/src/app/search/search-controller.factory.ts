@@ -66,10 +66,9 @@ export async function createSearchEngine(config: AlgoliaPublicConfig): Promise<S
     configure: widgets.configure as unknown as InstantSearchLib['configure'],
     connectSearchBox:
       connectors.connectSearchBox as unknown as InstantSearchLib['connectSearchBox'],
-    connectHits: connectors.connectHits as unknown as InstantSearchLib['connectHits'],
+    connectInfiniteHits:
+      connectors.connectInfiniteHits as unknown as InstantSearchLib['connectInfiniteHits'],
     connectStats: connectors.connectStats as unknown as InstantSearchLib['connectStats'],
-    connectPagination:
-      connectors.connectPagination as unknown as InstantSearchLib['connectPagination'],
     connectRefinementList:
       connectors.connectRefinementList as unknown as InstantSearchLib['connectRefinementList'],
     connectNumericMenu:

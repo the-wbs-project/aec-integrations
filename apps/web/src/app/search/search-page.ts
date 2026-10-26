@@ -43,25 +43,38 @@ import {
   signal,
   viewChildren,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  NavigationStart,
+  Router,
+  RouterLink,
+} from '@angular/router';
 
 import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
+import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
 import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
+import { ProductCard, type ProductRow } from '../products/product-card';
 import { FacetPanel } from '../shared/facets/facet-panel';
+import { createListingView } from '../shared/listing-toolbar/listing-view';
+import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { readAlgoliaConfig } from './algolia-config';
 import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
-import { SearchController } from './search-controller';
+import { type IndexView, SearchController } from './search-controller';
 import { SearchProductCard } from './search-product-card';
 import { SearchVendorCard } from './search-vendor-card';
+import { filtersFromParams, filtersToParams, type SearchFilters } from './search-url-state';
+import { SearchVendorRow } from './search-vendor-row';
 import { SearchNumericMenu } from './widgets/search-numeric-menu';
-import { SearchPaginator } from './widgets/search-paginator';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
 import { SearchSortBy, type SortUiOption } from './widgets/search-sort-by';
@@ -74,6 +87,38 @@ import { SearchSortBy, type SortUiOption } from './widgets/search-sort-by';
 type EntityTab = 'products' | 'vendors';
 
 const TABS: readonly EntityTab[] = ['products', 'vendors'];
+
+/** Selected refinements on one tab: checked values, a non-"All" bucket, each set range. */
+function countFilters(
+  view: Pick<IndexView<unknown>, 'refinementLists' | 'numericMenus' | 'ranges'> | null,
+): number {
+  if (!view) return 0;
+  let count = 0;
+  for (const rl of view.refinementLists) count += rl.items().filter((i) => i.isRefined).length;
+  for (const nm of view.numericMenus) {
+    if (nm.items().some((i) => i.isRefined && i.label !== '')) count += 1;
+  }
+  for (const rg of view.ranges) {
+    if (isRangeSet(rg.start())) count += 1;
+  }
+  return count;
+}
+
+/** An Algolia product record in the `/products` table row's shape. */
+function toProductRow(record: AlgoliaProductRecord): ProductRow {
+  return {
+    slug: record.slug,
+    name: record.name,
+    logo_url: record.logo_url,
+    integration_count: record.integration_count,
+    review_count: record.review_count,
+    rating_overall_avg: record.rating_overall_avg,
+    vendor:
+      record.vendor_name && record.vendor_slug
+        ? { name: record.vendor_name, slug: record.vendor_slug }
+        : null,
+  };
+}
 
 /**
  * True when either side of a range refinement is set. `connectRange` reports an
@@ -99,8 +144,11 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     SearchRefinementList,
     SearchNumericMenu,
     SearchRangeInput,
-    SearchPaginator,
+    PaginationFooter,
     SearchSortBy,
+    ListingViewToggle,
+    ProductCard,
+    SearchVendorRow,
   ],
   template: `
     <aec-browse-layout>
@@ -227,7 +275,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                 (refine)="rg.refine($event)"
               />
             }
-            @if (activeFilterCount() > 0) {
+            @if (anyFilterCount() > 0) {
               <button
                 type="button"
                 class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
@@ -276,6 +324,13 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                   (sort)="onSortChange($event)"
                 />
               }
+              <!-- The /products cards/table toggle, on the end edge as there.
+                 ms-auto keeps it right-aligned while the sort control mounts. -->
+              <aec-listing-view-toggle
+                class="ms-auto"
+                [view]="listingView.view()"
+                (viewChange)="listingView.set($event)"
+              />
             </div>
 
             <div>
@@ -288,21 +343,81 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                     @case ('products') {
                       @if (ctrl.products.hits(); as hits) {
                         @if (hits.length) {
-                          <ul
-                            role="list"
-                            class="grid gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3"
-                            [class.opacity-60]="ctrl.stalled()"
-                            [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                          <div
+                            class="transition-opacity duration-200"
+                            [class.opacity-60]="resetting()"
+                            [class.pointer-events-none]="resetting()"
+                            [attr.aria-busy]="resetting() ? 'true' : null"
                           >
-                            @for (hit of hits; track hit.objectID) {
-                              <li class="min-w-0"><aec-search-product-card [record]="hit" /></li>
+                            @switch (listingView.view()) {
+                              @case ('table') {
+                                <div class="overflow-x-auto">
+                                  <table
+                                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+                                    i18n-aria-label="@@products.index.table.aria"
+                                    aria-label="Products"
+                                  >
+                                    <thead class="border-b border-(--border-default)">
+                                      <tr>
+                                        <th
+                                          scope="col"
+                                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          i18n="@@products.index.col.name"
+                                        >
+                                          Name
+                                        </th>
+                                        <th
+                                          scope="col"
+                                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          i18n="@@products.index.col.vendor"
+                                        >
+                                          Vendor
+                                        </th>
+                                        <th
+                                          scope="col"
+                                          class="hidden px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          i18n="@@products.index.col.rating"
+                                        >
+                                          Rating
+                                        </th>
+                                        <th
+                                          scope="col"
+                                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          i18n="@@products.index.col.integrations"
+                                        >
+                                          Integrations
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-(--border-default)">
+                                      @for (row of productRows(); track row.slug) {
+                                        <tr aec-product-card [product]="row"></tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                </div>
+                              }
+                              @default {
+                                <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                  @for (hit of hits; track hit.objectID) {
+                                    <li class="min-w-0">
+                                      <aec-search-product-card [record]="hit" />
+                                    </li>
+                                  }
+                                </ul>
+                              }
                             }
-                          </ul>
-                          <aec-search-paginator
-                            [page]="ctrl.products.page()"
-                            [nbPages]="ctrl.products.nbPages()"
-                            (pageChange)="ctrl.products.refinePage($event)"
+                          </div>
+                          <aec-pagination-footer
+                            class="mt-6 block border-t border-(--border-default) pt-6"
+                            [loadedCount]="hits.length"
+                            [total]="ctrl.products.nbHits()"
+                            [hasMore]="ctrl.products.hasMore()"
+                            [pending]="ctrl.products.loadingMore()"
+                            (loadMore)="ctrl.products.loadMore()"
                           />
+                        } @else if (ctrl.error()) {
+                          <ng-container [ngTemplateOutlet]="errorState" />
                         } @else {
                           <ng-container [ngTemplateOutlet]="emptyState" />
                         }
@@ -311,27 +426,83 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                     @case ('vendors') {
                       @if (ctrl.vendors.hits(); as hits) {
                         @if (hits.length) {
-                          <ul
-                            role="list"
-                            class="grid gap-4 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3"
-                            [class.opacity-60]="ctrl.stalled()"
-                            [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                          <div
+                            class="transition-opacity duration-200"
+                            [class.opacity-60]="resetting()"
+                            [class.pointer-events-none]="resetting()"
+                            [attr.aria-busy]="resetting() ? 'true' : null"
                           >
-                            @for (hit of hits; track hit.objectID) {
-                              <li class="min-w-0"><aec-search-vendor-card [record]="hit" /></li>
+                            @switch (listingView.view()) {
+                              @case ('table') {
+                                <div class="overflow-x-auto">
+                                  <table
+                                    class="w-full border-collapse text-start text-sm md:min-w-[36rem]"
+                                    i18n-aria-label="@@search.vendors.table.aria"
+                                    aria-label="Vendors"
+                                  >
+                                    <thead class="border-b border-(--border-default)">
+                                      <tr>
+                                        <th
+                                          scope="col"
+                                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          i18n="@@search.vendors.col.name"
+                                        >
+                                          Name
+                                        </th>
+                                        <th
+                                          scope="col"
+                                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                                          i18n="@@search.vendors.col.headquarters"
+                                        >
+                                          Headquarters
+                                        </th>
+                                        <th
+                                          scope="col"
+                                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                                          i18n="@@search.vendors.col.integrations"
+                                        >
+                                          Integrations
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-(--border-default)">
+                                      @for (hit of hits; track hit.objectID) {
+                                        <tr aec-search-vendor-row [record]="hit"></tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                </div>
+                              }
+                              @default {
+                                <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                  @for (hit of hits; track hit.objectID) {
+                                    <li class="min-w-0">
+                                      <aec-search-vendor-card [record]="hit" />
+                                    </li>
+                                  }
+                                </ul>
+                              }
                             }
-                          </ul>
-                          <aec-search-paginator
-                            [page]="ctrl.vendors.page()"
-                            [nbPages]="ctrl.vendors.nbPages()"
-                            (pageChange)="ctrl.vendors.refinePage($event)"
+                          </div>
+                          <aec-pagination-footer
+                            class="mt-6 block border-t border-(--border-default) pt-6"
+                            [loadedCount]="hits.length"
+                            [total]="ctrl.vendors.nbHits()"
+                            [hasMore]="ctrl.vendors.hasMore()"
+                            [pending]="ctrl.vendors.loadingMore()"
+                            (loadMore)="ctrl.vendors.loadMore()"
                           />
+                        } @else if (ctrl.error()) {
+                          <ng-container [ngTemplateOutlet]="errorState" />
                         } @else {
                           <ng-container [ngTemplateOutlet]="emptyState" />
                         }
                       }
                     }
                   }
+                } @else if (ctrl.error()) {
+                  <!-- The first search failed: nothing will replace the skeleton. -->
+                  <ng-container [ngTemplateOutlet]="errorState" />
                 } @else {
                   <!-- Mounted, first response pending: reserve space (no aria-busy;
                        the controller-null branch below owns the live-region). -->
@@ -354,6 +525,13 @@ const URL_SYNC_DEBOUNCE_MS = 350;
 
     <aec-mailing-list-signup />
 
+    <!-- Same words and placement as /products' failed load. -->
+    <ng-template #errorState>
+      <p class="py-12 text-center text-(--text-secondary)" role="alert" i18n="@@search.error">
+        Couldn't load results. Refresh to try again.
+      </p>
+    </ng-template>
+
     <ng-template #emptyState>
       <div
         class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-center"
@@ -373,7 +551,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
       Loading skeletons (AECI-228). Purely decorative (aria-hidden); the sr-only
       status region announces loading/result counts. Each card mirrors the real
       product/vendor card's box (same radius, border, padding, surface) with a
-      min height so the skeleton≈real swap barely moves. The paginator slot and
+      min height so the skeleton≈real swap barely moves. The pagination footer slot and
       the facet rail reserve their height too, so the first response settles in
       place instead of shoving the page. animate-pulse is auto-neutralized under
       prefers-reduced-motion (styles.css).
@@ -484,18 +662,34 @@ export class SearchPage implements OnDestroy {
    * badge and the "Clear filters" action, as `aec-facet-sidebar` does on
    * `/products`.
    */
-  protected readonly activeFilterCount = computed(() => {
-    const view = this.currentFacets();
-    if (!view) return 0;
-    let count = 0;
-    for (const rl of view.refinementLists) count += rl.items().filter((i) => i.isRefined).length;
-    for (const nm of view.numericMenus) {
-      if (nm.items().some((i) => i.isRefined && i.label !== '')) count += 1;
-    }
-    for (const rg of view.ranges) {
-      if (isRangeSet(rg.start())) count += 1;
-    }
-    return count;
+  protected readonly activeFilterCount = computed(() => countFilters(this.currentFacets()));
+
+  /**
+   * Selected refinements across BOTH tabs. Shows "Clear filters", which clears
+   * both, so a filter left on the hidden tab can still be cleared from here.
+   */
+  protected readonly anyFilterCount = computed(() => {
+    const ctrl = this.controller();
+    return ctrl ? countFilters(ctrl.products) + countFilters(ctrl.vendors) : 0;
+  });
+
+  /** `?view=` cards/table, shared with `/products` and the browse pages. */
+  protected readonly listingView = createListingView();
+
+  /** Products hits in the `/products` table row's shape, for the table view. */
+  protected readonly productRows = computed<ProductRow[]>(() => {
+    const ctrl = this.controller();
+    return ctrl ? ctrl.products.hits().map(toProductRow) : [];
+  });
+
+  /**
+   * Dim the grid only while a query, facet or sort change re-runs page 1, as
+   * `/products` does for its reset refetch. Loading MORE pages never dims: the
+   * loaded cards stay bright and only the footer shows a spinner.
+   */
+  protected readonly resetting = computed(() => {
+    const ctrl = this.controller();
+    return !!ctrl && ctrl.stalled() && !ctrl[this.activeTab()].loadingMore();
   });
 
   /** Fixed-length arrays driving the skeleton `@for` loops (index = track key). */
@@ -526,6 +720,18 @@ export class SearchPage implements OnDestroy {
     // HTML head and is refreshed on an in-app nav onto /search.
     this.meta.setSearchMeta({ canonical: canonicalUrl('/search') });
 
+    // Back / Forward: the URL changed under us, so bring the search to it. Only
+    // on popstate. Our own navigations already match the state they wrote,
+    // and a debounced `?q=` write must never pull the box back mid-typing.
+    let popstate = false;
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((event) => {
+      if (event instanceof NavigationStart) popstate = event.navigationTrigger === 'popstate';
+      else if (event instanceof NavigationEnd && popstate) {
+        popstate = false;
+        this.restoreFromUrl();
+      }
+    });
+
     // Browser-only: read the injected public config, load the SDK, start search.
     afterNextRender(() => {
       const config = readAlgoliaConfig();
@@ -543,6 +749,10 @@ export class SearchPage implements OnDestroy {
             this.initialQuery,
             this.initialSort(config),
             (event) => this.analytics.searchPerformed(event),
+            {
+              initialFilters: filtersFromParams(this.route.snapshot.queryParamMap),
+              onFiltersChange: (filters) => this.writeFilters(filters),
+            },
           );
           controller.start();
           // Replay anything typed while the SDK was loading. `onQueryInput`
@@ -597,28 +807,33 @@ export class SearchPage implements OnDestroy {
         sort: sort === 'relevance' ? null : sort,
       },
       queryParamsHandling: 'merge',
-      replaceUrl: true,
+      // A history step, so Back returns to the previous tab, as Back steps
+      // through filter and sort changes on /products. No scroll jump.
+      scroll: 'manual',
     });
   }
 
   /**
-   * Drop every refinement on the active tab. Each connector's own `refine` does
-   * the work: toggling a checked value unchecks it, the empty-label bucket is
-   * the numeric menu's "All", and an open range clears it. InstantSearch
-   * batches the resulting state changes into one search.
+   * Drop every refinement on BOTH tabs, as "Clear filters" on `/products` clears
+   * everything. Each connector's own `refine` does the work: toggling a checked
+   * value unchecks it, the empty-label bucket is the numeric menu's "All", and
+   * an open range clears it. InstantSearch batches the resulting state changes
+   * into one search.
    */
   protected clearFilters(): void {
-    const view = this.currentFacets();
-    if (!view) return;
-    for (const rl of view.refinementLists) {
-      for (const item of rl.items()) if (item.isRefined) rl.refine(item.value);
-    }
-    for (const nm of view.numericMenus) {
-      const all = nm.items().find((i) => i.label === '');
-      if (all && !all.isRefined) nm.refine(all.value);
-    }
-    for (const rg of view.ranges) {
-      if (isRangeSet(rg.start())) rg.refine([undefined, undefined]);
+    const ctrl = this.controller();
+    if (!ctrl) return;
+    for (const view of [ctrl.products, ctrl.vendors]) {
+      for (const rl of view.refinementLists) {
+        for (const item of rl.items()) if (item.isRefined) rl.refine(item.value);
+      }
+      for (const nm of view.numericMenus) {
+        const all = nm.items().find((i) => i.label === '');
+        if (all && !all.isRefined) nm.refine(all.value);
+      }
+      for (const rg of view.ranges) {
+        if (isRangeSet(rg.start())) rg.refine([undefined, undefined]);
+      }
     }
   }
 
@@ -633,11 +848,12 @@ export class SearchPage implements OnDestroy {
       relativeTo: this.route,
       queryParams: { sort: token === 'relevance' ? null : token },
       queryParamsHandling: 'merge',
-      replaceUrl: true,
+      // A history step, as on /products. No scroll jump.
+      scroll: 'manual',
     });
   }
 
-  /** The active sort token (`relevance` | `name`) for a tab. */
+  /** The active sort token for a tab (`relevance`, or a `REPLICA_SORTS` token). */
   private currentSortToken(tab: EntityTab): string {
     const ctrl = this.controller();
     if (!ctrl) return 'relevance';
@@ -652,6 +868,16 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.sort.relevance:Relevance`;
       case 'name':
         return $localize`:@@search.sort.name:Name (A–Z)`;
+      // The /products labels and ids, so the same sort reads the same on both
+      // pages (`productSortOptions()`).
+      case 'created':
+        return $localize`:@@listing.sort.newest:Newest`;
+      case 'updated':
+        return $localize`:@@listing.sort.updated:Recently updated`;
+      case 'rating':
+        return $localize`:@@listing.sort.rating:Highest rated`;
+      case 'reviews':
+        return $localize`:@@listing.sort.reviews:Most reviewed`;
       default:
         return key;
     }
@@ -756,6 +982,35 @@ export class SearchPage implements OnDestroy {
     return [$localize`:@@search.facet.yes:Yes`, $localize`:@@search.facet.no:No`];
   }
 
+  /** A filter change from the search: one history step, no scroll jump. */
+  private writeFilters(filters: SearchFilters): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: filtersToParams(filters),
+      queryParamsHandling: 'merge',
+      scroll: 'manual',
+    });
+  }
+
+  /**
+   * After Back / Forward, apply the URL's tab, query, sort and filters. Each
+   * part is compared first, so an unchanged part triggers no search.
+   */
+  private restoreFromUrl(): void {
+    const params = this.route.snapshot.queryParamMap;
+    const tab: EntityTab = params.get('tab') === 'vendors' ? 'vendors' : 'products';
+    this.activeTab.set(tab);
+    const ctrl = this.controller();
+    if (!ctrl) return;
+    const q = params.get('q')?.trim() ?? '';
+    if (q !== ctrl.query()) ctrl.setQuery(q);
+    const view = ctrl[tab];
+    const token = params.get('sort') ?? 'relevance';
+    const target = view.sortOptions.find((option) => option.key === token) ?? view.sortOptions[0];
+    if (target && target.value !== view.sortBy()) view.refineSort(target.value);
+    ctrl.setFilters(filtersFromParams(params));
+  }
+
   private initialTab(): EntityTab {
     const raw = this.route.snapshot.queryParamMap.get('tab');
     return raw === 'vendors' ? raw : 'products';
@@ -768,7 +1023,9 @@ export class SearchPage implements OnDestroy {
         relativeTo: this.route,
         queryParams: { q: value || null },
         queryParamsHandling: 'merge',
+        // Typing replaces the entry: Back should not step through every pause.
         replaceUrl: true,
+        scroll: 'manual',
       });
     }, URL_SYNC_DEBOUNCE_MS);
   }

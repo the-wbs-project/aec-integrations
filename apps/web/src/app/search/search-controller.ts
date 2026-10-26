@@ -12,11 +12,15 @@
  * the browser only (see `search-controller.factory.ts`), so it's SSR-safe. ADR
  * 0014 records the rationale.
  *
- * ARCHITECTURE — one root `instantsearch()` whose root index is `products`, plus
- * one nested `index()` widget (`vendors`), all driven by a single shared
- * `searchBox` on the root. That is exactly two index queries batched into one
- * multi-query request per keystroke. Each index owns its own hits + stats +
- * pagination + facets; the per-tab result count is just that index's
+ * ARCHITECTURE — one root `instantsearch()` with NO index of its own, holding the
+ * shared `searchBox`, plus two sibling nested `index()` widgets (`products`,
+ * `vendors`). A root without an `indexName` sends no query, so that is exactly
+ * two index queries batched into one multi-query request per keystroke. The
+ * indexes are siblings, not parent and child, because a nested index inherits
+ * its parent's refinements: with `products` as the root, a products category
+ * filter was sent to the vendors index too and emptied the Vendors tab. Both
+ * siblings still inherit the root's query, which is the one thing they share.
+ * Each index owns its own infinite hits + stats + facets; the per-tab result count is just that index's
  * `connectStats.nbHits`. One `dispose()` tears it all down. Tabs in the page are
  * pure show/hide of already-materialized signal slices — switching tabs never
  * re-queries.
@@ -27,10 +31,13 @@
  * nested `index()` for `config.indexes.integrations` plus its `FACET_CONFIG`
  * entry, and restoring the Integrations tab in `search-page.ts`.
  *
- * URL/facet policy (§9.2): this controller does NOT use instantsearch's history
- * router. Serializing every facet to the query string is the "query-string
- * explosion" §9.2 warns against. Facet state stays in-memory here; the page
- * syncs only `?q=` (+ `?tab=`) to the URL itself.
+ * URL policy (2026-10-26): this controller does NOT use instantsearch's history
+ * router, because the Angular router owns the URL. Instead it reports filter
+ * changes (`urlState.onFiltersChange`) for the page to write, and applies the
+ * URL's filters on Back/Forward (`setFilters`). The mapping is
+ * `search-url-state.ts`. Filters used to stay in memory, after the caching rule's
+ * "query-string explosion"; `/search` is uncached and noindex, so that never
+ * applied to the URL (ADR 0014 amendment).
  *
  * TESTABILITY — the impure `import('instantsearch.js')` / `import('algoliasearch/lite')`
  * lives in the factory. This class takes a structural `InstantSearchLib` +
@@ -39,7 +46,7 @@
  * any network or real SDK.
  *
  * Spec: `STAGE_1_SPEC.md` §4.6 (page UX), §7.1 (record shapes), §7.2 (facets),
- * §7.5 (integration); §9.2 (no facet-in-URL). Mirrors the browser-only,
+ * §7.5 (integration). Mirrors the browser-only,
  * dynamic-import discipline of `apps/web/src/app/analytics/posthog-client.ts`.
  */
 import { type Signal, type WritableSignal, signal } from '@angular/core';
@@ -51,6 +58,12 @@ import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { orderFacetItems } from './search-facet-order';
+import {
+  emptyFilters,
+  filtersFromUiState,
+  sameFilters,
+  type SearchFilters,
+} from './search-url-state';
 import { resultsBucket, type ResultsBucket, type SearchStatus } from './search-telemetry';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
@@ -110,12 +123,19 @@ export interface SortOption {
 /** Everything one entity tab binds to. `T` is the entity's denormalized record. */
 export interface IndexView<T> {
   readonly entity: 'products' | 'vendors';
+  /**
+   * Every hit loaded so far. `connectInfiniteHits` accumulates pages, so this
+   * grows as `loadMore()` runs and resets to page 1 on any query, facet or sort
+   * change: the same append-mode listing `/products` uses.
+   */
   readonly hits: Signal<T[]>;
   readonly nbHits: Signal<number>;
-  /** Zero-based current page (InstantSearch convention). */
-  readonly page: Signal<number>;
-  readonly nbPages: Signal<number>;
-  refinePage(page: number): void;
+  /** Whether more pages remain after the ones in `hits`. */
+  readonly hasMore: Signal<boolean>;
+  /** True from `loadMore()` until the next page lands (drives the footer spinner). */
+  readonly loadingMore: Signal<boolean>;
+  /** Append the next page. No-op while a page is in flight or none remain. */
+  loadMore(): void;
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
   readonly ranges: readonly RangeView[];
@@ -137,9 +157,14 @@ export interface WidgetHost {
   addWidgets(widgets: IsWidget[]): unknown;
 }
 
+/** InstantSearch's UI state: one entry per index id (`products`, `vendors`). */
+export type UiState = Record<string, Record<string, unknown>>;
+
 export interface InstantSearchInstance extends WidgetHost {
   start(): void;
   dispose(): void;
+  /** Replace the UI state (or derive it from the current one) and search. */
+  setUiState(next: UiState | ((current: UiState) => UiState)): void;
   /**
    * Subscribe to the instance error event. A failed search surfaces here, not
    * through any connector render, so this is the only hook for the
@@ -155,18 +180,18 @@ export interface SearchBoxRenderState {
   refine(query: string): void;
   isSearchStalled: boolean;
 }
-export interface HitsRenderState {
+export interface InfiniteHitsRenderState {
+  /** Hits for every page loaded so far, in order. */
   items: readonly unknown[];
+  isLastPage: boolean;
+  showMore(): void;
+  /** The response these items came from; a new object only when a search lands. */
+  results?: unknown;
 }
 export interface StatsRenderState {
   nbHits: number;
   /** Algolia server-side processing time, ms — `search_performed.duration_ms`. */
   processingTimeMS: number;
-}
-export interface PaginationRenderState {
-  currentRefinement: number;
-  nbPages: number;
-  refine(page: number): void;
 }
 export interface RefinementListRenderState {
   items: readonly RefinementItem[];
@@ -207,8 +232,8 @@ type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (param
  *     slice (`Analytics.capture` gates on `'granted'`);
  *   - RUM emitted per index with that index's `nbHits`; this event is federated,
  *     so `results_bucket` buckets `results_count` (products + vendors) through
- *     the same `resultsBucket()` helper, and `duration_ms` is the root
- *     (products) index's `processingTimeMS`.
+ *     the same `resultsBucket()` helper, and `duration_ms` is the products
+ *     index's `processingTimeMS`.
  *
  * The per-index narrowing is largely closed by `results_products` /
  * `results_vendors` (AECI-649 follow-up), which carry each index's own
@@ -220,7 +245,7 @@ type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (param
  * type did this query find?") without changing what the event counts.
  *
  * Note there are only TWO indexes here, not three: this controller runs the
- * products (root) and vendors indexes. Integrations are not searched from
+ * products and vendors indexes. Integrations are not searched from
  * `/search`, so there is no `results_integrations`.
  */
 export interface SearchPerformedEvent {
@@ -235,7 +260,7 @@ export interface SearchPerformedEvent {
   readonly filters_applied: readonly string[];
   /** Whether the query settled or the multi-query failed as a unit. */
   readonly status: SearchStatus;
-  /** Algolia `processingTimeMS` for the root index; 0 for a failure. */
+  /** Algolia `processingTimeMS` for the products index; 0 for a failure. */
   readonly duration_ms: number;
   /** Coarse bucket over `results_count`, keeping the property low-cardinality. */
   readonly results_bucket: ResultsBucket;
@@ -247,19 +272,24 @@ export type SearchPerformedEmitter = (event: SearchPerformedEvent) => void;
 /** The minimal `instantsearch.js` surface this controller drives. */
 export interface InstantSearchLib {
   instantsearch(opts: {
-    indexName: string;
+    /** Omitted on `/search`: the root holds only the shared search box. */
+    indexName?: string;
     searchClient: unknown;
     future?: { preserveSharedStateOnUnmount?: boolean };
+    /** Filters to start on, from the URL. */
+    initialUiState?: UiState;
+    /** Called on every UI-state change; must pass the state on via `setUiState`. */
+    onStateChange?: (params: { uiState: UiState; setUiState: (next: UiState) => void }) => void;
   }): InstantSearchInstance;
-  index(opts: { indexName: string }): WidgetHost;
+  /** `indexId` keys the index in the UI state; it stays put when a sort swaps `indexName`. */
+  index(opts: { indexName: string; indexId?: string }): WidgetHost;
   configure(params: Record<string, unknown>): IsWidget;
   connectSearchBox: Connector<
     SearchBoxRenderState,
     { queryHook?: (query: string, search: (value: string) => void) => void }
   >;
-  connectHits: Connector<HitsRenderState, Record<string, unknown>>;
+  connectInfiniteHits: Connector<InfiniteHitsRenderState, Record<string, unknown>>;
   connectStats: Connector<StatsRenderState, Record<string, unknown>>;
-  connectPagination: Connector<PaginationRenderState, { padding?: number }>;
   connectRefinementList: Connector<
     RefinementListRenderState,
     { attribute: string; limit?: number; operator?: 'or' | 'and'; sortBy?: string[] }
@@ -331,17 +361,38 @@ const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
   },
 };
 
-/** Page size per entity tab. */
-const HITS_PER_PAGE = 12;
+/** The facet attributes a tab exposes, by widget kind (for the URL mapping). */
+export function facetAttributesFor(entity: 'products' | 'vendors'): {
+  refinementLists: readonly string[];
+  numericMenus: readonly string[];
+  ranges: readonly string[];
+} {
+  const config = FACET_CONFIG[entity];
+  return {
+    refinementLists: config.refinementLists,
+    numericMenus: config.numericMenus.map((menu) => menu.attribute),
+    ranges: config.ranges,
+  };
+}
+
+/** Page size per entity tab: 24, the same as `/products` (`STAGE_1_PHASE_2_SPEC.md` §7.1). */
+const HITS_PER_PAGE = 24;
 /** Search-as-you-type debounce, ms (§ plan: ~150–200ms). */
 const QUERY_DEBOUNCE_MS = 200;
-/** Refinement-list value cap before "show more" would be needed (kept simple). */
-const REFINEMENT_LIST_LIMIT = 12;
+/**
+ * Values Algolia returns per refinement list: 100, Algolia's default
+ * `maxValuesPerFacet`, so the cap is the index's and not ours. The widget shows
+ * the top 10 and "Show more" reveals the rest (2026-10-26). It was 12, which
+ * silently dropped the 13th category onward with no way to reach it. Only
+ * `vendor_name` can exceed 100; past that it shows the 100 vendors with the
+ * most matching products.
+ */
+const REFINEMENT_LIST_LIMIT = 100;
 
 // ─── Controller ──────────────────────────────────────────────────────────────
 
 /**
- * Owns the root `instantsearch()` + the three index views and maps every
+ * Owns the root `instantsearch()` + the two index views and maps every
  * connector's render callback into a signal. NOT `providedIn:'root'` — it is
  * constructed only in the browser (inside `afterNextRender`), so SSR never
  * builds it.
@@ -352,8 +403,14 @@ export class SearchController {
   /** True while a search is taking long enough to be flagged stalled. */
   readonly stalled = signal(false);
   /**
+   * True after a search fails, until the next response lands. The page shows
+   * the `/products` "Couldn't load" message when there are no results on
+   * screen; a failed load of a LATER page keeps the loaded results instead.
+   */
+  readonly error = signal(false);
+  /**
    * Flips `true` once the first search RESPONSE has landed (the first
-   * non-initial `connectHits` render). Until then `hits()` is `[]` — which is
+   * non-initial `connectInfiniteHits` render). Until then `hits()` is `[]` — which is
    * indistinguishable from a genuine zero-result search — so the page would
    * otherwise flash the empty-state before results arrive. The page gates its
    * skeletons on this so it reserves space until results actually settle
@@ -371,6 +428,11 @@ export class SearchController {
   private disposed = false;
   /** Last query a `search_performed` was emitted for — dedupes to one per query. */
   private lastSearchEmittedFor: string | null = null;
+  /** One per index: clears its `loadingMore` when a search fails. */
+  private readonly loadingMoreResets: (() => void)[] = [];
+  private readonly onFiltersChange: (filters: SearchFilters) => void;
+  /** The filters last seen or applied, to tell a filter change from any other. */
+  private lastFilters: SearchFilters;
 
   constructor(
     private readonly lib: InstantSearchLib,
@@ -387,20 +449,52 @@ export class SearchController {
     /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
      *  the controller stays decoupled from Angular DI (the page wires it). */
     private readonly onSearch: SearchPerformedEmitter = () => undefined,
+    /**
+     * The URL half of the filter state (2026-10-26): the filters to start on,
+     * and a callback for each filter change, which the page writes to the URL.
+     * Typing, paging and sort changes do not call it; only filters do.
+     */
+    urlState: {
+      initialFilters?: SearchFilters;
+      onFiltersChange?: (filters: SearchFilters) => void;
+    } = {},
   ) {
     this.query = signal(initialQuery);
+    this.onFiltersChange = urlState.onFiltersChange ?? (() => undefined);
+    // Start from the URL's filters (or none), so the first keystroke, which
+    // also changes the UI state, is not mistaken for a filter change.
+    this.lastFilters = urlState.initialFilters ?? emptyFilters();
 
-    // Root index = products. The shared searchBox + the products widgets attach
-    // to the root; vendors attaches as a nested `index()` widget. That is two
-    // index queries (integrations intentionally not queried — see file header).
-    // Each index widget STARTS on its initial-sort index (a replica when `?sort=`
-    // asked for one), which `connectSortBy` then switches; `relevance` = primary.
+    // The root has no index (it sends no query); products and vendors are
+    // sibling nested `index()` widgets so neither inherits the other's filters
+    // (see file header). That is two index queries (integrations intentionally
+    // not queried). Each index widget STARTS on its initial-sort index (a replica
+    // when `?sort=` asked for one), which `connectSortBy` then switches;
+    // `relevance` = primary.
     const productsStart = initialSort.products ?? config.indexes.products;
     const vendorsStart = initialSort.vendors ?? config.indexes.vendors;
+    const initial = urlState.initialFilters;
     this.search = lib.instantsearch({
-      indexName: productsStart,
       searchClient,
       future: { preserveSharedStateOnUnmount: true },
+      ...(initial
+        ? {
+            initialUiState: {
+              products: { ...initial.products },
+              vendors: { ...initial.vendors },
+            },
+          }
+        : {}),
+      // Pass every change straight through, and tell the page when the FILTER
+      // part moved. Comparing against the last known filters keeps typing,
+      // paging, sorting and our own `setFilters` from firing it.
+      onStateChange: ({ uiState, setUiState }) => {
+        setUiState(uiState);
+        const filters = filtersFromUiState(uiState);
+        if (sameFilters(filters, this.lastFilters)) return;
+        this.lastFilters = filters;
+        this.onFiltersChange(filters);
+      },
     });
 
     const searchBox = lib.connectSearchBox((state) => {
@@ -417,13 +511,14 @@ export class SearchController {
       },
     });
 
+    const productsHost = lib.index({ indexName: productsStart, indexId: 'products' });
     this.products = this.wireIndex<AlgoliaProductRecord>(
-      this.search,
+      productsHost,
       'products',
       config.indexes.products,
       productsStart,
     );
-    const vendorsHost = lib.index({ indexName: vendorsStart });
+    const vendorsHost = lib.index({ indexName: vendorsStart, indexId: 'vendors' });
     this.vendors = this.wireIndex<AlgoliaVendorRecord>(
       vendorsHost,
       'vendors',
@@ -431,14 +526,19 @@ export class SearchController {
       vendorsStart,
     );
 
-    // Root gets: the shared searchBox + products widgets (already attached to
-    // `this.search` by `wireIndex`) + the one nested index widget.
-    this.search.addWidgets([searchBox, vendorsHost as IsWidget]);
+    // Root gets: the shared searchBox + the two sibling index widgets.
+    this.search.addWidgets([searchBox, productsHost as IsWidget, vendorsHost as IsWidget]);
 
     // A failed search never reaches a connector render, so the `status:'error'`
     // signal is emitted from the instance error event. The batched
     // products+vendors multi-query fails as a unit ⇒ one event per failure.
-    this.search.on('error', () => this.emitSearchFailed());
+    this.search.on('error', () => {
+      // A failed page never renders, so release the footer's spinner here or it
+      // would stay busy and block the next scroll-triggered load.
+      for (const reset of this.loadingMoreResets) reset();
+      this.error.set(true);
+      this.emitSearchFailed();
+    });
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -449,6 +549,22 @@ export class SearchController {
     // Seed `?q=` after start so the first (empty or seeded) search runs with it.
     const initial = this.query();
     if (initial) this.setQuery(initial);
+  }
+
+  /**
+   * Apply filters from the URL (the Back and Forward buttons). Replaces both
+   * tabs' refinements, keeps the query and sorts, and starts each list again
+   * from its first page. Does not call `onFiltersChange` back.
+   */
+  setFilters(filters: SearchFilters): void {
+    if (!this.started || this.disposed) return;
+    if (sameFilters(filters, this.lastFilters)) return;
+    this.lastFilters = filters;
+    this.search.setUiState((current) => ({
+      ...current,
+      products: { ...current['products'], ...filters.products, page: undefined },
+      vendors: { ...current['vendors'], ...filters.vendors, page: undefined },
+    }));
   }
 
   /** Update the query: mirror to the signal now, run the (debounced) search. */
@@ -474,7 +590,7 @@ export class SearchController {
    * Pagination / filter-only re-queries that keep the same query text don't
    * re-emit — the event tracks the user's search, not every Algolia round-trip.
    *
-   * `durationMs` is the root index's `processingTimeMS` (AECI-643 / §3.9).
+   * `durationMs` is the products index's `processingTimeMS` (AECI-643 / §3.9).
    */
   private maybeEmitSearchPerformed(durationMs: number): void {
     const query = this.query();
@@ -545,9 +661,9 @@ export class SearchController {
   }
 
   /**
-   * Build one index's widget set (hits, stats, pagination, configure, facets),
-   * attach them to `host` (the root instance for products; a nested `index()`
-   * for vendors/integrations), and return the signal-backed view.
+   * Build one index's widget set (infinite hits, stats, configure, facets),
+   * attach them to `host` (a nested `index()` under the index-less root), and
+   * return the signal-backed view.
    */
   private wireIndex<T>(
     host: WidgetHost,
@@ -562,9 +678,12 @@ export class SearchController {
 
     const hits = signal<T[]>([]);
     const nbHits = signal(0);
-    const page = signal(0);
-    const nbPages = signal(0);
-    let pageRefine: ((p: number) => void) | null = null;
+    const hasMore = signal(false);
+    const loadingMore = signal(false);
+    let showMore: (() => void) | null = null;
+    let lastResults: unknown;
+    let resultsAtLoad: unknown;
+    this.loadingMoreResets.push(() => loadingMore.set(false));
 
     // Sort (AECI-175): relevance = the primary index, then one replica per
     // non-relevance sort. `connectSortBy` switches this index widget between them;
@@ -582,12 +701,22 @@ export class SearchController {
 
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
-      lib.connectHits((state, isFirstRender) => {
+      lib.connectInfiniteHits((state, isFirstRender) => {
         hits.set(state.items as T[]);
+        hasMore.set(!state.isLastPage);
+        showMore = state.showMore;
+        // A new results object means a search landed, which ends an error.
+        if (state.results && state.results !== lastResults) this.error.set(false);
+        lastResults = state.results;
         // The init render (isFirstRender) fires synchronously on start() with
         // empty items, before any network. The first response is the first
         // non-initial render — that's when results have actually settled.
         if (!isFirstRender) this.ready.set(true);
+        // `showMore()` triggers an immediate re-render with the OLD results, so
+        // only a new `results` object means the page landed. Clearing on any
+        // render made the footer's pending phase invisible, and its scroll
+        // observer never re-armed after the first append.
+        if (state.results !== resultsAtLoad) loadingMore.set(false);
       })({}),
       lib.connectStats((state, isFirstRender) => {
         nbHits.set(state.nbHits);
@@ -596,17 +725,12 @@ export class SearchController {
         // later render corresponds to a real Algolia query.
         //
         // §14.1 `search_performed`: one event per distinct settled query. Gated
-        // to the root (products) index so a batched products+vendors response
+        // to the products index so a batched products+vendors response
         // emits once, not per index. Carries the fields re-homed from the
         // retired `aeci.search.query` RUM action (§3.9).
         if (!isFirstRender && entity === 'products') {
           this.maybeEmitSearchPerformed(Math.round(state.processingTimeMS));
         }
-      })({}),
-      lib.connectPagination((state) => {
-        page.set(state.currentRefinement);
-        nbPages.set(state.nbPages);
-        pageRefine = state.refine;
       })({}),
       lib.connectSortBy((state) => {
         sortBy.set(state.currentRefinement);
@@ -677,9 +801,14 @@ export class SearchController {
       entity,
       hits,
       nbHits,
-      page,
-      nbPages,
-      refinePage: (p: number) => pageRefine?.(p),
+      hasMore,
+      loadingMore,
+      loadMore: () => {
+        if (loadingMore() || !hasMore() || !showMore) return;
+        loadingMore.set(true);
+        resultsAtLoad = lastResults;
+        showMore();
+      },
       refinementLists,
       numericMenus,
       ranges,

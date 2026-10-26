@@ -19,7 +19,9 @@
  *   3. Prints the exact `gh secret set` + `wrangler secret put` commands to run.
  *
  * Idempotent: re-running without --rotate reuses keys already tagged for this
- * env (it never creates duplicates) and re-applies empty settings (a no-op).
+ * env (it never creates duplicates), re-syncs each reused key's index list and
+ * per-IP cap to the current params (same key value, so no secret changes), and
+ * re-applies empty settings (a no-op). Run it after adding a sort replica.
  * Pass --rotate to mint fresh keys and delete the old ones for this env.
  *
  * ── Shared mode (--shared, AECI-1270) ──────────────────────────────────────
@@ -111,9 +113,28 @@ async function ensureIndexes(client, env) {
   }
 }
 
+/** The key definition Algolia stores, from the shared params. */
+function keyDefinition(params) {
+  return {
+    acl: params.acl,
+    indexes: params.indexes,
+    description: params.description,
+    ...(params.maxQueriesPerIPPerHour === undefined
+      ? {}
+      : { maxQueriesPerIPPerHour: params.maxQueriesPerIPPerHour }),
+  };
+}
+
 /**
  * Create (or reuse / rotate) a single standalone key tagged by description.
  * Returns the key value so the caller can print it for `wrangler secret put`.
+ *
+ * A REUSED key is re-synced to the current params (index list, per-IP cap) with
+ * `updateApiKey`, which keeps its value, so no secret changes. Without that, a
+ * new sort replica stays unreachable by the existing keys: the browser's query
+ * 401s and the deploy's `setSettings` 403s. `updateApiKey` replaces the whole
+ * definition, so a cap set by hand in the dashboard is overwritten by the
+ * params, which are the source of truth.
  */
 async function ensureKey(client, params, { rotate }) {
   const { keys } = await client.listApiKeys();
@@ -126,14 +147,11 @@ async function ensureKey(client, params, { rotate }) {
           `re-run with --rotate to consolidate.`,
       );
     }
+    await client.updateApiKey({ key: existing[0].value, apiKey: keyDefinition(params) });
     return { value: existing[0].value, created: false };
   }
 
-  const { key } = await client.addApiKey({
-    acl: params.acl,
-    indexes: params.indexes,
-    description: params.description,
-  });
+  const { key } = await client.addApiKey(keyDefinition(params));
 
   if (rotate && existing.length > 0) {
     for (const old of existing) {
@@ -213,11 +231,11 @@ async function provisionShared({ rotate }) {
     console.log('\n• Provisioning the shared API keys (every tier, by index name):');
     const search = await ensureKey(client, sharedSearchKeyParams(), { rotate });
     console.log(
-      `    ${search.created ? '＋ created' : '↺ reused'} aeci:search:shared      (ACL: search)`,
+      `    ${search.created ? '＋ created' : '↺ reused, re-synced'} aeci:search:shared      (ACL: search)`,
     );
     const management = await ensureKey(client, sharedManagementKeyParams(), { rotate });
     console.log(
-      `    ${management.created ? '＋ created' : '↺ reused'} aeci:management:shared  (ACL: search + index-mutation)`,
+      `    ${management.created ? '＋ created' : '↺ reused, re-synced'} aeci:management:shared  (ACL: search + index-mutation)`,
     );
 
     console.log('\n• Live key values (set as secrets — do NOT commit):');
@@ -270,10 +288,12 @@ async function main() {
 
     console.log('\n• Provisioning scoped API keys:');
     const search = await ensureKey(client, searchKeyParams(env), { rotate });
-    console.log(`    ${search.created ? '＋ created' : '↺ reused'} search-only key  (ACL: search)`);
+    console.log(
+      `    ${search.created ? '＋ created' : '↺ reused, re-synced'} search-only key  (ACL: search)`,
+    );
     const management = await ensureKey(client, managementKeyParams(env), { rotate });
     console.log(
-      `    ${management.created ? '＋ created' : '↺ reused'} management key   (ACL: search + index-mutation)`,
+      `    ${management.created ? '＋ created' : '↺ reused, re-synced'} management key   (ACL: search + index-mutation)`,
     );
 
     console.log('\n• Live key values (set as secrets — do NOT commit):');

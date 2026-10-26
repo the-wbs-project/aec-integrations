@@ -6,6 +6,7 @@ import {
   AlgoliaVendorRecordSchema,
   algoliaSortKey,
   flattenTradeAliases,
+  productSortFields,
 } from './algolia-records';
 
 const PRODUCT = {
@@ -24,6 +25,8 @@ const PRODUCT = {
   integration_count: 342,
   review_count: 0,
   rating_overall_avg: null,
+  created_at_ts: 1767225600,
+  updated_at_ts: 1769904000,
   has_api_docs: true,
   logo_url: 'https://cdn.brandfetch.io/procore.png',
 };
@@ -94,6 +97,47 @@ describe('AlgoliaProductRecordSchema', () => {
     const { name_sort: _n, ...missing } = PRODUCT;
     expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
     expect(() => AlgoliaProductRecordSchema.parse({ ...PRODUCT, name_sort: '' })).toThrow();
+  });
+
+  // Same reason as name_sort: the Newest / Recently updated replicas rank on
+  // these, so a builder that forgets one must fail, not sort silently wrong.
+  it('REJECTS a record missing created_at_ts or updated_at_ts', () => {
+    const { created_at_ts: _c, ...noCreated } = PRODUCT;
+    const { updated_at_ts: _u, ...noUpdated } = PRODUCT;
+    expect(() => AlgoliaProductRecordSchema.parse(noCreated)).toThrow();
+    expect(() => AlgoliaProductRecordSchema.parse(noUpdated)).toThrow();
+  });
+});
+
+describe('productSortFields', () => {
+  const base = {
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-02-01T00:00:00.000Z',
+    reviewCount: 0,
+    ratingOverallAvg: null,
+  };
+
+  it('turns the ISO timestamps into unix seconds', () => {
+    expect(productSortFields(base)).toEqual({
+      created_at_ts: 1767225600,
+      updated_at_ts: 1769904000,
+    });
+  });
+
+  it('carries rating_sort only at or above the five-review gate, as /products ranks', () => {
+    expect(productSortFields({ ...base, reviewCount: 4, ratingOverallAvg: 5 })).not.toHaveProperty(
+      'rating_sort',
+    );
+    expect(productSortFields({ ...base, reviewCount: 5, ratingOverallAvg: 4.8 }).rating_sort).toBe(
+      4.8,
+    );
+    expect(
+      productSortFields({ ...base, reviewCount: 9, ratingOverallAvg: null }),
+    ).not.toHaveProperty('rating_sort');
+  });
+
+  it('throws on an unparseable timestamp rather than emitting NaN', () => {
+    expect(() => productSortFields({ ...base, createdAt: 'not a date' })).toThrow();
   });
 });
 

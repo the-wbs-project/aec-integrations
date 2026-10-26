@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { type InstantSearchLib, type IsWidget, SearchController } from './search-controller';
+import {
+  type InstantSearchLib,
+  type IsWidget,
+  SearchController,
+  type UiState,
+} from './search-controller';
+import { emptyFilters, type SearchFilters } from './search-url-state';
 import type { AlgoliaPublicConfig } from './algolia-config';
 
 /**
@@ -20,15 +26,18 @@ interface Captured {
 function makeFakeLib() {
   const calls = {
     instantsearch: [] as {
-      indexName: string;
+      indexName?: string;
+      initialUiState?: UiState;
+      onStateChange?: (p: { uiState: UiState; setUiState: (next: UiState) => void }) => void;
       future?: { preserveSharedStateOnUnmount?: boolean };
     }[],
-    index: [] as { indexName: string }[],
+    index: [] as { indexName: string; indexId?: string; widgets: IsWidget[] }[],
+    /** Widgets added straight onto the root instance. */
+    rootWidgets: [] as IsWidget[],
     configure: [] as Record<string, unknown>[],
     searchBox: [] as Captured[],
     hits: [] as Captured[],
     stats: [] as Captured[],
-    pagination: [] as Captured[],
     refinementList: [] as Captured[],
     numericMenu: [] as Captured[],
     range: [] as Captured[],
@@ -39,7 +48,17 @@ function makeFakeLib() {
     disposed: 0,
     /** Captured `on('error', …)` handlers (AECI-174). */
     errorHandlers: [] as ((payload: { error: Error }) => void)[],
-    addWidgets: (_w: IsWidget[]) => instance,
+    /** Every `setUiState` call, resolved against `uiState`. */
+    uiStates: [] as UiState[],
+    uiState: {} as UiState,
+    setUiState: (next: UiState | ((current: UiState) => UiState)) => {
+      instance.uiState = typeof next === 'function' ? next(instance.uiState) : next;
+      instance.uiStates.push(instance.uiState);
+    },
+    addWidgets: (w: IsWidget[]) => {
+      calls.rootWidgets.push(...w);
+      return instance;
+    },
     start: () => {
       instance.started++;
     },
@@ -68,19 +87,25 @@ function makeFakeLib() {
       return instance;
     },
     index: (opts) => {
-      calls.index.push(opts);
-      return { addWidgets: (_w: IsWidget[]) => ({}) };
+      const entry = { indexName: opts.indexName, indexId: opts.indexId, widgets: [] as IsWidget[] };
+      calls.index.push(entry);
+      return {
+        __index: entry,
+        addWidgets: (w: IsWidget[]) => {
+          entry.widgets.push(...w);
+          return {};
+        },
+      };
     },
     configure: (params) => {
       calls.configure.push(params);
       return { __configure: true } as IsWidget;
     },
     connectSearchBox: connector(calls.searchBox) as unknown as InstantSearchLib['connectSearchBox'],
-    connectHits: connector(calls.hits) as unknown as InstantSearchLib['connectHits'],
+    connectInfiniteHits: connector(
+      calls.hits,
+    ) as unknown as InstantSearchLib['connectInfiniteHits'],
     connectStats: connector(calls.stats) as unknown as InstantSearchLib['connectStats'],
-    connectPagination: connector(
-      calls.pagination,
-    ) as unknown as InstantSearchLib['connectPagination'],
     connectRefinementList: connector(
       calls.refinementList,
     ) as unknown as InstantSearchLib['connectRefinementList'],
@@ -103,9 +128,11 @@ const CONFIG: AlgoliaPublicConfig = {
 function build(
   initialQuery = '',
   initialSort: Partial<Record<'products' | 'vendors', string>> = {},
+  initialFilters?: SearchFilters,
 ) {
   const fake = makeFakeLib();
   const onSearch = vi.fn();
+  const onFiltersChange = vi.fn();
   const controller = new SearchController(
     fake.lib,
     {},
@@ -113,33 +140,100 @@ function build(
     initialQuery,
     initialSort,
     onSearch,
+    { initialFilters, onFiltersChange },
   );
-  return { ...fake, controller, onSearch };
+  return { ...fake, controller, onSearch, onFiltersChange };
 }
+
+describe('SearchController URL filter state', () => {
+  const withCategory: SearchFilters = {
+    ...emptyFilters(),
+    products: { refinementList: { categories: ['Scheduling'] }, numericMenu: {}, range: {} },
+  };
+
+  it('starts InstantSearch on the URL filters, keyed by stable index ids', () => {
+    const { calls } = build('', {}, withCategory);
+    expect(calls.instantsearch[0].initialUiState?.['products']).toMatchObject({
+      refinementList: { categories: ['Scheduling'] },
+    });
+    expect(calls.index.map((i) => i.indexId)).toEqual(['products', 'vendors']);
+  });
+
+  it('reports a filter change, but not typing or paging', () => {
+    const { calls, instance, onFiltersChange } = build();
+    const onStateChange = calls.instantsearch[0].onStateChange!;
+    const pass = (uiState: UiState) => onStateChange({ uiState, setUiState: instance.setUiState });
+
+    pass({ '': { query: 'rev' }, products: { page: 2 } });
+    expect(onFiltersChange).not.toHaveBeenCalled();
+    // The state still reaches InstantSearch: this is a pass-through.
+    expect(instance.uiStates).toHaveLength(1);
+
+    pass({ products: { refinementList: { categories: ['Scheduling'] } } });
+    expect(onFiltersChange).toHaveBeenCalledTimes(1);
+    expect(onFiltersChange.mock.calls[0]![0].products.refinementList).toEqual({
+      categories: ['Scheduling'],
+    });
+  });
+
+  it('applies Back/Forward filters without echoing them back', () => {
+    const { controller, calls, instance, onFiltersChange } = build();
+    controller.start();
+    instance.uiState = { products: { sortBy: 'p_idx_name_asc', page: 3 }, vendors: {} };
+    controller.setFilters(withCategory);
+    expect(instance.uiState['products']).toMatchObject({
+      sortBy: 'p_idx_name_asc',
+      refinementList: { categories: ['Scheduling'] },
+      page: undefined,
+    });
+    // InstantSearch calls onStateChange for setUiState too; it must not loop.
+    calls.instantsearch[0].onStateChange!({
+      uiState: instance.uiState,
+      setUiState: instance.setUiState,
+    });
+    expect(onFiltersChange).not.toHaveBeenCalled();
+    // The same filters again: no new search.
+    const count = instance.uiStates.length;
+    controller.setFilters(withCategory);
+    expect(instance.uiStates).toHaveLength(count);
+  });
+});
 
 afterEach(() => vi.useRealTimers());
 
 describe('SearchController wiring', () => {
-  it('creates one root instantsearch on the products index with shared-state future flag', () => {
+  it('creates one index-less root instantsearch with the shared-state future flag', () => {
     const { calls } = build();
     expect(calls.instantsearch).toHaveLength(1);
-    expect(calls.instantsearch[0].indexName).toBe('p_idx');
+    // No indexName: the root sends no query of its own.
+    expect(calls.instantsearch[0].indexName).toBeUndefined();
     expect(calls.instantsearch[0].future?.preserveSharedStateOnUnmount).toBe(true);
   });
 
-  it('adds exactly one nested index (vendors) — two queries total (integrations excluded)', () => {
+  it('nests products and vendors as SIBLINGS so neither inherits the other filters', () => {
     const { calls } = build();
-    expect(calls.index.map((i) => i.indexName)).toEqual(['v_idx']);
+    // Two queries total (integrations excluded).
+    expect(calls.index.map((i) => i.indexName)).toEqual(['p_idx', 'v_idx']);
+    // A nested index inherits its parent's refinements. Both index widgets hang
+    // off the root, and no facet widget sits on the root itself, so a products
+    // category filter can never reach the vendors query.
+    expect(calls.rootWidgets).toHaveLength(3);
+    expect(calls.rootWidgets.filter((w) => (w as { __index?: unknown }).__index)).toHaveLength(2);
+    expect(calls.rootWidgets).not.toContainEqual(
+      expect.objectContaining({ __bucket: calls.refinementList }),
+    );
+    expect(calls.index[0].widgets.length).toBeGreaterThan(0);
+    expect(calls.index[1].widgets.length).toBeGreaterThan(0);
   });
 
-  it('registers one shared searchBox and hits/stats/pagination/configure per index', () => {
+  it('registers one shared searchBox and infinite hits/stats/configure per index', () => {
     const { calls } = build();
     expect(calls.searchBox).toHaveLength(1);
     expect(calls.hits).toHaveLength(2);
     expect(calls.stats).toHaveLength(2);
-    expect(calls.pagination).toHaveLength(2);
     expect(calls.configure).toHaveLength(2);
-    expect(calls.configure[0]).toEqual({ hitsPerPage: 12 });
+    // 24, the /products page size, so both listings page alike.
+    expect(calls.configure[0]).toEqual({ hitsPerPage: 24 });
   });
 
   it('registers the §7.2 refinement lists / numeric menus / ranges per index', () => {
@@ -197,11 +291,16 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
     expect(calls.sortBy).toHaveLength(2);
   });
 
-  it('builds the per-tab sort options: relevance (primary) + the Name A–Z replica', () => {
+  it('builds the per-tab sort options: relevance (primary) + each replica', () => {
     const { controller } = build();
+    // Products: the five /products sorts, same tokens and order.
     expect(controller.products.sortOptions).toEqual([
       { value: 'p_idx', key: 'relevance' },
+      { value: 'p_idx_created_desc', key: 'created' },
       { value: 'p_idx_name_asc', key: 'name' },
+      { value: 'p_idx_updated_desc', key: 'updated' },
+      { value: 'p_idx_rating_desc', key: 'rating' },
+      { value: 'p_idx_reviews_desc', key: 'reviews' },
     ]);
     expect(controller.vendors.sortOptions).toEqual([
       { value: 'v_idx', key: 'relevance' },
@@ -211,10 +310,14 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
 
   it('passes the replica index names as connectSortBy items', () => {
     const { calls } = build();
-    expect(calls.sortBy[0].params['items']).toEqual([
-      { label: 'relevance', value: 'p_idx' },
-      { label: 'name', value: 'p_idx_name_asc' },
+    expect(calls.sortBy[1].params['items']).toEqual([
+      { label: 'relevance', value: 'v_idx' },
+      { label: 'name', value: 'v_idx_name_asc' },
     ]);
+    expect(calls.sortBy[0].params['items']).toContainEqual({
+      label: 'rating',
+      value: 'p_idx_rating_desc',
+    });
   });
 
   it('defaults sortBy to the primary index and maps currentRefinement on render', () => {
@@ -229,17 +332,17 @@ describe('SearchController — AECI-175 sort (replicas)', () => {
 
   it('seeds the index widgets + sortBy signal from initialSort (inbound ?sort=)', () => {
     const { calls, controller } = build('', { vendors: 'v_idx_name_asc' });
-    // The root products index starts on its primary…
-    expect(calls.instantsearch[0].indexName).toBe('p_idx');
+    // The products index starts on its primary…
+    expect(calls.index[0].indexName).toBe('p_idx');
     expect(controller.products.sortBy()).toBe('p_idx');
-    // …while the nested vendors index starts on the seeded replica.
-    expect(calls.index[0].indexName).toBe('v_idx_name_asc');
+    // …while the vendors index starts on the seeded replica.
+    expect(calls.index[1].indexName).toBe('v_idx_name_asc');
     expect(controller.vendors.sortBy()).toBe('v_idx_name_asc');
   });
 });
 
 describe('SearchController render-state → signal mapping', () => {
-  it('maps connectHits items onto the per-index hits signal', () => {
+  it('maps connectInfiniteHits items onto the per-index hits signal', () => {
     const { calls, controller } = build();
     const products = [{ objectID: 'a' }, { objectID: 'b' }];
     calls.hits[0].renderFn({ items: products }, true);
@@ -248,7 +351,7 @@ describe('SearchController render-state → signal mapping', () => {
     expect(controller.vendors.hits()).toEqual([]);
   });
 
-  it('flips `ready` only on the first non-initial connectHits render (AECI-228)', () => {
+  it('flips `ready` only on the first non-initial connectInfiniteHits render (AECI-228)', () => {
     const { calls, controller } = build();
     // Starts false: pre-search, `hits()` is `[]` — indistinguishable from a real
     // zero-result search, so the page must keep showing skeletons.
@@ -269,14 +372,60 @@ describe('SearchController render-state → signal mapping', () => {
     expect(controller.vendors.nbHits()).toBe(42);
   });
 
-  it('maps pagination state and forwards refinePage to the connector', () => {
+  it('maps isLastPage onto hasMore and appends via showMore', () => {
     const { calls, controller } = build();
-    const refine = vi.fn();
-    calls.pagination[0].renderFn({ currentRefinement: 2, nbPages: 5, refine }, true);
-    expect(controller.products.page()).toBe(2);
-    expect(controller.products.nbPages()).toBe(5);
-    controller.products.refinePage(3);
-    expect(refine).toHaveBeenCalledWith(3);
+    const showMore = vi.fn();
+    const page1 = { items: [{ objectID: 'a' }], isLastPage: false, showMore, results: {} };
+    calls.hits[0].renderFn(page1, false);
+    expect(controller.products.hasMore()).toBe(true);
+    controller.products.loadMore();
+    expect(showMore).toHaveBeenCalledTimes(1);
+    expect(controller.products.loadingMore()).toBe(true);
+    // InstantSearch re-renders straight away with the OLD results when the
+    // search starts. That is not the page landing, so the spinner must hold;
+    // clearing it here hid the pending phase from the footer's re-arm.
+    calls.hits[0].renderFn(page1, false);
+    expect(controller.products.loadingMore()).toBe(true);
+    // A second trigger while the page is in flight (scroll sentinel + click) is
+    // swallowed, so one page never loads twice.
+    controller.products.loadMore();
+    expect(showMore).toHaveBeenCalledTimes(1);
+    // The appended page lands: the accumulated items replace the signal and the
+    // spinner clears.
+    const items = [{ objectID: 'a' }, { objectID: 'b' }];
+    calls.hits[0].renderFn({ items, isLastPage: true, showMore, results: {} }, false);
+    expect(controller.products.hits()).toEqual(items);
+    expect(controller.products.loadingMore()).toBe(false);
+    expect(controller.products.hasMore()).toBe(false);
+    controller.products.loadMore();
+    expect(showMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears loadingMore when the search fails, so the footer can retry', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    calls.hits[1].renderFn({ items: [{ objectID: 'v' }], isLastPage: false, showMore }, false);
+    controller.vendors.loadMore();
+    expect(controller.vendors.loadingMore()).toBe(true);
+    instance.triggerError();
+    expect(controller.vendors.loadingMore()).toBe(false);
+    controller.vendors.loadMore();
+    expect(showMore).toHaveBeenCalledTimes(2);
+  });
+
+  it('flags error on a failed search and clears it when the next response lands', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    const first = { items: [], isLastPage: true, showMore, results: {} };
+    calls.hits[0].renderFn(first, false);
+    expect(controller.error()).toBe(false);
+    instance.triggerError();
+    expect(controller.error()).toBe(true);
+    // A re-render with the SAME results is not a new response.
+    calls.hits[0].renderFn(first, false);
+    expect(controller.error()).toBe(true);
+    calls.hits[0].renderFn({ ...first, results: {} }, false);
+    expect(controller.error()).toBe(false);
   });
 
   it('maps refinement-list items and forwards refine', () => {

@@ -361,12 +361,16 @@ When records tie on the full `customRanking` list, Algolia falls back to the rec
 
 §4.6 calls for a per-tab **sort dropdown**. The default order described above is *relevance* (textual ranking, then `customRanking`). Each additional sort option is realized as a **standard Algolia replica** of the entity's primary index — a replica returns the *same records* as its primary, re-ordered by its own `ranking`. The control lives at `apps/web/src/app/search/widgets/search-sort-by.ts`; the wiring (`connectSortBy` per index) is in `search-controller.ts`.
 
-**Options (product decision, 2026-06-23; amended by AECI-636 PR-B, 2026-09-22).** Products and Vendors each expose two sorts: Relevance and Name A–Z. The third, "Most integrations", was retired by AECI-636 PR-B. The Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas.
+**Options (product decision, 2026-06-23; amended by AECI-636 PR-B, 2026-09-22, and on 2026-10-26).** Products expose Relevance plus the five `/products` sorts, with the same `?sort=` tokens: Newest, Name A–Z, Recently updated, Highest rated, Most reviewed (`DESIGN.md` "The Same-Behavior Rule"). Vendors expose Relevance and Name A–Z. "Most integrations" was retired by AECI-636 PR-B. The Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas. The four new product replicas need the Grow plan's 50-index cap (29 indexes in all), adopted on 2026-10-26. They are standard replicas, not virtual ones, because only a standard replica orders strictly by the attribute, as `/products` does. Rollout order: `scripts/algolia/README.md`.
 
 | Tab | Sort | Index | Replica `ranking` (sort attribute first, then the default criteria) |
 |---|---|---|---|
 | Products | Relevance *(default)* | `<prefix>_products` (primary) | — (the §3.1 default formula) |
+| Products | Newest | `<prefix>_products_created_desc` | `desc(created_at_ts)`, typo…custom |
 | Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name_sort)`, typo…custom |
+| Products | Recently updated | `<prefix>_products_updated_desc` | `desc(updated_at_ts)`, typo…custom |
+| Products | Highest rated | `<prefix>_products_rating_desc` | `desc(rating_sort)`, typo…custom. `rating_sort` is absent below the §5.5 five-review gate, so those products sort last, as on `/products` |
+| Products | Most reviewed | `<prefix>_products_reviews_desc` | `desc(review_count)`, typo…custom |
 | Vendors | Relevance *(default)* | `<prefix>_vendors` (primary) | — (the §3.2 default formula) |
 | Vendors | Name (A–Z) | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
 

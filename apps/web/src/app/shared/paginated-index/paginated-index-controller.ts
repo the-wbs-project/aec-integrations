@@ -377,6 +377,8 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
         // `?page=` to 1.
         queryParams: { sort: key, page: mode === 'append' ? null : 1 },
         queryParamsHandling: 'merge',
+        // Stay in place, as a filter click does (facet-sidebar.ts).
+        scroll: 'manual',
       });
     },
     onPageChange(page: number): void {

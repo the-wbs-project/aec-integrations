@@ -32,6 +32,8 @@ function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductR
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,
+    created_at_ts: 1767225600,
+    updated_at_ts: 1767225600,
     has_api_docs: false,
     logo_url: null,
     ...overrides,

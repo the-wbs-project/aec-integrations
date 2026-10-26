@@ -24,6 +24,7 @@ import { LogoReadUrlSchema } from './api/logo-read';
 import { z } from 'zod';
 
 import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './api/integrations';
+import { RATING_VISIBILITY_MIN_REVIEWS } from './api/reviews';
 
 /**
  * `listing_tier` (AECI-636) on the product and vendor records: `1 | 2`, or ABSENT.
@@ -87,6 +88,16 @@ export const AlgoliaProductRecordSchema = z.object({
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),
+  // The four `/products` sorts `/search` mirrors (2026-10-26). Built only by
+  // `productSortFields` below, which both record builders share. The two
+  // timestamps are REQUIRED for the reason `name_sort` is: a missing value would
+  // sort silently wrong with nothing failing.
+  created_at_ts: z.number().int(),
+  updated_at_ts: z.number().int(),
+  // ABSENT below the §5.5 review gate, like `listing_tier`: Algolia sorts a
+  // record that lacks the attribute last, which is exactly where `/products`
+  // puts a product whose rating is withheld (`API_CONTRACTS.md` §3.2).
+  rating_sort: z.number().optional(),
   has_api_docs: z.boolean(),
   logo_url: LogoReadUrlSchema.nullable(),
   listing_tier: ListingTierSchema,
@@ -209,3 +220,42 @@ export const AlgoliaIntegrationRecordSchema = z.object({
 });
 
 export type AlgoliaIntegrationRecord = z.infer<typeof AlgoliaIntegrationRecordSchema>;
+
+/** The product columns `productSortFields` reads, as ISO strings and numbers. */
+export interface ProductSortInputs {
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly reviewCount: number;
+  readonly ratingOverallAvg: number | null;
+}
+
+/**
+ * The sort-only fields of a product record, shared by `toAlgoliaProduct`
+ * (`apps/api`) and `buildProductRecords` (`apps/datatool`) so the two builders
+ * cannot disagree. The replicas in `REPLICA_SORTS` (`./algolia`) rank on them:
+ *
+ * - `created_at_ts` / `updated_at_ts`: unix seconds. Algolia's `desc()` needs a
+ *   number; the D1 columns are ISO text.
+ * - `rating_sort`: the overall average, present only at or above the §5.5 gate
+ *   (`RATING_VISIBILITY_MIN_REVIEWS`). Omitted below it, so one 5-star review
+ *   cannot outrank a well-reviewed 4.8, the same rule as `/products`.
+ */
+export function productSortFields(input: ProductSortInputs): {
+  created_at_ts: number;
+  updated_at_ts: number;
+  rating_sort?: number;
+} {
+  const rated =
+    input.ratingOverallAvg !== null && input.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS;
+  return {
+    created_at_ts: toUnixSeconds(input.createdAt),
+    updated_at_ts: toUnixSeconds(input.updatedAt),
+    ...(rated ? { rating_sort: input.ratingOverallAvg as number } : {}),
+  };
+}
+
+function toUnixSeconds(iso: string): number {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) throw new Error(`productSortFields: unparseable timestamp ${iso}`);
+  return Math.floor(ms / 1000);
+}

@@ -1,6 +1,6 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PaginationFooter } from './pagination-footer';
 
@@ -140,5 +140,63 @@ describe('PaginationFooter', () => {
     expect(loadMoreLink(el)).toBeNull();
     expect(el.textContent).toContain("You've reached the end");
     expect(el.textContent).toContain('50 in total');
+  });
+
+  describe('scroll auto-load', () => {
+    /** Stand-in observer: records live instances so a test can fire their callback. */
+    const live: FakeObserver[] = [];
+    class FakeObserver {
+      constructor(readonly callback: (entries: { isIntersecting: boolean }[]) => void) {
+        live.push(this);
+      }
+      observe(): void {}
+      disconnect(): void {
+        live.splice(live.indexOf(this), 1);
+      }
+    }
+
+    beforeEach(() => {
+      live.length = 0;
+      vi.stubGlobal('IntersectionObserver', FakeObserver);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('re-arms after each load so a sentinel that never left the margin still loads again', async () => {
+      const { fixture } = create({ loadedCount: 12, total: 100, hasMore: true, pending: false });
+      await fixture.whenStable();
+      let emitted = 0;
+      fixture.componentInstance.loadMore.subscribe(() => (emitted += 1));
+
+      live[0].callback([{ isIntersecting: true }]);
+      expect(emitted).toBe(1);
+
+      // In flight: the pending guard stops a double load.
+      fixture.componentRef.setInput('pending', true);
+      await fixture.whenStable();
+      live[0].callback([{ isIntersecting: true }]);
+      expect(emitted).toBe(1);
+
+      // The page landed but was too short to push the sentinel out of the
+      // margin. A fresh observer's initial report is the only event there will
+      // be, and it must load the next page.
+      const first = live[0];
+      fixture.componentRef.setInput('loadedCount', 24);
+      fixture.componentRef.setInput('pending', false);
+      await fixture.whenStable();
+      expect(live).toHaveLength(1);
+      expect(live[0]).not.toBe(first);
+      live[0].callback([{ isIntersecting: true }]);
+      expect(emitted).toBe(2);
+    });
+
+    it('does not re-arm after a failed load, so an error cannot retry in a loop', async () => {
+      const { fixture } = create({ loadedCount: 24, total: 100, hasMore: true, pending: true });
+      await fixture.whenStable();
+      const armed = live[0];
+      // The fetch failed: pending clears but no page landed.
+      fixture.componentRef.setInput('pending', false);
+      await fixture.whenStable();
+      expect(live).toEqual([armed]);
+    });
   });
 });

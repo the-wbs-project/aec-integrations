@@ -9,6 +9,16 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { IntegrationStat } from './integration-stat';
 
 /**
+ * The fields the row reads. A `ProductListItem` satisfies it, and so does a
+ * `/search` Algolia record mapped by `searchProductRow`, which is how the
+ * `/search` table view renders the very same row.
+ */
+export type ProductRow = Pick<
+  ProductListItem,
+  'slug' | 'name' | 'logo_url' | 'integration_count' | 'review_count' | 'rating_overall_avg'
+> & { readonly vendor: { readonly name: string; readonly slug: string } | null };
+
+/**
  * Row representation of a `ProductListItem` — the **table view** of the
  * catalog, projected into the `<tbody>` of the `/products` table and of the
  * taxonomy browse-page tables. Uses an attribute selector on `<tr>` so the
@@ -124,7 +134,7 @@ import { IntegrationStat } from './integration-stat';
   `,
 })
 export class ProductCard {
-  readonly product = input.required<ProductListItem>();
+  readonly product = input.required<ProductRow>();
 
   protected readonly vendor = computed(() => this.product().vendor);
 }

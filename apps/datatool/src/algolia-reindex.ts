@@ -36,7 +36,11 @@ import {
   type AlgoliaBatchCredentials,
   callAlgoliaBatch,
 } from '@aeci/shared/algolia-batch';
-import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-records';
+import {
+  algoliaSortKey,
+  flattenTradeAliases,
+  productSortFields,
+} from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import {
   ddlHasRetiredColumn,
@@ -107,6 +111,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       `SELECT
          p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website, p.has_api_docs,
          p.integration_count, p.review_count, p.rating_overall_avg,
+         p.created_at, p.updated_at,
          (SELECT v.company_name FROM product_vendors pv JOIN vendors v ON v.id = pv.vendor_id
             WHERE pv.product_id = p.id ORDER BY pv.is_primary DESC LIMIT 1) AS vendor_name,
          (SELECT v.slug FROM product_vendors pv JOIN vendors v ON v.id = pv.vendor_id
@@ -134,6 +139,8 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       integration_count: number;
       review_count: number;
       rating_overall_avg: number | null;
+      created_at: string;
+      updated_at: string;
       vendor_name: string | null;
       vendor_slug: string | null;
       categories: string | null;
@@ -162,6 +169,13 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       integration_count: r.integration_count,
       review_count: r.review_count,
       rating_overall_avg: r.rating_overall_avg,
+      // Identical to `toAlgoliaProduct` through the shared helper.
+      ...productSortFields({
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        reviewCount: r.review_count,
+        ratingOverallAvg: r.rating_overall_avg,
+      }),
       has_api_docs: Boolean(r.has_api_docs),
       logo_url: r.logo_url,
       // AECI-636 — the SHARED computation, so this builder and `toAlgoliaProduct`

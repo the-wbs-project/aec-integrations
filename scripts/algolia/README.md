@@ -69,7 +69,7 @@ It ensures `staging_docs` and `production_docs` exist, then mints or reuses `aec
 
 ## Idempotency & rotation
 
-- **Re-running without `--rotate`** reuses keys already tagged for the env (it never creates duplicates) and re-applies empty settings (a no-op). Safe to run repeatedly.
+- **Re-running without `--rotate`** reuses keys already tagged for the env (it never creates duplicates), re-syncs each reused key's index list and per-IP cap to the code (`updateApiKey`, same key value, so no secret changes), and re-applies empty settings (a no-op). Safe to run repeatedly. Run it after adding a sort replica, before the deploy that creates it.
 - **`--rotate`** mints fresh keys for the env and deletes the old ones. Re-set the affected GitHub + Worker secrets and redeploy. Each env rotates independently (CICD §7.4). The root key stays operator-held throughout.
 
 ```bash
@@ -134,6 +134,25 @@ record without emptying the index (run it with `--entity products` and `--entity
 same pass carries `name_sort` / `company_name_sort`. The datatool reindex empties the index while it
 runs. *(AECI-636 PR-B, 2026-09-22: the backfill reached full coverage in every environment on
 2026-09-21 and 2026-09-22, and PR-B now ranks on `listing_tier`.)*
+
+## The `/products` sorts on `/search` (2026-10-26)
+
+Four product replicas were added so `/search` offers the `/products` sorts: `_products_created_desc`,
+`_products_updated_desc`, `_products_rating_desc` and `_products_reviews_desc`. They rank on three
+new record fields (`created_at_ts`, `updated_at_ts`, `rating_sort`, built by `productSortFields` in
+`packages/shared/src/algolia-records.ts`) and the existing `review_count`. That is 12 new indexes, 29
+in all, which needs the Grow plan's 50-index cap. The app moved to Grow on 2026-10-26.
+
+Run these in order. Step 1 must come before the deploy.
+
+1. **Re-sync the shared keys:** `node scripts/algolia/provision.mjs --shared` with the root admin key.
+   Both keys list their indexes by name. Without this the deploy's `setSettings` on a new replica
+   403s and the browser's query to it 401s. It also writes the search key's per-IP cap.
+2. **Deploy.** `apply-settings.mjs` runs in the deploy and creates the four replicas per tier.
+3. **Backfill the new fields** per tier with the watermark sweep in `docs/SEARCH_RANKING.md` §1.2
+   (`--entity products`). The nightly sync only re-pushes products whose `updated_at` moved, so
+   until the sweep runs, the new sorts rank on an absent attribute and order arbitrarily.
+4. **Check** each new sort on that tier's `/search`.
 
 ## Retired replicas need a manual delete (AECI-636 PR-B)
 

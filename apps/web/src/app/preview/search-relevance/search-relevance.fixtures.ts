@@ -22,7 +22,13 @@ function product(
   n: number,
   fields: Omit<
     AlgoliaProductRecord,
-    'objectID' | 'logo_url' | 'trades' | 'trade_aliases' | 'name_sort'
+    | 'objectID'
+    | 'logo_url'
+    | 'trades'
+    | 'trade_aliases'
+    | 'name_sort'
+    | 'created_at_ts'
+    | 'updated_at_ts'
   > &
     Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases'>>,
 ): AlgoliaProductRecord {
@@ -38,6 +44,9 @@ function product(
     // future fixture may opt in by passing `trades` / `trade_aliases`.
     trades: [],
     trade_aliases: [],
+    // Sort-only fields; no ranking strategy here reads them.
+    created_at_ts: 1767225600,
+    updated_at_ts: 1767225600,
     ...fields,
   };
 }

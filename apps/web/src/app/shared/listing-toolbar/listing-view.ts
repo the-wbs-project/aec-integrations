@@ -52,6 +52,10 @@ export interface ListingViewController {
  * a different route (`STAGE_1_5_SPEC.md` §7) that remembers itself in the same
  * post-hydration cookie pattern.
  *
+ * `/search` is a third host (2026-10-26). It is not edge-cached, so none of the
+ * cache reasoning above is needed there, but sharing the controller keeps the
+ * remembered choice and the toggle identical across all three.
+ *
  * Call from a field initializer (an injection context), like
  * `createPaginatedIndex`.
  */
@@ -99,6 +103,8 @@ export function createListingView(): ListingViewController {
         relativeTo: route,
         queryParams: { view: value },
         queryParamsHandling: 'merge',
+        // Stay in place, as a filter or sort change does.
+        scroll: 'manual',
       });
     },
   };

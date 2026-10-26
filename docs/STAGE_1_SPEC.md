@@ -367,6 +367,16 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
   - Faceted filters: category, audience, phase, vendor, mechanism (for integrations)
   - Results split into tabs: Products / Vendors / Integrations
   - Sort options per tab
+  - Infinite scroll with a "Load more" floor, the same footer `/products` uses (`connectInfiniteHits`;
+    replaced a Previous/Next paginator on 2026-10-26, `DESIGN.md` "The Same-Behavior Rule")
+  - Sort options match `/products` (Newest, Name, Recently updated, Highest rated, Most reviewed),
+    plus Relevance, the default. Algolia replicas, `docs/SEARCH_RANKING.md` §5a (2026-10-26).
+  - Filters, tab and sort live in the URL, so reload, Back and a shared link keep them. A filter,
+    tab or sort change adds a history entry; typing does not. A filter or sort change keeps the
+    scroll position on every listing page (2026-10-26).
+  - Cards/table toggle, error message and "Clear filters" behave as on `/products` (2026-10-26).
+    "Clear filters" clears both tabs. A filter applies only to its own tab: the products and
+    vendors indexes are siblings, so a product category never filters the vendor results
 - Empty state: "No results — try a broader search or browse by category"
 
 ### 4.7 Review submission (`/products/:slug/review`)

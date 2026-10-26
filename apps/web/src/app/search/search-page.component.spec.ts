@@ -4,7 +4,7 @@ import { Meta, Title } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { type InstantSearchLib, type IsWidget } from './search-controller';
+import { type InstantSearchLib, type IsWidget, type SearchController } from './search-controller';
 import { SearchPage } from './search-page';
 import { type SearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
 
@@ -53,36 +53,45 @@ function setup() {
  * does on start) so the controller captures `refine` — then a replayed
  * `setQuery` shows up as a `refine` call.
  */
-function makeFakeEngine(): SearchEngine & { refine: ReturnType<typeof vi.fn> } {
+function makeFakeEngine(): SearchEngine & {
+  refine: ReturnType<typeof vi.fn>;
+  options: Parameters<InstantSearchLib['instantsearch']>[0][];
+  setUiState: ReturnType<typeof vi.fn>;
+} {
   const refine = vi.fn();
+  const setUiState = vi.fn();
+  const options: Parameters<InstantSearchLib['instantsearch']>[0][] = [];
   let searchBoxRender: ((state: unknown, first: boolean) => void) | null = null;
   const instance = {
     addWidgets: () => instance,
     start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
     dispose: () => {},
     on: () => {},
+    setUiState,
   };
   const passthrough =
     (_render: (state: unknown, first: boolean) => void) =>
     (_params: Record<string, unknown> = {}): IsWidget =>
       ({}) as IsWidget;
   const lib: InstantSearchLib = {
-    instantsearch: () => instance,
+    instantsearch: (opts) => {
+      options.push(opts);
+      return instance;
+    },
     index: () => ({ addWidgets: () => ({}) }),
     configure: () => ({}) as IsWidget,
     connectSearchBox: ((render: (state: unknown, first: boolean) => void) => {
       searchBoxRender = render;
       return (_params: Record<string, unknown> = {}): IsWidget => ({}) as IsWidget;
     }) as unknown as InstantSearchLib['connectSearchBox'],
-    connectHits: passthrough as unknown as InstantSearchLib['connectHits'],
+    connectInfiniteHits: passthrough as unknown as InstantSearchLib['connectInfiniteHits'],
     connectStats: passthrough as unknown as InstantSearchLib['connectStats'],
-    connectPagination: passthrough as unknown as InstantSearchLib['connectPagination'],
     connectRefinementList: passthrough as unknown as InstantSearchLib['connectRefinementList'],
     connectNumericMenu: passthrough as unknown as InstantSearchLib['connectNumericMenu'],
     connectRange: passthrough as unknown as InstantSearchLib['connectRange'],
     connectSortBy: passthrough as unknown as InstantSearchLib['connectSortBy'],
   };
-  return { lib, searchClient: {}, refine };
+  return { lib, searchClient: {}, refine, options, setUiState };
 }
 
 /** Mount the page against a fake engine that resolves immediately, so a real
@@ -102,7 +111,7 @@ async function setupMounted(url = '/search') {
   fixture.detectChanges();
   await tick(); // afterNextRender → factory resolves → controller mounts
   fixture.detectChanges();
-  return { fixture, router, el: fixture.nativeElement as HTMLElement };
+  return { fixture, router, engine, el: fixture.nativeElement as HTMLElement };
 }
 
 /** The page's protected sort handlers, surfaced for direct assertion (the overlay
@@ -276,12 +285,35 @@ describe('SearchPage shell', () => {
     expect(trigger.textContent).not.toContain('Most integrations');
   });
 
-  it('offers exactly Relevance and Name (A–Z) on the products tab', async () => {
+  it('offers Relevance plus the five /products sorts on the products tab', async () => {
     const { fixture } = await setupMounted('/search');
     const options = (
       fixture.componentInstance as unknown as { sortUiOptions: () => readonly { label: string }[] }
     ).sortUiOptions();
+    expect(options.map((option) => option.label)).toEqual([
+      'Relevance',
+      'Newest',
+      'Name (A–Z)',
+      'Recently updated',
+      'Highest rated',
+      'Most reviewed',
+    ]);
+  });
+
+  it('offers Relevance and Name (A–Z) on the vendors tab', async () => {
+    const { fixture } = await setupMounted('/search?tab=vendors');
+    const options = (
+      fixture.componentInstance as unknown as { sortUiOptions: () => readonly { label: string }[] }
+    ).sortUiOptions();
     expect(options.map((option) => option.label)).toEqual(['Relevance', 'Name (A–Z)']);
+  });
+
+  it('seeds ?sort=rating onto the Highest rated replica, the /products token', async () => {
+    const { fixture } = await setupMounted('/search?sort=rating');
+    const ctrl = (
+      fixture.componentInstance as unknown as { controller: () => SearchController }
+    ).controller();
+    expect(ctrl.products.sortBy()).toBe('p_rating_desc');
   });
 
   it('writes ?sort= when a non-relevance sort is chosen, and clears it for relevance', async () => {
@@ -348,7 +380,7 @@ describe('SearchPage shell', () => {
     expect([...tabs].every((tab) => tab.classList.contains('aec-nav-tab'))).toBe(true);
   });
 
-  it('counts active refinements and clears them through each connector', () => {
+  it('counts active refinements and clears them on BOTH tabs through each connector', () => {
     setConfigPresent();
     setup();
     const fixture = TestBed.createComponent(SearchPage);
@@ -389,20 +421,109 @@ describe('SearchPage shell', () => {
         },
       ],
     };
+    // The hidden Vendors tab holds one filter of its own.
+    const vendorRefine = vi.fn();
+    const vendorsView = {
+      refinementLists: [],
+      numericMenus: [
+        {
+          attribute: 'product_count',
+          items: signal([
+            { value: 'all', label: '', isRefined: false },
+            { value: 'few', label: '1–10', isRefined: true },
+          ]),
+          refine: vendorRefine,
+        },
+      ],
+      ranges: [],
+    };
     const page = fixture.componentInstance as unknown as {
       controller: WritableSignal<unknown>;
       activeFilterCount: () => number;
+      anyFilterCount: () => number;
       clearFilters(): void;
     };
-    page.controller.set({ products: view, vendors: view, dispose: () => {} });
+    page.controller.set({ products: view, vendors: vendorsView, dispose: () => {} });
 
-    // Two checked values + one bucket + one range bound.
+    // Active (products) tab: two checked values + one bucket + one range bound.
     expect(page.activeFilterCount()).toBe(4);
+    // Both tabs, which decides whether "Clear filters" shows.
+    expect(page.anyFilterCount()).toBe(5);
 
+    // "Clear filters" clears everything, as on /products, not just this tab.
     page.clearFilters();
     expect(listRefine.mock.calls).toEqual([['a'], ['c']]);
     expect(menuRefine).toHaveBeenCalledWith('all');
     expect(rangeRefine).toHaveBeenCalledWith([undefined, undefined]);
+    expect(vendorRefine).toHaveBeenCalledWith('all');
+  });
+
+  it('shows the /products failed-load message when the first search fails', async () => {
+    const { fixture, el } = await setupMounted();
+    const page = fixture.componentInstance as unknown as {
+      controller: () => SearchController;
+    };
+    // The first response never landed, so the skeleton would otherwise stay up.
+    page.controller().error.set(true);
+    fixture.detectChanges();
+    expect(el.textContent).toContain("Couldn't load results. Refresh to try again.");
+    expect(el.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('renders the shared cards/table toggle and the /products table row on ?view=table', async () => {
+    const { fixture, el } = await setupMounted('/search?view=table');
+    const ctrl = (
+      fixture.componentInstance as unknown as { controller: () => SearchController }
+    ).controller();
+    (ctrl.products.hits as WritableSignal<unknown[]>).set([
+      {
+        objectID: 'p1',
+        slug: 'revit',
+        name: 'Revit',
+        logo_url: null,
+        vendor_name: 'Autodesk',
+        vendor_slug: 'autodesk',
+        integration_count: 3,
+        review_count: 0,
+        rating_overall_avg: null,
+      },
+    ]);
+    ctrl.ready.set(true);
+    fixture.detectChanges();
+
+    const pressed = el.querySelector('aec-listing-view-toggle [aria-pressed="true"]');
+    expect(pressed?.textContent).toContain('Table');
+    const row = el.querySelector('table tbody tr');
+    expect(row?.getAttribute('aec-product-card')).not.toBeNull();
+    expect(row?.querySelector('a[href="/products/revit"]')).not.toBeNull();
+    expect(row?.querySelector('a[href="/vendors/autodesk"]')).not.toBeNull();
+  });
+
+  it('starts the search on the filters in the URL', async () => {
+    const { engine } = await setupMounted(
+      '/search?categories=Scheduling&categories=AI&v_founded_year=2000:',
+    );
+    const initial = engine.options[0]!.initialUiState!;
+    expect(initial['products']).toMatchObject({
+      refinementList: { categories: ['AI', 'Scheduling'] },
+    });
+    expect(initial['vendors']).toMatchObject({ range: { founded_year: '2000:' } });
+  });
+
+  it('writes a filter change to the URL as a new history entry', async () => {
+    const { engine, router } = await setupMounted('/search?q=revit');
+    const navigate = vi.spyOn(router, 'navigate');
+    engine.options[0]!.onStateChange!({
+      uiState: { products: { refinementList: { trades: ['Roofing'] } } },
+      setUiState: () => {},
+    });
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const extras = navigate.mock.calls[0]![1]!;
+    expect(extras.queryParams).toMatchObject({ trades: ['Roofing'], categories: null });
+    expect(extras.queryParamsHandling).toBe('merge');
+    // A Back step, not a replace, and no jump to the top.
+    expect(extras.replaceUrl).toBeUndefined();
+    expect(extras.scroll).toBe('manual');
   });
 
   it('treats an infinite range bound as unset', () => {

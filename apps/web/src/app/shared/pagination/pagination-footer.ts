@@ -11,8 +11,9 @@ import {
 
 /**
  * Infinite-scroll footer for the append-mode listing pages (`/products`, the
- * taxonomy browse pages, and — since the vendor-list revision — `/admin/vendors`). Sits over the accumulating engine
- * (`createPaginatedIndex({ mode: 'append' })`): an `IntersectionObserver`
+ * taxonomy browse pages, `/search`, and — since the vendor-list revision — `/admin/vendors`).
+ * Sits over an accumulating engine (`createPaginatedIndex({ mode: 'append' })`,
+ * or `connectInfiniteHits` on `/search`): an `IntersectionObserver`
  * sentinel auto-loads the next page as the reader nears the end, and a real
  * "Load more" link stays present underneath as the keyboard / screen-reader /
  * no-JS floor.
@@ -148,6 +149,14 @@ export class PaginationFooter {
       // (e.g. when `hasMore` flips), re-arming or tearing down the observer.
       const el = this.sentinel()?.nativeElement;
       if (!el) return;
+      // Re-arm whenever a page lands too (reading `loadedCount()` re-runs the
+      // effect). An observer only reports intersection CHANGES, plus one initial
+      // report on observe(). If an appended page is shorter than the 600px
+      // margin, the sentinel never leaves the zone, no change fires, and
+      // scrolling stalls. A fresh observer's initial report catches that. Keyed
+      // on the count, not `pending`, so a FAILED load does not re-arm and retry
+      // in a loop; "Load more" stays the way to retry.
+      this.loadedCount();
 
       const observer = new IntersectionObserver(
         (entries) => {
