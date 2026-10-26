@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONTENT_SECURITY_POLICY, applySeoHeaders } from './seo-headers';
+import {
+  CONTENT_SECURITY_POLICY,
+  PERMISSIONS_POLICY,
+  REFERRER_POLICY,
+  applySecurityHeaders,
+  applySeoHeaders,
+} from './seo-headers';
 
 describe('applySeoHeaders', () => {
   it('sets Vary: Accept-Language, stripping any upstream Vary first', () => {
@@ -39,6 +45,48 @@ describe('applySeoHeaders', () => {
     const headers = new Headers();
     applySeoHeaders(headers);
     expect(headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY);
+  });
+
+  it('sets Referrer-Policy and Permissions-Policy (AECI-1478)', () => {
+    const headers = new Headers();
+    applySeoHeaders(headers);
+    expect(headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+    expect(headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
+  });
+});
+
+describe('applySecurityHeaders (AECI-1478)', () => {
+  it('sets the three security headers and no SEO headers', () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers);
+    expect(headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY);
+    expect(headers.get('referrer-policy')).toBe(REFERRER_POLICY);
+    expect(headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
+    // The SEO pair belongs to cacheable responses only.
+    expect(headers.get('vary')).toBeNull();
+    expect(headers.get('link')).toBeNull();
+  });
+
+  it('overwrites an upstream value instead of appending', () => {
+    const headers = new Headers({ 'referrer-policy': 'unsafe-url' });
+    applySecurityHeaders(headers);
+    expect(headers.get('referrer-policy')).toBe(REFERRER_POLICY);
+  });
+});
+
+describe('PERMISSIONS_POLICY', () => {
+  it('denies the powerful features the app never uses', () => {
+    for (const feature of ['camera', 'microphone', 'geolocation', 'payment', 'usb']) {
+      expect(PERMISSIONS_POLICY).toContain(`${feature}=()`);
+    }
+  });
+
+  it('omits the retired FLoC token, which Chrome reports as unrecognized', () => {
+    expect(PERMISSIONS_POLICY).not.toContain('interest-cohort');
+  });
+
+  it('leaves clipboard-write alone (the admin and vendor copy buttons use it)', () => {
+    expect(PERMISSIONS_POLICY).not.toContain('clipboard');
   });
 });
 

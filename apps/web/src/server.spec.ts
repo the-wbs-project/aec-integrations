@@ -30,6 +30,7 @@ import {
   type Bindings,
   type SsrRenderer,
 } from './server-runtime';
+import { CONTENT_SECURITY_POLICY, PERMISSIONS_POLICY, REFERRER_POLICY } from './server/seo-headers';
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────
 
@@ -1336,6 +1337,66 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(res.headers.get('cache-tag')).toBeNull();
+  });
+});
+
+describe('createApp security headers on every SSR render (AECI-1478)', () => {
+  function expectSecurityHeaders(res: Response): void {
+    expect(res.headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY);
+    expect(res.headers.get('referrer-policy')).toBe(REFERRER_POLICY);
+    expect(res.headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
+  }
+
+  it('stamps them on a cacheable 200', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<p>ok</p>')) });
+
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/products/acme'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toContain('public');
+    expectSecurityHeaders(res);
+  });
+
+  // The non-cacheable branch used to return through `ensureNoStore` alone, so a
+  // signed-in console page carried no CSP at all.
+  it.each(['/admin', '/vendor/acme'])(
+    'stamps them on a signed-in non-cacheable 200 at %s',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<p>console</p>')) });
+
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`, {
+          headers: { cookie: 'sb-proj-auth-token=session' },
+        }),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+      expectSecurityHeaders(res);
+    },
+  );
+
+  it('stamps them on a 5xx from a cacheable route', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(htmlResponse('<p>boom</p>', 500)) });
+
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/products/acme'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expectSecurityHeaders(res);
   });
 });
 
