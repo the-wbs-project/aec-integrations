@@ -334,7 +334,7 @@ export async function runReconciliationSweep(
       // Idempotent retry of §6.4 — the same function the request handler runs.
       // `drizzleLinearStore` adapts the Drizzle `db` to the ORM-neutral
       // `LinearRequestStore` seam `createLinearIssueForRequest` persists through.
-      const outcome = await createIssue(c, drizzleLinearStore(db), {
+      const outcome = await createIssue(c, drizzleLinearStore(db, 'linear-reconcile-sweep'), {
         notification: 'linear-request-issue',
         requestId: row.id,
         workflowId: workflow.id,
@@ -656,34 +656,38 @@ export async function runContestIssueReconciliation(
     if (!source || !target || !anchorId) continue;
     retried++;
     try {
-      const outcome = await createIssue(c, drizzleContestLinearStore(db), {
-        notification: 'linear-contest-issue',
-        contestId: row.id,
-        integrationId: anchorId,
-        ...(row.evidencedPairId
-          ? {
-              anchor: 'evidenced_pair' as const,
-              connectorProductName: row.connectorProductId
-                ? (productById.get(row.connectorProductId)?.name ?? null)
-                : null,
-            }
-          : {}),
-        integrationName: row.integrationName,
-        sourceProductName: source.name,
-        targetProductName: target.name,
-        pairPath: pairPathFor([source.slug, target.slug]),
-        field: row.field,
-        currentValue: row.currentValue,
-        acceptedValue: row.proposedValue,
-        currentLabel:
-          row.field === 'owner' && row.currentValue ? vendorName.get(row.currentValue) : null,
-        acceptedLabel:
-          row.field === 'owner' && row.proposedValue ? vendorName.get(row.proposedValue) : null,
-        submitterVendorName: vendorName.get(row.submitterVendorId) ?? row.submitterVendorId,
-        reason: row.reason,
-        adminNote: row.decisionNote,
-        appliedMode: appliedModeById.get(row.id) ?? 'upstream-only',
-      });
+      const outcome = await createIssue(
+        c,
+        drizzleContestLinearStore(db, 'contest-reconcile-sweep'),
+        {
+          notification: 'linear-contest-issue',
+          contestId: row.id,
+          integrationId: anchorId,
+          ...(row.evidencedPairId
+            ? {
+                anchor: 'evidenced_pair' as const,
+                connectorProductName: row.connectorProductId
+                  ? (productById.get(row.connectorProductId)?.name ?? null)
+                  : null,
+              }
+            : {}),
+          integrationName: row.integrationName,
+          sourceProductName: source.name,
+          targetProductName: target.name,
+          pairPath: pairPathFor([source.slug, target.slug]),
+          field: row.field,
+          currentValue: row.currentValue,
+          acceptedValue: row.proposedValue,
+          currentLabel:
+            row.field === 'owner' && row.currentValue ? vendorName.get(row.currentValue) : null,
+          acceptedLabel:
+            row.field === 'owner' && row.proposedValue ? vendorName.get(row.proposedValue) : null,
+          submitterVendorName: vendorName.get(row.submitterVendorId) ?? row.submitterVendorId,
+          reason: row.reason,
+          adminNote: row.decisionNote,
+          appliedMode: appliedModeById.get(row.id) ?? 'upstream-only',
+        },
+      );
       if (outcome.status !== 'failed') cleared++;
     } catch (error) {
       log(c, {

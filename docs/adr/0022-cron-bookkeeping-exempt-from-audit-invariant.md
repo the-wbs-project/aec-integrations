@@ -57,7 +57,7 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 
 **Surfaced but not fixed here**
 
-- The `*/15` reconciliation sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). Under this ADR that is unambiguously **domain state** and therefore a genuine §26.1 violation — not bookkeeping, and more serious than anything the admin-panel epic introduces. Tracked as **AECI-591**; this ADR deliberately does not legitimize it.
+- The `*/15` reconciliation sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). Under this ADR that is unambiguously **domain state** and therefore a genuine §26.1 violation — not bookkeeping, and more serious than anything the admin-panel epic introduces. Tracked as **AECI-591**; this ADR deliberately does not legitimize it. **Fixed 2026-10-26 by AECI-591**; see the amendment of that date below.
 - ~~`data-quality.ts` check #2 (`ready_products_unpromoted`) is structurally unreachable — nothing in the repo writes `'ready'` to D1 — so it has been silently passing since it shipped. Unrelated to the audit invariant, but found in the same sweep. Tracked as **AECI-592**.~~ **Fixed 2026-09-13 by AECI-592**, which replaced it with `promotion_status_invariant` (severity `error`, `products` + `vendors`) and folded in `broken_integration_refs`, dead for the same reason. `STAGE_1_SPEC.md` §23.1 carries the amendment.
 
 ## Alternatives not taken
@@ -344,3 +344,30 @@ vendor's standing or a ranking, it is no longer derived reporting. It would then
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+
+## Amendment 2026-10-26 — the Linear link-back audits (AECI-591)
+
+Nothing above is reversed. This closes the violation the original decision surfaced.
+
+**What changed.** Linking a request to its Linear issue is now one `db.batch` in
+`drizzleLinearStore` (`apps/api/src/lib/linear.ts`). The batch holds the guarded
+`vendor_requests` update, one `audit_log` row and the guarded `workflow_instances` update.
+The row is `actor_type='system'`, `action='vendor_request.linear_linked'`,
+`entity_type='vendor_request'`. `metadata.source` names the writer: `request-submit` for the
+submit handler's `waitUntil`, or `linear-reconcile-sweep` for the `*/15` sweep. A batch failure
+rolls back both updates and the row.
+
+**The race loser writes nothing.** The audit row is an `INSERT … SELECT` (`auditInsertWhere`)
+guarded on the request now holding this create's issue id. A second writer whose
+compare-and-set matched no row therefore writes no audit row and aborts nothing.
+
+**No `workflow_transitions` row.** Linking leaves `current_state` unchanged, and a transition
+row records a state change (`STAGE_1_SPEC.md` §26.4). The audit row records the link.
+
+**The contest link-back had the same gap.** `drizzleContestLinearStore` wrote
+`integration_field_challenges.upstream_linear_issue_*` unaudited. It now batches the same way,
+with `action='integration.contest.linear_linked'` and `metadata.source` of `contest-accept` or
+`contest-reconcile-sweep`.
+
+**Where it is recorded.** `STAGE_1_PHASE_6_SPEC.md` §6.1 and §6.7, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002, and the admin audit labels in `apps/web/src/app/admin/audit/audit-action-labels.ts`.

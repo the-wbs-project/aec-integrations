@@ -1626,7 +1626,8 @@ export function createSaveClaimNotesHandler(
  * ONE disjunct: `entity_type = 'vendor_request'` and the claim id. Every claim
  * writer files there (`vendor_request.created`, `vendor_claim.note_updated`,
  * `vendor_claim.granted`, `vendor_claim.rejected`), and so does the Linear
- * webhook's `vendor_request.status_changed` (actor `null`). A Managed grant's
+ * webhook's `vendor_request.status_changed` and the link-back's
+ * `vendor_request.linear_linked` (both actor `null`). A Managed grant's
  * `vendor_entitlement.granted` row is filed against the vendor and stays on the
  * vendor's audit tab.
  *

@@ -2646,7 +2646,8 @@ export const AdminClaimAuditResponseSchema = paginatedResponseSchema(AdminAuditR
 **Filter.** `entity_type = 'vendor_request' AND entity_id = :id`, off `audit_log_entity_idx`.
 Every claim writer files there: `vendor_request.created`, `vendor_claim.note_updated`,
 `vendor_claim.granted` and `vendor_claim.rejected`. The Linear webhook's status move
-(`vendor_request.status_changed`, actor `null`) files there too. Order is
+(`vendor_request.status_changed`, actor `null`) files there too. So does the Linear link-back
+(`vendor_request.linear_linked`, actor `null`, AECI-591). Order is
 `created_at DESC, id DESC`.
 A Managed grant's `vendor_entitlement.granted` row is filed against the vendor. It shows on
 `GET /api/admin/vendors/:id/audit`, not here. The public submission row

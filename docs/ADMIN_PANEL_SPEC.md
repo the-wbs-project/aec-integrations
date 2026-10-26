@@ -3235,7 +3235,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 **Found while settling these, and deliberately not absorbed** — each is real, each is outside this epic, and each has its own issue:
 
-- **A live §26.1 gap on a domain entity** — **AECI-591**. The `*/15` reconcile sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). That is domain state under any reading of ADR 0022's carve-out — a genuine violation, not bookkeeping, and more serious than anything this epic introduces.
+- **A live §26.1 gap on a domain entity** — **AECI-591**. The `*/15` reconcile sweep mutates `vendor_requests` and `workflow_instances` with no audit row and no batch (`lib/linear.ts`). That is domain state under any reading of ADR 0022's carve-out — a genuine violation, not bookkeeping, and more serious than anything this epic introduces. **Fixed 2026-10-26 by AECI-591:** the link-back now writes `vendor_request.linear_linked` in the same batch.
 - ~~**`data-quality.ts` check #2 is unreachable**, not merely proxied (see D6) — **AECI-592**. It should be replaced by a check that asserts the invariant D6 depends on — that every `products` row reads `promotion_status='promoted'` — so the assumption cannot silently rot.~~ **Done 2026-09-13 (AECI-592).** Shipped as `promotion_status_invariant`, severity `error`, covering `vendors` as well as `products`. It also retired a **second** dead check the issue had not spotted: `broken_integration_refs` filtered for `retracted`/`rejected` endpoints, which nothing writes either, so the invariant guard subsumes it. Roster is eleven.
 
 - **D22 — A recently-expired but signature-valid admin token still flags its own traffic** (settled by AECI-689 on 2026-09-14; §5.2, §9.6, and D13/D15(a) above). D15(a) called the write-side leak unfixable at ingest and shipped a read-side repair instead. The repair works and stays, but the premise was wrong: the leak is fixable at ingest, and not by the route the issue first proposed.
@@ -3331,7 +3331,7 @@ Found while settling §13 (AECI-573):
 | Issue | What | Status |
 |---|---|---|
 | **AECI-590** | Reverse-proxy PostHog to recover blocker-lost events (D9) | **Measured 2026-09-13** — the population sentence in this row was pre-AECI-643 and is wrong; Tier 2 boots for every visitor. What settled it is volume, not scope: ~16 real browser page loads a day, so recovery is 2–5 a day. See the D9 correction above |
-| **AECI-591** | The `*/15` reconcile sweep mutates `vendor_requests` + `workflow_instances` unaudited and unbatched (`lib/linear.ts`) | Backlog · **Medium**. A genuine §26.1 violation on *domain* state — ADR 0022 surfaces it without legitimizing it, and EX-002 explicitly does not cover it. More serious than anything this epic introduced |
+| **AECI-591** | The `*/15` reconcile sweep mutates `vendor_requests` + `workflow_instances` unaudited and unbatched (`lib/linear.ts`) | **Done 2026-10-26.** Was a genuine §26.1 violation on *domain* state, which ADR 0022 surfaced without legitimizing. The link-back is now one batch with a guarded `vendor_request.linear_linked` audit row |
 | **AECI-592** | `data-quality.ts` check #2 is unreachable; replace it with a promotion-status invariant guard | **Done 2026-09-13.** AECI-587 corrected the comments only; AECI-592 replaced the query, and folded in `broken_integration_refs` (dead for the same reason) |
 
 **Found after closeout, while fixing AECI-752 (2026-09-09).** The first two concern note *prose*,

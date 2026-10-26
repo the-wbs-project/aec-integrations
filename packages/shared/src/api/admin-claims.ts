@@ -405,7 +405,8 @@ export type AdminClaimAuditQuery = z.infer<typeof AdminClaimAuditQuerySchema>;
  * The claim's audit trail on `/admin/claims/:id`. **One disjunct**: every claim
  * writer files under `entity_type = 'vendor_request'` with the claim id
  * (`vendor_request.created`, `vendor_claim.note_updated`, `vendor_claim.granted`,
- * `vendor_claim.rejected`, plus the Linear webhook's `vendor_request.status_changed`),
+ * `vendor_claim.rejected`, plus the Linear webhook's `vendor_request.status_changed`
+ * and the link-back's `vendor_request.linear_linked`),
  * so `audit_log_entity_idx` answers it directly.
  *
  * A Managed grant's `vendor_entitlement.granted` row is filed against the VENDOR

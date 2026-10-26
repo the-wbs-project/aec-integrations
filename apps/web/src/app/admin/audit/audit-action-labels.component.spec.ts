@@ -40,6 +40,7 @@ const EMITTED_ACTIONS = [
   'integration.contest.withdrawn',
   'integration.contest.accepted',
   'integration.contest.declined',
+  'integration.contest.linear_linked',
   // AECI-1009. The two decisions are chosen in one expression, so listed by hand.
   'integration.contest.lapsed',
   'integration.contest.protested',
@@ -70,6 +71,7 @@ const EMITTED_ACTIONS = [
   'vendor_request.resolved',
   'vendor_request.rejected',
   'vendor_request.status_changed',
+  'vendor_request.linear_linked',
   'vendor_claim.granted',
   'vendor_claim.rejected',
   'vendor_claim.seat_revoked',

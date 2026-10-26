@@ -64,7 +64,7 @@ Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied c
 
 ### 6.1 Issue creation on submit
 
-Extend the AECI-128 request handler: after the `vendor_requests` insert, create a Linear issue in the **"Vendor Requests" project** via the Linear GraphQL API — claim/correction template, body from the form fields, **`Source URL` as a Linear attachment** (renders as a clickable card), labels (`claim`|`correction`, plus `domain-check-pending` on a domain mismatch — §7.1), assignee **round-robin Chris/Bill**. Store the returned issue id on `vendor_requests.linear_issue_id` + the `workflow_instance`. **Idempotent** (never double-create for one request). Runs via `ctx.waitUntil()` so it never blocks the `201`. Secret: `LINEAR_API_KEY`.
+Extend the AECI-128 request handler: after the `vendor_requests` insert, create a Linear issue in the **"Vendor Requests" project** via the Linear GraphQL API — claim/correction template, body from the form fields, **`Source URL` as a Linear attachment** (renders as a clickable card), labels (`claim`|`correction`, plus `domain-check-pending` on a domain mismatch — §7.1), assignee **round-robin Chris/Bill**. Store the returned issue id on `vendor_requests.linear_issue_id` + the `workflow_instance`. Since AECI-591 that link-back is one `db.batch` carrying an `audit_log` row (`vendor_request.linear_linked`, `actor_type='system'`, `metadata.source` naming the submit handler or the §6.7 sweep). The row is guarded, so a writer that loses the compare-and-set writes none. **Idempotent** (never double-create for one request). Runs via `ctx.waitUntil()` so it never blocks the `201`. Secret: `LINEAR_API_KEY`.
 
 > **AECI-860/861 amendment — what the issue carries, and when the email goes out.**
 > §6.1's "body from the form fields" now includes three rows the form does not supply:
@@ -141,7 +141,8 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > looking at the row, and the signal is `aeci.linear.issue{kind:contest,outcome:failed}` plus
 > `aeci.linear.reconcile.attempt{kind:contest}` and a `warn` log. It never reads or writes
 > `vendor_requests` or `workflow_instances.linear_issue_id`, so the §6.3 webhook cannot resolve a
-> contest issue to a request. A failure in the contest pass is logged and does not fail the job, so
+> contest issue to a request. Since AECI-591 the contest link-back is one batch with a guarded
+> `integration.contest.linear_linked` audit row, as the request link-back is. A failure in the contest pass is logged and does not fail the job, so
 > the queue never re-runs the request pass for it. The job's `job_runs` detail gains a `contests`
 > field.
 

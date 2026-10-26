@@ -11,13 +11,22 @@ vi.mock('../posthog', () => ({
   submitDistribution: vi.fn(),
 }));
 
-import { profiles, workflowInstances, workflowTransitions } from '../db/schema';
+import { eq, sql } from 'drizzle-orm';
+
+import {
+  auditLog,
+  profiles,
+  vendorRequests,
+  workflowInstances,
+  workflowTransitions,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { logToPosthog, submitCount, submitDistribution } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount, submitDistribution } from '../posthog';
 import {
   ASSIGNEE_IDS,
   AECI_TEAM_ID,
   createLinearIssueForRequest,
+  drizzleLinearStore,
   LABEL_IDS,
   labelIdsFor,
   type LinearIssueInput,
@@ -25,6 +34,7 @@ import {
   type LinearResolutionInput,
   pickAssignee,
   pushRequestResolutionToLinear,
+  REQUEST_LINKED_ACTION,
   VENDOR_REQUESTS_PROJECT_ID,
   WORKFLOW_STATE_IDS,
 } from './linear';
@@ -73,6 +83,7 @@ function makeStore(
     async linkIssue(requestId, workflowId, issueId, issueUrl) {
       if (opts.throwOnWrite) throw new Error('db write failed');
       links.push({ requestId, workflowId, issueId, issueUrl });
+      return { actorType: 'system', action: REQUEST_LINKED_ACTION, entityId: requestId };
     },
   };
   return { store, links };
@@ -185,6 +196,11 @@ describe('createLinearIssueForRequest — issue creation', () => {
         issueId: 'iss_123',
         issueUrl: 'https://linear.app/x',
       },
+    ]);
+    // AECI-591: the committed link-back audit row is forwarded once, post-commit.
+    expect(logBatchToPosthog).toHaveBeenCalledOnce();
+    expect(vi.mocked(logBatchToPosthog).mock.calls[0]![3]).toEqual([
+      expect.objectContaining({ action: REQUEST_LINKED_ACTION, source: 'linear-link' }),
     ]);
 
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:ok', 'kind:correction']));
@@ -971,5 +987,90 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
       expect.anything(),
       expect.objectContaining({ level: 'error' }),
     );
+  });
+});
+
+// ─── drizzleLinearStore: the link-back is batched and audited (AECI-591) ──────
+
+describe('drizzleLinearStore', () => {
+  const seedRequest = async () => {
+    await t.db.insert(vendorRequests).values({
+      id: REQUEST_ID,
+      kind: 'correction',
+      targetType: 'product',
+      targetId: 'tgt-1',
+      submitterEmail: 'reporter@example.com',
+      domainMatch: 'pending',
+      body: 'The founding year is wrong.',
+      status: 'open',
+    });
+    await seedWorkflow();
+  };
+  const linkAudits = () =>
+    t.db.select().from(auditLog).where(eq(auditLog.action, REQUEST_LINKED_ACTION));
+
+  it('links both rows and writes one audit row in the same batch', async () => {
+    await seedRequest();
+    const store = drizzleLinearStore(t.db, 'linear-reconcile-sweep');
+
+    const entry = await store.linkIssue(REQUEST_ID, WORKFLOW_ID, 'iss_1', 'https://linear.app/1');
+
+    const [request] = await t.db.select().from(vendorRequests);
+    expect(request).toMatchObject({
+      linearIssueId: 'iss_1',
+      linearIssueUrl: 'https://linear.app/1',
+    });
+    const [instance] = await t.db.select().from(workflowInstances);
+    expect(instance!.linearIssueId).toBe('iss_1');
+
+    const audits = await linkAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      id: entry!.id,
+      actorId: null,
+      actorType: 'system',
+      entityType: 'vendor_request',
+      entityId: REQUEST_ID,
+      beforeState: { linear_issue_id: null, linear_issue_url: null },
+      afterState: { linear_issue_id: 'iss_1', linear_issue_url: 'https://linear.app/1' },
+      metadata: {
+        source: 'linear-reconcile-sweep',
+        workflow_id: WORKFLOW_ID,
+        linear_issue_id: 'iss_1',
+      },
+    });
+    // Linking is not a state change, so no transition row (§26.4).
+    expect(await allTransitions()).toHaveLength(0);
+  });
+
+  it('a writer that lost the race changes nothing and writes no audit row', async () => {
+    await seedRequest();
+    const store = drizzleLinearStore(t.db, 'request-submit');
+    await store.linkIssue(REQUEST_ID, WORKFLOW_ID, 'iss_1', 'https://linear.app/1');
+
+    const loser = await store.linkIssue(REQUEST_ID, WORKFLOW_ID, 'iss_2', 'https://linear.app/2');
+
+    expect(loser).toBeNull();
+    expect(await store.getLinkedIssueId(REQUEST_ID)).toBe('iss_1');
+    const [instance] = await t.db.select().from(workflowInstances);
+    expect(instance!.linearIssueId).toBe('iss_1');
+    expect(await linkAudits()).toHaveLength(1);
+  });
+
+  it('rolls the request update and the audit row back when the batch fails', async () => {
+    await seedRequest();
+    const store = drizzleLinearStore(t.db, 'request-submit');
+    // The workflow update is the batch's last statement. Failing it must undo the
+    // two before it.
+    await t.db.run(
+      sql`CREATE TRIGGER fail_wf BEFORE UPDATE ON workflow_instances BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+    );
+
+    await expect(
+      store.linkIssue(REQUEST_ID, WORKFLOW_ID, 'iss_1', 'https://linear.app/1'),
+    ).rejects.toThrow();
+
+    expect(await store.getLinkedIssueId(REQUEST_ID)).toBeNull();
+    expect(await linkAudits()).toHaveLength(0);
   });
 });
