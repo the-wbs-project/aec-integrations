@@ -112,11 +112,12 @@ test.describe('/search — live results (requires Algolia; local only)', () => {
       .first()
       .waitFor({ timeout: 8000 })
       .catch(() => {});
-    const sortTrigger = page.locator('aec-search-sort-by button[role="combobox"]').first();
+    const sortTrigger = page.locator('aec-listing-sort-select button[role="combobox"]').first();
     test.skip((await sortTrigger.count()) === 0, 'sort control not mounted (no live results)');
 
-    // Default sort is relevance (param absent).
-    await expect(sortTrigger).toContainText(/Relevance/);
+    // Default sort is the /products default, Newest (param absent). Relevance
+    // was dropped on 2026-10-26.
+    await expect(sortTrigger).toContainText(/Newest/);
 
     await sortTrigger.click();
     await page.getByRole('option', { name: /Name/ }).click();

@@ -29,8 +29,10 @@
  *
  * The deliberate §7.5 deviation (`angular-instantsearch` → `instantsearch.js` +
  * connectors → signals) is documented in `search-controller.ts` and ADR 0014.
- * The per-tab sort dropdown (AECI-175 / §4.6) is the `aec-search-sort-by` control
- * above the results, backed by Algolia replica indexes; `?sort=` mirrors it.
+ * The per-tab sort dropdown (AECI-175 / §4.6) is `aec-listing-sort-select`, the
+ * same control `/products` carries, backed by Algolia replica indexes; `?sort=`
+ * mirrors it. It offers the `/products` sorts with the same default, and no
+ * Relevance (2026-10-26).
  */
 import { NgTemplateOutlet } from '@angular/common';
 import {
@@ -61,6 +63,10 @@ import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { ProductCard, type ProductRow } from '../products/product-card';
 import { FacetPanel } from '../shared/facets/facet-panel';
+import {
+  ListingSortSelect,
+  type ListingSortOption,
+} from '../shared/listing-toolbar/listing-sort-select';
 import { createListingView } from '../shared/listing-toolbar/listing-view';
 import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -77,7 +83,6 @@ import { SearchVendorRow } from './search-vendor-row';
 import { SearchNumericMenu } from './widgets/search-numeric-menu';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
-import { SearchSortBy, type SortUiOption } from './widgets/search-sort-by';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -145,7 +150,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     SearchNumericMenu,
     SearchRangeInput,
     PaginationFooter,
-    SearchSortBy,
+    ListingSortSelect,
     ListingViewToggle,
     ProductCard,
     SearchVendorRow,
@@ -318,10 +323,10 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                  the grid does not jump when the sort control appears. -->
             <div class="flex min-h-[2.625rem] flex-wrap items-center justify-between gap-3">
               @if (controller(); as ctrl) {
-                <aec-search-sort-by
+                <aec-listing-sort-select
                   [options]="sortUiOptions()"
                   [value]="ctrl[activeTab()].sortBy()"
-                  (sort)="onSortChange($event)"
+                  (sortChange)="onSortChange($event)"
                 />
               }
               <!-- The /products cards/table toggle, on the end edge as there.
@@ -706,7 +711,7 @@ export class SearchPage implements OnDestroy {
 
   /** The active tab's sort options, with the `key` token mapped to a localized
    *  label, for the sort control (AECI-175). Empty until the controller mounts. */
-  protected readonly sortUiOptions = computed<readonly SortUiOption[]>(() => {
+  protected readonly sortUiOptions = computed<readonly ListingSortOption[]>(() => {
     const ctrl = this.controller();
     if (!ctrl) return [];
     return ctrl[this.activeTab()].sortOptions.map((option) => ({
@@ -798,13 +803,13 @@ export class SearchPage implements OnDestroy {
     if (this.activeTab() === tab) return;
     this.activeTab.set(tab);
     // Default tab (products) drops `?tab=`; others set it. `?sort=` is per-tab, so
-    // it re-points at the newly-active tab's current sort (relevance → cleared).
+    // it re-points at the newly-active tab's current sort (its default → cleared).
     const sort = this.currentSortToken(tab);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
         tab: tab === 'products' ? null : tab,
-        sort: sort === 'relevance' ? null : sort,
+        sort: sort === defaultSortToken(tab) ? null : sort,
       },
       queryParamsHandling: 'merge',
       // A history step, so Back returns to the previous tab, as Back steps
@@ -843,33 +848,36 @@ export class SearchPage implements OnDestroy {
     if (!ctrl) return;
     const view = ctrl[this.activeTab()];
     view.refineSort(indexName);
-    const token = view.sortOptions.find((option) => option.value === indexName)?.key ?? 'relevance';
+    const tab = this.activeTab();
+    const token =
+      view.sortOptions.find((option) => option.value === indexName)?.key ?? defaultSortToken(tab);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { sort: token === 'relevance' ? null : token },
+      queryParams: { sort: token === defaultSortToken(tab) ? null : token },
       queryParamsHandling: 'merge',
       // A history step, as on /products. No scroll jump.
       scroll: 'manual',
     });
   }
 
-  /** The active sort token for a tab (`relevance`, or a `REPLICA_SORTS` token). */
+  /** The active sort token for a tab (a `REPLICA_SORTS` token). */
   private currentSortToken(tab: EntityTab): string {
     const ctrl = this.controller();
-    if (!ctrl) return 'relevance';
+    if (!ctrl) return defaultSortToken(tab);
     const view = ctrl[tab];
-    return view.sortOptions.find((option) => option.value === view.sortBy())?.key ?? 'relevance';
+    return (
+      view.sortOptions.find((option) => option.value === view.sortBy())?.key ??
+      defaultSortToken(tab)
+    );
   }
 
   /** Localized label for a sort token. */
   private sortLabel(key: string): string {
     switch (key) {
-      case 'relevance':
-        return $localize`:@@search.sort.relevance:Relevance`;
-      case 'name':
-        return $localize`:@@search.sort.name:Name (A–Z)`;
       // The /products labels and ids, so the same sort reads the same on both
       // pages (`productSortOptions()`).
+      case 'name':
+        return $localize`:@@listing.sort.name:Name (A–Z)`;
       case 'created':
         return $localize`:@@listing.sort.newest:Newest`;
       case 'updated':
@@ -886,14 +894,15 @@ export class SearchPage implements OnDestroy {
   /**
    * Resolve the inbound `?sort=` token into a per-tab initial index name for the
    * controller, applied to the initial active tab only (the URL carries one sort,
-   * scoped to the visible tab). Relevance / unknown tokens seed nothing (primary),
-   * which is how a retired token such as `integrations` (the "Most integrations"
-   * replica, retired by AECI-636 PR-B) falls back to Relevance without an error.
+   * scoped to the visible tab). An absent or unknown token seeds nothing, so the
+   * controller starts the tab on its default replica. That is how a retired
+   * token such as `integrations` (AECI-636 PR-B) or `relevance` (2026-10-26)
+   * falls back to the default sort without an error.
    */
   private initialSort(config: AlgoliaPublicConfig): Partial<Record<EntityTab, string>> {
     const tab = this.activeTab();
     const token = this.initialSortToken;
-    if (!token || token === 'relevance') return {};
+    if (!token) return {};
     const replica = sortReplicasFor(tab).find((sort) => sort.sort === token);
     if (!replica) return {};
     return { [tab]: replicaIndexName(config.indexes[tab], replica.suffix) };
@@ -1005,7 +1014,8 @@ export class SearchPage implements OnDestroy {
     const q = params.get('q')?.trim() ?? '';
     if (q !== ctrl.query()) ctrl.setQuery(q);
     const view = ctrl[tab];
-    const token = params.get('sort') ?? 'relevance';
+    // An absent or unknown token restores the default, the first option.
+    const token = params.get('sort');
     const target = view.sortOptions.find((option) => option.key === token) ?? view.sortOptions[0];
     if (target && target.value !== view.sortBy()) view.refineSort(target.value);
     ctrl.setFilters(filtersFromParams(params));
@@ -1029,4 +1039,13 @@ export class SearchPage implements OnDestroy {
       });
     }, URL_SYNC_DEBOUNCE_MS);
   }
+}
+
+/**
+ * A tab's default sort token: its first replica, so `/search` opens on the same
+ * sort as `/products` (`created`, Newest) and the Vendors tab on `name`. The URL
+ * omits `?sort=` only for this token.
+ */
+function defaultSortToken(tab: EntityTab): string {
+  return sortReplicasFor(tab)[0]?.sort ?? '';
 }

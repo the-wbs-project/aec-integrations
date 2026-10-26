@@ -356,7 +356,7 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
 - Product grid with sort options (alphabetical, most integrations, most reviewed)
 - Pagination
 
-**As built (AECI-657).** The grid slot leads with `aec-listing-toolbar` — the same sort `<select>` + cards/table toggle `/products` carries — and defaults to the `ProductCardGrid` card view, with the table available at `?view=table`. Since **AECI-988** that default is only the *first-visit* default: the visitor's last explicit Cards/Table choice is remembered client-side (`profiles.listing_view_preference` when signed in, the `aeci_listing_view` cookie otherwise) and applied post-hydration when the URL carries no `?view=` — an explicit `?view=` always wins, and SSR never reads either store, so the edge cache stays visitor-neutral (`CACHE_STRATEGY.md` §6.1). All six product sort keys are offered, including the three named above; `integrations` ("Most integrations") was added by the same issue, having existed nowhere before it. AECI-190's redesign was scoped to `/products` and gave these pages only its upgraded table row, so between AECI-190 and AECI-657 they shipped a table with no sort control at all — `?sort=` worked by hand-typed URL the whole time, since `createPaginatedIndex` reads it off the URL, but nothing surfaced it.
+**As built (AECI-657).** The grid slot leads with `aec-listing-toolbar` — the same sort control + cards/table toggle `/products` carries (a native `<select>` until 2026-10-26; since AECI-1486 the shared `aec-listing-sort-select` combobox `/search` also uses) — and defaults to the `ProductCardGrid` card view, with the table available at `?view=table`. Since **AECI-988** that default is only the *first-visit* default: the visitor's last explicit Cards/Table choice is remembered client-side (`profiles.listing_view_preference` when signed in, the `aeci_listing_view` cookie otherwise) and applied post-hydration when the URL carries no `?view=` — an explicit `?view=` always wins, and SSR never reads either store, so the edge cache stays visitor-neutral (`CACHE_STRATEGY.md` §6.1). All six product sort keys are offered, including the three named above; `integrations` ("Most integrations") was added by the same issue, having existed nowhere before it. AECI-190's redesign was scoped to `/products` and gave these pages only its upgraded table row, so between AECI-190 and AECI-657 they shipped a table with no sort control at all — `?sort=` worked by hand-typed URL the whole time, since `createPaginatedIndex` reads it off the URL, but nothing surfaced it.
 
 **Retired (AECI-636 PR-B, 2026-09-22).** The "Most integrations" sort (`sort=integrations`) is gone from `/products` and all four taxonomy pages. Five product sort keys remain: `created`, `name`, `updated`, `rating`, `reviews`. A URL carrying `?sort=integrations` renders the default sort (Newest). The API maps that retired value to `created`, never a 400 (`API_CONTRACTS.md`).
 
@@ -369,8 +369,10 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
   - Sort options per tab
   - Infinite scroll with a "Load more" floor, the same footer `/products` uses (`connectInfiniteHits`;
     replaced a Previous/Next paginator on 2026-10-26, `DESIGN.md` "The Same-Behavior Rule")
-  - Sort options match `/products` (Newest, Name, Recently updated, Highest rated, Most reviewed),
-    plus Relevance, the default. Algolia replicas, `docs/SEARCH_RANKING.md` §5a (2026-10-26).
+  - Sort options match `/products` exactly (Newest, Name, Recently updated, Highest rated, Most
+    reviewed), with the same default, Newest. Vendors offer Name only. No Relevance option
+    (ruled 2026-10-26, AECI-1486). Algolia replicas, `docs/SEARCH_RANKING.md` §5a. The sort
+    control is the same component `/products` renders.
   - Filters, tab and sort live in the URL, so reload, Back and a shared link keep them. A filter,
     tab or sort change adds a history entry; typing does not. A filter or sort change keeps the
     scroll position on every listing page (2026-10-26).

@@ -4,7 +4,7 @@
  *
  * A non-editable Angular Aria combobox whose listbox is deferred behind a
  * `cdkConnectedOverlay` (ADR 0010). Per the repo convention (see
- * `search/widgets/search-sort-by.component.spec.ts` and
+ * `shared/listing-toolbar/listing-sort-select.component.spec.ts` and
  * `reviews/review-form.component.spec.ts`) we assert the CLOSED combobox wiring,
  * the trigger label, and that the listbox is absent while closed; the
  * open→select interaction is jsdom-hostile and is covered live instead.

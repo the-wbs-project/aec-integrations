@@ -42,8 +42,8 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(html).toMatch(/<h1[^>]*>[^<]*Products[^<]*<\/h1>/i);
     expect(html, 'breadcrumb nav must mention Home and Products').toMatch(/Home/);
 
-    // The toolbar renders regardless of data: a sort <select> + the view toggle.
-    expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-listing-sort-/);
+    // The toolbar renders regardless of data: the sort combobox + the view toggle.
+    expect(html, 'sort dropdown must render').toMatch(/<button[^>]+id="aec-listing-sort-0"/);
     expect(html, 'view toggle buttons must render (aria-pressed)').toMatch(/aria-pressed/);
   });
 

@@ -30,13 +30,13 @@ export interface PairVersionOption {
  *
  * ── TWO DELIBERATE DIVERGENCES FROM `aec-select` ────────────────────────────────
  *
- * 1. **Static, deterministic element ids.** `aec-select` and
- *    `search/widgets/search-sort-by.ts` both carry a module-level `let nextId = 0`
- *    counter, justified in their own comments by being browser-only. This control is
- *    the **first Aria combobox in the repo that SSRs**, and module state persists
- *    per Worker isolate — so a counter would emit ids that differ between the server
- *    render and the client, breaking the `aria-labelledby` association after
- *    hydration. There are exactly two of these on a page and each knows its own
+ * 1. **Static, deterministic element ids.** `aec-select` carries a module-level
+ *    `let nextId = 0` counter, justified in its own comment by being browser-only.
+ *    This control was the **first Aria combobox in the repo that SSRs** (the shared
+ *    `listing-sort-select.ts` now SSRs too, numbering per render from a root
+ *    service), and module state persists per Worker isolate — so a counter would
+ *    emit ids that differ between the server render and the client, breaking the
+ *    `aria-labelledby` association after hydration. There are exactly two of these on a page and each knows its own
  *    side, so the ids are derived from `side` and need no counter. (The rest of the
  *    SSR footprint is safe: the listbox lives inside
  *    `[cdkConnectedOverlayOpen]="expanded()"` so it is never created during SSR, and

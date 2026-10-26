@@ -13,8 +13,8 @@ const VIEW_BTN_BASE =
  * controller.
  *
  * Presentation-only: the host owns `?view=` through `createListingView()`.
- * The 42px height matches the toolbar's sort `<select>` (2px border + 8px p-1 +
- * 12px py-1.5 + 20px text-sm line box).
+ * The 42px height matches the sort trigger in `aec-listing-sort-select`
+ * (2px border + 8px p-1 + 12px py-1.5 + 20px text-sm line box).
  */
 @Component({
   selector: 'aec-listing-view-toggle',

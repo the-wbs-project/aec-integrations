@@ -110,10 +110,9 @@ export interface RangeView {
 }
 
 /**
- * One sort choice on a tab (AECI-175). `value` is the physical Algolia index name
- * `connectSortBy` switches to (the primary for `relevance`, a replica otherwise);
- * `key` is the stable i18n token the page maps to a localized label
- * (`relevance` | `integrations` | `name`).
+ * One sort choice on a tab (AECI-175). `value` is the physical Algolia replica
+ * index name `connectSortBy` switches to; `key` is the `REPLICA_SORTS` token
+ * (`created`, `name`, …) the page maps to a localized label and to `?sort=`.
  */
 export interface SortOption {
   readonly value: string;
@@ -139,11 +138,11 @@ export interface IndexView<T> {
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
   readonly ranges: readonly RangeView[];
-  /** The active sort's physical index name (AECI-175); `relevance` = the primary. */
+  /** The active sort's physical replica index name (AECI-175). */
   readonly sortBy: Signal<string>;
   /** Switch the tab's sort (pass a `SortOption.value`, i.e. an index name). */
   refineSort(indexName: string): void;
-  /** The tab's available sorts, relevance first. */
+  /** The tab's available sorts, the default first (`sortReplicasFor` order). */
   readonly sortOptions: readonly SortOption[];
 }
 
@@ -442,8 +441,9 @@ export class SearchController {
     /**
      * Initial sort per tab (AECI-175): a physical index name to start that tab's
      * index widget on, so an inbound `?sort=` renders the right order on first
-     * paint. Omitted entries default to the entity's primary (relevance). The
-     * page resolves the `?sort=` token → index name before passing it here.
+     * paint. Omitted entries default to the entity's first replica (Newest for
+     * products, Name for vendors). The page resolves the `?sort=` token → index
+     * name before passing it here.
      */
     initialSort: Partial<Record<'products' | 'vendors', string>> = {},
     /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
@@ -468,11 +468,12 @@ export class SearchController {
     // The root has no index (it sends no query); products and vendors are
     // sibling nested `index()` widgets so neither inherits the other's filters
     // (see file header). That is two index queries (integrations intentionally
-    // not queried). Each index widget STARTS on its initial-sort index (a replica
-    // when `?sort=` asked for one), which `connectSortBy` then switches;
-    // `relevance` = primary.
-    const productsStart = initialSort.products ?? config.indexes.products;
-    const vendorsStart = initialSort.vendors ?? config.indexes.vendors;
+    // not queried). Each index widget STARTS on a replica: the one `?sort=` asked
+    // for, else the entity's default. Never the primary, which has no sort option
+    // (2026-10-26) and would leave `connectSortBy` on an index it does not list.
+    const productsStart =
+      initialSort.products ?? defaultSortIndex(config.indexes.products, 'products');
+    const vendorsStart = initialSort.vendors ?? defaultSortIndex(config.indexes.vendors, 'vendors');
     const initial = urlState.initialFilters;
     this.search = lib.instantsearch({
       searchClient,
@@ -668,9 +669,9 @@ export class SearchController {
   private wireIndex<T>(
     host: WidgetHost,
     entity: 'products' | 'vendors',
-    /** The entity's primary (relevance) index name — the `relevance` option's value. */
+    /** The entity's primary index name, which each replica name derives from. */
     baseIndexName: string,
-    /** The index this widget starts on (a replica when `?sort=` seeded one). */
+    /** The replica this widget starts on. */
     initialSortIndex: string,
   ): IndexView<T> {
     const { lib } = this;
@@ -685,17 +686,15 @@ export class SearchController {
     let resultsAtLoad: unknown;
     this.loadingMoreResets.push(() => loadingMore.set(false));
 
-    // Sort (AECI-175): relevance = the primary index, then one replica per
-    // non-relevance sort. `connectSortBy` switches this index widget between them;
-    // its `currentRefinement` (an index name) drives `sortBy`. The page maps each
-    // option's `key` token to a localized label.
-    const sortOptions: SortOption[] = [
-      { value: baseIndexName, key: 'relevance' },
-      ...sortReplicasFor(entity).map((replica) => ({
-        value: replicaIndexName(baseIndexName, replica.suffix),
-        key: replica.sort,
-      })),
-    ];
+    // Sort (AECI-175): one replica per sort, the same set and order as
+    // `/products`. The primary is not an option: Relevance was dropped on
+    // 2026-10-26. `connectSortBy` switches this index widget between the
+    // replicas; its `currentRefinement` (an index name) drives `sortBy`. The page
+    // maps each option's `key` token to a localized label.
+    const sortOptions: SortOption[] = sortReplicasFor(entity).map((replica) => ({
+      value: replicaIndexName(baseIndexName, replica.suffix),
+      key: replica.sort,
+    }));
     const sortBy = signal<string>(initialSortIndex);
     let sortRefine: ((value: string) => void) | null = null;
 
@@ -817,4 +816,10 @@ export class SearchController {
       sortOptions,
     };
   }
+}
+
+/** An entity's default sort index: its first replica (`sortReplicasFor` order). */
+function defaultSortIndex(baseIndexName: string, entity: 'products' | 'vendors'): string {
+  const [first] = sortReplicasFor(entity);
+  return first ? replicaIndexName(baseIndexName, first.suffix) : baseIndexName;
 }

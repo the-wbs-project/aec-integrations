@@ -4,6 +4,9 @@ import { Meta, Title } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { sortReplicasFor } from '@aeci/shared/algolia';
+
+import { PRODUCT_DEFAULT_SORT } from '../shared/listing-toolbar/product-sort-keys';
 import { type InstantSearchLib, type IsWidget, type SearchController } from './search-controller';
 import { SearchPage } from './search-page';
 import { type SearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
@@ -252,12 +255,13 @@ describe('SearchPage shell', () => {
 
   // ── AECI-175 sort control ──────────────────────────────────────────────────
 
-  it('renders the per-tab sort control once the controller mounts (default = Relevance)', async () => {
+  // Relevance was dropped on 2026-10-26; /search opens on the /products default.
+  it('renders the per-tab sort control once the controller mounts (default = Newest)', async () => {
     const { el } = await setupMounted('/search');
-    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement | null;
+    const trigger = el.querySelector('button[id^="aec-listing-sort-"]') as HTMLButtonElement | null;
     expect(trigger).not.toBeNull();
     expect(trigger!.getAttribute('role')).toBe('combobox');
-    expect(trigger!.textContent).toContain('Relevance');
+    expect(trigger!.textContent).toContain('Newest');
   });
 
   it('does not render the sort control while the controller is null (degraded shell)', () => {
@@ -266,32 +270,59 @@ describe('SearchPage shell', () => {
     const fixture = TestBed.createComponent(SearchPage);
     fixture.detectChanges();
     expect(
-      (fixture.nativeElement as HTMLElement).querySelector('[id^="search-sort-trigger-"]'),
+      (fixture.nativeElement as HTMLElement).querySelector('button[id^="aec-listing-sort-"]'),
     ).toBeNull();
   });
 
   it('seeds the initial sort from ?sort= and reflects it in the control', async () => {
     const { el } = await setupMounted('/search?sort=name');
-    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement;
+    const trigger = el.querySelector('button[id^="aec-listing-sort-"]') as HTMLButtonElement;
     expect(trigger.textContent).toContain('Name (A–Z)');
   });
 
   // AECI-636 PR-B retired the "Most integrations" replica. A bookmarked or
-  // crawled /search?sort=integrations must land on Relevance, never error.
-  it('falls back to Relevance on the retired ?sort=integrations', async () => {
+  // crawled /search?sort=integrations must land on the default, never error.
+  it('falls back to Newest on the retired ?sort=integrations', async () => {
     const { el } = await setupMounted('/search?sort=integrations');
-    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement;
-    expect(trigger.textContent).toContain('Relevance');
+    const trigger = el.querySelector('button[id^="aec-listing-sort-"]') as HTMLButtonElement;
+    expect(trigger.textContent).toContain('Newest');
     expect(trigger.textContent).not.toContain('Most integrations');
   });
 
-  it('offers Relevance plus the five /products sorts on the products tab', async () => {
+  // An old /search?sort=relevance link starts on the default replica, not the
+  // primary, so the control never shows an empty trigger.
+  it('falls back to the default replica on the retired ?sort=relevance', async () => {
+    const { fixture, el } = await setupMounted('/search?sort=relevance');
+    const ctrl = (
+      fixture.componentInstance as unknown as { controller: () => SearchController }
+    ).controller();
+    expect(ctrl.products.sortBy()).toBe('p_created_desc');
+    const trigger = el.querySelector('button[id^="aec-listing-sort-"]') as HTMLButtonElement;
+    expect(trigger.textContent).toContain('Newest');
+  });
+
+  // The default is the first replica; it must stay the /products default, or
+  // the two pages open on different orders (DESIGN.md "The Same-Behavior Rule").
+  it('opens the products tab on the /products default sort', () => {
+    expect(sortReplicasFor('products')[0]?.sort).toBe(PRODUCT_DEFAULT_SORT);
+  });
+
+  it('defaults the vendors tab to Name (A–Z)', async () => {
+    const { fixture, el } = await setupMounted('/search?tab=vendors');
+    const ctrl = (
+      fixture.componentInstance as unknown as { controller: () => SearchController }
+    ).controller();
+    expect(ctrl.vendors.sortBy()).toBe('v_name_asc');
+    const trigger = el.querySelector('button[id^="aec-listing-sort-"]') as HTMLButtonElement;
+    expect(trigger.textContent).toContain('Name (A–Z)');
+  });
+
+  it('offers exactly the five /products sorts on the products tab, in order', async () => {
     const { fixture } = await setupMounted('/search');
     const options = (
       fixture.componentInstance as unknown as { sortUiOptions: () => readonly { label: string }[] }
     ).sortUiOptions();
     expect(options.map((option) => option.label)).toEqual([
-      'Relevance',
       'Newest',
       'Name (A–Z)',
       'Recently updated',
@@ -300,12 +331,12 @@ describe('SearchPage shell', () => {
     ]);
   });
 
-  it('offers Relevance and Name (A–Z) on the vendors tab', async () => {
+  it('offers only Name (A–Z) on the vendors tab', async () => {
     const { fixture } = await setupMounted('/search?tab=vendors');
     const options = (
       fixture.componentInstance as unknown as { sortUiOptions: () => readonly { label: string }[] }
     ).sortUiOptions();
-    expect(options.map((option) => option.label)).toEqual(['Relevance', 'Name (A–Z)']);
+    expect(options.map((option) => option.label)).toEqual(['Name (A–Z)']);
   });
 
   it('seeds ?sort=rating onto the Highest rated replica, the /products token', async () => {
@@ -316,7 +347,7 @@ describe('SearchPage shell', () => {
     expect(ctrl.products.sortBy()).toBe('p_rating_desc');
   });
 
-  it('writes ?sort= when a non-relevance sort is chosen, and clears it for relevance', async () => {
+  it('writes ?sort= when a non-default sort is chosen, and clears it for the default', async () => {
     const { fixture, router } = await setupMounted('/search');
     const page = fixture.componentInstance as unknown as SortablePage;
 
@@ -325,7 +356,7 @@ describe('SearchPage shell', () => {
     await tick();
     expect(router.url).toContain('sort=name');
 
-    page.onSortChange('p'); // back to the primary (relevance) → param cleared
+    page.onSortChange('p_created_desc'); // back to the default (Newest) → param cleared
     await tick();
     expect(router.url).not.toContain('sort=');
   });
@@ -338,7 +369,7 @@ describe('SearchPage shell', () => {
     await tick();
     expect(router.url).toContain('sort=name');
 
-    // Switch to vendors (still at relevance) → ?sort= clears, ?tab=vendors set.
+    // Switch to vendors (still at its default) → ?sort= clears, ?tab=vendors set.
     (el.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click();
     await tick();
     expect(router.url).toContain('tab=vendors');

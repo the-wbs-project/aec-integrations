@@ -1,44 +1,76 @@
-import { Component, computed, input, linkedSignal, output, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  Injectable,
+  input,
+  linkedSignal,
+  output,
+  signal,
+} from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
 
-/** One sort choice the widget renders. `value` is the Algolia index name passed
- *  back through `(sort)`; `label` is the already-localized display string. */
-export interface SortUiOption {
+/** One sort choice the control renders. `value` is handed back through
+ *  `(sortChange)`: a `?sort=` key on `/products`, an Algolia index name on
+ *  `/search`. `label` is the already-localized display string. */
+export interface ListingSortOption {
   readonly value: string;
   readonly label: string;
 }
 
-/** Per-instance id seed so the label↔trigger association is unique if two sort
- *  controls ever co-exist. The control is created browser-side only (its options
- *  come from the loaded controller), so this counter never runs during SSR. */
-let nextSortById = 0;
+/**
+ * Per-render id seed for the label ↔ trigger association. The control SSRs on
+ * `/products` and the taxonomy browse pages, so its ids must match between the
+ * server render and hydration. A module-level counter does not: module state
+ * lives for the whole Worker isolate, so the server's count climbs across
+ * requests while the client starts at 0 (`products/pair-version-select.ts` makes
+ * the same point). A root service is per render instead: SSR bootstraps a fresh
+ * application, and so a fresh root injector, for every request, and SSR and
+ * hydration construct the controls in the same order.
+ */
+@Injectable({ providedIn: 'root' })
+export class ListingSortIds {
+  private next = 0;
+  take(): number {
+    return this.next++;
+  }
+}
 
 /**
- * Per-tab sort control on `/search` (AECI-175 / §4.6). A non-editable Angular
- * Aria combobox + listbox-in-overlay — the project's standard discrete-choice
- * control (ADR 0010), mirroring the role picker in `reviews/review-form.html`:
- * Aria supplies the keyboard + ARIA semantics, while a `cdkConnectedOverlay`
- * (`usePopover:'inline'` → browser top layer) supplies positioning and
- * overflow-escape, since `ComboboxPopup` renders its listbox in-flow.
+ * The sort control on every listing: `/products`, the four taxonomy browse pages
+ * (both through `aec-listing-toolbar`) and `/search`. Ruled on 2026-10-26: one
+ * control everywhere, the `/search` one (`DESIGN.md` "The Same-Behavior Rule").
  *
- * Presentation-only: the parent owns the source of truth (`value` = the active
- * Algolia index name, from `IndexView.sortBy`) and the localized option labels;
- * the widget emits the chosen index name on `(sort)`. `selection` bridges the
- * parent `value` into Aria's array-valued `[(value)]` model and re-derives when
- * the parent switches tab (new `value`/`options`).
+ * A non-editable Angular Aria combobox + listbox-in-overlay, the project's
+ * standard discrete-choice control (ADR 0010), mirroring the role picker in
+ * `reviews/review-form.html`: Aria supplies the keyboard + ARIA semantics, while
+ * a `cdkConnectedOverlay` (`usePopover:'inline'` → browser top layer) supplies
+ * positioning and overflow-escape, since `ComboboxPopup` renders its listbox
+ * in-flow. The listbox only exists while the popup is open, so SSR renders the
+ * label and the closed trigger and nothing else.
+ *
+ * Presentation-only: the host owns the source of truth and the localized option
+ * labels, and the control emits the chosen `value` on `(sortChange)`.
+ * `selection` bridges the host `value` into Aria's array-valued `[(value)]`
+ * model and re-derives when the host switches tab (new `value`/`options`).
  */
 @Component({
-  selector: 'aec-search-sort-by',
+  selector: 'aec-listing-sort-select',
   imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <div class="inline-flex items-center gap-2">
-      <span [id]="labelId" class="text-sm text-(--text-secondary)" i18n="@@search.sort.label"
+      <span
+        [id]="labelId"
+        class="text-sm text-(--text-secondary)"
+        i18n="@@listing.toolbar.sort.label"
         >Sort</span
       >
       <div #origin class="relative">
-        <!-- py-2.5 matches the 42px sort select in aec-listing-toolbar on /products. -->
+        <!-- py-2.5 is not arbitrary: it makes the trigger 42px, matching the view
+             toggle beside it (2px border + 8px p-1 + 12px py-1.5 + 20px text-sm
+             line box). Change one side and change the other. -->
         <button
           ngCombobox
           #cb="ngCombobox"
@@ -84,8 +116,8 @@ let nextSortById = 0;
               [activeDescendant]="listbox.activeDescendant()"
               focusMode="activedescendant"
               selectionMode="explicit"
-              i18n-aria-label="@@search.sort.listbox.aria"
-              aria-label="Sort results"
+              i18n-aria-label="@@listing.sort.listbox.aria"
+              aria-label="Sort"
               class="z-50 flex min-w-[12rem] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md)
                 border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
             >
@@ -110,27 +142,27 @@ let nextSortById = 0;
     </div>
   `,
 })
-export class SearchSortBy {
-  /** Available sorts (relevance first), with already-localized labels. */
-  readonly options = input.required<readonly SortUiOption[]>();
-  /** The active sort = the current Algolia index name (the tab's `sortBy`). */
+export class ListingSortSelect {
+  /** Available sorts, in display order, with already-localized labels. */
+  readonly options = input.required<readonly ListingSortOption[]>();
+  /** The active sort's `value`. */
   readonly value = input.required<string>();
-  /** Emits the chosen option's index name. */
-  readonly sort = output<string>();
+  /** Emits the chosen option's `value`. The host validates it and applies it. */
+  readonly sortChange = output<string>();
 
-  private readonly uid = nextSortById++;
-  protected readonly labelId = `search-sort-label-${this.uid}`;
-  protected readonly triggerId = `search-sort-trigger-${this.uid}`;
+  private readonly uid = inject(ListingSortIds).take();
+  protected readonly labelId = `aec-listing-sort-label-${this.uid}`;
+  protected readonly triggerId = `aec-listing-sort-${this.uid}`;
 
   /** Popup open state (two-way with `ngCombobox`). */
   protected readonly expanded = signal(false);
 
   /**
    * The selected option bridged into Aria's array-valued listbox model. Derived
-   * from the parent `value` + `options`, so switching tab (new inputs) re-selects
+   * from the host `value` + `options`, so switching tab (new inputs) re-selects
    * the right row; written by the listbox on user selection.
    */
-  protected readonly selection = linkedSignal<SortUiOption[]>(() => {
+  protected readonly selection = linkedSignal<ListingSortOption[]>(() => {
     const current = this.value();
     const match = this.options().find((option) => option.value === current);
     return match ? [match] : [];
@@ -141,11 +173,11 @@ export class SearchSortBy {
     () => this.options().find((option) => option.value === this.value())?.label ?? '',
   );
 
-  /** Commit a selection: close the popup and emit the chosen index name. Guarded
-   *  against the echo when the parent re-feeds the same `value` post-refine. */
+  /** Commit a selection: close the popup and emit the chosen value. Guarded
+   *  against the echo when the host re-feeds the same `value` afterwards. */
   protected onChange(): void {
     const chosen = this.selection()[0];
     this.expanded.set(false);
-    if (chosen && chosen.value !== this.value()) this.sort.emit(chosen.value);
+    if (chosen && chosen.value !== this.value()) this.sortChange.emit(chosen.value);
   }
 }

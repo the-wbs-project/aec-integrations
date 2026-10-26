@@ -359,20 +359,20 @@ When records tie on the full `customRanking` list, Algolia falls back to the rec
 
 ## 5a. Replica sort indexes — the `/search` per-tab sort (AECI-175)
 
-§4.6 calls for a per-tab **sort dropdown**. The default order described above is *relevance* (textual ranking, then `customRanking`). Each additional sort option is realized as a **standard Algolia replica** of the entity's primary index — a replica returns the *same records* as its primary, re-ordered by its own `ranking`. The control lives at `apps/web/src/app/search/widgets/search-sort-by.ts`; the wiring (`connectSortBy` per index) is in `search-controller.ts`.
+§4.6 calls for a per-tab **sort dropdown**. Each sort option is realized as a **standard Algolia replica** of the entity's primary index — a replica returns the *same records* as its primary, re-ordered by its own `ranking`. The control is `aec-listing-sort-select` (`apps/web/src/app/shared/listing-toolbar/listing-sort-select.ts`), the same one `/products` renders; the wiring (`connectSortBy` per index) is in `search-controller.ts`.
 
-**Options (product decision, 2026-06-23; amended by AECI-636 PR-B, 2026-09-22, and on 2026-10-26).** Products expose Relevance plus the five `/products` sorts, with the same `?sort=` tokens: Newest, Name A–Z, Recently updated, Highest rated, Most reviewed (`DESIGN.md` "The Same-Behavior Rule"). Vendors expose Relevance and Name A–Z. "Most integrations" was retired by AECI-636 PR-B. The Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas. The four new product replicas need the Grow plan's 50-index cap (29 indexes in all), adopted on 2026-10-26. They are standard replicas, not virtual ones, because only a standard replica orders strictly by the attribute, as `/products` does. Rollout order: `scripts/algolia/README.md`.
+**Relevance is not an offered sort (ruled 2026-10-26, AECI-1486).** The primary index's default order (textual ranking, then `customRanking`, §3) is no longer a choice on `/search`. Both tabs open on a replica: Products on Newest (`created`, the `/products` default `PRODUCT_DEFAULT_SORT`), Vendors on Name (A–Z). The primary index still exists and still takes every record. It serves the header autocomplete and is the index the replicas mirror. Its `customRanking` still breaks ties inside each replica (the `custom` step in the tail below). Nothing in the Algolia settings changed.
+
+**Options (product decision, 2026-06-23; amended by AECI-636 PR-B, 2026-09-22, and on 2026-10-26).** Products expose exactly the five `/products` sorts, in the same order, with the same `?sort=` tokens and the same default: Newest, Name A–Z, Recently updated, Highest rated, Most reviewed (`DESIGN.md` "The Same-Behavior Rule"). Vendors expose Name A–Z only. Relevance was dropped on 2026-10-26. "Most integrations" was retired by AECI-636 PR-B. The Integrations tab is hidden on `/search` (§7.5), so it has **no** sort UI and **no** replicas. The four new product replicas need the Grow plan's 50-index cap (29 indexes in all), adopted on 2026-10-26. They are standard replicas, not virtual ones, because only a standard replica orders strictly by the attribute, as `/products` does. Rollout order: `scripts/algolia/README.md`.
 
 | Tab | Sort | Index | Replica `ranking` (sort attribute first, then the default criteria) |
 |---|---|---|---|
-| Products | Relevance *(default)* | `<prefix>_products` (primary) | — (the §3.1 default formula) |
-| Products | Newest | `<prefix>_products_created_desc` | `desc(created_at_ts)`, typo…custom |
+| Products | Newest *(default)* | `<prefix>_products_created_desc` | `desc(created_at_ts)`, typo…custom |
 | Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name_sort)`, typo…custom |
 | Products | Recently updated | `<prefix>_products_updated_desc` | `desc(updated_at_ts)`, typo…custom |
 | Products | Highest rated | `<prefix>_products_rating_desc` | `desc(rating_sort)`, typo…custom. `rating_sort` is absent below the §5.5 five-review gate, so those products sort last, as on `/products` |
 | Products | Most reviewed | `<prefix>_products_reviews_desc` | `desc(review_count)`, typo…custom |
-| Vendors | Relevance *(default)* | `<prefix>_vendors` (primary) | — (the §3.2 default formula) |
-| Vendors | Name (A–Z) | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
+| Vendors | Name (A–Z) *(default)* | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
 
 The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `replicaNamesFor`) in `packages/shared/src/algolia.ts`, asserted in `algolia.spec.ts`. A replica leads its `ranking` with the sort attribute, then keeps Algolia's default criteria (`typo → geo → words → filters → proximity → attribute → exact → custom`) as the tie-break tail — so e.g. equal `name_sort` still falls back to textual relevance.
 
@@ -390,7 +390,7 @@ The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `re
 
 **Key scope + rotation.** Both provisioned keys are scoped to the replica index names (`searchKeyParams` / `managementKeyParams`): the browser **search-only** key queries a replica directly via `connectSortBy`, and the **management** key `setSettings` each replica's ranking. Because the scope widened, the keys must be **re-provisioned** (`pnpm algolia:provision`) before the first deploy that applies replica settings — see `docs/CICD_PLAN.md` §7.4/§7.5. *(AECI-636 PR-B, 2026-09-22: the retirement needs no re-provision. A key scoped to an index name that no longer exists is harmless.)*
 
-**URL.** The active sort mirrors to `?sort=` as a short token (`name`; `relevance` clears the param), per the §9.2 minimal-params policy. It is per active tab. The `integrations` token was retired by AECI-636 PR-B. An old `/search?sort=integrations` URL falls back to Relevance with no error.
+**URL.** The active sort mirrors to `?sort=` as a short token (`name`), per the §9.2 minimal-params policy. The tab's default (`created` on Products, `name` on Vendors) clears the param. It is per active tab. The `integrations` token was retired by AECI-636 PR-B and `relevance` on 2026-10-26. An old `/search?sort=integrations` or `?sort=relevance` URL falls back to the tab's default with no error.
 
 **Operator runbook: detach, then delete (AECI-636 PR-B).** Rollout is one environment at a time. Staging applies settings on merge through `deploy.yml`. Demo and production apply through `promote-to-demo` and `promote-to-prod`. Each apply detaches that environment's two old replicas. Deleting them is a manual step, in the Algolia dashboard or with the root key.
 
