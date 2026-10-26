@@ -2780,7 +2780,8 @@ through a routing change** — the failure §13.3 exists to prevent, through a d
 did not cover. `locateEdge` now carries `maintained_by` / `last_reviewed_at` on both
 its selects, and `carriedMaintenance` puts them on the destination INSERT in both
 directions. The fence cannot cover this: it guards UPDATEs, and a move is an insert
-plus a drop.
+plus a drop. `created_at` rides the same carry since AECI-1076, so a moved edge keeps
+the date it arrived.
 
 #### The seat hand-back (AECI-989 — 2026-09-23), now the admin return (AECI-1415 — 2026-10-19)
 
