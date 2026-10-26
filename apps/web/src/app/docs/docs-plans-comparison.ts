@@ -170,8 +170,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
       class="aec-plan-note mt-4 px-4 py-3 text-sm text-(--text-primary)"
       i18n="@@app.docs.plans.sortRule"
     >
-      Every listing is sorted the same way: how well it matches the search, then how complete it is.
-      Your plan is not part of that.
+      Every listing is sorted by the same published rules. Your plan is not part of that.
     </p>
 
     <div class="mt-8 overflow-x-auto">

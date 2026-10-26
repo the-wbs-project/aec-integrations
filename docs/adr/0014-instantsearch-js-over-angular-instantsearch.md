@@ -92,6 +92,12 @@ runtime regardless.
     "Most integrations" replicas were removed from `REPLICA_SORTS`, so there are 2 replicas and
     a 2× footprint, not 4. The retired replicas are detached, not deleted, and an operator
     deletes them by hand (`SEARCH_RANKING.md` §5a).
+  - **Amended (AECI-1486, 2026-10-26).** Relevance is no longer an option. Products offer the five
+    `/products` sorts and open on Newest. Vendors offer Name (A–Z) only. Every sort is a replica,
+    so the primary index serves only the header autocomplete. That makes five product replicas
+    and one vendor replica, under the Grow plan's 50-index cap. The control is now the shared
+    `aec-listing-sort-select` (`shared/listing-toolbar/listing-sort-select.ts`). `/products` and
+    the taxonomy pages render it too.
 - If a future Angular-native InstantSearch binding ships (or `@angular/aria`-based community
   widgets mature), revisit; the connector→signal seam localizes the blast radius of a swap to
   `search-controller.ts` + `search-controller.factory.ts`.
