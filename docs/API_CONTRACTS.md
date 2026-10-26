@@ -3275,7 +3275,8 @@ or a vendor with no billing account; `429 RATE_LIMITED`; plus the shared 401/403
 
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 
-Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin-side
+Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`, then
+`rateLimit('write')` (AECI-1234). The admin-side
 sibling of the portal's owner-only `DELETE /api/vendor/seats/:userId` (AECI-664), which
 cannot help here: it is scoped to the caller's own session vendor.
 
@@ -3339,7 +3340,8 @@ Errors:
 
 Provision one **catalogue-maintenance seat**: write `profiles.role = 'vendor_admin'` +
 `profiles.vendor_id` + `seat_owner` for a named account, and **nothing else**. `201 Created`
-(or `200 OK` on an idempotent no-op). Behind `requireAdmin()`. Source of truth:
+(or `200 OK` on an idempotent no-op). Behind `requireAdmin()`, then `rateLimit('write')`
+(AECI-1479). Source of truth:
 `packages/shared/src/api/admin-vendors.ts`, `apps/api/src/routes/admin-vendors.ts`;
 model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
