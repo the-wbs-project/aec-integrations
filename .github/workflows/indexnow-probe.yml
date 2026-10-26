@@ -1,0 +1,84 @@
+# AEC Integrations — one-shot IndexNow probe from a GitHub-hosted runner (AECI-1476).
+#
+# The question it answers: is the daily IndexNow 429 caused by the API Worker's
+# shared Cloudflare egress IPs? The `indexnow-drain` cron sends one request a day
+# and is refused on most days (`docs/RUNBOOKS.md` "IndexNow submissions refused").
+# This job sends the same kind of request for the same host and key from a
+# non-Cloudflare IP.
+#
+# It runs the existing operator script `apps/api/scripts/submit-trade-urls.ts`,
+# which uses the drain's transport (`src/lib/indexnow.ts`). The script first does a
+# dry-run discovery against the live site, then submits about 35 `/trades/*` URLs.
+# It refuses to submit when `{key}.txt` does not resolve on the site.
+#
+# When to run it: after the day's 00:05 UTC drain, and only once PostHog Logs shows
+# that run's `aeci.indexnow.submit_failed` with a 429. Bing has accepted the first
+# request of a UTC day before (`docs/RUNBOOKS.md`), so a probe that runs first can
+# spend that allowance: its 200 then proves nothing about the IP, and it pushes the
+# drain into a 429 of its own.
+#
+# Reading the log of the "Submit" step:
+#   IndexNow: OK (200|202)   the Worker egress IP is the cause (given the drain was
+#                            refused earlier the same UTC day). Build the runner leg.
+#   IndexNow: FAILED (429)   the probe is inconclusive: the host or key may be
+#                            flagged, or this runner's IP pool is throttled too.
+#                            Do NOT re-run. Report on AECI-1476.
+#   "verification file"      the web Worker's INDEXNOW_KEY does not match the
+#                            GitHub secret. Nothing was submitted.
+#
+# ONE outbound production submission per run. workflow_dispatch only, no schedule.
+# Delete this file once the runner leg (`indexnow-send.yml`) ships.
+#
+# Required secrets:
+#   INDEXNOW_KEY_PRODUCTION   the same secret promote-to-prod.yml uploads to both
+#                             production Workers as INDEXNOW_KEY
+
+name: indexnow-probe
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: indexnow-probe
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  probe:
+    name: Probe IndexNow from a runner
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Record the runner egress IP
+        run: curl -fsS https://api.ipify.org && echo
+
+      - name: Dry-run (discover, submit nothing)
+        run: pnpm --filter @aeci/api ops:submit-trade-urls -- --env production
+
+      - name: Submit
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then
+            echo "::error::INDEXNOW_KEY_PRODUCTION secret is empty."
+            exit 2
+          fi
+          pnpm --filter @aeci/api ops:submit-trade-urls -- --env production --apply --allow-production
