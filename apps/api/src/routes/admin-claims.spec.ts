@@ -502,6 +502,47 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(row.billingAccountId).toBe(BILLING_ACCOUNT_ID);
   });
 
+  // AECI-1380: a second first approval on the same vendor created the billing account
+  // after this approval's read. The first batch trips `billing_accounts_vendor_key` and
+  // rolls back; the re-plan lands the claimant against the committed account.
+  it('a billing account created between the read and the batch re-plans once and approves', async () => {
+    await seedVendor();
+    await seedRequest();
+    const MINE = 'abababab-abab-4bab-8bab-abababababab';
+    await seedAcceptance(MINE);
+    const batch = t.db.batch.bind(t.db);
+    const batchSpy = vi.spyOn(t.db, 'batch').mockImplementationOnce((async (
+      stmts: Parameters<typeof batch>[0],
+    ) => {
+      // What the rival approval's batch commits: the account and the ownership stamp.
+      await seedBillingAccount();
+      await t.db.update(vendors).set({ ownedAt: OLD_TS }).where(eq(vendors.id, VENDOR_ID));
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect(batchSpy).toHaveBeenCalledTimes(2);
+    batchSpy.mockRestore();
+    expect((await requestOf(REQUEST_ID))!.status).toBe('resolved');
+    expect(await profileOf(CLAIMANT_ID)).toMatchObject({ vendorId: VENDOR_ID });
+    const accounts = await t.db.select().from(billingAccounts);
+    expect(accounts.map((a) => a.id)).toEqual([BILLING_ACCOUNT_ID]);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.filter((a) => a.action === 'billing_account.created')).toHaveLength(0);
+    const granted = audits.find((a) => a.action === 'vendor_claim.granted')!;
+    expect(granted.metadata).toMatchObject({ billing_account_created: false });
+    // The rival stamped ownership, so this grant's guarded stamp matched no row.
+    expect(granted.metadata).not.toHaveProperty('ownership_stamped');
+    expect((await vendorOf(VENDOR_ID))!.ownedAt).toBe(OLD_TS);
+    const link = audits.find((a) => a.action === 'agreement.linked')!;
+    expect(link.afterState).toMatchObject({ billing_account_id: BILLING_ACCOUNT_ID });
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance!.billingAccountId).toBe(BILLING_ACCOUNT_ID);
+  });
+
   it("forwards the grant's audit rows and transition in ONE batched request (connection limit)", async () => {
     await seedVendor();
     await seedRequest();

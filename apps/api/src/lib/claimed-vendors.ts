@@ -112,6 +112,20 @@ export function stampOwnershipStatement(db: Db, vendorId: string, now: string): 
     .where(and(eq(vendors.id, vendorId), isNull(vendors.ownedAt)));
 }
 
+/**
+ * The vendor's `owned_at` now. A seat grant that re-plans after losing the
+ * first-account race (AECI-1380) reads it again: the rival seat stamped ownership in
+ * its own batch, so this grant's stamp matches no row and its audit row must not say
+ * `ownership_stamped`. `null` for an unowned or missing vendor.
+ */
+export async function loadVendorOwnedAt(db: Db, vendorId: string): Promise<string | null> {
+  const row = await db.query.vendors.findFirst({
+    columns: { ownedAt: true },
+    where: eq(vendors.id, vendorId),
+  });
+  return row?.ownedAt ?? null;
+}
+
 /** The token the promote ownership sentinel raises with. `json()` on it is malformed
  *  JSON, so the whole batch rolls back. */
 export const VENDOR_OWNED_DURING_PROMOTE_TOKEN = 'vendor-owned-during-promote';

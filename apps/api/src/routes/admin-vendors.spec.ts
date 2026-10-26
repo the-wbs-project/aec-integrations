@@ -1854,6 +1854,34 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     ]);
   });
 
+  // AECI-1380: another first seat created the account after this provision's read.
+  // The first batch trips `billing_accounts_vendor_key`; the re-plan writes no account.
+  it('re-plans once when a billing account lands between the read and the batch', async () => {
+    const RIVAL_TS = '2026-01-01T00:00:00.000Z';
+    const batch = t.db.batch.bind(t.db);
+    const batchSpy = vi.spyOn(t.db, 'batch').mockImplementationOnce((async (
+      stmts: Parameters<typeof batch>[0],
+    ) => {
+      // What the rival seat's batch commits: the account and the ownership stamp.
+      await t.db.insert(billingAccounts).values({ id: u(90), vendorId: VENDOR, name: 'MindCloud' });
+      await t.db.update(vendors).set({ ownedAt: RIVAL_TS }).where(eq(vendors.id, VENDOR));
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const res = await provision(VENDOR, linked());
+    expect(res.status).toBe(201);
+    expect(batchSpy).toHaveBeenCalledTimes(2);
+    batchSpy.mockRestore();
+
+    expect((await t.db.select().from(billingAccounts)).map((a) => a.id)).toEqual([u(90)]);
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((r) => r.action)).toEqual(['vendor_seat.provisioned']);
+    // The rival stamped ownership, so this provision's guarded stamp matched no row.
+    expect(audits[0]!.metadata).not.toHaveProperty('ownership_stamped');
+    const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(after!.ownedAt).toBe(RIVAL_TS);
+  });
+
   it('409s on an account that is a site admin, or belongs to another vendor', async () => {
     const conflict = (reason: 'already_admin' | 'other_vendor') =>
       identity({
