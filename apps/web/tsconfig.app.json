@@ -4,6 +4,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/app",
+    // The Angular builder does its own emit; this program is only ever
+    // type-checked. Without it, TypeScript 6 stops a bare `tsc -p` with
+    // TS5011 (no `rootDir`) and writes `out-tsc/`, which `pnpm lint` then reads.
+    "noEmit": true,
     "types": ["node", "@angular/localize"]
   },
   "include": ["src/**/*.ts", "worker-configuration.d.ts"],
