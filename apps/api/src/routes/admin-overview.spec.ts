@@ -40,42 +40,17 @@ import {
   TABLES_UNCLASSIFIED_NOTE,
   windowsForDay,
 } from '../lib/analytics-digest';
-import type { CollectionMethodChange } from '../lib/collection-method-changes';
+import { COLLECTION_METHOD_CHANGES } from '../lib/collection-method-changes';
 import { CHECKS } from '../lib/data-quality';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
 import { createAdminOverviewHandler, type AdminOverviewDeps } from './admin-overview';
 
-/**
- * A mocked AECI-1460 §3d row (`arrivalsComparable: true`) on a production date no
- * other case here reads. The real rows land per tier after each deploy
- * (AECI-1465); the constant itself is not edited.
- */
-const { AECI_1460_ROW } = vi.hoisted(() => ({
-  AECI_1460_ROW: {
-    at: '2026-11-02T09:00:00.000Z',
-    tier: 'production',
-    sha: 'deadbeef0',
-    issue: 'AECI-1460',
-    summary: 'residual and AutomationExclusion retired',
-    arrivalsComparable: true,
-  } satisfies CollectionMethodChange,
-}));
-
-vi.mock('../lib/collection-method-changes', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../lib/collection-method-changes')>();
-  const changes = [...orig.COLLECTION_METHOD_CHANGES, AECI_1460_ROW];
-  return {
-    ...orig,
-    COLLECTION_METHOD_CHANGES: changes,
-    collectionMethodSeam: (
-      env: string | undefined | null,
-      w: { startIso: string; endIso: string },
-      rows: readonly CollectionMethodChange[] = changes,
-    ) => orig.collectionMethodSeam(env, w, rows),
-  };
-});
+/** The real production AECI-1460 §3d row (AECI-1465). */
+const AECI_1460_ROW = COLLECTION_METHOD_CHANGES.find(
+  (r) => r.issue === 'AECI-1460' && r.tier === 'production',
+)!;
 
 /** Store one classification for an existing page view (AECI-1460 table filter). */
 function classifyRow(id: number, cls: string, day: string, version = 'v1'): void {
@@ -1030,9 +1005,9 @@ describe('GET /api/admin/overview — class deltas, the class series and seams (
   });
 
   it('flags a comparable AECI-1460 row and leaves every class delta standing', async () => {
-    const day = '2026-11-02';
-    await classified('2026-11-01', 'unresolved', 'v1');
-    await classified('2026-11-01', 'identified_automation', 'v1');
+    const day = '2026-10-26';
+    await classified('2026-10-25', 'unresolved', 'v1');
+    await classified('2026-10-25', 'identified_automation', 'v1');
     await classified(day, 'unresolved', 'v1');
     await classified(day, 'identified_automation', 'v1');
     const body = await overview(`/api/admin/overview?day=${day}`, {

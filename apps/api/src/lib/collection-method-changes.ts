@@ -62,6 +62,33 @@ export const COLLECTION_METHOD_CHANGES: readonly CollectionMethodChange[] = [
     summary: 'native cache enabled; arrival rows survive a cache hit',
     arrivalsComparable: true,
   },
+  {
+    at: '2026-10-23T04:02:00.000Z',
+    tier: 'staging',
+    sha: 'fedd6e1e7',
+    issue: 'AECI-1460',
+    summary:
+      'residual and AutomationExclusion retired; traffic.page_views_human_after_automation frozen',
+    arrivalsComparable: true,
+  },
+  {
+    at: '2026-10-26T01:30:00.000Z',
+    tier: 'demo',
+    sha: '08033ebd6',
+    issue: 'AECI-1460',
+    summary:
+      'residual and AutomationExclusion retired; traffic.page_views_human_after_automation frozen',
+    arrivalsComparable: true,
+  },
+  {
+    at: '2026-10-26T08:15:00.000Z',
+    tier: 'production',
+    sha: '0cb6f1203',
+    issue: 'AECI-1460',
+    summary:
+      'residual and AutomationExclusion retired; traffic.page_views_human_after_automation frozen',
+    arrivalsComparable: true,
+  },
 ];
 
 /**
