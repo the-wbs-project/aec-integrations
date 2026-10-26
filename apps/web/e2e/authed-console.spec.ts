@@ -29,8 +29,8 @@ import {
   waitForHydrationSettle,
 } from './console-capture';
 import { mintSessionCookies } from './auth-session';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 // Shared seed product (`apps/api/seed/phase2-fixtures.sql`), same as `reviews-submission.spec.ts`.
 const PRODUCT_SLUG = 'fixture-procore';
 /** The seeded Procore Technologies vendor (`apps/api/seed/phase2-fixtures.sql`).

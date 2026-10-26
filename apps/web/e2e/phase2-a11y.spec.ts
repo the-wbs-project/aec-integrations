@@ -36,8 +36,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test';
-
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 

@@ -96,6 +96,18 @@ The port override is plumbed through `AECI_WEB_PORT` and `AECI_API_PORT`. Each a
 `dev:preview` and `playwright.config.ts` honor them. Both default to `8788/8787`, so direct
 `pnpm dev:bound`, CI and e2e are unchanged, and each gets its own registry too.
 
+**Running e2e in an agent workspace needs one variable.** Boot with `pnpm dev:agent`, then set
+`AECI_WEB_PORT` to the web port it printed:
+
+```bash
+AECI_WEB_PORT=8790 pnpm test:e2e
+```
+
+Playwright finds the running stack on that port and reuses it. The config and every spec take
+their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788 (AECI-1449). `AECI_API_PORT` is
+not needed, because the specs reach the API through the SSR Worker. Set `PLAYWRIGHT_BASE_URL`
+only to target a deployed tier.
+
 **An agent that needs to boot the app in a workspace uses `pnpm dev:agent`.** It does not use
 `pnpm dev:conductor`, `pnpm dev` or `pnpm dev:bound`. Leave the constant pair for the human.
 

@@ -26,8 +26,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
-
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {

@@ -476,6 +476,12 @@ Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec t
 scroll itself. The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
 and failed on 1.64's newer Chromium (AECI-1383).
 
+**Never write a port into a spec.** Navigate with relative paths so `page.goto` follows the
+config's `baseURL`. A spec that needs an absolute origin outside a test, such as a `beforeAll`
+request context, a cookie domain or a session mint, imports `E2E_BASE_URL` from
+`apps/web/e2e/base-url.ts`. That module is also what `playwright.config.ts` reads. A
+`localhost:8788` literal passes in CI and fails on every `dev:agent` port pair (AECI-1449).
+
 ### 7.5 Test data
 
 - The local environment uses a fixed seed data set in D1
@@ -839,6 +845,8 @@ Use Miniflare's in-memory storage. Reset between tests.
 ### 13.3 E2E tests
 
 Run against a local `dev:bound` server with seed data applied. The seed is a known, stable dataset.
+
+In an agent workspace, boot with `pnpm dev:agent` and set `AECI_WEB_PORT` to the web port it printed (`docs/local-dev.md` §3.1).
 
 If a test needs to create data (e.g. submit a review), it creates it with a unique identifier (test-{timestamp}) so it doesn't conflict with other concurrent test runs.
 
