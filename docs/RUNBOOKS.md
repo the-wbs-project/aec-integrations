@@ -493,10 +493,18 @@ is held so the next cron retries it.
    use no-data — `outcome:failed` is absent on a healthy run.)
 
 **Repair:** a failed entity is retried by the next daily cron (the watermark wasn't advanced).
-To repair immediately, re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+There is no bulk-sync CLI. The AECI-138 `db:algolia-bulk-sync` script never landed (AECI-1039).
+Two repair paths exist instead.
+
+- **Records missing, index otherwise correct:** reset that entity's watermark so the next
+  08:00 UTC run sweeps it whole without emptying the index. Procedure and flags:
+  `docs/SEARCH_RANKING.md` §1.2. The production dry run for `integrations` is below. Swap
+  `--entity` for `products` or `vendors`, and add `--apply --allow-production` to write.
+- **Records must be rebuilt now:** the datatool reindex (`apps/datatool`, "Reindex now").
+  It clears the index first, so search returns zero hits until it finishes. Run it off-peak.
 
 ```bash
-pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
+node scripts/ops/2026-09-algolia-integration-watermark-reset/reset-watermark.mjs --env production --entity integrations
 ```
 
 **Escalation:** failures across multiple consecutive runs with Algolia healthy point at a data
