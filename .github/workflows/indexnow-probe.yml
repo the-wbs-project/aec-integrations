@@ -11,8 +11,15 @@
 # dry-run discovery against the live site, then submits about 35 `/trades/*` URLs.
 # It refuses to submit when `{key}.txt` does not resolve on the site.
 #
+# When to run it: after the day's 00:05 UTC drain, and only once PostHog Logs shows
+# that run's `aeci.indexnow.submit_failed` with a 429. Bing has accepted the first
+# request of a UTC day before (`docs/RUNBOOKS.md`), so a probe that runs first can
+# spend that allowance: its 200 then proves nothing about the IP, and it pushes the
+# drain into a 429 of its own.
+#
 # Reading the log of the "Submit" step:
-#   IndexNow: OK (200|202)   the Worker egress IP is the cause. Build the runner leg.
+#   IndexNow: OK (200|202)   the Worker egress IP is the cause (given the drain was
+#                            refused earlier the same UTC day). Build the runner leg.
 #   IndexNow: FAILED (429)   the probe is inconclusive: the host or key may be
 #                            flagged, or this runner's IP pool is throttled too.
 #                            Do NOT re-run. Report on AECI-1476.
