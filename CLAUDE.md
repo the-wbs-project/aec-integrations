@@ -202,6 +202,8 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
   wrangler environments (declare it in all four blocks); `simple.period` is 10 or 60 seconds only.
   `docs/waf-rate-limits.md` §6, ADR 0026.
 - **Audit logging is transactional.** See "Audit logging" below.
+- **One behavior per pattern.** `Lint: 🟡`. Paging, filters and sort work alike on every page.
+  If a page differs, tell Chris and let him decide. `DESIGN.md` "The Same-Behavior Rule".
 - **Accessibility is built in.** Spartan + CDK give a11y by default; don't break it. Run axe-core
   locally before pushing.
 
@@ -275,12 +277,10 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   Refresh with `npx impeccable skills update`.
 - **`angular-developer`** / **`angular-new-app`**: official Angular skills, installed with
   `npx skills add https://github.com/angular/skills`.
-- **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: the Cloudflare
-  skills this repo uses, copied from the user-level set so nothing outside the repo has to load.
-  Not copied as standalone skills: `durable-objects` and `agents-sdk` (ADR 0023 declined them),
-  `cloudflare-email-service` (email is Resend), the `sandbox-*` and `cloudflare-one*` bundles.
-  Note the umbrella `cloudflare` skill still carries `durable-objects`, `agents-sdk`, `sandbox`
-  and the email topics under its own `references/`; that is upstream content, not an adoption.
+- **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: copied in from
+  the user-level set. Not copied: `durable-objects`, `agents-sdk` (ADR 0023 declined them),
+  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`. The umbrella
+  `cloudflare` skill's `references/` still carry those topics as upstream content, not an adoption.
 - **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
   code on its own runs it before reporting done.** An orchestrator puts this in every coding
   sub-agent's prompt and rejects a report that has no review result.

@@ -1,5 +1,7 @@
 import { Component, input, output } from '@angular/core';
 
+import { ListingViewToggle } from './listing-view-toggle';
+
 /** One sort choice the toolbar renders. `value` is the `?sort=` key handed back
  *  through `(sortChange)`; `label` is the already-localized display string. */
 export interface ListingSortOption {
@@ -18,13 +20,11 @@ export type ListingView = 'cards' | 'table';
  */
 let nextToolbarId = 0;
 
-const VIEW_BTN_BASE =
-  'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
 /**
  * The listing toolbar: a sort `<select>` on the start edge, a cards/table
  * segmented toggle on the end edge (AECI-190, extracted from `products-index.ts`
- * by AECI-657).
+ * by AECI-657). The toggle is its own `aec-listing-view-toggle` so `/search`,
+ * which keeps its own sort control, renders the identical one.
  *
  * **Why it is shared.** AECI-190 built this markup inline in the `/products`
  * template, so the taxonomy browse pages — which render the same catalog, from
@@ -51,6 +51,7 @@ const VIEW_BTN_BASE =
  */
 @Component({
   selector: 'aec-listing-toolbar',
+  imports: [ListingViewToggle],
   // A custom element defaults to `display: inline`, and vertical margins never
   // apply to an inline box — so the hosts' `space-y-6` on the grid slot silently
   // collapsed to nothing and the first card sat flush against the toolbar.
@@ -96,62 +97,7 @@ const VIEW_BTN_BASE =
         </div>
       </div>
 
-      <div
-        role="group"
-        class="inline-flex gap-1 rounded-(--radius-md) border border-(--border-default)
-          bg-(--surface-raised) p-1"
-        i18n-aria-label="@@listing.toolbar.view.aria"
-        aria-label="Choose a view"
-      >
-        <button
-          type="button"
-          [class]="viewBtnClass('cards')"
-          [attr.aria-pressed]="view() === 'cards'"
-          (click)="viewChange.emit('cards')"
-        >
-          <svg
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect width="7" height="7" x="3" y="3" rx="1" />
-            <rect width="7" height="7" x="14" y="3" rx="1" />
-            <rect width="7" height="7" x="14" y="14" rx="1" />
-            <rect width="7" height="7" x="3" y="14" rx="1" />
-          </svg>
-          <span i18n="@@listing.toolbar.view.cards">Cards</span>
-        </button>
-        <button
-          type="button"
-          [class]="viewBtnClass('table')"
-          [attr.aria-pressed]="view() === 'table'"
-          (click)="viewChange.emit('table')"
-        >
-          <svg
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="8" x2="21" y1="6" y2="6" />
-            <line x1="8" x2="21" y1="12" y2="12" />
-            <line x1="8" x2="21" y1="18" y2="18" />
-            <line x1="3" x2="3.01" y1="6" y2="6" />
-            <line x1="3" x2="3.01" y1="12" y2="12" />
-            <line x1="3" x2="3.01" y1="18" y2="18" />
-          </svg>
-          <span i18n="@@listing.toolbar.view.table">Table</span>
-        </button>
-      </div>
+      <aec-listing-view-toggle [view]="view()" (viewChange)="viewChange.emit($event)" />
     </div>
   `,
 })
@@ -175,11 +121,5 @@ export class ListingToolbar {
 
   protected onSortChange(event: Event): void {
     this.sortChange.emit((event.target as HTMLSelectElement).value);
-  }
-
-  protected viewBtnClass(value: ListingView): string {
-    return this.view() === value
-      ? `${VIEW_BTN_BASE} bg-(--accent-primary) text-(--surface-base)`
-      : `${VIEW_BTN_BASE} text-(--text-secondary) hover:text-(--text-primary)`;
   }
 }

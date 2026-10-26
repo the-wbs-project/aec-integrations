@@ -44,6 +44,20 @@ Key properties:
   show/hide of materialized signal slices (no re-query). The §7.2 facets map to
   `connectRefinementList` / `connectNumericMenu` / `connectRange`; `?q=`/`?tab=` (only) sync to
   the URL — facets stay in-memory to avoid the §9.2 "query-string explosion."
+  - **Amended (2026-10-26).** The root has no index of its own now. `products` and `vendors` are
+    sibling nested `index()` widgets under an index-less root that holds only the `searchBox`.
+    A nested index inherits its parent's refinements, so with `products` as the root a products
+    category filter reached the vendors query and emptied the Vendors tab. An index-less root
+    sends no query, so it is still two queries per keystroke. Results page through
+    `connectInfiniteHits` (24 per page), not `connectPagination`.
+  - **Amended (2026-10-26): facets are in the URL now.** The "query-string explosion" reason
+    above was borrowed from the caching rule, which is why `/search` is not cached at all. It never
+    applied to the URL itself. `/search` is `noindex` and `no-store`, so its URLs fork no cache and
+    reach no crawler. Filters now ride the query string (`search-url-state.ts`) so reload, Back and
+    a shared link keep them, as on `/products`. A filter, tab or sort change is a history entry;
+    typing replaces the entry. The controller passes InstantSearch's `onStateChange` through and
+    reports only filter changes; Back/Forward applies the URL with `setUiState`. The index widgets
+    carry fixed `indexId`s (`products`, `vendors`) so the UI-state keys survive a sort swap.
 
 The acceptance criteria of §4.6 / §7.5 (browser-side search-only key, faceted, entity tabs,
 branded hit cards, empty state, noindex, non-cacheable, both themes, axe-AA) are all met — only

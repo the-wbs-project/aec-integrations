@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 
 import type { RefinementItem } from '../../shared/facets/refinement-item';
 
@@ -17,7 +17,16 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
  * `min-w-0` on the fieldset: a fieldset defaults to `min-inline-size:
  * min-content`, so a long facet value pushed the rail wider than its column
  * instead of truncating. The numeric-menu and range widgets carry it too.
+ *
+ * **Top 10, then "Show more" (2026-10-26).** Both `/search` and the `/products`
+ * sidebar render their lists here, so they collapse alike: the first
+ * `collapsedLimit` values in the order given, plus any checked value further
+ * down, so a selection never hides. "Show more" reveals the rest in place and
+ * becomes "Show fewer". The toggle text is the one localized string here.
  */
+/** Per-instance id for `aria-controls`. Deterministic per render (SSR-safe). */
+let nextListId = 0;
+
 @Component({
   selector: 'aec-search-refinement-list',
   template: `
@@ -28,8 +37,8 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
         >
           {{ label() }}
         </legend>
-        <ul class="space-y-1">
-          @for (item of items(); track item.value) {
+        <ul class="space-y-1" [id]="listId">
+          @for (item of visibleItems(); track item.value) {
             <li>
               <label
                 class="flex cursor-pointer items-center gap-2 rounded-(--radius-sm) px-1 py-0.5 text-sm text-(--text-primary) hover:bg-(--surface-muted)"
@@ -48,6 +57,21 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
             </li>
           }
         </ul>
+        @if (canToggle()) {
+          <button
+            type="button"
+            class="mt-1 rounded-(--radius-sm) px-1 text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [attr.aria-expanded]="expanded()"
+            [attr.aria-controls]="listId"
+            (click)="expanded.set(!expanded())"
+          >
+            @if (expanded()) {
+              <span i18n="@@facets.showFewer">Show fewer</span>
+            } @else {
+              <span i18n="@@facets.showMore">Show more ({{ hiddenCount() }})</span>
+            }
+          </button>
+        }
       </fieldset>
     }
   `,
@@ -64,6 +88,25 @@ export class SearchRefinementList {
   readonly booleanLabels = input<readonly [string, string] | null>(null);
   /** Emits the facet value to toggle. */
   readonly refine = output<string>();
+  /** Values shown before "Show more". */
+  readonly collapsedLimit = input(10);
+
+  protected readonly listId = `aec-refinement-list-${nextListId++}`;
+  protected readonly expanded = signal(false);
+
+  /** The first `collapsedLimit` values, plus any checked value past them. */
+  private readonly collapsedItems = computed(() => {
+    const limit = this.collapsedLimit();
+    return this.items().filter((item, index) => index < limit || item.isRefined);
+  });
+
+  protected readonly canToggle = computed(() => this.collapsedItems().length < this.items().length);
+  protected readonly hiddenCount = computed(
+    () => this.items().length - this.collapsedItems().length,
+  );
+  protected readonly visibleItems = computed(() =>
+    this.expanded() ? this.items() : this.collapsedItems(),
+  );
 
   protected displayLabel(item: RefinementItem): string {
     const bl = this.booleanLabels();

@@ -217,6 +217,10 @@ export class FacetSidebar {
       relativeTo: this.route,
       queryParams: { [param]: next.length > 0 ? next : null, page: this.resetsPage() ? 1 : null },
       queryParamsHandling: 'merge',
+      // Stay in place: a reader ticks several filters in a row, and a jump to
+      // the top after each one loses their place (`DESIGN.md` "The
+      // Same-Behavior Rule"; /search behaves the same).
+      scroll: 'manual',
     });
   }
 
@@ -233,6 +237,7 @@ export class FacetSidebar {
       relativeTo: this.route,
       queryParams,
       queryParamsHandling: 'merge',
+      scroll: 'manual',
     });
   }
 

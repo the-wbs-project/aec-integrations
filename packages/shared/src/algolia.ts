@@ -75,7 +75,21 @@ export type AlgoliaKeyParams = {
   indexes: string[];
   /** Stable `aeci:<role>:<prefix>` tag the provision script keys idempotency off. */
   description: string;
+  /**
+   * Per-IP hourly request cap. Set on the browser-facing SEARCH keys only: the
+   * key ships in every page, and on the paid plan every request past the free
+   * allowance is billed, so one address cannot run up a bill. Absent (no cap)
+   * on the management keys, which only our servers and CI use.
+   */
+  maxQueriesPerIPPerHour?: number;
 };
+
+/**
+ * The search keys' per-IP hourly cap (2026-10-26). A visitor typing and
+ * scrolling for an hour makes about 100–200 calls, so real use never meets it;
+ * one abusive address is held to about 12K a day.
+ */
+export const SEARCH_KEY_MAX_QUERIES_PER_IP_PER_HOUR = 500;
 
 /** The role a provisioned key plays. */
 export type AlgoliaKeyRole = 'search' | 'management';
@@ -156,6 +170,7 @@ export function searchKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
     // The docs index the tier READS (AECI-1270). Demo reads `production_docs`.
     indexes: [...indexListFor(env), ...replicaNamesFor(env), docsIndexNameFor(env)],
     description: keyDescription('search', env),
+    maxQueriesPerIPPerHour: SEARCH_KEY_MAX_QUERIES_PER_IP_PER_HOUR,
   };
 }
 
@@ -386,6 +401,7 @@ export function sharedSearchKeyParams(): AlgoliaKeyParams {
     acl: [...searchKeyParams('staging').acl],
     indexes: sharedIndexList(),
     description: 'aeci:search:shared',
+    maxQueriesPerIPPerHour: SEARCH_KEY_MAX_QUERIES_PER_IP_PER_HOUR,
   };
 }
 
@@ -464,12 +480,15 @@ export type ReplicaSort = {
 };
 
 /**
- * Per-entity replica sorts (AECI-175). Products and Vendors each expose
- * "Name A–Z"; the Integrations tab is hidden on `/search` (§7.5) so it has no
- * sort UI and no replicas. Each extra option is a full standard replica index —
- * i.e. 2 replicas total — which Algolia keeps in sync with its primary
- * automatically (no extra sync work) at the cost of duplicating the primary's
- * records for quota/billing. See `SEARCH_RANKING.md` §5a.
+ * Per-entity replica sorts (AECI-175). Products expose the five `/products`
+ * sorts (Newest, Name A–Z, Recently updated, Highest rated, Most reviewed;
+ * 2026-10-26). Vendors expose "Name A–Z". The Integrations tab is hidden on
+ * `/search` (§7.5) so it has no sort UI and no replicas. Each option is a full
+ * standard replica index, 6 per tier, which Algolia keeps in sync with its
+ * primary automatically (no extra sync work) at the cost of duplicating the
+ * primary's records. Standard, not virtual, because only a standard replica
+ * orders strictly by the attribute, as `/products` does. The app moved to the
+ * Grow plan (50 indexes) for these on 2026-10-26. See `SEARCH_RANKING.md` §5a.
  *
  * **The "Most integrations" replicas (`*_integration_count_desc`) are retired**
  * (AECI-636 PR-B): a count of integrations rewards exactly the shallow,
@@ -479,6 +498,11 @@ export type ReplicaSort = {
  * `deleteIndex` ACL, so an operator deletes it by hand (`SEARCH_RANKING.md` §5a).
  * Do not re-add one to roll back: at the index cap Algolia refuses to create it
  * and the whole settings step fails. Roll back `customRanking` alone instead.
+ *
+ * **Adding a replica needs a key update first.** The search and management keys
+ * list their indexes by name, so a new replica is unreachable (search 401s, the
+ * deploy's `setSettings` 403s) until `scripts/algolia/provision.mjs --shared`
+ * re-syncs the keys' index lists.
  *
  * **The A–Z replicas rank on `name_sort` / `company_name_sort`, NOT on the display
  * name** (AECI-825). Algolia orders a string attribute by lexicographical Unicode
@@ -490,8 +514,31 @@ export type ReplicaSort = {
  * "works", it is just wrong.
  */
 const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
+  // Same tokens and order as the /products sort list (`productSortOptions()`),
+  // so `?sort=` means the same thing on both pages (2026-10-26). Each ranks on
+  // a field built by `productSortFields` in `./algolia-records`.
   products: [
+    {
+      sort: 'created',
+      suffix: 'created_desc',
+      ranking: ['desc(created_at_ts)', ...DEFAULT_RANKING_TAIL],
+    },
     { sort: 'name', suffix: 'name_asc', ranking: ['asc(name_sort)', ...DEFAULT_RANKING_TAIL] },
+    {
+      sort: 'updated',
+      suffix: 'updated_desc',
+      ranking: ['desc(updated_at_ts)', ...DEFAULT_RANKING_TAIL],
+    },
+    {
+      sort: 'rating',
+      suffix: 'rating_desc',
+      ranking: ['desc(rating_sort)', ...DEFAULT_RANKING_TAIL],
+    },
+    {
+      sort: 'reviews',
+      suffix: 'reviews_desc',
+      ranking: ['desc(review_count)', ...DEFAULT_RANKING_TAIL],
+    },
   ],
   vendors: [
     {

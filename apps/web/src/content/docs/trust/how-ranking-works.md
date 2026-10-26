@@ -3,7 +3,7 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: October 12, 2026
+last_updated: October 26, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -26,7 +26,7 @@ Complete listings come first. Listings with a description that are missing some 
 
 For products only, one more thing breaks a tie after completeness: the number of published reviews. More reviews come first. After that, listings that are still level have no set order.
 
-You can also sort either tab by **Name (A–Z)**. That order ignores capital letters.
+You can also sort either tab by **Name (A–Z)**. That order ignores capital letters. The Products tab also offers the other sorts of the products list below: **Newest**, **Recently updated**, **Highest rated** and **Most reviewed**. In search, **Highest rated** puts products with too few reviews to show a rating last, as the list does.
 
 A change to a listing can take up to a day to show in search.
 

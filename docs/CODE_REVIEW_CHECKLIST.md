@@ -38,6 +38,8 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
 - Does the code respect the constraints in `CLAUDE.md` (DB access is Drizzle over the D1 `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter; atomic writes use `db.batch([...])`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; light theme only; no pay-for-placement; i18n strings wrapped)? `Lint: ✅` for the statically-checkable half — no Prisma / Accelerate / pg adapter / connection vars, no `zone.js` or `NgZone`, no `dark:` variant or `.theme-dark` block, no forbidden `Vary` (AECI-549). The rest — `db.batch([...])` atomicity, `Cache-Tag` emission, no pay-for-placement, i18n wrapping — is `Lint: 🟡 review-only` and still needs your eyes.
 
+- Does a page the diff touches behave like the other pages with the same pattern (paging, filters, sort, view toggle, empty/loading/error states)? A difference nobody has ruled on is **MAJOR**: raise it with Chris rather than fixing or accepting it silently. `DESIGN.md` "The Same-Behavior Rule".
+
 - If a `## Spec Review` block exists for this issue (posted in the conversation, a Linear comment, or the PR body), were its findings addressed or explicitly waived? An unaddressed plan-time **CRITICAL** is a **BLOCKER** here; an unaddressed **MAJOR** stays **MAJOR**. If the plan check was never run and the diff contradicts its spec section, say so.
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it. Note that the docs are stale in known places: cite the code as well as the doc before calling a divergence a defect.

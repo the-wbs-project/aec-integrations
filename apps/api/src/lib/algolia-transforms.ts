@@ -27,6 +27,7 @@ import {
   type AlgoliaVendorRecord,
   algoliaSortKey,
   flattenTradeAliases,
+  productSortFields,
 } from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
@@ -95,6 +96,7 @@ export const algoliaProductConfig = {
     reviewCount: true,
     ratingOverallAvg: true,
     promotionStatus: true,
+    createdAt: true,
     updatedAt: true,
   },
   with: {
@@ -184,6 +186,7 @@ export interface RawAlgoliaProductRow {
   reviewCount: number;
   ratingOverallAvg: number | null;
   promotionStatus: string;
+  createdAt: string;
   updatedAt: string;
   productVendors: Array<{
     isPrimary: boolean;
@@ -256,6 +259,9 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     rating_overall_avg: row.ratingOverallAvg,
+    // The /products sorts (created, updated, rating). Must stay identical to
+    // `buildProductRecords` in `apps/datatool`, hence the shared helper.
+    ...productSortFields(row),
     has_api_docs: row.hasApiDocs,
     logo_url: row.logoUrl,
     // AECI-636 — omitted, not null, when there is no tier. Content inputs only;
