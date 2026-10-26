@@ -1389,8 +1389,8 @@ export POSTHOG_PERSONAL_API_KEY=phx_...       # or POSTHOG_CLI_API_KEY
 ./observability/posthog/apply.sh --verify     # read-only drift report
 ```
 
-Dashboards + insights go to **both** projects; **alerts go to production only**. Idempotent by name.
-An existing alert has its subscribers, cadence and on/off state reconciled. Its threshold is not.
+Dashboards + insights go to **both** projects; **alerts go to production only**. Idempotent by stable key: an alert is found by the insight it reads.
+An existing alert has its name, subscribers, cadence and on/off state reconciled. Its threshold is not.
 **Fix drift in `observability/posthog/*.json` and re-run — never in the UI**, because the next run
 will not know. The one exception is an alert threshold: change it in `alerts.json` and in the UI
 together. `--verify` reports a live query that no longer matches the committed one.

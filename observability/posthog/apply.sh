@@ -22,6 +22,11 @@
 #     Every dashboard and insight in insights.json carries a `key`, pushed as the tag
 #     `aeci-key:<key>`, and that tag is the identity. Names are written for a reader and
 #     WILL be rewritten; a name-keyed applier turns each rewrite into a fork.
+#     Alerts have no tags in PostHog. An alert is found by the insight it reads, which
+#     its `insightKey` resolves by tag (AECI-1456). One alert per insight is the rule.
+#     The name is only a fallback when no live alert reads that insight. A second
+#     alert on one insight is reported as DUPLICATE, and a live `AECi —` alert that
+#     matches no entry as ORPHAN. Neither is ever deleted by this script.
 #   * Reconciles NAME and DESCRIPTION, not just the query. Those two are the whole of
 #     what an operator reads on a board, so a change to either has to reach the live
 #     project or this file stops describing it.
@@ -50,6 +55,9 @@
 #   ./observability/posthog/apply.sh --verify     # read-only drift report
 #   ./observability/posthog/apply.sh --only prod  # restrict to one project key
 #
+# --dry-run makes no API calls, so it cannot report DUPLICATE or ORPHAN alerts. Apply and
+# --verify both report them.
+#
 # Exit codes: 0 clean · 1 one or more operations failed · 2 bad usage / missing tooling.
 
 set -uo pipefail
@@ -71,7 +79,7 @@ while [ $# -gt 0 ]; do
     --verify)  MODE="verify" ;;
     --only)    shift; ONLY_PROJECT="${1:-}" ;;
     -h|--help)
-      sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,61p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -138,6 +146,23 @@ old_labels="$(jq -r '(.insights // [])[] | select(.query | test("\\bm\\.attribut
 if [ -n "$old_labels" ]; then
   echo "apply.sh: these insights read m.attributes.<key>, which posthog.metrics no longer has. Join posthog.metric_series and read labels['<key>'] instead:" >&2
   printf '%s\n' "$old_labels" | sed 's/^/  /' >&2
+  exit 2
+fi
+
+# AECI-1456: an alert's identity is its source insight. PostHog alerts carry no tags, so
+# the applier finds a live alert by the insight it reads, and that only works if each
+# committed alert has its own insight. A duplicate `key`, a duplicate `insightKey` or an
+# `insightKey` with no insight is a config error. Checked here so a dry-run fails too.
+bad_alerts="$(jq -r --slurpfile ins "$INSIGHTS" '
+  ([($ins[0].insights // [])[] | .key]) as $keys
+  | (.alerts // []) as $a
+  | ([$a[] | .key] | group_by(.) | map(select(length > 1) | "duplicate key\t\(.[0])")),
+    ([$a[] | .insightKey] | group_by(.) | map(select(length > 1) | "duplicate insightKey\t\(.[0])")),
+    ([$a[] | select(.insightKey as $k | $keys | index($k) | not) | "insightKey not in insights.json\t\(.key) -> \(.insightKey)"])
+  | .[]' "$ALERTS")"
+if [ -n "$bad_alerts" ]; then
+  echo "apply.sh: alerts.json breaks the one-alert-per-insight rule. Fix these:" >&2
+  printf '%s\n' "$bad_alerts" | awk -F'\t' '{ printf "  %-32s %s\n", $1, $2 }' >&2
   exit 2
 fi
 
@@ -268,7 +293,7 @@ preflight() {
   return 0
 }
 
-# ── Idempotency helpers: find an existing object by exact name ──────────────────
+# ── Idempotency helpers: find an existing object by key, then by name ───────────
 #
 # PostHog list endpoints paginate at 100 by default; ?limit=500 covers a plane this size
 # with room to spare. If this ever grows past 500 objects the lookup silently starts
@@ -293,8 +318,11 @@ preflight() {
 # and whichever matches is then PATCHed with the current name, description, tags and
 # query. After one apply everything carries its tag and steps 2–3 stop mattering — but
 # they must stay, because they are what a fresh project falls back to.
+#
+# Alerts do NOT go through this function. PostHog alerts have no tags, so an alert cannot
+# carry `aeci-key:`. Its identity rides on the insight it reads; see the alert loop.
 find_object() {
-  # $1 project_id · $2 collection (dashboards|insights|alerts) · $3 name
+  # $1 project_id · $2 collection (dashboards|insights) · $3 name
   # $4 optional JSON array of previous names · $5 optional stable key
   # echoes the id, or empty. Echoes "__OVERFLOW__" if the page filled up.
   local project_id="$1" collection="$2" name="$3" prev="${4:-[]}" key="${5:-}" status count id
@@ -308,6 +336,14 @@ find_object() {
     printf '__OVERFLOW__'
     return 0
   fi
+  find_in_list "$TMPDIR_APPLY/body" "$name" "$prev" "$key"
+}
+
+# The lookup half of find_object, over a list response already on disk. The alert loop
+# uses it to resolve 22 insights from one GET instead of 22.
+find_in_list() {
+  # $1 list response file · $2 name · $3 JSON array of previous names · $4 stable key
+  local file="$1" name="$2" prev="${3:-[]}" key="${4:-}" id
   id="$(jq -r --arg n "$name" --arg k "$key" --argjson prev "$prev" '
       (.results // []) as $r
       | (if $k == "" then null
@@ -315,7 +351,7 @@ find_object() {
          end
          // ($r | map(select((.name // "") == $n)) | .[0].id)
          // (first($prev[] as $p | $r[] | select((.name // "") == $p) | .id))
-         // "")' "$TMPDIR_APPLY/body")"
+         // "")' "$file")"
   printf '%s' "$id"
 }
 
@@ -391,7 +427,7 @@ apply_project() {
     d_id="$(find_object "$project_id" "dashboards" "$d_name" "$d_prev" "$d_key")"
     case "$d_id" in
       __OVERFLOW__)
-        record_failure "$project_key" "dashboard" "$d_name" "the dashboards list hit the 500-row page cap — idempotency-by-name can no longer be trusted; paginate before re-running"
+        record_failure "$project_key" "dashboard" "$d_name" "the dashboards list hit the 500-row page cap — the key lookup can no longer be trusted; paginate before re-running"
         continue ;;
       __ERROR__*)
         record_failure "$project_key" "dashboard" "$d_name" "list failed (HTTP ${d_id#__ERROR__})"
@@ -487,7 +523,7 @@ apply_project() {
     i_id="$(find_object "$project_id" "insights" "$i_name" "$i_prev" "$i_key")"
     case "$i_id" in
       __OVERFLOW__)
-        record_failure "$project_key" "insight" "$i_name" "the insights list hit the 500-row page cap — idempotency-by-name can no longer be trusted; paginate before re-running"
+        record_failure "$project_key" "insight" "$i_name" "the insights list hit the 500-row page cap — the key lookup can no longer be trusted; paginate before re-running"
         continue ;;
       __ERROR__*)
         record_failure "$project_key" "insight" "$i_name" "list failed (HTTP ${i_id#__ERROR__})"
@@ -596,11 +632,43 @@ apply_project() {
   done
 
   # ---- alerts (prod only) -----------------------------------------------------
+  #
+  # ── Alert identity (AECI-1456) ──────────────────────────────────────────────────
+  #
+  # PostHog alerts have no `tags` and no `description`, so an alert cannot carry the
+  # `aeci-key:` tag that dashboards and insights do. Its identity is the committed `key`,
+  # carried on the live project by a one-to-one link:
+  #
+  #   key → insightKey → the `aeci-key:<insightKey>` tag → insight id → the alert on it
+  #
+  # Preflight holds the link one-to-one: no two committed alerts share an `insightKey`.
+  # Match order for each committed alert:
+  #
+  #   1. live alerts on the resolved insight. More than one is a DUPLICATE: keep the one
+  #      named as committed, else the oldest, and report every other one.
+  #   2. if none, the live alert named as committed, then each `previousNames` entry.
+  #      Only alerts no committed insight claims are eligible, so step 2 cannot steal
+  #      another entry's alert.
+  #
+  # Before this, alerts were found by NAME, so a rename created a second alert and both
+  # emailed (2026-10-22). Duplicates and orphans are REPORTED, never deleted: an
+  # automatic delete of an alert is a silent loss of paging.
   if [ "$wants_alerts" != "true" ]; then
     echo "  ----  alerts skipped: '${project_key}' is not the production project (by design)."
   else
-    local a_count a_i a_name a_insight a_insight_key a_id a_insight_id subscribers
-    local status a_live_users a_live_interval a_live_enabled a_want_interval a_want_enabled
+    local a_count a_i a_key a_name a_prev a_insight a_insight_key a_insight_prev a_id a_insight_id subscribers
+    local status a_live a_live_name a_live_insight a_live_users a_live_interval a_live_enabled
+    local a_want_interval a_want_enabled a_spec a_cands a_by a_count_live a_claimed a_matched
+    local dup_id dup_name orphan_id orphan_name
+    local live_alerts="$TMPDIR_APPLY/alerts-live.json" live_insights="$TMPDIR_APPLY/insights-live.json"
+    local alert_insights="$TMPDIR_APPLY/alert-insights.tsv" matched="$TMPDIR_APPLY/alerts-matched.txt"
+    local reported="$TMPDIR_APPLY/alerts-reported.txt"
+    # The live insight id of an alert. `.insight` is an object on the alert endpoints we
+    # have seen, but a bare id is accepted too. Compared as a string on both sides.
+    local jq_iid='def iid: (.insight | if type == "object" then .id else . end) | if . == null then "" else tostring end;'
+    : > "$alert_insights"
+    : > "$matched"
+    : > "$reported"
     subscribers="[]"
     if [ "$MODE" != "dry-run" ]; then
       subscribers="$(resolve_subscribers)"
@@ -612,14 +680,61 @@ apply_project() {
           echo "  summary [${project_key}]: ${created} written, ${skipped} already present"
           return 0 ;;
       esac
+
+      # One GET each for the live alerts and the live insights, not one per alert. Read
+      # after the insight loop above, so an insight created this run is in the list.
+      for a_by in alerts insights; do
+        status="$(api GET "/api/projects/${project_id}/${a_by}/?limit=500")"
+        if [ "$status" != "200" ]; then
+          record_failure "$project_key" "alerts" "${a_by} list" "GET returned ${status} — $(body_snippet)"
+          echo "  alerts skipped: the live ${a_by} list could not be read."
+          echo "  summary [${project_key}]: ${created} written, ${skipped} already present"
+          return 0
+        fi
+        a_count_live="$(jq -r '(.results // []) | length' "$TMPDIR_APPLY/body")"
+        if [ "$a_count_live" = "500" ]; then
+          record_failure "$project_key" "alerts" "${a_by} list" "the ${a_by} list hit the 500-row page cap, so the alert lookup can no longer be trusted. Paginate before re-running."
+          echo "  alerts skipped: the live ${a_by} list is truncated."
+          echo "  summary [${project_key}]: ${created} written, ${skipped} already present"
+          return 0
+        fi
+        if [ "$a_by" = "alerts" ]; then
+          cp "$TMPDIR_APPLY/body" "$live_alerts"
+        else
+          cp "$TMPDIR_APPLY/body" "$live_insights"
+        fi
+      done
     fi
+
     a_count="$(jq -r '.alerts | length' "$ALERTS")"
+
+    # Pass 1: resolve every alert's source insight FIRST (`key<TAB>insight id`, the id
+    # empty when unresolved). Step 2 of the match needs the whole claimed set up front,
+    # or the outcome would depend on the order of alerts.json.
+    if [ "$MODE" != "dry-run" ]; then
+      a_i=0
+      while [ "$a_i" -lt "$a_count" ]; do
+        a_key="$(jq -r --argjson i "$a_i" '.alerts[$i].key' "$ALERTS")"
+        a_insight_key="$(jq -r --argjson i "$a_i" '.alerts[$i].insightKey' "$ALERTS")"
+        a_insight="$(jq -r --arg k "$a_insight_key" '.insights[] | select(.key == $k) | .name' "$INSIGHTS")"
+        a_insight_prev="$(jq -c --arg k "$a_insight_key" '(.insights[] | select(.key == $k) | .previousNames) // []' "$INSIGHTS")"
+        a_i=$((a_i + 1))
+        a_insight_id="$(find_in_list "$live_insights" "$a_insight" "$a_insight_prev" "$a_insight_key")"
+        printf '%s\t%s\n' "$a_key" "$a_insight_id" >> "$alert_insights"
+      done
+      a_claimed="$(cut -f2 "$alert_insights" | jq -R . | jq -sc 'map(select(. != ""))')"
+    fi
+
     a_i=0
     while [ "$a_i" -lt "$a_count" ]; do
-      a_name="$(jq -r --argjson i "$a_i" '.alerts[$i].name' "$ALERTS")"
-      a_insight_key="$(jq -r --argjson i "$a_i" '.alerts[$i].insightKey' "$ALERTS")"
-      # Display only — the LINK is the key above. Resolved from insights.json so the two
-      # cannot disagree; an alert has never pointed at a name that this file did not define.
+      a_spec="$(jq -c --argjson i "$a_i" '.alerts[$i]' "$ALERTS")"
+      a_key="$(printf '%s' "$a_spec" | jq -r '.key')"
+      a_name="$(printf '%s' "$a_spec" | jq -r '.name')"
+      a_prev="$(printf '%s' "$a_spec" | jq -c '.previousNames // []')"
+      a_insight_key="$(printf '%s' "$a_spec" | jq -r '.insightKey')"
+      a_want_interval="$(printf '%s' "$a_spec" | jq -r '.calculationInterval')"
+      a_want_enabled="$(printf '%s' "$a_spec" | jq -r '.enabled')"
+      # Display only. The link is the key above.
       a_insight="$(jq -r --arg k "$a_insight_key" '.insights[] | select(.key == $k) | .name' "$INSIGHTS")"
       a_i=$((a_i + 1))
 
@@ -628,30 +743,62 @@ apply_project() {
         continue
       fi
 
-      a_id="$(find_object "$project_id" "alerts" "$a_name")"
-      case "$a_id" in
-        __OVERFLOW__|__ERROR__*)
-          record_failure "$project_key" "alert" "$a_name" "alert list unavailable (${a_id})"
-          continue ;;
-      esac
+      # An alert whose source cannot be resolved is SKIPPED with a failure rather than
+      # attached to a guess: an alert pointed at the wrong insight evaluates a real number
+      # against the wrong threshold and looks perfectly healthy.
+      a_insight_id="$(awk -F'\t' -v k="$a_key" '$1 == k {print $2; exit}' "$alert_insights")"
+      if [ -z "$a_insight_id" ]; then
+        record_failure "$project_key" "alert" "$a_name" "its source insight '${a_insight}' (key ${a_insight_key}) could not be resolved"
+        continue
+      fi
 
-      if [ -n "$a_id" ]; then
-        # Reconcile the fields an operator changes: who is emailed, how often it is
-        # checked, and whether it is on. Until 2026-09-25 an existing alert was skipped
-        # outright, so a committed change to any of these never reached the live project.
-        # The threshold, condition and query config are NOT reconciled here: the threshold
-        # is a nested object PostHog versions separately. Change those in the UI and here.
-        status="$(api GET "/api/projects/${project_id}/alerts/${a_id}/")"
-        if [ "$status" != "200" ]; then
-          record_failure "$project_key" "alert" "$a_name" "GET returned ${status} — $(body_snippet)"
-          continue
+      # Step 1: live alerts on the resolved insight, the keeper first.
+      a_matched="$(jq -R . "$matched" | jq -sc .)"
+      a_cands="$(jq -c --arg iid "$a_insight_id" --arg n "$a_name" "${jq_iid}"'
+          [(.results // [])[] | select(iid == $iid)]
+          | sort_by(.created_at // "", (.id | tostring))
+          | map(select((.name // "") == $n)) + map(select((.name // "") != $n))' "$live_alerts")"
+      a_by="insight"
+      a_live="$(printf '%s' "$a_cands" | jq -c '.[0] // empty')"
+      printf '%s' "$a_cands" | jq -r '.[1:][] | "\(.id)\t\(.name // "")"' > "$TMPDIR_APPLY/alert-dupes.tsv"
+      while IFS="$(printf '\t')" read -r dup_id dup_name; do
+        [ -n "$dup_id" ] || continue
+        printf '%s\n' "$dup_id" >> "$reported"
+        record_failure "$project_key" "alert" "$a_name" "DUPLICATE: alert ${dup_id} '${dup_name}' also reads insight ${a_insight_id}. Delete it by hand."
+      done < "$TMPDIR_APPLY/alert-dupes.tsv"
+
+      # Step 2: no alert on the insight, so fall back to the name, then previousNames.
+      if [ -z "$a_live" ]; then
+        a_by="name"
+        a_live="$(jq -c --arg n "$a_name" --argjson prev "$a_prev" \
+            --argjson claimed "$a_claimed" --argjson taken "$a_matched" "${jq_iid}"'
+            [(.results // [])[]
+             | select(iid as $i | $claimed | index($i) | not)
+             | select((.id | tostring) as $i | $taken | index($i) | not)] as $r
+            | ($r | map(select((.name // "") == $n)) | .[0])
+              // first($prev[] as $p | $r[] | select((.name // "") == $p))
+              // empty' "$live_alerts")"
+      fi
+
+      if [ -n "$a_live" ]; then
+        a_id="$(printf '%s' "$a_live" | jq -r '.id')"
+        printf '%s\n' "$a_id" >> "$matched"
+        a_live_name="$(printf '%s' "$a_live" | jq -r '.name // ""')"
+        a_live_insight="$(printf '%s' "$a_live" | jq -r "${jq_iid}"' iid')"
+        if [ "$a_by" = "name" ]; then
+          # Found by name, so it reads some other insight (or none). Not re-pointed here:
+          # the committed threshold and column were written for the committed insight.
+          record_failure "$project_key" "alert" "$a_name" "MISLINKED: alert ${a_id} '${a_live_name}' was matched by name but reads insight '${a_live_insight}', not ${a_insight_id}. Point it at the committed insight in the UI, or delete it and re-run."
         fi
-        a_live_users="$(jq -c '[(.subscribed_users // [])[] | if type == "object" then .id else . end] | sort' "$TMPDIR_APPLY/body")"
-        a_live_interval="$(jq -r '.calculation_interval // ""' "$TMPDIR_APPLY/body")"
-        a_live_enabled="$(jq -r '.enabled' "$TMPDIR_APPLY/body")"
-        a_want_interval="$(jq -r --arg n "$a_name" '.alerts[] | select(.name == $n) | .calculationInterval' "$ALERTS")"
-        a_want_enabled="$(jq -r --arg n "$a_name" '.alerts[] | select(.name == $n) | .enabled' "$ALERTS")"
-        if [ "$a_live_users" = "$(printf '%s' "$subscribers" | jq -c 'sort')" ] \
+        # Reconcile the fields an operator changes: the name, who is emailed, how often
+        # it is checked, and whether it is on. The threshold, condition and query config
+        # are NOT reconciled: the threshold is a nested object PostHog versions
+        # separately. Change those in the UI and here.
+        a_live_users="$(printf '%s' "$a_live" | jq -c '[(.subscribed_users // [])[] | if type == "object" then .id else . end] | sort')"
+        a_live_interval="$(printf '%s' "$a_live" | jq -r '.calculation_interval // ""')"
+        a_live_enabled="$(printf '%s' "$a_live" | jq -r '.enabled')"
+        if [ "$a_live_name" = "$a_name" ] \
+          && [ "$a_live_users" = "$(printf '%s' "$subscribers" | jq -c 'sort')" ] \
           && [ "$a_live_interval" = "$a_want_interval" ] \
           && [ "$a_live_enabled" = "$a_want_enabled" ]; then
           echo "  skip  alert      '${a_name}' (id ${a_id})"
@@ -659,18 +806,27 @@ apply_project() {
           continue
         fi
         if [ "$MODE" = "verify" ]; then
-          record_failure "$project_key" "alert" "$a_name" "DRIFT: live subscribers ${a_live_users}, interval '${a_live_interval}', enabled ${a_live_enabled}; committed ${subscribers}, '${a_want_interval}', ${a_want_enabled}. Re-run without --verify to overwrite."
+          if [ "$a_live_name" != "$a_name" ]; then
+            record_failure "$project_key" "alert" "$a_name" "DRIFT: the live alert ${a_id} is still named '${a_live_name}'. Re-run without --verify to rename it in place."
+          else
+            record_failure "$project_key" "alert" "$a_name" "DRIFT: live subscribers ${a_live_users}, interval '${a_live_interval}', enabled ${a_live_enabled}; committed ${subscribers}, '${a_want_interval}', ${a_want_enabled}. Re-run without --verify to overwrite."
+          fi
           continue
         fi
         body="$TMPDIR_APPLY/alert.json"
         jq -n \
+          --arg n "$a_name" \
           --argjson users "$subscribers" \
           --arg interval "$a_want_interval" \
           --argjson enabled "$a_want_enabled" \
-          '{ subscribed_users: $users, calculation_interval: $interval, enabled: $enabled }' > "$body"
+          '{ name: $n, subscribed_users: $users, calculation_interval: $interval, enabled: $enabled }' > "$body"
         status="$(api PATCH "/api/projects/${project_id}/alerts/${a_id}/" "$body")"
         if [ "$status" = "200" ]; then
-          echo "  updat alert      '${a_name}' (id ${a_id}) — subscribers/interval/enabled reconciled"
+          if [ "$a_live_name" != "$a_name" ]; then
+            echo "  renam alert      '${a_live_name}' → '${a_name}' (id ${a_id})"
+          else
+            echo "  updat alert      '${a_name}' (id ${a_id}) — subscribers/interval/enabled reconciled"
+          fi
           created=$((created + 1))
         else
           record_failure "$project_key" "alert" "$a_name" "PATCH returned ${status} — $(body_snippet)"
@@ -682,25 +838,12 @@ apply_project() {
         continue
       fi
 
-      # Resolved by KEY, with the name/previousNames fallback behind it — same order as
-      # everything else. An alert whose source cannot be resolved is SKIPPED with a
-      # failure rather than attached to a guess: an alert pointed at the wrong insight
-      # evaluates a real number against the wrong threshold and looks perfectly healthy.
-      a_insight_id="$(find_object "$project_id" "insights" "$a_insight" \
-        "$(jq -c --arg k "$a_insight_key" '(.insights[] | select(.key == $k) | .previousNames) // []' "$INSIGHTS")" \
-        "$a_insight_key")"
-      case "$a_insight_id" in
-        ""|__OVERFLOW__|__ERROR__*)
-          record_failure "$project_key" "alert" "$a_name" "its source insight '${a_insight}' (key ${a_insight_key}) could not be resolved"
-          continue ;;
-      esac
-
       body="$TMPDIR_APPLY/alert.json"
       jq -n \
         --arg n "$a_name" \
         --argjson insight "$a_insight_id" \
         --argjson users "$subscribers" \
-        --argjson spec "$(jq -c --arg n "$a_name" '.alerts[] | select(.name == $n)' "$ALERTS")" \
+        --argjson spec "$a_spec" \
         '{
            name: $n,
            insight: $insight,
@@ -720,6 +863,32 @@ apply_project() {
         record_failure "$project_key" "alert" "$a_name" "POST returned ${status} — $(body_snippet)"
       fi
     done
+
+    # Orphans: a live `AECi —` alert that no committed entry matched. Most likely an old
+    # copy left by a rename made before AECI-1456. Reported, never deleted. A dry-run
+    # makes no API calls, so it cannot see orphans.
+    if [ "$MODE" != "dry-run" ]; then
+      cat "$reported" >> "$matched"
+      # A live alert carrying the name or a previousName of an entry whose insight did NOT
+      # resolve is not an orphan: that entry is already a failure above, and "delete it
+      # by hand" would be the wrong advice for it. Only those entries' names are exempt.
+      # An entry whose insight resolved has had its chance to match, so a leftover copy
+      # under its old name on another insight IS an orphan.
+      jq -r --argjson taken "$(jq -R . "$matched" | jq -sc .)" \
+          --argjson names "$(awk -F'\t' '$2 == "" {print $1}' "$alert_insights" | jq -R . | jq -sc . \
+            | jq -c --slurpfile a "$ALERTS" '. as $u
+                | [($a[0].alerts // [])[] | select(.key as $k | $u | index($k))
+                   | .name, (.previousNames // [])[]]')" '
+          (.results // [])[]
+          | select((.name // "") | startswith("AECi —"))
+          | select((.name // "") as $n | $names | index($n) | not)
+          | select((.id | tostring) as $i | $taken | index($i) | not)
+          | "\(.id)\t\(.name)"' "$live_alerts" > "$TMPDIR_APPLY/alert-orphans.tsv"
+      while IFS="$(printf '\t')" read -r orphan_id orphan_name; do
+        [ -n "$orphan_id" ] || continue
+        record_failure "$project_key" "alert" "$orphan_name" "ORPHAN: live alert ${orphan_id} '${orphan_name}' matches no entry in alerts.json. Delete it by hand, or add it."
+      done < "$TMPDIR_APPLY/alert-orphans.tsv"
+    fi
   fi
 
   echo "  summary [${project_key}]: ${created} written, ${skipped} already present"
@@ -837,5 +1006,5 @@ while IFS= read -r pkey; do
 done < "$TMPDIR_APPLY/failed-projects.txt"
 echo ""
 echo "The run COMPLETED — everything above this line that did not fail was applied."
-echo "Fix the JSON (never the UI) and re-run; the applier is idempotent by name."
+echo "Fix the JSON (never the UI) and re-run; the applier is idempotent by stable key."
 exit 1

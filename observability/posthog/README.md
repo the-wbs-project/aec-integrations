@@ -267,6 +267,29 @@ Three rules hold the line:
 
 Alerts point at their source insight by `insightKey`, never by name, for the same reason.
 
+**Alerts are found by their insight (AECI-1456).** PostHog alerts have no tags, so an
+alert cannot carry `aeci-key:`. Its identity is the committed `key`, carried by the
+insight it reads. `apply.sh` resolves the `insightKey` by tag, then matches in this order:
+
+1. the live alert on that insight
+2. the live alert named as committed, only when no live alert reads that insight
+3. `previousNames` in `alerts.json`, in order, same condition
+
+So **one alert per insight** is the rule. Preflight stops with exit 2, dry-run included,
+on a duplicate `key`, a duplicate `insightKey`, or an `insightKey` missing from
+`insights.json`. A rename now updates the live alert in place. Apply and `--verify` report
+three cases as failures and never delete anything:
+
+- **DUPLICATE.** A second live alert reads the same insight. The one named as committed
+  is kept, else the oldest. Delete the other by hand.
+- **ORPHAN.** A live alert named `AECi —` matches no entry. Delete it by hand, or add it.
+  A leftover copy under an entry's old name is an orphan too. The one exception is an
+  alert named for an entry whose insight did not resolve, which that entry already reports.
+- **MISLINKED.** An alert was found by name but reads another insight. Point it at the
+  committed insight in the UI, or delete it and re-run.
+
+A dry-run makes no API calls, so it cannot report these.
+
 The applier reconciles **name, description and tags as well as the query**. It used to
 compare only `.query.source.query`, which meant an edited description printed `skip` and
 changed nothing live — the exact silent divergence the drift check exists to prevent, in
@@ -512,7 +535,7 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    with no subscribers emails nobody. A shared mailbox such as `support@` would need its
    own PostHog seat, which is a paid team plan, so the recipient stays
    `chrisw@thewbsproject.com` (declined 2026-09-25). Existing alerts have their
-   subscribers, cadence and on/off state PATCHed. Their threshold is not reconciled.
+   name, subscribers, cadence and on/off state PATCHed. Their threshold is not reconciled.
 
 6. **Non-email alert delivery is not wired.** `subscribed_users` (email) is the only
    channel `apply.sh` configures. Slack/Discord/webhook delivery is a separate
@@ -600,6 +623,11 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-26 (AECI-1456):** alerts are no longer matched by name. `apply.sh` finds each
+> alert by the insight it reads, so a rename updates the live alert in place. A second alert on one
+> insight, or a live `AECi —` alert that matches no entry, is reported and never deleted. See rule 3
+> in "Naming and descriptions". Not yet run against production.
+>
 > **Update 2026-10-23 (AECI-531):** the committed set is now 54 insights and 22 alerts. The new
 > `erasure-auth-delete-orphaned` alert and its source insight `alert-erasure-auth-delete-orphaned`
 > watch `aeci.account.erasure.auth_delete` and reach PostHog on the next `apply.sh` run. Production
@@ -608,9 +636,8 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 > **Update 2026-10-22 (AECI-1439):** `apply.sh` ran against production. All 21 committed alerts
 > are live and none is `Errored`. The three cron insights carry the AECI-1435 metric. An orphan
 > alert, "AECi — Search-engine pings refused (> 90% in 24 h)", was deleted by hand the same day. It
-> was the pre-AECI-1136 name of `indexnow-failure-rate`. Alerts are matched by name, so that rename
-> had created a second alert. Until AECI-1456 lands, an alert rename needs the old live alert deleted
-> by hand after the apply. The older notes below are history.
+> was the pre-AECI-1136 name of `indexnow-failure-rate`. Alerts were then matched by name, so that
+> rename had created a second alert. The older notes below are history.
 >
 > **Update 2026-10-16 (AECI-1384):** the committed set is now 53 insights and 21 alerts. The new
 > `pageviews-raw-unsent` alert and its source insight `alert-pageviews-raw-unsent` are committed and not applied.
