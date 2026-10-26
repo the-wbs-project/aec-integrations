@@ -52,10 +52,12 @@
  *
  * ─── Why a rowid cursor ──────────────────────────────────────────────────────
  *
- * `page_views` has no leading-`created_at` index — all five are
- * `(dimension, created_at)` — so a bare `DELETE … WHERE created_at < ?` is a
- * full table scan. `id` is `AUTOINCREMENT` and therefore co-monotonic with
- * `created_at`, so {@link planChunks} pages the PK instead and each statement
+ * When this was written `page_views` had no leading-`created_at` index (all
+ * were `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` was a
+ * full table scan. AECI-1482 added `page_views_created_at_idx`, but the cursor
+ * stays: it is also the source of the row count (below). `id` is
+ * `AUTOINCREMENT` and therefore co-monotonic with `created_at`, so
+ * {@link planChunks} pages the PK instead and each statement
  * carries an explicit `id` range. Note that `created_at < cutoff` stays in every
  * DELETE: **the predicate is authoritative and the cursor is only pagination**,
  * so if that monotonicity is ever violated (clock skew, a backdated import) the

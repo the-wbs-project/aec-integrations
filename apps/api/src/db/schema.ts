@@ -885,9 +885,10 @@ export const claims = sqliteTable(
     // into this shape — SQLite refuses to add a STORED generated column.
     uniqueIndex('claims_identity_key').on(t.anchorId, t.dataObjectId, t.direction),
     // Pair-page read by data object (§8). The leftmost prefix of `claims_identity_key`
-    // serves only `anchor_id` lookups, and no relation or route filters on `anchor_id`.
-    // SQLite does not map `integration_id = ?` onto the generated column, so the three
-    // raw FK columns each get their own partial index below (AECI-1482).
+    // serves only `anchor_id` lookups (`ownership-sync.ts`, the vendor attestation and
+    // checklist reads, AECI-1484). The relations join on the raw FK columns, and SQLite
+    // does not map `integration_id = ?` onto the generated column, so the three raw FK
+    // columns each get their own partial index below (AECI-1482).
     index('claims_data_object_idx').on(t.dataObjectId),
     // Serves the `integrations -> claims` relation (product detail, pair page, vendor
     // integrations list) and the admin `NOT EXISTS claims` coverage sample.
