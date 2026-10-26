@@ -232,7 +232,9 @@ jobs:
       # `pull_request`. On a private repo that needs this scope.
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      # `code` is 'false' only when BOTH filters below answered 'false'. An empty
+      # output from a failed step reads as 'true', so the gate still fails open.
+      code: ${{ (steps.filter.outputs.non_docs == 'false' && steps.filter.outputs.content == 'false') && 'false' || 'true' }}
     steps:
       # REQUIRED — do not drop. dorny/paths-filter reads the changed-file list
       # from the GitHub API on `pull_request`, but shells out to git on `push`.
@@ -252,13 +254,20 @@ jobs:
           # Empty on `pull_request`, where the action ignores `base` and uses
           # the API.
           base: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          # `code` is true when at least one changed file is NOT markdown and
-          # NOT under docs/. A docs-only PR yields `code == 'false'`.
+          # `every`, not the default `some` (AECI-748). Under `some` a file
+          # matches when ANY pattern does, so `'**'` alone matched every file,
+          # `code` was always 'true', and docs-only PRs ran E2E anyway. `every`
+          # cannot re-include a path, so the shipped Markdown under
+          # apps/web/src/content/ (legal pages, help center) is its own filter.
+          # Together they match the push trigger's ordered `paths` list above.
+          predicate-quantifier: 'every'
           filters: |
-            code:
+            non_docs:
               - '**'
               - '!**/*.md'
               - '!docs/**'
+            content:
+              - 'apps/web/src/content/**'
 
   # ---------------------------------------------------------------------------
   # The lint / unit / build jobs below each run `scripts/ci/lane-plan.mjs`
