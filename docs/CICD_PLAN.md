@@ -234,7 +234,16 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
    commits the push actually added). Its default base is the repo **default** branch, which on a
    long-lived integration branch (`stage-2`, `admin-panel`) diffs the whole branch against `main`
    and reports `code: true` forever. On `pull_request` the action ignores `base` entirely.
-3. Outputs `code` — `'true'` when at least one changed file is neither markdown nor under `docs/`.
+3. `predicate-quantifier: 'every'` over two filters. `non_docs` is `'**'`, `'!**/*.md'`,
+   `'!docs/**'`. `content` is `'apps/web/src/content/**'`, the shipped Markdown (legal pages, help
+   center). Together they match the `push` trigger's ordered `paths` list.
+4. Outputs `code` — `'false'` only when both filters answered `'false'`. Any other result,
+   including an empty output from a failed step, is `'true'`.
+
+> **The filter never skipped anything before AECI-748.** The action's default quantifier is `some`:
+> a file matches when *any* pattern matches it, so `'**'` alone matched every file and `code` was
+> always `'true'`. Docs-only PRs ran the full E2E lane. `every` fixes that but cannot re-include a
+> path, which is why `content` is a second filter rather than a fourth pattern.
 
 > Only `e2e-and-integration` reads this output, and it **fails open** (`!= 'false'`, not
 > `== 'true'`) — see §10. The three required jobs never `needs:` it.
@@ -859,8 +868,10 @@ The "human reviewer" line is **not enforced**. Branch protection on `main` sets 
 > The fix removed the `paths-ignore` from the `pull_request` trigger so the three required jobs
 > **always run and report**, and moved the docs-skip onto the individual expensive, **non-required**
 > job (`e2e-and-integration`), gated by a new `changes` job (`dorny/paths-filter`) that flags any
-> non-markdown/non-`docs/` change. Required checks are isolated from `changes` (they do not
-> `needs:` it), so even a failure of that job cannot re-block a merge. The `push` docs-only filter is
+> non-markdown/non-`docs/` change. (It never actually skipped anything until AECI-748: under the
+> action's default `some` quantifier `'**'` matched every file. §3.1 has the fix.) Required
+> checks are isolated from `changes` (they do not `needs:` it), so even a failure of that job
+> cannot re-block a merge. The `push` docs-only filter is
 > retained — post-merge runs are not merge-gating. (Since AECI-1270 it is an ordered `paths` list that
 > re-includes `apps/web/src/content/**`; see §3.1.) (The base-branch-agnostic note under §3.1 and the
 > §"cost control" caveat below are updated to match.)
