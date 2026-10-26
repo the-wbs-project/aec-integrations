@@ -70,6 +70,20 @@ describe('SearchAutocomplete', () => {
     expect(label.textContent?.trim()).not.toBe('');
   });
 
+  it('defaults the placeholder to "Search directory" and honours an override', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
+    expect(input.getAttribute('placeholder')).toBe('Search directory');
+
+    fixture.componentRef.setInput('placeholder', 'Search for your product or company');
+    fixture.detectChanges();
+    expect(input.getAttribute('placeholder')).toBe('Search for your product or company');
+  });
+
   it('exposes combobox semantics on the input', async () => {
     setup();
     const fixture = TestBed.createComponent(SearchAutocomplete);

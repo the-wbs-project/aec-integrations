@@ -208,7 +208,8 @@ export class SearchAutocomplete {
   protected readonly productTag = $localize`:@@app.search.autocomplete.kind.product:Product`;
   protected readonly vendorTag = $localize`:@@app.search.autocomplete.kind.vendor:Vendor`;
 
-  private readonly defaultPlaceholder = $localize`:@@app.search.autocomplete.placeholder:Search integrations`;
+  // "directory", not "integrations": the suggestions are products and vendors (AECI-985).
+  private readonly defaultPlaceholder = $localize`:@@app.search.autocomplete.placeholder:Search directory`;
   protected readonly placeholderText = computed(
     () => this.placeholder() ?? this.defaultPlaceholder,
   );
