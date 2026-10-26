@@ -2,7 +2,8 @@
  * The Free and Managed plan cards (`placement: card`), shared by the vendor
  * guide's Plans page (inside `docs/docs-plans-comparison.ts`) and the vendor
  * program page (`VENDOR_PROGRAM_PAGE_SPEC.md` §3 item 6: reuse, do not copy).
- * Extracted from `DocsPlansComparisonComponent` in AECI-1285, markup unchanged.
+ * Extracted from `DocsPlansComparisonComponent` in AECI-1285. The two buttons share one
+ * size and line (2026-10-26).
  *
  * Anchor site: **Mintlify**'s billing page, Mobbin screen
  * `c74405c6-a307-4e35-b8eb-21a1129ce5f3`. Flat bordered plan cards, the paid
@@ -40,24 +41,21 @@ import { PORTAL_PATH } from './plan-cta';
   imports: [RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
-    <div class="grid gap-4 sm:grid-cols-2">
-      <section class="aec-plan-card flex flex-col p-5" aria-labelledby="plan-card-free">
+    <div class="grid gap-4 sm:grid-cols-2 sm:gap-y-0">
+      <section [class]="cardClass + ' p-5'" aria-labelledby="plan-card-free">
         <h3 id="plan-card-free" class="aec-plan-card-name text-(--text-primary)">
           {{ freeName }}
         </h3>
         <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.summary">
           Keep your listing accurate.
         </p>
-        <p class="mt-4 flex items-baseline gap-1.5">
+        <p class="mt-4 flex items-baseline gap-1.5 sm:self-end">
           <span class="text-sm text-(--text-secondary)" i18n="@@app.docs.plans.free.unit"
             >Available for all products</span
           >
         </p>
         @if (portal()) {
-          <a
-            [routerLink]="portalPath"
-            class="mt-4 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-center text-sm font-medium text-(--text-primary) hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@planCta.portal"
+          <a [routerLink]="portalPath" [class]="freeButtonClass" i18n="@@planCta.portal"
             >Go to your portal</a
           >
         } @else {
@@ -66,7 +64,7 @@ import { PORTAL_PATH } from './plan-cta';
             aecClaimDialogTrigger="card"
             [aecClaimDialogPage]="page()"
             (click)="track('free')"
-            class="mt-4 rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-center text-sm font-medium text-(--text-primary) no-underline hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="freeButtonClass"
             i18n="@@planCta.claim"
             >Claim your listing</a
           >
@@ -99,7 +97,7 @@ import { PORTAL_PATH } from './plan-cta';
       </section>
 
       <section
-        class="aec-plan-card aec-plan-card-featured flex flex-col p-5"
+        [class]="cardClass + ' aec-plan-card-featured p-[19px]'"
         aria-labelledby="plan-card-managed"
       >
         <h3 id="plan-card-managed" class="aec-plan-card-name text-(--text-primary)">
@@ -163,8 +161,19 @@ export class PlanCardsComponent {
   private readonly analytics = inject(Analytics);
   protected readonly claimHref = CLAIM_DIALOG_FALLBACK_HREF;
   protected readonly portalPath = PORTAL_PATH;
-  protected readonly managedButtonClass =
-    'mt-4 rounded-(--radius-md) bg-(--accent-primary) px-5 py-3.5 text-center text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /**
+   * From `sm` each card is a six-row subgrid of the outer grid (name, summary,
+   * price, button, label, list), so the two buttons sit on one line even though
+   * the Managed price row is taller than the Free one. The featured card drops 1px
+   * of padding to offset its 2px border, so both buttons are the same width.
+   */
+  protected readonly cardClass =
+    'aec-plan-card flex flex-col sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0';
+  /** Both buttons share one size; only the fill marks the paid plan. */
+  private static readonly buttonSize =
+    'mt-4 rounded-(--radius-md) px-5 py-3.5 text-center text-base font-semibold no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly freeButtonClass = `${PlanCardsComponent.buttonSize} ring-1 ring-(--border-default) ring-inset text-(--text-primary) hover:bg-(--surface-muted)`;
+  protected readonly managedButtonClass = `${PlanCardsComponent.buttonSize} bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover)`;
 
   /** Which page the cards sit on, for `plan_cta_clicked` and the claim dialog. */
   readonly page = input.required<PlanCtaPage>();
