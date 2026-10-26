@@ -68,7 +68,10 @@ interface Box {
 }
 
 async function box(page: Page, selector: string): Promise<Box> {
-  const b = await page.locator(selector).first().boundingBox();
+  // `boundingBox()` does not wait, so a page still rendering reads null.
+  const target = page.locator(selector).first();
+  await expect(target).toBeVisible();
+  const b = await target.boundingBox();
   expect(b, `${selector} has a box`).not.toBeNull();
   return b!;
 }
@@ -171,6 +174,7 @@ function docsIndexSuite(path: string, list: string): void {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(path);
       const items = page.locator(`[data-testid="${list}"] > *`);
+      await expect(items.nth(1)).toBeVisible();
       const first = (await items.nth(0).boundingBox())!;
       const second = (await items.nth(1).boundingBox())!;
       expect(Math.abs(first.y - second.y), 'first two items share a row').toBeLessThan(2);
@@ -182,6 +186,7 @@ function docsIndexSuite(path: string, list: string): void {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
         const items = page.locator(`[data-testid="${list}"] > *`);
+        await expect(items.nth(1)).toBeVisible();
         const first = (await items.nth(0).boundingBox())!;
         const second = (await items.nth(1).boundingBox())!;
         expect(second.y).toBeGreaterThanOrEqual(first.y + first.height - 1);
