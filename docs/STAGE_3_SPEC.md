@@ -208,7 +208,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | ~~AECI-618 listing SSR error~~ | no project | **Closed 2026-09-11**, duplicate of AECI-746 (shipped) |
 | AECI-589 purge secrets | no project | **Stage 2.5 §3** |
 | AECI-531 GDPR erasure skip | no project | **Stage 2.5 §3** |
-| AECI-591 sweep audit gap | no project | **Stage 2.5 §3** |
+| AECI-591 sweep audit gap | no project | **Stage 2.5 §3** (built 2026-10-26) |
 | AECI-559 Procurement category | no project | **Stage 2.5 §4** |
 | AECI-595 promote retract | no project | **Stage 2.5 §4** |
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |

@@ -568,7 +568,7 @@ async function fileContestIssue(
 ): Promise<LinearIssueOutcome | null> {
   const integration = hydratedTarget(hydration, row);
   if (!integration) return null;
-  return fileIssue(c, drizzleContestLinearStore(db), {
+  return fileIssue(c, drizzleContestLinearStore(db, 'contest-accept'), {
     notification: 'linear-contest-issue',
     contestId: row.id,
     integrationId: integration.id,

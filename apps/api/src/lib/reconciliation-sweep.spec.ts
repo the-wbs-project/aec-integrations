@@ -26,7 +26,7 @@ vi.mock('../posthog', () => ({
   submitDistribution: vi.fn(),
 }));
 
-import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
+import { auditLog, products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { logToPosthog, submitCount, submitGauge } from '../posthog';
 import {
@@ -38,6 +38,7 @@ import {
   runReconciliationSweep,
 } from './reconciliation-sweep';
 import { RECONCILE_CRON } from './cron-schedules';
+import { REQUEST_LINKED_ACTION, type LinearRequestStore } from './linear';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -203,6 +204,39 @@ describe('runReconciliationSweep', () => {
     });
 
     expect(sendClaimAlert).not.toHaveBeenCalled();
+  });
+
+  it('links through a store that audits the link as the sweep (AECI-591)', async () => {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) });
+    // Drive the store the sweep hands over, as the real retrier does on success.
+    const createIssue = vi.fn(
+      async (
+        _c: unknown,
+        store: LinearRequestStore,
+        input: { requestId: string; workflowId: string },
+      ) => {
+        await store.linkIssue(input.requestId, input.workflowId, 'iss-1', 'https://linear.app/1');
+        return { status: 'created' as const, issueId: 'iss-1', issueUrl: 'https://linear.app/1' };
+      },
+    );
+
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: createIssue as never,
+      sendAlert: vi.fn(async () => 'skipped' as const) as never,
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ retried: 1, cleared: 1, stillFailing: 0 });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: REQUEST_LINKED_ACTION,
+      actorType: 'system',
+      entityId: 'req-1',
+      metadata: { source: 'linear-reconcile-sweep', workflow_id: 'wf-1', linear_issue_id: 'iss-1' },
+    });
   });
 
   it('retries a stuck row with the rebuilt §6.4 input and clears it on success', async () => {

@@ -31,6 +31,7 @@ import {
   AECI_TEAM_ID,
   ASSIGNEE_IDS,
   buildContestTitle,
+  CONTEST_LINKED_ACTION,
   createLinearIssueForContest,
   drizzleContestLinearStore,
   type LinearContestIssueInput,
@@ -89,6 +90,7 @@ function memoryStore(existing: string | null = null) {
     getLinkedIssueId: async () => existing,
     linkIssue: async (id, issueId, url) => {
       links.push([id, issueId, url]);
+      return null;
     },
   };
   return { store, links };
@@ -212,7 +214,7 @@ describe('createLinearIssueForContest', () => {
       getLinkedIssueId: async () => {
         throw new Error('d1 down');
       },
-      linkIssue: async () => {},
+      linkIssue: async () => null,
     };
     await expect(
       createLinearIssueForContest(ctx(), failingStore, INPUT, fetchWith(issueOk)),
@@ -259,13 +261,32 @@ async function seedAccepted(opts: { decidedAt: string; issue?: string | null }) 
 describe('drizzleContestLinearStore', () => {
   it('compare-and-sets the issue onto the contest and never onto the workflow instance', async () => {
     await seedAccepted({ decidedAt: new Date().toISOString() });
-    const store = drizzleContestLinearStore(t.db);
-    await store.linkIssue(CONTEST, 'iss_1', 'https://linear.app/1');
-    await store.linkIssue(CONTEST, 'iss_2', 'https://linear.app/2');
+    const store = drizzleContestLinearStore(t.db, 'contest-accept');
+    const won = await store.linkIssue(CONTEST, 'iss_1', 'https://linear.app/1');
+    const lost = await store.linkIssue(CONTEST, 'iss_2', 'https://linear.app/2');
     expect(await store.getLinkedIssueId(CONTEST)).toBe('iss_1');
     const [instance] = await t.db.select().from(workflowInstances);
     // The Linear webhook resolves issues to requests through this column.
     expect(instance!.linearIssueId).toBeNull();
+
+    // AECI-591: the winner's batch carries one audit row; the loser writes none.
+    expect(lost).toBeNull();
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, CONTEST_LINKED_ACTION));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      id: won!.id,
+      actorType: 'system',
+      entityType: 'integration_field_challenge',
+      entityId: CONTEST,
+      afterState: {
+        upstream_linear_issue_id: 'iss_1',
+        upstream_linear_issue_url: 'https://linear.app/1',
+      },
+      metadata: { source: 'contest-accept', linear_issue_id: 'iss_1' },
+    });
   });
 });
 

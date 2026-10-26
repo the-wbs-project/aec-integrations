@@ -110,6 +110,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_request.resolved': $localize`:@@admin.audit.action.requestResolved:Request approved`,
   'vendor_request.rejected': $localize`:@@admin.audit.action.requestRejected:Request rejected`,
   'vendor_request.status_changed': $localize`:@@admin.audit.action.requestStatusChanged:Request status changed in Linear`,
+  // AECI-591: the submit handler or the reconcile sweep linked the request's issue.
+  'vendor_request.linear_linked': $localize`:@@admin.audit.action.requestLinearLinked:Linear issue linked to request`,
 
   // ── Claim approval and the seats it grants ────────────────────────────────
   'vendor_claim.granted': $localize`:@@admin.audit.action.claimGranted:Vendor claim approved`,
@@ -142,6 +144,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.contest.withdrawn': $localize`:@@admin.audit.action.contestWithdrawn:Change request withdrawn`,
   'integration.contest.accepted': $localize`:@@admin.audit.action.contestAccepted:Change request accepted`,
   'integration.contest.declined': $localize`:@@admin.audit.action.contestDeclined:Change request declined`,
+  // AECI-591: the accept handler or the reconcile sweep linked the `REVIEW - ` issue.
+  'integration.contest.linear_linked': $localize`:@@admin.audit.action.contestLinearLinked:Linear issue linked to change request`,
   // AECI-1009. `lapsed` is a contest the owner left unanswered for 30 days, turned
   // into a decline by the protest that followed. The protest decisions are advice.
   'integration.contest.lapsed': $localize`:@@admin.audit.action.contestLapsed:Change request unanswered for 30 days`,

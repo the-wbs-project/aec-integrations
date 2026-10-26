@@ -39,6 +39,7 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import {
   forwardWorkflowTransition,
   type WorkflowTransitionEntry,
@@ -50,7 +51,9 @@ import type { Db } from '../db/client';
 import { integrationFieldChallenges, vendorRequests, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
-import { workflowTransitionInsert } from './audit';
+import { auditInsertWhere, workflowTransitionInsert, type BatchTuple } from './audit';
+import { CONTEST_ENTITY_TYPE } from './integration-contests';
+import { forwardAuditBatch } from './moderation-forward';
 import type { LinearNotificationId } from './notifications/registry';
 import { adminContestUrl, adminRequestUrl, environmentHost, publicPairUrl } from './request-links';
 
@@ -345,10 +348,11 @@ export function labelIdsFor(kind: RequestKind, domainMatch?: string | null): str
 
 /**
  * ORM-neutral persistence seam for the issue link-back + idempotency guard. The
- * post-commit task runs OUTSIDE any transaction, so these are top-level reads/
- * writes. `createLinearIssueForRequest` depends only on this seam: both
- * `routes/requests.ts` and `lib/reconciliation-sweep.ts` (the §6.7 sweep) pass the
- * Drizzle-backed store (`drizzleLinearStore`).
+ * post-commit task runs OUTSIDE the submit's batch, so the link-back is its own
+ * `db.batch` carrying its own `audit_log` row (§26.1, AECI-591).
+ * `createLinearIssueForRequest` depends only on this seam: both `routes/requests.ts`
+ * and `lib/reconciliation-sweep.ts` (the §6.7 sweep) pass the Drizzle-backed store
+ * (`drizzleLinearStore`).
  */
 export interface LinearRequestStore {
   /** Current `linear_issue_id` of the request — null if unlinked OR the row is
@@ -356,36 +360,99 @@ export interface LinearRequestStore {
   getLinkedIssueId(requestId: string): Promise<string | null>;
   /** Compare-and-set the issue id (and the issue's web url, AECI-261) onto the
    *  request row AND the issue id onto its workflow instance, by PK with a
-   *  `linear_issue_id IS NULL` guard (idempotent under a retry race). */
+   *  `linear_issue_id IS NULL` guard (idempotent under a retry race). Returns the
+   *  audit entry it committed, or null when another writer linked the row first
+   *  and nothing was written. */
   linkIssue(
     requestId: string,
     workflowId: string,
     issueId: string,
     issueUrl: string,
-  ): Promise<void>;
+  ): Promise<AuditLogEntry | null>;
 }
 
-/** Drizzle/D1 `LinearRequestStore` (`routes/requests.ts`; the §6.7 sweep once it
- *  migrates). */
-export function drizzleLinearStore(db: Db): LinearRequestStore {
+/** The audit action for a request linked to its Linear issue (AECI-591). */
+export const REQUEST_LINKED_ACTION = 'vendor_request.linear_linked';
+
+/** The audit action for a field contest linked to its `REVIEW - ` issue (AECI-591). */
+export const CONTEST_LINKED_ACTION = 'integration.contest.linear_linked';
+
+/** Which writer linked the issue. Rides in `audit_log.metadata.source`. */
+export type RequestLinkSource = 'request-submit' | 'linear-reconcile-sweep';
+export type ContestLinkSource = 'contest-accept' | 'contest-reconcile-sweep';
+
+/** `source` on the PostHog forward of a link-back audit row. */
+const LINK_FORWARD_SOURCE = 'linear-link';
+
+/**
+ * The entry a link-back batch committed, for the post-commit forward. The batch has
+ * already committed, so a failed re-read must not surface as a link failure: it
+ * costs only the forward, which is a copy (§26.5).
+ */
+async function committedEntry(
+  entry: AuditLogEntry,
+  issueId: string,
+  readLinked: () => Promise<string | null>,
+): Promise<AuditLogEntry | null> {
+  try {
+    return (await readLinked()) === issueId ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Drizzle/D1 `LinearRequestStore` (`routes/requests.ts` and the §6.7 sweep).
+ *
+ * `linkIssue` is one `db.batch` (AECI-591): the guarded request update, its audit
+ * row, then the guarded workflow update. The audit row is an `INSERT … SELECT`
+ * guarded on the row now holding THIS issue id (`auditInsertWhere`), so a writer
+ * that lost the compare-and-set race writes no audit row and aborts nothing.
+ * No `workflow_transitions` row: linking leaves `current_state` unchanged, and
+ * §26.4's transitions record state changes.
+ */
+export function drizzleLinearStore(db: Db, source: RequestLinkSource): LinearRequestStore {
+  const getLinkedIssueId = async (requestId: string): Promise<string | null> => {
+    const row = await db.query.vendorRequests.findFirst({
+      columns: { linearIssueId: true },
+      where: eq(vendorRequests.id, requestId),
+    });
+    return row?.linearIssueId ?? null;
+  };
   return {
-    async getLinkedIssueId(requestId) {
-      const row = await db.query.vendorRequests.findFirst({
-        columns: { linearIssueId: true },
-        where: eq(vendorRequests.id, requestId),
-      });
-      return row?.linearIssueId ?? null;
-    },
+    getLinkedIssueId,
     async linkIssue(requestId, workflowId, issueId, issueUrl) {
-      await db
-        .update(vendorRequests)
-        // AECI-261: persist the issue url alongside its id so /admin/requests links.
-        .set({ linearIssueId: issueId, linearIssueUrl: issueUrl })
-        .where(and(eq(vendorRequests.id, requestId), isNull(vendorRequests.linearIssueId)));
-      await db
-        .update(workflowInstances)
-        .set({ linearIssueId: issueId })
-        .where(and(eq(workflowInstances.id, workflowId), isNull(workflowInstances.linearIssueId)));
+      const entry: AuditLogEntry = {
+        actorId: null,
+        // No profile did this. The webhook's `'workflow'` means Linear did it.
+        actorType: 'system',
+        action: REQUEST_LINKED_ACTION,
+        entityType: 'vendor_request',
+        entityId: requestId,
+        beforeState: { linear_issue_id: null, linear_issue_url: null },
+        afterState: { linear_issue_id: issueId, linear_issue_url: issueUrl },
+        metadata: { source, workflow_id: workflowId, linear_issue_id: issueId },
+      };
+      await db.batch([
+        db
+          .update(vendorRequests)
+          // AECI-261: persist the issue url alongside its id so /admin/requests links.
+          .set({ linearIssueId: issueId, linearIssueUrl: issueUrl })
+          .where(and(eq(vendorRequests.id, requestId), isNull(vendorRequests.linearIssueId))),
+        auditInsertWhere(db, entry, {
+          from: vendorRequests,
+          where: and(eq(vendorRequests.id, requestId), eq(vendorRequests.linearIssueId, issueId)),
+        }),
+        db
+          .update(workflowInstances)
+          .set({ linearIssueId: issueId })
+          .where(
+            and(eq(workflowInstances.id, workflowId), isNull(workflowInstances.linearIssueId)),
+          ),
+      ] as BatchTuple);
+      // The issue id is unique to this create, so "the row holds it" means "this
+      // batch linked it and wrote the audit row".
+      return committedEntry(entry, issueId, () => getLinkedIssueId(requestId));
     },
   };
 }
@@ -561,7 +628,9 @@ export async function createLinearIssueForRequest(
   // instance, compare-and-set by PK so only the first writer wins (idempotent under
   // a retry race).
   try {
-    await store.linkIssue(input.requestId, input.workflowId, issue.id, issue.url);
+    const audit = await store.linkIssue(input.requestId, input.workflowId, issue.id, issue.url);
+    // §26.5: a copy of the committed row, post-commit. Never throws.
+    if (audit) forwardAuditBatch(c, [audit], [], LINK_FORWARD_SOURCE);
   } catch (err) {
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.
@@ -590,30 +659,53 @@ export async function createLinearIssueForRequest(
  */
 export interface LinearContestStore {
   getLinkedIssueId(contestId: string): Promise<string | null>;
-  linkIssue(contestId: string, issueId: string, issueUrl: string): Promise<void>;
+  /** Returns the audit entry it committed, or null when the row was already linked. */
+  linkIssue(contestId: string, issueId: string, issueUrl: string): Promise<AuditLogEntry | null>;
 }
 
 /** Drizzle/D1 {@link LinearContestStore}: compare-and-set by primary key with an
- *  `upstream_linear_issue_id IS NULL` guard, so a retry race keeps the first id. */
-export function drizzleContestLinearStore(db: Db): LinearContestStore {
+ *  `upstream_linear_issue_id IS NULL` guard, so a retry race keeps the first id.
+ *  The update and its guarded audit row are one batch, as in {@link drizzleLinearStore}. */
+export function drizzleContestLinearStore(db: Db, source: ContestLinkSource): LinearContestStore {
+  const getLinkedIssueId = async (contestId: string): Promise<string | null> => {
+    const row = await db.query.integrationFieldChallenges.findFirst({
+      columns: { upstreamLinearIssueId: true },
+      where: eq(integrationFieldChallenges.id, contestId),
+    });
+    return row?.upstreamLinearIssueId ?? null;
+  };
   return {
-    async getLinkedIssueId(contestId) {
-      const row = await db.query.integrationFieldChallenges.findFirst({
-        columns: { upstreamLinearIssueId: true },
-        where: eq(integrationFieldChallenges.id, contestId),
-      });
-      return row?.upstreamLinearIssueId ?? null;
-    },
+    getLinkedIssueId,
     async linkIssue(contestId, issueId, issueUrl) {
-      await db
-        .update(integrationFieldChallenges)
-        .set({ upstreamLinearIssueId: issueId, upstreamLinearIssueUrl: issueUrl })
-        .where(
-          and(
-            eq(integrationFieldChallenges.id, contestId),
-            isNull(integrationFieldChallenges.upstreamLinearIssueId),
+      const entry: AuditLogEntry = {
+        actorId: null,
+        actorType: 'system',
+        action: CONTEST_LINKED_ACTION,
+        entityType: CONTEST_ENTITY_TYPE,
+        entityId: contestId,
+        beforeState: { upstream_linear_issue_id: null, upstream_linear_issue_url: null },
+        afterState: { upstream_linear_issue_id: issueId, upstream_linear_issue_url: issueUrl },
+        metadata: { source, linear_issue_id: issueId },
+      };
+      await db.batch([
+        db
+          .update(integrationFieldChallenges)
+          .set({ upstreamLinearIssueId: issueId, upstreamLinearIssueUrl: issueUrl })
+          .where(
+            and(
+              eq(integrationFieldChallenges.id, contestId),
+              isNull(integrationFieldChallenges.upstreamLinearIssueId),
+            ),
           ),
-        );
+        auditInsertWhere(db, entry, {
+          from: integrationFieldChallenges,
+          where: and(
+            eq(integrationFieldChallenges.id, contestId),
+            eq(integrationFieldChallenges.upstreamLinearIssueId, issueId),
+          ),
+        }),
+      ] as BatchTuple);
+      return committedEntry(entry, issueId, () => getLinkedIssueId(contestId));
     },
   };
 }
@@ -737,7 +829,8 @@ export async function createLinearIssueForContest(
   }
 
   try {
-    await store.linkIssue(input.contestId, issue.id, issue.url);
+    const audit = await store.linkIssue(input.contestId, issue.id, issue.url);
+    if (audit) forwardAuditBatch(c, [audit], [], LINK_FORWARD_SOURCE);
   } catch (err) {
     const message = errMsg(err);
     error(

@@ -539,7 +539,7 @@ async function createRequest(
   // rows, so it never creates one later either. The alert below still goes.
   const linearDone: Promise<LinearIssueOutcome | null> = rejectedAtSubmit
     ? Promise.resolve(null)
-    : createLinearIssueForRequest(c, drizzleLinearStore(db), {
+    : createLinearIssueForRequest(c, drizzleLinearStore(db, 'request-submit'), {
         notification: 'linear-request-issue',
         requestId,
         workflowId,
