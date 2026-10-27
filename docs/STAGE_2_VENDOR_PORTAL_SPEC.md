@@ -2639,7 +2639,7 @@ The page never says attestation, claim, provenance, data object, contest, counte
 | Yes (caller holds both endpoints) | Confirmed by you |
 | any, on a connector-powered row | Checked by AEC Integrations |
 
-**Public labels quoted in portal copy** use the AECI-1142 wording: "Confirmed by both companies", "Confirmed by {Company}", "Companies disagree", "Listed by AEC Integrations", "AEC Integrations maintained", "Vendor maintained". The preview's older quotes ("Both vendors confirmed", "Unverified", "Vendors disagree") are not used.
+**Public labels quoted in portal copy** use the AECI-1142 wording: "Confirmed by both companies", "Confirmed by {Company}", "Companies disagree", "Listed by AEC Integrations", "A company says no" (AECI-1140), "AEC Integrations maintained", "Vendor maintained". The preview's older quotes ("Both vendors confirmed", "Unverified", "Vendors disagree") are not used.
 
 **Copy the preview gets wrong, which this contract corrects.** "AEC Integrations takes it off the listing" (on two No answers) breaks §6.2's rule that a denial never promises removal: the page uses §6.2's `denied` sentence instead. "AEC Integrations reviews it after {date}" is replaced as §6.17.6 says.
 

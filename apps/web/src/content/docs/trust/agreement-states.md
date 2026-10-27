@@ -1,20 +1,26 @@
 ---
 title: Agreement states
-description: The four labels on each type of data on an integration page, what each one tells you, and how to act on it.
+description: The five labels on each type of data on an integration page, what each one tells you, and how to act on it.
 section: trust
 order: 2
-last_updated: October 15, 2026
+last_updated: October 27, 2026
 ---
 
 On an integration page, each type of data carries a label. The label says which of the two companies at the ends of the integration has confirmed it. You see the labels in the Detailed view, which is the default. [Reading an integration page](/docs/getting-started/reading-an-integration-page) shows where they sit.
 
-There are four labels. Here is what each one tells you, and what to do with it.
+There are five labels. Here is what each one tells you, and what to do with it.
 
 ## Listed by AEC Integrations
 
 We recorded this from public sources. Neither company has confirmed it yet.
 
-Most types of data start here, and most of the directory still reads this way. A row also reads this way when a company has said it is not accurate and nobody has confirmed it. It is not a warning. Treat it as a well-sourced lead. If it matters to your decision, check it against the vendor's own documentation, or ask the vendor.
+Most types of data start here, and most of the directory still reads this way. It is not a warning. Treat it as a well-sourced lead. If it matters to your decision, check it against the vendor's own documentation, or ask the vendor.
+
+## A company says no
+
+One of the two companies has said it is not accurate, and nobody has confirmed it. The label does not name the company. The company's reason is never shown on the public page.
+
+The row stays on the page, but it is not counted in the "types of data shared" heading or on its card. It is not a disagreement between the companies, because nobody has confirmed it. Ask the vendors before you rely on it. The **Sources** button on the row shows which company said no.
 
 ## Confirmed by (a company)
 

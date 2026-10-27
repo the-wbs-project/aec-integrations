@@ -587,12 +587,20 @@ makes it reachable.
 |---|---|
 | 0 | `unverified` — the Stage 1.5 baseline, unchanged |
 | 1, affirming | **`single_source`** *(new)* |
-| ≥1, denying only | `unverified` — a denied-but-unconfirmed claim is not a conflict (`STAGE_1_5_SPEC.md` §3.4, preserved) |
+| ≥1, denying only | `unverified` — a denied-but-unconfirmed claim is not a conflict (`STAGE_1_5_SPEC.md` §3.4, preserved). The claim is **refuted**; see below |
 | ≥2 distinct, all affirming | `confirmed` — bilateral, the only state that earns the word |
 | ≥2 distinct, affirm **and** deny | `conflict` |
 
 A public reader meets the zero-voter and denying-only `unverified` rows only on claims AECi
-stands behind. Those rows read "Listed by AEC Integrations". An unbacked vendor-created claim never
+stands behind. A zero-voter row reads "Listed by AEC Integrations".
+
+**A denying-only row is refuted (AECI-1140, ruling 2026-10-27, Chris).** It keeps the `unverified`
+state, so the state set stays at four and nothing that reads the state moves (the detectors, the
+vendor portal, the Zod enums). `isClaimRefuted` (`packages/shared/src/agreement.ts`) tells it apart
+from a zero-voter row. The pair read ships the result as `ProductPairClaim.refuted`, computed by
+the API, because the engine dedupes voters by `attested_by_vendor_id` and the wire never carries
+that id. A refuted row reads "A company says no" (§4.3) and leaves every object count (§4.3,
+`STAGE_1_5_SPEC.md` §3.5). An unbacked vendor-created claim never
 reaches a public reader (§2.2, AECI-1314), so that label is never a false attribution.
 
 `AgreementAttestation` widens to carry the voter identity and the retraction flag. The
@@ -610,6 +618,15 @@ two distinct vendors.
 - **`confirmed` earns the positive treatment.** Bilateral only.
 - **`unverified`** keeps its Stage 1.5 neutral "not yet vendor-confirmed" reading (§8) — never a
   warning.
+  - **Refuted** (§4.2, AECI-1140, ruling 2026-10-27). The badge reads **"A company says no"**. Its
+    accessible name is "One of these companies says this does not happen. Neither company has
+    confirmed it." It names no company: the Sources popover already shows who said No. It gives no
+    reason (the no-notes rule below). Tone stays the neutral chip, with `single_source`'s stronger
+    dot because a company has spoken. Never red: a lone No is not a vendor-vs-vendor conflict.
+  - **Refuted claims leave every object count.** The sync headline `total`, the pair card's "N
+    types of data" chip and the product-detail depth axis (`data_object_slugs`) skip them, by the
+    same call-site filter that skips `removed` claims. An object with one refuted claim and one
+    live claim still counts. The row itself still renders under its mechanism.
 - **Sync headline** (`STAGE_1_5_SPEC.md` §3.5; **ruling 2026-09-28 (Chris): the summary band and
   ratio line are replaced by the per-card At a glance row**, so the page renders `total` only and
   the rest of this bullet is historical) widens from `{ total, confirmed }` to

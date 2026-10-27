@@ -98,7 +98,7 @@ function tallyVoters(attestations: readonly AgreementAttestation[]): Map<string 
  * |---|---|
  * | 0 | `unverified` — the Stage 1.5 baseline (AECi-only claims) |
  * | 1, affirming | `single_source` |
- * | ≥1, denying only | `unverified` — denied-but-unconfirmed is not a conflict |
+ * | ≥1, denying only | `unverified` — denied-but-unconfirmed is not a conflict; {@link isClaimRefuted} tells it apart |
  * | ≥2 distinct, all affirming | `confirmed` — bilateral only |
  * | ≥2 distinct, affirm **and** deny | `conflict` |
  */
@@ -204,6 +204,11 @@ export function conflictSince(rows: readonly HistoricalAttestation[]): string | 
  * contributing its direction to the product-detail integrations table
  * (`effectiveContextDirection`), or that table and the pair page contradict
  * each other again — the bug `STAGE_1_5_SPEC.md` §7.1 already had to fix once.
+ *
+ * AECI-1140 (ruling 2026-10-27) adds two public readers. The pair read ships it
+ * as `ProductPairClaim.refuted`, so the badge reads "A company says no". And a
+ * refuted claim leaves the sync headline, the card's object count and the
+ * product-detail depth axis.
  */
 export function isClaimRefuted(attestations: readonly AgreementAttestation[]): boolean {
   const voters = tallyVoters(attestations);

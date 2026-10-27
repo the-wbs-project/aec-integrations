@@ -29,6 +29,7 @@ import {
   effectiveContextDirection,
   integrationDirectionForContext,
   isClaimPubliclyBacked,
+  isClaimRefuted,
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
@@ -1603,15 +1604,23 @@ function publicClaims<T extends { origin: string; attestations: readonly RawAgre
 
 /**
  * AECI-711 depth axis: the distinct objects one edge's claims cover, by the same
- * AECI-1042 rule as the pair page's sync headline. Every claim the pair page shows
- * counts, as it does there with no version selected: a refuted claim still names
- * an object the catalog records, and the pair page lists it too. The one exception
- * is an unbacked vendor-added claim (AECI-1314). Both endpoint mappers drop it
- * with `publicClaims` before calling this.
+ * AECI-1042 rule as the pair page's sync headline. A refuted claim does not count
+ * (AECI-1140, ruling 2026-10-27): every vendor that voted says the flow does not
+ * happen, so the headline drops it and this count must too. The pair page still
+ * lists it, under a "A company says no" badge. An unbacked vendor-added claim
+ * (AECI-1314) is already gone: both endpoint mappers drop it with `publicClaims`
+ * before calling this.
+ *
+ * The powered hub passes claims with no `attestations`. A connector-powered edge
+ * refuses vendor authoring, so none of its claims can be refuted.
  */
-function productDetailDataObjectSlugs(claims: readonly RawPoweredClaimRow[]): string[] {
+function productDetailDataObjectSlugs(
+  claims: readonly (RawPoweredClaimRow & { attestations?: readonly RawAgreementVoteRow[] })[],
+): string[] {
   return distinctDataObjectSlugs(
-    claims.map((claim) => ({ data_object_slug: claim.dataObject.slug })),
+    claims
+      .filter((claim) => !claim.attestations || !isClaimRefuted(claim.attestations))
+      .map((claim) => ({ data_object_slug: claim.dataObject.slug })),
   );
 }
 
@@ -1732,6 +1741,9 @@ function toProductPairClaim(
     // single-source state free and full-fidelity, and a claim that renders at all
     // renders its real agreement.
     agreement: computeAgreement(raw.attestations),
+    // Every vendor that voted says No (AECI-1140). Computed here because the engine
+    // dedupes voters by `attested_by_vendor_id`, which the wire never carries.
+    refuted: isClaimRefuted(raw.attestations),
     attestations: raw.attestations.map((a) => toPairClaimAttestation(a, contextIsSource, versions)),
   };
   if (!versions) return base;
@@ -1970,7 +1982,8 @@ export { toProductPairMechanismFromEvidencedPair };
  * `ProductListItem` (vendor + review recap) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every public claim on the pair (an
- * unbacked vendor-added claim is already gone, AECI-1314) via
+ * unbacked vendor-added claim is already gone, AECI-1314), less `removed` and
+ * refuted claims (AECI-303, AECI-1140), via
  * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct `data_object`
  * count across all mechanisms and both anchors (AECI-1042), not the claim count; `confirmed` and `single_source` are both `0` until the
  * Stage 2 portal writes vendor attestations, and stay separate counts so a
@@ -2001,12 +2014,15 @@ export function toProductPairResponse(
     context_product: toProductListItem(contextProduct),
     other_product: toProductListItem(otherProduct),
     mechanisms,
-    // `removed` claims still render (struck through) but must not be counted:
-    // "N types of data shared" may not include a flow that has stopped
-    // (AECI-303 / §9.1). Filtered HERE, at the single call site, rather than inside
-    // `computeSyncHeadline` — the shared engine stays a pure function of
-    // `{ agreement }` and owes the diff contract nothing.
-    sync_headline: computeSyncHeadline(claims.filter((c) => c.version_status !== 'removed')),
+    // `removed` and refuted claims still render but must not be counted. "N types
+    // of data shared" may not include a flow that has stopped (AECI-303 / §9.1) or
+    // one every voting vendor denies (AECI-1140). An object with one refuted claim
+    // and one live claim still counts. Filtered HERE, at the single call site,
+    // rather than inside `computeSyncHeadline`: the shared engine stays a pure
+    // function of `{ agreement }` and owes the diff contract nothing.
+    sync_headline: computeSyncHeadline(
+      claims.filter((c) => c.version_status !== 'removed' && !c.refuted),
+    ),
     // Both tables carry the maintenance marker pair, and the header shows ONE
     // value for the pair — so an evidenced pair that a vendor maintains must be
     // able to speak for it, exactly as an `integrations` row can.

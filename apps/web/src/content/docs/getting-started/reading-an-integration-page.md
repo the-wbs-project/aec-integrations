@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: October 9, 2026
+last_updated: October 27, 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -20,9 +20,9 @@ If the two products connect in more than one way, each way has its own card on t
 
 ## Types of data shared
 
-Under the products, a heading counts the types of data that move between them, such as "4 types of data shared". It counts each type once, however many cards it appears on.
+Under the products, a heading counts the types of data that move between them, such as "4 types of data shared". It counts each type once, however many cards it appears on. A type of data that a company says is not accurate, and nobody has confirmed, is not counted.
 
-If nothing is listed yet, the heading reads "We haven’t listed what’s shared yet". If we know the direction but not the types of data, it reads "We haven’t listed the types of data yet".
+If nothing is listed yet, the heading reads "We haven’t listed what’s shared yet". If we know the direction but not the types of data, it reads "We haven’t listed the types of data yet". If every type of data listed is one a company says is not accurate, it reads "No type of data is confirmed".
 
 ## Each card
 
@@ -48,6 +48,7 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 **The data lists** appear in the Detailed view. They group the types of data by direction, under headings such as "Sends to (other product)", "Receives from (other product)" and "Syncs both ways". Each row names one type of data and carries an agreement label:
 
 - Listed by AEC Integrations
+- A company says no
 - Confirmed by (a company)
 - Confirmed by both companies
 - Companies disagree

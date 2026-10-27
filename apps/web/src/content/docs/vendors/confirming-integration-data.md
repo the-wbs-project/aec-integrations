@@ -3,7 +3,7 @@ title: Confirming integration data
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 7
-last_updated: October 23, 2026
+last_updated: October 27, 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -68,9 +68,11 @@ The public integration page shows where each flow stands. It shows each company'
 | One company confirms | Confirmed by (that company) |
 | Both companies confirm | Confirmed by both companies |
 | One confirms and the other says no | Companies disagree |
-| Only "no" answers | Listed by AEC Integrations |
+| Only "no" answers | A company says no |
 
-A flow reads "Listed by AEC Integrations" until a company confirms it. The one exception is a flow a company added and then took back its Yes on. AEC Integrations never listed it, so it does not show at all. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+A flow reads "Listed by AEC Integrations" until a company answers. The one exception is a flow a company added and then took back its Yes on. AEC Integrations never listed it, so it does not show at all. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+
+When the only answers are No, the flow reads "A company says no". That label does not name your company, and your reason is never public. The flow stays on the page, but it no longer counts toward the "types of data shared" heading.
 
 If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Confirmed by both companies".
 
